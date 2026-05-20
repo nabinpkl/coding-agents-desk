@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 @main
 @MainActor
@@ -8,10 +9,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private let popoverController = PopoverViewController()
     private let pairing = Pairing()
+    private let launchAgentLogger = Logger(subsystem: Config.launchAgentLabel, category: "launchAgent")
     private var signalingServer: PairingSignalingServer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        installLaunchAgent()
         configureStatusItem()
         configurePopover()
         startSignalingServer()
@@ -96,6 +99,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             completion(alert.runModal() == .alertFirstButtonReturn)
             refreshConnectedState()
+        }
+    }
+
+    private func installLaunchAgent() {
+        let installer = LaunchAgentInstaller(
+            plistURL: Config.launchAgentPlistURL,
+            executableURL: Config.hostExecutableURL,
+            label: Config.launchAgentLabel,
+            runner: SystemLaunchctlRunner()
+        )
+
+        do {
+            try installer.installIfNeeded()
+        } catch {
+            launchAgentLogger.error("LaunchAgent install failed: \(String(describing: error), privacy: .public)")
         }
     }
 
