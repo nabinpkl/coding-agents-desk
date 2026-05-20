@@ -2,45 +2,82 @@
 
 **At session start, and again after any context compaction, read these files if they are not already in context. Do not skip. Do not assume they are loaded.**
 
-1. `/Users/dev/projects/atc/taste/library/universal-AGENTS.md` — cross-cutting worker rules. Authoritative for voice, scope discipline, output format, coding rules, and how to write for other agents.
-2. similarly `atc/taste/library/iteration/TASKS-MD-Guidelines.md` — the shape of `TASKS.md` for any iteration that opens.
+1. `/Users/dev/projects/atc/taste/library/universal-AGENTS.md` cross-cutting worker rules. Authoritative for voice, scope discipline, output format, coding rules, and how to write for other agents.
+2. `/Users/dev/projects/atc/taste/library/iteration/TASKS-MD-Guidelines.md` the shape of `TASKS.md` for any iteration that opens.
 
 These files do not live in this repo. They are referenced by absolute path from the canonical location. If a path no longer resolves, stop and surface the failure instead of inventing rules.
 
-After loading acknolwedge to the user that you loaded these.
+After loading, acknowledge to the user that you loaded them.
 
-# Project context
+# What this file is for
 
-> The cross-cutting worker rules and TASKS.md guidelines do not live in this repo. `CLAUDE.md` lists the absolute paths and instructs the agent to load them at session start and after compaction. If you are reading this file directly, confirm those files are loaded before acting.
+`AGENTS.md` carries **how to operate inside this repo**: conventions, where things live, how decisions get recorded, how work is broken down. It does **not** carry product intent or implementation shape. Those have their own homes:
 
-## What this is
+- **`PRD.md`** what we are building and why. Source of truth for scope, non-goals, and the v0 acceptance test.
+- **`SPEC.md`** how v0 is built. Stack, module boundaries, wire shapes, performance budgets.
+- **`AGENTS.md`** (this file) how to work in the repo.
 
-TBD. Fill in: one paragraph describing the product and the load-bearing primitive it builds on.
+Before doing project work, read `PRD.md` and `SPEC.md` once. They are short on purpose.
 
-## What this is not
+# Repository layout
 
-TBD. Fill in: explicit non-goals so agents do not invent features outside scope.
+- `CLAUDE.md` session-load entry point. Points at this file.
+- `AGENTS.md` this file. Operating rules.
+- `PRD.md` product intent.
+- `SPEC.md` technical shape for v0.
+- `README.md` external-facing one-pager. Points at `PRD.md`.
+- `architecture-decisions/` one ADR per decision. `TEMPLATE.md` is the starting shape; `README.md` documents the index and lifecycle.
+- `mock-design/` Claude Design HTML/CSS/JS handoff bundle. **Reference for visual feel, not a v0 implementation target.** The mocked agent-native UX (per-agent carousel, reasoning ticker) is v1+, not v0.
+- `TASKS.md` (created when the first iteration opens) the iteration ledger, following the guidelines file linked in the load-first section.
 
-## Current iteration
+# How decisions get recorded
 
-TBD. Fill in: the questions this version answers.
+- **Product-level scope decisions** edit `PRD.md`. Keep it short. If the change is large enough that it would invalidate published issues, note that in the commit and link the affected issues.
+- **Technical decisions that lock something in** write an ADR under `architecture-decisions/`. The first ADR (ADR-0001) records the stack choice in `SPEC.md`. Update `SPEC.md` to reference the ADR by number.
+- **Per-iteration plan and progress** go in `TASKS.md`. Do not duplicate ADR or PRD content there.
+- **Anything inferable from reading the code** does not need a doc. Skip the ADR.
 
-## v0 / current scope
+# How work is broken down
 
-TBD. Fill in: the thinnest end-to-end slice that proves the thesis.
+- The unit of work is a **vertical-slice issue** on GitHub (`nabinpkl/agent-desk`). Each slice cuts through capture, transport, input, and UI as needed to demo or verify end-to-end.
+- Slices are labelled `hitl` (requires the human) or `afk` (an agent can ship it without intervention). AFK issues also carry `ready-for-agent`.
+- v0 slices are issues #2 through #10. #2 (S0) and #10 (S8) are HITL. The rest are AFK. Dependency edges live in each issue's "Blocked by" section, not here.
+- New work appends new issues. Closed issues stay as history.
 
-## Explicitly deferred
+# Conventions
 
-TBD. Fill in: features that look adjacent but are out of scope for this iteration.
+## Voice
 
-## Stack
+- Postmortem voice. State what is, what was decided, what failed. No marketing tone, no hedging, no rhetorical questions for the reader.
+- No em-dashes. Use commas, periods, or "and".
+- No emoji.
+- Avoid AI tells ("As an AI...", "I hope this helps", "Certainly!").
 
-TBD. Languages, runtime, package manager, frameworks are not yet decided. Once chosen, document the stack here and add a load-instruction in `CLAUDE.md` for the matching language profile (path under the canonical taste-library location).
+## Code
 
-## Iteration ledger
+- No hardcoded configs. URLs, credentials, tokens, and `~/`-rooted paths go through a central config module, never inline in random files.
+- `.env` is gitignored by reflex. If you create one, gitignore it before the first commit.
+- Iteration over compatibility. Until v0 ships, breaking changes are free. After v0, breaking changes require an ADR.
+- Tests are written for **SpacesProvider, Pairing, InputDispatcher, GestureTranslator** (see `SPEC.md` for why these four). Other modules get tests when a bug demands one.
+- Domain glossary terms (`Space`, `Display`, `NormalizedInput`, `DesktopState`, `SessionToken`, `PairingPayload`) are stable. Renames require an ADR.
 
-When the first iteration opens, create `TASKS.md` at the repo root following the guidelines file listed in `CLAUDE.md`. That file is the source of shape and conventions; do not duplicate them here.
+## ADRs
 
-## Architecture decisions
+- Filename: `NNNN-kebab-case-title.md`. Numbers never reuse.
+- YAML frontmatter carries `status` (`proposed`, `accepted`, `deprecated`, `superseded by ADR-NNNN`).
+- Accepted ADRs are immutable. To change a decision, write a new ADR that supersedes it and cross-link both.
+- Reference ADRs by `ADR-NNNN` in `TASKS.md`, `SPEC.md`, and code comments. Never by path.
 
-`architecture-decisions/` holds one ADR per decision. `TEMPLATE.md` is the starting shape; `README.md` describes the index and lifecycle conventions for this repo.
+## Commits and PRs
+
+- Small, scoped commits. One slice per PR where possible.
+- Commit messages explain the **why**, not the **what** (the diff already shows the what).
+- Do not skip hooks (`--no-verify`) or bypass signing unless explicitly asked.
+
+# Open questions agents should escalate, not invent
+
+- Bundle IDs and signing identity (HITL, lives in S0).
+- Apple Developer Program account details (HITL).
+- Anything that would change the v0 acceptance test in `PRD.md` (the 7-day daily-driver criterion).
+
+If you find yourself about to pick one of those on the user's behalf, stop and surface it instead.
