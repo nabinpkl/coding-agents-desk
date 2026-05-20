@@ -45,4 +45,5 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 
 | ID | Title | Status | Date |
 | --- | --- | --- | --- |
-| | | | |
+| ADR-0001 | AgentDesk v0 stack and transport | accepted | 2026-05-20 |
+| ADR-0002 | Pairing crypto for v0 | accepted | 2026-05-20 |

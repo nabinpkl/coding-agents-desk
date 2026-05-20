@@ -18,7 +18,7 @@
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One code path on the host for all input types. |
 | Distribution | Developer ID notarized DMG (Mac), TestFlight internal (iOS) | Apple Developer Program $99/yr. One device. |
 
-ADR-0001 (to be written under S0) records this stack decision.
+ADR-0001 records this stack decision. Reference it for the rejection rationale on React Native, Flutter, browser clients, RustDesk fork, custom transport, H.264, AV1, AppleScript, direct CGS space-switch calls, WebAuthn pairing, VoIP/PiP background lifecycle, and Mac App Store distribution.
 
 ## Module boundaries
 
@@ -66,10 +66,27 @@ NormalizedInput =
   | { kind: "modifierArm", mod: "cmd" | "ctrl" | "option" | "shift" }
 ```
 
+Pairing crypto details (algorithm, storage, lifetime, nonce TTL) are locked in ADR-0002.
+
 ```
-PairingPayload { hostFingerprint, tailscaleHostname, oneTimeNonce, expiresAt }
-SessionToken   { hostFingerprint, deviceFingerprint, signature, issuedAt }
+PairingPayload {
+  hostFingerprint    // SHA-256 over the host's P-256 public key (DER), hex
+  hostPublicKey      // host P-256 public key, raw uncompressed, 65 bytes
+  tailnetFQDN        // MagicDNS FQDN, may be empty if MagicDNS off
+  tailnetIPv4        // CGNAT 100.x.y.z literal, always present
+  oneTimeNonce       // 32 random bytes
+  expiresAt          // unix seconds, issuedAt + 90
+}
+
+SessionToken {
+  hostFingerprint    // links token to a specific host identity
+  deviceFingerprint  // SHA-256 over the iOS device's P-256 public key
+  issuedAt           // unix seconds, informational only (no enforcement)
+  signature          // ECDSA P-256 over (hostFingerprint || deviceFingerprint || issuedAt)
+}
 ```
+
+QR encoding: `PairingPayload` is serialized to compact JSON, base64url-encoded, and embedded in a `agentdesk://pair?p=<base64url>` URL.
 
 ## Performance budgets
 
