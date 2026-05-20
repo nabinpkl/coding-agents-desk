@@ -2,18 +2,19 @@ import AppKit
 import Foundation
 import os
 
-@main
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private let popoverController = PopoverViewController()
     private let pairing = Pairing()
     private let launchAgentLogger = Logger(subsystem: Config.launchAgentLabel, category: "launchAgent")
+    private let signalingLogger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private var signalingServer: PairingSignalingServer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         installLaunchAgent()
         configureStatusItem()
         configurePopover()
@@ -26,9 +27,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureStatusItem() {
-        statusItem.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "AgentDesk idle")
+        applyIcon(symbolName: "macbook.and.iphone", accessibilityDescription: "AgentDesk idle")
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePopover)
+    }
+
+    private func applyIcon(symbolName: String, accessibilityDescription: String) {
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityDescription)
+        image?.isTemplate = true
+        statusItem.button?.image = image
+        statusItem.button?.title = image == nil ? "AgentDesk" : ""
     }
 
     private func configurePopover() {
@@ -50,7 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         do {
             try signalingServer?.start()
+            signalingLogger.notice("signaling server started on port \(Int(Config.signalingPort), privacy: .public)")
         } catch {
+            signalingLogger.error("signaling server start failed: \(String(describing: error), privacy: .public)")
             popoverController.render(.tailscaleRequired)
         }
     }
@@ -59,23 +69,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let payload = try pairing.mintPairingPayload()
             let url = try payload.pairingURL()
-            statusItem.button?.image = NSImage(systemSymbolName: "qrcode", accessibilityDescription: "AgentDesk pairing")
+            applyIcon(symbolName: "qrcode", accessibilityDescription: "AgentDesk pairing")
             popoverController.render(.pairing(url, QRCodeRenderer.image(for: url)))
         } catch is TailscaleRequiredError {
-            statusItem.button?.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: "Tailscale required")
+            applyIcon(symbolName: "exclamationmark.triangle", accessibilityDescription: "Tailscale required")
             popoverController.render(.tailscaleRequired)
         } catch {
-            statusItem.button?.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: "Pairing failed")
+            applyIcon(symbolName: "exclamationmark.triangle", accessibilityDescription: "Pairing failed")
             popoverController.render(.idle)
         }
     }
 
     private func refreshConnectedState() {
         if let record = try? pairing.approvedDevices().first {
-            statusItem.button?.image = NSImage(systemSymbolName: "display.and.arrow.down", accessibilityDescription: "AgentDesk connected")
+            applyIcon(symbolName: "dot.radiowaves.left.and.right", accessibilityDescription: "AgentDesk connected")
             popoverController.render(.connected(record))
         } else {
-            statusItem.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "AgentDesk idle")
+            applyIcon(symbolName: "macbook.and.iphone", accessibilityDescription: "AgentDesk idle")
             popoverController.render(.idle)
         }
     }

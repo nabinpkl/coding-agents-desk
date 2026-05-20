@@ -9,6 +9,12 @@ enum Config {
         .appendingPathComponent("AgentDesk", isDirectory: true)
     static let pairedDevicesURL = applicationSupportDirectory
         .appendingPathComponent("paired-devices.json", isDirectory: false)
+    static let tlsCertURL = applicationSupportDirectory
+        .appendingPathComponent("host.crt", isDirectory: false)
+    static let tlsKeyURL = applicationSupportDirectory
+        .appendingPathComponent("host.key", isDirectory: false)
+    static let tlsIdentityURL = applicationSupportDirectory
+        .appendingPathComponent("host.p12", isDirectory: false)
     static var launchAgentPlistURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents/\(launchAgentLabel).plist")

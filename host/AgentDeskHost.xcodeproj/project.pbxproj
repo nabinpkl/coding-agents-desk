@@ -19,6 +19,8 @@
 		A0000000000000000000020A /* SharedTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010A /* SharedTypes.swift */; };
 		A0000000000000000000020B /* TailnetDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010B /* TailnetDiscovery.swift */; };
 		A0000000000000000000020C /* LaunchAgentInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010D /* LaunchAgentInstaller.swift */; };
+		A0000000000000000000020D /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010E /* main.swift */; };
+		A0000000000000000000020F /* TLSIdentityLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010F /* TLSIdentityLoader.swift */; };
 		A00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* Base64URL.swift */; };
 		A00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Config.swift */; };
 		A00000000000000000000223 /* HostSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HostSigningKeyStore.swift */; };
@@ -45,6 +47,8 @@
 		A0000000000000000000010B /* TailnetDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailnetDiscovery.swift; sourceTree = "<group>"; };
 		A0000000000000000000010C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A0000000000000000000010D /* LaunchAgentInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstaller.swift; sourceTree = "<group>"; };
+		A0000000000000000000010E /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		A0000000000000000000010F /* TLSIdentityLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TLSIdentityLoader.swift; sourceTree = "<group>"; };
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000122 /* LaunchAgentInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstallerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000141 /* AgentDeskHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -52,8 +56,20 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		A00000000000000000000302 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-		A00000000000000000000312 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A00000000000000000000302 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A00000000000000000000312 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -84,12 +100,14 @@
 				A00000000000000000000104 /* HostSigningKeyStore.swift */,
 				A00000000000000000000105 /* KeychainStore.swift */,
 				A0000000000000000000010D /* LaunchAgentInstaller.swift */,
+				A0000000000000000000010E /* main.swift */,
 				A00000000000000000000106 /* Pairing.swift */,
 				A00000000000000000000107 /* PairingSignalingServer.swift */,
 				A00000000000000000000108 /* PopoverViewController.swift */,
 				A00000000000000000000109 /* QRCodeRenderer.swift */,
 				A0000000000000000000010A /* SharedTypes.swift */,
 				A0000000000000000000010B /* TailnetDiscovery.swift */,
+				A0000000000000000000010F /* TLSIdentityLoader.swift */,
 				A0000000000000000000010C /* Info.plist */,
 			);
 			path = AgentDeskHost;
@@ -115,8 +133,10 @@
 				A00000000000000000000302 /* Frameworks */,
 				A00000000000000000000303 /* Resources */,
 			);
-			buildRules = ();
-			dependencies = ();
+			buildRules = (
+			);
+			dependencies = (
+			);
 			name = AgentDeskHost;
 			productName = AgentDeskHost;
 			productReference = A00000000000000000000141 /* AgentDeskHost.app */;
@@ -130,8 +150,10 @@
 				A00000000000000000000312 /* Frameworks */,
 				A00000000000000000000313 /* Resources */,
 			);
-			buildRules = ();
-			dependencies = ();
+			buildRules = (
+			);
+			dependencies = (
+			);
 			name = AgentDeskHostTests;
 			productName = AgentDeskHostTests;
 			productReference = A00000000000000000000142 /* AgentDeskHostTests.xctest */;
@@ -176,8 +198,20 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A00000000000000000000303 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-		A00000000000000000000313 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A00000000000000000000303 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A00000000000000000000313 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -197,6 +231,8 @@
 				A0000000000000000000020A /* SharedTypes.swift in Sources */,
 				A0000000000000000000020B /* TailnetDiscovery.swift in Sources */,
 				A0000000000000000000020C /* LaunchAgentInstaller.swift in Sources */,
+				A0000000000000000000020D /* main.swift in Sources */,
+				A0000000000000000000020F /* TLSIdentityLoader.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -258,7 +294,10 @@
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
-				GCC_PREPROCESSOR_DEFINITIONS = "DEBUG=1 $(inherited)";
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNDECLARED_SELECTOR = YES;
@@ -333,11 +372,14 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = TEAMID0000;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AgentDeskHost/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.agentdesk.AgentDeskHost;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -350,11 +392,14 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = TEAMID0000;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AgentDeskHost/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.agentdesk.AgentDeskHost;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -369,7 +414,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @loader_path/../Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.agentdesk.AgentDeskHostTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -384,7 +432,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
-				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @loader_path/../Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/../Frameworks",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.agentdesk.AgentDeskHostTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";

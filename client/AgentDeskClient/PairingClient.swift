@@ -4,7 +4,8 @@ import Foundation
 enum PairingClientState: Equatable {
     case idle
     case scanning
-    case handshaking(PairingPayload)
+    case connecting(PairingPayload)
+    case awaitingApproval(PairingPayload)
     case approved(SessionToken)
     case connected(SessionToken)
     case rejected(String)
@@ -66,12 +67,19 @@ final class PairingClient {
         tokenStore: SessionTokenStoring = KeychainSessionTokenStore(),
         deviceKeyProvider: DeviceSigningKeyProviding = SecureEnclaveDeviceSigningKeyStore(),
         resolver: DNSResolving = SystemDNSResolver(),
-        urlSession: URLSession = .shared
+        urlSession: URLSession = PairingClient.makeDefaultSession()
     ) {
         self.tokenStore = tokenStore
         self.deviceKeyProvider = deviceKeyProvider
         self.resolver = resolver
         self.urlSession = urlSession
+    }
+
+    private static func makeDefaultSession() -> URLSession {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 90
+        return URLSession(configuration: configuration)
     }
 
     func loadStoredSessionIfPresent() {
@@ -96,12 +104,15 @@ final class PairingClient {
             throw PairingClientError.malformedURL
         }
         let payload = try PairingPayload.decode(fromPairingURL: url)
-        state = .handshaking(payload)
+        state = .connecting(payload)
         return payload
     }
 
     func receiveApprovedToken(_ token: SessionToken, hostPublicKey: Data) throws {
-        guard case .handshaking = state else {
+        switch state {
+        case .connecting, .awaitingApproval:
+            break
+        default:
             throw PairingClientError.invalidState
         }
         guard Self.verify(token: token, hostPublicKey: hostPublicKey) else {
@@ -125,7 +136,7 @@ final class PairingClient {
 
     func performHandshake(for payload: PairingPayload) async throws {
         let host = resolvedHost(for: payload)
-        guard let url = URL(string: "ws://\(host):\(Config.signalingPort)/pair") else {
+        guard let url = URL(string: "wss://\(host):\(Config.signalingPort)/pair") else {
             throw PairingClientError.malformedURL
         }
         let task = urlSession.webSocketTask(with: url)
@@ -136,7 +147,11 @@ final class PairingClient {
             oneTimeNonce: payload.oneTimeNonce
         )
         let data = try JSONEncoder().encode(request)
-        try await task.send(.data(data))
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw PairingClientError.malformedURL
+        }
+        try await task.send(.string(text))
+        state = .awaitingApproval(payload)
         let message = try await task.receive()
         task.cancel(with: .normalClosure, reason: nil)
 
@@ -160,8 +175,11 @@ final class PairingClient {
     }
 
     func resolvedHost(for payload: PairingPayload) -> String {
-        if !payload.tailnetFQDN.isEmpty, resolver.canResolve(payload.tailnetFQDN) {
-            return payload.tailnetFQDN
+        let fqdn = payload.tailnetFQDN.hasSuffix(".")
+            ? String(payload.tailnetFQDN.dropLast())
+            : payload.tailnetFQDN
+        if !fqdn.isEmpty, resolver.canResolve(fqdn) {
+            return fqdn
         }
         return payload.tailnetIPv4
     }

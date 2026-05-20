@@ -12,8 +12,20 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             return
         }
         let window = UIWindow(windowScene: windowScene)
-        window.rootViewController = PairingViewController()
+        let pairingVC = PairingViewController()
+        window.rootViewController = pairingVC
         window.makeKeyAndVisible()
         self.window = window
+        if let url = connectionOptions.urlContexts.first?.url {
+            pairingVC.handleIncomingPairingURL(url)
+        }
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        guard let url = URLContexts.first?.url,
+              let pairingVC = window?.rootViewController as? PairingViewController else {
+            return
+        }
+        pairingVC.handleIncomingPairingURL(url)
     }
 }

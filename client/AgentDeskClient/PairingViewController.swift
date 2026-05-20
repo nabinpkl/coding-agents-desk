@@ -51,8 +51,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         case .scanning:
             statusLabel.text = "Scanning"
             actionButton.isHidden = true
-        case .handshaking:
-            statusLabel.text = "Waiting for approval"
+        case .connecting:
+            statusLabel.text = "Connecting to Mac"
+            actionButton.isHidden = true
+        case .awaitingApproval:
+            statusLabel.text = "Waiting for approval on Mac"
             actionButton.isHidden = true
         case .approved(let token), .connected(let token):
             statusLabel.text = "Paired with \(token.hostFingerprint)"
@@ -62,6 +65,32 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             statusLabel.text = "Pairing rejected: \(reason)"
             actionButton.isHidden = false
             stopCamera()
+        }
+    }
+
+    func handleIncomingPairingURL(_ url: URL) {
+        do {
+            try pairingClient.startScanning()
+        } catch {
+            pairingClient.reject("\(error)")
+            render()
+            return
+        }
+        do {
+            let payload = try pairingClient.acceptScannedCode(url.absoluteString)
+            render()
+            handshakeTask?.cancel()
+            handshakeTask = Task { @MainActor [weak self] in
+                do {
+                    try await self?.pairingClient.performHandshake(for: payload)
+                } catch {
+                    self?.pairingClient.reject("\(error)")
+                }
+                self?.render()
+            }
+        } catch {
+            pairingClient.reject("\(error)")
+            render()
         }
     }
 

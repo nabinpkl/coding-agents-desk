@@ -45,7 +45,7 @@ struct PairingClientTests {
 
         let scanned = try client.acceptScannedCode(try payload.pairingURL().absoluteString)
         #expect(scanned == payload)
-        #expect(client.state == .handshaking(payload))
+        #expect(client.state == .connecting(payload))
 
         try client.receiveApprovedToken(token, hostPublicKey: hostKey.publicKey.x963Representation)
         #expect(client.state == .approved(token))
