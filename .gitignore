@@ -1,0 +1,9 @@
+# Env files (per-machine config). .env.example is checked in as documentation.
+.env
+.env.local
+
+# macOS atomic-write temp artifacts
+.!*
+
+# OS noise
+.DS_Store

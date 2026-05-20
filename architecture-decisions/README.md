@@ -1,0 +1,48 @@
+# Architecture Decision Records
+
+One file per architectural decision. Append-only log; once an ADR is accepted, do not edit its conclusions. Write a new ADR that supersedes it.
+
+## What an ADR is for
+
+An ADR captures a choice that:
+
+- changes a load-bearing piece of the architecture (storage backend, framework, protocol, transport),
+- locks in a non-obvious tradeoff that would otherwise have to be re-derived weeks later,
+- closes off a path that someone reading the code six months from now might reasonably try to reopen.
+
+Skip ADRs for: renames, dependency bumps, bug fixes, minor refactors, anything inferable from reading the code.
+
+## File naming
+
+`NNNN-kebab-case-title.md`. Four-digit zero-padded, monotonically increasing. Numbers are never reused; if an ADR is dropped before acceptance, retire its number in the index with status `dropped`.
+
+The number is the stable handle. Cross-references from `TASKS.md` and code comments use `ADR-NNNN`, never the path.
+
+## Status lifecycle
+
+Set in YAML frontmatter at the top of the file.
+
+- `proposed`: written, open for discussion. The only state in which an ADR is freely edited.
+- `accepted`: committed. The ADR is now immutable. Corrections to typos and link rot are fine; conclusions and consequences are not edited.
+- `deprecated`: no longer applies, no replacement.
+- `superseded by ADR-NNNN`: replaced by a newer ADR. Both ADRs cross-link.
+
+If a decision needs to change, write a new ADR that supersedes the previous one and add `supersedes: ADR-NNNN` to the new ADR's frontmatter and `superseded-by: ADR-NNNN` to the old one's. The log preserves the history of the thinking, not just the latest position.
+
+## How to add one
+
+1. Copy `TEMPLATE.md` to the next available `NNNN-your-title.md`.
+2. Fill in Context, Decision Drivers, Considered Options, Decision Outcome, Consequences. Skip the Confirmation and Pros and Cons sections if they do not earn their place.
+3. Set `status: proposed` and today's date.
+4. Open the change. When merged with `status: accepted`, add a row to the index below.
+5. Reference the ADR from `TASKS.md` and code comments as `ADR-NNNN`.
+
+## Template provenance
+
+`TEMPLATE.md` follows MADR 4.0 (https://adr.github.io/madr/, released 2024-09-17) with trims for a solo workflow: team-RACI metadata is dropped, `More Information` is folded into `Links`, `Pros and Cons of the Options` is optional and only filled when the choice is close.
+
+## Index
+
+| ID | Title | Status | Date |
+| --- | --- | --- | --- |
+| | | | |
