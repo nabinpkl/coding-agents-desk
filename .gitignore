@@ -7,3 +7,13 @@
 
 # OS noise
 .DS_Store
+
+# Xcode per-developer state (scrollback, breakpoints, last-opened files)
+xcuserdata/
+*.xcuserstate
+
+# Xcode build output and SPM caches
+build/
+DerivedData/
+.swiftpm/
+.build/
