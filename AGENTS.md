@@ -73,6 +73,7 @@ Before doing project work, read `PRD.md` and `SPEC.md` once. They are short on p
 - Small, scoped commits. One slice per PR where possible.
 - Commit messages explain the **why**, not the **what** (the diff already shows the what).
 - Do not skip hooks (`--no-verify`) or bypass signing unless explicitly asked.
+- **Auto-commit and push every meaningful change.** A meaningful change is a complete logical unit (one R-task, one sub-task, one ADR, one slice of a refactor) where `just check` is green. Bundle the doc, code, and test changes for that unit into one commit and push to `origin/<branch>` immediately. The standing authorization is this bullet; do not wait for per-commit permission. WIP states, broken builds, and exploratory half-diffs stay uncommitted. If something is genuinely risky (force-push, history rewrite, destructive operation), still confirm first per universal-AGENTS.md.
 
 # Open questions agents should escalate, not invent
 
