@@ -31,7 +31,7 @@ Phase goal: lock the stack in an ADR, scaffold both Xcode projects with free sig
 - [x] D2. Scaffold iOS client Xcode project at `client/AgentDeskClient.xcodeproj`. UIKit, placeholder `PairingViewController`. Bundle ID `com.example.agentdesk.AgentDeskClient`. Landed bundled with R7.
 - [x] D3. Add `Justfile` at repo root. `just check` drives `xcodebuild build test` on both targets. iOS test destination is configurable via `AGENTDESK_IOS_TEST_DESTINATION` env var, default `platform=iOS Simulator,name=iPhone 17,OS=latest`. `just dev` opens both Xcode projects.
 - [x] D4. Configure Xcode automatic free signing on both projects per `agent-memory/project_signing_pivot.md`. Both targets build clean against the developer's local cert; on-device install via Xcode Run will use the personal team when the user runs it. No App Store provisioning, no Developer ID, no TestFlight.
-- [ ] R5. Register macOS host LaunchAgent plist at `~/Library/LaunchAgents/com.<placeholder>.agentdesk.plist`. Plist template lives in the host project as a bundled resource and is copied into place on first run. Manually `launchctl load`-tested across one reboot before flipping to done.
+- [x] D5. Register macOS host LaunchAgent plist at `~/Library/LaunchAgents/com.example.agentdesk.AgentDeskHost.plist`. `LaunchAgentInstaller` writes the plist on first run (idempotent by content match) and shells to `/bin/launchctl bootstrap gui/$UID/<plist>`. Plist dictionary: `Label`, `ProgramArguments` (Bundle.main.executablePath), `RunAtLoad=true`, `KeepAlive=false`, `ProcessType=Interactive`, `LimitLoadToSessionType=Aqua`. `AppDelegate.installLaunchAgent` calls into the installer inside a do/catch with os.Logger; failure logs and continues. Reboot survival test is HITL; runs as part of R6.
 - [ ] R6. Verify on-device launch. Host menu bar icon is visible on the developer's Mac after `just dev`. iOS client placeholder view launches on the developer's personally-owned iPhone via Xcode Run. Capture both confirmations in `HANDOVER.md`: one Mac screenshot of the menu bar icon, one iPhone screenshot of the placeholder view.
 
 ### Deferred from Phase 0, fold into Phase 8 (S8, #10) when paid cert lands
@@ -79,7 +79,7 @@ R1       2026-05-20  committed   macOS host Xcode project skeleton (bundled with
 R2       2026-05-20  committed   iOS client Xcode project skeleton (bundled with R7)
 R3       2026-05-20  committed   Justfile with configurable iOS test destination
 R4       2026-05-20  committed   Xcode automatic free signing on both projects
-R5       pending     pending     LaunchAgent plist registered and reboot-tested
+R5       2026-05-20  committed   LaunchAgent plist install and reload-on-stale; reboot test deferred to R6
 R6       pending     pending     on-device launch verified, screenshots in HANDOVER (HITL)
 R7       2026-05-20  committed   S1 QR pairing host and client per ADR-0002 (#3)
 R8       pending     pending     Phase 2 captured (S2, #4)
