@@ -1,5 +1,6 @@
 import Foundation
 import WebRTC
+import os
 
 // ADR-0004 bridge: wraps a VideoFrameSource and pumps frames into an
 // RTCVideoSource as RTCCVPixelBuffers. This is the only file alongside
@@ -10,6 +11,8 @@ import WebRTC
 final class WebRTCVideoCapturer: RTCVideoCapturer, @unchecked Sendable {
     private let frameSource: VideoFrameSource
     private var pumpTask: Task<Void, Never>?
+    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "webrtc")
+    private var deliveredCount = 0
 
     init(rtcSource: RTCVideoSource, frameSource: VideoFrameSource) {
         self.frameSource = frameSource
@@ -18,11 +21,13 @@ final class WebRTCVideoCapturer: RTCVideoCapturer, @unchecked Sendable {
 
     func start() async throws {
         try await frameSource.start()
+        logger.notice("frameSource started; pump task launching")
         pumpTask = Task { [weak self, frameSource] in
             for await frame in frameSource.frames {
                 self?.deliver(frame)
                 if Task.isCancelled { return }
             }
+            self?.logger.notice("frame source stream ended")
         }
     }
 
@@ -46,6 +51,14 @@ final class WebRTCVideoCapturer: RTCVideoCapturer, @unchecked Sendable {
             rotation: rotation,
             timeStampNs: frame.presentationTimeNs
         )
-        delegate?.capturer(self, didCapture: rtcFrame)
+        if let delegate = delegate {
+            delegate.capturer(self, didCapture: rtcFrame)
+            deliveredCount += 1
+            if deliveredCount % 30 == 1 {
+                logger.notice("delivered frame #\(self.deliveredCount, privacy: .public) size=\(CVPixelBufferGetWidth(frame.pixelBuffer), privacy: .public)x\(CVPixelBufferGetHeight(frame.pixelBuffer), privacy: .public)")
+            }
+        } else {
+            logger.error("capturer delegate is nil; frame dropped")
+        }
     }
 }

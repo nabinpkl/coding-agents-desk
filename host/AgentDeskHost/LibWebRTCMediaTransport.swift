@@ -18,6 +18,9 @@ final class LibWebRTCTransportFactory: MediaTransportFactory {
 
     nonisolated(unsafe) private static let sharedFactory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
+        #if DEBUG
+        RTCSetMinDebugLogLevel(.info)
+        #endif
         let encoder = RTCDefaultVideoEncoderFactory()
         let decoder = RTCDefaultVideoDecoderFactory()
         return RTCPeerConnectionFactory(
@@ -40,6 +43,12 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     private let codecs: MediaCodecPreferences
     private var peerConnection: RTCPeerConnection?
     private var capturer: WebRTCVideoCapturer?
+    // RTCVideoCapturer.delegate is weak in libwebrtc, so this video source
+    // must be retained on self even though the RTCVideoTrack also holds it.
+    // Without this strong reference the capturer's delegate goes nil between
+    // start() returning and the first frame being delivered.
+    private var rtcVideoSource: RTCVideoSource?
+    private var videoTrack: RTCVideoTrack?
     private var signaling: SignalingChannel?
     private var inboundTask: Task<Void, Never>?
     private var role: MediaTransportRole = .offerer
@@ -78,9 +87,11 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
 
         if let videoSource {
             let rtcSource = factory.videoSource()
+            self.rtcVideoSource = rtcSource
             let capturer = WebRTCVideoCapturer(rtcSource: rtcSource, frameSource: videoSource)
             self.capturer = capturer
             let track = factory.videoTrack(with: rtcSource, trackId: "video0")
+            self.videoTrack = track
             pc.add(track, streamIds: ["stream0"])
             try await capturer.start()
         }
@@ -101,6 +112,8 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         inboundTask = nil
         capturer?.stop()
         capturer = nil
+        videoTrack = nil
+        rtcVideoSource = nil
         peerConnection?.close()
         peerConnection = nil
         stateContinuation.yield(.closed)
@@ -117,8 +130,33 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
             optionalConstraints: nil
         )
         let offer = try await pc.offer(for: offerConstraints)
+        logger.notice("offer sdp:\n\(offer.sdp, privacy: .public)")
         try await pc.setLocalDescription(offer)
         try await signaling.send(.offer(sdp: offer.sdp))
+        startStatsLogger()
+    }
+
+    private func startStatsLogger() {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self else { return }
+                await self.logStats()
+            }
+        }
+    }
+
+    private func logStats() async {
+        guard let pc = peerConnection else { return }
+        let report = await pc.statistics()
+        for (_, stats) in report.statistics {
+            if stats.type == "outbound-rtp" {
+                let frames = stats.values["framesEncoded"].map { "\($0)" } ?? "?"
+                let bytes = stats.values["bytesSent"].map { "\($0)" } ?? "?"
+                let kbps = stats.values["targetBitrate"].map { "\($0)" } ?? "?"
+                logger.notice("outbound-rtp framesEncoded=\(frames, privacy: .public) bytesSent=\(bytes, privacy: .public) targetBitrate=\(kbps, privacy: .public)")
+            }
+        }
     }
 
     private func handle(frame: WebRTCSignalingFrame) async {
