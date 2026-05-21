@@ -46,11 +46,12 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
         config.width = display.width
         config.height = display.height
-        // queueDepth=1 minimizes capture-side buffering. Default 5 buffers up
-        // to 5 frames before dropping; that's ~165 ms of latency added on
-        // top of encode and wire, which manifests as visible cursor lag on
-        // the iPhone. We'd rather drop frames than buffer them.
-        config.queueDepth = 1
+        // queueDepth=3 minimizes capture-side buffering while staying within
+        // SCStreamConfiguration's valid range (3..8). queueDepth=1 silently
+        // makes the stream stop delivering frames altogether. Default 5
+        // buffers ~165 ms; 3 buffers ~100 ms. The remaining latency budget
+        // has to come from the encode and wire paths.
+        config.queueDepth = 3
         config.showsCursor = true
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
