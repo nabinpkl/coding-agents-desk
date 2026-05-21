@@ -29,9 +29,11 @@ host-run:
     -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
     sleep 1
     launchctl setenv AGENTDESK_AUTO_APPROVE 1
+    launchctl setenv AGENTDESK_DEV_PERMISSIVE_KEYSTORE 1
     open "{{host_app}}"
     sleep 2
     launchctl unsetenv AGENTDESK_AUTO_APPROVE
+    launchctl unsetenv AGENTDESK_DEV_PERMISSIVE_KEYSTORE
     pgrep -lf AgentDeskHost
 
 # Build client Debug for the iPhone and install (does not launch).

@@ -54,11 +54,36 @@ struct HostSigningKeyStore: HostSigningKeyProviding {
         self.keychain = keychain
     }
 
+    // AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 disables the Secure Enclave path
+    // and stores the host's P-256 key in a flat file under Application
+    // Support so the legacy-keychain ACL prompt doesn't fire after every
+    // rebuild. Dev convenience only; production builds must not set this.
+    private var permissiveDevMode: Bool {
+        ProcessInfo.processInfo.environment["AGENTDESK_DEV_PERMISSIVE_KEYSTORE"] == "1"
+    }
+
     func loadOrCreate() throws -> HostSigningKey {
+        if permissiveDevMode {
+            return try loadOrCreateFileBackedKey()
+        }
         if SecureEnclave.isAvailable {
             return try loadOrCreateSecureEnclaveKey()
         }
         return try loadOrCreatePlainKey()
+    }
+
+    private func loadOrCreateFileBackedKey() throws -> HostSigningKey {
+        let url = Config.devHostSigningKeyFile
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if let data = try? Data(contentsOf: url) {
+            return try .plain(P256.Signing.PrivateKey(rawRepresentation: data))
+        }
+        let key = P256.Signing.PrivateKey()
+        try key.rawRepresentation.write(to: url, options: [.atomic, .completeFileProtection])
+        return .plain(key)
     }
 
     private func loadOrCreateSecureEnclaveKey() throws -> HostSigningKey {

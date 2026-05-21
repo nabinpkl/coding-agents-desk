@@ -27,4 +27,6 @@ enum Config {
     static let keychainService = "com.example.agentdesk.AgentDeskHost"
     static let hostSigningKeyAccount = "host-signing-key"
     static let keychainAccessGroup: String? = nil
+    static let devHostSigningKeyFile = applicationSupportDirectory
+        .appendingPathComponent("host-signing-key.dev", isDirectory: false)
 }
