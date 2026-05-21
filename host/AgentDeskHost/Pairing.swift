@@ -12,6 +12,7 @@ enum PairingError: Error {
 
 struct PairedDeviceRecord: Codable, Equatable {
     let deviceFingerprint: DeviceFingerprint
+    let devicePublicKey: Data
     var approvedAt: Int
     var lastSeenAt: Int?
 }
@@ -70,6 +71,10 @@ final class Pairing {
         }
     }
 
+    func signingKey() throws -> HostSigningKey {
+        try keyProvider.loadOrCreate()
+    }
+
     func mintPairingPayload() throws -> PairingPayload {
         let key = try keyProvider.loadOrCreate()
         let tailnet = try tailnetDiscovery.currentIdentity()
@@ -87,20 +92,26 @@ final class Pairing {
         )
     }
 
-    func approve(deviceFingerprint: DeviceFingerprint) throws {
+    func approve(devicePublicKey: Data) throws {
+        let fingerprint = try deviceFingerprint(for: devicePublicKey)
         var records = try pairedDevices.load()
         let approvedAt = Int(now().timeIntervalSince1970)
-        if let index = records.firstIndex(where: { $0.deviceFingerprint == deviceFingerprint }) {
+        if let index = records.firstIndex(where: { $0.deviceFingerprint == fingerprint }) {
             records[index].approvedAt = approvedAt
         } else {
-            records.append(PairedDeviceRecord(deviceFingerprint: deviceFingerprint, approvedAt: approvedAt, lastSeenAt: nil))
+            records.append(PairedDeviceRecord(
+                deviceFingerprint: fingerprint,
+                devicePublicKey: devicePublicKey,
+                approvedAt: approvedAt,
+                lastSeenAt: nil
+            ))
         }
         try pairedDevices.save(records)
     }
 
-    func approve(deviceFingerprint: DeviceFingerprint, oneTimeNonce: Data) throws {
+    func approve(devicePublicKey: Data, oneTimeNonce: Data) throws {
         try consumeNonce(oneTimeNonce)
-        try approve(deviceFingerprint: deviceFingerprint)
+        try approve(devicePublicKey: devicePublicKey)
     }
 
     func pendingDeviceFingerprint(devicePublicKey: Data, oneTimeNonce: Data) throws -> DeviceFingerprint {
@@ -110,8 +121,12 @@ final class Pairing {
 
     func issueApprovedSessionToken(devicePublicKey: Data, oneTimeNonce: Data) throws -> SessionToken {
         let fingerprint = try deviceFingerprint(for: devicePublicKey)
-        try approve(deviceFingerprint: fingerprint, oneTimeNonce: oneTimeNonce)
+        try approve(devicePublicKey: devicePublicKey, oneTimeNonce: oneTimeNonce)
         return try sessionToken(for: fingerprint)
+    }
+
+    func lookup(deviceFingerprint: DeviceFingerprint) throws -> PairedDeviceRecord? {
+        try pairedDevices.load().first { $0.deviceFingerprint == deviceFingerprint }
     }
 
     func validate(token: SessionToken) -> Bool {

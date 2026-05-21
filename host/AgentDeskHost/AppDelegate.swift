@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchAgentLogger = Logger(subsystem: Config.launchAgentLabel, category: "launchAgent")
     private let signalingLogger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private var signalingServer: PairingSignalingServer?
+    private var activeSessions: Set<DeviceFingerprint> = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -53,9 +54,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startSignalingServer() {
-        signalingServer = PairingSignalingServer(pairing: pairing) { [weak self] fingerprint, completion in
-            self?.showApprovalSheet(for: fingerprint, completion: completion)
-        }
+        signalingServer = PairingSignalingServer(
+            pairing: pairing,
+            approvalHandler: { [weak self] fingerprint, completion in
+                self?.showApprovalSheet(for: fingerprint, completion: completion)
+            },
+            sessionReadyHandler: { [weak self] active in
+                Task { @MainActor in
+                    self?.handleSessionReady(active)
+                }
+            },
+            sessionEndedHandler: { [weak self] fingerprint in
+                Task { @MainActor in
+                    self?.handleSessionEnded(fingerprint)
+                }
+            }
+        )
         do {
             try signalingServer?.start()
             signalingLogger.notice("signaling server started on port \(Int(Config.signalingPort), privacy: .public)")
@@ -63,6 +77,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             signalingLogger.error("signaling server start failed: \(String(describing: error), privacy: .public)")
             popoverController.render(.tailscaleRequired)
         }
+    }
+
+    private func handleSessionReady(_ active: ActiveSession) {
+        activeSessions.insert(active.deviceFingerprint)
+        signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public)")
+        refreshConnectedState()
+    }
+
+    private func handleSessionEnded(_ fingerprint: DeviceFingerprint) {
+        activeSessions.remove(fingerprint)
+        signalingLogger.notice("session ended fingerprint=\(fingerprint.rawValue, privacy: .public)")
+        refreshConnectedState()
     }
 
     private func startPairing() {

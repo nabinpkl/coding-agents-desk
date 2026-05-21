@@ -21,6 +21,7 @@
 		A0000000000000000000020C /* LaunchAgentInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010D /* LaunchAgentInstaller.swift */; };
 		A0000000000000000000020D /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010E /* main.swift */; };
 		A0000000000000000000020F /* TLSIdentityLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010F /* TLSIdentityLoader.swift */; };
+		A00000000000000000000210 /* SessionAuthenticator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000110 /* SessionAuthenticator.swift */; };
 		A00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* Base64URL.swift */; };
 		A00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Config.swift */; };
 		A00000000000000000000223 /* HostSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HostSigningKeyStore.swift */; };
@@ -31,6 +32,7 @@
 		A00000000000000000000228 /* PairingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000121 /* PairingTests.swift */; };
 		A00000000000000000000229 /* LaunchAgentInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010D /* LaunchAgentInstaller.swift */; };
 		A0000000000000000000022A /* LaunchAgentInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000122 /* LaunchAgentInstallerTests.swift */; };
+		A0000000000000000000022B /* SessionAuthenticator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000110 /* SessionAuthenticator.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +51,7 @@
 		A0000000000000000000010D /* LaunchAgentInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstaller.swift; sourceTree = "<group>"; };
 		A0000000000000000000010E /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A0000000000000000000010F /* TLSIdentityLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TLSIdentityLoader.swift; sourceTree = "<group>"; };
+		A00000000000000000000110 /* SessionAuthenticator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAuthenticator.swift; sourceTree = "<group>"; };
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000122 /* LaunchAgentInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstallerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000141 /* AgentDeskHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -108,6 +111,7 @@
 				A0000000000000000000010A /* SharedTypes.swift */,
 				A0000000000000000000010B /* TailnetDiscovery.swift */,
 				A0000000000000000000010F /* TLSIdentityLoader.swift */,
+				A00000000000000000000110 /* SessionAuthenticator.swift */,
 				A0000000000000000000010C /* Info.plist */,
 			);
 			path = AgentDeskHost;
@@ -233,6 +237,7 @@
 				A0000000000000000000020C /* LaunchAgentInstaller.swift in Sources */,
 				A0000000000000000000020D /* main.swift in Sources */,
 				A0000000000000000000020F /* TLSIdentityLoader.swift in Sources */,
+				A00000000000000000000210 /* SessionAuthenticator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -250,6 +255,7 @@
 				A00000000000000000000228 /* PairingTests.swift in Sources */,
 				A00000000000000000000229 /* LaunchAgentInstaller.swift in Sources */,
 				A0000000000000000000022A /* LaunchAgentInstallerTests.swift in Sources */,
+				A0000000000000000000022B /* SessionAuthenticator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
