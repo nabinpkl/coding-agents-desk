@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let signalingLogger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private var signalingServer: PairingSignalingServer?
     private var activeSessions: Set<DeviceFingerprint> = []
+    private var attemptingSessions: Set<DeviceFingerprint> = []
     private var pairingSignalSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -20,9 +21,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installLaunchAgent()
         configureStatusItem()
         configurePopover()
+        bootstrapTLSIdentity()
         startSignalingServer()
         installPairingSignalHandler()
         refreshConnectedState()
+    }
+
+    private func bootstrapTLSIdentity() {
+        do {
+            let identity = try TailscaleStatusDiscovery().currentIdentity()
+            let loader = TLSIdentityLoader(
+                certURL: Config.tlsCertURL,
+                keyURL: Config.tlsKeyURL,
+                identityURL: Config.tlsIdentityURL
+            )
+            try loader.bootstrapCertViaTailscale(fqdn: identity.fqdn)
+        } catch {
+            signalingLogger.error("tls bootstrap failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     // SIGUSR1 fires startPairing on the main queue so `just pair-iphone` can
@@ -75,6 +91,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             approvalHandler: { [weak self] fingerprint, completion in
                 self?.showApprovalSheet(for: fingerprint, completion: completion)
             },
+            sessionAttemptStartedHandler: { [weak self] fingerprint in
+                Task { @MainActor in
+                    self?.handleSessionAttemptStarted(fingerprint)
+                }
+            },
             sessionReadyHandler: { [weak self] active in
                 Task { @MainActor in
                     self?.handleSessionReady(active)
@@ -95,13 +116,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func handleSessionAttemptStarted(_ fingerprint: DeviceFingerprint) {
+        attemptingSessions.insert(fingerprint)
+        signalingLogger.notice("session attempt started fingerprint=\(fingerprint.rawValue, privacy: .public)")
+        refreshConnectedState()
+    }
+
     private func handleSessionReady(_ active: ActiveSession) {
+        attemptingSessions.remove(active.deviceFingerprint)
         activeSessions.insert(active.deviceFingerprint)
         signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
     }
 
     private func handleSessionEnded(_ fingerprint: DeviceFingerprint) {
+        attemptingSessions.remove(fingerprint)
         activeSessions.remove(fingerprint)
         signalingLogger.notice("session ended fingerprint=\(fingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
@@ -125,16 +154,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshConnectedState() {
-        if let record = try? pairing.approvedDevices().first {
-            applyIcon(symbolName: "dot.radiowaves.left.and.right", accessibilityDescription: "AgentDesk connected")
-            popoverController.render(.connected(record))
-        } else {
+        guard let record = try? pairing.approvedDevices().first else {
             applyIcon(symbolName: "macbook.and.iphone", accessibilityDescription: "AgentDesk idle")
             popoverController.render(.idle)
+            return
+        }
+        if activeSessions.contains(record.deviceFingerprint) {
+            applyIcon(symbolName: "dot.radiowaves.left.and.right", accessibilityDescription: "AgentDesk connected")
+            popoverController.render(.connected(record))
+        } else if attemptingSessions.contains(record.deviceFingerprint) {
+            applyIcon(symbolName: "antenna.radiowaves.left.and.right", accessibilityDescription: "AgentDesk connecting")
+            popoverController.render(.connecting(record))
+        } else {
+            applyIcon(symbolName: "macbook.and.iphone.slash", accessibilityDescription: "AgentDesk paired idle")
+            popoverController.render(.pairedNoActiveSession(record))
         }
     }
 
     private func showApprovalSheet(for fingerprint: DeviceFingerprint, completion: @escaping (Bool) -> Void) {
+        if ProcessInfo.processInfo.environment["AGENTDESK_AUTO_APPROVE"] == "1" {
+            signalingLogger.notice("AGENTDESK_AUTO_APPROVE=1; auto-approving \(fingerprint.rawValue, privacy: .public)")
+            completion(true)
+            refreshConnectedState()
+            return
+        }
         let alert = NSAlert()
         alert.messageText = "Approve iPhone pairing"
         alert.informativeText = fingerprint.rawValue

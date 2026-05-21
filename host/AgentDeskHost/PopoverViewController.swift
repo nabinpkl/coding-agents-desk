@@ -4,6 +4,8 @@ import Foundation
 enum HostPairingViewState {
     case idle
     case pairing(URL, NSImage?)
+    case pairedNoActiveSession(PairedDeviceRecord)
+    case connecting(PairedDeviceRecord)
     case connected(PairedDeviceRecord)
     case tailscaleRequired
 }
@@ -53,6 +55,16 @@ final class PopoverViewController: NSViewController {
                 ])
             }
             label("\(url.absoluteString.utf8.count) bytes", font: .monospacedSystemFont(ofSize: 11, weight: .regular))
+        case .pairedNoActiveSession(let record):
+            connectedFingerprint = record.deviceFingerprint
+            label("Paired", font: .boldSystemFont(ofSize: 16))
+            label("iPhone is paired but not currently connected.", font: .systemFont(ofSize: 12))
+            label(record.deviceFingerprint.rawValue, font: .monospacedSystemFont(ofSize: 10, weight: .regular), lineBreakMode: .byTruncatingMiddle)
+            button(title: "Revoke", action: #selector(revoke))
+        case .connecting(let record):
+            connectedFingerprint = record.deviceFingerprint
+            label("Connecting", font: .boldSystemFont(ofSize: 16))
+            label(record.deviceFingerprint.rawValue, font: .monospacedSystemFont(ofSize: 10, weight: .regular), lineBreakMode: .byTruncatingMiddle)
         case .connected(let record):
             connectedFingerprint = record.deviceFingerprint
             label("Connected", font: .boldSystemFont(ofSize: 16))

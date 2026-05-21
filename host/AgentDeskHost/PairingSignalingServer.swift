@@ -36,12 +36,14 @@ private struct FirstFrameEnvelope: Decodable {
 
 final class PairingSignalingServer: @unchecked Sendable {
     typealias ApprovalHandler = (DeviceFingerprint, @escaping (Bool) -> Void) -> Void
+    typealias SessionAttemptStartedHandler = (DeviceFingerprint) -> Void
     typealias SessionReadyHandler = (ActiveSession) -> Void
     typealias SessionEndedHandler = (DeviceFingerprint) -> Void
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private let pairing: Pairing
     private let approvalHandler: ApprovalHandler
+    private let sessionAttemptStartedHandler: SessionAttemptStartedHandler
     private let sessionReadyHandler: SessionReadyHandler
     private let sessionEndedHandler: SessionEndedHandler
     private var listener: NWListener?
@@ -50,11 +52,13 @@ final class PairingSignalingServer: @unchecked Sendable {
     init(
         pairing: Pairing,
         approvalHandler: @escaping ApprovalHandler,
+        sessionAttemptStartedHandler: @escaping SessionAttemptStartedHandler = { _ in },
         sessionReadyHandler: @escaping SessionReadyHandler = { _ in },
         sessionEndedHandler: @escaping SessionEndedHandler = { _ in }
     ) {
         self.pairing = pairing
         self.approvalHandler = approvalHandler
+        self.sessionAttemptStartedHandler = sessionAttemptStartedHandler
         self.sessionReadyHandler = sessionReadyHandler
         self.sessionEndedHandler = sessionEndedHandler
     }
@@ -112,7 +116,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     private func connectionDidClose(_ connection: NWConnection) {
         let id = ObjectIdentifier(connection)
         guard let context = connections.removeValue(forKey: id) else { return }
-        if let fingerprint = context.activeSessionFingerprint {
+        if let fingerprint = context.activeSessionFingerprint ?? context.attemptingFingerprint {
             sessionEndedHandler(fingerprint)
         }
     }
@@ -218,6 +222,8 @@ final class PairingSignalingServer: @unchecked Sendable {
             let challenge = try authenticator.processInit(initMessage)
             send(sessionMessage: challenge, on: connection)
             context?.phase = .awaitingSessionProof(authenticator)
+            context?.attemptingFingerprint = initMessage.deviceFingerprint
+            sessionAttemptStartedHandler(initMessage.deviceFingerprint)
             receiveNextMessage(on: connection)
         } catch let rejection as SessionRejected {
             sendSessionRejected(reason: rejection.reason, on: connection)
@@ -248,6 +254,7 @@ final class PairingSignalingServer: @unchecked Sendable {
             let (ready, active) = try authenticator.processProof(proof)
             send(sessionMessage: ready, on: connection)
             context.phase = nil
+            context.attemptingFingerprint = nil
             context.activeSessionFingerprint = active.deviceFingerprint
             sessionReadyHandler(active)
         } catch let rejection as SessionRejected {
@@ -305,6 +312,7 @@ final class PairingSignalingServer: @unchecked Sendable {
 private final class ConnectionContext {
     let connection: NWConnection
     var phase: SessionPhase?
+    var attemptingFingerprint: DeviceFingerprint?
     var activeSessionFingerprint: DeviceFingerprint?
 
     init(connection: NWConnection) {
