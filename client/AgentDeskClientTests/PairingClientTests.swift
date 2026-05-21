@@ -45,14 +45,17 @@ struct PairingClientTests {
 
         let scanned = try client.acceptScannedCode(try payload.pairingURL().absoluteString)
         #expect(scanned == payload)
-        #expect(client.state == .connecting(payload))
+        #expect(client.state == .pairing(payload))
 
         try client.receiveApprovedToken(token, hostPublicKey: hostKey.publicKey.x963Representation)
         #expect(client.state == .approved(token))
 
-        try client.persistApprovedToken(hostPublicKey: hostKey.publicKey.x963Representation)
-        #expect(client.state == .connected(token))
-        #expect(try store.load()?.token == token)
+        try client.persistApprovedToken(payload: payload)
+        #expect(client.state == .pairedDisconnected)
+        let loaded = try store.load()
+        #expect(loaded?.token == token)
+        #expect(loaded?.tailnetFQDN == payload.tailnetFQDN)
+        #expect(loaded?.tailnetIPv4 == payload.tailnetIPv4)
 
         let rejectingClient = PairingClient(tokenStore: InMemorySessionTokenStore(), deviceKeyProvider: InMemoryDeviceSigningKeyProvider(), resolver: StaticResolver())
         try rejectingClient.startScanning()

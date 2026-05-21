@@ -8,6 +8,8 @@ enum KeychainError: Error {
 struct StoredPairingRecord: Codable, Equatable {
     let token: SessionToken
     let hostPublicKey: Data
+    let tailnetFQDN: String
+    let tailnetIPv4: String
 }
 
 protocol SessionTokenStoring {

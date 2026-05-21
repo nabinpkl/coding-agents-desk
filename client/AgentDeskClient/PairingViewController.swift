@@ -13,7 +13,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         configureViews()
-        pairingClient.loadStoredSessionIfPresent()
+        pairingClient.loadStoredPairingMaterial()
         render()
     }
 
@@ -45,21 +45,37 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     private func render() {
         switch pairingClient.state {
-        case .idle:
+        case .unpaired:
             statusLabel.text = "AgentDesk"
             actionButton.isHidden = false
         case .scanning:
             statusLabel.text = "Scanning"
             actionButton.isHidden = true
-        case .connecting:
+        case .pairing:
             statusLabel.text = "Connecting to Mac"
             actionButton.isHidden = true
         case .awaitingApproval:
             statusLabel.text = "Waiting for approval on Mac"
             actionButton.isHidden = true
-        case .approved(let token), .connected(let token):
-            statusLabel.text = "Paired with \(token.hostFingerprint)"
+        case .approved(let token):
+            statusLabel.text = "Approved by \(token.hostFingerprint)"
             actionButton.isHidden = true
+            stopCamera()
+        case .pairedDisconnected:
+            statusLabel.text = "Paired (not connected)"
+            actionButton.isHidden = true
+            stopCamera()
+        case .sessionConnecting:
+            statusLabel.text = "Connecting"
+            actionButton.isHidden = true
+            stopCamera()
+        case .connected(let active):
+            statusLabel.text = "Connected to \(active.deviceFingerprint)"
+            actionButton.isHidden = true
+            stopCamera()
+        case .revoked:
+            statusLabel.text = "Revoked by host"
+            actionButton.isHidden = false
             stopCamera()
         case .rejected(let reason):
             statusLabel.text = "Pairing rejected: \(reason)"

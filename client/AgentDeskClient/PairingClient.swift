@@ -2,12 +2,15 @@ import CryptoKit
 import Foundation
 
 enum PairingClientState: Equatable {
-    case idle
+    case unpaired
     case scanning
-    case connecting(PairingPayload)
+    case pairing(PairingPayload)
     case awaitingApproval(PairingPayload)
     case approved(SessionToken)
-    case connected(SessionToken)
+    case pairedDisconnected
+    case sessionConnecting
+    case connected(ActiveSession)
+    case revoked
     case rejected(String)
 }
 
@@ -57,9 +60,9 @@ struct SystemDNSResolver: DNSResolving {
 
 @MainActor
 final class PairingClient {
-    private(set) var state: PairingClientState = .idle
+    private(set) var state: PairingClientState = .unpaired
     private let tokenStore: SessionTokenStoring
-    private let deviceKeyProvider: DeviceSigningKeyProviding
+    let deviceKeyProvider: DeviceSigningKeyProviding
     private let resolver: DNSResolving
     private let urlSession: URLSession
 
@@ -75,6 +78,10 @@ final class PairingClient {
         self.urlSession = urlSession
     }
 
+    var storedPairingMaterial: StoredPairingRecord? {
+        try? tokenStore.load()
+    }
+
     private static func makeDefaultSession() -> URLSession {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 15
@@ -82,14 +89,14 @@ final class PairingClient {
         return URLSession(configuration: configuration)
     }
 
-    func loadStoredSessionIfPresent() {
-        if let record = try? tokenStore.load() {
-            state = .connected(record.token)
+    func loadStoredPairingMaterial() {
+        if (try? tokenStore.load()) != nil {
+            state = .pairedDisconnected
         }
     }
 
     func startScanning() throws {
-        guard state == .idle || isRejected else {
+        guard state == .unpaired || isRejected else {
             throw PairingClientError.invalidState
         }
         state = .scanning
@@ -104,13 +111,13 @@ final class PairingClient {
             throw PairingClientError.malformedURL
         }
         let payload = try PairingPayload.decode(fromPairingURL: url)
-        state = .connecting(payload)
+        state = .pairing(payload)
         return payload
     }
 
     func receiveApprovedToken(_ token: SessionToken, hostPublicKey: Data) throws {
         switch state {
-        case .connecting, .awaitingApproval:
+        case .pairing, .awaitingApproval:
             break
         default:
             throw PairingClientError.invalidState
@@ -122,16 +129,76 @@ final class PairingClient {
         state = .approved(token)
     }
 
-    func persistApprovedToken(hostPublicKey: Data) throws {
+    func persistApprovedToken(payload: PairingPayload) throws {
         guard case .approved(let token) = state else {
             throw PairingClientError.invalidState
         }
-        try tokenStore.store(StoredPairingRecord(token: token, hostPublicKey: hostPublicKey))
-        state = .connected(token)
+        try tokenStore.store(StoredPairingRecord(
+            token: token,
+            hostPublicKey: payload.hostPublicKey,
+            tailnetFQDN: payload.tailnetFQDN,
+            tailnetIPv4: payload.tailnetIPv4
+        ))
+        state = .pairedDisconnected
     }
 
     func reject(_ reason: String) {
         state = .rejected(reason)
+    }
+
+    func clearStoredCredentials() {
+        try? tokenStore.clear()
+        state = .unpaired
+    }
+
+    func attemptSession(
+        dialer: SessionDialer = SessionDialer(),
+        port: UInt16 = Config.signalingPort
+    ) async throws -> ActiveSession {
+        guard let record = storedPairingMaterial else {
+            throw PairingClientError.invalidState
+        }
+        switch state {
+        case .pairedDisconnected, .revoked:
+            break
+        default:
+            throw PairingClientError.invalidState
+        }
+        state = .sessionConnecting
+
+        let host = resolvedHost(fqdn: record.tailnetFQDN, ipv4: record.tailnetIPv4)
+        guard let url = URL(string: "wss://\(host):\(port)/session") else {
+            state = .pairedDisconnected
+            throw PairingClientError.malformedURL
+        }
+        do {
+            let active = try await dialer.dial(
+                url: url,
+                deviceFingerprint: DeviceFingerprint(try deviceKeyProvider.publicKey.agentDeskFingerprint),
+                sessionToken: record.token,
+                hostPublicKey: record.hostPublicKey,
+                deviceKey: deviceKeyProvider,
+                urlSession: urlSession
+            )
+            state = .connected(active)
+            return active
+        } catch let rejection as SessionRejected {
+            applyRejection(rejection)
+            throw rejection
+        } catch {
+            state = .pairedDisconnected
+            throw error
+        }
+    }
+
+    private func applyRejection(_ rejection: SessionRejected) {
+        switch rejection.reason {
+        case .revoked, .unknownDevice, .badSignature:
+            try? tokenStore.clear()
+            state = .revoked
+        case .replay, .malformed:
+            state = .pairedDisconnected
+        }
     }
 
     func performHandshake(for payload: PairingPayload) async throws {
@@ -141,9 +208,9 @@ final class PairingClient {
         }
         let task = urlSession.webSocketTask(with: url)
         task.resume()
-        let request = try PairingHandshakeRequest(
+        let request = PairingHandshakeRequest(
             type: "pair",
-            devicePublicKey: deviceKeyProvider.publicKey.x963Representation,
+            devicePublicKey: try deviceKeyProvider.publicKey.x963Representation,
             oneTimeNonce: payload.oneTimeNonce
         )
         let data = try JSONEncoder().encode(request)
@@ -171,17 +238,19 @@ final class PairingClient {
             throw PairingClientError.websocketRejected(response.error ?? "rejected")
         }
         try receiveApprovedToken(token, hostPublicKey: payload.hostPublicKey)
-        try persistApprovedToken(hostPublicKey: payload.hostPublicKey)
+        try persistApprovedToken(payload: payload)
     }
 
     func resolvedHost(for payload: PairingPayload) -> String {
-        let fqdn = payload.tailnetFQDN.hasSuffix(".")
-            ? String(payload.tailnetFQDN.dropLast())
-            : payload.tailnetFQDN
+        resolvedHost(fqdn: payload.tailnetFQDN, ipv4: payload.tailnetIPv4)
+    }
+
+    func resolvedHost(fqdn rawFQDN: String, ipv4: String) -> String {
+        let fqdn = rawFQDN.hasSuffix(".") ? String(rawFQDN.dropLast()) : rawFQDN
         if !fqdn.isEmpty, resolver.canResolve(fqdn) {
             return fqdn
         }
-        return payload.tailnetIPv4
+        return ipv4
     }
 
     static func verify(token: SessionToken, hostPublicKey: Data) -> Bool {
