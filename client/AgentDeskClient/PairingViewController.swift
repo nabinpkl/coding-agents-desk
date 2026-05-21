@@ -5,9 +5,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private let pairingClient = PairingClient()
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
+    private let forgetButton = UIButton(type: .system)
     private var captureSession: AVCaptureSession?
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private var handshakeTask: Task<Void, Never>?
+    private var sessionTask: Task<Void, Never>?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -15,10 +17,40 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         configureViews()
         pairingClient.loadStoredPairingMaterial()
         render()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        triggerSessionIfPaired()
+    }
+
+    @objc private func applicationWillEnterForeground() {
+        triggerSessionIfPaired()
+    }
+
+    private func triggerSessionIfPaired() {
+        guard case .pairedDisconnected = pairingClient.state else { return }
+        sessionTask?.cancel()
+        sessionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await self.pairingClient.attemptSession()
+            } catch {
+                // PairingClient.attemptSession already set the state; nothing extra.
+            }
+            self.render()
+        }
     }
 
     deinit {
         handshakeTask?.cancel()
+        sessionTask?.cancel()
     }
 
     private func configureViews() {
@@ -31,19 +63,37 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         actionButton.addTarget(self, action: #selector(startScanning), for: .touchUpInside)
         actionButton.translatesAutoresizingMaskIntoConstraints = false
 
+        forgetButton.setTitle("Forget host", for: .normal)
+        forgetButton.setTitleColor(.systemRed, for: .normal)
+        forgetButton.addTarget(self, action: #selector(forgetHost), for: .touchUpInside)
+        forgetButton.translatesAutoresizingMaskIntoConstraints = false
+        forgetButton.isHidden = true
+
         view.addSubview(statusLabel)
         view.addSubview(actionButton)
+        view.addSubview(forgetButton)
 
         NSLayoutConstraint.activate([
             statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
             statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
             statusLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -24),
             actionButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 18),
-            actionButton.centerXAnchor.constraint(equalTo: view.centerXAnchor)
+            actionButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            forgetButton.topAnchor.constraint(equalTo: actionButton.bottomAnchor, constant: 12),
+            forgetButton.centerXAnchor.constraint(equalTo: view.centerXAnchor)
         ])
     }
 
+    @objc private func forgetHost() {
+        sessionTask?.cancel()
+        handshakeTask?.cancel()
+        stopCamera()
+        pairingClient.clearStoredCredentials()
+        render()
+    }
+
     private func render() {
+        forgetButton.isHidden = true
         switch pairingClient.state {
         case .unpaired:
             statusLabel.text = "AgentDesk"
@@ -62,20 +112,22 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             actionButton.isHidden = true
             stopCamera()
         case .pairedDisconnected:
-            statusLabel.text = "Paired (not connected)"
+            statusLabel.text = "Paired (reconnecting)"
             actionButton.isHidden = true
+            forgetButton.isHidden = false
             stopCamera()
         case .sessionConnecting:
             statusLabel.text = "Connecting"
             actionButton.isHidden = true
             stopCamera()
         case .connected(let active):
-            statusLabel.text = "Connected to \(active.deviceFingerprint)"
+            statusLabel.text = "Connected (device \(active.deviceFingerprint))"
             actionButton.isHidden = true
             stopCamera()
         case .revoked:
             statusLabel.text = "Revoked by host"
             actionButton.isHidden = false
+            forgetButton.isHidden = false
             stopCamera()
         case .rejected(let reason):
             statusLabel.text = "Pairing rejected: \(reason)"
@@ -103,6 +155,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                     self?.pairingClient.reject("\(error)")
                 }
                 self?.render()
+                self?.triggerSessionIfPaired()
             }
         } catch {
             pairingClient.reject("\(error)")
@@ -180,6 +233,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                     self?.pairingClient.reject("\(error)")
                 }
                 self?.render()
+                self?.triggerSessionIfPaired()
             }
         } catch {
             pairingClient.reject("\(error)")
