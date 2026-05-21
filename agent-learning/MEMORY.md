@@ -1,0 +1,2 @@
+- [Signing pivot during Apple Developer throttle](project_signing_pivot.md) — enrollment throttled ~48hr+ from 2026-05-20; dev uses Xcode free 7-day signing until cert lands.
+- [libwebrtc holds weak refs into Swift; retain on self](feedback_libwebrtc_weak_refs.md) — RTCVideoSource/RTCVideoTrack/etc. as locals get deallocated silently; renderer/capturer stops without errors.
