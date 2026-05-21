@@ -34,7 +34,7 @@ final class LibWebRTCTransportFactory: MediaTransportFactory {
     }
 }
 
-final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnectionDelegate, @unchecked Sendable {
+final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnectionDelegate, RTCVideoViewDelegate, @unchecked Sendable {
     let connectionState: AsyncStream<MediaConnectionState>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
 
@@ -46,6 +46,11 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     private var videoSink: VideoFrameSink?
     private var inboundTask: Task<Void, Never>?
     private var role: MediaTransportRole = .answerer
+    // libwebrtc keeps weak refs from the receiver into renderers; without a
+    // strong Swift-side ref the track is deallocated between attach-time and
+    // first-frame delivery, and renderFrame: is never invoked. Mirrors the
+    // host-side rtcVideoSource retention.
+    private var remoteVideoTrack: RTCVideoTrack?
 
     init(factory: RTCPeerConnectionFactory, codecs: MediaCodecPreferences) {
         self.factory = factory
@@ -90,6 +95,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     func stop() {
         inboundTask?.cancel()
         inboundTask = nil
+        remoteVideoTrack = nil
         peerConnection?.close()
         peerConnection = nil
         stateContinuation.yield(.closed)
@@ -114,6 +120,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                 let answer = try await pc.answer(for: answerConstraints)
                 try await pc.setLocalDescription(answer)
                 try await signaling.send(.answer(sdp: answer.sdp))
+                startStatsLogger()
             case .answer(let sdp):
                 let answer = RTCSessionDescription(type: .answer, sdp: sdp)
                 try await pc.setRemoteDescription(answer)
@@ -138,12 +145,52 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         logger.error("no remote video transceiver found after setRemoteDescription")
     }
 
+    private let debugProbeRenderer = DebugFrameProbeRenderer()
+
     private func attachRemote(track: RTCVideoTrack) {
+        if remoteVideoTrack === track {
+            return
+        }
         guard let sink = videoSink as? RTCMTLVideoSink else {
             logger.error("videoSink is not an RTCMTLVideoSink; cannot attach remote track")
             return
         }
+        track.isEnabled = true
+        remoteVideoTrack = track
+        sink.renderer.delegate = self
         track.add(sink.renderer)
+        track.add(debugProbeRenderer)
+        logger.notice("renderer subscribed to track id=\(track.trackId, privacy: .public) isEnabled=\(track.isEnabled, privacy: .public)")
+    }
+
+    private func startStatsLogger() {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self else { return }
+                await self.logStats()
+            }
+        }
+    }
+
+    private func logStats() async {
+        guard let pc = peerConnection else { return }
+        let report = await pc.statistics()
+        for (_, stats) in report.statistics {
+            if stats.type == "inbound-rtp" {
+                let frames = stats.values["framesReceived"].map { "\($0)" } ?? "?"
+                let decoded = stats.values["framesDecoded"].map { "\($0)" } ?? "?"
+                let bytes = stats.values["bytesReceived"].map { "\($0)" } ?? "?"
+                let packetsLost = stats.values["packetsLost"].map { "\($0)" } ?? "?"
+                logger.notice("inbound-rtp framesReceived=\(frames, privacy: .public) framesDecoded=\(decoded, privacy: .public) bytesReceived=\(bytes, privacy: .public) packetsLost=\(packetsLost, privacy: .public)")
+            }
+        }
+    }
+
+    // MARK: - RTCVideoViewDelegate
+
+    func videoView(_ videoView: RTCVideoRenderer, didChangeVideoSize size: CGSize) {
+        logger.notice("videoView didChangeVideoSize \(Int(size.width), privacy: .public)x\(Int(size.height), privacy: .public)")
     }
 
     // MARK: - RTCPeerConnectionDelegate
@@ -198,4 +245,24 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
+}
+
+final class DebugFrameProbeRenderer: NSObject, RTCVideoRenderer, @unchecked Sendable {
+    private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "webrtc")
+    private var count = 0
+    private var lastSize: CGSize = .zero
+
+    func setSize(_ size: CGSize) {
+        lastSize = size
+        logger.notice("probe setSize \(Int(size.width), privacy: .public)x\(Int(size.height), privacy: .public)")
+    }
+
+    func renderFrame(_ frame: RTCVideoFrame?) {
+        count += 1
+        if count % 30 == 1 {
+            let w = frame?.width ?? 0
+            let h = frame?.height ?? 0
+            logger.notice("probe renderFrame #\(self.count, privacy: .public) size=\(w, privacy: .public)x\(h, privacy: .public)")
+        }
+    }
 }
