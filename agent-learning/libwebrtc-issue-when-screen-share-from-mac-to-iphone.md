@@ -1,6 +1,6 @@
 ---
-name: libwebrtc-weak-refs
-description: Trigger-pattern recognizer for the libwebrtc-Swift weak-ref bug. If you're calling factory.videoSource / factory.videoTrack / transceiver.receiver.track and then handing the result into pc.add / track.add / capturer.init, store it on self first or it will deallocate silently.
+name: libwebrtc-issue-when-screen-share-from-mac-to-iphone
+description: Trigger-pattern recognizer for the libwebrtc-Swift weak-ref bug we hit twice doing Mac-to-iPhone screen share. If you're calling factory.videoSource / factory.videoTrack / transceiver.receiver.track and then handing the result into pc.add / track.add / capturer.init, store it on self first or it will deallocate silently.
 metadata:
   type: feedback
 ---
