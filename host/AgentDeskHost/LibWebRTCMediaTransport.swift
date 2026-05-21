@@ -49,6 +49,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     // start() returning and the first frame being delivered.
     private var rtcVideoSource: RTCVideoSource?
     private var videoTrack: RTCVideoTrack?
+    private var videoSender: RTCRtpSender?
     private var signaling: SignalingChannel?
     private var inboundTask: Task<Void, Never>?
     private var role: MediaTransportRole = .offerer
@@ -92,7 +93,15 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
             self.capturer = capturer
             let track = factory.videoTrack(with: rtcSource, trackId: "video0")
             self.videoTrack = track
-            pc.add(track, streamIds: ["stream0"])
+            // RTCMediaStreamTrack.contentHint is not exposed in stasel/WebRTC's
+            // binary headers in this version, so we can't directly enable the
+            // encoder's screen-content mode. The degradationPreference and
+            // bitrate knobs below give us full-resolution sharp output without
+            // it; revisit if we move to a libwebrtc build that exposes it.
+            if let sender = pc.add(track, streamIds: ["stream0"]) {
+                self.videoSender = sender
+                configureSenderForScreenShare(sender)
+            }
             try await capturer.start()
         }
 
@@ -112,12 +121,31 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         inboundTask = nil
         capturer?.stop()
         capturer = nil
+        videoSender = nil
         videoTrack = nil
         rtcVideoSource = nil
         peerConnection?.close()
         peerConnection = nil
         stateContinuation.yield(.closed)
         stateContinuation.finish()
+    }
+
+    // Tune the outgoing video sender for crisp text rather than smooth motion.
+    // Three knobs: degradationPreference=maintainResolution stops libwebrtc
+    // from downscaling under CPU/bandwidth pressure (it drops fps instead);
+    // maxBitrateBps lifts the ~2.5 Mbps default ceiling to a value that lets
+    // 1512x982 text encode without artifacting; minBitrateBps prevents the
+    // encoder from starving when GCC's initial estimate is conservative.
+    private func configureSenderForScreenShare(_ sender: RTCRtpSender) {
+        let params = sender.parameters
+        params.degradationPreference = NSNumber(value: RTCDegradationPreference.maintainResolution.rawValue)
+        for encoding in params.encodings {
+            encoding.maxBitrateBps = NSNumber(value: 8_000_000)
+            encoding.minBitrateBps = NSNumber(value: 1_500_000)
+            encoding.maxFramerate = NSNumber(value: 30)
+        }
+        sender.parameters = params
+        logger.notice("sender tuned for screen share: maxBitrate=8Mbps degradationPreference=maintainResolution")
     }
 
     private func sendOffer() async throws {
