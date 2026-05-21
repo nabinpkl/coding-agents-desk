@@ -45,8 +45,19 @@ Both are blocked on Apple Developer Program enrollment landing. They belong to P
 
 Each captured phase expands into a sub-task block (`R7.1`, `R7.2`, ...) when its phase opens. The R-number reserves the slot so cross-references survive renumbering avoidance.
 
-- [x] D7. Phase 1 (S1, #3): QR pairing end-to-end. AFK. Landed in one bundled Codex turn alongside D1, D2, D3, D4. `Pairing` and `PairingClient` modules implement ADR-0002 verbatim, P-256 with Secure Enclave plus Keychain fallback, in-memory nonce map with 90s TTL, FQDN-then-IPv4 host resolution, no token expiry, `agentdesk://pair?p=<base64url>` QR URL. Five Pairing tests and two PairingClient tests pass via Swift Testing.
-- R8. Phase 2 (S2, #4): hello-pixels (ScreenCaptureKit + VideoToolbox HEVC + libwebrtc + `AVSampleBufferDisplayLayer`). AFK. Blocked by R7.
+- [x] D7. Phase 1 (S1, #3): QR pairing end-to-end. AFK. Landed in one bundled Codex turn alongside D1, D2, D3, D4. `Pairing` and `PairingClient` modules implement ADR-0002 verbatim, P-256 with Secure Enclave plus Keychain fallback, in-memory nonce map with 90s TTL, FQDN-then-IPv4 host resolution, no token expiry, `agentdesk://pair?p=<base64url>` QR URL. Five Pairing tests and two PairingClient tests pass via Swift Testing. S1 shipped without a per-connection session layer; that gap is the failure mode ADR-0003 closes and R8.1 through R8.5 implement.
+
+### Phase 2 (S2, #4): hello-pixels. AFK. Blocked by R7.
+
+Phase goal: a single frame of the host's active display rendered on the iPhone, end-to-end, gated by an authenticated session. The session layer lands first because S1's bearer-token reconnect model is the failure shape ADR-0003 closes; WebRTC SDP and ICE inherit their trust from the session, so the session must exist before any libwebrtc code does. R8.6 is the pixel slice itself and only opens after R8.1 through R8.5 close.
+
+- [x] D8.1. Write `architecture-decisions/0003-session-establishment.md`, status `accepted`. Update `SPEC.md` in the same change: add `SessionAuthenticator` on the host and `SessionDialer` on the client to the module list, add the session wire shapes block after the QR-encoding paragraph, rewrite the lifecycle bullet that claimed bearer-token reconnect.
+- R8.2. Introduce `host/AgentDeskHost/SessionAuthenticator.swift`. Public surface: `authenticate(on: NWConnection) async throws -> ActiveSession`. Encapsulates the four-message exchange (`SessionInit` → `SessionChallenge` → `SessionProof` → `SessionReady`) on the `/session` path of the existing TLS WebSocket established by `PairingSignalingServer`. Rejection reasons emitted as the closed set `{ revoked, unknown-device, replay, bad-signature, malformed }` per ADR-0003 decision 5. No code path emits `SessionReady` without verifying `clientSignature` against the allowlist's stored device public key.
+- R8.3. Introduce `client/AgentDeskClient/SessionDialer.swift` mirroring the host. Delete `PairingClient.loadStoredSessionIfPresent`'s direct transition to `.connected`; replace with a `loadStoredPairingMaterial` that returns `paired-disconnected`. Add `dial(host:)` that runs the client side of the four-message exchange and verifies `hostSignature` against the cached `hostPublicKey` before sending `SessionProof`. On `revoked` / `unknown-device` / `bad-signature`, clear the stored token and host pubkey and transition to `unpaired`.
+- R8.4. Rewrite the UI state machines on both sides. Host `PopoverViewController` carries `{ unpaired, paired-no-active-session, connecting, connected }`. Client `PairingViewController` carries `{ unpaired, paired-disconnected, connecting, connected, revoked }`. Add a "Forget host" action on the client for `paired-disconnected`. Remove the assumption "have token equals connected" wherever it appears, including the implicit one in `loadStoredSessionIfPresent`.
+- R8.5. Tests on `Pairing` and `SessionAuthenticator` per `AGENTS.md`'s named-modules list, with mirroring tests on `PairingClient` and `SessionDialer`. Assertions: fresh handshake against an allowlisted fingerprint produces `SessionReady`; revoked fingerprint produces `SessionRejected { revoked }`; replayed `clientNonce` produces `SessionRejected { replay }`; tampered `hostNonce` fails client-side verification and never sends `SessionProof`; `SessionToken` presented without a valid `clientSignature` produces `SessionRejected { bad-signature }`. The last assertion is the one that catches a regression to bearer-token authentication.
+- R8.6. The pixel slice itself: ScreenCaptureKit + VideoToolbox HEVC on the host, libwebrtc + `AVSampleBufferDisplayLayer` on the client. SDP and ICE travel only over an `ActiveSession`; the DTLS fingerprint binding is structural per ADR-0003 decision 3. Acceptance: a single frame of the host's active display renders on the iPhone with the session shown as `connected` on both ends, and severing the network mid-stream returns both UIs to `paired-disconnected` / `paired-no-active-session` rather than leaving a stale `connected`.
+
 - R9. Phase 3 (S3, #5): cursor move and basic click. AFK. Blocked by R8.
 - R10. Phase 4 (S4, #6): full trackpad gestures (two-finger right-click, two-finger scroll, double-tap drag). AFK. Blocked by R9.
 - R11. Phase 5 (S5, #7): Spaces enumeration via private CGS and 3-finger swipe via synthesized `Ctrl+Arrow`. AFK. Blocked by R10.
@@ -82,7 +93,13 @@ R4       2026-05-20  committed   Xcode automatic free signing on both projects
 R5       2026-05-20  committed   LaunchAgent plist install and reload-on-stale; reboot test deferred to R6
 R6       pending     pending     on-device launch verified, screenshots in HANDOVER (HITL)
 R7       2026-05-20  committed   S1 QR pairing host and client per ADR-0002 (#3)
-R8       pending     pending     Phase 2 captured (S2, #4)
+R8       pending     pending     Phase 2 expanded into R8.1 through R8.6 (S2, #4)
+R8.1     2026-05-20  committed   ADR-0003 session establishment accepted; SPEC updated in same change
+R8.2     pending     pending     SessionAuthenticator on host (mutual challenge-response on /session)
+R8.3     pending     pending     SessionDialer on client; remove "have token equals connected" shortcut
+R8.4     pending     pending     four-state UI machines on both ends
+R8.5     pending     pending     session handshake tests including bearer-token regression check
+R8.6     pending     pending     hello-pixels, gated by ActiveSession
 R9       pending     pending     Phase 3 captured (S3, #5)
 R10      pending     pending     Phase 4 captured (S4, #6)
 R11      pending     pending     Phase 5 captured (S5, #7)

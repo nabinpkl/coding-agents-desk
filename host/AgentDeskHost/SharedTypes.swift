@@ -133,6 +133,185 @@ struct SessionToken: Codable, Equatable {
     }
 }
 
+// ADR-0003 session-establishment wire shapes. Sent over the existing TLS
+// WebSocket on the /session path; first-frame `type` field dispatches between
+// pairing and session handlers.
+
+struct SessionInit: Codable, Equatable {
+    let type: String
+    let deviceFingerprint: DeviceFingerprint
+    let sessionToken: SessionToken
+    let clientNonce: Data
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case deviceFingerprint = "d"
+        case sessionToken = "s"
+        case clientNonce = "n"
+    }
+
+    init(deviceFingerprint: DeviceFingerprint, sessionToken: SessionToken, clientNonce: Data) {
+        self.type = "session-init"
+        self.deviceFingerprint = deviceFingerprint
+        self.sessionToken = sessionToken
+        self.clientNonce = clientNonce
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        deviceFingerprint = try container.decode(DeviceFingerprint.self, forKey: .deviceFingerprint)
+        sessionToken = try container.decode(SessionToken.self, forKey: .sessionToken)
+        clientNonce = try Data(base64URLEncoded: container.decode(String.self, forKey: .clientNonce))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(deviceFingerprint, forKey: .deviceFingerprint)
+        try container.encode(sessionToken, forKey: .sessionToken)
+        try container.encode(clientNonce.base64URLEncodedString(), forKey: .clientNonce)
+    }
+}
+
+struct SessionChallenge: Codable, Equatable {
+    let type: String
+    let hostNonce: Data
+    let hostSignature: Data
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case hostNonce = "n"
+        case hostSignature = "s"
+    }
+
+    init(hostNonce: Data, hostSignature: Data) {
+        self.type = "session-challenge"
+        self.hostNonce = hostNonce
+        self.hostSignature = hostSignature
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        hostNonce = try Data(base64URLEncoded: container.decode(String.self, forKey: .hostNonce))
+        hostSignature = try Data(base64URLEncoded: container.decode(String.self, forKey: .hostSignature))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(hostNonce.base64URLEncodedString(), forKey: .hostNonce)
+        try container.encode(hostSignature.base64URLEncodedString(), forKey: .hostSignature)
+    }
+}
+
+struct SessionProof: Codable, Equatable {
+    let type: String
+    let clientSignature: Data
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case clientSignature = "s"
+    }
+
+    init(clientSignature: Data) {
+        self.type = "session-proof"
+        self.clientSignature = clientSignature
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        clientSignature = try Data(base64URLEncoded: container.decode(String.self, forKey: .clientSignature))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(clientSignature.base64URLEncodedString(), forKey: .clientSignature)
+    }
+}
+
+struct SessionReady: Codable, Equatable {
+    let type: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+    }
+
+    init() { self.type = "session-ready" }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+    }
+}
+
+enum SessionRejectionReason: String, Codable, Equatable {
+    case revoked
+    case unknownDevice = "unknown-device"
+    case replay
+    case badSignature = "bad-signature"
+    case malformed
+}
+
+struct SessionRejected: Codable, Equatable, Error {
+    let type: String
+    let reason: SessionRejectionReason
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case reason = "r"
+    }
+
+    init(reason: SessionRejectionReason) {
+        self.type = "session-rejected"
+        self.reason = reason
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        reason = try container.decode(SessionRejectionReason.self, forKey: .reason)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(reason, forKey: .reason)
+    }
+}
+
+struct ActiveSession: Equatable {
+    let deviceFingerprint: DeviceFingerprint
+    let establishedAt: Int
+}
+
+enum SessionSigning {
+    static let domainPrefix = "agentdesk-session"
+
+    static func canonicalInput(
+        clientNonce: Data,
+        hostNonce: Data,
+        hostFingerprint: String,
+        deviceFingerprint: DeviceFingerprint
+    ) -> Data {
+        var data = Data()
+        data.append(Data(domainPrefix.utf8))
+        data.append(clientNonce)
+        data.append(hostNonce)
+        data.append(Data(hostFingerprint.utf8))
+        data.append(Data(deviceFingerprint.rawValue.utf8))
+        return data
+    }
+}
+
 enum NormalizedInput: Codable, Equatable {
     case cursorMove(dx: Float, dy: Float)
     case click(button: MouseButton)

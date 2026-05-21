@@ -31,7 +31,8 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 3. **SpacesProvider.** Hides the private CoreGraphics calls and the `DesktopState` shape. Interface: `current() -> DesktopState`, `observe() -> AsyncStream<DesktopState>`.
 4. **InputDispatcher.** Consumes `NormalizedInput`, emits `CGEvent`. Interface: `dispatch(NormalizedInput)`. Hides the `Ctrl+Arrow` synthesis for Spaces switch and the modifier-arm state machine.
 5. **Pairing.** Generates QR payload, validates incoming tokens, stores in Keychain. Interface: `mintPairingPayload() -> PairingPayload`, `validate(token) -> SessionToken?`.
-6. **Transport.** Wraps libwebrtc. Multiplexes video track, input data channel, control data channel.
+6. **SessionAuthenticator.** Runs the per-connection mutual challenge-response defined in ADR-0003 on the `/session` path of the existing TLS WebSocket. Interface: `authenticate(connection) -> ActiveSession`. Throws closed-set rejection reasons. Same test obligation as `Pairing`; the long-term key material is shared.
+7. **Transport.** Wraps libwebrtc. Multiplexes video track, input data channel, control data channel. SDP and ICE travel only over an `ActiveSession` produced by `SessionAuthenticator`; the DTLS fingerprint binding is structural.
 
 ### Client (iOS)
 
@@ -39,7 +40,8 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 2. **GestureTranslator.** Converts UIKit gesture recognizers to `NormalizedInput`. Owns the 3-finger swipe interpretation and the modifier-arm UI state.
 3. **KeyboardSurface.** Compact keyboard plus accessory row. Emits `NormalizedInput { kind: "key" }` and `modifierArm`.
 4. **PairingClient.** Camera, QR decode, Keychain write.
-5. **Transport.** Mirror of host Transport.
+5. **SessionDialer.** Mirror of host `SessionAuthenticator`. Drives the four-message handshake from the client side, owns the four-state UI machine (`unpaired | paired-disconnected | connecting | connected`, plus terminal `revoked`), and clears stored credentials on `revoked` / `unknown-device` / `bad-signature` per ADR-0003.
+6. **Transport.** Mirror of host Transport.
 
 Tests required for v0: **SpacesProvider, Pairing, InputDispatcher, GestureTranslator.** These four are where regressions are most expensive and where the contracts are most stable.
 
@@ -88,6 +90,19 @@ SessionToken {
 
 QR encoding: `PairingPayload` is serialized to compact JSON, base64url-encoded, and embedded in a `agentdesk://pair?p=<base64url>` URL.
 
+Session-establishment wire shapes are locked by ADR-0003 and travel on `wss://<host>:<port>/session`, distinct from the `/pair` path used by `PairingPayload`.
+
+```
+SessionInit       { deviceFingerprint, sessionToken, clientNonce }
+SessionChallenge  { hostNonce, hostSignature }
+SessionProof      { clientSignature }
+SessionReady      { }
+SessionRejected   { reason }   // reason in { revoked, unknown-device,
+                               //             replay, bad-signature, malformed }
+```
+
+Both signatures are ECDSA-P256 over `"agentdesk-session" || clientNonce || hostNonce || hostFingerprint || deviceFingerprint`. `SessionToken` continues to be issued at pairing approval per ADR-0002 but is reframed as an approval-time receipt that identifies the device to the host's allowlist; it is not sufficient on its own to authenticate a session. The fresh `clientSignature` in `SessionProof` is the authentication. See ADR-0003 for the full canonical encoding, rejection-reason semantics, and the UI state machines.
+
 ## Performance budgets
 
 - End-to-end glass-to-glass: **under 80 ms** on Tailscale over local Wi-Fi 6.
@@ -98,8 +113,8 @@ QR encoding: `PairingPayload` is serialized to compact JSON, base64url-encoded, 
 ## Lifecycle
 
 - Host runs only when the user opens it. No auto-launch on boot (charging-while-docked behavior excluded from v0).
-- Client suspends on background; the WebRTC peer is torn down within 1 second; Keychain token persists.
-- On foreground, reconnect uses the stored `SessionToken`; no re-pairing.
+- Client suspends on background; the WebRTC peer is torn down within 1 second; Keychain token and host pubkey persist.
+- On foreground, the client transitions to `paired-disconnected` and runs the session-establishment exchange per ADR-0003 using the stored `SessionToken` to identify itself and a fresh `clientSignature` to authenticate. Re-pairing only occurs after a `revoked`, `unknown-device`, or `bad-signature` rejection from the host.
 
 ## Risks tracked outside this doc
 
