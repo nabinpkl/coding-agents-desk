@@ -102,6 +102,16 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                 self.videoSender = sender
                 configureSenderForScreenShare(sender)
             }
+            // Override libwebrtc's Google Congestion Control initial estimate.
+                // GCC defaults to ~600 kbps and ramps up over many seconds,
+            // which makes the encoder start in compromise mode (drops frames
+            // to fit the low estimate). We own the wire (loopback or Tailnet),
+            // so seed it with 6 Mbps and a 2 Mbps floor immediately.
+            pc.setBweMinBitrateBps(
+                NSNumber(value: 2_000_000),
+                currentBitrateBps: NSNumber(value: 6_000_000),
+                maxBitrateBps: NSNumber(value: 8_000_000)
+            )
             try await capturer.start()
         }
 
@@ -130,22 +140,25 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         stateContinuation.finish()
     }
 
-    // Tune the outgoing video sender for crisp text rather than smooth motion.
-    // Three knobs: degradationPreference=maintainResolution stops libwebrtc
-    // from downscaling under CPU/bandwidth pressure (it drops fps instead);
-    // maxBitrateBps lifts the ~2.5 Mbps default ceiling to a value that lets
-    // 1512x982 text encode without artifacting; minBitrateBps prevents the
-    // encoder from starving when GCC's initial estimate is conservative.
+    // Tune the outgoing video sender for crisp text AND smooth mouse motion.
+    // degradationPreference=disabled tells libwebrtc never to drop resolution
+    // OR framerate to fit bandwidth/CPU; it sends every frame at full size.
+    // Safe on loopback/Tailnet where we own the wire; the cost is artifacts
+    // rather than graceful downscale if the wire genuinely can't keep up.
+    //
+    // maxBitrateBps lifts the ~2.5 Mbps default ceiling so 1512x982 H.264 has
+    // room to ramp; minBitrateBps prevents GCC from starving the encoder at
+    // session start.
     private func configureSenderForScreenShare(_ sender: RTCRtpSender) {
         let params = sender.parameters
-        params.degradationPreference = NSNumber(value: RTCDegradationPreference.maintainResolution.rawValue)
+        params.degradationPreference = NSNumber(value: RTCDegradationPreference.disabled.rawValue)
         for encoding in params.encodings {
             encoding.maxBitrateBps = NSNumber(value: 8_000_000)
-            encoding.minBitrateBps = NSNumber(value: 1_500_000)
+            encoding.minBitrateBps = NSNumber(value: 2_000_000)
             encoding.maxFramerate = NSNumber(value: 30)
         }
         sender.parameters = params
-        logger.notice("sender tuned for screen share: maxBitrate=8Mbps degradationPreference=maintainResolution")
+        logger.notice("sender tuned for screen share: maxBitrate=8Mbps degradationPreference=disabled")
     }
 
     private func sendOffer() async throws {
