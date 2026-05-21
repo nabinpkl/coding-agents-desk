@@ -173,6 +173,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     private func render() {
         forgetButton.isHidden = true
+        statusLabel.isHidden = false
         switch pairingClient.state {
         case .unpaired:
             statusLabel.text = "AgentDesk"
@@ -201,6 +202,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             stopCamera()
         case .connected(let active):
             statusLabel.text = "Connected (device \(active.deviceFingerprint))"
+            statusLabel.isHidden = true
             actionButton.isHidden = true
             stopCamera()
             startMediaTransportIfNeeded()

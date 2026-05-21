@@ -86,7 +86,24 @@ final class PairingClient {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 90
+        #if DEBUG
+        // Dev-only: bypass TLS hostname/cert validation. The host's
+        // cryptographic identity is still authenticated at the
+        // application layer via the mutual challenge-response in
+        // ADR-0003 (hostSignature over fresh nonces). Without this,
+        // running the client in the iOS Simulator against a host
+        // whose Tailnet IP can't loop back to itself forces us to
+        // rewrite the URL to 127.0.0.1, which then fails TLS
+        // hostname validation against the cert issued for the
+        // Tailnet FQDN.
+        return URLSession(
+            configuration: configuration,
+            delegate: PermissiveURLSessionDelegate(),
+            delegateQueue: nil
+        )
+        #else
         return URLSession(configuration: configuration)
+        #endif
     }
 
     func loadStoredPairingMaterial() {
@@ -303,6 +320,26 @@ final class PairingClient {
         return false
     }
 }
+
+#if DEBUG
+// Dev-only delegate that accepts any server trust. See makeDefaultSession
+// above; application-layer signing per ADR-0003 is the authentication of
+// record.
+final class PermissiveURLSessionDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           let trust = challenge.protectionSpace.serverTrust {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            completionHandler(.performDefaultHandling, nil)
+        }
+    }
+}
+#endif
 
 extension P256.Signing.PublicKey {
     var agentDeskFingerprint: String {

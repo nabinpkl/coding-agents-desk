@@ -18,6 +18,9 @@ final class LibWebRTCTransportFactory: MediaTransportFactory {
 
     nonisolated(unsafe) private static let sharedFactory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
+        #if DEBUG
+        RTCSetMinDebugLogLevel(.info)
+        #endif
         let encoder = RTCDefaultVideoEncoderFactory()
         let decoder = RTCDefaultVideoDecoderFactory()
         return RTCPeerConnectionFactory(
@@ -100,11 +103,12 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
             case .offer(let sdp):
                 let offer = RTCSessionDescription(type: .offer, sdp: sdp)
                 try await pc.setRemoteDescription(offer)
+                // Unified-plan: transceivers exist after setRemoteDescription.
+                // The legacy `didAdd stream` callback often doesn't fire in
+                // newer libwebrtc builds, so enumerate directly.
+                attachRemoteTracksFromTransceivers(pc: pc)
                 let answerConstraints = RTCMediaConstraints(
-                    mandatoryConstraints: [
-                        kRTCMediaConstraintsOfferToReceiveAudio: kRTCMediaConstraintsValueFalse,
-                        kRTCMediaConstraintsOfferToReceiveVideo: kRTCMediaConstraintsValueTrue
-                    ],
+                    mandatoryConstraints: nil,
                     optionalConstraints: nil
                 )
                 let answer = try await pc.answer(for: answerConstraints)
@@ -122,8 +126,23 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         }
     }
 
+    private func attachRemoteTracksFromTransceivers(pc: RTCPeerConnection) {
+        for transceiver in pc.transceivers {
+            if transceiver.mediaType == .video,
+               let track = transceiver.receiver.track as? RTCVideoTrack {
+                logger.notice("attaching remote video track id=\(track.trackId, privacy: .public)")
+                attachRemote(track: track)
+                return
+            }
+        }
+        logger.error("no remote video transceiver found after setRemoteDescription")
+    }
+
     private func attachRemote(track: RTCVideoTrack) {
-        guard let sink = videoSink as? RTCMTLVideoSink else { return }
+        guard let sink = videoSink as? RTCMTLVideoSink else {
+            logger.error("videoSink is not an RTCMTLVideoSink; cannot attach remote track")
+            return
+        }
         track.add(sink.renderer)
     }
 
@@ -132,11 +151,17 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
+        // Legacy callback kept as a fallback; primary path is
+        // attachRemoteTracksFromTransceivers in handle(.offer).
         guard let track = stream.videoTracks.first else { return }
-        // RTCVideoTrack.add is documented as safe to call from any thread.
-        // The Metal renderer handles its own main-thread dispatch on
-        // renderFrame: callbacks.
         attachRemote(track: track)
+    }
+
+    func peerConnection(_ peerConnection: RTCPeerConnection, didStartReceivingOn transceiver: RTCRtpTransceiver) {
+        if let track = transceiver.receiver.track as? RTCVideoTrack {
+            logger.notice("didStartReceivingOn fired for video")
+            attachRemote(track: track)
+        }
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}

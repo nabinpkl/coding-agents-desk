@@ -13,6 +13,7 @@ final class RTCMTLVideoSink: VideoFrameSink, @unchecked Sendable {
     init() {
         let metalView = RTCMTLVideoView(frame: .zero)
         metalView.videoContentMode = .scaleAspectFit
+        metalView.backgroundColor = .black
         renderer = metalView
         view = metalView
     }
