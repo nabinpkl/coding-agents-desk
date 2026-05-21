@@ -1,2 +1,1 @@
-- [Signing pivot during Apple Developer throttle](project_signing_pivot.md) — enrollment throttled ~48hr+ from 2026-05-20; dev uses Xcode free 7-day signing until cert lands.
 - [libwebrtc issue when screen-share from Mac to iPhone](libwebrtc-issue-when-screen-share-from-mac-to-iphone.md) — RTCVideoSource/RTCVideoTrack/etc. as locals get deallocated silently; renderer/capturer stops without errors. Retain on self.
