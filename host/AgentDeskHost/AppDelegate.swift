@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let signalingLogger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private var signalingServer: PairingSignalingServer?
     private var activeSessions: Set<DeviceFingerprint> = []
+    private var pairingSignalSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -20,7 +21,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureStatusItem()
         configurePopover()
         startSignalingServer()
+        installPairingSignalHandler()
         refreshConnectedState()
+    }
+
+    // SIGUSR1 fires startPairing on the main queue so `just pair-iphone` can
+    // mint a fresh URL without a menubar click. Signal is local-uid-only;
+    // same trust model as the menubar button.
+    private func installPairingSignalHandler() {
+        signal(SIGUSR1, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+        source.setEventHandler { [weak self] in
+            self?.signalingLogger.notice("SIGUSR1 received; starting pairing")
+            self?.startPairing()
+        }
+        source.resume()
+        pairingSignalSource = source
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -95,6 +111,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let payload = try pairing.mintPairingPayload()
             let url = try payload.pairingURL()
+            signalingLogger.notice("pairing URL minted: \(url.absoluteString, privacy: .public)")
+            try? url.absoluteString.write(to: Config.devLastPairURLPath, atomically: true, encoding: .utf8)
             applyIcon(symbolName: "qrcode", accessibilityDescription: "AgentDesk pairing")
             popoverController.render(.pairing(url, QRCodeRenderer.image(for: url)))
         } catch is TailscaleRequiredError {
