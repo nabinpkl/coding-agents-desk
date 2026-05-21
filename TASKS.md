@@ -96,7 +96,7 @@ R7       2026-05-20  committed   S1 QR pairing host and client per ADR-0002 (#3)
 R8       pending     pending     Phase 2 expanded into R8.1 through R8.6 (S2, #4)
 R8.1     2026-05-20  committed   ADR-0003 session establishment accepted; SPEC updated in same change
 R8.2     2026-05-20  committed   SessionAuthenticator on host with first-frame dispatcher
-R8.3     pending     pending     SessionDialer on client; remove "have token equals connected" shortcut
+R8.3     2026-05-20  committed   SessionDialer on client; state machine rewritten; pairedDisconnected on launch
 R8.4     pending     pending     four-state UI machines on both ends
 R8.5     pending     pending     session handshake tests including bearer-token regression check
 R8.6     pending     pending     hello-pixels, gated by ActiveSession
