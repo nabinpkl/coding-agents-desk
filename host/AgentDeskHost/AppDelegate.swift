@@ -187,18 +187,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // R9.1+R9.3: forward incoming input bytes to the dispatcher. One task
-        // per session; cleaned up in handleSessionEnded.
+        // per session; cleaned up in handleSessionEnded. Dispatcher owns its
+        // own serial queue, so no MainActor hop is needed (and shouldn't be
+        // there: every hop serialized CGEvent.post behind UI work, producing
+        // visible cursor cadence stalls).
         inputTasks[fingerprint]?.cancel()
-        inputTasks[fingerprint] = Task { [weak self, transport] in
+        let dispatcher = inputDispatcher
+        let logger = signalingLogger
+        inputTasks[fingerprint] = Task { [transport, dispatcher, logger] in
             let decoder = JSONDecoder()
             for await data in transport.inputEvents {
                 guard let input = try? decoder.decode(NormalizedInput.self, from: data) else {
-                    self?.signalingLogger.error("input decode failed; \(data.count, privacy: .public) bytes")
+                    logger.error("input decode failed; \(data.count, privacy: .public) bytes")
                     continue
                 }
-                await MainActor.run {
-                    self?.inputDispatcher.dispatch(input)
-                }
+                dispatcher.dispatch(input)
             }
         }
 

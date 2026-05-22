@@ -12,7 +12,7 @@ struct InputDispatcherTests {
             locationProvider: { CGPoint(x: 100, y: 200) }
         )
 
-        dispatcher.dispatch(.cursorMove(dx: 10, dy: -20))
+        dispatcher.performDispatch(.cursorMove(dx: 10, dy: -20))
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events[0].type == .mouseMoved)
@@ -27,7 +27,7 @@ struct InputDispatcherTests {
             locationProvider: { CGPoint(x: 500, y: 300) }
         )
 
-        dispatcher.dispatch(.cursorMove(dx: 15, dy: -10))
+        dispatcher.performDispatch(.cursorMove(dx: 15, dy: -10))
 
         #expect(recorder.events.count == 1)
         let event = recorder.events[0]
@@ -50,7 +50,7 @@ struct InputDispatcherTests {
 
         // Requesting +100 in X from x=1490 with maxX=1499 should clamp to
         // a +9 delta on the wire, not the requested +100.
-        dispatcher.dispatch(.cursorMove(dx: 100, dy: 0))
+        dispatcher.performDispatch(.cursorMove(dx: 100, dy: 0))
 
         #expect(recorder.events.count == 1)
         let event = recorder.events[0]
@@ -66,7 +66,7 @@ struct InputDispatcherTests {
             locationProvider: { CGPoint(x: 500, y: 400) }
         )
 
-        dispatcher.dispatch(.click(button: .left))
+        dispatcher.performDispatch(.click(button: .left))
 
         #expect(recorder.events.count == 2)
         #expect(recorder.events[0].type == .leftMouseDown)
@@ -83,8 +83,8 @@ struct InputDispatcherTests {
             locationProvider: { .zero }
         )
 
-        dispatcher.dispatch(.cursorMove(dx: 10, dy: 10))
-        dispatcher.dispatch(.click(button: .left))
+        dispatcher.performDispatch(.cursorMove(dx: 10, dy: 10))
+        dispatcher.performDispatch(.click(button: .left))
 
         #expect(recorder.events.isEmpty)
     }
@@ -98,8 +98,8 @@ struct InputDispatcherTests {
             displayBoundsProvider: { CGRect(x: 0, y: 0, width: 1500, height: 1000) }
         )
 
-        dispatcher.dispatch(.cursorMove(dx: 2000, dy: 2000))
-        dispatcher.dispatch(.cursorMove(dx: -5000, dy: -5000))
+        dispatcher.performDispatch(.cursorMove(dx: 2000, dy: 2000))
+        dispatcher.performDispatch(.cursorMove(dx: -5000, dy: -5000))
 
         #expect(recorder.events.count == 2)
         #expect(recorder.events[0].location == CGPoint(x: 1499, y: 999))
@@ -114,7 +114,7 @@ struct InputDispatcherTests {
             locationProvider: { .zero }
         )
 
-        dispatcher.dispatch(.scroll(dx: 0, dy: 30, phase: .changed))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 30, phase: .changed))
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events[0].type == .scrollWheel)
@@ -134,9 +134,9 @@ struct InputDispatcherTests {
         )
 
         // Four 0.4 dy ticks: 0.4, 0.8, 1.2 -> emit 1, remainder 0.2.
-        dispatcher.dispatch(.scroll(dx: 0, dy: 0.4, phase: .changed))
-        dispatcher.dispatch(.scroll(dx: 0, dy: 0.4, phase: .changed))
-        dispatcher.dispatch(.scroll(dx: 0, dy: 0.4, phase: .changed))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 0.4, phase: .changed))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 0.4, phase: .changed))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 0.4, phase: .changed))
 
         #expect(recorder.events.count == 1)
         let delta = recorder.events[0].getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
@@ -151,12 +151,12 @@ struct InputDispatcherTests {
             locationProvider: { .zero }
         )
 
-        dispatcher.dispatch(.scroll(dx: 0, dy: 5, phase: .began))
-        dispatcher.dispatch(.scroll(dx: 0, dy: 5, phase: .changed))
-        dispatcher.dispatch(.scroll(dx: 0, dy: 0, phase: .ended))
-        dispatcher.dispatch(.scroll(dx: 0, dy: 3, phase: .momentumBegan))
-        dispatcher.dispatch(.scroll(dx: 0, dy: 2, phase: .momentumChanged))
-        dispatcher.dispatch(.scroll(dx: 0, dy: 0, phase: .momentumEnded))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 5, phase: .began))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 5, phase: .changed))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 0, phase: .ended))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 3, phase: .momentumBegan))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 2, phase: .momentumChanged))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 0, phase: .momentumEnded))
 
         #expect(recorder.events.count == 6)
         // ScrollPhase: began=1, changed=2, ended=4; MomentumPhase=0 on drag.
@@ -181,10 +181,10 @@ struct InputDispatcherTests {
 
         // Zero-delta changed/momentumChanged should NOT emit (continuous phases),
         // but ended/momentumEnded must emit so macOS sees the phase transition.
-        dispatcher.dispatch(.scroll(dx: 0, dy: 0, phase: .changed))
-        dispatcher.dispatch(.scroll(dx: 0, dy: 0, phase: .ended))
-        dispatcher.dispatch(.scroll(dx: 0, dy: 0, phase: .momentumChanged))
-        dispatcher.dispatch(.scroll(dx: 0, dy: 0, phase: .momentumEnded))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 0, phase: .changed))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 0, phase: .ended))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 0, phase: .momentumChanged))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 0, phase: .momentumEnded))
 
         #expect(recorder.events.count == 2)
         #expect(recorder.events[0].getIntegerValueField(.scrollWheelEventScrollPhase) == 4)
@@ -199,10 +199,10 @@ struct InputDispatcherTests {
             locationProvider: { .zero }
         )
 
-        dispatcher.dispatch(.dragStart)
-        dispatcher.dispatch(.dragEnd)
-        dispatcher.dispatch(.click(button: .right))
-        dispatcher.dispatch(.click(button: .double))
+        dispatcher.performDispatch(.dragStart)
+        dispatcher.performDispatch(.dragEnd)
+        dispatcher.performDispatch(.click(button: .right))
+        dispatcher.performDispatch(.click(button: .double))
 
         #expect(recorder.events.isEmpty)
     }

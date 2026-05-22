@@ -29,6 +29,14 @@ final class InputDispatcher: @unchecked Sendable {
     // emit. Accumulate the fractional remainder across calls so they
     // eventually trip the threshold and emit a single-pixel event.
     private var scrollRemainder: CGFloat = 0
+    // Serial queue so dispatch() is callable from any context (network
+    // Task, MainActor, tests) without racing on loggedUntrusted /
+    // scrollRemainder. Previously the AppDelegate forced every input
+    // through MainActor.run, which serialized CGEvent.post behind UI
+    // work (popover redraws, signaling logs) and produced visible cursor
+    // cadence stalls. CGEvent.post is itself thread-safe, so the only
+    // reason to serialize is to keep our own state coherent.
+    private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.input", qos: .userInteractive)
 
     init(
         eventPoster: @escaping EventPoster = { $0.post(tap: .cghidEventTap) },
@@ -46,6 +54,14 @@ final class InputDispatcher: @unchecked Sendable {
     }
 
     func dispatch(_ input: NormalizedInput) {
+        // async so the caller's Task moves on while CGEvent.post runs on
+        // our queue. The queue is serial, so events stay in order.
+        queue.async { [self] in performDispatch(input) }
+    }
+
+    // Synchronous core, called only from `queue`. Exposed-internal so tests
+    // can drive it without paying the async hop.
+    func performDispatch(_ input: NormalizedInput) {
         guard isTrusted() else {
             if !loggedUntrusted {
                 logger.warning("Accessibility not granted; dropping input events")
