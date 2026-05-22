@@ -53,6 +53,12 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
         // has to come from the encode and wire paths.
         config.queueDepth = 3
         config.showsCursor = true
+        // Without an explicit color space, SCStream's BGRA arrives untagged.
+        // libwebrtc then converts to YUV with one range assumption while
+        // RTCMTLVideoView on iOS renders with another, so true black (0,0,0)
+        // surfaces as ~6% grey on the phone. Tagging sRGB lines both sides
+        // up so blacks stay black and the gamma curve matches the Mac display.
+        config.colorSpaceName = CGColorSpace.sRGB
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
@@ -81,6 +87,14 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
         guard type == .screen,
               sampleBuffer.isValid,
               let imageBuffer = sampleBuffer.imageBuffer else { return }
+        // Belt-and-suspenders: stamp the per-frame color attachments so
+        // they propagate into libwebrtc's I420 conversion and the encoded
+        // VUI. SCStream tags the buffer when colorSpaceName is set, but
+        // re-stamping here covers the case where the attachments get
+        // dropped during the BGRA -> YUV conversion path.
+        CVBufferSetAttachment(imageBuffer, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
+        CVBufferSetAttachment(imageBuffer, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_709_2, .shouldPropagate)
+        CVBufferSetAttachment(imageBuffer, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
         let ts = sampleBuffer.presentationTimeStamp
         let timeNs = Int64(CMTimeGetSeconds(ts) * 1_000_000_000)
         let frame = CapturedVideoFrame(
