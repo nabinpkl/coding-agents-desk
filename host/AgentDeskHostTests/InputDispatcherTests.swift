@@ -169,6 +169,23 @@ struct InputDispatcherTests {
         #expect(recorder.events[1].getIntegerValueField(.scrollWheelEventMomentumPhase) == 3)
     }
 
+    @Test func rightClickPostsRightMouseDownThenRightMouseUpAtCurrentLocation() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 500, y: 400) }
+        )
+
+        dispatcher.performDispatch(.click(button: .right))
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0].type == .rightMouseDown)
+        #expect(recorder.events[0].location == CGPoint(x: 500, y: 400))
+        #expect(recorder.events[1].type == .rightMouseUp)
+        #expect(recorder.events[1].location == CGPoint(x: 500, y: 400))
+    }
+
     @Test func outOfScopeInputsAreNoOps() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(
@@ -179,7 +196,6 @@ struct InputDispatcherTests {
 
         dispatcher.performDispatch(.dragStart)
         dispatcher.performDispatch(.dragEnd)
-        dispatcher.performDispatch(.click(button: .right))
         dispatcher.performDispatch(.click(button: .double))
 
         #expect(recorder.events.isEmpty)

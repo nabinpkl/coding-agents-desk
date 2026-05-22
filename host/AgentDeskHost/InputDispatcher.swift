@@ -123,8 +123,12 @@ final class InputDispatcher: @unchecked Sendable {
         case .left:
             postMouseEvent(.leftMouseDown, at: location, button: .left)
             postMouseEvent(.leftMouseUp, at: location, button: .left)
-        case .right, .double:
-            // R10 territory.
+        case .right:
+            postMouseEvent(.rightMouseDown, at: location, button: .right)
+            postMouseEvent(.rightMouseUp, at: location, button: .right)
+        case .double:
+            // R10.2 territory (double-tap-drag); .double is the synthesised
+            // double-click button code, not a separate gesture path yet.
             break
         }
     }

@@ -22,6 +22,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private let scrollStripView = UIView()
     private let scrollStripHint = UILabel()
     private let settingsButton = UIButton(type: .system)
+    // R10.1: bottom button row under the trackpad. Right-click lives here
+    // because two-finger gestures are not reachable one-handed on iPhone.
+    // R12.3 will mount the Show-keyboard button as the second occupant.
+    private let buttonRow = UIStackView()
+    private let rightClickButton = UIButton(type: .system)
     // CGEvent posts at the userspace layer don't actually trigger macOS
     // pointer accel (that lives in IOKit, below CGEvent), so we apply our
     // own approximation client-side. The .mac curve keeps the standard
@@ -212,11 +217,29 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         scrollStripHint.translatesAutoresizingMaskIntoConstraints = false
         scrollStripView.addSubview(scrollStripHint)
 
+        buttonRow.axis = .horizontal
+        buttonRow.spacing = 12
+        buttonRow.distribution = .fillEqually
+        buttonRow.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(buttonRow)
+
+        rightClickButton.setTitle("Right-click", for: .normal)
+        rightClickButton.backgroundColor = .tertiarySystemBackground
+        rightClickButton.layer.cornerRadius = 10
+        rightClickButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        rightClickButton.addTarget(self, action: #selector(rightClickTapped), for: .touchUpInside)
+        buttonRow.addArrangedSubview(rightClickButton)
+
         NSLayoutConstraint.activate([
+            buttonRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            buttonRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            buttonRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            buttonRow.heightAnchor.constraint(equalToConstant: 44),
+
             trackpadView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
             trackpadView.topAnchor.constraint(equalTo: view.centerYAnchor, constant: 24),
-            trackpadView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
             trackpadHint.centerXAnchor.constraint(equalTo: trackpadView.centerXAnchor),
             trackpadHint.bottomAnchor.constraint(equalTo: trackpadView.bottomAnchor, constant: -10),
 
@@ -236,6 +259,23 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private func hideTrackpad() {
         trackpadView.removeFromSuperview()
         scrollStripView.removeFromSuperview()
+        buttonRow.removeFromSuperview()
+        rightClickButton.removeFromSuperview()
+    }
+
+    @objc private func rightClickTapped() {
+        sendInput(.click(button: .right))
+    }
+
+    private func sendInput(_ input: NormalizedInput) {
+        guard let transport = mediaTransport else { return }
+        do {
+            try transport.send(input)
+        } catch {
+            // Channel not open yet during the brief window between WebRTC
+            // connected and the data channel transitioning to .open. Drop
+            // silently; the next event will succeed.
+        }
     }
 
     private func teardownMediaTransport() {
@@ -249,14 +289,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // MARK: - GestureTranslatorDelegate
 
     func gestureTranslator(_ translator: GestureTranslator, didProduce input: NormalizedInput) {
-        guard let transport = mediaTransport else { return }
-        do {
-            try transport.send(input)
-        } catch {
-            // Channel not open yet during the brief window between WebRTC
-            // connected and the data channel transitioning to .open. Drop
-            // silently; the next event will succeed.
-        }
+        sendInput(input)
     }
 
     private func configureViews() {
