@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 // UserDefaults-backed store for trackpad / scroll feel preferences. The
@@ -21,6 +22,18 @@ final class SettingsStore: @unchecked Sendable {
         static let cursorAccel = "agentDesk.cursorAcceleration"
         static let scrollSpeed = "agentDesk.scrollSpeed"
         static let scrollInverted = "agentDesk.scrollInverted"
+    }
+
+    // Materialize the current tuning as one value. PairingViewController
+    // copies this onto the translator on each change; SettingsViewController
+    // still writes individual fields as the user drags each slider.
+    var tuning: GestureTuning {
+        GestureTuning(
+            cursorSpeed: CGFloat(cursorSpeed),
+            cursorAcceleration: CGFloat(cursorAcceleration),
+            scrollSpeed: CGFloat(scrollSpeed),
+            scrollInverted: scrollInverted
+        )
     }
 
     var cursorSpeed: Double {

@@ -208,21 +208,27 @@ struct GestureAcceleration: Sendable {
     }
 }
 
+// Bundle of user-tunable knobs that affect emitted input. Driven by
+// SettingsViewController via SettingsStore; PairingViewController copies
+// the whole struct onto the translator on each settings change.
+// 1.0 = default behavior; UI sliders cover 0.5x - 3.0x.
+// scrollInverted=true negates scroll dy so a finger flick up moves content
+// down (traditional / mouse-wheel-style). Default false = natural / iOS.
+struct GestureTuning: Equatable, Sendable {
+    var cursorSpeed: CGFloat = 1.0
+    var cursorAcceleration: CGFloat = 1.0
+    var scrollSpeed: CGFloat = 1.0
+    var scrollInverted: Bool = false
+
+    static let `default` = GestureTuning()
+}
+
 @MainActor
 final class GestureTranslator: NSObject {
     weak var delegate: GestureTranslatorDelegate?
     private let acceleration: GestureAcceleration
     private let scrollAcceleration: GestureAcceleration
-    // User-tunable multipliers driven by SettingsViewController via
-    // SettingsStore. PairingViewController sets these on store changes.
-    // 1.0 = default behavior; sliders cover 0.5x - 3.0x.
-    var cursorSpeedMultiplier: CGFloat = 1.0
-    var cursorAccelMultiplier: CGFloat = 1.0
-    var scrollSpeedMultiplier: CGFloat = 1.0
-    // When true, scroll dy is negated before emission so a finger flick
-    // up moves content down (traditional / mouse-wheel-style). Default
-    // false = natural / iOS scroll.
-    var scrollInverted: Bool = false
+    var tuning: GestureTuning = .default
     // The pan recognizer reports cumulative translation, but we want
     // deltas-since-last-callback so the receiver can integrate them as
     // relative cursor motion without knowing the trackpad size.
@@ -284,9 +290,9 @@ final class GestureTranslator: NSObject {
     // (legacy per-frame API kept for tests). Identical math in both so
     // the test path stays representative.
     private func emitCursorDelta(dx: CGFloat, dy: CGFloat, velocity: CGFloat) {
-        let gain = acceleration.scale(velocity) * cursorAccelMultiplier
-        let outDx = Float(dx * gain * cursorSpeedMultiplier)
-        let outDy = Float(dy * gain * cursorSpeedMultiplier)
+        let gain = acceleration.scale(velocity) * tuning.cursorAcceleration
+        let outDx = Float(dx * gain * tuning.cursorSpeed)
+        let outDy = Float(dy * gain * tuning.cursorSpeed)
         delegate?.gestureTranslator(self, didProduce: .cursorMove(dx: outDx, dy: outDy))
     }
 
@@ -347,8 +353,8 @@ final class GestureTranslator: NSObject {
             if rawDy == 0 { return }
             let speed = abs(velocity.y)
             let gain = scrollAcceleration.scale(speed)
-            let sign: CGFloat = scrollInverted ? -1.0 : 1.0
-            let dy = Float(rawDy * gain * scrollSpeedMultiplier * sign)
+            let sign: CGFloat = tuning.scrollInverted ? -1.0 : 1.0
+            let dy = Float(rawDy * gain * tuning.scrollSpeed * sign)
             let phase: NormalizedInput.ScrollPhase = didEmitScrollBegan ? .changed : .began
             didEmitScrollBegan = true
             delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: dy, phase: phase))
@@ -413,8 +419,8 @@ final class GestureTranslator: NSObject {
         }
         let rawDy = momentumVelocity * dt
         let gain = scrollAcceleration.scale(abs(momentumVelocity))
-        let sign: CGFloat = scrollInverted ? -1.0 : 1.0
-        let dy = Float(rawDy * gain * scrollSpeedMultiplier * sign)
+        let sign: CGFloat = tuning.scrollInverted ? -1.0 : 1.0
+        let dy = Float(rawDy * gain * tuning.scrollSpeed * sign)
         let phase: NormalizedInput.ScrollPhase = didEmitMomentumBegan ? .momentumChanged : .momentumBegan
         didEmitMomentumBegan = true
         delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: dy, phase: phase))

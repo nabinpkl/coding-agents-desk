@@ -77,11 +77,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     private func applySettingsToTranslator() {
-        let store = SettingsStore.shared
-        gestureTranslator.cursorSpeedMultiplier = CGFloat(store.cursorSpeed)
-        gestureTranslator.cursorAccelMultiplier = CGFloat(store.cursorAcceleration)
-        gestureTranslator.scrollSpeedMultiplier = CGFloat(store.scrollSpeed)
-        gestureTranslator.scrollInverted = store.scrollInverted
+        gestureTranslator.tuning = SettingsStore.shared.tuning
     }
 
     override func viewWillAppear(_ animated: Bool) {
