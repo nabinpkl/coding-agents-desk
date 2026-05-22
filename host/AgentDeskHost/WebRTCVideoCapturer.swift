@@ -12,6 +12,15 @@ final class WebRTCVideoCapturer: RTCVideoCapturer, @unchecked Sendable {
     private let frameSource: VideoFrameSource
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "webrtc")
     private var deliveredCount = 0
+    // Serial queue we dispatch deliver() onto from the frameSource callback.
+    // The push refactor removed our AsyncStream buffer (good, ~70 ms latency
+    // win) but accidentally also removed the thread hop the pump Task used
+    // to provide. Without that hop, libwebrtc's frame adaptation runs on
+    // SCStream's sample queue and back-pressures SCStream itself, which
+    // throttles to protect its queueDepth=3 budget. Result: stale frames,
+    // visible cursor lag. This queue restores the isolation (no buffering,
+    // just a thread handoff in microseconds).
+    private let deliverQueue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.webrtc.deliver", qos: .userInteractive)
 
     init(rtcSource: RTCVideoSource, frameSource: VideoFrameSource) {
         self.frameSource = frameSource
@@ -19,13 +28,10 @@ final class WebRTCVideoCapturer: RTCVideoCapturer, @unchecked Sendable {
     }
 
     func start() async throws {
-        // Push model: frameSource invokes our closure directly on whatever
-        // thread it captures on (SCStream's userInteractive sample queue for
-        // production). No AsyncStream buffer, no pump Task, no async hop
-        // between capture and deliver. Frames go from screen to libwebrtc
-        // in ~1 ms of wall clock instead of ~70 ms.
-        try await frameSource.start { [weak self] frame in
-            self?.deliver(frame)
+        try await frameSource.start { [weak self, deliverQueue] frame in
+            deliverQueue.async {
+                self?.deliver(frame)
+            }
         }
         logger.notice("frameSource started; push callback installed")
     }
