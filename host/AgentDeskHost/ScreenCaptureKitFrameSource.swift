@@ -38,7 +38,15 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
         }
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
-        config.pixelFormat = kCVPixelFormatType_32BGRA
+        // YUV full-range NV12 instead of BGRA. libwebrtc otherwise does its
+        // own BGRA -> I420 conversion via libyuv, and that conversion plus
+        // the encoder's range signaling plus the iPhone-side renderer's
+        // offset together drift the black point by 16/255 (~6 percent grey).
+        // Capturing as NV12 full-range hands YUV straight to the encoder
+        // with no intermediate conversion, and colorMatrix tags the data
+        // so the iPhone shader picks the matching coefficients.
+        config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+        config.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
         // 60 fps cap so cursor motion has headroom. ScreenCaptureKit only
         // delivers when the framebuffer actually changes, so this doesn't
         // cost CPU when the screen is static; it just shortens the worst-case
