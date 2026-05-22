@@ -11,12 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchAgentLogger = Logger(subsystem: Config.launchAgentLabel, category: "launchAgent")
     private let signalingLogger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private var signalingServer: PairingSignalingServer?
-    private var activeSessions: Set<DeviceFingerprint> = []
-    private var attemptingSessions: Set<DeviceFingerprint> = []
-    private var activeSignalingChannels: [DeviceFingerprint: SignalingChannel] = [:]
-    private var mediaTransports: [DeviceFingerprint: MediaTransport] = [:]
-    private var iceGraceTimers: [DeviceFingerprint: Task<Void, Never>] = [:]
-    private var inputTasks: [DeviceFingerprint: Task<Void, Never>] = [:]
+    private let sessions = SessionRegistry()
     private let mediaFactory: MediaTransportFactory = MediaStack.makeFactory()
     private let inputDispatcher = InputDispatcher()
     private var pairingSignalSource: DispatchSourceSignal?
@@ -145,38 +140,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleSessionAttemptStarted(_ fingerprint: DeviceFingerprint) {
-        attemptingSessions.insert(fingerprint)
+        sessions.noteAttempt(fingerprint)
         signalingLogger.notice("session attempt started fingerprint=\(fingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
     }
 
     private func handleSessionReady(_ active: ActiveSession, channel: SignalingChannel) {
-        attemptingSessions.remove(active.deviceFingerprint)
-        activeSessions.insert(active.deviceFingerprint)
-        activeSignalingChannels[active.deviceFingerprint] = channel
+        sessions.noteReady(active, channel: channel)
         signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public)")
         startMediaTransport(for: active, channel: channel)
         refreshConnectedState()
     }
 
     private func handleSessionEnded(_ fingerprint: DeviceFingerprint) {
-        attemptingSessions.remove(fingerprint)
-        activeSessions.remove(fingerprint)
-        activeSignalingChannels.removeValue(forKey: fingerprint)
-        iceGraceTimers[fingerprint]?.cancel()
-        iceGraceTimers.removeValue(forKey: fingerprint)
-        inputTasks[fingerprint]?.cancel()
-        inputTasks.removeValue(forKey: fingerprint)
-        if let transport = mediaTransports.removeValue(forKey: fingerprint) {
-            transport.stop()
-        }
+        sessions.endSession(fingerprint)
         signalingLogger.notice("session ended fingerprint=\(fingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
     }
 
     private func startMediaTransport(for active: ActiveSession, channel: SignalingChannel) {
         let transport = mediaFactory.make()
-        mediaTransports[active.deviceFingerprint] = transport
+        sessions.attachTransport(transport, for: active.deviceFingerprint)
         let frameSource = MediaStack.makeFrameSource()
         let fingerprint = active.deviceFingerprint
 
@@ -186,24 +170,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // R9.1+R9.3: forward incoming input bytes to the dispatcher. One task
-        // per session; cleaned up in handleSessionEnded. Dispatcher owns its
-        // own serial queue, so no MainActor hop is needed (and shouldn't be
-        // there: every hop serialized CGEvent.post behind UI work, producing
-        // visible cursor cadence stalls).
-        inputTasks[fingerprint]?.cancel()
+        // R9.1+R9.3: forward incoming input bytes to the dispatcher.
+        // Dispatcher owns its own serial queue so no MainActor hop is
+        // needed; serializing CGEvent.post behind UI work produced
+        // visible cursor cadence stalls.
         let dispatcher = inputDispatcher
         let logger = signalingLogger
-        inputTasks[fingerprint] = Task { [transport, dispatcher, logger] in
-            let decoder = JSONDecoder()
-            for await data in transport.inputEvents {
-                guard let input = try? decoder.decode(NormalizedInput.self, from: data) else {
-                    logger.error("input decode failed; \(data.count, privacy: .public) bytes")
-                    continue
+        sessions.attachInputTask(
+            Task { [transport, dispatcher, logger] in
+                let decoder = JSONDecoder()
+                for await data in transport.inputEvents {
+                    guard let input = try? decoder.decode(NormalizedInput.self, from: data) else {
+                        logger.error("input decode failed; \(data.count, privacy: .public) bytes")
+                        continue
+                    }
+                    dispatcher.dispatch(input)
                 }
-                dispatcher.dispatch(input)
-            }
-        }
+            },
+            for: fingerprint
+        )
 
         Task { [signalingLogger, transport, channel, frameSource] in
             do {
@@ -226,30 +211,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .connecting:
             break
         case .connected:
-            iceGraceTimers[fingerprint]?.cancel()
-            iceGraceTimers.removeValue(forKey: fingerprint)
+            sessions.cancelIceGrace(for: fingerprint)
         case .disconnected:
-            iceGraceTimers[fingerprint]?.cancel()
-            iceGraceTimers[fingerprint] = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                guard !Task.isCancelled else { return }
-                self?.terminateMediaSession(for: fingerprint, reason: "ice-disconnected-grace")
-            }
+            sessions.scheduleIceGrace(
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    self?.terminateMediaSession(for: fingerprint, reason: "ice-disconnected-grace")
+                },
+                for: fingerprint
+            )
         case .failed, .closed:
-            iceGraceTimers[fingerprint]?.cancel()
-            iceGraceTimers.removeValue(forKey: fingerprint)
+            sessions.cancelIceGrace(for: fingerprint)
             terminateMediaSession(for: fingerprint, reason: "media-\(state)")
         }
     }
 
     private func terminateMediaSession(for fingerprint: DeviceFingerprint, reason: String) {
         signalingLogger.notice("terminating session reason=\(reason, privacy: .public) fingerprint=\(fingerprint.rawValue, privacy: .public)")
-        if let channel = activeSignalingChannels[fingerprint] as? WebSocketSignalingChannel {
+        if let channel = sessions.signalingChannel(for: fingerprint) as? WebSocketSignalingChannel {
             channel.close()
         }
-        // connectionDidClose on the NWConnection will fire sessionEndedHandler
-        // which clears activeSessions/activeSignalingChannels and stops the
-        // mediaTransport via handleSessionEnded.
+        // connectionDidClose on the NWConnection fires sessionEndedHandler
+        // which calls sessions.endSession via handleSessionEnded, tearing
+        // down transport / tasks / timers in one place.
     }
 
     private func startPairing() {
@@ -286,10 +271,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             popoverController.render(.idle)
             return
         }
-        if activeSessions.contains(record.deviceFingerprint) {
+        if sessions.isActive(record.deviceFingerprint) {
             applyIcon(symbolName: "dot.radiowaves.left.and.right", accessibilityDescription: "AgentDesk connected")
             popoverController.render(.connected(record))
-        } else if attemptingSessions.contains(record.deviceFingerprint) {
+        } else if sessions.isAttempting(record.deviceFingerprint) {
             applyIcon(symbolName: "antenna.radiowaves.left.and.right", accessibilityDescription: "AgentDesk connecting")
             popoverController.render(.connecting(record))
         } else {

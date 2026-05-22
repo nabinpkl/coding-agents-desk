@@ -34,6 +34,7 @@
 		A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */; };
 		A0000000000000000000021B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011B /* Assets.xcassets */; };
 		A0000000000000000000021C /* InputDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011C /* InputDispatcher.swift */; };
+		A00000000000000000000231 /* SessionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011D /* SessionRegistry.swift */; };
 		A0000000000000000000022D /* SignalingFrameRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000116 /* SignalingFrameRouting.swift */; };
 		A0000000000000000000022E /* SignalingFrameRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000124 /* SignalingFrameRoutingTests.swift */; };
 		A00000000000000000000401 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000501 /* WebRTC */; };
@@ -82,6 +83,7 @@
 		A00000000000000000000119 /* TestPatternFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestPatternFrameSource.swift; sourceTree = "<group>"; };
 		A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureKitFrameSource.swift; sourceTree = "<group>"; };
 		A0000000000000000000011C /* InputDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcher.swift; sourceTree = "<group>"; };
+		A0000000000000000000011D /* SessionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRegistry.swift; sourceTree = "<group>"; };
 		A00000000000000000000124 /* SignalingFrameRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingFrameRoutingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000125 /* InputDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcherTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
@@ -157,6 +159,7 @@
 				A00000000000000000000119 /* TestPatternFrameSource.swift */,
 				A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */,
 				A0000000000000000000011C /* InputDispatcher.swift */,
+				A0000000000000000000011D /* SessionRegistry.swift */,
 				A0000000000000000000011B /* Assets.xcassets */,
 				A0000000000000000000010C /* Info.plist */,
 			);
@@ -324,6 +327,7 @@
 				A00000000000000000000219 /* TestPatternFrameSource.swift in Sources */,
 				A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */,
 				A0000000000000000000021C /* InputDispatcher.swift in Sources */,
+				A00000000000000000000231 /* SessionRegistry.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
