@@ -32,20 +32,17 @@ final class InstantPanGestureRecognizer: UIPanGestureRecognizer {
     }
 }
 
-// Cursor trackpad recognizer. Reads UIEvent.coalescedTouches(for:) so we
-// can emit cursor deltas at the device's full touch sample rate (up to
-// 120Hz on ProMotion) rather than UIPanGestureRecognizer's once-per-frame
-// action callback. More events with smaller per-event deltas = smoother
-// cursor motion on the Mac side (less "step by step" feel).
+// Cursor trackpad recognizer. Reads UIEvent.coalescedTouches(for:) to pick
+// up every hardware touch sample (up to 120Hz on ProMotion), but emits at
+// the display refresh cadence via CADisplayLink rather than once per
+// sample. Each tick sums all coalesced deltas since the previous tick
+// and computes velocity as totalDelta / frameDt, so the acceleration
+// curve sees a stable input instead of being whipsawed by per-sample dt
+// jitter (raw inter-sample dt varies 1-8ms inside a single UIEvent, which
+// previously produced visibly uneven cursor steps even on a smooth drag).
 //
-// Slop: 3pt cumulative from touchDown before any delta is emitted, to
-// filter quick taps and orthogonal finger tremor. Above ~1pt sub-pixel
-// jitter so a still finger doesn't move the cursor, below the system
-// default ~10pt so intentional 3-10pt micro-drags still register.
-//
-// Emits via a closure so the gesture translator doesn't have to receive
-// sub-frame data through UIPan's action callback (which only fires once
-// per frame).
+// Slop: 3pt cumulative from touchDown before any delta is accumulated, to
+// filter quick taps and orthogonal finger tremor.
 final class CoalescingTrackpadGestureRecognizer: UIPanGestureRecognizer {
     typealias SampleHandler = @MainActor (_ dx: CGFloat, _ dy: CGFloat, _ velocity: CGFloat) -> Void
 
@@ -54,8 +51,14 @@ final class CoalescingTrackpadGestureRecognizer: UIPanGestureRecognizer {
 
     private var startLocation: CGPoint?
     private var lastLocation: CGPoint?
-    private var lastTimestamp: TimeInterval?
     private var didCrossSlop = false
+
+    // Per-frame accumulator. Coalesced samples add into this; the display
+    // link drains it on each tick.
+    private var pendingDx: CGFloat = 0
+    private var pendingDy: CGFloat = 0
+    private var displayLink: CADisplayLink?
+    private var lastTickTime: CFTimeInterval = 0
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
@@ -63,8 +66,10 @@ final class CoalescingTrackpadGestureRecognizer: UIPanGestureRecognizer {
         let p = touch.location(in: view)
         startLocation = p
         lastLocation = p
-        lastTimestamp = touch.timestamp
         didCrossSlop = false
+        pendingDx = 0
+        pendingDy = 0
+        startDisplayLink()
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
@@ -78,8 +83,8 @@ final class CoalescingTrackpadGestureRecognizer: UIPanGestureRecognizer {
             let p = sample.location(in: view)
 
             // Gate on cumulative distance from touchDown, not from the
-            // last emitted sample, so we don't accidentally swallow large
-            // first deltas just because slop hasn't passed yet.
+            // last accumulated sample, so we don't swallow a large first
+            // delta just because slop hasn't passed yet.
             if !didCrossSlop {
                 let cumulative = hypot(p.x - start.x, p.y - start.y)
                 if cumulative >= Self.slopThreshold {
@@ -87,38 +92,80 @@ final class CoalescingTrackpadGestureRecognizer: UIPanGestureRecognizer {
                     if state == .possible { state = .began }
                 } else {
                     lastLocation = p
-                    lastTimestamp = sample.timestamp
                     continue
                 }
             } else if state == .began {
                 state = .changed
             }
 
-            if let lastP = lastLocation, let lastTs = lastTimestamp {
-                let dx = p.x - lastP.x
-                let dy = p.y - lastP.y
-                if dx != 0 || dy != 0 {
-                    // Per-sample velocity (pts/sec) from the actual touch
-                    // timestamps gives the acceleration curve a finer
-                    // input than UIPan.velocity, which is exponentially
-                    // smoothed by UIKit and lags reality.
-                    let dt = max(sample.timestamp - lastTs, 0.001)
-                    let speed = hypot(dx, dy) / CGFloat(dt)
-                    onSampleDelta?(dx, dy, speed)
-                }
+            if let lastP = lastLocation {
+                pendingDx += p.x - lastP.x
+                pendingDy += p.y - lastP.y
             }
-
             lastLocation = p
-            lastTimestamp = sample.timestamp
         }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesEnded(touches, with: event)
+        flushPending()
+        stopDisplayLink()
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesCancelled(touches, with: event)
+        flushPending()
+        stopDisplayLink()
     }
 
     override func reset() {
         super.reset()
         startLocation = nil
         lastLocation = nil
-        lastTimestamp = nil
         didCrossSlop = false
+        pendingDx = 0
+        pendingDy = 0
+        stopDisplayLink()
+    }
+
+    private func startDisplayLink() {
+        stopDisplayLink()
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        link.add(to: .main, forMode: .common)
+        lastTickTime = CACurrentMediaTime()
+        displayLink = link
+    }
+
+    private func stopDisplayLink() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        let now = CACurrentMediaTime()
+        let dt = max(now - lastTickTime, 0.001)
+        lastTickTime = now
+        emitPending(dt: dt)
+    }
+
+    private func flushPending() {
+        // Drain any motion that arrived between the last tick and touch-up
+        // so a short flick's tail isn't dropped. dt uses wall-clock since
+        // the last tick, matching how a tick would have computed velocity.
+        let now = CACurrentMediaTime()
+        let dt = max(now - lastTickTime, 0.001)
+        lastTickTime = now
+        emitPending(dt: dt)
+    }
+
+    private func emitPending(dt: CFTimeInterval) {
+        if pendingDx == 0 && pendingDy == 0 { return }
+        let dx = pendingDx
+        let dy = pendingDy
+        pendingDx = 0
+        pendingDy = 0
+        let speed = hypot(dx, dy) / CGFloat(dt)
+        onSampleDelta?(dx, dy, speed)
     }
 }
 
