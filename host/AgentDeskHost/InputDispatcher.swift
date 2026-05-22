@@ -91,26 +91,19 @@ final class InputDispatcher: @unchecked Sendable {
         let current = currentLocation()
         let raw = CGPoint(x: current.x + dx, y: current.y + dy)
         let next = clamp(raw, to: displayBoundsProvider())
-        // Use the applied delta (post-clamp) so the relative-motion fields
-        // agree with the resulting position when we hit a display edge.
-        let appliedDx = next.x - current.x
-        let appliedDy = next.y - current.y
+        // Only mouseCursorPosition drives the visible cursor when set this
+        // way; macOS pointer acceleration runs in the HID layer below
+        // CGEvent and can't be invoked from userspace injection. Earlier
+        // iterations also wrote kCGMouseEventDeltaX/Y hoping the OS curve
+        // would shape the motion, but those fields are inert once we set
+        // position, so the client-side curve in GestureTranslator is the
+        // only one that matters.
         guard let event = CGEvent(
             mouseEventSource: cursorEventSource,
             mouseType: .mouseMoved,
             mouseCursorPosition: next,
             mouseButton: .left
         ) else { return }
-        // Setting kCGMouseEventDeltaX/Y routes the event through the macOS
-        // pointer-acceleration pipeline, so the user's "Tracking speed"
-        // preference shapes the curve. Without these fields, posting only
-        // mouseCursorPosition warps the cursor with no system curve, which
-        // is why a per-event accel multiplier on the iPhone side felt like
-        // it was fighting the OS (because it was).
-        event.setIntegerValueField(.mouseEventDeltaX, value: Int64(appliedDx.rounded()))
-        event.setIntegerValueField(.mouseEventDeltaY, value: Int64(appliedDy.rounded()))
-        event.setDoubleValueField(.mouseEventDeltaX, value: Double(appliedDx))
-        event.setDoubleValueField(.mouseEventDeltaY, value: Double(appliedDy))
         eventPoster(event)
     }
 
