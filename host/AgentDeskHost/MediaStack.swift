@@ -15,9 +15,9 @@ enum MediaStack {
     static func makeFactory() -> MediaTransportFactory {
         let codecs: MediaCodecPreferences
         switch ProcessInfo.processInfo.environment["AGENTDESK_CODEC"]?.lowercased() {
-        case "vp9":  codecs = .vp9First
+        case "h264": codecs = .h264Only
         case "av1":  codecs = .av1First
-        default:     codecs = .h264Only
+        default:     codecs = .vp9First
         }
         let tuning = SenderTuning.fromEnvironment()
         return LibWebRTCTransportFactory(codecs: codecs, tuning: tuning)

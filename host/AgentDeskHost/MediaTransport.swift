@@ -76,10 +76,14 @@ struct SenderTuning: Equatable {
     }
 
     // The current shipping defaults (commit history shows how we arrived
-    // here). Any env-var overrides below replace individual fields.
+    // here). Paired with codecs=.vp9First in MediaStack: VP9's screen-content
+    // mode handles block-skip on static text, so maintainResolution can drop
+    // fps under pressure without losing visual quality. With H.264 this
+    // combination caused text flicker; with VP9 it's the right tradeoff.
+    // Any env-var override in fromEnvironment() replaces individual fields.
     static let `default` = SenderTuning(
         screencast: true,
-        degradationPreference: .disabled,
+        degradationPreference: .maintainResolution,
         maxBitrateKbps: 8_000,
         minBitrateKbps: 2_000,
         maxFramerate: 30,
