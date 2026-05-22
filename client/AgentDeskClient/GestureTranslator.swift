@@ -5,10 +5,18 @@ import UIKit
 // zone and emits NormalizedInput to its delegate. Only cursorMove and
 // click(.left) are produced in R9; two-finger and modifier-arm slots are
 // reserved on the enum but not wired here yet.
+//
+// File layout:
+//   MARK: Recognizers       — UIKit gesture subclasses (Instant, Coalescing)
+//   MARK: Tuning            — GestureTuning value type
+//   MARK: Acceleration      — velocity-to-gain curves
+//   MARK: Translator        — the main class that wires it all together
 
 protocol GestureTranslatorDelegate: AnyObject {
     @MainActor func gestureTranslator(_ translator: GestureTranslator, didProduce input: NormalizedInput)
 }
+
+// MARK: - Recognizers
 
 // UIPanGestureRecognizer waits ~10 points of finger travel before recognizing.
 // That feels like "I have to press into the strip to start scrolling" on the
@@ -169,6 +177,8 @@ final class CoalescingTrackpadGestureRecognizer: UIPanGestureRecognizer {
     }
 }
 
+// MARK: - Acceleration
+
 // Acceleration curve over the iPhone's hardware touch velocity (points per
 // second from UIPanGestureRecognizer.velocity). Slow drags keep a small
 // floor so precision still works; fast flicks multiply much more so the
@@ -208,6 +218,8 @@ struct GestureAcceleration: Sendable {
     }
 }
 
+// MARK: - Tuning
+
 // Bundle of user-tunable knobs that affect emitted input. Driven by
 // SettingsViewController via SettingsStore; PairingViewController copies
 // the whole struct onto the translator on each settings change.
@@ -222,6 +234,8 @@ struct GestureTuning: Equatable, Sendable {
 
     static let `default` = GestureTuning()
 }
+
+// MARK: - Translator
 
 @MainActor
 final class GestureTranslator: NSObject {
