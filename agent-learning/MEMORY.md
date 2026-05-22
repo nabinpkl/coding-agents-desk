@@ -1,1 +1,2 @@
 - [libwebrtc issue when screen-share from Mac to iPhone](libwebrtc-issue-when-screen-share-from-mac-to-iphone.md) — RTCVideoSource/RTCVideoTrack/etc. as locals get deallocated silently; renderer/capturer stops without errors. Retain on self.
+- [Cursor stepping on macOS CGEvent injection](cursor-stepping-on-macos-cgevent-injection.md) — visible "step by step" cursor when posting CGEvents from iPhone trackpad. Two real causes (per-sample velocity jitter, MainActor-serialized post) plus the kCGMouseEventDeltaX/Y "use OS accel" myth.
