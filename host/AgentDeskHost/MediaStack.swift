@@ -6,8 +6,21 @@ import Foundation
 // R8.6.3+.
 
 enum MediaStack {
+    // Codec selection is one-line swap here OR via env var so you can
+    // A/B without rebuild. Recognized values for AGENTDESK_CODEC:
+    //   h264 (default) | vp9 | av1
+    // Sender tuning (degradationPreference, bitrate ceilings, BWE seed,
+    // screencast flag) is read from AGENTDESK_TUNING_* env vars; see
+    // SenderTuning.fromEnvironment() for the field list.
     static func makeFactory() -> MediaTransportFactory {
-        LibWebRTCTransportFactory(codecs: .h264Only)
+        let codecs: MediaCodecPreferences
+        switch ProcessInfo.processInfo.environment["AGENTDESK_CODEC"]?.lowercased() {
+        case "vp9":  codecs = .vp9First
+        case "av1":  codecs = .av1First
+        default:     codecs = .h264Only
+        }
+        let tuning = SenderTuning.fromEnvironment()
+        return LibWebRTCTransportFactory(codecs: codecs, tuning: tuning)
     }
 
     // R8.6.5 swaps the default from TestPatternFrameSource to

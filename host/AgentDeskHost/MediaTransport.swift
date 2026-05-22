@@ -51,6 +51,62 @@ struct MediaCodecPreferences: Equatable {
     }
 
     static let h264Only = MediaCodecPreferences(preferred: [.h264])
+    static let vp9First = MediaCodecPreferences(preferred: [.vp9, .h264])
+    static let av1First = MediaCodecPreferences(preferred: [.av1, .vp9, .h264])
+}
+
+// Sender-side tuning knobs. All previously hardcoded inside
+// LibWebRTCMediaTransport; lifted here so MediaStack can rebuild them
+// from env vars at startup and you can A/B without recompiling.
+struct SenderTuning: Equatable {
+    var screencast: Bool
+    var degradationPreference: DegradationPreference
+    var maxBitrateKbps: Int
+    var minBitrateKbps: Int
+    var maxFramerate: Int
+    var bweMinKbps: Int
+    var bweStartKbps: Int
+    var bweMaxKbps: Int
+
+    enum DegradationPreference: String, Equatable {
+        case disabled
+        case maintainFramerate
+        case maintainResolution
+        case balanced
+    }
+
+    // The current shipping defaults (commit history shows how we arrived
+    // here). Any env-var overrides below replace individual fields.
+    static let `default` = SenderTuning(
+        screencast: true,
+        degradationPreference: .disabled,
+        maxBitrateKbps: 8_000,
+        minBitrateKbps: 2_000,
+        maxFramerate: 30,
+        bweMinKbps: 2_000,
+        bweStartKbps: 6_000,
+        bweMaxKbps: 8_000
+    )
+
+    // Reads AGENTDESK_TUNING_<FIELD> env vars over the default. Examples:
+    //   AGENTDESK_TUNING_DEGRADATION=maintainResolution
+    //   AGENTDESK_TUNING_MAX_BITRATE_KBPS=12000
+    //   AGENTDESK_TUNING_SCREENCAST=0
+    // Leaves fields untouched when the env var is absent.
+    static func fromEnvironment() -> SenderTuning {
+        var t = SenderTuning.default
+        let env = ProcessInfo.processInfo.environment
+        if let v = env["AGENTDESK_TUNING_SCREENCAST"] { t.screencast = (v == "1") }
+        if let v = env["AGENTDESK_TUNING_DEGRADATION"],
+           let dp = DegradationPreference(rawValue: v) { t.degradationPreference = dp }
+        if let v = env["AGENTDESK_TUNING_MAX_BITRATE_KBPS"], let n = Int(v) { t.maxBitrateKbps = n }
+        if let v = env["AGENTDESK_TUNING_MIN_BITRATE_KBPS"], let n = Int(v) { t.minBitrateKbps = n }
+        if let v = env["AGENTDESK_TUNING_MAX_FPS"], let n = Int(v) { t.maxFramerate = n }
+        if let v = env["AGENTDESK_TUNING_BWE_MIN_KBPS"], let n = Int(v) { t.bweMinKbps = n }
+        if let v = env["AGENTDESK_TUNING_BWE_START_KBPS"], let n = Int(v) { t.bweStartKbps = n }
+        if let v = env["AGENTDESK_TUNING_BWE_MAX_KBPS"], let n = Int(v) { t.bweMaxKbps = n }
+        return t
+    }
 }
 
 enum MediaTransportError: Error {

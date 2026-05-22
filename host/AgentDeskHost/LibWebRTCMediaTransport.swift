@@ -9,10 +9,12 @@ import os
 
 final class LibWebRTCTransportFactory: MediaTransportFactory {
     let codecs: MediaCodecPreferences
+    let tuning: SenderTuning
     private let factory: RTCPeerConnectionFactory
 
-    init(codecs: MediaCodecPreferences) {
+    init(codecs: MediaCodecPreferences, tuning: SenderTuning) {
         self.codecs = codecs
+        self.tuning = tuning
         self.factory = Self.sharedFactory
     }
 
@@ -30,7 +32,7 @@ final class LibWebRTCTransportFactory: MediaTransportFactory {
     }()
 
     func make() -> MediaTransport {
-        LibWebRTCMediaTransport(factory: factory, codecs: codecs)
+        LibWebRTCMediaTransport(factory: factory, codecs: codecs, tuning: tuning)
     }
 }
 
@@ -41,6 +43,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "webrtc")
     private let factory: RTCPeerConnectionFactory
     private let codecs: MediaCodecPreferences
+    private let tuning: SenderTuning
     private var peerConnection: RTCPeerConnection?
     private var capturer: WebRTCVideoCapturer?
     // RTCVideoCapturer.delegate is weak in libwebrtc, so this video source
@@ -54,9 +57,10 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     private var inboundTask: Task<Void, Never>?
     private var role: MediaTransportRole = .offerer
 
-    init(factory: RTCPeerConnectionFactory, codecs: MediaCodecPreferences) {
+    init(factory: RTCPeerConnectionFactory, codecs: MediaCodecPreferences, tuning: SenderTuning) {
         self.factory = factory
         self.codecs = codecs
+        self.tuning = tuning
         var continuation: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { continuation = $0 }
         self.stateContinuation = continuation
@@ -87,38 +91,27 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         stateContinuation.yield(.connecting)
 
         if let videoSource {
-            // forScreenCast:true sets is_screencast() on the underlying source.
-            // libwebrtc's encoder reads that flag to engage screen-content
-            // optimizations: longer GOPs, no temporal denoising, more
-            // aggressive block-skip for static regions, rate control tuned
-            // for the static-text-plus-bursty-motion pattern of a desktop.
-            // For VP9 (when we negotiate it later) this is the gate that
-            // enables intra-block copy.
-            let rtcSource = factory.videoSource(forScreenCast: true)
+            let rtcSource = factory.videoSource(forScreenCast: tuning.screencast)
             self.rtcVideoSource = rtcSource
             let capturer = WebRTCVideoCapturer(rtcSource: rtcSource, frameSource: videoSource)
             self.capturer = capturer
             let track = factory.videoTrack(with: rtcSource, trackId: "video0")
             self.videoTrack = track
-            // RTCMediaStreamTrack.contentHint is not exposed in stasel/WebRTC's
-            // binary headers in this version, so we can't directly enable the
-            // encoder's screen-content mode. The degradationPreference and
-            // bitrate knobs below give us full-resolution sharp output without
-            // it; revisit if we move to a libwebrtc build that exposes it.
             if let sender = pc.add(track, streamIds: ["stream0"]) {
                 self.videoSender = sender
                 configureSenderForScreenShare(sender)
             }
-            // Override libwebrtc's Google Congestion Control initial estimate.
-                // GCC defaults to ~600 kbps and ramps up over many seconds,
-            // which makes the encoder start in compromise mode (drops frames
-            // to fit the low estimate). We own the wire (loopback or Tailnet),
-            // so seed it with 6 Mbps and a 2 Mbps floor immediately.
+            applyCodecPreferences(on: pc)
+            // Seed libwebrtc's Google Congestion Control bandwidth estimator
+            // with our tuning values. Default GCC starts at ~600 kbps and
+            // ramps slowly; on a wire we own (loopback or Tailnet) the encoder
+            // shouldn't start in compromise mode.
             pc.setBweMinBitrateBps(
-                NSNumber(value: 2_000_000),
-                currentBitrateBps: NSNumber(value: 6_000_000),
-                maxBitrateBps: NSNumber(value: 8_000_000)
+                NSNumber(value: tuning.bweMinKbps * 1000),
+                currentBitrateBps: NSNumber(value: tuning.bweStartKbps * 1000),
+                maxBitrateBps: NSNumber(value: tuning.bweMaxKbps * 1000)
             )
+            logger.notice("tuning applied: codecs=\(self.codecs.preferred.map(\.rawValue).joined(separator: ","), privacy: .public) screencast=\(self.tuning.screencast, privacy: .public) degradation=\(self.tuning.degradationPreference.rawValue, privacy: .public) bwe=\(self.tuning.bweStartKbps, privacy: .public)kbps maxBitrate=\(self.tuning.maxBitrateKbps, privacy: .public)kbps")
             try await capturer.start()
         }
 
@@ -147,25 +140,68 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         stateContinuation.finish()
     }
 
-    // Tune the outgoing video sender for crisp text AND smooth mouse motion.
-    // degradationPreference=disabled tells libwebrtc never to drop resolution
-    // OR framerate to fit bandwidth/CPU; it sends every frame at full size.
-    // Safe on loopback/Tailnet where we own the wire; the cost is artifacts
-    // rather than graceful downscale if the wire genuinely can't keep up.
-    //
-    // maxBitrateBps lifts the ~2.5 Mbps default ceiling so 1512x982 H.264 has
-    // room to ramp; minBitrateBps prevents GCC from starving the encoder at
-    // session start.
+    // Tune the outgoing video sender from the SenderTuning value. Every knob
+    // here is configurable; see SenderTuning.fromEnvironment() for the env
+    // vars that override individual fields.
     private func configureSenderForScreenShare(_ sender: RTCRtpSender) {
         let params = sender.parameters
-        params.degradationPreference = NSNumber(value: RTCDegradationPreference.disabled.rawValue)
+        params.degradationPreference = NSNumber(value: degradationRaw(tuning.degradationPreference))
         for encoding in params.encodings {
-            encoding.maxBitrateBps = NSNumber(value: 8_000_000)
-            encoding.minBitrateBps = NSNumber(value: 2_000_000)
-            encoding.maxFramerate = NSNumber(value: 30)
+            encoding.maxBitrateBps = NSNumber(value: tuning.maxBitrateKbps * 1000)
+            encoding.minBitrateBps = NSNumber(value: tuning.minBitrateKbps * 1000)
+            encoding.maxFramerate = NSNumber(value: tuning.maxFramerate)
         }
         sender.parameters = params
-        logger.notice("sender tuned for screen share: maxBitrate=8Mbps degradationPreference=disabled")
+    }
+
+    private func degradationRaw(_ pref: SenderTuning.DegradationPreference) -> Int {
+        switch pref {
+        case .disabled:           return RTCDegradationPreference.disabled.rawValue
+        case .maintainFramerate:  return RTCDegradationPreference.maintainFramerate.rawValue
+        case .maintainResolution: return RTCDegradationPreference.maintainResolution.rawValue
+        case .balanced:           return RTCDegradationPreference.balanced.rawValue
+        }
+    }
+
+    // Reorder the video transceiver's codec list so libwebrtc negotiates our
+    // preferred codecs first. Without this call the offer SDP lists codecs in
+    // libwebrtc's default order (typically H.264 first) and our preference
+    // value is theatre. With it, MediaStack flipping codecs=.vp9First in one
+    // line is enough to actually negotiate VP9.
+    private func applyCodecPreferences(on pc: RTCPeerConnection) {
+        let wantedNames = codecs.preferred.map { codec -> String in
+            switch codec {
+            case .h264: return "H264"
+            case .h265: return "H265"
+            case .vp8:  return "VP8"
+            case .vp9:  return "VP9"
+            case .av1:  return "AV1"
+            }
+        }
+        let capabilities = factory.rtpSenderCapabilities(forKind: kRTCMediaStreamTrackKindVideo)
+        let availableByName = Dictionary(grouping: capabilities.codecs, by: { $0.name.uppercased() })
+        var ordered: [RTCRtpCodecCapability] = []
+        for name in wantedNames {
+            if let bucket = availableByName[name.uppercased()] {
+                ordered.append(contentsOf: bucket)
+            }
+        }
+        // Append any remaining codecs (RTX, FEC, fallbacks) so libwebrtc still
+        // has its plumbing payloads available.
+        for codec in capabilities.codecs where !ordered.contains(where: { $0 === codec }) {
+            ordered.append(codec)
+        }
+        guard let transceiver = pc.transceivers.first(where: { $0.mediaType == .video }) else {
+            logger.error("applyCodecPreferences: no video transceiver found")
+            return
+        }
+        do {
+            try transceiver.setCodecPreferences(ordered)
+            let pickedNames = ordered.prefix(wantedNames.count).map(\.name).joined(separator: ",")
+            logger.notice("codec preferences set: \(pickedNames, privacy: .public)")
+        } catch {
+            logger.error("setCodecPreferences failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     private func sendOffer() async throws {
