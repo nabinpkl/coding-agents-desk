@@ -87,7 +87,14 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         stateContinuation.yield(.connecting)
 
         if let videoSource {
-            let rtcSource = factory.videoSource()
+            // forScreenCast:true sets is_screencast() on the underlying source.
+            // libwebrtc's encoder reads that flag to engage screen-content
+            // optimizations: longer GOPs, no temporal denoising, more
+            // aggressive block-skip for static regions, rate control tuned
+            // for the static-text-plus-bursty-motion pattern of a desktop.
+            // For VP9 (when we negotiate it later) this is the gate that
+            // enables intra-block copy.
+            let rtcSource = factory.videoSource(forScreenCast: true)
             self.rtcVideoSource = rtcSource
             let capturer = WebRTCVideoCapturer(rtcSource: rtcSource, frameSource: videoSource)
             self.capturer = capturer
