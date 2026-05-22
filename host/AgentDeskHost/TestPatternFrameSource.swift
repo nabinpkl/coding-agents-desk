@@ -7,22 +7,16 @@ import Foundation
 // in R8.6.5 by way of MediaStack.makeFrameSource().
 
 final class TestPatternFrameSource: VideoFrameSource, @unchecked Sendable {
-    let frames: AsyncStream<CapturedVideoFrame>
-    private let continuation: AsyncStream<CapturedVideoFrame>.Continuation
     private var timerTask: Task<Void, Never>?
     private let width = 1280
     private let height = 720
     private let frameIntervalNs: UInt64 = 33_333_333  // 30 Hz
 
-    init() {
-        var continuation: AsyncStream<CapturedVideoFrame>.Continuation!
-        frames = AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation = $0 }
-        self.continuation = continuation
-    }
+    init() {}
 
-    func start() async throws {
+    func start(onFrame: @escaping @Sendable (CapturedVideoFrame) -> Void) async throws {
         timerTask?.cancel()
-        timerTask = Task { [weak self] in
+        timerTask = Task { [weak self, onFrame] in
             var frameIndex: UInt64 = 0
             let startNs = DispatchTime.now().uptimeNanoseconds
             while !Task.isCancelled {
@@ -33,7 +27,7 @@ final class TestPatternFrameSource: VideoFrameSource, @unchecked Sendable {
                         presentationTimeNs: Int64(nowNs),
                         rotation: ._0
                     )
-                    self?.continuation.yield(frame)
+                    onFrame(frame)
                 }
                 frameIndex &+= 1
                 try? await Task.sleep(nanoseconds: self?.frameIntervalNs ?? 33_333_333)
@@ -44,7 +38,6 @@ final class TestPatternFrameSource: VideoFrameSource, @unchecked Sendable {
     func stop() {
         timerTask?.cancel()
         timerTask = nil
-        continuation.finish()
     }
 
     private func makePixelBuffer(frameIndex: UInt64) -> CVPixelBuffer? {

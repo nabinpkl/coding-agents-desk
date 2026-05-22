@@ -7,10 +7,15 @@ import Foundation
 // native cadence; the WebRTC layer pulls them through a
 // ScreenCaptureKitVideoCapturer that wraps RTCCVPixelBuffer.
 
+// Push-callback model. The previous AsyncStream design buffered up to 2
+// frames in our own stream plus required a pump Task to await them, which
+// added ~70 ms of latency before libwebrtc ever saw a captured frame. The
+// onFrame closure is invoked directly from whatever thread the underlying
+// capture API delivers on (SCStream's sample queue for the production
+// impl), so there is no buffer of our own between capture and encode.
 protocol VideoFrameSource: AnyObject, Sendable {
-    func start() async throws
+    func start(onFrame: @escaping @Sendable (CapturedVideoFrame) -> Void) async throws
     func stop()
-    var frames: AsyncStream<CapturedVideoFrame> { get }
 }
 
 // CVPixelBuffer is a CoreFoundation reference type; we never mutate it

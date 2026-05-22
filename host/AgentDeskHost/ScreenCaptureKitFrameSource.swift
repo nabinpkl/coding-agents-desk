@@ -12,20 +12,20 @@ import os
 // in single-display setups.
 
 final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
-    let frames: AsyncStream<CapturedVideoFrame>
-    private let continuation: AsyncStream<CapturedVideoFrame>.Continuation
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "capture")
     private let sampleQueue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.scstream", qos: .userInteractive)
     private var stream: SCStream?
+    // Set in start() and cleared in stop(). Read from the SCStream sample
+    // queue, written from the start/stop caller — those don't overlap, so
+    // the lack of synchronization is intentional.
+    private var onFrame: (@Sendable (CapturedVideoFrame) -> Void)?
 
     override init() {
-        var continuation: AsyncStream<CapturedVideoFrame>.Continuation!
-        frames = AsyncStream(bufferingPolicy: .bufferingNewest(2)) { continuation = $0 }
-        self.continuation = continuation
         super.init()
     }
 
-    func start() async throws {
+    func start(onFrame: @escaping @Sendable (CapturedVideoFrame) -> Void) async throws {
+        self.onFrame = onFrame
         let content: SCShareableContent
         do {
             content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
@@ -64,7 +64,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
     func stop() {
         let captured = stream
         stream = nil
-        continuation.finish()
+        onFrame = nil
         guard let captured else { return }
         Task {
             do {
@@ -88,14 +88,14 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
             presentationTimeNs: timeNs,
             rotation: ._0
         )
-        continuation.yield(frame)
+        onFrame?(frame)
     }
 
     // MARK: - SCStreamDelegate
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         logger.error("scstream stopped with error: \(String(describing: error), privacy: .public)")
-        continuation.finish()
+        onFrame = nil
     }
 
     // MARK: - Permission helper
