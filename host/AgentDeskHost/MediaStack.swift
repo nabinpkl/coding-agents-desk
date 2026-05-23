@@ -10,10 +10,14 @@ enum MediaStack {
         LibWebRTCTransportFactory(codecs: .h264Only)
     }
 
-    // R8.6.3 wires TestPatternFrameSource so the pipe can be verified
-    // before Screen Recording TCC is granted. R8.6.5 swaps in
-    // ScreenCaptureKitFrameSource.
+    // R8.6.5 swaps the default from TestPatternFrameSource to
+    // ScreenCaptureKitFrameSource. TestPattern is still reachable via
+    // direct instantiation for diagnostics, and the env-var override
+    // below lets a developer flip back without recompiling.
     static func makeFrameSource() -> VideoFrameSource {
-        TestPatternFrameSource()
+        if ProcessInfo.processInfo.environment["AGENTDESK_USE_TEST_PATTERN"] == "1" {
+            return TestPatternFrameSource()
+        }
+        return ScreenCaptureKitFrameSource()
     }
 }

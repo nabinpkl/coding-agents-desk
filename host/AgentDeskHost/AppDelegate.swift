@@ -28,6 +28,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startSignalingServer()
         installPairingSignalHandler()
         refreshConnectedState()
+        if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
+            ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
+        }
     }
 
     private func bootstrapTLSIdentity() {
@@ -85,6 +88,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popoverController.onRevoke = { [weak self] fingerprint in
             try? self?.pairing.revoke(deviceFingerprint: fingerprint)
             self?.refreshConnectedState()
+        }
+        popoverController.onRequestScreenRecording = {
+            ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                NSWorkspace.shared.open(url)
+            }
         }
     }
 
@@ -182,6 +191,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshConnectedState() {
+        if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission()
+            && ProcessInfo.processInfo.environment["AGENTDESK_USE_TEST_PATTERN"] != "1" {
+            applyIcon(symbolName: "exclamationmark.shield", accessibilityDescription: "Screen Recording required")
+            popoverController.render(.screenRecordingDenied)
+            return
+        }
         guard let record = try? pairing.approvedDevices().first else {
             applyIcon(symbolName: "macbook.and.iphone", accessibilityDescription: "AgentDesk idle")
             popoverController.render(.idle)

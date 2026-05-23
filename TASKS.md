@@ -111,7 +111,7 @@ R8.6.1   2026-05-20  committed   ADR-0004 media-transport seams accepted; SPEC u
 R8.6.2   2026-05-20  committed   WebSocketSignalingChannel + SessionConnection + SignalingFrameRouting tests
 R8.6.3   2026-05-20  committed   LibWebRTCMediaTransport host + TestPatternFrameSource + stasel/WebRTC 130.0.0 SPM dep
 R8.6.4   2026-05-20  committed   LibWebRTCMediaTransport client + RTCMTLVideoSink + PairingViewController wiring
-R8.6.5   pending     pending     ScreenCaptureKitFrameSource + TCC handling
+R8.6.5   2026-05-20  committed   ScreenCaptureKitFrameSource + TCC handling + popover screenRecordingDenied state
 R8.6.6   pending     pending     ICE-failure -> paired-disconnected wiring on both ends
 R8.6.7   pending     pending     HITL hello-pixels on-device verification
 R9       pending     pending     Phase 3 captured (S3, #5)

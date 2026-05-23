@@ -8,11 +8,13 @@ enum HostPairingViewState {
     case connecting(PairedDeviceRecord)
     case connected(PairedDeviceRecord)
     case tailscaleRequired
+    case screenRecordingDenied
 }
 
 final class PopoverViewController: NSViewController {
     var onStartPairing: (() -> Void)?
     var onRevoke: ((DeviceFingerprint) -> Void)?
+    var onRequestScreenRecording: (() -> Void)?
 
     private let stack = NSStackView()
     private var connectedFingerprint: DeviceFingerprint?
@@ -78,7 +80,15 @@ final class PopoverViewController: NSViewController {
         case .tailscaleRequired:
             label("Tailscale required", font: .boldSystemFont(ofSize: 16))
             label("Install Tailscale and make this Mac visible on the tailnet.", font: .systemFont(ofSize: 12))
+        case .screenRecordingDenied:
+            label("Screen Recording required", font: .boldSystemFont(ofSize: 16))
+            label("AgentDesk needs Screen Recording to share this Mac's display. Open System Settings, enable AgentDeskHost under Privacy & Security > Screen Recording, then relaunch.", font: .systemFont(ofSize: 12))
+            button(title: "Open System Settings", action: #selector(requestScreenRecording))
         }
+    }
+
+    @objc private func requestScreenRecording() {
+        onRequestScreenRecording?()
     }
 
     @objc private func startPairing() {
