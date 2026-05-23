@@ -65,5 +65,5 @@ pair-iphone:
 
 fresh-install:
     just host-run
-    just client-install
+    just client-reinstall
     just pair-iphone
