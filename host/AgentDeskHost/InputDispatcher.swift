@@ -124,13 +124,31 @@ final class InputDispatcher: @unchecked Sendable {
             postMouseEvent(.leftMouseDown, at: location, button: .left)
             postMouseEvent(.leftMouseUp, at: location, button: .left)
         case .right:
-            postMouseEvent(.rightMouseDown, at: location, button: .right)
-            postMouseEvent(.rightMouseUp, at: location, button: .right)
+            // Without an explicit click state, some macOS text views treat
+            // synthesised rightMouseDown/Up as the start of a right-button
+            // drag and extend the selection on top of the context menu.
+            // Setting state=1 marks both events as a single discrete click
+            // so the OS routes them as "click then release" not "drag".
+            // cursorEventSource carries localEventsSuppressionInterval=0 so
+            // the events don't get swallowed if a user mouse event is near.
+            postClickEvent(.rightMouseDown, at: location, button: .right)
+            postClickEvent(.rightMouseUp, at: location, button: .right)
         case .double:
             // R10.2 territory (double-tap-drag); .double is the synthesised
             // double-click button code, not a separate gesture path yet.
             break
         }
+    }
+
+    private func postClickEvent(_ type: CGEventType, at point: CGPoint, button: CGMouseButton) {
+        guard let event = CGEvent(
+            mouseEventSource: cursorEventSource,
+            mouseType: type,
+            mouseCursorPosition: point,
+            mouseButton: button
+        ) else { return }
+        event.setIntegerValueField(.mouseEventClickState, value: 1)
+        eventPoster(event)
     }
 
     private func postScroll(dx: Float, dy: Float, phase: NormalizedInput.ScrollPhase) {
