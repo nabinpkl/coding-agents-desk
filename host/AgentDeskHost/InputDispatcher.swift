@@ -106,11 +106,7 @@ final class InputDispatcher: @unchecked Sendable {
             wheel1: dyInt,
             wheel2: 0,
             wheel3: 0
-        ) else {
-            logger.error("scroll CGEvent creation returned nil dy=\(dyInt, privacy: .public)")
-            return
-        }
-        logger.notice("scroll dy=\(dyInt, privacy: .public)")
+        ) else { return }
         eventPoster(event)
     }
 

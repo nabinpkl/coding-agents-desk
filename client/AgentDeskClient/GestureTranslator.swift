@@ -1,5 +1,4 @@
 import UIKit
-import os
 
 // R9.2 SPEC §13 module. Owns the UIKit gesture recognizers on the trackpad
 // zone and emits NormalizedInput to its delegate. Only cursorMove and
@@ -50,7 +49,6 @@ final class GestureTranslator: NSObject {
     weak var delegate: GestureTranslatorDelegate?
     private let acceleration: GestureAcceleration
     private let scrollAcceleration: GestureAcceleration
-    private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "input")
     // The pan recognizer reports cumulative translation, but we want
     // deltas-since-last-callback so the receiver can integrate them as
     // relative cursor motion without knowing the trackpad size.
@@ -125,7 +123,6 @@ final class GestureTranslator: NSObject {
         switch state {
         case .began:
             lastScrollTranslation = translation
-            logger.notice("scroll pan began")
         case .changed:
             let rawDy = translation.y - lastScrollTranslation.y
             lastScrollTranslation = translation
