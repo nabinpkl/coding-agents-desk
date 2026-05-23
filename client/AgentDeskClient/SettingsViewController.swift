@@ -13,6 +13,7 @@ final class SettingsViewController: UIViewController {
     private let scrollSpeedSlider = UISlider()
     private let scrollSpeedLabel = UILabel()
     private let scrollDirectionSwitch = UISwitch()
+    private let spacesDirectionSwitch = UISwitch()
     private let accessoryContainerSlider = UISlider()
     private let accessoryContainerLabel = UILabel()
     private let accessoryKeySlider = UISlider()
@@ -47,6 +48,12 @@ final class SettingsViewController: UIViewController {
             switchRow: ("Invert direction", scrollDirectionSwitch)
         )
 
+        let spacesSection = makeSection(
+            title: "Spaces",
+            rows: [],
+            switchRow: ("Invert direction", spacesDirectionSwitch)
+        )
+
         let accessorySection = makeSection(
             title: "Keyboard accessory bar",
             rows: [
@@ -56,7 +63,7 @@ final class SettingsViewController: UIViewController {
             ]
         )
 
-        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, accessorySection])
+        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, spacesSection, accessorySection])
         stack.axis = .vertical
         stack.spacing = 28
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -98,6 +105,7 @@ final class SettingsViewController: UIViewController {
         cursorAccelSlider.addTarget(self, action: #selector(cursorAccelChanged), for: .valueChanged)
         scrollSpeedSlider.addTarget(self, action: #selector(scrollSpeedChanged), for: .valueChanged)
         scrollDirectionSwitch.addTarget(self, action: #selector(scrollDirectionChanged), for: .valueChanged)
+        spacesDirectionSwitch.addTarget(self, action: #selector(spacesDirectionChanged), for: .valueChanged)
 
         // Accessory bar tunings live in points so the slider value maps
         // directly to layout. Ranges chosen to cover "tiny chiclet" to
@@ -123,6 +131,7 @@ final class SettingsViewController: UIViewController {
         cursorAccelSlider.value = Float(store.cursorAcceleration)
         scrollSpeedSlider.value = Float(store.scrollSpeed)
         scrollDirectionSwitch.isOn = store.scrollInverted
+        spacesDirectionSwitch.isOn = store.spacesInverted
         accessoryContainerSlider.value = Float(store.accessoryContainerHeight)
         accessoryKeySlider.value = Float(store.accessoryKeyHeight)
         accessoryGapSlider.value = Float(store.accessoryKeySpacing)
@@ -163,6 +172,10 @@ final class SettingsViewController: UIViewController {
 
     @objc private func scrollDirectionChanged() {
         store.scrollInverted = scrollDirectionSwitch.isOn
+    }
+
+    @objc private func spacesDirectionChanged() {
+        store.spacesInverted = spacesDirectionSwitch.isOn
     }
 
     @objc private func accessoryContainerChanged() {

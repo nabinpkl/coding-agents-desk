@@ -22,6 +22,7 @@ final class SettingsStore: @unchecked Sendable {
         static let cursorAccel = "agentDesk.cursorAcceleration"
         static let scrollSpeed = "agentDesk.scrollSpeed"
         static let scrollInverted = "agentDesk.scrollInverted"
+        static let spacesInverted = "agentDesk.spacesInverted"
         static let accessoryContainerHeight = "agentDesk.accessoryContainerHeight"
         static let accessoryKeyHeight = "agentDesk.accessoryKeyHeight"
         static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
@@ -77,6 +78,21 @@ final class SettingsStore: @unchecked Sendable {
         get { defaults.bool(forKey: Key.scrollInverted) }
         set {
             defaults.set(newValue, forKey: Key.scrollInverted)
+            postChange()
+        }
+    }
+
+    // Default false = native macOS Spaces direction (finger right -> the
+    // Space to the right becomes active, matching what a trackpad-native
+    // 3-finger swipe does). Setting to true inverts the wire-level
+    // progress + velocity sign so a finger-right swipe maps to the
+    // previous Space. Stored as a single bool here; SpacesDotsView reads
+    // it on settings-changed and applies the flip in its emit path so
+    // the host never has to know about user preference.
+    var spacesInverted: Bool {
+        get { defaults.bool(forKey: Key.spacesInverted) }
+        set {
+            defaults.set(newValue, forKey: Key.spacesInverted)
             postChange()
         }
     }

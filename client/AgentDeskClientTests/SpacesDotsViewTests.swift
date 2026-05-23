@@ -121,6 +121,32 @@ struct SpacesDotsViewTests {
         }
     }
 
+    @Test func invertDirectionFlipsSignOnProgressAndVelocity() {
+        // Settings toggle inverts the wire-level direction so a finger-right
+        // swipe maps to the previous Space. Flip happens at emit time on
+        // both progress and velocity; the host never sees the user
+        // preference.
+        let recorder = DotsRecorder()
+        let view = SpacesDotsView()
+        view.delegate = recorder
+        view.invertDirection = true
+
+        view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
+        view.processGesture(
+            state: .changed,
+            translation: CGPoint(x: 80, y: 0),
+            velocity: CGPoint(x: 1200, y: 0),
+            bandWidth: 200
+        )
+
+        if case let .switchSpaceGesture(_, progress, velocityX) = recorder.events[1] {
+            #expect(progress < 0)  // 0.4 -> -0.4
+            #expect(velocityX < 0)  // 1200 -> -1200
+        } else {
+            Issue.record("expected switchSpaceGesture changed")
+        }
+    }
+
     @Test func panCancelledEmitsCancelledFrame() {
         let recorder = DotsRecorder()
         let view = SpacesDotsView()

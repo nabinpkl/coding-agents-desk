@@ -27,6 +27,16 @@ protocol SpacesDotsViewDelegate: AnyObject {
 final class SpacesDotsView: UIView {
     weak var delegate: SpacesDotsViewDelegate?
 
+    // User-configurable inversion of swipe-to-Space direction. False
+    // (default) = natural macOS Spaces direction (finger-right ->
+    // Space to the right becomes active). True = inverted, so the
+    // user can pick whichever feels more intuitive. The flip happens
+    // at emit time on both progress and velocity so the host never
+    // has to know about user preference. PairingViewController reads
+    // SettingsStore.shared.spacesInverted and writes here on settings
+    // change.
+    var invertDirection: Bool = false
+
     private let stack = UIStackView()
     private let feedback = UISelectionFeedbackGenerator()
     private var dotViews: [UIView] = []
@@ -194,8 +204,10 @@ final class SpacesDotsView: UIView {
     }
 
     private func emit(phase: NormalizedInput.SwipePhase, progress: Float, velocityX: Float) {
+        let signedProgress = invertDirection ? -progress : progress
+        let signedVelocityX = invertDirection ? -velocityX : velocityX
         delegate?.spacesDots(self, didProduce: .switchSpaceGesture(
-            phase: phase, progress: progress, velocityX: velocityX
+            phase: phase, progress: signedProgress, velocityX: signedVelocityX
         ))
     }
 
