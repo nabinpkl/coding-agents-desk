@@ -58,6 +58,7 @@
 		A00000000000000000000235 /* SpacesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000120 /* SpacesProvider.swift */; };
 		A00000000000000000000236 /* SpacesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000120 /* SpacesProvider.swift */; };
 		A00000000000000000000237 /* SpacesProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000126 /* SpacesProviderTests.swift */; };
+		A00000000000000000000238 /* SpaceThumbnailProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000127 /* SpaceThumbnailProvider.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -99,6 +100,7 @@
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000122 /* LaunchAgentInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstallerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000123 /* SessionAuthenticatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAuthenticatorTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000127 /* SpaceThumbnailProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceThumbnailProvider.swift; sourceTree = "<group>"; };
 		A00000000000000000000141 /* AgentDeskHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00000000000000000000142 /* AgentDeskHostTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskHostTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -173,6 +175,7 @@
 				A0000000000000000000011E /* KeyCodeMap.swift */,
 				A0000000000000000000011F /* InputChannelServer.swift */,
 				A00000000000000000000120 /* SpacesProvider.swift */,
+				A00000000000000000000127 /* SpaceThumbnailProvider.swift */,
 				A0000000000000000000011B /* Assets.xcassets */,
 				A0000000000000000000010C /* Info.plist */,
 			);
@@ -345,6 +348,7 @@
 				A00000000000000000000232 /* KeyCodeMap.swift in Sources */,
 				A00000000000000000000234 /* InputChannelServer.swift in Sources */,
 				A00000000000000000000235 /* SpacesProvider.swift in Sources */,
+				A00000000000000000000238 /* SpaceThumbnailProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

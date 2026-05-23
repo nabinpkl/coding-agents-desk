@@ -15,6 +15,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let mediaFactory: MediaTransportFactory = MediaStack.makeFactory()
     private let inputDispatcher = InputDispatcher()
     private let spacesProvider = SpacesProvider()
+    private let spaceThumbnailProvider = SpaceThumbnailProvider()
+    private var thumbnailsBroadcastTask: Task<Void, Never>?
+    // ADR-0007: single VideoFrameSource lives for the host process so
+    // the input-channel handler can downcast and call setSourceRect on
+    // it. Was previously constructed per startMediaTransport; lifting
+    // it here doesn't change the SCStream lifecycle (still started in
+    // transport.start, stopped in transport.stop), but lets the viewport
+    // crop survive a transport reattach.
+    private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()
     private var pairingSignalSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -29,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshConnectedState()
         installSpacesSwitchHandler()
         installSpacesChangeObserver()
+        installThumbnailsBroadcast()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
         }
@@ -169,7 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startMediaTransport(for active: ActiveSession, channel: SignalingChannel) {
         let transport = mediaFactory.make()
         sessions.attachTransport(transport, for: active.deviceFingerprint)
-        let frameSource = MediaStack.makeFrameSource()
+        let frameSource = self.frameSource
         let fingerprint = active.deviceFingerprint
 
         Task { [weak self, transport] in
@@ -211,6 +221,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let state = spacesProvider.current() {
             server.pushDesktopState(state)
         }
+        // ADR-0006: clients opt in to thumbnail capture via a
+        // client-config frame. v0 has one client at most so we route
+        // the toggle directly into the shared provider; with multiple
+        // clients we'd OR enable flags across all clients before
+        // touching the provider.
+        //
+        // ADR-0007: the same client-config frame carries the optional
+        // viewport rect. Downcast to RegionalVideoFrameSource at the
+        // edge so the routing here doesn't widen the VideoFrameSource
+        // protocol with a feature only one impl supports. TestPattern
+        // (diagnostic) just doesn't conform; setSourceRect is a no-op
+        // by absence.
+        let provider = spaceThumbnailProvider
+        let regional = frameSource as? RegionalVideoFrameSource
+        server.configHandler = { config in
+            provider.setEnabled(config.thumbnailsEnabled)
+            if let spaceId = config.thumbnailRefresh {
+                provider.forceRefresh(spaceId: spaceId)
+            }
+            if let regional {
+                let rect: CGRect?
+                if let v = config.viewport {
+                    rect = CGRect(x: CGFloat(v.x), y: CGFloat(v.y), width: CGFloat(v.w), height: CGFloat(v.h))
+                } else {
+                    rect = nil
+                }
+                regional.setSourceRect(rect)
+            }
+        }
         let dispatcher = inputDispatcher
         let logger = signalingLogger
         sessions.attachInputTask(
@@ -222,6 +261,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             for: fingerprint
         )
+    }
+
+    // ADR-0006: drains the SpaceThumbnailProvider's emit stream and
+    // fans the latest result out to every active input channel server.
+    // Stays alive for the process lifetime; the provider gates capture
+    // itself based on client-config, so this loop costs nothing when
+    // no client has opted in.
+    private func installThumbnailsBroadcast() {
+        let registry = sessions
+        let provider = spaceThumbnailProvider
+        thumbnailsBroadcastTask?.cancel()
+        thumbnailsBroadcastTask = Task { @MainActor [weak registry, provider] in
+            for await thumbnails in provider.thumbnails {
+                guard let registry else { return }
+                for server in registry.allInputChannelServers() {
+                    server.pushThumbnails(thumbnails)
+                }
+            }
+        }
     }
 
     // R11: NSWorkspace publishes activeSpaceDidChangeNotification on

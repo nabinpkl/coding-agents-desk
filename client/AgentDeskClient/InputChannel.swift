@@ -20,6 +20,16 @@ protocol InputChannel: AnyObject, Sendable {
     // Stream completes when the channel closes. PairingViewController
     // observes this to drive the SpacesDotsView render.
     var desktopStateUpdates: AsyncStream<DesktopState> { get }
+
+    // ADR-0006: host -> client thumbnails-push frames. Keys are
+    // stringified UInt64 Space IDs per the wire shape; values are
+    // base64-encoded JPEGs. PairingViewController decodes the JPEGs
+    // into UIImage on the main thread and applies to ThumbnailStripView.
+    var thumbnailsUpdates: AsyncStream<[String: String]> { get }
+
+    // ADR-0006: client -> host opt-in / force-refresh. Sent on channel
+    // open and on settings change.
+    func sendConfig(_ config: ClientConfig) async throws
 }
 
 enum InputChannelError: Error {
@@ -52,12 +62,20 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
     // into this continuation. Stream finishes when the WS closes.
     private let desktopStateContinuation: AsyncStream<DesktopState>.Continuation
     let desktopStateUpdates: AsyncStream<DesktopState>
+    // ADR-0006: thumbnails ride their own frame so the periodic
+    // refresh cadence does not contaminate the event-driven
+    // DesktopState push path.
+    private let thumbnailsContinuation: AsyncStream<[String: String]>.Continuation
+    let thumbnailsUpdates: AsyncStream<[String: String]>
 
     init(task: URLSessionWebSocketTask) {
         self.task = task
-        var continuation: AsyncStream<DesktopState>.Continuation!
-        self.desktopStateUpdates = AsyncStream { continuation = $0 }
-        self.desktopStateContinuation = continuation
+        var dsCont: AsyncStream<DesktopState>.Continuation!
+        self.desktopStateUpdates = AsyncStream { dsCont = $0 }
+        self.desktopStateContinuation = dsCont
+        var thCont: AsyncStream<[String: String]>.Continuation!
+        self.thumbnailsUpdates = AsyncStream { thCont = $0 }
+        self.thumbnailsContinuation = thCont
         startReceiveLoop()
     }
 
@@ -76,10 +94,26 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
         try await task.send(.string(text))
     }
 
+    // ADR-0006: opt-in toggle and force-refresh request.
+    func sendConfig(_ config: ClientConfig) async throws {
+        guard !closedFlag.isClosed else { throw InputChannelError.notOpen }
+        let data: Data
+        do {
+            data = try encoder.encode(config)
+        } catch {
+            throw InputChannelError.encodeFailed
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw InputChannelError.encodeFailed
+        }
+        try await task.send(.string(text))
+    }
+
     func close() {
         let wasClosed = closedFlag.close()
         guard !wasClosed else { return }
         desktopStateContinuation.finish()
+        thumbnailsContinuation.finish()
         task.cancel(with: .normalClosure, reason: nil)
     }
 
@@ -97,6 +131,7 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
                 } catch {
                     inputLogger.notice("input channel receive ended: \(String(describing: error), privacy: .public)")
                     self?.desktopStateContinuation.finish()
+                    self?.thumbnailsContinuation.finish()
                     return
                 }
                 self?.handleIncoming(message)
@@ -125,6 +160,10 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
         case "desktop-state":
             if let push = try? JSONDecoder().decode(DesktopStatePush.self, from: data) {
                 desktopStateContinuation.yield(push.state)
+            }
+        case "thumbnails-push":
+            if let push = try? JSONDecoder().decode(ThumbnailsPush.self, from: data) {
+                thumbnailsContinuation.yield(push.thumbnails)
             }
         default:
             inputLogger.debug("input channel ignored frame type=\(header.type, privacy: .public)")

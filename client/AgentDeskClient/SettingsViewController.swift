@@ -14,6 +14,7 @@ final class SettingsViewController: UIViewController {
     private let scrollSpeedLabel = UILabel()
     private let scrollDirectionSwitch = UISwitch()
     private let spacesDirectionSwitch = UISwitch()
+    private let showSpacePreviewsSwitch = UISwitch()
     private let accessoryContainerSlider = UISlider()
     private let accessoryContainerLabel = UILabel()
     private let accessoryKeySlider = UISlider()
@@ -54,6 +55,16 @@ final class SettingsViewController: UIViewController {
             switchRow: ("Match Mac swipe direction", spacesDirectionSwitch)
         )
 
+        // ADR-0006: opt-in for the thumbnail preview strip.
+        // Footnote explains the trust posture so the user has the
+        // context to decide.
+        let previewsSection = makeSection(
+            title: "Spaces previews",
+            rows: [],
+            switchRow: ("Show Space previews", showSpacePreviewsSwitch),
+            footnote: "Mirrors thumbnails of your other Spaces to this phone. Off by default; enable only when the phone is somewhere you trust."
+        )
+
         let accessorySection = makeSection(
             title: "Keyboard accessory bar",
             rows: [
@@ -63,7 +74,7 @@ final class SettingsViewController: UIViewController {
             ]
         )
 
-        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, spacesSection, accessorySection])
+        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, spacesSection, previewsSection, accessorySection])
         stack.axis = .vertical
         stack.spacing = 28
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -76,17 +87,22 @@ final class SettingsViewController: UIViewController {
         view.addSubview(scroll)
         scroll.addSubview(stack)
 
+        // Fixed 20pt horizontal inset. view.layoutMargins is unreliable
+        // in viewDidLoad (frame not yet resolved), which is why the
+        // sliders previously ran edge to edge.
+        let horizontalInset: CGFloat = 20
+
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scroll.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 16),
             stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -32),
-            stack.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor, constant: view.layoutMargins.left),
-            stack.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor, constant: -view.layoutMargins.right),
-            stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -(view.layoutMargins.left + view.layoutMargins.right))
+            stack.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor, constant: horizontalInset),
+            stack.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor, constant: -horizontalInset),
+            stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -(horizontalInset * 2))
         ])
 
         configureSliders()
@@ -106,6 +122,7 @@ final class SettingsViewController: UIViewController {
         scrollSpeedSlider.addTarget(self, action: #selector(scrollSpeedChanged), for: .valueChanged)
         scrollDirectionSwitch.addTarget(self, action: #selector(scrollDirectionChanged), for: .valueChanged)
         spacesDirectionSwitch.addTarget(self, action: #selector(spacesDirectionChanged), for: .valueChanged)
+        showSpacePreviewsSwitch.addTarget(self, action: #selector(showSpacePreviewsChanged), for: .valueChanged)
 
         // Accessory bar tunings live in points so the slider value maps
         // directly to layout. Ranges chosen to cover "tiny chiclet" to
@@ -132,6 +149,7 @@ final class SettingsViewController: UIViewController {
         scrollSpeedSlider.value = Float(store.scrollSpeed)
         scrollDirectionSwitch.isOn = store.scrollInverted
         spacesDirectionSwitch.isOn = store.useMacOSSpacesDirection
+        showSpacePreviewsSwitch.isOn = store.showSpacePreviews
         accessoryContainerSlider.value = Float(store.accessoryContainerHeight)
         accessoryKeySlider.value = Float(store.accessoryKeyHeight)
         accessoryGapSlider.value = Float(store.accessoryKeySpacing)
@@ -178,6 +196,10 @@ final class SettingsViewController: UIViewController {
         store.useMacOSSpacesDirection = spacesDirectionSwitch.isOn
     }
 
+    @objc private func showSpacePreviewsChanged() {
+        store.showSpacePreviews = showSpacePreviewsSwitch.isOn
+    }
+
     @objc private func accessoryContainerChanged() {
         store.accessoryContainerHeight = Double(accessoryContainerSlider.value)
         refreshLabels()
@@ -198,11 +220,13 @@ final class SettingsViewController: UIViewController {
     }
 
     // Helper: build a section header + a list of (label, value-label, slider)
-    // rows, with an optional bottom switch row. Returns a vertical stack.
+    // rows, with an optional bottom switch row and optional footnote.
+    // Returns a vertical stack.
     private func makeSection(
         title: String,
         rows: [(String, UILabel, UISlider)],
-        switchRow: (String, UISwitch)? = nil
+        switchRow: (String, UISwitch)? = nil,
+        footnote: String? = nil
     ) -> UIStackView {
         let header = UILabel()
         header.text = title.uppercased()
@@ -221,10 +245,20 @@ final class SettingsViewController: UIViewController {
             rowsStack.addArrangedSubview(makeSwitchRow(name: name, control: control))
         }
 
-        let stack = UIStackView(arrangedSubviews: [header, rowsStack])
-        stack.axis = .vertical
-        stack.spacing = 8
-        return stack
+        let outer = UIStackView(arrangedSubviews: [header, rowsStack])
+        outer.axis = .vertical
+        outer.spacing = 8
+
+        if let footnote {
+            let foot = UILabel()
+            foot.text = footnote
+            foot.font = .preferredFont(forTextStyle: .caption2)
+            foot.textColor = .secondaryLabel
+            foot.numberOfLines = 0
+            outer.addArrangedSubview(foot)
+        }
+
+        return outer
     }
 
     private func makeSliderRow(name: String, valueLabel: UILabel, slider: UISlider) -> UIStackView {

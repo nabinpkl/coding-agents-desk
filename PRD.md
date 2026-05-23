@@ -20,9 +20,9 @@ Secondary pain: AnyDesk on phone often degrades to a black canvas with a moving 
 
 Native iOS app plus native macOS menu-bar host, paired over Tailscale, streaming HEVC over WebRTC. The iPhone shows the active Space at native DPR with an AnyDesk-style trackpad and a compact keyboard, plus one new gesture: **3-finger horizontal swipe switches Spaces** on the host.
 
-## v0 acceptance test
+## v0 acceptance
 
-The author uses AgentDesk as a daily driver for **7 consecutive days** without reaching for AnyDesk for the agent-control workflow.
+Empirical, not duration-based. The author uses AgentDesk for agent control; v0 ships when the qualitative friction list reaches steady state. The "AnyDesk reach" metric is retired because AnyDesk does not navigate macOS Spaces, so it cannot measure the v0 thesis gesture against itself. Felt friction (cursor lag, text legibility, reconnect speed, Spaces parity, dead UI regions) is the acceptance signal.
 
 ## v0 user surface
 

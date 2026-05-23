@@ -549,3 +549,70 @@ struct DesktopStatePush: Codable, Equatable {
         self.state = state
     }
 }
+
+// ADR-0006 thumbnail wire shapes. `ThumbnailsPush` is host -> client on
+// the existing input WSS, on the SpaceThumbnailProvider's own cadence
+// (3 s timer + Space change + on-demand). `ClientConfig` is client ->
+// host, lets the client opt in / out of thumbnail capture and ask for
+// a force-refresh of a single Space.
+//
+// The thumbnails dict uses string-keyed UInt64 Space IDs because JSON
+// has no native UInt64 dict-key encoding and Swift's JSONEncoder would
+// otherwise serialize a [UInt64: T] as an alternating key-value array.
+// Each value is a base64-encoded JPEG (q=0.5 at 128 x 80) per ADR-0006.
+
+struct ThumbnailsPush: Codable, Equatable {
+    let type: String
+    let thumbnails: [String: String]
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case thumbnails = "tn"
+    }
+
+    init(thumbnails: [String: String]) {
+        self.type = "thumbnails-push"
+        self.thumbnails = thumbnails
+    }
+}
+
+struct ClientConfig: Codable, Equatable {
+    let type: String
+    let thumbnailsEnabled: Bool
+    let thumbnailRefresh: UInt64?
+    // ADR-0007 viewport crop. Normalized 0..1 in source-display coords.
+    // nil = full display (encoder back to display dimensions). Sent on
+    // pinch-end above the zoom threshold, and on pinch-start as the
+    // active prefill (viewport=nil) when a crop is currently active.
+    let viewport: ViewportRect?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case thumbnailsEnabled = "te"
+        case thumbnailRefresh = "tr"
+        case viewport = "vp"
+    }
+
+    init(thumbnailsEnabled: Bool, thumbnailRefresh: UInt64? = nil, viewport: ViewportRect? = nil) {
+        self.type = "client-config"
+        self.thumbnailsEnabled = thumbnailsEnabled
+        self.thumbnailRefresh = thumbnailRefresh
+        self.viewport = viewport
+    }
+}
+
+// ADR-0007. Normalized rect in source-display coords. Floats keep the
+// wire compact (4x4 bytes) vs serializing CGRect's CGFloat doubles.
+struct ViewportRect: Codable, Equatable {
+    let x: Float
+    let y: Float
+    let w: Float
+    let h: Float
+
+    enum CodingKeys: String, CodingKey {
+        case x = "x"
+        case y = "y"
+        case w = "w"
+        case h = "h"
+    }
+}

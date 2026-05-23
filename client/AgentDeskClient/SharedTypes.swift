@@ -526,3 +526,56 @@ struct DesktopStatePush: Codable, Equatable {
         self.state = state
     }
 }
+
+// ADR-0006. Mirror of the host's thumbnail wire shapes.
+
+struct ThumbnailsPush: Codable, Equatable {
+    let type: String
+    let thumbnails: [String: String]
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case thumbnails = "tn"
+    }
+
+    init(thumbnails: [String: String]) {
+        self.type = "thumbnails-push"
+        self.thumbnails = thumbnails
+    }
+}
+
+struct ClientConfig: Codable, Equatable {
+    let type: String
+    let thumbnailsEnabled: Bool
+    let thumbnailRefresh: UInt64?
+    // ADR-0007: see host SharedTypes.swift.
+    let viewport: ViewportRect?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case thumbnailsEnabled = "te"
+        case thumbnailRefresh = "tr"
+        case viewport = "vp"
+    }
+
+    init(thumbnailsEnabled: Bool, thumbnailRefresh: UInt64? = nil, viewport: ViewportRect? = nil) {
+        self.type = "client-config"
+        self.thumbnailsEnabled = thumbnailsEnabled
+        self.thumbnailRefresh = thumbnailRefresh
+        self.viewport = viewport
+    }
+}
+
+struct ViewportRect: Codable, Equatable {
+    let x: Float
+    let y: Float
+    let w: Float
+    let h: Float
+
+    enum CodingKeys: String, CodingKey {
+        case x = "x"
+        case y = "y"
+        case w = "w"
+        case h = "h"
+    }
+}

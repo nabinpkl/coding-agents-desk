@@ -4,7 +4,7 @@
 
 ## Position
 
-v0 is one iteration. Acceptance is 7 consecutive days of daily-driver use without reaching for AnyDesk (per `PRD.md`). Nine vertical phases mirror GitHub issues #2 through #10. Phases 0 through 3 are landed and pixels-plus-input-plus-scroll work on hardware.
+v0 is one iteration. Acceptance is empirical, not duration-based: v0 ships when the qualitative friction list reaches steady state (per `PRD.md`). Nine vertical phases mirror GitHub issues #2 through #10. Phases 0 through 3 are landed and pixels-plus-input-plus-scroll work on hardware. A tenth phase (R20, Spaces preview strip) was opened on 2026-05-23 against felt dead-band friction; it does not block distribution and can run parallel with R14.
 
 Per the GitHub issues, Phases 4 through 7 (#6, #7, #8, #9) are each only blocked by Phase 3 (#5, cursor + click), not by each other. They can sequence on priority, not on a forced serial chain. Phase 8 (#10) is blocked by Phases 4 and 5 (#6 and #7) plus the paid Developer ID cert. The prior serial chain in this file overstated dependencies.
 
@@ -101,16 +101,51 @@ R19 sub-tasks:
 - [x] D19.6. End-to-end verification. Re-run the `just ui-flow type-tap-keys` Maestro flow against the simulator after the refactor; the trackpad+keyboard path must still complete with input events reaching the host log. On the developer's iPhone, type a paragraph and observe the latency cadence (subjective: characters should land at the same beat the user is typing, not in bursts). If variance is still visible, open a follow-up R-task; do not paper it.
 - [x] D19.7. SPEC.md updates. `§Module boundaries` gains `InputChannel` (client) and `InputChannelServer` (host) as named modules. The transport seam diagram updates to show two transports per session (video PC + input WSS) instead of one. The `MediaTransport` surface in `§Wire shapes` loses `send` and `inputEvents`. Cross-reference ADR-0005 by number.
 
-## v0 Phase 8 (S8, #10): distribution + 7-day self-test. HITL. Blocked by R10, R11, R12, R13, R19 and by Apple Developer Program enrollment landing.
+## v0 Phase 8 (S8, #10): distribution. HITL. Blocked by R10, R11, R12, R13, R19 and by Apple Developer Program enrollment landing.
 
-Phase goal: ship a Developer ID notarized DMG (host) and a TestFlight build (client), then use AgentDesk as the daily driver for 7 consecutive days without reaching for AnyDesk for the agent-control workflow. PRD acceptance test.
+Phase goal: ship a Developer ID notarized DMG (host) and a TestFlight build (client). The standalone 7-day self-test that originally closed this phase was retired on 2026-05-23 (see PRD §v0 acceptance and R14.4 in the promotion log): acceptance is now empirical and steady-state, not duration-gated, because AnyDesk does not navigate Spaces and so cannot anchor a like-for-like reach metric on the v0 thesis gesture.
 
 R14 sub-tasks:
 
 - [ ] R14.1. Switch both projects from the development-tier `Apple Development` identity (current, ~1-year cert, fine for daily-driver use) to the distribution-tier certs: host -> `Developer ID Application` (notarizable, no expiry on the distributed bundle); client -> `iOS App Distribution` (TestFlight-eligible). Apple Developer Program enrollment landed 2026-05-23 so this is now a project-settings change, not a blocker.
 - [ ] R14.2. Host distribution. Notarize the host `.app` via `xcrun notarytool submit ... --wait` and staple via `xcrun stapler staple`. Package as a signed DMG. Verify Gatekeeper acceptance on a clean account.
 - [ ] R14.3. Client distribution. Archive and upload to App Store Connect; expose via internal TestFlight to the developer's iPhone. Verify install and launch from TestFlight.
-- [ ] R14.4. 7-day daily-driver self-test. Use AgentDesk exclusively for the agent-control workflow for 7 consecutive days. Each day, log a one-line journal entry in `HANDOVER.md`: date, hours of use, any AnyDesk-reach events with reason, any v0-acceptance-blocking issues. The slice ships when 7 consecutive entries record no AnyDesk reach for agent control.
+
+## v0 Phase 9 (R20): Spaces preview strip in the dead band. AFK after R20.0 gates green. Parallel with R14.
+
+Phase goal: the band of empty pixels between the bottom of the aspect-fit screen-share video and the top of `SpacesDotsView` (currently dead on the v0 client layout) becomes a horizontal strip of thumbnail previews of the user's macOS Spaces. Tap a thumbnail to switch; long-press to force-refresh that thumbnail. This is the first surface in v0 that exposes off-active-Space state on the phone (the dots band shows the count, not the contents). Replaces "switching Spaces blind" with "switching Spaces against a glanceable picture."
+
+Privacy posture: the strip is opt-in via a settings toggle (default off). Reason: the phone is unlocked while the Mac may be running unattended; an always-on thumbnail mirror is a passive leak vector. The friction-list reads better if the user opts in once than if the default surprises them.
+
+R20 sub-tasks:
+
+- [x] D20.0. ADR-0006. The standalone spike was attempted (`host/scripts/thumbnails-spike.swift`) and dropped on 2026-05-23: the `swift` interpreter runs under a different TCC subject than `AgentDeskHost.app`, so Screen Recording wasn't auto-granted and the SCK call blocked on an out-of-band permission prompt. The spike confirmed only the SkyLight enumeration half (6 user Spaces resolved cleanly) before stalling. Precedent (AltTab uses the same pattern, host already uses SCK in `ScreenCaptureKitFrameSource.swift`) is treated as sufficient confirmation; the live integration in R20.1 is now the verification. ADR-0006 records: SCK + `SLSCopySpacesForWindows` chosen over private `SLSHWCaptureWindowList`; refresh cadence (3 s timer + `NSWorkspace.activeSpaceDidChangeNotification` + on-demand `forceRefresh`); thumbnail dimensions 128 x 80 JPEG q=0.5; default-off opt-in via a new `client-config` input-channel frame.
+- [x] D20.1. `host/AgentDeskHost/SpaceThumbnailProvider.swift`. New module. Surface: `setEnabled(_ enabled: Bool)`, `forceRefresh(spaceId: UInt64)`, `var thumbnails: AsyncStream<[UInt64: Data]>`. Behavior: when enabled, capture on (a) `NSWorkspace.activeSpaceDidChangeNotification` (already observed in AppDelegate for the dots band; share the observer), (b) 3-second timer, (c) explicit force-refresh. When disabled, capture nothing. Owns its own `dlopen`+`dlsym` for the `SLSCopySpacesForWindows` symbol (don't widen `SpacesProvider`'s struct; smaller blast radius on macOS upgrades).
+- [x] D20.2. Wire extension. Extend `DesktopState` in `host/AgentDeskHost/SharedTypes.swift` and `client/AgentDeskClient/SharedTypes.swift` with optional `thumbnails: [SpaceID: String]?` (string = base64-encoded JPEG). New input-channel inbound frame `client-config` carrying `{ "thumbnailsEnabled": bool }`. Host: on receipt, calls `SpaceThumbnailProvider.setEnabled(_:)`. On thumbnail stream emission, the active push path merges thumbnails into the next `DesktopStatePush`. Disabled clients pay zero bytes. Wire-shape test: an enabled client receives non-empty thumbnails within one timer tick of channel open; a disabled client never receives any.
+- [x] D20.3. `client/AgentDeskClient/ThumbnailStripView.swift`. New view. Sits between sink view's bottom anchor and `SpacesDotsView.topAnchor - 4`. Horizontal stack of fixed-height (~64 pt) tiles, one per non-active user Space, rendered from `DesktopState.thumbnails`. Active Space tile renders a "you're here" placeholder; no point capturing what WebRTC already shows. Tap on a non-active tile emits the same `.switchSpace` synthesis path used by `SpacesDotsView` tap-handling, targeting that `SpaceID`. Long-press on a tile sends a `client-config` with `{ "thumbnailRefresh": spaceId }`. Layout: same 12 pt leading inset and trackpad-mirrored hit-outset rules. Tests cover (a) tile-list mapping from `DesktopState`, (b) tap-to-emit, (c) hidden when thumbnails are empty.
+- [x] D20.4. Privacy toggle. `Show Space previews` switch in `SettingsViewController`, default off, persisted in `SettingsStore` with footnote "Mirrors thumbnails of your other Spaces to this phone. Off by default; enable only when the phone is somewhere you trust." When off: strip hidden, client never sends `thumbnailsEnabled: true`, host never captures. When on: client sends `client-config { thumbnailsEnabled: true }` on input-channel open. Tests cover `SettingsStore` persistence round-trip and `PairingViewController` strip mount/unmount on toggle change.
+
+### Alternative arc (rejected for R20, captured)
+
+- Private `SLSHWCaptureWindowList` for the thumbnail capture path.
+
+## v0 Phase 10 (R21): pinch-to-zoom on the Mac-display view. AFK. Parallel with R14.
+
+Phase goal: the iPhone-side screen-share view supports pinch-and-pan zoom. Local-only zoom (Path A) landed first as a one-commit slice and shipped acceptable up to ~2x; the host-side viewport crop (Path B, ADR-0007) lands on top to keep text sharp at higher zoom, with active prefill on pinch-start so pinch-out is smooth.
+
+R21 sub-tasks:
+
+- [x] D21.A. Local-only zoom (Path A). `mountSinkView(_:)` in `client/AgentDeskClient/PairingViewController.swift` wraps the WebRTC sink view in a `UIScrollView` pinned to the existing 0.55 sink-container frame. `minimumZoomScale = 1.0`, `maximumZoomScale = 4.0`, `viewForZooming(in:)` returns the sink view. Double-tap recognizer toggles between 1.0x and 2.0x animated, centered on the tap point. Trackpad and dots stay below the sink container; gesture zones disjoint. Cursor wire shape unchanged.
+- [x] D21.0. ADR-0007. Records the Path B decision: client→host `viewport: ViewportRect?` on the existing `client-config` frame; `SCStream.updateConfiguration` driven; active prefill (send `viewport: nil` on pinch-start when crop is active) so pinch-out has the wider stream pre-staged; local zoom and crop decoupled, effective zoom = local × crop; cursor coords stay in full-display point space (no tap-to-warp in v0).
+- [x] D21.1. `host/AgentDeskHost/VideoFrameSource.swift` gains a `RegionalVideoFrameSource` protocol with `setSourceRect(_ normalized: CGRect?)`. `host/AgentDeskHost/ScreenCaptureKitFrameSource.swift` conforms: stores the requested rect under an `OSAllocatedUnfairLock`, applies in `start()` against the freshly built `SCStreamConfiguration`, and reapplies live via `SCStream.updateConfiguration(_:completionHandler:)` when the stream is running. Sub-rect maps to `config.sourceRect` AND drives `config.width / height` to the sub-rect dims at native source density (cropped slice encodes at full pixel density, not stretched). `TestPatternFrameSource` does not conform; setSourceRect is a no-op by absence.
+- [x] D21.2. Wire extension. `SharedTypes.swift` (both): `ClientConfig` gains optional `viewport: ViewportRect?`; new `ViewportRect { x, y, w, h: Float }` normalized 0..1. `AppDelegate` lifts the frame source from per-`startMediaTransport` construction to a stored `private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()` so it survives across transport reattaches and the input-channel `configHandler` can downcast to `RegionalVideoFrameSource` and call `setSourceRect`. `TestPattern` path stays diagnostic-only.
+- [x] D21.3. Client pinch logic with active prefill. `PairingViewController` conforms to `UIScrollViewDelegate` already (from D21.A); adds `scrollViewWillBeginZooming` (active prefill: if `currentRemoteViewport != nil`, send `viewport: nil` immediately), `scrollViewDidEndZooming` (if final zoom ≥ 1.5x, snapshot normalized visible rect and send; else send `viewport: nil`), `scrollViewDidEndDecelerating` + `scrollViewDidEndDragging` (re-snapshot when zoomed and view changed). De-dup near-identical sends at 1.5% threshold. `currentRemoteViewport` mirrors host-side state; reset on session teardown.
+
+### Alternative arc (rejected for R21, captured)
+
+- Server-initiated `viewport-ack` frame with atomic local-zoom reset (Option D in ADR-0007). Glitch-free transition. Rejected for v0 because the 1-2 frame artifact at handoff is acceptable per empirical use; revisit if daily-driver feel surfaces it.
+- Per-pinch-frame viewport updates (Option B). Continuous re-cropping during the gesture. Rejected because each `SCStream.updateConfiguration` forces a fresh IDR keyframe; per-frame churn would keyframe-storm the encoder.
+- Cursor warping ("tap on the zoomed view = warp Mac cursor to that point", Microsoft RDP touch-mode). Deferred to v2. The pattern AltTab, Dock, and Mission Control use; bypasses Screen Recording prompt. Rejected because the host already has Screen Recording permission (`ScreenCaptureKitFrameSource` uses it for the main stream), so the prompt cost is zero, and SCK is the supported surface Apple maintains. Revisit if SCK proves unreliable for off-Space windows during R20.0.
 
 ---
 
@@ -125,7 +160,7 @@ R15 onwards reserves the v1 block.
 
 ### Alternative arc (rejected for v0, captured)
 
-- Code-aware crisp-text overlay. Text rendered separately from the HEVC video track and composited on the client. Useful because HEVC's 4:2:0 chroma subsampling blurs syntax-highlighted edges on small fonts. Rejected because the 7-day daily-driver test is the empirical decider on whether HEVC text crispness is good enough. Revisit if any day during the daily-driver window fails the "can comfortably read code" qualitative check.
+- Code-aware crisp-text overlay. Text rendered separately from the HEVC video track and composited on the client. Useful because HEVC's 4:2:0 chroma subsampling blurs syntax-highlighted edges on small fonts. Rejected for v0 because the empirical friction-list (per `PRD.md`) is the decider on whether HEVC text crispness is good enough. Revisit if "can comfortably read code" surfaces as a steady-state friction item.
 
 ---
 
@@ -178,9 +213,21 @@ R13       pending     pending     Phase 7 (S7, #9): drop-on-background + foregro
 R13.1     pending     pending     background teardown within 1s; close peer + cancel dialer
 R13.2     pending     pending     foreground reconnect under 5s via existing auto-dial path
 R13.3     pending     pending     HITL stopwatch verification on hardware; timings in HANDOVER
-R14       pending     pending     Phase 8 (S8, #10): paid signing + DMG + TestFlight + 7-day self-test
+R14       pending     pending     Phase 8 (S8, #10): paid signing + DMG + TestFlight
 R14.1     pending     pending     switch to paid team identity; retire signing pivot memory
 R14.2     pending     pending     host notarized + stapled DMG; Gatekeeper acceptance
 R14.3     pending     pending     client TestFlight upload; install + launch verified
-R14.4     pending     pending     7-day daily-driver self-test; per-day HANDOVER journal entries
+R14.4     2026-05-23  dropped     7-day self-test retired; PRD acceptance reframed to empirical / steady-state
+R20       pending     pending     Phase 9: Spaces preview strip in the dead band (opt-in, default off)
+D20.0     2026-05-23  committed   ADR-0006 (spike retired; SCK + SLSCopySpacesForWindows + opt-in)
+D20.1     2026-05-23  committed   SpaceThumbnailProvider host module + own SkyLight resolver
+D20.2     2026-05-23  committed   ThumbnailsPush + ClientConfig wire frames + host opt-in routing
+D20.3     2026-05-23  committed   ThumbnailStripView client + top-band stack layout
+D20.4     2026-05-23  committed   showSpacePreviews SettingsStore + toggle row footnote
+R21       pending     pending     Phase 10: pinch-to-zoom on the screen-share view
+D21.A     2026-05-23  committed   local-only zoom via UIScrollView wrapping the sink (Path A)
+D21.0     2026-05-23  committed   ADR-0007 host-side viewport crop with active prefill
+D21.1     2026-05-23  committed   RegionalVideoFrameSource protocol + SCK setSourceRect via updateConfiguration
+D21.2     2026-05-23  committed   ClientConfig.viewport wire + AppDelegate downcast routing
+D21.3     2026-05-23  committed   client pinch-start prefill + pinch-end snapshot + pan-settle resend
 ```

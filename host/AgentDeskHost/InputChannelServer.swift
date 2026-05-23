@@ -26,6 +26,11 @@ final class InputChannelServer: @unchecked Sendable {
 
     let events: AsyncStream<NormalizedInput>
 
+    // ADR-0006: clients opt in to thumbnail capture via a `client-config`
+    // frame after the channel is open. AppDelegate sets this handler on
+    // attach; the server itself only routes the frame.
+    var configHandler: ((ClientConfig) -> Void)?
+
     init(connection: NWConnection, fingerprint: DeviceFingerprint) {
         self.connection = connection
         self.fingerprint = fingerprint
@@ -51,21 +56,38 @@ final class InputChannelServer: @unchecked Sendable {
     func close() {
         continuation?.finish()
         continuation = nil
+        configHandler = nil
         connection.cancel()
     }
 
     func pushDesktopState(_ state: DesktopState) {
-        let frame = DesktopStatePush(state: state)
+        sendCodableFrame(DesktopStatePush(state: state), identifier: "desktop-state")
+    }
+
+    // ADR-0006: thumbnail bytes ride their own frame so the periodic
+    // refresh cadence doesn't pollute the event-driven DesktopState
+    // push path. Sent only when SpaceThumbnailProvider has produced a
+    // result; an empty dict is a valid "clear" signal.
+    func pushThumbnails(_ thumbnails: [UInt64: Data]) {
+        var stringKeyed: [String: String] = [:]
+        stringKeyed.reserveCapacity(thumbnails.count)
+        for (spaceId, jpeg) in thumbnails {
+            stringKeyed[String(spaceId)] = jpeg.base64EncodedString()
+        }
+        sendCodableFrame(ThumbnailsPush(thumbnails: stringKeyed), identifier: "thumbnails-push")
+    }
+
+    private func sendCodableFrame<T: Encodable>(_ frame: T, identifier: String) {
         let data: Data
         do {
             data = try JSONEncoder().encode(frame)
         } catch {
-            logger.error("desktop-state encode failed: \(String(describing: error), privacy: .public)")
+            logger.error("\(identifier, privacy: .public) encode failed: \(String(describing: error), privacy: .public)")
             return
         }
         let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
         let context = NWConnection.ContentContext(
-            identifier: "desktop-state",
+            identifier: identifier,
             metadata: [metadata]
         )
         connection.send(
@@ -74,7 +96,7 @@ final class InputChannelServer: @unchecked Sendable {
             isComplete: true,
             completion: .contentProcessed { [weak self] error in
                 if let error {
-                    self?.logger.error("desktop-state send failed: \(String(describing: error), privacy: .public)")
+                    self?.logger.error("\(identifier, privacy: .public) send failed: \(String(describing: error), privacy: .public)")
                 }
             }
         )
@@ -98,16 +120,39 @@ final class InputChannelServer: @unchecked Sendable {
         }
     }
 
+    // Two inbound frame types after the hello: input-event (the bulk of
+    // traffic) and client-config (opt-in toggles). Peek at the `t`
+    // discriminator before committing to a struct so an unknown frame
+    // gets logged-and-dropped rather than tearing down the channel.
     private func dispatch(data: Data) {
-        do {
-            let frame = try JSONDecoder().decode(InputChannelEvent.self, from: data)
-            guard frame.type == "input-event" else {
-                logger.error("input-channel non-event frame after hello: type=\(frame.type, privacy: .public)")
-                return
-            }
-            continuation?.yield(frame.event)
-        } catch {
-            logger.error("input-channel event decode failed: \(String(describing: error), privacy: .public)")
+        guard let header = try? JSONDecoder().decode(InboundFrameHeader.self, from: data) else {
+            logger.error("input-channel frame missing type discriminator")
+            return
         }
+        switch header.type {
+        case "input-event":
+            do {
+                let frame = try JSONDecoder().decode(InputChannelEvent.self, from: data)
+                continuation?.yield(frame.event)
+            } catch {
+                logger.error("input-channel event decode failed: \(String(describing: error), privacy: .public)")
+            }
+        case "client-config":
+            do {
+                let frame = try JSONDecoder().decode(ClientConfig.self, from: data)
+                configHandler?(frame)
+            } catch {
+                logger.error("client-config decode failed: \(String(describing: error), privacy: .public)")
+            }
+        default:
+            logger.notice("input-channel unknown frame type=\(header.type, privacy: .public)")
+        }
+    }
+
+    // Minimal envelope for discriminator peek. Mirrors the `t` key the
+    // compact-keyed frame structs use.
+    private struct InboundFrameHeader: Decodable {
+        let type: String
+        enum CodingKeys: String, CodingKey { case type = "t" }
     }
 }

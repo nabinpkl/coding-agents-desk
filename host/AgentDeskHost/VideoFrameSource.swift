@@ -18,6 +18,19 @@ protocol VideoFrameSource: AnyObject, Sendable {
     func stop()
 }
 
+// ADR-0007 region-of-interest capture. Frame sources that can crop
+// their output to a sub-rectangle of the source conform; nil resets
+// to the full source. Normalized 0..1 in source coords. Concrete impl
+// today is ScreenCaptureKitFrameSource; TestPattern doesn't crop.
+//
+// The crop affects the OUTPUT frame's dimensions as well: the encoder
+// is reconfigured to the rect's pixel size so the sub-region encodes
+// at native source density (sharper text), not stretched to fill the
+// original full-display dimensions.
+protocol RegionalVideoFrameSource: VideoFrameSource {
+    func setSourceRect(_ normalizedRect: CGRect?)
+}
+
 // CVPixelBuffer is a CoreFoundation reference type; we never mutate it
 // after creation, so crossing task boundaries is safe in practice. Swift's
 // strict-concurrency checker doesn't know that, hence @unchecked.

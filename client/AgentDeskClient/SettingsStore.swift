@@ -26,6 +26,7 @@ final class SettingsStore: @unchecked Sendable {
         static let accessoryContainerHeight = "agentDesk.accessoryContainerHeight"
         static let accessoryKeyHeight = "agentDesk.accessoryKeyHeight"
         static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
+        static let showSpacePreviews = "agentDesk.showSpacePreviews"
     }
 
     // iOS HIG / QuickType bar standard is 44pt; key chiclets at 36pt
@@ -118,6 +119,19 @@ final class SettingsStore: @unchecked Sendable {
     var accessoryKeySpacing: Double {
         get { defaults.object(forKey: Key.accessoryKeySpacing) as? Double ?? Self.defaultAccessoryKeySpacing }
         set { defaults.set(newValue, forKey: Key.accessoryKeySpacing); postChange() }
+    }
+
+    // ADR-0006: opt-in for the Spaces preview strip. Default false so
+    // the phone doesn't mirror non-active-Space contents until the
+    // user has decided that's acceptable. PairingViewController reads
+    // this on input-channel open and on settings change, sends a
+    // ClientConfig frame, and mounts / unmounts the strip.
+    var showSpacePreviews: Bool {
+        get { defaults.bool(forKey: Key.showSpacePreviews) }
+        set {
+            defaults.set(newValue, forKey: Key.showSpacePreviews)
+            postChange()
+        }
     }
 
     private func postChange() {
