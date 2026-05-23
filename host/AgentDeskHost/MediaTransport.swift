@@ -17,6 +17,11 @@ protocol MediaTransport: AnyObject, Sendable {
 
     // Single-consumer stream. Impls construct one continuation per instance.
     var connectionState: AsyncStream<MediaConnectionState> { get }
+
+    // Raw payloads from the client-side input data channel. The transport
+    // does not decode; the consumer feeds bytes into a JSONDecoder for
+    // NormalizedInput. R9.1.
+    var inputEvents: AsyncStream<Data> { get }
 }
 
 enum MediaTransportRole {

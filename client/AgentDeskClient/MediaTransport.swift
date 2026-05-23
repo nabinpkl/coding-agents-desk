@@ -15,6 +15,11 @@ protocol MediaTransport: AnyObject, Sendable {
     func stop()
 
     var connectionState: AsyncStream<MediaConnectionState> { get }
+
+    // R9.1: send a NormalizedInput on the host-created input data channel.
+    // Throws inputChannelNotOpen if the channel has not finished opening yet
+    // or has been closed.
+    func send(_ input: NormalizedInput) throws
 }
 
 enum MediaTransportRole {
@@ -50,6 +55,8 @@ struct MediaCodecPreferences: Equatable {
 
 enum MediaTransportError: Error {
     case notYetImplemented
+    case inputChannelNotOpen
+    case inputEncodeFailed
 }
 
 // VideoFrameSource is the host-side capture seam. The client mirror exists

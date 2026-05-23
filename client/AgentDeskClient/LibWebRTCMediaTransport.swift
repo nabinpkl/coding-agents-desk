@@ -34,7 +34,7 @@ final class LibWebRTCTransportFactory: MediaTransportFactory {
     }
 }
 
-final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnectionDelegate, RTCVideoViewDelegate, @unchecked Sendable {
+final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnectionDelegate, RTCVideoViewDelegate, RTCDataChannelDelegate, @unchecked Sendable {
     let connectionState: AsyncStream<MediaConnectionState>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
 
@@ -51,6 +51,11 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     // first-frame delivery, and renderFrame: is never invoked. Mirrors the
     // host-side rtcVideoSource retention.
     private var remoteVideoTrack: RTCVideoTrack?
+    // R9.1: host-created input data channel. Same weak-delegate caution as
+    // the video track applies. Strong ref keeps the channel alive between
+    // didOpen and the first send.
+    private var inputDataChannel: RTCDataChannel?
+    private let inputEncoder = JSONEncoder()
 
     init(factory: RTCPeerConnectionFactory, codecs: MediaCodecPreferences) {
         self.factory = factory
@@ -96,10 +101,28 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         inboundTask?.cancel()
         inboundTask = nil
         remoteVideoTrack = nil
+        inputDataChannel?.close()
+        inputDataChannel = nil
         peerConnection?.close()
         peerConnection = nil
         stateContinuation.yield(.closed)
         stateContinuation.finish()
+    }
+
+    func send(_ input: NormalizedInput) throws {
+        guard let channel = inputDataChannel, channel.readyState == .open else {
+            throw MediaTransportError.inputChannelNotOpen
+        }
+        let payload: Data
+        do {
+            payload = try inputEncoder.encode(input)
+        } catch {
+            throw MediaTransportError.inputEncodeFailed
+        }
+        let buffer = RTCDataBuffer(data: payload, isBinary: false)
+        if !channel.sendData(buffer) {
+            throw MediaTransportError.inputChannelNotOpen
+        }
     }
 
     private func handle(frame: WebRTCSignalingFrame) async {
@@ -244,7 +267,29 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
-    func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
+
+    func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
+        // R9.1: the host creates a single "input" data channel in its offer.
+        // We retain a strong ref and become its delegate so the state log
+        // tells us when send() will start working.
+        guard dataChannel.label == "input" else {
+            logger.notice("ignoring unexpected data channel label=\(dataChannel.label, privacy: .public)")
+            return
+        }
+        dataChannel.delegate = self
+        inputDataChannel = dataChannel
+        logger.notice("input data channel attached; readyState=\(String(describing: dataChannel.readyState), privacy: .public)")
+    }
+
+    // MARK: - RTCDataChannelDelegate
+
+    func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {
+        logger.notice("input data channel state=\(String(describing: dataChannel.readyState), privacy: .public)")
+    }
+
+    func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
+        // No server-to-client traffic on the input channel in v0.
+    }
 }
 
 final class DebugFrameProbeRenderer: NSObject, RTCVideoRenderer, @unchecked Sendable {

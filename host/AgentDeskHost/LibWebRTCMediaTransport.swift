@@ -36,9 +36,11 @@ final class LibWebRTCTransportFactory: MediaTransportFactory {
     }
 }
 
-final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnectionDelegate, @unchecked Sendable {
+final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnectionDelegate, RTCDataChannelDelegate, @unchecked Sendable {
     let connectionState: AsyncStream<MediaConnectionState>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
+    let inputEvents: AsyncStream<Data>
+    private let inputContinuation: AsyncStream<Data>.Continuation
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "webrtc")
     private let factory: RTCPeerConnectionFactory
@@ -53,6 +55,9 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     private var rtcVideoSource: RTCVideoSource?
     private var videoTrack: RTCVideoTrack?
     private var videoSender: RTCRtpSender?
+    // Same weak-delegate pattern as the video source: RTCDataChannel keeps a
+    // weak ref to its delegate, so the channel itself has to live here.
+    private var inputDataChannel: RTCDataChannel?
     private var signaling: SignalingChannel?
     private var inboundTask: Task<Void, Never>?
     private var role: MediaTransportRole = .offerer
@@ -61,9 +66,12 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         self.factory = factory
         self.codecs = codecs
         self.tuning = tuning
-        var continuation: AsyncStream<MediaConnectionState>.Continuation!
-        connectionState = AsyncStream { continuation = $0 }
-        self.stateContinuation = continuation
+        var stateCont: AsyncStream<MediaConnectionState>.Continuation!
+        connectionState = AsyncStream { stateCont = $0 }
+        self.stateContinuation = stateCont
+        var inputCont: AsyncStream<Data>.Continuation!
+        inputEvents = AsyncStream { inputCont = $0 }
+        self.inputContinuation = inputCont
         super.init()
     }
 
@@ -89,6 +97,19 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         }
         peerConnection = pc
         stateContinuation.yield(.connecting)
+
+        // Create the input data channel before the offer so it travels in
+        // the SDP and the client receives it on setRemoteDescription. R9.1.
+        let dcConfig = RTCDataChannelConfiguration()
+        dcConfig.isOrdered = true
+        dcConfig.isNegotiated = false
+        if let channel = pc.dataChannel(forLabel: "input", configuration: dcConfig) {
+            channel.delegate = self
+            inputDataChannel = channel
+            logger.notice("input data channel created")
+        } else {
+            logger.error("failed to create input data channel")
+        }
 
         if let videoSource {
             let rtcSource = factory.videoSource(forScreenCast: tuning.screencast)
@@ -134,10 +155,13 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         videoSender = nil
         videoTrack = nil
         rtcVideoSource = nil
+        inputDataChannel?.close()
+        inputDataChannel = nil
         peerConnection?.close()
         peerConnection = nil
         stateContinuation.yield(.closed)
         stateContinuation.finish()
+        inputContinuation.finish()
     }
 
     // Tune the outgoing video sender from the SenderTuning value. Every knob
@@ -310,4 +334,16 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
+
+    // MARK: - RTCDataChannelDelegate
+
+    func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {
+        logger.notice("input data channel state=\(String(describing: dataChannel.readyState), privacy: .public)")
+    }
+
+    func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
+        // The client only sends JSON-encoded NormalizedInput on this channel
+        // for now. Forwarding the raw bytes keeps the transport decode-free.
+        inputContinuation.yield(buffer.data)
+    }
 }
