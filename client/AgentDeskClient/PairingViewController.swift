@@ -21,6 +21,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private let trackpadHint = UILabel()
     private let scrollStripView = UIView()
     private let scrollStripHint = UILabel()
+    private let settingsButton = UIButton(type: .system)
     // CGEvent posts at the userspace layer don't actually trigger macOS
     // pointer accel (that lives in IOKit, below CGEvent), so we apply our
     // own approximation client-side. The .mac curve keeps the standard
@@ -32,6 +33,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         configureViews()
+        configureSettingsButton()
+        applySettingsToTranslator()
         pairingClient.loadStoredPairingMaterial()
         render()
         NotificationCenter.default.addObserver(
@@ -40,6 +43,45 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             name: UIApplication.willEnterForegroundNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(settingsChanged),
+            name: SettingsStore.changedNotification,
+            object: nil
+        )
+    }
+
+    private func configureSettingsButton() {
+        let image = UIImage(systemName: "gearshape")
+        settingsButton.setImage(image, for: .normal)
+        settingsButton.tintColor = .label
+        settingsButton.addTarget(self, action: #selector(openSettings), for: .touchUpInside)
+        settingsButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(settingsButton)
+        NSLayoutConstraint.activate([
+            settingsButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            settingsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            settingsButton.widthAnchor.constraint(equalToConstant: 36),
+            settingsButton.heightAnchor.constraint(equalToConstant: 36)
+        ])
+    }
+
+    @objc private func openSettings() {
+        let settings = SettingsViewController()
+        let nav = UINavigationController(rootViewController: settings)
+        present(nav, animated: true)
+    }
+
+    @objc private func settingsChanged() {
+        applySettingsToTranslator()
+    }
+
+    private func applySettingsToTranslator() {
+        let store = SettingsStore.shared
+        gestureTranslator.cursorSpeedMultiplier = CGFloat(store.cursorSpeed)
+        gestureTranslator.cursorAccelMultiplier = CGFloat(store.cursorAcceleration)
+        gestureTranslator.scrollSpeedMultiplier = CGFloat(store.scrollSpeed)
+        gestureTranslator.scrollInverted = store.scrollInverted
     }
 
     override func viewWillAppear(_ animated: Bool) {
