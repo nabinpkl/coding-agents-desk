@@ -19,7 +19,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // recognizers and emits NormalizedInput; we forward to mediaTransport.send.
     private let trackpadView = UIView()
     private let trackpadHint = UILabel()
-    private let gestureTranslator = GestureTranslator(acceleration: .mac)
+    private let scrollStripView = UIView()
+    private let scrollStripHint = UILabel()
+    private let gestureTranslator = GestureTranslator(acceleration: .mac, scrollAcceleration: .scroll)
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -154,21 +156,43 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         trackpadHint.translatesAutoresizingMaskIntoConstraints = false
         trackpadView.addSubview(trackpadHint)
 
+        scrollStripView.translatesAutoresizingMaskIntoConstraints = false
+        scrollStripView.backgroundColor = UIColor.tertiarySystemBackground
+        scrollStripView.layer.cornerRadius = 12
+        scrollStripView.isUserInteractionEnabled = true
+        view.addSubview(scrollStripView)
+
+        scrollStripHint.text = "↕"
+        scrollStripHint.textColor = .tertiaryLabel
+        scrollStripHint.font = .systemFont(ofSize: 20, weight: .medium)
+        scrollStripHint.textAlignment = .center
+        scrollStripHint.translatesAutoresizingMaskIntoConstraints = false
+        scrollStripView.addSubview(scrollStripHint)
+
         NSLayoutConstraint.activate([
             trackpadView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            trackpadView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
             trackpadView.topAnchor.constraint(equalTo: view.centerYAnchor, constant: 24),
             trackpadView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
             trackpadHint.centerXAnchor.constraint(equalTo: trackpadView.centerXAnchor),
-            trackpadHint.bottomAnchor.constraint(equalTo: trackpadView.bottomAnchor, constant: -10)
+            trackpadHint.bottomAnchor.constraint(equalTo: trackpadView.bottomAnchor, constant: -10),
+
+            scrollStripView.widthAnchor.constraint(equalToConstant: 60),
+            scrollStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            scrollStripView.topAnchor.constraint(equalTo: trackpadView.topAnchor),
+            scrollStripView.bottomAnchor.constraint(equalTo: trackpadView.bottomAnchor),
+            scrollStripHint.centerXAnchor.constraint(equalTo: scrollStripView.centerXAnchor),
+            scrollStripHint.centerYAnchor.constraint(equalTo: scrollStripView.centerYAnchor)
         ])
 
         gestureTranslator.delegate = self
         gestureTranslator.attach(to: trackpadView)
+        gestureTranslator.attachScrollStrip(to: scrollStripView)
     }
 
     private func hideTrackpad() {
         trackpadView.removeFromSuperview()
+        scrollStripView.removeFromSuperview()
     }
 
     private func teardownMediaTransport() {

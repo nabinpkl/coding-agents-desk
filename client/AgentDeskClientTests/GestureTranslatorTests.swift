@@ -59,6 +59,21 @@ struct GestureTranslatorTests {
         #expect(recorder.events[0] == .click(button: .left))
     }
 
+    @Test func scrollStripEmitsScrollWithDyDeltasOnly() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        translator.processScrollPan(state: .began, translation: CGPoint(x: 0, y: 0))
+        translator.processScrollPan(state: .changed, translation: CGPoint(x: 3, y: 10))
+        translator.processScrollPan(state: .changed, translation: CGPoint(x: 5, y: 25))
+        translator.processScrollPan(state: .ended, translation: CGPoint(x: 5, y: 25))
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0] == .scroll(dx: 0, dy: 10))
+        #expect(recorder.events[1] == .scroll(dx: 0, dy: 15))
+    }
+
     @Test func tapStatesOtherThanEndedEmitNothing() {
         let recorder = InputRecorder()
         let translator = GestureTranslator()

@@ -46,8 +46,10 @@ final class InputDispatcher: @unchecked Sendable {
             postCursorMove(dx: CGFloat(dx), dy: CGFloat(dy))
         case .click(let button):
             postClick(button)
-        case .scroll, .dragStart, .dragEnd, .switchSpace, .key, .modifierArm:
-            // Out of scope for R9. Wired in later iterations.
+        case .scroll(let dx, let dy):
+            postScroll(dx: dx, dy: dy)
+        case .dragStart, .dragEnd, .switchSpace, .key, .modifierArm:
+            // Out of scope for R9 / R10. Wired in later iterations.
             break
         }
     }
@@ -89,6 +91,27 @@ final class InputDispatcher: @unchecked Sendable {
             // R10 territory.
             break
         }
+    }
+
+    private func postScroll(dx: Float, dy: Float) {
+        // CGEvent scroll wheel pixel convention: wheel1 positive = scroll up
+        // = page slides up = content below becomes visible. The iPhone scroll
+        // strip is modeled after a scrollbar, so dragging the finger DOWN on
+        // the strip should reveal content BELOW (scroll the page UP in the
+        // traditional sense). dy from UIPan is positive when the finger
+        // moves down, so we pass it through directly.
+        // macOS applies the user's "Natural scrolling" preference on top of
+        // this; if the feel is inverted, they can flip System Settings >
+        // Trackpad > Scroll Direction.
+        guard let event = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: Int32(dy),
+            wheel2: Int32(dx),
+            wheel3: 0
+        ) else { return }
+        eventPoster(event)
     }
 
     private func postMouseEvent(_ type: CGEventType, at point: CGPoint, button: CGMouseButton) {

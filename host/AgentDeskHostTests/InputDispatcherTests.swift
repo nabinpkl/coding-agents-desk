@@ -67,6 +67,23 @@ struct InputDispatcherTests {
         #expect(recorder.events[1].location == CGPoint(x: 0, y: 0))
     }
 
+    @Test func scrollPostsScrollWheelEventWithDyOnWheel1() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        dispatcher.dispatch(.scroll(dx: 0, dy: 30))
+
+        #expect(recorder.events.count == 1)
+        #expect(recorder.events[0].type == .scrollWheel)
+        // Pixel-units scroll wheel deltas live on wheel1 (vertical).
+        let pixelDelta = recorder.events[0].getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
+        #expect(pixelDelta == 30)
+    }
+
     @Test func outOfScopeInputsAreNoOps() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(
@@ -75,7 +92,6 @@ struct InputDispatcherTests {
             locationProvider: { .zero }
         )
 
-        dispatcher.dispatch(.scroll(dx: 1, dy: 2))
         dispatcher.dispatch(.dragStart)
         dispatcher.dispatch(.dragEnd)
         dispatcher.dispatch(.click(button: .right))

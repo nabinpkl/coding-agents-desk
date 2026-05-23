@@ -31,19 +31,36 @@ struct GestureAcceleration: Sendable {
     static let mac = GestureAcceleration { velocity in
         1.5 + min(velocity * 0.003, 5.0)
     }
+
+    // Vertical scroll curve. Tuned for code/document reading rather than
+    // screen-traversal: a slow finger drag of one screen-height should
+    // produce roughly half a screen of content scroll; a flick should
+    // produce one to two screens.
+    //   0     -> 3.0
+    //   500   -> 5.0
+    //   2000+ -> 8.0 (capped)
+    static let scroll = GestureAcceleration { velocity in
+        3.0 + min(velocity * 0.004, 5.0)
+    }
 }
 
 @MainActor
 final class GestureTranslator: NSObject {
     weak var delegate: GestureTranslatorDelegate?
     private let acceleration: GestureAcceleration
+    private let scrollAcceleration: GestureAcceleration
     // The pan recognizer reports cumulative translation, but we want
     // deltas-since-last-callback so the receiver can integrate them as
     // relative cursor motion without knowing the trackpad size.
     private var lastPanTranslation: CGPoint = .zero
+    private var lastScrollTranslation: CGPoint = .zero
 
-    init(acceleration: GestureAcceleration = .identity) {
+    init(
+        acceleration: GestureAcceleration = .identity,
+        scrollAcceleration: GestureAcceleration = .identity
+    ) {
         self.acceleration = acceleration
+        self.scrollAcceleration = scrollAcceleration
         super.init()
     }
 
@@ -58,6 +75,14 @@ final class GestureTranslator: NSObject {
         tap.numberOfTouchesRequired = 1
         tap.numberOfTapsRequired = 1
         view.addGestureRecognizer(tap)
+    }
+
+    func attachScrollStrip(to view: UIView) {
+        view.isUserInteractionEnabled = true
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleScrollGesture(_:)))
+        pan.minimumNumberOfTouches = 1
+        pan.maximumNumberOfTouches = 1
+        view.addGestureRecognizer(pan)
     }
 
     // Pure functions over (state, translation, velocity) so tests can drive
@@ -90,6 +115,29 @@ final class GestureTranslator: NSObject {
         delegate?.gestureTranslator(self, didProduce: .click(button: .left))
     }
 
+    // Right-edge scroll strip pan. Vertical only; horizontal scrolling is
+    // not in R10 scope. dy is in iPhone screen coords (positive = finger
+    // moved down). InputDispatcher handles the sign translation to CGEvent
+    // scroll wheel conventions.
+    func processScrollPan(state: UIGestureRecognizer.State, translation: CGPoint, velocity: CGPoint = .zero) {
+        switch state {
+        case .began:
+            lastScrollTranslation = translation
+        case .changed:
+            let rawDy = translation.y - lastScrollTranslation.y
+            lastScrollTranslation = translation
+            if rawDy == 0 { return }
+            let speed = abs(velocity.y)
+            let gain = scrollAcceleration.scale(speed)
+            let dy = Float(rawDy * gain)
+            delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: dy))
+        case .ended, .cancelled, .failed:
+            lastScrollTranslation = .zero
+        default:
+            break
+        }
+    }
+
     @objc private func handlePanGesture(_ gesture: UIPanGestureRecognizer) {
         guard let view = gesture.view else { return }
         processPan(
@@ -101,5 +149,14 @@ final class GestureTranslator: NSObject {
 
     @objc private func handleTapGesture(_ gesture: UITapGestureRecognizer) {
         processTap(state: gesture.state)
+    }
+
+    @objc private func handleScrollGesture(_ gesture: UIPanGestureRecognizer) {
+        guard let view = gesture.view else { return }
+        processScrollPan(
+            state: gesture.state,
+            translation: gesture.translation(in: view),
+            velocity: gesture.velocity(in: view)
+        )
     }
 }
