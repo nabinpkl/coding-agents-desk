@@ -137,6 +137,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     func handleIncomingPairingURL(_ url: URL) {
+        // A fresh pair URL supersedes whatever state we're in: stale token
+        // from a prior session, in-flight session attempt, or a rejection.
+        sessionTask?.cancel()
+        handshakeTask?.cancel()
+        stopCamera()
+        pairingClient.clearStoredCredentials()
         do {
             try pairingClient.startScanning()
         } catch {

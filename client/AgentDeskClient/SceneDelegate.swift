@@ -23,10 +23,17 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
     }
 
-    // Dev path: `xcrun devicectl device process launch ... com.example.agentdesk.AgentDeskClient <agentdesk URL>`
-    // surfaces the URL as a CommandLine argument rather than a URLContext. Route it
-    // manually so pairing can be driven from the Mac CLI without the QR camera step.
+    // Dev path: `xcrun devicectl device process launch --environment-variables`
+    // can populate AGENTDESK_LAUNCH_URL with an agentdesk:// URL so the recipe-
+    // driven flow can deliver the deeplink without the QR camera step. We also
+    // scan CommandLine.arguments as a fallback though iOS apps launched via
+    // LaunchServices typically don't receive argv.
     private static func pairingURLFromLaunchArguments() -> URL? {
+        if let envURL = ProcessInfo.processInfo.environment["AGENTDESK_LAUNCH_URL"],
+           envURL.hasPrefix("agentdesk://"),
+           let url = URL(string: envURL) {
+            return url
+        }
         for arg in CommandLine.arguments.dropFirst() {
             guard arg.hasPrefix("agentdesk://") else { continue }
             if let url = URL(string: arg) {
