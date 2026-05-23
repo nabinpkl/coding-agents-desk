@@ -10,6 +10,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private var handshakeTask: Task<Void, Never>?
     private var sessionTask: Task<Void, Never>?
+    private let mediaFactory: MediaTransportFactory = MediaStack.makeFactory()
+    private var mediaTransport: MediaTransport?
+    private var videoSink: VideoFrameSink?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -51,6 +54,38 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     deinit {
         handshakeTask?.cancel()
         sessionTask?.cancel()
+        mediaTransport?.stop()
+    }
+
+    private func startMediaTransportIfNeeded() {
+        guard mediaTransport == nil,
+              let signaling = pairingClient.activeSignaling else { return }
+        let sink = MediaStack.makeVideoSink()
+        let transport = mediaFactory.make()
+        videoSink = sink
+        mediaTransport = transport
+        mountSinkView(sink.view)
+        Task { [transport, signaling, sink] in
+            try? await transport.start(
+                role: .answerer,
+                signaling: signaling,
+                videoSource: nil,
+                videoSink: sink
+            )
+        }
+    }
+
+    private func mountSinkView(_ sinkView: UIView) {
+        sinkView.frame = view.bounds
+        sinkView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.insertSubview(sinkView, at: 0)
+    }
+
+    private func teardownMediaTransport() {
+        mediaTransport?.stop()
+        mediaTransport = nil
+        videoSink?.view.removeFromSuperview()
+        videoSink = nil
     }
 
     private func configureViews() {
@@ -88,6 +123,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         sessionTask?.cancel()
         handshakeTask?.cancel()
         stopCamera()
+        teardownMediaTransport()
         pairingClient.clearStoredCredentials()
         render()
     }
@@ -124,6 +160,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             statusLabel.text = "Connected (device \(active.deviceFingerprint))"
             actionButton.isHidden = true
             stopCamera()
+            startMediaTransportIfNeeded()
         case .revoked:
             statusLabel.text = "Revoked by host"
             actionButton.isHidden = false

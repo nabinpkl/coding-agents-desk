@@ -4,6 +4,6 @@ import UIKit
 // AVSampleBufferDisplayLayer variant is a future drop-in via the same
 // protocol.
 
-protocol VideoFrameSink: AnyObject {
-    var view: UIView { get }
+protocol VideoFrameSink: AnyObject, Sendable {
+    @MainActor var view: UIView { get }
 }

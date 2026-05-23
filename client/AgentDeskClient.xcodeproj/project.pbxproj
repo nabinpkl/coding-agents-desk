@@ -22,6 +22,8 @@
 		B0000000000000000000020D /* VideoFrameSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010E /* VideoFrameSink.swift */; };
 		B0000000000000000000020E /* MediaStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010F /* MediaStack.swift */; };
 		B0000000000000000000020F /* WebSocketSignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* WebSocketSignalingChannel.swift */; };
+		B00000000000000000000210 /* LibWebRTCMediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000111 /* LibWebRTCMediaTransport.swift */; };
+		B00000000000000000000211 /* RTCMTLVideoSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000112 /* RTCMTLVideoSink.swift */; };
 		B00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000102 /* Base64URL.swift */; };
 		B00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000103 /* Config.swift */; };
 		B00000000000000000000223 /* DeviceSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000104 /* DeviceSigningKeyStore.swift */; };
@@ -32,6 +34,7 @@
 		B00000000000000000000228 /* SessionDialer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010B /* SessionDialer.swift */; };
 		B00000000000000000000229 /* WebSocketSignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* WebSocketSignalingChannel.swift */; };
 		B0000000000000000000022A /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010D /* SignalingChannel.swift */; };
+		B00000000000000000000401 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = B00000000000000000000501 /* WebRTC */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -51,6 +54,8 @@
 		B0000000000000000000010E /* VideoFrameSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFrameSink.swift; sourceTree = "<group>"; };
 		B0000000000000000000010F /* MediaStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaStack.swift; sourceTree = "<group>"; };
 		B00000000000000000000110 /* WebSocketSignalingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketSignalingChannel.swift; sourceTree = "<group>"; };
+		B00000000000000000000111 /* LibWebRTCMediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibWebRTCMediaTransport.swift; sourceTree = "<group>"; };
+		B00000000000000000000112 /* RTCMTLVideoSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RTCMTLVideoSink.swift; sourceTree = "<group>"; };
 		B00000000000000000000121 /* PairingClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClientTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000141 /* AgentDeskClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000142 /* AgentDeskClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -61,6 +66,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B00000000000000000000401 /* WebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -110,6 +116,8 @@
 				B0000000000000000000010E /* VideoFrameSink.swift */,
 				B0000000000000000000010F /* MediaStack.swift */,
 				B00000000000000000000110 /* WebSocketSignalingChannel.swift */,
+				B00000000000000000000111 /* LibWebRTCMediaTransport.swift */,
+				B00000000000000000000112 /* RTCMTLVideoSink.swift */,
 				B0000000000000000000010A /* Info.plist */,
 			);
 			path = AgentDeskClient;
@@ -139,6 +147,9 @@
 			dependencies = (
 			);
 			name = AgentDeskClient;
+			packageProductDependencies = (
+				B00000000000000000000501 /* WebRTC */,
+			);
 			productName = AgentDeskClient;
 			productReference = B00000000000000000000141 /* AgentDeskClient.app */;
 			productType = "com.apple.product-type.application";
@@ -188,6 +199,9 @@
 				Base,
 			);
 			mainGroup = B00000000000000000000002;
+			packageReferences = (
+				B00000000000000000000601 /* XCRemoteSwiftPackageReference "WebRTC" */,
+			);
 			productRefGroup = B00000000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -197,6 +211,25 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B00000000000000000000601 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 130.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B00000000000000000000501 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B00000000000000000000601 /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin PBXResourcesBuildPhase section */
 		B00000000000000000000303 /* Resources */ = {
@@ -235,6 +268,8 @@
 				B0000000000000000000020D /* VideoFrameSink.swift in Sources */,
 				B0000000000000000000020E /* MediaStack.swift in Sources */,
 				B0000000000000000000020F /* WebSocketSignalingChannel.swift in Sources */,
+				B00000000000000000000210 /* LibWebRTCMediaTransport.swift in Sources */,
+				B00000000000000000000211 /* RTCMTLVideoSink.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

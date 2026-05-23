@@ -59,3 +59,8 @@ protocol VideoFrameSource: AnyObject, Sendable {
     func start() async throws
     func stop()
 }
+
+// VideoFrameSink is declared in its own file but the protocol surface
+// here keeps MediaTransport.start's signature symmetric with the host.
+// On the client, concrete impls (RTCMTLVideoSink) live alongside the
+// concrete transport.
