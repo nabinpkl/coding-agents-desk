@@ -254,6 +254,102 @@ struct InputDispatcherTests {
         #expect(recorder.events[2].type == .mouseMoved)
     }
 
+    @Test func consecutiveLeftClicksAtSameLocationIncrementClickState() {
+        let recorder = EventRecorder()
+        var now: CFTimeInterval = 1000
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 100, y: 100) },
+            clock: { now }
+        )
+
+        dispatcher.performDispatch(.click(button: .left))
+        now += 0.1
+        dispatcher.performDispatch(.click(button: .left))
+        now += 0.1
+        dispatcher.performDispatch(.click(button: .left))
+
+        #expect(recorder.events.count == 6)
+        // First click: state 1 on both down and up.
+        #expect(recorder.events[0].getIntegerValueField(.mouseEventClickState) == 1)
+        #expect(recorder.events[1].getIntegerValueField(.mouseEventClickState) == 1)
+        // Second click within 500ms: state 2 (double-click for word select).
+        #expect(recorder.events[2].getIntegerValueField(.mouseEventClickState) == 2)
+        #expect(recorder.events[3].getIntegerValueField(.mouseEventClickState) == 2)
+        // Third click still within window: state 3 (triple for line/paragraph).
+        #expect(recorder.events[4].getIntegerValueField(.mouseEventClickState) == 3)
+        #expect(recorder.events[5].getIntegerValueField(.mouseEventClickState) == 3)
+    }
+
+    @Test func leftClickFarFromPreviousResetsClickState() {
+        let recorder = EventRecorder()
+        var loc = CGPoint(x: 100, y: 100)
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { loc }
+        )
+
+        dispatcher.performDispatch(.click(button: .left))
+        loc = CGPoint(x: 500, y: 500)
+        dispatcher.performDispatch(.click(button: .left))
+
+        #expect(recorder.events.count == 4)
+        // Second click is far from the first (>5pt), so state resets to 1.
+        #expect(recorder.events[2].getIntegerValueField(.mouseEventClickState) == 1)
+    }
+
+    @Test func leftClickAfterDoubleClickIntervalResetsClickState() {
+        let recorder = EventRecorder()
+        var now: CFTimeInterval = 1000
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 100, y: 100) },
+            clock: { now }
+        )
+
+        dispatcher.performDispatch(.click(button: .left))
+        now += 0.6  // >500ms; outside the double-click window
+        dispatcher.performDispatch(.click(button: .left))
+
+        #expect(recorder.events.count == 4)
+        #expect(recorder.events[2].getIntegerValueField(.mouseEventClickState) == 1)
+    }
+
+    @Test func tapThenDragOpensAtClickStateTwo() {
+        // Tap-then-tap-and-hold-and-drag is the Mac word-by-word selection
+        // gesture: the first tap is state 1, the drag opens at state 2 so
+        // dragged events extend selection word-by-word rather than char.
+        let recorder = EventRecorder()
+        var now: CFTimeInterval = 1000
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 100, y: 100) },
+            clock: { now }
+        )
+
+        dispatcher.performDispatch(.click(button: .left))
+        now += 0.1
+        dispatcher.performDispatch(.dragStart)
+        dispatcher.performDispatch(.cursorMove(dx: 10, dy: 0))
+        dispatcher.performDispatch(.dragEnd)
+
+        #expect(recorder.events.count == 5)
+        // First click pair: state 1.
+        #expect(recorder.events[0].getIntegerValueField(.mouseEventClickState) == 1)
+        #expect(recorder.events[1].getIntegerValueField(.mouseEventClickState) == 1)
+        // Drag's leftMouseDown, leftMouseDragged, leftMouseUp all at state 2.
+        #expect(recorder.events[2].type == .leftMouseDown)
+        #expect(recorder.events[2].getIntegerValueField(.mouseEventClickState) == 2)
+        #expect(recorder.events[3].type == .leftMouseDragged)
+        #expect(recorder.events[3].getIntegerValueField(.mouseEventClickState) == 2)
+        #expect(recorder.events[4].type == .leftMouseUp)
+        #expect(recorder.events[4].getIntegerValueField(.mouseEventClickState) == 2)
+    }
+
     @Test func outOfScopeInputsAreNoOps() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(

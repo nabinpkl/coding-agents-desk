@@ -1,6 +1,7 @@
 import ApplicationServices
 import CoreGraphics
 import Foundation
+import QuartzCore
 import os
 
 // R9.3 NormalizedInput sink. Consumes decoded events and posts CGEvents.
@@ -12,12 +13,14 @@ final class InputDispatcher: @unchecked Sendable {
     typealias EventPoster = (CGEvent) -> Void
     typealias LocationProvider = () -> CGPoint
     typealias DisplayBoundsProvider = () -> CGRect
+    typealias Clock = () -> CFTimeInterval
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "input")
     private let eventPoster: EventPoster
     private let isTrusted: () -> Bool
     private let locationProvider: LocationProvider
     private let displayBoundsProvider: DisplayBoundsProvider
+    private let clock: Clock
     private var loggedUntrusted = false
     // Custom event source so we can disable the 0.25s synthetic-event
     // suppression interval macOS otherwise applies. Without this, posted
@@ -34,6 +37,22 @@ final class InputDispatcher: @unchecked Sendable {
     // continuous click-drag rather than a click followed by free cursor
     // motion. dragStart sets this true, dragEnd clears it.
     private var inDrag = false
+    // Click state tracking for the left button: a click within 500ms of
+    // the previous one at roughly the same point increments the state
+    // field. macOS apps key off this for double-click word selection,
+    // triple-click line/paragraph selection, and double-click-drag
+    // word-by-word extension. Without it, two rapid taps register as
+    // two independent single clicks and no text view selects a word.
+    private var lastLeftClickTime: CFTimeInterval = 0
+    private var lastLeftClickLocation: CGPoint = .zero
+    private var lastLeftClickState: Int64 = 0
+    private static let doubleClickInterval: CFTimeInterval = 0.5
+    private static let doubleClickRadius: CGFloat = 5
+    // Click state for the in-flight drag, captured at dragStart so all
+    // leftMouseDragged events plus the closing leftMouseUp carry the
+    // same state. This is what makes tap-then-tap-and-hold-and-drag
+    // extend selection word-by-word rather than character-by-character.
+    private var dragClickState: Int64 = 1
     // Serial queue so dispatch() is callable from any context (network
     // Task, MainActor, tests) without racing on loggedUntrusted /
     // scrollRemainder. Previously the AppDelegate forced every input
@@ -47,12 +66,14 @@ final class InputDispatcher: @unchecked Sendable {
         eventPoster: @escaping EventPoster = { $0.post(tap: .cghidEventTap) },
         isTrusted: @escaping () -> Bool = { AXIsProcessTrusted() },
         locationProvider: @escaping LocationProvider = { CGEvent(source: nil)?.location ?? .zero },
-        displayBoundsProvider: @escaping DisplayBoundsProvider = { CGDisplayBounds(CGMainDisplayID()) }
+        displayBoundsProvider: @escaping DisplayBoundsProvider = { CGDisplayBounds(CGMainDisplayID()) },
+        clock: @escaping Clock = { CACurrentMediaTime() }
     ) {
         self.eventPoster = eventPoster
         self.isTrusted = isTrusted
         self.locationProvider = locationProvider
         self.displayBoundsProvider = displayBoundsProvider
+        self.clock = clock
         let source = CGEventSource(stateID: .hidSystemState)
         source?.localEventsSuppressionInterval = 0.0
         self.cursorEventSource = source
@@ -119,7 +140,11 @@ final class InputDispatcher: @unchecked Sendable {
             mouseButton: .left
         ) else { return }
         if inDrag {
-            event.setIntegerValueField(.mouseEventClickState, value: 1)
+            // Inherit the click state captured at dragStart so all
+            // dragged events form one cohesive click-and-drag from the
+            // OS's perspective (state=2 extends word selection, state=3
+            // extends paragraph selection, etc.).
+            event.setIntegerValueField(.mouseEventClickState, value: dragClickState)
         }
         eventPoster(event)
     }
@@ -128,16 +153,19 @@ final class InputDispatcher: @unchecked Sendable {
         if inDrag { return }
         inDrag = true
         let location = currentLocation()
-        // Mark the leftMouseDown as click state 1 so the OS treats the
-        // subsequent leftMouseDragged stream as a continuation of one
-        // discrete click, not the start of a separate gesture.
-        postClickEvent(.leftMouseDown, at: location, button: .left)
+        // Tick the click tracker so a tap-then-tap-and-hold sequence
+        // opens the drag at click state 2 (double-click-drag = extend
+        // word selection), tap-tap-tap-hold opens at 3 (triple = line
+        // / paragraph), and a bare hold opens at 1. The dragged events
+        // and closing mouseUp inherit this via dragClickState.
+        dragClickState = nextLeftClickState(at: location)
+        postClickEvent(.leftMouseDown, at: location, button: .left, clickState: dragClickState)
     }
 
     private func postDragEnd() {
         if !inDrag { return }
         let location = currentLocation()
-        postClickEvent(.leftMouseUp, at: location, button: .left)
+        postClickEvent(.leftMouseUp, at: location, button: .left, clickState: dragClickState)
         inDrag = false
     }
 
@@ -155,8 +183,9 @@ final class InputDispatcher: @unchecked Sendable {
         let location = currentLocation()
         switch button {
         case .left:
-            postMouseEvent(.leftMouseDown, at: location, button: .left)
-            postMouseEvent(.leftMouseUp, at: location, button: .left)
+            let state = nextLeftClickState(at: location)
+            postClickEvent(.leftMouseDown, at: location, button: .left, clickState: state)
+            postClickEvent(.leftMouseUp, at: location, button: .left, clickState: state)
         case .right:
             // Without an explicit click state, some macOS text views treat
             // synthesised rightMouseDown/Up as the start of a right-button
@@ -174,15 +203,37 @@ final class InputDispatcher: @unchecked Sendable {
         }
     }
 
-    private func postClickEvent(_ type: CGEventType, at point: CGPoint, button: CGMouseButton) {
+    private func postClickEvent(
+        _ type: CGEventType,
+        at point: CGPoint,
+        button: CGMouseButton,
+        clickState: Int64 = 1
+    ) {
         guard let event = CGEvent(
             mouseEventSource: cursorEventSource,
             mouseType: type,
             mouseCursorPosition: point,
             mouseButton: button
         ) else { return }
-        event.setIntegerValueField(.mouseEventClickState, value: 1)
+        event.setIntegerValueField(.mouseEventClickState, value: clickState)
         eventPoster(event)
+    }
+
+    private func nextLeftClickState(at location: CGPoint) -> Int64 {
+        let now = clock()
+        let dx = location.x - lastLeftClickLocation.x
+        let dy = location.y - lastLeftClickLocation.y
+        let distance = (dx * dx + dy * dy).squareRoot()
+        let state: Int64
+        if now - lastLeftClickTime <= Self.doubleClickInterval && distance <= Self.doubleClickRadius {
+            state = lastLeftClickState + 1
+        } else {
+            state = 1
+        }
+        lastLeftClickTime = now
+        lastLeftClickLocation = location
+        lastLeftClickState = state
+        return state
     }
 
     private func postScroll(dx: Float, dy: Float, phase: NormalizedInput.ScrollPhase) {
@@ -234,15 +285,5 @@ final class InputDispatcher: @unchecked Sendable {
         case .momentumChanged: return (0, 2)
         case .momentumEnded:   return (0, 3)
         }
-    }
-
-    private func postMouseEvent(_ type: CGEventType, at point: CGPoint, button: CGMouseButton) {
-        guard let event = CGEvent(
-            mouseEventSource: nil,
-            mouseType: type,
-            mouseCursorPosition: point,
-            mouseButton: button
-        ) else { return }
-        eventPoster(event)
     }
 }
