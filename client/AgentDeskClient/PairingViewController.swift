@@ -21,6 +21,14 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private var sinkScrollView: UIScrollView?
     private static let sinkMaxZoomScale: CGFloat = 4.0
     private static let sinkDoubleTapZoomScale: CGFloat = 2.0
+    // ADR-0009 cursor-driven viewport pan. The client mirrors the host
+    // cursor position in source-display points so the scroll view can
+    // follow it when zoomed past 1.0x. Updated locally on every
+    // .cursorMove emitted by GestureTranslator; nil until the first
+    // DesktopState lands with a valid active display rect.
+    private var cursorSourcePos: CGPoint?
+    private var activeDisplayRect: CGRect = .zero
+    private var activeDisplayIdMirror: String?
     private var mediaStateTask: Task<Void, Never>?
     private var iceGraceTask: Task<Void, Never>?
     // R11: observes the input channel's desktopStateUpdates stream and
@@ -608,8 +616,38 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                     self?.spacesDotsView.apply(state: state)
                     self?.thumbnailStripView.apply(state: state)
                     self?.refreshThumbnailStripVisibility()
+                    self?.applyDesktopStateForCursorModel(state)
                 }
             }
+        }
+    }
+
+    // ADR-0009. The active display rect drives both the cursor-model
+    // clamp and the aspect-fit math the EdgeFollow helper uses. Centre
+    // the cursor on first arrival or when the active display changes;
+    // preserve the cursor position on a same-display re-push so the
+    // user doesn't lose their place every time a Space switches.
+    private func applyDesktopStateForCursorModel(_ state: DesktopState) {
+        let active = state.displays.first(where: { $0.id == state.activeDisplayId })
+            ?? state.displays.first
+        guard let display = active,
+              display.widthPoints > 0,
+              display.heightPoints > 0 else {
+            cursorSourcePos = nil
+            activeDisplayRect = .zero
+            activeDisplayIdMirror = nil
+            return
+        }
+        let newRect = CGRect(
+            x: 0, y: 0,
+            width: CGFloat(display.widthPoints),
+            height: CGFloat(display.heightPoints)
+        )
+        let isSameDisplay = display.id == activeDisplayIdMirror && newRect.size == activeDisplayRect.size
+        activeDisplayRect = newRect
+        activeDisplayIdMirror = display.id
+        if !isSameDisplay || cursorSourcePos == nil {
+            cursorSourcePos = CGPoint(x: newRect.midX, y: newRect.midY)
         }
     }
 
@@ -821,13 +859,51 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         videoSink = nil
         sinkScrollView?.removeFromSuperview()
         sinkScrollView = nil
+        cursorSourcePos = nil
+        activeDisplayRect = .zero
+        activeDisplayIdMirror = nil
         hideTrackpad()
     }
 
     // MARK: - GestureTranslatorDelegate
 
     func gestureTranslator(_ translator: GestureTranslator, didProduce input: NormalizedInput) {
+        if case let .cursorMove(dx, dy) = input {
+            advanceCursorModel(dx: CGFloat(dx), dy: CGFloat(dy))
+        }
         sendInput(input)
+    }
+
+    // ADR-0009. The host's InputDispatcher already integrates these
+    // deltas and clamps against CGDisplayBounds; mirror the same logic
+    // locally so the client knows where the host cursor is without
+    // needing a return push. After the model is updated, ask the
+    // EdgeFollow helper whether the scroll view needs to pan.
+    private func advanceCursorModel(dx: CGFloat, dy: CGFloat) {
+        guard activeDisplayRect.width > 0, activeDisplayRect.height > 0 else { return }
+        let from = cursorSourcePos ?? CGPoint(x: activeDisplayRect.midX, y: activeDisplayRect.midY)
+        let next = EdgeFollow.advanceCursor(
+            from: from,
+            delta: CGPoint(x: dx, y: dy),
+            displayBounds: activeDisplayRect
+        )
+        cursorSourcePos = next
+        applyEdgeFollow()
+    }
+
+    private func applyEdgeFollow() {
+        guard let scroll = sinkScrollView, let pos = cursorSourcePos else { return }
+        guard scroll.zoomScale > 1.0 else { return }
+        let next = EdgeFollow.contentOffset(
+            forCursor: pos,
+            displayBounds: activeDisplayRect,
+            sinkViewSize: scroll.bounds.size,
+            zoomScale: scroll.zoomScale,
+            currentOffset: scroll.contentOffset
+        )
+        if next != scroll.contentOffset {
+            scroll.setContentOffset(next, animated: false)
+        }
     }
 
     private func configureViews() {

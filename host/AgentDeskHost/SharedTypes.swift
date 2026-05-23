@@ -501,9 +501,18 @@ struct InputChannelClose: Codable, Equatable {
 
 struct DisplayMetadata: Codable, Equatable {
     let id: String
+    // ADR-0009 cursor-driven viewport pan. Display dimensions in points,
+    // matching CGDisplayBounds / what InputDispatcher clamps cursor
+    // positions against. The client uses these to clamp its predicted
+    // cursor model and to map source-display coords into the iPhone's
+    // sinkView for edge-follow viewport math.
+    let widthPoints: Float
+    let heightPoints: Float
 
     enum CodingKeys: String, CodingKey {
         case id = "i"
+        case widthPoints = "w"
+        case heightPoints = "h"
     }
 }
 

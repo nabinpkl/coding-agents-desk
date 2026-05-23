@@ -1,0 +1,157 @@
+import CoreGraphics
+import Foundation
+import Testing
+
+struct EdgeFollowTests {
+    // The point-spaced "rough Retina MBP" display used throughout. 1.54
+    // aspect, similar to the user's actual workstation.
+    private static let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
+    // Sink view sized like the iPhone's video band: ~393 points wide
+    // by ~219 points tall. Aspect 1.79 means the sink is wider than the
+    // display, so the video is pillarboxed (padX > 0, padY = 0 when
+    // height-constrained; let aspect-fit do its thing).
+    private static let sink = CGSize(width: 393, height: 219)
+
+    @Test func cursorInSafeBandLeavesOffsetUnchanged() {
+        let currentOffset = CGPoint(x: 50, y: 30)
+        // Display centre maps to roughly sink centre at zoom 2; well
+        // inside the safe band relative to currentOffset.
+        let next = EdgeFollow.contentOffset(
+            forCursor: CGPoint(x: Self.display.midX, y: Self.display.midY),
+            displayBounds: Self.display,
+            sinkViewSize: Self.sink,
+            zoomScale: 2.0,
+            currentOffset: currentOffset
+        )
+        // Centre cursor at zoom 2 should leave the centred view alone.
+        let centredOffset = CGPoint(
+            x: Self.sink.width * 2 / 2 - Self.sink.width / 2,
+            y: Self.sink.height * 2 / 2 - Self.sink.height / 2
+        )
+        let nextSafe = EdgeFollow.contentOffset(
+            forCursor: CGPoint(x: Self.display.midX, y: Self.display.midY),
+            displayBounds: Self.display,
+            sinkViewSize: Self.sink,
+            zoomScale: 2.0,
+            currentOffset: centredOffset
+        )
+        #expect(nextSafe == centredOffset)
+        _ = next
+    }
+
+    @Test func cursorAtRightEdgePullsOffsetForward() {
+        // Cursor at the source display's right edge, zoom 2x, current
+        // offset at left. The viewport must shift right so the cursor
+        // lands at the right-margin boundary. The pillarbox padding to
+        // the right of the video means the cursor at display.maxX does
+        // not land at the absolute right of the content; it lands at
+        // (padX + display.width * fitScale) * zoom.
+        let next = EdgeFollow.contentOffset(
+            forCursor: CGPoint(x: Self.display.maxX, y: Self.display.midY),
+            displayBounds: Self.display,
+            sinkViewSize: Self.sink,
+            zoomScale: 2.0,
+            currentOffset: .zero
+        )
+        let fitScale = min(Self.sink.width / Self.display.width, Self.sink.height / Self.display.height)
+        let padX = (Self.sink.width - Self.display.width * fitScale) / 2
+        let cursorContentX = (padX + Self.display.width * fitScale) * 2.0
+        let marginX = Self.sink.width * 0.12
+        let expected = cursorContentX - (Self.sink.width - marginX)
+        #expect(abs(next.x - expected) < 0.5)
+    }
+
+    @Test func cursorAtLeftEdgePullsOffsetBack() {
+        let next = EdgeFollow.contentOffset(
+            forCursor: CGPoint(x: 0, y: Self.display.midY),
+            displayBounds: Self.display,
+            sinkViewSize: Self.sink,
+            zoomScale: 2.0,
+            currentOffset: CGPoint(x: 200, y: 0)
+        )
+        let fitScale = min(Self.sink.width / Self.display.width, Self.sink.height / Self.display.height)
+        let padX = (Self.sink.width - Self.display.width * fitScale) / 2
+        let cursorContentX = padX * 2.0
+        let marginX = Self.sink.width * 0.12
+        let expected = cursorContentX - marginX
+        // expected may be negative (pillarbox padding less than margin);
+        // clamped to 0 by the helper.
+        #expect(abs(next.x - max(0, expected)) < 0.5)
+    }
+
+    @Test func cursorBeyondTopPullsOffsetBackToZero() {
+        let next = EdgeFollow.contentOffset(
+            forCursor: CGPoint(x: Self.display.midX, y: 0),
+            displayBounds: Self.display,
+            sinkViewSize: Self.sink,
+            zoomScale: 2.0,
+            currentOffset: CGPoint(x: 100, y: 100)
+        )
+        #expect(next.y == 0)
+    }
+
+    @Test func cursorAtBottomEdgePullsOffsetForward() {
+        let next = EdgeFollow.contentOffset(
+            forCursor: CGPoint(x: Self.display.midX, y: Self.display.maxY),
+            displayBounds: Self.display,
+            sinkViewSize: Self.sink,
+            zoomScale: 2.0,
+            currentOffset: .zero
+        )
+        let maxOffsetY = Self.sink.height * 2 - Self.sink.height
+        #expect(next.y == maxOffsetY)
+    }
+
+    @Test func zoomOneClampsOffsetToZero() {
+        // At zoom 1 contentSize == sinkSize so no panning possible.
+        let next = EdgeFollow.contentOffset(
+            forCursor: CGPoint(x: Self.display.maxX, y: Self.display.maxY),
+            displayBounds: Self.display,
+            sinkViewSize: Self.sink,
+            zoomScale: 1.0,
+            currentOffset: .zero
+        )
+        #expect(next == .zero)
+    }
+
+    @Test func degenerateDisplayReturnsCurrentOffset() {
+        let next = EdgeFollow.contentOffset(
+            forCursor: .zero,
+            displayBounds: .zero,
+            sinkViewSize: Self.sink,
+            zoomScale: 2.0,
+            currentOffset: CGPoint(x: 50, y: 50)
+        )
+        #expect(next == CGPoint(x: 50, y: 50))
+    }
+
+    // MARK: - advanceCursor
+
+    @Test func advanceCursorIntegratesDeltaAndClamps() {
+        let next = EdgeFollow.advanceCursor(
+            from: CGPoint(x: 100, y: 100),
+            delta: CGPoint(x: 50, y: -30),
+            displayBounds: Self.display
+        )
+        #expect(next == CGPoint(x: 150, y: 70))
+    }
+
+    @Test func advanceCursorClampsToDisplayRightEdge() {
+        let next = EdgeFollow.advanceCursor(
+            from: CGPoint(x: 1500, y: 500),
+            delta: CGPoint(x: 100, y: 0),
+            displayBounds: Self.display
+        )
+        #expect(next.x == Self.display.width)
+        #expect(next.y == 500)
+    }
+
+    @Test func advanceCursorClampsToDisplayTopLeft() {
+        let next = EdgeFollow.advanceCursor(
+            from: CGPoint(x: 10, y: 10),
+            delta: CGPoint(x: -100, y: -100),
+            displayBounds: Self.display
+        )
+        #expect(next == .zero)
+    }
+}

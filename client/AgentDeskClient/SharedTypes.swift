@@ -478,9 +478,14 @@ struct InputChannelClose: Codable, Equatable {
 
 struct DisplayMetadata: Codable, Equatable {
     let id: String
+    // ADR-0009: see host SharedTypes.swift.
+    let widthPoints: Float
+    let heightPoints: Float
 
     enum CodingKeys: String, CodingKey {
         case id = "i"
+        case widthPoints = "w"
+        case heightPoints = "h"
     }
 }
 

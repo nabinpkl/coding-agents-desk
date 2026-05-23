@@ -215,7 +215,7 @@ struct SpacesDotsViewTests {
     @Test func applyStateRendersOneDotPerUserSpaceOnActiveDisplay() {
         let view = SpacesDotsView()
         view.apply(state: DesktopState(
-            displays: [DisplayMetadata(id: "DISP-1")],
+            displays: [DisplayMetadata(id: "DISP-1", widthPoints: 1512, heightPoints: 982)],
             spaces: [
                 SpaceMetadata(id: 100, displayId: "DISP-1", index: 0, type: 0),
                 SpaceMetadata(id: 200, displayId: "DISP-1", index: 1, type: 0),
@@ -232,7 +232,7 @@ struct SpacesDotsViewTests {
     @Test func applyStateSkipsFullscreenSpaces() {
         let view = SpacesDotsView()
         view.apply(state: DesktopState(
-            displays: [DisplayMetadata(id: "DISP-1")],
+            displays: [DisplayMetadata(id: "DISP-1", widthPoints: 1512, heightPoints: 982)],
             spaces: [
                 SpaceMetadata(id: 100, displayId: "DISP-1", index: 0, type: 0),
                 SpaceMetadata(id: 150, displayId: "DISP-1", index: nil, type: 4),
@@ -249,8 +249,8 @@ struct SpacesDotsViewTests {
         let view = SpacesDotsView()
         view.apply(state: DesktopState(
             displays: [
-                DisplayMetadata(id: "DISP-1"),
-                DisplayMetadata(id: "DISP-2"),
+                DisplayMetadata(id: "DISP-1", widthPoints: 1512, heightPoints: 982),
+                DisplayMetadata(id: "DISP-2", widthPoints: 1512, heightPoints: 982),
             ],
             spaces: [
                 SpaceMetadata(id: 100, displayId: "DISP-1", index: 0, type: 0),
@@ -269,7 +269,7 @@ struct SpacesDotsViewTests {
     @Test func applyStateHidesViewWhenOnlyOneUserSpaceExists() {
         let view = SpacesDotsView()
         view.apply(state: DesktopState(
-            displays: [DisplayMetadata(id: "DISP-1")],
+            displays: [DisplayMetadata(id: "DISP-1", widthPoints: 1512, heightPoints: 982)],
             spaces: [
                 SpaceMetadata(id: 100, displayId: "DISP-1", index: 0, type: 0),
             ],

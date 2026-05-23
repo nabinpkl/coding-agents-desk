@@ -130,9 +130,22 @@ final class SpacesProvider {
         var activeDisplayId: String?
         var activeSpaceId: UInt64?
 
+        // ADR-0009: stamp each display with its size in points. v0 only
+        // captures and dispatches input against CGMainDisplayID, and
+        // InputDispatcher clamps the cursor against CGDisplayBounds of
+        // the same display. So for the single-display case applying
+        // the main display's bounds to every DisplayMetadata is
+        // correct; multi-monitor v1 will need UUID-to-displayID
+        // matching to disambiguate.
+        let mainBounds = CGDisplayBounds(CGMainDisplayID())
+
         for entry in displaysRaw {
             guard let displayUUID = entry["Display Identifier"] as? String else { continue }
-            displays.append(DisplayMetadata(id: displayUUID))
+            displays.append(DisplayMetadata(
+                id: displayUUID,
+                widthPoints: Float(mainBounds.width),
+                heightPoints: Float(mainBounds.height)
+            ))
 
             guard let displaySpaces = entry["Spaces"] as? [[String: Any]] else { continue }
             var userSpaceIndex = 0

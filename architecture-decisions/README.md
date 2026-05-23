@@ -53,3 +53,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0006 | Spaces thumbnail capture for the iPhone preview strip | proposed | 2026-05-23 |
 | ADR-0007 | Host-side viewport crop for zoom sharpness | superseded by ADR-0008 | 2026-05-23 |
 | ADR-0008 | Native-pixel encoder density, local-only zoom | proposed | 2026-05-23 |
+| ADR-0009 | Cursor-driven viewport pan (edge follow) | proposed | 2026-05-23 |
