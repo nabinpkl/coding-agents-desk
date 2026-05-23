@@ -98,7 +98,7 @@ R8.1     2026-05-20  committed   ADR-0003 session establishment accepted; SPEC u
 R8.2     2026-05-20  committed   SessionAuthenticator on host with first-frame dispatcher
 R8.3     2026-05-20  committed   SessionDialer on client; state machine rewritten; pairedDisconnected on launch
 R8.4     2026-05-20  committed   four-state UI machines on both ends, auto-dial on foreground, dev affordances
-R8.5     pending     pending     session handshake tests including bearer-token regression check
+R8.5     2026-05-20  committed   SessionAuthenticator tests including bearer-token regression guard
 R8.6     pending     pending     hello-pixels, gated by ActiveSession
 R9       pending     pending     Phase 3 captured (S3, #5)
 R10      pending     pending     Phase 4 captured (S4, #6)
