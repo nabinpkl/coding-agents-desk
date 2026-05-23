@@ -1,7 +1,7 @@
 import AVFoundation
 import UIKit
 
-final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate, GestureTranslatorDelegate, KeyboardSurfaceDelegate {
+final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate, GestureTranslatorDelegate, KeyboardSurfaceDelegate, UIGestureRecognizerDelegate {
     private let pairingClient = PairingClient()
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
@@ -43,6 +43,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // resignFirstResponder route correctly through the responder chain.
     private let keyboardSurface = KeyboardSurface()
     private var buttonRowBottomConstraint: NSLayoutConstraint?
+    private var dismissKeyboardTap: UITapGestureRecognizer?
     // CGEvent posts at the userspace layer don't actually trigger macOS
     // pointer accel (that lives in IOKit, below CGEvent), so we apply our
     // own approximation client-side. The .mac curve keeps the standard
@@ -101,14 +102,38 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // Any tap on the app's main view dismisses the keyboard. The
         // iOS soft keyboard and its inputAccessoryView render in a
         // separate UIWindow, so this recognizer doesn't see touches
-        // on the keys themselves. cancelsTouchesInView=false so button
-        // taps and trackpad gestures still reach their own handlers.
-        // dismissKeyboardIfShown is idempotent when the keyboard isn't
-        // first responder, so taps when the keyboard is already hidden
-        // have no side effect.
+        // on the keys themselves.
+        //
+        // cancelsTouchesInView=false so button taps and trackpad
+        // gestures still reach their own handlers.
+        //
+        // delaysTouchesEnded defaults to true on UITapGestureRecognizer,
+        // which would hold back the trackpad pan's touchesEnded by
+        // ~150ms (the iOS tap timeout) waiting to confirm this isn't a
+        // tap — that was the source of the cursor lag regression after
+        // the keyboard slice landed. Force both delay flags off so the
+        // pan path is never blocked by tap arbitration.
+        //
+        // gestureRecognizerShouldBegin further restricts the tap to
+        // fire only when the keyboard is up, so when there's no
+        // keyboard to dismiss the recognizer doesn't even compete with
+        // the trackpad's pan for the touch sequence.
         let dismissTap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboardIfShown))
         dismissTap.cancelsTouchesInView = false
+        dismissTap.delaysTouchesBegan = false
+        dismissTap.delaysTouchesEnded = false
+        dismissTap.delegate = self
         view.addGestureRecognizer(dismissTap)
+        dismissKeyboardTap = dismissTap
+    }
+
+    // MARK: - UIGestureRecognizerDelegate
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === dismissKeyboardTap {
+            return keyboardSurface.isFirstResponder
+        }
+        return true
     }
 
     private func configureSettingsButton() {
