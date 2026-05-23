@@ -199,7 +199,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     private func applySettingsToTranslator() {
         gestureTranslator.tuning = SettingsStore.shared.tuning
-        spacesDotsView.invertDirection = SettingsStore.shared.spacesInverted
+        spacesDotsView.useMacOSDirection = SettingsStore.shared.useMacOSSpacesDirection
     }
 
     override func viewWillAppear(_ animated: Bool) {

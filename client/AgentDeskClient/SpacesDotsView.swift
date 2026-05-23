@@ -27,15 +27,15 @@ protocol SpacesDotsViewDelegate: AnyObject {
 final class SpacesDotsView: UIView {
     weak var delegate: SpacesDotsViewDelegate?
 
-    // User-configurable inversion of swipe-to-Space direction. False
-    // (default) = natural macOS Spaces direction (finger-right ->
-    // Space to the right becomes active). True = inverted, so the
-    // user can pick whichever feels more intuitive. The flip happens
-    // at emit time on both progress and velocity so the host never
-    // has to know about user preference. PairingViewController reads
-    // SettingsStore.shared.spacesInverted and writes here on settings
-    // change.
-    var invertDirection: Bool = false
+    // User-configurable swipe-to-Space direction mapping. False
+    // (default, toggle OFF) inverts the wire-level sign so finger-right
+    // maps to the Space on the LEFT — the scrollbar-style reading most
+    // one-handed phone users expect. True passes the sign through so
+    // finger-right maps to the next Space, matching the macOS-native
+    // trackpad direction. PairingViewController reads
+    // SettingsStore.shared.useMacOSSpacesDirection and writes here on
+    // settings change.
+    var useMacOSDirection: Bool = false
 
     private let stack = UIStackView()
     private let feedback = UISelectionFeedbackGenerator()
@@ -204,8 +204,10 @@ final class SpacesDotsView: UIView {
     }
 
     private func emit(phase: NormalizedInput.SwipePhase, progress: Float, velocityX: Float) {
-        let signedProgress = invertDirection ? -progress : progress
-        let signedVelocityX = invertDirection ? -velocityX : velocityX
+        // Flip when NOT using macOS direction; pass through when using
+        // macOS direction. Default (false) gives the inverted feel.
+        let signedProgress = useMacOSDirection ? progress : -progress
+        let signedVelocityX = useMacOSDirection ? velocityX : -velocityX
         delegate?.spacesDots(self, didProduce: .switchSpaceGesture(
             phase: phase, progress: signedProgress, velocityX: signedVelocityX
         ))

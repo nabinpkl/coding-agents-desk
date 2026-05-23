@@ -51,7 +51,7 @@ final class SettingsViewController: UIViewController {
         let spacesSection = makeSection(
             title: "Spaces",
             rows: [],
-            switchRow: ("Invert direction", spacesDirectionSwitch)
+            switchRow: ("Match Mac swipe direction", spacesDirectionSwitch)
         )
 
         let accessorySection = makeSection(
@@ -131,7 +131,7 @@ final class SettingsViewController: UIViewController {
         cursorAccelSlider.value = Float(store.cursorAcceleration)
         scrollSpeedSlider.value = Float(store.scrollSpeed)
         scrollDirectionSwitch.isOn = store.scrollInverted
-        spacesDirectionSwitch.isOn = store.spacesInverted
+        spacesDirectionSwitch.isOn = store.useMacOSSpacesDirection
         accessoryContainerSlider.value = Float(store.accessoryContainerHeight)
         accessoryKeySlider.value = Float(store.accessoryKeyHeight)
         accessoryGapSlider.value = Float(store.accessoryKeySpacing)
@@ -175,7 +175,7 @@ final class SettingsViewController: UIViewController {
     }
 
     @objc private func spacesDirectionChanged() {
-        store.spacesInverted = spacesDirectionSwitch.isOn
+        store.useMacOSSpacesDirection = spacesDirectionSwitch.isOn
     }
 
     @objc private func accessoryContainerChanged() {
