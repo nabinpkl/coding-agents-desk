@@ -1,31 +1,5 @@
 import CoreGraphics
 import Foundation
-import UIKit
-
-// User preference for app appearance. Persisted as the raw value so the
-// UISegmentedControl in SettingsViewController can map slot index to
-// UIUserInterfaceStyle without a separate mapping table.
-enum AppearancePreference: Int, CaseIterable {
-    case system = 0
-    case light = 1
-    case dark = 2
-
-    var interfaceStyle: UIUserInterfaceStyle {
-        switch self {
-        case .system: return .unspecified
-        case .light:  return .light
-        case .dark:   return .dark
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .system: return "System"
-        case .light:  return "Light"
-        case .dark:   return "Dark"
-        }
-    }
-}
 
 // UserDefaults-backed store for trackpad / scroll feel preferences. The
 // raw values are unitless multipliers (1.0 = default) so the UI can show
@@ -51,7 +25,6 @@ final class SettingsStore: @unchecked Sendable {
         static let accessoryContainerHeight = "agentDesk.accessoryContainerHeight"
         static let accessoryKeyHeight = "agentDesk.accessoryKeyHeight"
         static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
-        static let appearance = "agentDesk.appearance"
     }
 
     // iOS HIG / QuickType bar standard is 44pt; key chiclets at 36pt
@@ -127,23 +100,6 @@ final class SettingsStore: @unchecked Sendable {
     var accessoryKeySpacing: Double {
         get { defaults.object(forKey: Key.accessoryKeySpacing) as? Double ?? Self.defaultAccessoryKeySpacing }
         set { defaults.set(newValue, forKey: Key.accessoryKeySpacing); postChange() }
-    }
-
-    // Appearance preference. Default .dark because the app's primary
-    // visual is the screen-share video above the trackpad; a dark chrome
-    // recedes behind that content the way a Magic Trackpad's matte
-    // surface does, while a light chrome jumps to the eye and pulls
-    // attention away from the Mac display. Light remains available in
-    // the picker for users who specifically want it.
-    var appearance: AppearancePreference {
-        get {
-            let raw = defaults.object(forKey: Key.appearance) as? Int ?? AppearancePreference.dark.rawValue
-            return AppearancePreference(rawValue: raw) ?? .dark
-        }
-        set {
-            defaults.set(newValue.rawValue, forKey: Key.appearance)
-            postChange()
-        }
     }
 
     private func postChange() {

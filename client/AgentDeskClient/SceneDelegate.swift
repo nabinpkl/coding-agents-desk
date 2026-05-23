@@ -15,24 +15,21 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let window = UIWindow(windowScene: windowScene)
         let pairingVC = PairingViewController()
         window.rootViewController = pairingVC
-        window.overrideUserInterfaceStyle = SettingsStore.shared.appearance.interfaceStyle
+        // Locked to dark. The app sits below a screen-share video that's
+        // almost always dark Mac content, and a white app canvas in
+        // light mode created a jarring middle band against the
+        // naturally-dark iOS status bar and home-indicator chrome
+        // (status bar text is white over a dark video, home indicator
+        // sits in a dark safe-area strip). Forcing .dark keeps the
+        // whole frame tonally consistent.
+        window.overrideUserInterfaceStyle = .dark
         window.makeKeyAndVisible()
         self.window = window
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(applyAppearance),
-            name: SettingsStore.changedNotification,
-            object: nil
-        )
         if let url = connectionOptions.urlContexts.first?.url {
             pairingVC.handleIncomingPairingURL(url)
         } else if let url = Self.pairingURLFromLaunchArguments() {
             pairingVC.handleIncomingPairingURL(url)
         }
-    }
-
-    @objc private func applyAppearance() {
-        window?.overrideUserInterfaceStyle = SettingsStore.shared.appearance.interfaceStyle
     }
 
     // Dev path: `xcrun devicectl device process launch --environment-variables`

@@ -19,9 +19,6 @@ final class SettingsViewController: UIViewController {
     private let accessoryKeyLabel = UILabel()
     private let accessoryGapSlider = UISlider()
     private let accessoryGapLabel = UILabel()
-    private let appearanceControl = UISegmentedControl(
-        items: AppearancePreference.allCases.map(\.label)
-    )
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -59,9 +56,7 @@ final class SettingsViewController: UIViewController {
             ]
         )
 
-        let appearanceSection = makeAppearanceSection()
-
-        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, accessorySection, appearanceSection])
+        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, accessorySection])
         stack.axis = .vertical
         stack.spacing = 28
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -121,8 +116,6 @@ final class SettingsViewController: UIViewController {
         accessoryGapSlider.maximumValue = 16
         accessoryGapSlider.isContinuous = true
         accessoryGapSlider.addTarget(self, action: #selector(accessoryGapChanged), for: .valueChanged)
-
-        appearanceControl.addTarget(self, action: #selector(appearanceChanged), for: .valueChanged)
     }
 
     private func loadFromStore() {
@@ -133,7 +126,6 @@ final class SettingsViewController: UIViewController {
         accessoryContainerSlider.value = Float(store.accessoryContainerHeight)
         accessoryKeySlider.value = Float(store.accessoryKeyHeight)
         accessoryGapSlider.value = Float(store.accessoryKeySpacing)
-        appearanceControl.selectedSegmentIndex = store.appearance.rawValue
         refreshLabels()
     }
 
@@ -186,27 +178,6 @@ final class SettingsViewController: UIViewController {
     @objc private func accessoryGapChanged() {
         store.accessoryKeySpacing = Double(accessoryGapSlider.value)
         refreshLabels()
-    }
-
-    @objc private func appearanceChanged() {
-        if let pick = AppearancePreference(rawValue: appearanceControl.selectedSegmentIndex) {
-            store.appearance = pick
-        }
-    }
-
-    // System / Light / Dark picker. Uses a segmented control because the
-    // three states are mutually exclusive and worth seeing at once; a
-    // UISwitch would only model two and a UIPickerView is overkill.
-    private func makeAppearanceSection() -> UIStackView {
-        let header = UILabel()
-        header.text = "APPEARANCE"
-        header.font = .preferredFont(forTextStyle: .footnote)
-        header.textColor = .secondaryLabel
-
-        let stack = UIStackView(arrangedSubviews: [header, appearanceControl])
-        stack.axis = .vertical
-        stack.spacing = 8
-        return stack
     }
 
     @objc private func dismissSelf() {
