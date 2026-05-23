@@ -334,7 +334,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     @objc private func dismissKeyboardIfShown() {
         if keyboardSurface.isFirstResponder {
-            keyboardSurface.setVisible(false)
+            toggleKeyboard()
         }
     }
 
