@@ -56,7 +56,14 @@ Phase goal: a single frame of the host's active display rendered on the iPhone, 
 - R8.3. Introduce `client/AgentDeskClient/SessionDialer.swift` mirroring the host. Delete `PairingClient.loadStoredSessionIfPresent`'s direct transition to `.connected`; replace with a `loadStoredPairingMaterial` that returns `paired-disconnected`. Add `dial(host:)` that runs the client side of the four-message exchange and verifies `hostSignature` against the cached `hostPublicKey` before sending `SessionProof`. On `revoked` / `unknown-device` / `bad-signature`, clear the stored token and host pubkey and transition to `unpaired`.
 - R8.4. Rewrite the UI state machines on both sides. Host `PopoverViewController` carries `{ unpaired, paired-no-active-session, connecting, connected }`. Client `PairingViewController` carries `{ unpaired, paired-disconnected, connecting, connected, revoked }`. Add a "Forget host" action on the client for `paired-disconnected`. Remove the assumption "have token equals connected" wherever it appears, including the implicit one in `loadStoredSessionIfPresent`.
 - R8.5. Tests on `Pairing` and `SessionAuthenticator` per `AGENTS.md`'s named-modules list, with mirroring tests on `PairingClient` and `SessionDialer`. Assertions: fresh handshake against an allowlisted fingerprint produces `SessionReady`; revoked fingerprint produces `SessionRejected { revoked }`; replayed `clientNonce` produces `SessionRejected { replay }`; tampered `hostNonce` fails client-side verification and never sends `SessionProof`; `SessionToken` presented without a valid `clientSignature` produces `SessionRejected { bad-signature }`. The last assertion is the one that catches a regression to bearer-token authentication.
-- R8.6. The pixel slice itself: ScreenCaptureKit + VideoToolbox HEVC on the host, libwebrtc + `AVSampleBufferDisplayLayer` on the client. SDP and ICE travel only over an `ActiveSession`; the DTLS fingerprint binding is structural per ADR-0003 decision 3. Acceptance: a single frame of the host's active display renders on the iPhone with the session shown as `connected` on both ends, and severing the network mid-stream returns both UIs to `paired-disconnected` / `paired-no-active-session` rather than leaving a stale `connected`.
+- R8.6. The pixel slice itself, expanded into R8.6.1 through R8.6.7 per ADR-0004 (media transport seams). SDP and ICE travel only over an `ActiveSession`; the DTLS fingerprint binding is structural per ADR-0003 decision 3. Acceptance: a single frame of the host's active display renders on the iPhone with the session shown as `connected` on both ends, and severing the network mid-stream returns both UIs to `paired-disconnected` / `paired-no-active-session` rather than leaving a stale `connected`.
+  - R8.6.1. ADR-0004 accepted, `SPEC.md` updated, four protocol files (`MediaTransport`, `SignalingChannel`, `VideoFrameSource` host, `VideoFrameSink` client) and the `MediaStack` composition root with stub factories landed on both sides. `WebRTCSignalingFrame` added to `SharedTypes.swift` on both sides. No runtime behavior change. `just check` clean.
+  - R8.6.2. `WebSocketSignalingChannel` impl on both sides. `PairingSignalingServer` carries a per-connection `activeSessionFrameHandler`; `SessionDialer` returns a `SessionConnection { active, signaling }` instead of a bare `ActiveSession`. Tests: `SignalingFrameDispatchTests`.
+  - R8.6.3. `LibWebRTCTransportFactory` and `LibWebRTCMediaTransport` (host) with `TestPatternFrameSource`. `stasel/WebRTC` SPM dep added.
+  - R8.6.4. `LibWebRTCTransportFactory` and `LibWebRTCMediaTransport` (client) with `RTCMTLVideoSink`. Test-pattern frames render on iPhone over the authenticated session.
+  - R8.6.5. `ScreenCaptureKitFrameSource` swaps in via `MediaStack.makeFrameSource()`. `NSScreenCaptureUsageDescription` added; popover renders `screenRecordingDenied` when TCC is not granted.
+  - R8.6.6. `MediaConnectionState.failed` propagates to `signalingServer.endSession(fingerprint:)` on host and `PairingClient.state = .pairedDisconnected` on client, with a 5s ICE-disconnected grace.
+  - R8.6.7. HITL on-device hello-pixels: real frame visible, both UIs `connected`, screenshots captured for HANDOVER.
 
 - R9. Phase 3 (S3, #5): cursor move and basic click. AFK. Blocked by R8.
 - R10. Phase 4 (S4, #6): full trackpad gestures (two-finger right-click, two-finger scroll, double-tap drag). AFK. Blocked by R9.
@@ -99,7 +106,14 @@ R8.2     2026-05-20  committed   SessionAuthenticator on host with first-frame d
 R8.3     2026-05-20  committed   SessionDialer on client; state machine rewritten; pairedDisconnected on launch
 R8.4     2026-05-20  committed   four-state UI machines on both ends, auto-dial on foreground, dev affordances
 R8.5     2026-05-20  committed   SessionAuthenticator tests including bearer-token regression guard
-R8.6     pending     pending     hello-pixels, gated by ActiveSession
+R8.6     pending     pending     hello-pixels, expanded into R8.6.1 through R8.6.7
+R8.6.1   2026-05-20  committed   ADR-0004 media-transport seams accepted; SPEC updated; protocol files + stubs landed
+R8.6.2   pending     pending     WebSocketSignalingChannel and SessionConnection wiring
+R8.6.3   pending     pending     LibWebRTCMediaTransport host + TestPatternFrameSource + stasel/WebRTC dep
+R8.6.4   pending     pending     LibWebRTCMediaTransport client + RTCMTLVideoSink, test-pattern frames on iPhone
+R8.6.5   pending     pending     ScreenCaptureKitFrameSource + TCC handling
+R8.6.6   pending     pending     ICE-failure -> paired-disconnected wiring on both ends
+R8.6.7   pending     pending     HITL hello-pixels on-device verification
 R9       pending     pending     Phase 3 captured (S3, #5)
 R10      pending     pending     Phase 4 captured (S4, #6)
 R11      pending     pending     Phase 5 captured (S5, #7)

@@ -22,6 +22,10 @@
 		A0000000000000000000020D /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010E /* main.swift */; };
 		A0000000000000000000020F /* TLSIdentityLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010F /* TLSIdentityLoader.swift */; };
 		A00000000000000000000210 /* SessionAuthenticator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000110 /* SessionAuthenticator.swift */; };
+		A00000000000000000000211 /* MediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000111 /* MediaTransport.swift */; };
+		A00000000000000000000212 /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000112 /* SignalingChannel.swift */; };
+		A00000000000000000000213 /* VideoFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000113 /* VideoFrameSource.swift */; };
+		A00000000000000000000214 /* MediaStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000114 /* MediaStack.swift */; };
 		A00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* Base64URL.swift */; };
 		A00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Config.swift */; };
 		A00000000000000000000223 /* HostSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HostSigningKeyStore.swift */; };
@@ -53,6 +57,10 @@
 		A0000000000000000000010E /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A0000000000000000000010F /* TLSIdentityLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TLSIdentityLoader.swift; sourceTree = "<group>"; };
 		A00000000000000000000110 /* SessionAuthenticator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAuthenticator.swift; sourceTree = "<group>"; };
+		A00000000000000000000111 /* MediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTransport.swift; sourceTree = "<group>"; };
+		A00000000000000000000112 /* SignalingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingChannel.swift; sourceTree = "<group>"; };
+		A00000000000000000000113 /* VideoFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFrameSource.swift; sourceTree = "<group>"; };
+		A00000000000000000000114 /* MediaStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaStack.swift; sourceTree = "<group>"; };
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000122 /* LaunchAgentInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstallerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000123 /* SessionAuthenticatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAuthenticatorTests.swift; sourceTree = "<group>"; };
@@ -114,6 +122,10 @@
 				A0000000000000000000010B /* TailnetDiscovery.swift */,
 				A0000000000000000000010F /* TLSIdentityLoader.swift */,
 				A00000000000000000000110 /* SessionAuthenticator.swift */,
+				A00000000000000000000111 /* MediaTransport.swift */,
+				A00000000000000000000112 /* SignalingChannel.swift */,
+				A00000000000000000000113 /* VideoFrameSource.swift */,
+				A00000000000000000000114 /* MediaStack.swift */,
 				A0000000000000000000010C /* Info.plist */,
 			);
 			path = AgentDeskHost;
@@ -241,6 +253,10 @@
 				A0000000000000000000020D /* main.swift in Sources */,
 				A0000000000000000000020F /* TLSIdentityLoader.swift in Sources */,
 				A00000000000000000000210 /* SessionAuthenticator.swift in Sources */,
+				A00000000000000000000211 /* MediaTransport.swift in Sources */,
+				A00000000000000000000212 /* SignalingChannel.swift in Sources */,
+				A00000000000000000000213 /* VideoFrameSource.swift in Sources */,
+				A00000000000000000000214 /* MediaStack.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

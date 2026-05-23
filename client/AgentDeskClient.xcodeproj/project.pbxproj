@@ -17,6 +17,10 @@
 		B00000000000000000000208 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000108 /* SceneDelegate.swift */; };
 		B00000000000000000000209 /* SharedTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000109 /* SharedTypes.swift */; };
 		B0000000000000000000020A /* SessionDialer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010B /* SessionDialer.swift */; };
+		B0000000000000000000020B /* MediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010C /* MediaTransport.swift */; };
+		B0000000000000000000020C /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010D /* SignalingChannel.swift */; };
+		B0000000000000000000020D /* VideoFrameSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010E /* VideoFrameSink.swift */; };
+		B0000000000000000000020E /* MediaStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010F /* MediaStack.swift */; };
 		B00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000102 /* Base64URL.swift */; };
 		B00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000103 /* Config.swift */; };
 		B00000000000000000000223 /* DeviceSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000104 /* DeviceSigningKeyStore.swift */; };
@@ -39,6 +43,10 @@
 		B00000000000000000000109 /* SharedTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedTypes.swift; sourceTree = "<group>"; };
 		B0000000000000000000010A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B0000000000000000000010B /* SessionDialer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDialer.swift; sourceTree = "<group>"; };
+		B0000000000000000000010C /* MediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTransport.swift; sourceTree = "<group>"; };
+		B0000000000000000000010D /* SignalingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingChannel.swift; sourceTree = "<group>"; };
+		B0000000000000000000010E /* VideoFrameSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFrameSink.swift; sourceTree = "<group>"; };
+		B0000000000000000000010F /* MediaStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaStack.swift; sourceTree = "<group>"; };
 		B00000000000000000000121 /* PairingClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClientTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000141 /* AgentDeskClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000142 /* AgentDeskClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -93,6 +101,10 @@
 				B00000000000000000000108 /* SceneDelegate.swift */,
 				B00000000000000000000109 /* SharedTypes.swift */,
 				B0000000000000000000010B /* SessionDialer.swift */,
+				B0000000000000000000010C /* MediaTransport.swift */,
+				B0000000000000000000010D /* SignalingChannel.swift */,
+				B0000000000000000000010E /* VideoFrameSink.swift */,
+				B0000000000000000000010F /* MediaStack.swift */,
 				B0000000000000000000010A /* Info.plist */,
 			);
 			path = AgentDeskClient;
@@ -213,6 +225,10 @@
 				B00000000000000000000208 /* SceneDelegate.swift in Sources */,
 				B00000000000000000000209 /* SharedTypes.swift in Sources */,
 				B0000000000000000000020A /* SessionDialer.swift in Sources */,
+				B0000000000000000000020B /* MediaTransport.swift in Sources */,
+				B0000000000000000000020C /* SignalingChannel.swift in Sources */,
+				B0000000000000000000020D /* VideoFrameSink.swift in Sources */,
+				B0000000000000000000020E /* MediaStack.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

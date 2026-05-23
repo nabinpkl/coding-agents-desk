@@ -293,6 +293,74 @@ struct ActiveSession: Equatable {
     let establishedAt: Int
 }
 
+// ADR-0004 post-SessionReady signaling frames. Mirror of host's definition.
+
+enum WebRTCSignalingFrame: Codable, Equatable {
+    case offer(sdp: String)
+    case answer(sdp: String)
+    case ice(sdp: String, sdpMid: String?, sdpMLineIndex: Int32)
+
+    private enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case sdp = "s"
+        case sdpMid = "m"
+        case sdpMLineIndex = "i"
+    }
+
+    private enum FrameType: String {
+        case offer = "webrtc-offer"
+        case answer = "webrtc-answer"
+        case ice = "webrtc-ice"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let typeString = try container.decode(String.self, forKey: .type)
+        guard let frameType = FrameType(rawValue: typeString) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "unknown webrtc frame type: \(typeString)"
+            )
+        }
+        switch frameType {
+        case .offer:
+            self = .offer(sdp: try container.decode(String.self, forKey: .sdp))
+        case .answer:
+            self = .answer(sdp: try container.decode(String.self, forKey: .sdp))
+        case .ice:
+            self = .ice(
+                sdp: try container.decode(String.self, forKey: .sdp),
+                sdpMid: try container.decodeIfPresent(String.self, forKey: .sdpMid),
+                sdpMLineIndex: try container.decode(Int32.self, forKey: .sdpMLineIndex)
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .offer(let sdp):
+            try container.encode(FrameType.offer.rawValue, forKey: .type)
+            try container.encode(sdp, forKey: .sdp)
+        case .answer(let sdp):
+            try container.encode(FrameType.answer.rawValue, forKey: .type)
+            try container.encode(sdp, forKey: .sdp)
+        case .ice(let sdp, let sdpMid, let sdpMLineIndex):
+            try container.encode(FrameType.ice.rawValue, forKey: .type)
+            try container.encode(sdp, forKey: .sdp)
+            try container.encodeIfPresent(sdpMid, forKey: .sdpMid)
+            try container.encode(sdpMLineIndex, forKey: .sdpMLineIndex)
+        }
+    }
+
+    static let frameTypeValues: Set<String> = [
+        FrameType.offer.rawValue,
+        FrameType.answer.rawValue,
+        FrameType.ice.rawValue
+    ]
+}
+
 enum SessionSigning {
     static let domainPrefix = "agentdesk-session"
 

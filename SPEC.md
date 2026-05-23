@@ -9,8 +9,8 @@
 | macOS host | Swift, AppKit menu-bar app via `NSStatusItem` | Fresh implementation, owned end-to-end. Python sister project's pyobjc learnings reused, code is not. |
 | iOS client | Swift, UIKit, `AVSampleBufferDisplayLayer` for video | Native required for HEVC crispness and gesture fidelity. Browser path rejected (see PRD). |
 | Capture | `ScreenCaptureKit` (macOS 12.3+) | First-party, captures the active Space without composition tricks. |
-| Encode / decode | VideoToolbox HEVC, hardware path | Apple Silicon native. Crispness target: ~95% of AnyDesk's DeskRT on Retina content. |
-| Transport | libwebrtc via SPM, both ends | Single transport for video, input, control. |
+| Encode / decode | VideoToolbox via libwebrtc, codec preference list | Apple Silicon native. H.264 in v0 per ADR-0004; HEVC tracked as a follow-up through `MediaCodecPreferences`. |
+| Transport | libwebrtc via SPM, both ends, behind `MediaTransport` protocol | Single transport for video, input, control. Swappable per ADR-0004; v0 impl is `stasel/WebRTC`. |
 | Network | Tailscale only | No STUN, TURN, VPS, relay. Both peers are on the tailnet. |
 | Pairing | QR code on Mac, scanned by iPhone | One-shot. Signed bearer token stored in Keychain on both sides. |
 | Spaces enumeration | Private CoreGraphics: `CGSGetActiveSpace`, `CGSCopySpaces`, `CGSSpaceCopyOwners` | No public API exists. Risk is App Store distribution, which is not the v0 target (Developer ID DMG). |
@@ -18,7 +18,7 @@
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One code path on the host for all input types. |
 | Distribution | Developer ID notarized DMG (Mac), TestFlight internal (iOS) | Apple Developer Program $99/yr. One device. |
 
-ADR-0001 records this stack decision. Reference it for the rejection rationale on React Native, Flutter, browser clients, RustDesk fork, custom transport, H.264, AV1, AppleScript, direct CGS space-switch calls, WebAuthn pairing, VoIP/PiP background lifecycle, and Mac App Store distribution.
+ADR-0001 records this stack decision. Reference it for the rejection rationale on React Native, Flutter, browser clients, RustDesk fork, custom transport, AV1, AppleScript, direct CGS space-switch calls, WebAuthn pairing, VoIP/PiP background lifecycle, and Mac App Store distribution. ADR-0004 records the protocol seams that make the WebRTC library, codec, renderer, and capturer swappable without touching call sites.
 
 ## Module boundaries
 
@@ -32,16 +32,18 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 4. **InputDispatcher.** Consumes `NormalizedInput`, emits `CGEvent`. Interface: `dispatch(NormalizedInput)`. Hides the `Ctrl+Arrow` synthesis for Spaces switch and the modifier-arm state machine.
 5. **Pairing.** Generates QR payload, validates incoming tokens, stores in Keychain. Interface: `mintPairingPayload() -> PairingPayload`, `validate(token) -> SessionToken?`.
 6. **SessionAuthenticator.** Runs the per-connection mutual challenge-response defined in ADR-0003 on the `/session` path of the existing TLS WebSocket. Interface: `authenticate(connection) -> ActiveSession`. Throws closed-set rejection reasons. Same test obligation as `Pairing`; the long-term key material is shared.
-7. **Transport.** Wraps libwebrtc. Multiplexes video track, input data channel, control data channel. SDP and ICE travel only over an `ActiveSession` produced by `SessionAuthenticator`; the DTLS fingerprint binding is structural.
+7. **MediaTransport.** Protocol per ADR-0004. v0 concrete impl `LibWebRTCMediaTransport` wraps libwebrtc and multiplexes the video track, input data channel, and control data channel. SDP and ICE travel only over an `ActiveSession` produced by `SessionAuthenticator`; the DTLS fingerprint binding is structural. AppDelegate holds a `MediaTransportFactory` by protocol so the library, codec, and capturer can swap behind a single composition root (`MediaStack`).
+8. **SignalingChannel.** Protocol per ADR-0004. Wraps the authenticated WebSocket post-`SessionReady`. Carries the three `WebRTCSignalingFrame` cases (`.offer`, `.answer`, `.ice`). Concrete impl `WebSocketSignalingChannel`.
+9. **VideoFrameSource.** Protocol per ADR-0004. Concrete impl `ScreenCaptureKitFrameSource` captures the active Space's display at native cadence; a `ScreenCaptureKitVideoCapturer: RTCVideoCapturer` adapter bridges into libwebrtc's `RTCVideoSource`. `TestPatternFrameSource` exists as a diagnostic impl.
 
 ### Client (iOS)
 
-1. **VideoRenderer.** Wraps `AVSampleBufferDisplayLayer`, renders at native DPR.
+1. **VideoFrameSink.** Protocol per ADR-0004. v0 concrete impl `RTCMTLVideoSink` wraps `RTCMTLVideoView` and renders at native DPR. An `AVSampleBufferVideoSink` is a future drop-in via the same protocol; AVSampleBufferDisplayLayer was the original v0 target per ADR-0001 but deferred to v1 in ADR-0004 because the AVSBDL path requires recovering encoded `CMSampleBuffer`s from libwebrtc's decode pipeline.
 2. **GestureTranslator.** Converts UIKit gesture recognizers to `NormalizedInput`. Owns the 3-finger swipe interpretation and the modifier-arm UI state.
 3. **KeyboardSurface.** Compact keyboard plus accessory row. Emits `NormalizedInput { kind: "key" }` and `modifierArm`.
 4. **PairingClient.** Camera, QR decode, Keychain write.
 5. **SessionDialer.** Mirror of host `SessionAuthenticator`. Drives the four-message handshake from the client side, owns the four-state UI machine (`unpaired | paired-disconnected | connecting | connected`, plus terminal `revoked`), and clears stored credentials on `revoked` / `unknown-device` / `bad-signature` per ADR-0003.
-6. **Transport.** Mirror of host Transport.
+6. **MediaTransport.** Mirror of host. Same protocol surface, same composition-root pattern via `MediaStack`. PairingClient holds the factory by protocol.
 
 Tests required for v0: **SpacesProvider, Pairing, InputDispatcher, GestureTranslator.** These four are where regressions are most expensive and where the contracts are most stable.
 
@@ -90,7 +92,7 @@ SessionToken {
 
 QR encoding: `PairingPayload` is serialized to compact JSON, base64url-encoded, and embedded in a `agentdesk://pair?p=<base64url>` URL.
 
-Session-establishment wire shapes are locked by ADR-0003 and travel on `wss://<host>:<port>/session`, distinct from the `/pair` path used by `PairingPayload`.
+Session-establishment wire shapes are locked by ADR-0003 and travel on `wss://<host>:<port>/session`, distinct from the `/pair` path used by `PairingPayload`. Post-`SessionReady` media-plane signaling frames are locked by ADR-0004 and travel on the same authenticated socket.
 
 ```
 SessionInit       { deviceFingerprint, sessionToken, clientNonce }
@@ -99,6 +101,10 @@ SessionProof      { clientSignature }
 SessionReady      { }
 SessionRejected   { reason }   // reason in { revoked, unknown-device,
                                //             replay, bad-signature, malformed }
+
+WebRTCOffer        { sdp }                                // t: "webrtc-offer"
+WebRTCAnswer       { sdp }                                // t: "webrtc-answer"
+WebRTCIceCandidate { sdp, sdpMid?, sdpMLineIndex }        // t: "webrtc-ice"
 ```
 
 Both signatures are ECDSA-P256 over `"agentdesk-session" || clientNonce || hostNonce || hostFingerprint || deviceFingerprint`. `SessionToken` continues to be issued at pairing approval per ADR-0002 but is reframed as an approval-time receipt that identifies the device to the host's allowlist; it is not sufficient on its own to authenticate a session. The fresh `clientSignature` in `SessionProof` is the authentication. See ADR-0003 for the full canonical encoding, rejection-reason semantics, and the UI state machines.
