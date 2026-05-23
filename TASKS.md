@@ -8,7 +8,7 @@ v0 is one iteration. Acceptance is 7 consecutive days of daily-driver use withou
 
 Per the GitHub issues, Phases 4 through 7 (#6, #7, #8, #9) are each only blocked by Phase 3 (#5, cursor + click), not by each other. They can sequence on priority, not on a forced serial chain. Phase 8 (#10) is blocked by Phases 4 and 5 (#6 and #7) plus the paid Developer ID cert. The prior serial chain in this file overstated dependencies.
 
-Apple Developer Program enrollment was throttled from 2026-05-20; free Xcode signing covers daily-driver use during the throttle. Paid-cert distribution items live entirely under R14.
+Apple Developer Program enrollment landed by 2026-05-23. Both projects sign with `Apple Development: Owner Name (CERT000000)` / team `TEAMID0000` (~1-year cert, no 7-day reinstall cadence). The remaining distribution items (Developer ID Application notarized DMG + iOS App Distribution / TestFlight) live under R14.
 
 Authoritative dependency edges live in each issue's "Blocked by" section, not here.
 
@@ -107,7 +107,7 @@ Phase goal: ship a Developer ID notarized DMG (host) and a TestFlight build (cli
 
 R14 sub-tasks:
 
-- [ ] R14.1. Switch both projects from Xcode automatic free signing to the Apple Developer Program team identity (host: Developer ID Application; client: iOS App Distribution). Update or retire `agent-memory/project_signing_pivot.md` to mark the throttle window closed.
+- [ ] R14.1. Switch both projects from the development-tier `Apple Development` identity (current, ~1-year cert, fine for daily-driver use) to the distribution-tier certs: host -> `Developer ID Application` (notarizable, no expiry on the distributed bundle); client -> `iOS App Distribution` (TestFlight-eligible). Apple Developer Program enrollment landed 2026-05-23 so this is now a project-settings change, not a blocker.
 - [ ] R14.2. Host distribution. Notarize the host `.app` via `xcrun notarytool submit ... --wait` and staple via `xcrun stapler staple`. Package as a signed DMG. Verify Gatekeeper acceptance on a clean account.
 - [ ] R14.3. Client distribution. Archive and upload to App Store Connect; expose via internal TestFlight to the developer's iPhone. Verify install and launch from TestFlight.
 - [ ] R14.4. 7-day daily-driver self-test. Use AgentDesk exclusively for the agent-control workflow for 7 consecutive days. Each day, log a one-line journal entry in `HANDOVER.md`: date, hours of use, any AnyDesk-reach events with reason, any v0-acceptance-blocking issues. The slice ships when 7 consecutive entries record no AnyDesk reach for agent control.
