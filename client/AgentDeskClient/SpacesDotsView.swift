@@ -3,18 +3,20 @@ import UIKit
 // R11 Spaces switch surface. Mounted between the screen-share video
 // sink and the trackpad cluster. Renders one dot per user Space on
 // the host's active display (the active Space's dot is filled, the
-// rest are open). Single-finger horizontal swipe on the band emits
-// NormalizedInput.switchSpace(direction:).
+// rest are open).
 //
-// State is purely host-pushed: DesktopState arrives over the input
-// WSS (host -> client direction added in R11) and PairingViewController
-// forwards it via apply(state:). Without a state the band hides itself
-// so a single-Space user never sees an empty carousel.
+// Gesture model: continuous. The single-finger horizontal pan streams
+// SwipePhase + normalised progress + velocity over the wire frame-by-
+// frame as the user drags; the host posts one dock-swipe CGEvent per
+// frame and the Mac's Dock animates the Spaces transition driven by
+// that stream. On finger-lift, Ended carries the final progress +
+// velocity and Dock either commits the switch or snaps back, exactly
+// the same way a trackpad-native 3-finger swipe behaves.
 //
-// Multi-touch (three-finger swipe) is the canonical macOS gesture for
-// Spaces; the v0 target is one-handed, so the dots band substitutes
-// the same wire shape on a single-finger surface that sits within
-// thumb reach of the screen viewer.
+// State is host-pushed: DesktopState arrives over the input WSS
+// (NSWorkspace.activeSpaceDidChangeNotification on the host fires on
+// every commit, regardless of trigger). The band hides itself when
+// the host reports a single user Space or no active display.
 
 @MainActor
 protocol SpacesDotsViewDelegate: AnyObject {
@@ -25,18 +27,16 @@ protocol SpacesDotsViewDelegate: AnyObject {
 final class SpacesDotsView: UIView {
     weak var delegate: SpacesDotsViewDelegate?
 
-    // Same thresholds as the prior SpacesStripView so the gesture
-    // feel is identical to what the iPhone-side users sampled during
-    // the strip iteration; 60pt + 2:1 dominance + single-fire latch.
-    static let horizontalThreshold: CGFloat = 60
-    static let dominanceRatio: CGFloat = 2
-
     private let stack = UIStackView()
     private let feedback = UISelectionFeedbackGenerator()
     private var dotViews: [UIView] = []
     private var totalDots: Int = 0
     private var activeIndex: Int = 0
-    private var hasFiredThisGesture = false
+    // Width captured at gesture .began so progress normalisation uses
+    // a stable denominator even if the view re-layouts mid-swipe.
+    // 1.0 is the natural "swipe-spans-the-band" travel; the user can
+    // drag further and the progress saturates at ±1.
+    private var gestureBandWidth: CGFloat = 1.0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -65,21 +65,20 @@ final class SpacesDotsView: UIView {
             stack.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
 
-        let pan = InstantPanGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
+        // Standard pan with the small UIKit slop so a thumb resting on
+        // the band does not register as a swipe. Continuous emission
+        // means we want every .changed callback iOS delivers (~60Hz on
+        // most devices, ~120Hz on ProMotion); InstantPan's promote-on-
+        // touchDown is not needed here because the user has visible
+        // dots to aim at.
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
         pan.minimumNumberOfTouches = 1
         pan.maximumNumberOfTouches = 1
         addGestureRecognizer(pan)
 
-        // Hidden until the first DesktopState push arrives. Avoids
-        // showing an empty band on cold-start before the host has
-        // had a chance to enumerate Spaces.
         isHidden = true
     }
 
-    // Drives the dot rendering. Called by PairingViewController whenever
-    // a new DesktopState arrives over the input channel. Single-display
-    // active-only render: the band counts user Spaces (type=0) on the
-    // active display only; multi-display carousel is a v1 problem.
     func apply(state: DesktopState) {
         guard let activeDisplayId = state.activeDisplayId else {
             renderEmpty()
@@ -99,7 +98,6 @@ final class SpacesDotsView: UIView {
     private func render(count: Int, activeIndex: Int) {
         totalDots = count
         self.activeIndex = activeIndex
-        // Rebuild dots when the count changes; otherwise just re-tint.
         if dotViews.count != count {
             for v in dotViews { v.removeFromSuperview() }
             dotViews = (0..<count).map { _ in makeDot() }
@@ -108,10 +106,6 @@ final class SpacesDotsView: UIView {
         for (i, dot) in dotViews.enumerated() {
             applyDotState(dot, isActive: i == activeIndex)
         }
-        // Hide the band when there is nothing useful to render. A
-        // single Space has no carousel to drive; macOS itself disables
-        // its Spaces shortcuts in that case (see Mission Control
-        // settings), so the iPhone surface follows the same logic.
         isHidden = count <= 1
     }
 
@@ -135,50 +129,76 @@ final class SpacesDotsView: UIView {
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
-        // CALayer.borderColor is a CGColor and does not auto-resolve
-        // dynamic UIColors on appearance changes; re-resolve so dots
-        // switch palette instantly with light/dark toggles.
         for (i, dot) in dotViews.enumerated() {
             applyDotState(dot, isActive: i == activeIndex)
         }
     }
 
     @objc private func handleSwipe(_ gesture: UIPanGestureRecognizer) {
-        processSwipe(state: gesture.state, translation: gesture.translation(in: self))
+        processGesture(
+            state: gesture.state,
+            translation: gesture.translation(in: self),
+            velocity: gesture.velocity(in: self),
+            bandWidth: bounds.width
+        )
     }
 
     // Pure function so tests can drive the state machine without a live
-    // UIWindow attaching synthetic touches. Mirrors the prior
-    // SpacesStripView impl so the gesture contract for users is stable.
-    func processSwipe(state: UIGestureRecognizer.State, translation: CGPoint) {
+    // UIWindow. Emits one wire frame per UIKit pan callback:
+    //
+    //   .began    -> .switchSpaceGesture(.began, 0, 0)
+    //   .changed  -> .switchSpaceGesture(.changed, dx/W clamped, vx)
+    //   .ended    -> .switchSpaceGesture(.ended, dx/W clamped, vx)
+    //   .cancelled / .failed -> .switchSpaceGesture(.cancelled, ...)
+    //
+    // The Dock decides commit-vs-snap-back at Ended from progress and
+    // velocity; we do not impose a threshold here. The 1pt nudge floor
+    // on Changed prevents Dock from dropping the event for zero-progress
+    // frames (rare on a typical drag but possible if iOS coalesces
+    // identical positions).
+    func processGesture(
+        state: UIGestureRecognizer.State,
+        translation: CGPoint,
+        velocity: CGPoint,
+        bandWidth: CGFloat
+    ) {
         switch state {
         case .began:
-            hasFiredThisGesture = false
+            gestureBandWidth = max(bandWidth, 1.0)
+            feedback.selectionChanged()
+            emit(phase: .began, progress: 0, velocityX: 0)
         case .changed:
-            guard !hasFiredThisGesture else { return }
-            let dx = translation.x
-            let dy = translation.y
-            let absDx = abs(dx)
-            let absDy = abs(dy)
-            guard absDx >= Self.horizontalThreshold else { return }
-            guard absDx >= Self.dominanceRatio * absDy else { return }
-            hasFiredThisGesture = true
-            emit(dx > 0 ? .right : .left)
-        case .ended, .cancelled, .failed:
-            hasFiredThisGesture = false
+            let raw = Float(translation.x / gestureBandWidth)
+            let progress = min(max(raw, -1.0), 1.0)
+            let nudged = nudgeAwayFromZero(progress)
+            emit(phase: .changed, progress: nudged, velocityX: Float(velocity.x))
+        case .ended:
+            let raw = Float(translation.x / gestureBandWidth)
+            let progress = min(max(raw, -1.0), 1.0)
+            emit(phase: .ended, progress: progress, velocityX: Float(velocity.x))
+        case .cancelled, .failed:
+            emit(phase: .cancelled, progress: 0, velocityX: 0)
         default:
             break
         }
     }
 
-    private func emit(_ direction: NormalizedInput.SpaceDirection) {
-        feedback.selectionChanged()
-        delegate?.spacesDots(self, didProduce: .switchSpace(direction: direction))
+    // The Dock reads progress=0 on a .changed frame as "no gesture in
+    // progress" and drops it. Nudge to FLT_TRUE_MIN-sized away from
+    // zero in whichever sign the velocity suggests; if velocity is
+    // also zero, treat as a right nudge so we at least pass the
+    // direction-required guard.
+    private func nudgeAwayFromZero(_ progress: Float) -> Float {
+        if progress != 0 { return progress }
+        return .leastNonzeroMagnitude
     }
 
-    // Test helpers. Reading totalDots / activeIndex straight off the
-    // view lets render() be the unit under test without poking the
-    // private UIStackView.
+    private func emit(phase: NormalizedInput.SwipePhase, progress: Float, velocityX: Float) {
+        delegate?.spacesDots(self, didProduce: .switchSpaceGesture(
+            phase: phase, progress: progress, velocityX: velocityX
+        ))
+    }
+
     var renderedDotCount: Int { totalDots }
     var renderedActiveIndex: Int { activeIndex }
 }

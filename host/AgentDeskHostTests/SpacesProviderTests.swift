@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 
@@ -5,11 +6,10 @@ import Testing
 struct SpacesProviderTests {
     // Smoke test against the live SkyLight framework. Regression guard
     // for the private-API surface across macOS minor versions: if Apple
-    // renames or removes any of CGSMainConnectionID,
-    // CGSGetActiveSpace, CGSCopyManagedDisplaySpaces, this fails. Does
-    // not assert specific id64 values; only that we can enumerate at
-    // least one display with at least one user (type=0) Space and the
-    // active Space resolves to one of them.
+    // renames or removes any of the enumeration symbols (SLS / CGS
+    // aliases), this fails. Does not assert specific id64 values; only
+    // that we can enumerate at least one display with at least one
+    // user (type=0) Space and the active Space resolves to one of them.
     @Test func currentReturnsAtLeastOneDisplayWithOneUserSpace() throws {
         let provider = SpacesProvider()
         guard let state = provider.current() else {
@@ -23,115 +23,75 @@ struct SpacesProviderTests {
         }
     }
 
-    @Test func planSwitchRightAdvancesToNextUserSpaceOnActiveDisplay() {
-        let state = DesktopState(
-            displays: [DisplayMetadata(id: "DISP-1")],
-            spaces: [
-                SpaceMetadata(id: 100, displayId: "DISP-1", index: 0, type: 0),
-                SpaceMetadata(id: 200, displayId: "DISP-1", index: 1, type: 0),
-                SpaceMetadata(id: 300, displayId: "DISP-1", index: 2, type: 0),
-            ],
-            activeDisplayId: "DISP-1",
-            activeSpaceId: 100
-        )
-        let plan = SpacesProvider.planSwitch(from: state, direction: .right)
-        #expect(plan == SpaceSwitchPlan(displayId: "DISP-1", targetSpaceId: 200))
+    @Test func postDockSwipeFrameEmitsDockControlEventWithSwipeFields() {
+        let recorder = EventRecorder()
+        let provider = SpacesProvider(eventPoster: { recorder.record($0) })
+
+        _ = provider.postDockSwipeFrame(phase: .began, progress: 0.0, velocityX: 0.0)
+
+        #expect(recorder.events.count == 1)
+        guard let event = recorder.events.first else { return }
+        // Field 55 = kCGSEventTypeField, value 30 = kCGSEventDockControl.
+        #expect(event.getIntegerValueField(CGEventField(rawValue: 55)!) == 30)
+        // Field 110 = kCGEventGestureHIDType, value 23 = kIOHIDEventTypeDockSwipe.
+        #expect(event.getIntegerValueField(CGEventField(rawValue: 110)!) == 23)
+        // Field 123 = kCGEventGestureSwipeMotion, value 1 = horizontal.
+        #expect(event.getIntegerValueField(CGEventField(rawValue: 123)!) == 1)
     }
 
-    @Test func planSwitchLeftReturnsPreviousUserSpace() {
-        let state = DesktopState(
-            displays: [DisplayMetadata(id: "DISP-1")],
-            spaces: [
-                SpaceMetadata(id: 100, displayId: "DISP-1", index: 0, type: 0),
-                SpaceMetadata(id: 200, displayId: "DISP-1", index: 1, type: 0),
-            ],
-            activeDisplayId: "DISP-1",
-            activeSpaceId: 200
-        )
-        let plan = SpacesProvider.planSwitch(from: state, direction: .left)
-        #expect(plan == SpaceSwitchPlan(displayId: "DISP-1", targetSpaceId: 100))
+    @Test func phasesMapToCGSGesturePhaseValues() {
+        // Began=1, Changed=2, Ended=4, Cancelled=8 - matches the values
+        // trackpad-native gestures emit, which is what Dock listens for.
+        let recorder = EventRecorder()
+        let provider = SpacesProvider(eventPoster: { recorder.record($0) })
+
+        _ = provider.postDockSwipeFrame(phase: .began,     progress: 0,    velocityX: 0)
+        _ = provider.postDockSwipeFrame(phase: .changed,   progress: 0.3,  velocityX: 100)
+        _ = provider.postDockSwipeFrame(phase: .ended,     progress: 0.95, velocityX: 1800)
+        _ = provider.postDockSwipeFrame(phase: .cancelled, progress: 0,    velocityX: 0)
+
+        #expect(recorder.events.count == 4)
+        let phaseField = CGEventField(rawValue: 132)!
+        #expect(recorder.events[0].getIntegerValueField(phaseField) == 1)
+        #expect(recorder.events[1].getIntegerValueField(phaseField) == 2)
+        #expect(recorder.events[2].getIntegerValueField(phaseField) == 4)
+        #expect(recorder.events[3].getIntegerValueField(phaseField) == 8)
     }
 
-    @Test func planSwitchAtLeftEdgeReturnsNil() {
-        // No wrap. Matches macOS: you can't loop Desktop 1 -> Desktop N.
-        let state = DesktopState(
-            displays: [DisplayMetadata(id: "DISP-1")],
-            spaces: [
-                SpaceMetadata(id: 100, displayId: "DISP-1", index: 0, type: 0),
-                SpaceMetadata(id: 200, displayId: "DISP-1", index: 1, type: 0),
-            ],
-            activeDisplayId: "DISP-1",
-            activeSpaceId: 100
-        )
-        #expect(SpacesProvider.planSwitch(from: state, direction: .left) == nil)
+    @Test func progressAndVelocityPassThroughToEventFields() {
+        let recorder = EventRecorder()
+        let provider = SpacesProvider(eventPoster: { recorder.record($0) })
+
+        _ = provider.postDockSwipeFrame(phase: .changed, progress: 0.5, velocityX: 1234.5)
+
+        #expect(recorder.events.count == 1)
+        guard let event = recorder.events.first else { return }
+        // Field 124 = kCGEventGestureSwipeProgress.
+        #expect(event.getDoubleValueField(CGEventField(rawValue: 124)!) == 0.5)
+        // Fields 129 + 130 = kCGEventGestureSwipeVelocityX/Y; we set both
+        // to the same value (Dock uses the magnitude either way).
+        #expect(event.getDoubleValueField(CGEventField(rawValue: 129)!) == 1234.5)
+        #expect(event.getDoubleValueField(CGEventField(rawValue: 130)!) == 1234.5)
     }
 
-    @Test func planSwitchAtRightEdgeReturnsNil() {
-        let state = DesktopState(
-            displays: [DisplayMetadata(id: "DISP-1")],
-            spaces: [
-                SpaceMetadata(id: 100, displayId: "DISP-1", index: 0, type: 0),
-                SpaceMetadata(id: 200, displayId: "DISP-1", index: 1, type: 0),
-            ],
-            activeDisplayId: "DISP-1",
-            activeSpaceId: 200
-        )
-        #expect(SpacesProvider.planSwitch(from: state, direction: .right) == nil)
-    }
+    @Test func negativeProgressEncodesLeftDirection() {
+        let recorder = EventRecorder()
+        let provider = SpacesProvider(eventPoster: { recorder.record($0) })
 
-    @Test func planSwitchSkipsFullscreenSpacesInWalk() {
-        // Mission Control's left/right navigation walks user Spaces
-        // only; fullscreen-app Spaces (type=4) are not in the carousel.
-        // Provider must mirror that or the dot count and the OS view
-        // would diverge.
-        let state = DesktopState(
-            displays: [DisplayMetadata(id: "DISP-1")],
-            spaces: [
-                SpaceMetadata(id: 100, displayId: "DISP-1", index: 0, type: 0),
-                SpaceMetadata(id: 150, displayId: "DISP-1", index: nil, type: 4),
-                SpaceMetadata(id: 200, displayId: "DISP-1", index: 1, type: 0),
-            ],
-            activeDisplayId: "DISP-1",
-            activeSpaceId: 100
-        )
-        let plan = SpacesProvider.planSwitch(from: state, direction: .right)
-        #expect(plan == SpaceSwitchPlan(displayId: "DISP-1", targetSpaceId: 200))
-    }
+        _ = provider.postDockSwipeFrame(phase: .changed, progress: -0.4, velocityX: -800)
 
-    @Test func planSwitchOnSingleUserSpaceReturnsNil() {
-        // Nothing to switch to; do not synthesise events the OS would
-        // refuse, and do not silently fall through to a non-existent
-        // neighbour.
-        let state = DesktopState(
-            displays: [DisplayMetadata(id: "DISP-1")],
-            spaces: [
-                SpaceMetadata(id: 100, displayId: "DISP-1", index: 0, type: 0),
-            ],
-            activeDisplayId: "DISP-1",
-            activeSpaceId: 100
-        )
-        #expect(SpacesProvider.planSwitch(from: state, direction: .right) == nil)
-        #expect(SpacesProvider.planSwitch(from: state, direction: .left) == nil)
+        #expect(recorder.events.count == 1)
+        guard let event = recorder.events.first else { return }
+        let progress = event.getDoubleValueField(CGEventField(rawValue: 124)!)
+        let velocity = event.getDoubleValueField(CGEventField(rawValue: 129)!)
+        #expect(progress < 0)
+        #expect(velocity < 0)
     }
+}
 
-    @Test func planSwitchIgnoresSpacesOnOtherDisplays() {
-        let state = DesktopState(
-            displays: [
-                DisplayMetadata(id: "DISP-1"),
-                DisplayMetadata(id: "DISP-2"),
-            ],
-            spaces: [
-                SpaceMetadata(id: 100, displayId: "DISP-1", index: 0, type: 0),
-                SpaceMetadata(id: 200, displayId: "DISP-1", index: 1, type: 0),
-                SpaceMetadata(id: 500, displayId: "DISP-2", index: 0, type: 0),
-                SpaceMetadata(id: 600, displayId: "DISP-2", index: 1, type: 0),
-            ],
-            activeDisplayId: "DISP-1",
-            activeSpaceId: 100
-        )
-        // From DISP-1's Desktop 1, right should land on DISP-1's
-        // Desktop 2, not on DISP-2's anything.
-        let plan = SpacesProvider.planSwitch(from: state, direction: .right)
-        #expect(plan == SpaceSwitchPlan(displayId: "DISP-1", targetSpaceId: 200))
+private final class EventRecorder {
+    private(set) var events: [CGEvent] = []
+    func record(_ event: CGEvent) {
+        events.append(event)
     }
 }

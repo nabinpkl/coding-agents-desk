@@ -248,35 +248,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // R11: dispatcher routes .switchSpace through SpacesProvider, which
-    // synthesises a dock-swipe CGEvent (the direct SkyLight setter
-    // CGSManagedDisplaySetCurrentSpace is restricted to Dock.app, hence
-    // yabai's SIP-disable requirement; gesture synthesis is the
-    // unprivileged path InstantSpaceSwitcher / iss use). The explicit
-    // post-switch broadcast here gives the dots band a ~0-frame update
-    // for iPhone-initiated switches; the NSWorkspace observer above
-    // handles Mac-initiated switches and any cases where our
-    // CGEventPost call beats the OS commit.
+    // R11: dispatcher streams each iPhone-side swipe phase
+    // (Began / Changed* / Ended) into SpacesProvider, which posts a
+    // dock-swipe CGEvent per phase. Dock animates Spaces driven by the
+    // progress stream and commits-or-snaps-back at Ended. The post-
+    // commit DesktopState broadcast is driven by the NSWorkspace
+    // activeSpaceDidChange observer above; the gesture-streaming path
+    // here does not need to broadcast (which would fire many times
+    // mid-swipe).
     private func installSpacesSwitchHandler() {
         let provider = spacesProvider
-        let registry = sessions
-        let logger = signalingLogger
-        inputDispatcher.switchSpaceHandler = { [weak registry] direction in
-            let didSwitch = provider.switchSpace(direction: direction)
-            guard didSwitch, let registry, let state = provider.current() else {
-                if !didSwitch {
-                    logger.notice("switchSpace dropped (no neighbour or SkyLight unavailable)")
-                }
-                return
-            }
-            // Bounce back to MainActor to read registry state, which is
-            // MainActor-isolated. The dispatcher's queue called us off
-            // MainActor.
-            Task { @MainActor in
-                for server in registry.allInputChannelServers() {
-                    server.pushDesktopState(state)
-                }
-            }
+        inputDispatcher.switchSpaceGestureHandler = { phase, progress, velocityX in
+            provider.postDockSwipeFrame(phase: phase, progress: progress, velocityX: velocityX)
         }
     }
 

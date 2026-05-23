@@ -387,7 +387,7 @@ enum NormalizedInput: Codable, Equatable {
     case scroll(dx: Float, dy: Float, phase: ScrollPhase)
     case dragStart
     case dragEnd
-    case switchSpace(direction: SpaceDirection)
+    case switchSpaceGesture(phase: SwipePhase, progress: Float, velocityX: Float)
     case key(code: String, modifiers: [Modifier])
     case modifierArm(mod: Modifier)
 
@@ -397,9 +397,11 @@ enum NormalizedInput: Codable, Equatable {
         case double
     }
 
-    enum SpaceDirection: String, Codable {
-        case left
-        case right
+    enum SwipePhase: String, Codable {
+        case began
+        case changed
+        case ended
+        case cancelled
     }
 
     enum Modifier: String, Codable {

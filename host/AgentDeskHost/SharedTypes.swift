@@ -389,7 +389,7 @@ enum NormalizedInput: Codable, Equatable {
     case scroll(dx: Float, dy: Float, phase: ScrollPhase)
     case dragStart
     case dragEnd
-    case switchSpace(direction: SpaceDirection)
+    case switchSpaceGesture(phase: SwipePhase, progress: Float, velocityX: Float)
     case key(code: String, modifiers: [Modifier])
     case modifierArm(mod: Modifier)
 
@@ -399,9 +399,16 @@ enum NormalizedInput: Codable, Equatable {
         case double
     }
 
-    enum SpaceDirection: String, Codable {
-        case left
-        case right
+    // SwipePhase mirrors the CGSGesturePhase values the Dock listens
+    // for on dock-swipe events. Began opens a swipe (no commit), Changed
+    // streams progress while the finger moves, Ended commits (or
+    // snaps back if progress + velocity are below the Dock's
+    // commit threshold), Cancelled abandons.
+    enum SwipePhase: String, Codable {
+        case began
+        case changed
+        case ended
+        case cancelled
     }
 
     enum Modifier: String, Codable {

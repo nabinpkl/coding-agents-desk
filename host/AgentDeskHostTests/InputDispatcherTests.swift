@@ -460,11 +460,11 @@ struct InputDispatcherTests {
         #expect(recorder.events.isEmpty)
     }
 
-    @Test func switchSpaceWithoutHandlerPostsNoEvents() {
-        // Default-installed dispatcher (no switchSpaceHandler) treats
-        // .switchSpace as a no-op rather than synthesising any CGEvent.
-        // AppDelegate is the only call site that installs the handler;
-        // tests stay free of the SpacesProvider dependency.
+    @Test func switchSpaceGestureWithoutHandlerPostsNoEvents() {
+        // Default-installed dispatcher (no switchSpaceGestureHandler)
+        // treats every gesture frame as a no-op rather than
+        // synthesising any CGEvent. AppDelegate is the only call site
+        // that installs the handler.
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(
             eventPoster: { recorder.record($0) },
@@ -472,45 +472,49 @@ struct InputDispatcherTests {
             locationProvider: { .zero }
         )
 
-        dispatcher.performDispatch(.switchSpace(direction: .right))
-        dispatcher.performDispatch(.switchSpace(direction: .left))
+        dispatcher.performDispatch(.switchSpaceGesture(phase: .began, progress: 0, velocityX: 0))
+        dispatcher.performDispatch(.switchSpaceGesture(phase: .changed, progress: 0.5, velocityX: 800))
+        dispatcher.performDispatch(.switchSpaceGesture(phase: .ended, progress: 0.95, velocityX: 1500))
 
         #expect(recorder.events.isEmpty)
     }
 
-    @Test func switchSpaceForwardsDirectionToHandler() {
+    @Test func switchSpaceGestureForwardsAllPhaseFramesToHandler() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(
             eventPoster: { recorder.record($0) },
             isTrusted: { true },
             locationProvider: { .zero }
         )
-        var seen: [NormalizedInput.SpaceDirection] = []
-        dispatcher.switchSpaceHandler = { seen.append($0) }
+        var seen: [(NormalizedInput.SwipePhase, Float, Float)] = []
+        dispatcher.switchSpaceGestureHandler = { phase, progress, vx in
+            seen.append((phase, progress, vx))
+        }
 
-        dispatcher.performDispatch(.switchSpace(direction: .right))
-        dispatcher.performDispatch(.switchSpace(direction: .left))
+        dispatcher.performDispatch(.switchSpaceGesture(phase: .began, progress: 0, velocityX: 0))
+        dispatcher.performDispatch(.switchSpaceGesture(phase: .changed, progress: 0.4, velocityX: 600))
+        dispatcher.performDispatch(.switchSpaceGesture(phase: .ended, progress: 0.95, velocityX: 1800))
 
-        #expect(seen == [.right, .left])
-        #expect(recorder.events.isEmpty)
+        #expect(seen.count == 3)
+        #expect(seen[0].0 == .began)
+        #expect(seen[1].0 == .changed && seen[1].1 == 0.4 && seen[1].2 == 600)
+        #expect(seen[2].0 == .ended && seen[2].1 == 0.95 && seen[2].2 == 1800)
     }
 
-    @Test func switchSpaceHandlerNotCalledWhenUntrusted() {
-        // The accessibility-trust gate applies uniformly across dispatch
-        // paths. An untrusted process must not silently call into the
-        // private SkyLight path either.
+    @Test func switchSpaceGestureHandlerNotCalledWhenUntrusted() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(
             eventPoster: { recorder.record($0) },
             isTrusted: { false },
             locationProvider: { .zero }
         )
-        var called = false
-        dispatcher.switchSpaceHandler = { _ in called = true }
+        var calls = 0
+        dispatcher.switchSpaceGestureHandler = { _, _, _ in calls += 1 }
 
-        dispatcher.performDispatch(.switchSpace(direction: .right))
+        dispatcher.performDispatch(.switchSpaceGesture(phase: .began, progress: 0, velocityX: 0))
+        dispatcher.performDispatch(.switchSpaceGesture(phase: .changed, progress: 0.5, velocityX: 800))
 
-        #expect(!called)
+        #expect(calls == 0)
     }
 }
 
