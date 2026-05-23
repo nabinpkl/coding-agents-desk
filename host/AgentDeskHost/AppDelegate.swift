@@ -16,7 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var activeSignalingChannels: [DeviceFingerprint: SignalingChannel] = [:]
     private var mediaTransports: [DeviceFingerprint: MediaTransport] = [:]
     private var iceGraceTimers: [DeviceFingerprint: Task<Void, Never>] = [:]
+    private var inputTasks: [DeviceFingerprint: Task<Void, Never>] = [:]
     private let mediaFactory: MediaTransportFactory = MediaStack.makeFactory()
+    private let inputDispatcher = InputDispatcher()
     private var pairingSignalSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -32,6 +34,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
         }
+        // R9.4: prompt for Accessibility once at launch. The system suppresses
+        // re-prompts after the first answer, so calling this every cold start
+        // is cheap and the dialog only appears when the user has not yet
+        // decided. The string literal matches kAXTrustedCheckOptionPrompt's
+        // CFString value; using the constant directly trips Swift 6
+        // concurrency-safety checks.
+        let promptOptions = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(promptOptions)
     }
 
     private func bootstrapTLSIdentity() {
@@ -96,6 +106,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSWorkspace.shared.open(url)
             }
         }
+        popoverController.onRequestAccessibility = {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                NSWorkspace.shared.open(url)
+            }
+        }
     }
 
     private func startSignalingServer() {
@@ -150,6 +165,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activeSignalingChannels.removeValue(forKey: fingerprint)
         iceGraceTimers[fingerprint]?.cancel()
         iceGraceTimers.removeValue(forKey: fingerprint)
+        inputTasks[fingerprint]?.cancel()
+        inputTasks.removeValue(forKey: fingerprint)
         if let transport = mediaTransports.removeValue(forKey: fingerprint) {
             transport.stop()
         }
@@ -166,6 +183,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { [weak self, transport] in
             for await state in transport.connectionState {
                 await self?.handleMediaConnectionState(state, for: fingerprint)
+            }
+        }
+
+        // R9.1+R9.3: forward incoming input bytes to the dispatcher. One task
+        // per session; cleaned up in handleSessionEnded.
+        inputTasks[fingerprint]?.cancel()
+        inputTasks[fingerprint] = Task { [weak self, transport] in
+            let decoder = JSONDecoder()
+            for await data in transport.inputEvents {
+                guard let input = try? decoder.decode(NormalizedInput.self, from: data) else {
+                    self?.signalingLogger.error("input decode failed; \(data.count, privacy: .public) bytes")
+                    continue
+                }
+                await MainActor.run {
+                    self?.inputDispatcher.dispatch(input)
+                }
             }
         }
 
@@ -238,6 +271,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             && ProcessInfo.processInfo.environment["AGENTDESK_USE_TEST_PATTERN"] != "1" {
             applyIcon(symbolName: "exclamationmark.shield", accessibilityDescription: "Screen Recording required")
             popoverController.render(.screenRecordingDenied)
+            return
+        }
+        if !AXIsProcessTrusted() {
+            applyIcon(symbolName: "exclamationmark.shield", accessibilityDescription: "Accessibility required")
+            popoverController.render(.accessibilityRequired)
             return
         }
         guard let record = try? pairing.approvedDevices().first else {

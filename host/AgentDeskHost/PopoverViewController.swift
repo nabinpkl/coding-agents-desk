@@ -9,12 +9,14 @@ enum HostPairingViewState {
     case connected(PairedDeviceRecord)
     case tailscaleRequired
     case screenRecordingDenied
+    case accessibilityRequired
 }
 
 final class PopoverViewController: NSViewController {
     var onStartPairing: (() -> Void)?
     var onRevoke: ((DeviceFingerprint) -> Void)?
     var onRequestScreenRecording: (() -> Void)?
+    var onRequestAccessibility: (() -> Void)?
 
     private let stack = NSStackView()
     private var connectedFingerprint: DeviceFingerprint?
@@ -84,11 +86,19 @@ final class PopoverViewController: NSViewController {
             label("Screen Recording required", font: .boldSystemFont(ofSize: 16))
             label("AgentDesk needs Screen Recording to share this Mac's display. Open System Settings, enable AgentDeskHost under Privacy & Security > Screen Recording, then relaunch.", font: .systemFont(ofSize: 12))
             button(title: "Open System Settings", action: #selector(requestScreenRecording))
+        case .accessibilityRequired:
+            label("Accessibility required", font: .boldSystemFont(ofSize: 16))
+            label("AgentDesk needs Accessibility to forward iPhone gestures to the Mac cursor. Open System Settings, enable AgentDeskHost under Privacy & Security > Accessibility.", font: .systemFont(ofSize: 12))
+            button(title: "Open System Settings", action: #selector(requestAccessibility))
         }
     }
 
     @objc private func requestScreenRecording() {
         onRequestScreenRecording?()
+    }
+
+    @objc private func requestAccessibility() {
+        onRequestAccessibility?()
     }
 
     @objc private func startPairing() {
