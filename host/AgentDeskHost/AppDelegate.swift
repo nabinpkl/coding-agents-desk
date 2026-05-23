@@ -17,12 +17,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let spacesProvider = SpacesProvider()
     private let spaceThumbnailProvider = SpaceThumbnailProvider()
     private var thumbnailsBroadcastTask: Task<Void, Never>?
-    // ADR-0007: single VideoFrameSource lives for the host process so
-    // the input-channel handler can downcast and call setSourceRect on
-    // it. Was previously constructed per startMediaTransport; lifting
-    // it here doesn't change the SCStream lifecycle (still started in
-    // transport.start, stopped in transport.stop), but lets the viewport
-    // crop survive a transport reattach.
     private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()
     private var pairingSignalSource: DispatchSourceSignal?
 
@@ -226,28 +220,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the toggle directly into the shared provider; with multiple
         // clients we'd OR enable flags across all clients before
         // touching the provider.
-        //
-        // ADR-0007: the same client-config frame carries the optional
-        // viewport rect. Downcast to RegionalVideoFrameSource at the
-        // edge so the routing here doesn't widen the VideoFrameSource
-        // protocol with a feature only one impl supports. TestPattern
-        // (diagnostic) just doesn't conform; setSourceRect is a no-op
-        // by absence.
         let provider = spaceThumbnailProvider
-        let regional = frameSource as? RegionalVideoFrameSource
         server.configHandler = { config in
             provider.setEnabled(config.thumbnailsEnabled)
             if let spaceId = config.thumbnailRefresh {
                 provider.forceRefresh(spaceId: spaceId)
-            }
-            if let regional {
-                let rect: CGRect?
-                if let v = config.viewport {
-                    rect = CGRect(x: CGFloat(v.x), y: CGFloat(v.y), width: CGFloat(v.w), height: CGFloat(v.h))
-                } else {
-                    rect = nil
-                }
-                regional.setSourceRect(rect)
             }
         }
         let dispatcher = inputDispatcher

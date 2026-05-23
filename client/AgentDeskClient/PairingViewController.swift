@@ -14,23 +14,13 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private var mediaTransport: MediaTransport?
     private var videoSink: VideoFrameSink?
     // R21: pinch-zoom container around the WebRTC sink. Local-only zoom
-    // (no host-side sourceRect crop); see ADR notes in TASKS.md. Held
-    // weakly past mount so teardownMediaTransport can clean it up.
+    // via UIScrollView transform; ADR-0008 dropped the host-side
+    // sourceRect crop path in favour of native-pixel encoder density,
+    // which lifts the per-source-pixel sharpness without needing to
+    // reconfigure the stream mid-gesture.
     private var sinkScrollView: UIScrollView?
-    // Cap chosen at 4x. Pixels are visibly soft past ~2x in local-only
-    // mode; with ADR-0007 host-side crop active, effective sharpness
-    // is local x crop, so 4x local + 2x crop = 8x effective at high
-    // density.
     private static let sinkMaxZoomScale: CGFloat = 4.0
     private static let sinkDoubleTapZoomScale: CGFloat = 2.0
-    // ADR-0007: send a viewport crop only when the user has finally
-    // settled above this zoom level. Lower threshold causes pointless
-    // keyframe storms when the user pinches and releases at ~1.05x.
-    private static let viewportZoomTrigger: CGFloat = 1.5
-    // Mirror of the last viewport rect we sent to the host. nil = host
-    // is at full display. Used to (a) decide whether active prefill
-    // fires on the next pinch start, (b) re-send on session reconnect.
-    private var currentRemoteViewport: ViewportRect?
     private var mediaStateTask: Task<Void, Never>?
     private var iceGraceTask: Task<Void, Never>?
     // R11: observes the input channel's desktopStateUpdates stream and
@@ -455,117 +445,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         return scrollView.subviews.first
     }
 
-    // ADR-0007 active prefill. Pinch is starting and the host currently
-    // has an active crop. Whatever the user does next (pinch in or
-    // out), they'll need a wider stream available, so kick a
-    // viewport=nil now and let the host snap back to full display
-    // before the gesture even finishes. Pinch in just re-crops on
-    // settle; pinch out gets the wider area pre-staged.
-    func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
-        guard scrollView === sinkScrollView else { return }
-        guard currentRemoteViewport != nil else { return }
-        currentRemoteViewport = nil
-        sendClientConfig(viewport: nil)
-    }
-
-    // Gesture settled. If the user is still zoomed past the trigger,
-    // compute the visible normalized rect and send it to the host;
-    // future frames carry that sub-region at native source density.
-    // Below the trigger we keep the full-display stream (active prefill
-    // already sent that on pinch start; this is the same value, so the
-    // de-dup in sendClientConfig drops it).
-    func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
-        guard scrollView === sinkScrollView else { return }
-        applyZoomSettleViewport(scrollView)
-    }
-
-    // Pan landed (after a deceleration or a non-decelerating finger
-    // lift). If the user is in cropped mode, we re-snapshot so the
-    // host's crop tracks the new visible region. Throttled
-    // accidentally via the scrollViewDidEnd* lifecycle: these only
-    // fire on settle, not per-frame.
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        guard scrollView === sinkScrollView else { return }
-        applyPanSettleViewport(scrollView)
-    }
-
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        guard scrollView === sinkScrollView else { return }
-        if !decelerate {
-            applyPanSettleViewport(scrollView)
-        }
-    }
-
-    // MARK: - Viewport plumbing
-
-    private func applyZoomSettleViewport(_ scrollView: UIScrollView) {
-        let zoom = scrollView.zoomScale
-        if zoom >= Self.viewportZoomTrigger {
-            sendViewportFromCurrentScrollState(scrollView)
-        } else {
-            // Below the trigger: keep host at full display.
-            if currentRemoteViewport != nil {
-                currentRemoteViewport = nil
-                sendClientConfig(viewport: nil)
-            }
-        }
-    }
-
-    private func applyPanSettleViewport(_ scrollView: UIScrollView) {
-        // Only re-send when zoom is past the trigger; otherwise the
-        // host should stay at full display and the pan is purely
-        // local (within an at-fit view).
-        guard scrollView.zoomScale >= Self.viewportZoomTrigger else { return }
-        sendViewportFromCurrentScrollState(scrollView)
-    }
-
-    private func sendViewportFromCurrentScrollState(_ scrollView: UIScrollView) {
-        guard let rect = normalizedVisibleRect(scrollView) else { return }
-        // De-dup nearly-identical sends so a small pan correction
-        // doesn't burn a keyframe. 1.5% threshold is below the user's
-        // perceptual delta on a phone-sized viewport.
-        if let prev = currentRemoteViewport,
-           abs(prev.x - rect.x) < 0.015,
-           abs(prev.y - rect.y) < 0.015,
-           abs(prev.w - rect.w) < 0.015,
-           abs(prev.h - rect.h) < 0.015 {
-            return
-        }
-        currentRemoteViewport = rect
-        sendClientConfig(viewport: rect)
-    }
-
-    // Convert the scroll view's current visible region (in zoomed
-    // content coords) into a normalized rect over the underlying
-    // full-content area. The full content area corresponds to the
-    // active display because at zoomScale=1 the sink view fills the
-    // visible bounds with the host's encoded frame.
-    private func normalizedVisibleRect(_ scrollView: UIScrollView) -> ViewportRect? {
-        let zoom = scrollView.zoomScale
-        guard zoom > 0 else { return nil }
-        let contentW = scrollView.contentSize.width
-        let contentH = scrollView.contentSize.height
-        guard contentW > 0, contentH > 0 else { return nil }
-        let visibleW = scrollView.bounds.width
-        let visibleH = scrollView.bounds.height
-        let x = scrollView.contentOffset.x / contentW
-        let y = scrollView.contentOffset.y / contentH
-        let w = visibleW / contentW
-        let h = visibleH / contentH
-        // Clamp into [0, 1] in case bounce / overscroll briefly
-        // produced a slightly out-of-range offset.
-        let cx = max(0, min(1 - 0.01, Float(x)))
-        let cy = max(0, min(1 - 0.01, Float(y)))
-        let cw = max(0.01, min(1 - cx, Float(w)))
-        let ch = max(0.01, min(1 - cy, Float(h)))
-        return ViewportRect(x: cx, y: cy, w: cw, h: ch)
-    }
-
-    private func sendClientConfig(viewport: ViewportRect?) {
+    private func sendClientConfig() {
         guard let channel = pairingClient.activeInputChannel else { return }
         let config = ClientConfig(
-            thumbnailsEnabled: SettingsStore.shared.showSpacePreviews,
-            viewport: viewport
+            thumbnailsEnabled: SettingsStore.shared.showSpacePreviews
         )
         Task { [channel, config] in
             try? await channel.sendConfig(config)
@@ -938,11 +821,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         videoSink = nil
         sinkScrollView?.removeFromSuperview()
         sinkScrollView = nil
-        // ADR-0007: forget the remote crop on session teardown. The
-        // host process may persist (long-lived) but a fresh transport
-        // resets its frame source's stream state; we want to start
-        // from full display on the next session.
-        currentRemoteViewport = nil
         hideTrackpad()
     }
 

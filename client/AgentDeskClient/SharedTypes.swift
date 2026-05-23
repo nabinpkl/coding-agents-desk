@@ -548,34 +548,16 @@ struct ClientConfig: Codable, Equatable {
     let type: String
     let thumbnailsEnabled: Bool
     let thumbnailRefresh: UInt64?
-    // ADR-0007: see host SharedTypes.swift.
-    let viewport: ViewportRect?
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case thumbnailsEnabled = "te"
         case thumbnailRefresh = "tr"
-        case viewport = "vp"
     }
 
-    init(thumbnailsEnabled: Bool, thumbnailRefresh: UInt64? = nil, viewport: ViewportRect? = nil) {
+    init(thumbnailsEnabled: Bool, thumbnailRefresh: UInt64? = nil) {
         self.type = "client-config"
         self.thumbnailsEnabled = thumbnailsEnabled
         self.thumbnailRefresh = thumbnailRefresh
-        self.viewport = viewport
-    }
-}
-
-struct ViewportRect: Codable, Equatable {
-    let x: Float
-    let y: Float
-    let w: Float
-    let h: Float
-
-    enum CodingKeys: String, CodingKey {
-        case x = "x"
-        case y = "y"
-        case w = "w"
-        case h = "h"
     }
 }
