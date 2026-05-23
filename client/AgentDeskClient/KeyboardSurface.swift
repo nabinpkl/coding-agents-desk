@@ -203,30 +203,36 @@ final class KeyboardAccessoryView: UIInputView {
     private weak var surface: KeyboardSurface?
     private var modifierButtons: [NormalizedInput.Modifier: UIButton] = [:]
 
+    private static let accessoryHeight: CGFloat = 48
+
     init(surface: KeyboardSurface) {
         self.surface = surface
-        // inputAccessoryView is rendered above the iOS soft keyboard
-        // and its frame width feeds back into the keyboard's own layout
-        // calculation. A zero-width initial frame (or autoresizing mask
-        // missing .flexibleWidth) causes iOS to compute letter pitch
-        // against the wrong container width, which is what made the
-        // alphabetic keys look abnormally spaced. Seed with screen
-        // width and flexibleWidth so the bar tracks orientation /
-        // device width naturally.
         let initialWidth = UIScreen.main.bounds.width
         super.init(
-            frame: CGRect(x: 0, y: 0, width: initialWidth, height: 48),
+            frame: CGRect(x: 0, y: 0, width: initialWidth, height: Self.accessoryHeight),
             inputViewStyle: .keyboard
         )
-        autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        // translatesAutoresizingMaskIntoConstraints stays true (the
-        // default) so iOS sizes the bar via frame + autoresizing.
+        // .flexibleWidth so the bar tracks orientation changes; NOT
+        // .flexibleHeight, otherwise iOS stretches the bar vertically
+        // and pushes the soft keyboard's overall container down /
+        // up out of normal sizing. Fixed height comes from
+        // intrinsicContentSize below.
+        autoresizingMask = .flexibleWidth
         backgroundColor = .secondarySystemBackground
         setupViews()
         refreshModifierStates()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    // Hard cap on the bar's height. UIKit otherwise consults the bar's
+    // current frame; if anything in the stack ever bumps the height
+    // (orientation, dynamic-type round, autoresize math), the keyboard's
+    // total container would grow with it. Pinning intrinsicContentSize
+    // keeps the total container at iOS-native size.
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: Self.accessoryHeight)
+    }
 
     private func setupViews() {
         let escape = makeKeyButton(title: "Esc", code: "escape")
