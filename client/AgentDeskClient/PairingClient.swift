@@ -155,6 +155,18 @@ final class PairingClient {
 
     private(set) var activeSignaling: SignalingChannel?
 
+    /// Called by PairingViewController when the WebRTC media plane reports
+    /// .failed (or 5s of .disconnected). Tears down the signaling channel
+    /// and transitions to .pairedDisconnected so the foreground auto-dial
+    /// path can retry on next willEnterForeground.
+    func handleMediaSessionFailed() {
+        (activeSignaling as? WebSocketSignalingChannel)?.close()
+        activeSignaling = nil
+        if case .connected = state {
+            state = .pairedDisconnected
+        }
+    }
+
     func attemptSession(
         dialer: SessionDialer = SessionDialer(),
         port: UInt16 = Config.signalingPort

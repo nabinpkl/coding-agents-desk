@@ -13,6 +13,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private let mediaFactory: MediaTransportFactory = MediaStack.makeFactory()
     private var mediaTransport: MediaTransport?
     private var videoSink: VideoFrameSink?
+    private var mediaStateTask: Task<Void, Never>?
+    private var iceGraceTask: Task<Void, Never>?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -54,6 +56,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     deinit {
         handshakeTask?.cancel()
         sessionTask?.cancel()
+        mediaStateTask?.cancel()
+        iceGraceTask?.cancel()
         mediaTransport?.stop()
     }
 
@@ -65,6 +69,16 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         videoSink = sink
         mediaTransport = transport
         mountSinkView(sink.view)
+
+        mediaStateTask?.cancel()
+        mediaStateTask = Task { [weak self, transport] in
+            for await state in transport.connectionState {
+                await MainActor.run {
+                    self?.handleMediaConnectionState(state)
+                }
+            }
+        }
+
         Task { [transport, signaling, sink] in
             try? await transport.start(
                 role: .answerer,
@@ -73,6 +87,35 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 videoSink: sink
             )
         }
+    }
+
+    private func handleMediaConnectionState(_ state: MediaConnectionState) {
+        switch state {
+        case .connecting:
+            break
+        case .connected:
+            iceGraceTask?.cancel()
+            iceGraceTask = nil
+        case .disconnected:
+            iceGraceTask?.cancel()
+            iceGraceTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self?.failMediaSession()
+                }
+            }
+        case .failed, .closed:
+            iceGraceTask?.cancel()
+            iceGraceTask = nil
+            failMediaSession()
+        }
+    }
+
+    private func failMediaSession() {
+        teardownMediaTransport()
+        pairingClient.handleMediaSessionFailed()
+        render()
     }
 
     private func mountSinkView(_ sinkView: UIView) {

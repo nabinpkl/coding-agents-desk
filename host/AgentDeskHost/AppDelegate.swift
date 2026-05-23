@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var attemptingSessions: Set<DeviceFingerprint> = []
     private var activeSignalingChannels: [DeviceFingerprint: SignalingChannel] = [:]
     private var mediaTransports: [DeviceFingerprint: MediaTransport] = [:]
+    private var iceGraceTimers: [DeviceFingerprint: Task<Void, Never>] = [:]
     private let mediaFactory: MediaTransportFactory = MediaStack.makeFactory()
     private var pairingSignalSource: DispatchSourceSignal?
 
@@ -147,6 +148,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         attemptingSessions.remove(fingerprint)
         activeSessions.remove(fingerprint)
         activeSignalingChannels.removeValue(forKey: fingerprint)
+        iceGraceTimers[fingerprint]?.cancel()
+        iceGraceTimers.removeValue(forKey: fingerprint)
         if let transport = mediaTransports.removeValue(forKey: fingerprint) {
             transport.stop()
         }
@@ -158,6 +161,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let transport = mediaFactory.make()
         mediaTransports[active.deviceFingerprint] = transport
         let frameSource = MediaStack.makeFrameSource()
+        let fingerprint = active.deviceFingerprint
+
+        Task { [weak self, transport] in
+            for await state in transport.connectionState {
+                await self?.handleMediaConnectionState(state, for: fingerprint)
+            }
+        }
+
         Task { [signalingLogger, transport, channel, frameSource] in
             do {
                 try await transport.start(
@@ -171,6 +182,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 signalingLogger.error("media transport start failed: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    private func handleMediaConnectionState(_ state: MediaConnectionState, for fingerprint: DeviceFingerprint) {
+        signalingLogger.notice("media state=\(String(describing: state), privacy: .public) fingerprint=\(fingerprint.rawValue, privacy: .public)")
+        switch state {
+        case .connecting:
+            break
+        case .connected:
+            iceGraceTimers[fingerprint]?.cancel()
+            iceGraceTimers.removeValue(forKey: fingerprint)
+        case .disconnected:
+            iceGraceTimers[fingerprint]?.cancel()
+            iceGraceTimers[fingerprint] = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard !Task.isCancelled else { return }
+                self?.terminateMediaSession(for: fingerprint, reason: "ice-disconnected-grace")
+            }
+        case .failed, .closed:
+            iceGraceTimers[fingerprint]?.cancel()
+            iceGraceTimers.removeValue(forKey: fingerprint)
+            terminateMediaSession(for: fingerprint, reason: "media-\(state)")
+        }
+    }
+
+    private func terminateMediaSession(for fingerprint: DeviceFingerprint, reason: String) {
+        signalingLogger.notice("terminating session reason=\(reason, privacy: .public) fingerprint=\(fingerprint.rawValue, privacy: .public)")
+        if let channel = activeSignalingChannels[fingerprint] as? WebSocketSignalingChannel {
+            channel.close()
+        }
+        // connectionDidClose on the NWConnection will fire sessionEndedHandler
+        // which clears activeSessions/activeSignalingChannels and stops the
+        // mediaTransport via handleSessionEnded.
     }
 
     private func startPairing() {

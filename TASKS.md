@@ -112,7 +112,7 @@ R8.6.2   2026-05-20  committed   WebSocketSignalingChannel + SessionConnection +
 R8.6.3   2026-05-20  committed   LibWebRTCMediaTransport host + TestPatternFrameSource + stasel/WebRTC 130.0.0 SPM dep
 R8.6.4   2026-05-20  committed   LibWebRTCMediaTransport client + RTCMTLVideoSink + PairingViewController wiring
 R8.6.5   2026-05-20  committed   ScreenCaptureKitFrameSource + TCC handling + popover screenRecordingDenied state
-R8.6.6   pending     pending     ICE-failure -> paired-disconnected wiring on both ends
+R8.6.6   2026-05-20  committed   MediaConnectionState observers with 5s ICE-disconnected grace on both ends
 R8.6.7   pending     pending     HITL hello-pixels on-device verification
 R9       pending     pending     Phase 3 captured (S3, #5)
 R10      pending     pending     Phase 4 captured (S4, #6)
