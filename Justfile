@@ -12,13 +12,15 @@ dev:
     open host/AgentDeskHost.xcodeproj
     open client/AgentDeskClient.xcodeproj
 
-# Build host Debug and (re)launch it as a single instance.
+# Build host Debug and (re)launch it as a single instance with dev env.
+# Runs the binary directly (not via `open`) so AGENTDESK_AUTO_APPROVE
+# propagates and the modal approval sheet is bypassed during pairing.
 host-run:
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug build >/dev/null
     -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
     sleep 1
-    open "{{host_app}}"
-    sleep 1
+    AGENTDESK_AUTO_APPROVE=1 nohup "{{host_app}}/Contents/MacOS/AgentDeskHost" >/dev/null 2>&1 &
+    sleep 2
     pgrep -lf AgentDeskHost
 
 # Build client Debug for the iPhone and install (does not launch).
@@ -35,7 +37,7 @@ pair-iphone:
     @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "{{last_pair_url_path}}"
     kill -USR1 $(pgrep -f AgentDeskHost)
-    @i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+    @i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     @echo "URL: $(cat '{{last_pair_url_path}}')"
     xcrun devicectl device process launch --device {{ios_device}} --terminate-existing com.example.agentdesk.AgentDeskClient "$(cat '{{last_pair_url_path}}')"
