@@ -5,6 +5,7 @@ ios_sim_udid := env_var_or_default("AGENTDESK_IOS_SIM_UDID", "00000000-0000-4000
 last_pair_url_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.last-pair-url"
 host_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskHost-gmjyarrzlrjgctfcursfnnulwzfg/Build/Products/Debug/AgentDeskHost.app"
 client_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskClient-asnebogtvhgngpdusosdqtlwsphl/Build/Products/Debug-iphoneos/AgentDeskClient.app"
+client_sim_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskClient-asnebogtvhgngpdusosdqtlwsphl/Build/Products/Debug-iphonesimulator/AgentDeskClient.app"
 
 check:
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost build test
@@ -69,6 +70,30 @@ fresh-install:
     just host-run
     just client-reinstall
     just pair-iphone
+
+# Build client Debug for the iPhone simulator and install (does not launch).
+# Mirrors `client-install` but targets the simulator instead of the
+# physical device.
+client-sim-install:
+    xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
+    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' build >/dev/null
+    xcrun simctl install {{ios_sim_udid}} "{{client_sim_app}}"
+
+# Uninstall + clean install on the simulator. Same reasoning as
+# `client-reinstall`: install-time bundle metadata (UILaunchScreen,
+# TARGETED_DEVICE_FAMILY) is cached by the simulator and not flushed
+# by a plain rebuild.
+client-sim-reinstall:
+    -xcrun simctl uninstall {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient 2>/dev/null || true
+    just client-sim-install
+
+# Rebuild and relaunch the Mac host, then uninstall and reinstall the
+# iOS app on the simulator. Use after changes that affect either side's
+# install-time metadata, or when you want a known-clean simulator
+# starting point for a Maestro flow run.
+sim-fresh-install:
+    just host-run
+    just client-sim-reinstall
 
 # Drive the iPhone simulator with a Maestro flow. Maestro is the standard
 # tool for declarative iOS UI automation (Playwright-equivalent for mobile);
