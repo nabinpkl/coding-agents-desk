@@ -42,20 +42,17 @@ struct GestureAcceleration: Sendable {
 
     static let identity = GestureAcceleration { _ in 1.0 }
 
-    // Linear ramp with a precision floor and a flick ceiling. Numbers
-    // below are points per second. Floor lowered to 1.0 so slow drags are
-    // true 1:1 with the Mac cursor (matches scroll-strip precision feel),
-    // ceiling raised to 9.0 so flicks travel further and reach the far
-    // edge of the Mac display in a single iPhone-trackpad sweep. The
-    // host-side display clamp keeps the cursor on-screen even with the
-    // higher gain, so the previous "flew off" failure mode is contained.
-    //   0     -> 1.0  (precision floor, true 1:1)
-    //   200   -> 1.8  (pixel-level work)
-    //   500   -> 3.0  (typical drag)
-    //   1000  -> 5.0
-    //   2000+ -> 9.0  (fast drag / flick, capped)
+    // Linear ramp with a precision floor and a flick ceiling. Numbers below
+    // are points per second. The previous curve compounded ~26x gain across
+    // many high-velocity callbacks during a flick and rocketed the cursor
+    // off the screen; this version caps at 6.5x so a multi-callback flick
+    // still lands within a typical 1500-pixel Mac display.
+    //   0     -> 1.5  (precision floor)
+    //   200   -> 2.1  (pixel-level work)
+    //   800   -> 3.9  (typical drag)
+    //   1700+ -> 6.5  (fast drag / flick, capped)
     static let mac = GestureAcceleration { velocity in
-        1.0 + min(velocity * 0.004, 8.0)
+        1.5 + min(velocity * 0.003, 5.0)
     }
 
     // Vertical scroll curve. Floor sits at 1.0 so a glacial finger drag is
@@ -117,11 +114,11 @@ final class GestureTranslator: NSObject {
 
     func attach(to view: UIView) {
         view.isUserInteractionEnabled = true
-        // InstantPan removes the ~10pt slop that UIPanGestureRecognizer
-        // imposes before transitioning to .began. Without this, the first
-        // finger move on the trackpad is swallowed, which feels like the
-        // cursor has a dead zone on initial contact.
-        let pan = InstantPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
+        // Standard UIPan (with ~10pt slop) for cursor. Trying InstantPan
+        // here caused stutter: without slop, microscopic finger tremor in
+        // the orthogonal axis amplified through the acceleration curve and
+        // showed as visible cursor jitter. Slop acts as a free deadzone.
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
         pan.minimumNumberOfTouches = 1
         pan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(pan)
