@@ -5,7 +5,7 @@ import Foundation
 // import WebRTC are the LibWebRTC* impls; AppDelegate holds a
 // MediaTransportFactory by protocol.
 
-protocol MediaTransport: AnyObject {
+protocol MediaTransport: AnyObject, Sendable {
     func start(
         role: MediaTransportRole,
         signaling: SignalingChannel,

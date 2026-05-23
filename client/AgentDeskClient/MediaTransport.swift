@@ -4,7 +4,7 @@ import Foundation
 // The only files that import WebRTC are the LibWebRTC* impls; PairingClient
 // holds a MediaTransportFactory by protocol.
 
-protocol MediaTransport: AnyObject {
+protocol MediaTransport: AnyObject, Sendable {
     func start(
         role: MediaTransportRole,
         signaling: SignalingChannel,
@@ -55,7 +55,7 @@ enum MediaTransportError: Error {
 // VideoFrameSource is the host-side capture seam. The client mirror exists
 // so MediaTransport.start can carry one signature on both sides; the
 // client never instantiates a source.
-protocol VideoFrameSource: AnyObject {
+protocol VideoFrameSource: AnyObject, Sendable {
     func start() async throws
     func stop()
 }

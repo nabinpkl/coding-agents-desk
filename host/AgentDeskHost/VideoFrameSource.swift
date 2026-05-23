@@ -7,13 +7,16 @@ import Foundation
 // native cadence; the WebRTC layer pulls them through a
 // ScreenCaptureKitVideoCapturer that wraps RTCCVPixelBuffer.
 
-protocol VideoFrameSource: AnyObject {
+protocol VideoFrameSource: AnyObject, Sendable {
     func start() async throws
     func stop()
     var frames: AsyncStream<CapturedVideoFrame> { get }
 }
 
-struct CapturedVideoFrame {
+// CVPixelBuffer is a CoreFoundation reference type; we never mutate it
+// after creation, so crossing task boundaries is safe in practice. Swift's
+// strict-concurrency checker doesn't know that, hence @unchecked.
+struct CapturedVideoFrame: @unchecked Sendable {
     let pixelBuffer: CVPixelBuffer
     let presentationTimeNs: Int64
     let rotation: VideoRotation

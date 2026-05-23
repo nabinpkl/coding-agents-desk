@@ -7,61 +7,13 @@ import Foundation
 
 enum MediaStack {
     static func makeFactory() -> MediaTransportFactory {
-        StubMediaTransportFactory(codecs: .h264Only)
+        LibWebRTCTransportFactory(codecs: .h264Only)
     }
 
+    // R8.6.3 wires TestPatternFrameSource so the pipe can be verified
+    // before Screen Recording TCC is granted. R8.6.5 swaps in
+    // ScreenCaptureKitFrameSource.
     static func makeFrameSource() -> VideoFrameSource {
-        StubVideoFrameSource()
-    }
-}
-
-private struct StubMediaTransportFactory: MediaTransportFactory {
-    let codecs: MediaCodecPreferences
-
-    func make() -> MediaTransport {
-        StubMediaTransport()
-    }
-}
-
-private final class StubMediaTransport: MediaTransport {
-    let connectionState: AsyncStream<MediaConnectionState>
-    private let continuation: AsyncStream<MediaConnectionState>.Continuation
-
-    init() {
-        var continuation: AsyncStream<MediaConnectionState>.Continuation!
-        connectionState = AsyncStream { continuation = $0 }
-        self.continuation = continuation
-    }
-
-    func start(
-        role: MediaTransportRole,
-        signaling: SignalingChannel,
-        videoSource: VideoFrameSource?,
-        videoSink: VideoFrameSink?
-    ) async throws {
-        throw MediaTransportError.notYetImplemented
-    }
-
-    func stop() {
-        continuation.finish()
-    }
-}
-
-private final class StubVideoFrameSource: VideoFrameSource {
-    let frames: AsyncStream<CapturedVideoFrame>
-    private let continuation: AsyncStream<CapturedVideoFrame>.Continuation
-
-    init() {
-        var continuation: AsyncStream<CapturedVideoFrame>.Continuation!
-        frames = AsyncStream { continuation = $0 }
-        self.continuation = continuation
-    }
-
-    func start() async throws {
-        throw MediaTransportError.notYetImplemented
-    }
-
-    func stop() {
-        continuation.finish()
+        TestPatternFrameSource()
     }
 }

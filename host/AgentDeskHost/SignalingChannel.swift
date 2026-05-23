@@ -5,7 +5,7 @@ import Foundation
 // (WebSocketSignalingChannel) lands in R8.6.2; tests can substitute an
 // in-memory channel without touching transport code.
 
-protocol SignalingChannel: AnyObject {
+protocol SignalingChannel: AnyObject, Sendable {
     func send(_ frame: WebRTCSignalingFrame) async throws
     var inbound: AsyncStream<WebRTCSignalingFrame> { get }
 }

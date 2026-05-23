@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var activeSessions: Set<DeviceFingerprint> = []
     private var attemptingSessions: Set<DeviceFingerprint> = []
     private var activeSignalingChannels: [DeviceFingerprint: SignalingChannel] = [:]
+    private var mediaTransports: [DeviceFingerprint: MediaTransport] = [:]
+    private let mediaFactory: MediaTransportFactory = MediaStack.makeFactory()
     private var pairingSignalSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -128,6 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activeSessions.insert(active.deviceFingerprint)
         activeSignalingChannels[active.deviceFingerprint] = channel
         signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public)")
+        startMediaTransport(for: active, channel: channel)
         refreshConnectedState()
     }
 
@@ -135,8 +138,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         attemptingSessions.remove(fingerprint)
         activeSessions.remove(fingerprint)
         activeSignalingChannels.removeValue(forKey: fingerprint)
+        if let transport = mediaTransports.removeValue(forKey: fingerprint) {
+            transport.stop()
+        }
         signalingLogger.notice("session ended fingerprint=\(fingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
+    }
+
+    private func startMediaTransport(for active: ActiveSession, channel: SignalingChannel) {
+        let transport = mediaFactory.make()
+        mediaTransports[active.deviceFingerprint] = transport
+        let frameSource = MediaStack.makeFrameSource()
+        Task { [signalingLogger, transport, channel, frameSource] in
+            do {
+                try await transport.start(
+                    role: .offerer,
+                    signaling: channel,
+                    videoSource: frameSource,
+                    videoSink: nil
+                )
+                signalingLogger.notice("media transport started")
+            } catch {
+                signalingLogger.error("media transport start failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     private func startPairing() {
