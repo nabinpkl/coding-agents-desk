@@ -167,21 +167,24 @@ final class KeyboardAccessoryView: UIInputView {
     private weak var surface: KeyboardSurface?
     private var modifierButtons: [NormalizedInput.Modifier: UIButton] = [:]
 
-    // Sized and styled to match iOS native accessory bars: ~44pt total
-    // height, ~4pt insets and gaps, compact rounded-rect keys with the
-    // system-keyboard label weight. Muscle memory built on iOS soft
-    // keyboards lands without recalibration.
-    private static let rowHeight: CGFloat = 44
-    private static let edgeInset: CGFloat = 4
-    private static let buttonSpacing: CGFloat = 4
-    private static let buttonCornerRadius: CGFloat = 5
-    private static let buttonFont: UIFont = .systemFont(ofSize: 16, weight: .regular)
-
     init(surface: KeyboardSurface) {
         self.surface = surface
-        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: Self.rowHeight), inputViewStyle: .keyboard)
-        autoresizingMask = .flexibleHeight
-        translatesAutoresizingMaskIntoConstraints = false
+        // inputAccessoryView is rendered above the iOS soft keyboard
+        // and its frame width feeds back into the keyboard's own layout
+        // calculation. A zero-width initial frame (or autoresizing mask
+        // missing .flexibleWidth) causes iOS to compute letter pitch
+        // against the wrong container width, which is what made the
+        // alphabetic keys look abnormally spaced. Seed with screen
+        // width and flexibleWidth so the bar tracks orientation /
+        // device width naturally.
+        let initialWidth = UIScreen.main.bounds.width
+        super.init(
+            frame: CGRect(x: 0, y: 0, width: initialWidth, height: 48),
+            inputViewStyle: .keyboard
+        )
+        autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // translatesAutoresizingMaskIntoConstraints stays true (the
+        // default) so iOS sizes the bar via frame + autoresizing.
         backgroundColor = .secondarySystemBackground
         setupViews()
         refreshModifierStates()
@@ -190,35 +193,26 @@ final class KeyboardAccessoryView: UIInputView {
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
 
     private func setupViews() {
-        // Single horizontal row of nine compact keys, equal-width so
-        // each key has the same tap target. Mac modifier glyphs
-        // (⌘ ⌃ ⌥) instead of "Cmd / Ctrl / Opt" labels for the same
-        // reason: matches what's printed on Mac keyboards.
-        let buttons: [UIView] = [
-            makeKeyButton(title: "esc", code: "escape"),
-            makeKeyButton(title: "tab", code: "tab"),
-            makeKeyButton(title: "←", code: "left"),
-            makeKeyButton(title: "↓", code: "down"),
-            makeKeyButton(title: "↑", code: "up"),
-            makeKeyButton(title: "→", code: "right"),
-            makeModifierButton(title: "⌘", mod: .cmd),
-            makeModifierButton(title: "⌃", mod: .ctrl),
-            makeModifierButton(title: "⌥", mod: .option)
-        ]
+        let escape = makeKeyButton(title: "Esc", code: "escape")
+        let tab = makeKeyButton(title: "Tab", code: "tab")
+        let arrowCluster = makeArrowCluster()
+        let cmd = makeModifierButton(title: "Cmd", mod: .cmd)
+        let ctrl = makeModifierButton(title: "Ctrl", mod: .ctrl)
+        let option = makeModifierButton(title: "Opt", mod: .option)
 
-        let stack = UIStackView(arrangedSubviews: buttons)
+        let stack = UIStackView(arrangedSubviews: [escape, tab, arrowCluster, cmd, ctrl, option])
         stack.axis = .horizontal
-        stack.spacing = Self.buttonSpacing
+        stack.spacing = 6
         stack.distribution = .fillEqually
         stack.alignment = .fill
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.edgeInset),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.edgeInset),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: Self.edgeInset),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.edgeInset)
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6)
         ])
     }
 
@@ -226,21 +220,51 @@ final class KeyboardAccessoryView: UIInputView {
         let button = UIButton(type: .system)
         button.setTitle(title, for: .normal)
         button.backgroundColor = .tertiarySystemBackground
-        button.setTitleColor(.label, for: .normal)
         button.tintColor = .label
-        button.layer.cornerRadius = Self.buttonCornerRadius
-        button.titleLabel?.font = Self.buttonFont
+        button.layer.cornerRadius = 6
+        button.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
         button.addAction(UIAction { [weak self] _ in
             self?.surface?.sendKey(code: code)
         }, for: .touchUpInside)
         return button
     }
 
+    // 2x2 cluster of arrow buttons in a single accessory slot to save the
+    // horizontal real estate three side-by-side arrows would consume.
+    private func makeArrowCluster() -> UIView {
+        let row1 = UIStackView(arrangedSubviews: [
+            spacerButton(),
+            makeKeyButton(title: "↑", code: "up"),
+            spacerButton()
+        ])
+        let row2 = UIStackView(arrangedSubviews: [
+            makeKeyButton(title: "←", code: "left"),
+            makeKeyButton(title: "↓", code: "down"),
+            makeKeyButton(title: "→", code: "right")
+        ])
+        [row1, row2].forEach {
+            $0.axis = .horizontal
+            $0.distribution = .fillEqually
+            $0.spacing = 2
+        }
+        let column = UIStackView(arrangedSubviews: [row1, row2])
+        column.axis = .vertical
+        column.distribution = .fillEqually
+        column.spacing = 2
+        return column
+    }
+
+    private func spacerButton() -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        return view
+    }
+
     private func makeModifierButton(title: String, mod: NormalizedInput.Modifier) -> UIButton {
         let button = UIButton(type: .system)
         button.setTitle(title, for: .normal)
-        button.layer.cornerRadius = Self.buttonCornerRadius
-        button.titleLabel?.font = Self.buttonFont
+        button.layer.cornerRadius = 6
+        button.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
         button.addAction(UIAction { [weak self] _ in
             self?.surface?.tapModifier(mod)
         }, for: .touchUpInside)
@@ -254,17 +278,14 @@ final class KeyboardAccessoryView: UIInputView {
             switch surface.state(of: mod) {
             case .off:
                 button.backgroundColor = .tertiarySystemBackground
-                button.setTitleColor(.label, for: .normal)
                 button.tintColor = .label
                 button.layer.borderWidth = 0
             case .armed:
                 button.backgroundColor = .tintColor.withAlphaComponent(0.30)
-                button.setTitleColor(.label, for: .normal)
                 button.tintColor = .label
                 button.layer.borderWidth = 0
             case .locked:
                 button.backgroundColor = .tintColor
-                button.setTitleColor(.systemBackground, for: .normal)
                 button.tintColor = .systemBackground
                 button.layer.borderColor = UIColor.label.cgColor
                 button.layer.borderWidth = 1
