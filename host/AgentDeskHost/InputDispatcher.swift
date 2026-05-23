@@ -126,7 +126,13 @@ final class InputDispatcher: @unchecked Sendable {
         // events at the integer threshold rather than rounding each call
         // independently to zero. Truncate toward zero so emitted pixels
         // never exceed the accumulated input.
-        scrollRemainder += CGFloat(dy)
+        //
+        // iPhone reports +dy when the finger moves down; macOS scroll
+        // wheel convention is +wheel1 = content scrolls up. Invert so a
+        // finger drag down causes content to follow the finger (matches
+        // macOS "Natural" scrolling and iOS scroll convention).
+        let signedDy = -dy
+        scrollRemainder += CGFloat(signedDy)
         let dyInt = Int32(scrollRemainder.rounded(.towardZero))
         scrollRemainder -= CGFloat(dyInt)
         // Skip zero-delta posts only for continuous "changed" phases. The

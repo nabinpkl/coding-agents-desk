@@ -118,9 +118,11 @@ struct InputDispatcherTests {
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events[0].type == .scrollWheel)
-        // Pixel-units scroll wheel deltas live on wheel1 (vertical).
+        // Pixel-units scroll wheel deltas live on wheel1 (vertical). dy
+        // is negated by postScroll so finger-down moves content down
+        // (natural scroll), so a +30 input becomes -30 on the wire.
         let pixelDelta = recorder.events[0].getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
-        #expect(pixelDelta == 30)
+        #expect(pixelDelta == -30)
     }
 
     @Test func subPixelScrollsAccumulateUntilEmitting() {
@@ -131,14 +133,16 @@ struct InputDispatcherTests {
             locationProvider: { .zero }
         )
 
-        // Four 0.4 dy ticks: 0.4, 0.8, 1.2 -> emit 1, 0.6.
+        // Three 0.4 dy inputs (negated to -0.4 each on the wire by
+        // postScroll's natural-scroll inversion): -0.4, -0.8, -1.2 ->
+        // emit -1, remainder -0.2.
         dispatcher.dispatch(.scroll(dx: 0, dy: 0.4, phase: .changed))
         dispatcher.dispatch(.scroll(dx: 0, dy: 0.4, phase: .changed))
         dispatcher.dispatch(.scroll(dx: 0, dy: 0.4, phase: .changed))
 
         #expect(recorder.events.count == 1)
         let delta = recorder.events[0].getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
-        #expect(delta == 1)
+        #expect(delta == -1)
     }
 
     @Test func scrollPhaseFieldsAreSetOnCGEvent() {
