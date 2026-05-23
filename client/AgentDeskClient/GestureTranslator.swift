@@ -304,17 +304,22 @@ final class GestureTranslator: NSObject {
         tap.numberOfTapsRequired = 1
         view.addGestureRecognizer(tap)
 
-        // numberOfTapsRequired=1 means "tap-then-press-and-hold": the user
-        // taps once, touches down again within UIKit's double-tap window,
-        // and holds for minimumPressDuration. The brief 100ms hold lets
-        // the OS distinguish a real drag-start from a fast double-tap
-        // (which falls through to two separate clicks). allowableMovement
-        // is generous so finger drift during the hold doesn't kick the
-        // gesture out into pan-cursor-move.
+        // Bare press-and-hold for ~250ms without movement past
+        // allowableMovement fires .began → drag-start. iOS-native pattern:
+        // matches how other apps long-press to pick up items, summon
+        // context menus, or start drag-and-drop. Easier one-handed than
+        // tap-then-tap-and-hold because there is no double-tap timing
+        // window to hit.
+        //
+        // numberOfTapsRequired stays 0 (the default) so the recognizer
+        // fires on a first-touch hold AND on the tap-then-touch-hold
+        // muscle-memory pattern (Mac users get both). The 250ms window
+        // is long enough that slow intentional taps don't accidentally
+        // open a drag; tap timeout fails the tap recognizer at ~150ms
+        // so click vs drag is unambiguous to the user's finger.
         let drag = UILongPressGestureRecognizer(target: self, action: #selector(handleDragGesture(_:)))
-        drag.numberOfTapsRequired = 1
         drag.numberOfTouchesRequired = 1
-        drag.minimumPressDuration = 0.10
+        drag.minimumPressDuration = 0.25
         drag.allowableMovement = 25
         view.addGestureRecognizer(drag)
     }
