@@ -224,6 +224,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // video unreadable; the Mac display is landscape so it aspect-fits
         // comfortably in the top half.
         sinkView.translatesAutoresizingMaskIntoConstraints = false
+        sinkView.isUserInteractionEnabled = true
         view.insertSubview(sinkView, at: 0)
         NSLayoutConstraint.activate([
             sinkView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -231,6 +232,20 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             sinkView.topAnchor.constraint(equalTo: view.topAnchor),
             sinkView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.55)
         ])
+        // Tap on the visible Mac-preview area dismisses the keyboard.
+        // The trackpad and accessory row keep their own touches; only
+        // the read-only video area treats a tap as "hide the keyboard,
+        // I want to see the Mac". cancelsTouchesInView = false so the
+        // sink's own pixel rendering isn't affected.
+        let dismissTap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboardIfShown))
+        dismissTap.cancelsTouchesInView = false
+        sinkView.addGestureRecognizer(dismissTap)
+    }
+
+    @objc private func dismissKeyboardIfShown() {
+        if keyboardSurface.isFirstResponder {
+            keyboardSurface.setVisible(false)
+        }
     }
 
     private func showTrackpad() {
