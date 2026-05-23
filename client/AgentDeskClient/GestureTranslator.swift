@@ -42,17 +42,21 @@ struct GestureAcceleration: Sendable {
 
     static let identity = GestureAcceleration { _ in 1.0 }
 
-    // Linear ramp with a precision floor and a flick ceiling. Numbers below
-    // are points per second. The previous curve compounded ~26x gain across
-    // many high-velocity callbacks during a flick and rocketed the cursor
-    // off the screen; this version caps at 6.5x so a multi-callback flick
-    // still lands within a typical 1500-pixel Mac display.
+    // Approximation of Mac trackpad pointer accel applied client-side.
+    // The IOKit-level macOS pointer-accel curve doesn't run on CGEvents we
+    // post from userspace, so we shape the deltas before sending.
+    //
+    // Floor 1.5 keeps base motion smooth and lets the UIPan slop filter
+    // orthogonal finger tremor (lowering it to 1.0 previously caused
+    // visible cursor stutter). Steeper top end so a hard flick lands at
+    // the far edge of the Mac display in one sweep.
     //   0     -> 1.5  (precision floor)
-    //   200   -> 2.1  (pixel-level work)
-    //   800   -> 3.9  (typical drag)
-    //   1700+ -> 6.5  (fast drag / flick, capped)
+    //   200   -> 2.5
+    //   500   -> 4.0
+    //   1000  -> 6.5
+    //   1700+ -> 10.0 (fast flick, capped)
     static let mac = GestureAcceleration { velocity in
-        1.5 + min(velocity * 0.003, 5.0)
+        1.5 + min(velocity * 0.005, 8.5)
     }
 
     // Vertical scroll curve. Floor sits at 1.0 so a glacial finger drag is
