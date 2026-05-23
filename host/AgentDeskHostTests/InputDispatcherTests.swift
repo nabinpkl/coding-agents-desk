@@ -456,9 +456,64 @@ struct InputDispatcherTests {
         )
 
         dispatcher.performDispatch(.click(button: .double))
-        dispatcher.performDispatch(.switchSpace(direction: .left))
 
         #expect(recorder.events.isEmpty)
+    }
+
+    @Test func switchSpaceRightPostsCtrlRightArrowKeyDownThenKeyUp() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        dispatcher.performDispatch(.switchSpace(direction: .right))
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0].type == .keyDown)
+        #expect(recorder.events[1].type == .keyUp)
+        #expect(recorder.events[0].getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_RightArrow))
+        #expect(recorder.events[1].getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_RightArrow))
+        #expect(recorder.events[0].flags.contains(.maskControl))
+        #expect(recorder.events[1].flags.contains(.maskControl))
+    }
+
+    @Test func switchSpaceLeftPostsCtrlLeftArrowKeyDownThenKeyUp() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        dispatcher.performDispatch(.switchSpace(direction: .left))
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0].type == .keyDown)
+        #expect(recorder.events[1].type == .keyUp)
+        #expect(recorder.events[0].getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_LeftArrow))
+        #expect(recorder.events[1].getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_LeftArrow))
+        #expect(recorder.events[0].flags.contains(.maskControl))
+        #expect(recorder.events[1].flags.contains(.maskControl))
+    }
+
+    @Test func cursorMoveAfterSwitchSpaceCarriesNoModifierFlags() {
+        // Regression guard mirroring the modifier-bleed guard on .key:
+        // a Ctrl+Arrow synthesised for Spaces switch must not leak the
+        // Control flag into the next cursor move.
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 0, y: 0) }
+        )
+
+        dispatcher.performDispatch(.switchSpace(direction: .right))
+        dispatcher.performDispatch(.cursorMove(dx: 10, dy: 10))
+
+        #expect(recorder.events.count == 3)
+        #expect(!recorder.events[2].flags.contains(.maskControl))
     }
 }
 

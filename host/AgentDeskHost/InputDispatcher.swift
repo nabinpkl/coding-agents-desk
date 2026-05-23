@@ -117,9 +117,16 @@ final class InputDispatcher: @unchecked Sendable {
             // exists on the wire for future / alternate clients that
             // compose host-side.
             break
-        case .switchSpace:
-            // R11 territory.
-            break
+        case .switchSpace(let direction):
+            // Mission Control's default keyboard shortcut for moving between
+            // Spaces is Ctrl + Left/Right Arrow (System Settings > Keyboard >
+            // Keyboard Shortcuts > Mission Control). Synthesising that key
+            // event is the same path the OS routes for a physical press, so
+            // no private CoreGraphics SpacesProvider call is needed at the
+            // dispatch seam. Reuses postKey so the modifier-flag composition
+            // and arrow-key mapping path validated by R12 carries through.
+            let code = direction == .left ? "left" : "right"
+            postKey(code: code, modifiers: [.ctrl])
         }
     }
 

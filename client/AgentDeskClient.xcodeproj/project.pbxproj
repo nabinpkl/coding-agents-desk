@@ -30,6 +30,9 @@
 		B00000000000000000000215 /* KeyboardSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000116 /* KeyboardSurface.swift */; };
 		B00000000000000000000216 /* InputChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000117 /* InputChannel.swift */; };
 		B0000000000000000000022F1 /* InputChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000117 /* InputChannel.swift */; };
+		B00000000000000000000217 /* SpacesStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000118 /* SpacesStripView.swift */; };
+		B0000000000000000000022F2 /* SpacesStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000118 /* SpacesStripView.swift */; };
+		B0000000000000000000022E2 /* SpacesStripViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000125 /* SpacesStripViewTests.swift */; };
 		B00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000102 /* Base64URL.swift */; };
 		B00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000103 /* Config.swift */; };
 		B00000000000000000000223 /* DeviceSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000104 /* DeviceSigningKeyStore.swift */; };
@@ -73,6 +76,8 @@
 		B00000000000000000000115 /* SettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
 		B00000000000000000000116 /* KeyboardSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSurface.swift; sourceTree = "<group>"; };
 		B00000000000000000000117 /* InputChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannel.swift; sourceTree = "<group>"; };
+		B00000000000000000000118 /* SpacesStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacesStripView.swift; sourceTree = "<group>"; };
+		B00000000000000000000125 /* SpacesStripViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacesStripViewTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000121 /* PairingClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClientTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000122 /* GestureTranslatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureTranslatorTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000123 /* KeyboardSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSurfaceTests.swift; sourceTree = "<group>"; };
@@ -143,6 +148,7 @@
 				B00000000000000000000115 /* SettingsViewController.swift */,
 				B00000000000000000000116 /* KeyboardSurface.swift */,
 				B00000000000000000000117 /* InputChannel.swift */,
+				B00000000000000000000118 /* SpacesStripView.swift */,
 				B0000000000000000000010A /* Info.plist */,
 			);
 			path = AgentDeskClient;
@@ -155,6 +161,7 @@
 				B00000000000000000000122 /* GestureTranslatorTests.swift */,
 				B00000000000000000000123 /* KeyboardSurfaceTests.swift */,
 				B00000000000000000000124 /* InputChannelTests.swift */,
+				B00000000000000000000125 /* SpacesStripViewTests.swift */,
 			);
 			path = AgentDeskClientTests;
 			sourceTree = "<group>";
@@ -303,6 +310,7 @@
 				B00000000000000000000214 /* SettingsViewController.swift in Sources */,
 				B00000000000000000000215 /* KeyboardSurface.swift in Sources */,
 				B00000000000000000000216 /* InputChannel.swift in Sources */,
+				B00000000000000000000217 /* SpacesStripView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -327,6 +335,8 @@
 				B0000000000000000000022E1 /* InputChannelTests.swift in Sources */,
 				B0000000000000000000022F /* SettingsStore.swift in Sources */,
 				B0000000000000000000022F1 /* InputChannel.swift in Sources */,
+				B0000000000000000000022F2 /* SpacesStripView.swift in Sources */,
+				B0000000000000000000022E2 /* SpacesStripViewTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

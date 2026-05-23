@@ -28,8 +28,8 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 
 1. **CaptureEngine.** Owns `ScreenCaptureKit`. Produces `CMSampleBuffer` frames for the active Space on the active display. Interface: `start(displayId) -> AsyncStream<Frame>`, `stop()`.
 2. **Encoder.** Wraps VideoToolbox HEVC. Interface: `encode(Frame) -> EncodedChunk`. Hides hardware vs software fallback, keyframe cadence, bitrate adaptation.
-3. **SpacesProvider.** Hides the private CoreGraphics calls and the `DesktopState` shape. Interface: `current() -> DesktopState`, `observe() -> AsyncStream<DesktopState>`.
-4. **InputDispatcher.** Consumes `NormalizedInput`, emits `CGEvent`. Interface: `dispatch(NormalizedInput)`. Hides the `Ctrl+Arrow` synthesis for Spaces switch and the modifier-arm state machine.
+3. **SpacesProvider.** *(v1.)* Hides the private CoreGraphics calls (`CGSGetActiveSpace`, `CGSCopySpaces`, `CGSSpaceCopyOwners`) and the `DesktopState` shape. Interface: `current() -> DesktopState`, `observe() -> AsyncStream<DesktopState>`. Deferred from v0 because the v0 thesis gesture (`SpacesStripView` swipe) does not read Space state; the host synthesises `Ctrl+Arrow` and the OS handles the switch. v1's per-agent carousel is the first consumer that needs Space identity to map agents to Spaces.
+4. **InputDispatcher.** Consumes `NormalizedInput`, emits `CGEvent`. Interface: `dispatch(NormalizedInput)`. Hides the `Ctrl+Arrow` synthesis for Spaces switch (which routes through `postKey("left"|"right", [.ctrl])` against `KeyCodeMap`, reusing the R12 keyboard path) and the modifier-arm state machine.
 5. **Pairing.** Generates QR payload, validates incoming tokens, stores in Keychain. Interface: `mintPairingPayload() -> PairingPayload`, `validate(token) -> SessionToken?`.
 6. **SessionAuthenticator.** Runs the per-connection mutual challenge-response defined in ADR-0003 on the `/session` path of the existing TLS WebSocket. Interface: `authenticate(connection) -> ActiveSession`. Throws closed-set rejection reasons. Same test obligation as `Pairing`; the long-term key material is shared.
 7. **MediaTransport.** Protocol per ADR-0004. v0 concrete impl `LibWebRTCMediaTransport` wraps libwebrtc and carries the video track. After ADR-0005 the transport is video-only; the `RTCDataChannel` input path was removed. SDP and ICE travel only over an `ActiveSession` produced by `SessionAuthenticator`; the DTLS fingerprint binding is structural. AppDelegate holds a `MediaTransportFactory` by protocol so the library, codec, and capturer can swap behind a single composition root (`MediaStack`).
@@ -40,14 +40,15 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 ### Client (iOS)
 
 1. **VideoFrameSink.** Protocol per ADR-0004. v0 concrete impl `RTCMTLVideoSink` wraps `RTCMTLVideoView` and renders at native DPR. An `AVSampleBufferVideoSink` is a future drop-in via the same protocol; AVSampleBufferDisplayLayer was the original v0 target per ADR-0001 but deferred to v1 in ADR-0004 because the AVSBDL path requires recovering encoded `CMSampleBuffer`s from libwebrtc's decode pipeline.
-2. **GestureTranslator.** Converts UIKit gesture recognizers to `NormalizedInput`. Owns the 3-finger swipe interpretation and the modifier-arm UI state.
-3. **KeyboardSurface.** Compact keyboard plus accessory row. Emits `NormalizedInput { kind: "key" }` and `modifierArm`.
-4. **PairingClient.** Camera, QR decode, Keychain write.
-5. **SessionDialer.** Mirror of host `SessionAuthenticator`. Drives the four-message handshake from the client side, owns the four-state UI machine (`unpaired | paired-disconnected | connecting | connected`, plus terminal `revoked`), and clears stored credentials on `revoked` / `unknown-device` / `bad-signature` per ADR-0003.
-6. **MediaTransport.** Mirror of host. Video-only after ADR-0005; same protocol surface as host, same composition-root pattern via `MediaStack`. PairingClient holds the factory by protocol.
-7. **InputChannel.** Per ADR-0005. Owns the client side of the dedicated input WebSocket. Protocol surface: `send(_ input:) async throws`, `close()`. v0 impl `WebSocketInputChannel` wraps one `URLSessionWebSocketTask`. `InputChannelOpener` performs the handshake (sends `InputChannelHello` as the first frame) and returns the ready channel. `PairingClient.attemptSession` opens it alongside the WebRTC session and exposes it via `activeInputChannel`; `PairingViewController.sendInput` routes through it.
+2. **GestureTranslator.** Converts UIKit gesture recognizers on the trackpad / scroll-strip surface to `NormalizedInput`. Owns cursor pan, scroll, tap, and bare-hold-drag. Multi-touch recognizers stay off the trackpad because the v0 target is one-handed.
+3. **SpacesStripView.** R11 one-handed substitute for the canonical three-finger Spaces swipe. Dedicated 44pt horizontal strip with chevron taps and a single-finger horizontal-swipe recognizer; emits `NormalizedInput.switchSpace(direction:)`. Wire shape is identical to what a three-finger swipe would produce, so the host is unaware of the affordance.
+4. **KeyboardSurface.** Compact keyboard plus accessory row. Emits `NormalizedInput { kind: "key" }` and `modifierArm`.
+5. **PairingClient.** Camera, QR decode, Keychain write.
+6. **SessionDialer.** Mirror of host `SessionAuthenticator`. Drives the four-message handshake from the client side, owns the four-state UI machine (`unpaired | paired-disconnected | connecting | connected`, plus terminal `revoked`), and clears stored credentials on `revoked` / `unknown-device` / `bad-signature` per ADR-0003.
+7. **MediaTransport.** Mirror of host. Video-only after ADR-0005; same protocol surface as host, same composition-root pattern via `MediaStack`. PairingClient holds the factory by protocol.
+8. **InputChannel.** Per ADR-0005. Owns the client side of the dedicated input WebSocket. Protocol surface: `send(_ input:) async throws`, `close()`. v0 impl `WebSocketInputChannel` wraps one `URLSessionWebSocketTask`. `InputChannelOpener` performs the handshake (sends `InputChannelHello` as the first frame) and returns the ready channel. `PairingClient.attemptSession` opens it alongside the WebRTC session and exposes it via `activeInputChannel`; `PairingViewController.sendInput` routes through it.
 
-Tests required for v0: **SpacesProvider, Pairing, InputDispatcher, GestureTranslator.** These four are where regressions are most expensive and where the contracts are most stable.
+Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesStripView.** These four are where regressions are most expensive and where the contracts are most stable. `SpacesProvider` joins the list when v1 lands.
 
 ## Wire shapes
 

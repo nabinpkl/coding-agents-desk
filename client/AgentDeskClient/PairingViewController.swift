@@ -1,7 +1,7 @@
 import AVFoundation
 import UIKit
 
-final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate, GestureTranslatorDelegate, KeyboardSurfaceDelegate, UIGestureRecognizerDelegate {
+final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate, GestureTranslatorDelegate, KeyboardSurfaceDelegate, SpacesStripViewDelegate, UIGestureRecognizerDelegate {
     private let pairingClient = PairingClient()
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
@@ -35,9 +35,14 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // bottom button row -> right-click (R10.1) and Show-keyboard (R12.3)
     // right-edge strip  -> scroll with momentum (attached via GestureTranslator)
     // press-and-hold    -> drag (UILongPressGestureRecognizer in GestureTranslator)
+    // spaces strip      -> single-finger swipe + chevron taps (R11.2,
+    //                      SpacesStripView) substituting the canonical
+    //                      three-finger horizontal swipe which is not
+    //                      reachable one-handed.
     private let buttonRow = UIStackView()
     private let rightClickButton = UIButton(type: .system)
     private let showKeyboardButton = UIButton(type: .system)
+    private let spacesStripView = SpacesStripView()
     // R12.3: hidden first-responder that backs the iOS soft keyboard.
     // Lives as a permanent zero-size subview so becomeFirstResponder /
     // resignFirstResponder route correctly through the responder chain.
@@ -377,6 +382,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         showKeyboardButton.addTarget(self, action: #selector(toggleKeyboard), for: .touchUpInside)
         buttonRow.addArrangedSubview(showKeyboardButton)
 
+        spacesStripView.translatesAutoresizingMaskIntoConstraints = false
+        spacesStripView.delegate = self
+        view.addSubview(spacesStripView)
+
         let bottomConstraint = buttonRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
         buttonRowBottomConstraint = bottomConstraint
 
@@ -386,12 +395,22 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             bottomConstraint,
             buttonRow.heightAnchor.constraint(equalToConstant: 44),
 
+            // Spaces strip sits between the trackpad/scroll cluster and
+            // the bottom button row. Anchoring its bottom to the button
+            // row's top means the keyboard-frame observer below (which
+            // raises buttonRowBottomConstraint) lifts the whole cluster
+            // as one unit when the soft keyboard appears.
+            spacesStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            spacesStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            spacesStripView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
+            spacesStripView.heightAnchor.constraint(equalToConstant: 44),
+
             keyboardSurface.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
 
             trackpadView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
             trackpadView.topAnchor.constraint(equalTo: view.centerYAnchor, constant: 24),
-            trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
+            trackpadView.bottomAnchor.constraint(equalTo: spacesStripView.topAnchor, constant: -8),
             trackpadHint.centerXAnchor.constraint(equalTo: trackpadView.centerXAnchor),
             trackpadHint.bottomAnchor.constraint(equalTo: trackpadView.bottomAnchor, constant: -10),
 
@@ -414,6 +433,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         buttonRow.removeFromSuperview()
         rightClickButton.removeFromSuperview()
         showKeyboardButton.removeFromSuperview()
+        spacesStripView.removeFromSuperview()
         keyboardSurface.setVisible(false)
         buttonRowBottomConstraint = nil
     }
@@ -446,7 +466,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // them instantly instead of leaving stale hairlines from the
         // previous mode.
         let resolved = UIColor.separator.cgColor
-        for layer in [trackpadView.layer, scrollStripView.layer, rightClickButton.layer, showKeyboardButton.layer, keyboardSurface.layer] {
+        for layer in [trackpadView.layer, scrollStripView.layer, rightClickButton.layer, showKeyboardButton.layer, keyboardSurface.layer, spacesStripView.layer] {
             if layer.borderWidth > 0 {
                 layer.borderColor = resolved
             }
@@ -473,6 +493,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private func setTrackpadHidden(_ hidden: Bool) {
         trackpadView.isHidden = hidden
         scrollStripView.isHidden = hidden
+        spacesStripView.isHidden = hidden
     }
 
     @objc private func keyboardWillChangeFrame(_ note: Notification) {
@@ -508,6 +529,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // MARK: - KeyboardSurfaceDelegate
 
     func keyboardSurface(_ surface: KeyboardSurface, didProduce input: NormalizedInput) {
+        sendInput(input)
+    }
+
+    // MARK: - SpacesStripViewDelegate
+
+    func spacesStrip(_ view: SpacesStripView, didProduce input: NormalizedInput) {
         sendInput(input)
     }
 

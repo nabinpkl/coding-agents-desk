@@ -39,16 +39,23 @@ R10 sub-tasks:
 - [x] D10.3. Reconciled with issue #6. Issue body rewritten to describe the bottom-row `[Right-click]` button, right-edge scroll strip, consecutive-click state increment (1 → 4 = click / word / line-or-paragraph / select-all), and bare press-and-hold drag (replacing the two-finger and double-tap-drag vocabulary from the original spec). Inline `// MARK: - One-handed affordances` block in `client/AgentDeskClient/GestureTranslator.swift` and `client/AgentDeskClient/PairingViewController.swift` captures the rationale and the mapping back to the unchanged wire shapes (`NormalizedInput.click(.right)`, `NormalizedInput.scroll`).
 - [x] D10.4. Tests landed alongside the feature commits: `InputDispatcherTests` covers `.click(.right)` (D10.1), the consecutive-click state increment to 4 plus the location-far and time-out resets (D10.1 / quad-click), `.dragStart` / `.dragEnd` posting and `.cursorMove` promotion to `.leftMouseDragged` during drag (D10.2), and the tap-then-drag opens-at-state-2 case. `GestureTranslatorTests` covers `processDrag` `.began` / `.changed` / `.ended` transitions and the `pan-suppressed-during-drag` invariant. The right-click button itself stays untested in isolation per plan; covered by the host-side `.click(.right)` assertion and HITL.
 
-## v0 Phase 5 (S5, #7): Spaces enumeration + 3-finger swipe. AFK. Blocked by R9 (per issue #7). Parallel with R10.
+## v0 Phase 5 (S5, #7): one-handed Spaces switch. AFK. Blocked by R9 (per issue #7). Parallel with R10.
 
-Phase goal: the iPhone-side 3-finger horizontal swipe switches macOS Spaces on the host. This is the v0 thesis gesture (`PRD.md`).
+Phase goal: the iPhone-side one-handed Spaces-switch surface drives macOS Spaces on the host. This is the v0 thesis gesture (`PRD.md`).
+
+The canonical macOS Spaces gesture is a three-finger horizontal swipe. Three fingers are unreachable on the v0 target (one-handed phone use, thumb of the same hand drives the trackpad), so R11 substitutes a dedicated single-touch surface (`SpacesStripView`) that emits the same wire shape (`NormalizedInput.switchSpace`). The host treats the wire shape as Ctrl+Arrow and lets macOS handle the Space switch; private `CGS*` symbol enumeration is deferred to v1 where the per-agent carousel needs Space identity.
 
 R11 sub-tasks:
 
-- [ ] R11.1. Introduce `host/AgentDeskHost/SpacesProvider.swift` per SPEC §3. Public surface: `func current() -> DesktopState`, `func observe() -> AsyncStream<DesktopState>`. Backend: private CoreGraphics symbols `CGSGetActiveSpace`, `CGSCopySpaces`, `CGSSpaceCopyOwners` declared via a thin `CGSPrivate.h` bridging header. `DesktopState`, `DisplayMetadata`, `SpaceMetadata` already exist in `SharedTypes.swift`; reuse verbatim.
-- [ ] R11.2. 3-finger horizontal swipe in `client/AgentDeskClient/GestureTranslator.swift`. Add a `UIPanGestureRecognizer` with `minimumNumberOfTouches = 3`, `maximumNumberOfTouches = 3`. On `.ended` with horizontal travel above a 60pt threshold and a horizontal:vertical dominance ratio above 2:1, emit `.switchSpace(direction: .left | .right)` exactly once per gesture (no repeat-fire while the finger is down).
-- [ ] R11.3. Implement `.switchSpace` in `host/AgentDeskHost/InputDispatcher.swift`. Synthesise `Ctrl+Left` or `Ctrl+Right` via `CGEvent(keyboardEventSource:, virtualKey: kVK_LeftArrow|kVK_RightArrow, keyDown: true|false)` with `.maskControl` set on both events. Same path Mission Control's keyboard shortcut takes (SPEC §0).
-- [ ] R11.4. Tests. `host/AgentDeskHostTests/SpacesProviderTests.swift`: smoke test that `current()` returns a `DesktopState` with at least one display and one space without crashing; this catches private-API symbol regressions across macOS minor versions. `client/AgentDeskClientTests/GestureTranslatorTests.swift`: drive a synthetic 3-finger pan with rightward translation past threshold and assert exactly one `.switchSpace(direction: .right)`; drive a 3-finger pan with vertical-dominant motion and assert nothing is emitted.
+- [x] D11.1. `client/AgentDeskClient/SpacesStripView.swift`. 44pt-tall horizontal strip mounted between the trackpad / scroll-strip cluster and the bottom button row, sharing the same card treatment (`.secondarySystemBackground`, hairline border). Two chevron buttons (`chevron.left` / `chevron.right`) at the ends; an `InstantPanGestureRecognizer` over the full surface. Pure-function `processSwipe(state:translation:)` fires `.switchSpace(direction:)` on `.changed` when `|dx| >= 60pt` and `|dx| >= 2 * |dy|`, at most once per gesture lifecycle (a `hasFiredThisGesture` latch cleared at `.began` / `.ended`). `UISelectionFeedbackGenerator.selectionChanged()` on emit.
+- [x] D11.2. `PairingViewController` integration. New `spacesStripView` property; mounted in `showTrackpad()` with constraints chaining `trackpadView.bottomAnchor -> spacesStripView.topAnchor`, `spacesStripView.bottomAnchor -> buttonRow.topAnchor`, so the existing keyboard-frame observer raises strip + button row as one cluster. `hideTrackpad`, `setTrackpadHidden`, and `traitCollectionDidChange` extended to include the strip. `SpacesStripViewDelegate` conformance routes through the existing `sendInput(_:)` pipe.
+- [x] D11.3. Implement `.switchSpace` in `host/AgentDeskHost/InputDispatcher.swift:120`. Replaces the previous no-op with a call into the existing `postKey` path: `.switchSpace(.left|.right)` -> `kVK_LeftArrow|kVK_RightArrow` with `.maskControl` on both keyDown/keyUp events. Reuses R12's `KeyCodeMap` + flag composition, so the modifier-bleed guard already in place applies. Same path Mission Control's keyboard shortcut takes (SPEC §0); requires "Mission Control > Keyboard and mouse shortcuts > Move left/right a space" to be enabled on the host (default-on).
+- [x] D11.4. Tests. `client/AgentDeskClientTests/SpacesStripViewTests.swift`: rightward / leftward swipes above threshold each emit exactly one `.switchSpace`; below-threshold and vertically-dominant swipes emit nothing; single gesture fires at most once across repeated `.changed` callbacks; a second gesture after `.ended` can fire again; the exact-threshold boundary triggers. `host/AgentDeskHostTests/InputDispatcherTests.swift` gains `.switchSpace(.right)` and `.switchSpace(.left)` posting `Ctrl+RightArrow` / `Ctrl+LeftArrow` keyDown+keyUp, plus the matching modifier-bleed regression guard against the next cursor move.
+
+### Alternative arc (rejected for v0, captured)
+
+- Three-finger horizontal swipe on the trackpad surface. Canonical macOS gesture and the original R11.2 design. Rejected because the v0 target is one-handed (thumb of the same hand drives the trackpad), so multi-touch is unreachable. The strip's wire shape is unchanged; if a future target (iPad two-handed, dock with stand) makes multi-touch reachable, the recognizer change is local.
+- Host `SpacesProvider` over private `CGSGetActiveSpace` / `CGSCopySpaces` / `CGSSpaceCopyOwners`. Deferred to v1 where the per-agent carousel needs Space identity to map agents to Spaces. The v0 acceptance gesture does not read Space state; it only sends `.switchSpace(direction:)` and lets the OS handle the switch. SPEC §3's `SpacesProvider` mention marks the module as v1-only.
 
 ## v0 Phase 6 (S6, #8): keyboard + accessory row. AFK. Blocked by R9 (per issue #8). Parallel with R10, R11, R13.
 
@@ -150,11 +157,11 @@ D10.1     2026-05-22  committed   bottom-row [Right-click] button + InputDispatc
 D10.2     2026-05-22  committed   bare press-and-hold drag: GestureTranslator + InputDispatcher inDrag promotion + tests
 D10.3     2026-05-22  committed   issue #6 acceptance rewritten; one-handed-affordances MARK comments inline
 D10.4     2026-05-22  committed   tests landed across D10.1 / D10.2 / click-state commits
-R11       pending     pending     Phase 5 (S5, #7): SpacesProvider, 3-finger swipe, Ctrl+Arrow synthesis
-R11.1     pending     pending     SpacesProvider over private CGS symbols via CGSPrivate.h bridging header
-R11.2     pending     pending     3-finger horizontal swipe recognizer; switchSpace emission with debounce
-R11.3     pending     pending     InputDispatcher .switchSpace via Ctrl+Arrow keyboard synthesis
-R11.4     pending     pending     SpacesProvider smoke test + GestureTranslator 3-finger swipe tests
+D11       2026-05-23  committed   Phase 5 (S5, #7) shipped: one-handed SpacesStripView + Ctrl+Arrow synthesis
+D11.1     2026-05-23  committed   SpacesStripView 44pt strip; chevrons + horizontal-swipe recognizer; per-gesture latch
+D11.2     2026-05-23  committed   PairingViewController mount between trackpad and button row; keyboard-frame layout
+D11.3     2026-05-23  committed   InputDispatcher .switchSpace via postKey(left|right, [.ctrl])
+D11.4     2026-05-23  committed   SpacesStripViewTests + InputDispatcherTests switchSpace + modifier-bleed
 D12       2026-05-22  committed   Phase 6 (S6, #8) shipped: soft keyboard + accessory row + sticky-tap modifiers
 D12.1     2026-05-22  committed   InputDispatcher .key handling + KeyCodeMap (Carbon kVK_*)
 D12.2     2026-05-22  committed   KeyboardSurface UIView with sticky-mod state and CharacterToKey table

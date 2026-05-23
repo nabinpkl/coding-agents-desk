@@ -250,6 +250,10 @@ struct GestureTuning: Equatable, Sendable {
 //                               events and emits the right kCGMouseEventClickState
 //   drag        -> bare press-and-hold (UILongPressGestureRecognizer below,
 //                  numberOfTapsRequired=0, minimumPressDuration=0.25)
+//   switch space -> horizontal swipe + chevron taps on SpacesStripView
+//                   (R11.2). Substitutes the canonical three-finger
+//                   horizontal swipe; wire shape NormalizedInput.switchSpace
+//                   is unchanged.
 //
 // Multi-touch recognizers stay off the trackpad surface by default for
 // the same reason. If a future target (iPad two-handed, dock with a
