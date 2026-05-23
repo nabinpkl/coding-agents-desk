@@ -19,16 +19,17 @@ struct GestureAcceleration: Sendable {
 
     static let identity = GestureAcceleration { _ in 1.0 }
 
-    // Linear ramp with a precision floor and a flick ceiling. Tuned by feel
-    // against an iPhone trackpad zone driving a 1512x982 Mac display, not
-    // derived from macOS internals. Numbers below are points per second.
-    //   0     ->  2.0  (still moving even from a near-stop)
-    //   200   ->  3.2  (precision drag for pixel-level work)
-    //   800   ->  6.8  (typical drag)
-    //   2000  -> 14.0  (fast drag, cursor easily crosses the screen)
-    //   4000+ -> 26.0  (flick, capped so it does not overshoot)
+    // Linear ramp with a precision floor and a flick ceiling. Numbers below
+    // are points per second. The previous curve compounded ~26x gain across
+    // many high-velocity callbacks during a flick and rocketed the cursor
+    // off the screen; this version caps at 6.5x so a multi-callback flick
+    // still lands within a typical 1500-pixel Mac display.
+    //   0     -> 1.5  (precision floor)
+    //   200   -> 2.1  (pixel-level work)
+    //   800   -> 3.9  (typical drag)
+    //   1700+ -> 6.5  (fast drag / flick, capped)
     static let mac = GestureAcceleration { velocity in
-        2.0 + min(velocity * 0.006, 24.0)
+        1.5 + min(velocity * 0.003, 5.0)
     }
 }
 
