@@ -12,15 +12,26 @@ dev:
     open host/AgentDeskHost.xcodeproj
     open client/AgentDeskClient.xcodeproj
 
-# Build host Debug and (re)launch it as a single instance with dev env.
-# Runs the binary directly (not via `open`) so AGENTDESK_AUTO_APPROVE
-# propagates and the modal approval sheet is bypassed during pairing.
+# Build host Debug and (re)launch it via LaunchServices so macOS TCC
+# attributes Screen Recording (and any other privacy prompt) to
+# AgentDeskHost itself, not to the terminal/IDE that runs this recipe.
+# Launching the binary directly from a shell makes TCC walk the spawn
+# chain to the responsible GUI ancestor (VS Code, Terminal.app, etc.)
+# and prompts for THAT app, which is the bug surfaced during R8.6.5
+# bring-up.
+#
+# AGENTDESK_AUTO_APPROVE is pushed through `launchctl setenv` so the
+# launchd-managed GUI launch inherits it. The unsetenv after launch
+# keeps the variable from polluting other apps started later in the
+# same login session.
 host-run:
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug build >/dev/null
     -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
     sleep 1
-    AGENTDESK_AUTO_APPROVE=1 nohup "{{host_app}}/Contents/MacOS/AgentDeskHost" >/dev/null 2>&1 &
+    launchctl setenv AGENTDESK_AUTO_APPROVE 1
+    open "{{host_app}}"
     sleep 2
+    launchctl unsetenv AGENTDESK_AUTO_APPROVE
     pgrep -lf AgentDeskHost
 
 # Build client Debug for the iPhone and install (does not launch).
