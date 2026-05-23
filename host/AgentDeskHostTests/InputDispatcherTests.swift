@@ -264,22 +264,23 @@ struct InputDispatcherTests {
             clock: { now }
         )
 
-        dispatcher.performDispatch(.click(button: .left))
-        now += 0.1
-        dispatcher.performDispatch(.click(button: .left))
-        now += 0.1
-        dispatcher.performDispatch(.click(button: .left))
+        for _ in 0..<4 {
+            dispatcher.performDispatch(.click(button: .left))
+            now += 0.1
+        }
 
-        #expect(recorder.events.count == 6)
-        // First click: state 1 on both down and up.
+        #expect(recorder.events.count == 8)
+        // 1: single click. 2: word select. 3: line / paragraph select.
+        // 4: TextEdit / Xcode / Pages select-all. State is unbounded so
+        // any N-click pattern an app wires up keeps working.
         #expect(recorder.events[0].getIntegerValueField(.mouseEventClickState) == 1)
         #expect(recorder.events[1].getIntegerValueField(.mouseEventClickState) == 1)
-        // Second click within 500ms: state 2 (double-click for word select).
         #expect(recorder.events[2].getIntegerValueField(.mouseEventClickState) == 2)
         #expect(recorder.events[3].getIntegerValueField(.mouseEventClickState) == 2)
-        // Third click still within window: state 3 (triple for line/paragraph).
         #expect(recorder.events[4].getIntegerValueField(.mouseEventClickState) == 3)
         #expect(recorder.events[5].getIntegerValueField(.mouseEventClickState) == 3)
+        #expect(recorder.events[6].getIntegerValueField(.mouseEventClickState) == 4)
+        #expect(recorder.events[7].getIntegerValueField(.mouseEventClickState) == 4)
     }
 
     @Test func leftClickFarFromPreviousResetsClickState() {

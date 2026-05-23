@@ -40,9 +40,11 @@ final class InputDispatcher: @unchecked Sendable {
     // Click state tracking for the left button: a click within 500ms of
     // the previous one at roughly the same point increments the state
     // field. macOS apps key off this for double-click word selection,
-    // triple-click line/paragraph selection, and double-click-drag
-    // word-by-word extension. Without it, two rapid taps register as
-    // two independent single clicks and no text view selects a word.
+    // triple-click line/paragraph selection, quadruple-click select-all
+    // (TextEdit, Xcode, Pages), and the matching click-and-drag selection
+    // extensions. State is unbounded so any N-click pattern an app wires
+    // up keeps working. Without this, two rapid taps register as two
+    // independent single clicks and no text view selects a word.
     private var lastLeftClickTime: CFTimeInterval = 0
     private var lastLeftClickLocation: CGPoint = .zero
     private var lastLeftClickState: Int64 = 0
