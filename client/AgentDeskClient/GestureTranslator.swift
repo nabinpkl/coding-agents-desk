@@ -248,6 +248,12 @@ final class GestureTranslator: NSObject {
     // relative cursor motion without knowing the trackpad size.
     private var lastPanTranslation: CGPoint = .zero
     private var lastScrollTranslation: CGPoint = .zero
+    // R10.2: tap-then-press-and-hold drives a Mac-trackpad-style double-tap
+    // drag. While isDragging is true, pan-driven cursorMove is suppressed
+    // so the drag recognizer is the sole source of motion; the host promotes
+    // those cursorMoves to leftMouseDragged based on its own inDrag flag.
+    private var isDragging = false
+    private var dragLastPoint: CGPoint = .zero
     // Momentum: after the finger lifts with non-trivial velocity, emit
     // decaying scroll events on a display link until velocity falls below
     // the cutoff. Approximates the Mac trackpad's inertia tail.
@@ -297,13 +303,33 @@ final class GestureTranslator: NSObject {
         tap.numberOfTouchesRequired = 1
         tap.numberOfTapsRequired = 1
         view.addGestureRecognizer(tap)
+
+        // numberOfTapsRequired=1 means "tap-then-press-and-hold": the user
+        // taps once, touches down again within UIKit's double-tap window,
+        // and holds for minimumPressDuration. The brief 100ms hold lets
+        // the OS distinguish a real drag-start from a fast double-tap
+        // (which falls through to two separate clicks). allowableMovement
+        // is generous so finger drift during the hold doesn't kick the
+        // gesture out into pan-cursor-move.
+        let drag = UILongPressGestureRecognizer(target: self, action: #selector(handleDragGesture(_:)))
+        drag.numberOfTapsRequired = 1
+        drag.numberOfTouchesRequired = 1
+        drag.minimumPressDuration = 0.10
+        drag.allowableMovement = 25
+        view.addGestureRecognizer(drag)
     }
 
     // Shared cursor emission used by both the new coalescing recognizer
     // (production path, ~120Hz sub-frame samples) and processPan below
     // (legacy per-frame API kept for tests). Identical math in both so
     // the test path stays representative.
+    //
+    // Pan output is suppressed while isDragging is true so the drag
+    // recognizer's processDrag is the only producer of cursorMove events
+    // during a double-tap-drag. Without this gate, both pan and drag would
+    // fire deltas concurrently and the host would see twice the motion.
     private func emitCursorDelta(dx: CGFloat, dy: CGFloat, velocity: CGFloat) {
+        if isDragging { return }
         let gain = acceleration.scale(velocity) * tuning.cursorAcceleration
         let outDx = Float(dx * gain * tuning.cursorSpeed)
         let outDy = Float(dy * gain * tuning.cursorSpeed)
@@ -452,5 +478,44 @@ final class GestureTranslator: NSObject {
             translation: gesture.translation(in: view),
             velocity: gesture.velocity(in: view)
         )
+    }
+
+    @objc private func handleDragGesture(_ gesture: UILongPressGestureRecognizer) {
+        guard let view = gesture.view else { return }
+        processDrag(state: gesture.state, point: gesture.location(in: view))
+    }
+
+    // Pure function so tests can drive the state machine without a live
+    // UIWindow. .began emits dragStart and arms isDragging so concurrent
+    // pan events are suppressed for the rest of the gesture. .changed
+    // emits cursorMove deltas with no velocity-driven acceleration: drag
+    // is typically used for precise text selection, where small finger
+    // motions should map close to 1:1 to cursor motion so the selection
+    // tracks the finger rather than overshooting. .ended emits dragEnd.
+    func processDrag(state: UIGestureRecognizer.State, point: CGPoint) {
+        switch state {
+        case .began:
+            isDragging = true
+            dragLastPoint = point
+            delegate?.gestureTranslator(self, didProduce: .dragStart)
+        case .changed:
+            guard isDragging else { return }
+            let dx = point.x - dragLastPoint.x
+            let dy = point.y - dragLastPoint.y
+            dragLastPoint = point
+            if dx == 0 && dy == 0 { return }
+            let gain = tuning.cursorAcceleration * tuning.cursorSpeed
+            let outDx = Float(dx * gain)
+            let outDy = Float(dy * gain)
+            delegate?.gestureTranslator(self, didProduce: .cursorMove(dx: outDx, dy: outDy))
+        case .ended, .cancelled, .failed:
+            if isDragging {
+                isDragging = false
+                delegate?.gestureTranslator(self, didProduce: .dragEnd)
+            }
+            dragLastPoint = .zero
+        default:
+            break
+        }
     }
 }

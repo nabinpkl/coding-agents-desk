@@ -104,6 +104,71 @@ struct GestureTranslatorTests {
 
         #expect(recorder.events.isEmpty)
     }
+
+    @Test func dragBeganEmitsDragStart() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        translator.processDrag(state: .began, point: CGPoint(x: 50, y: 50))
+
+        #expect(recorder.events.count == 1)
+        #expect(recorder.events[0] == .dragStart)
+    }
+
+    @Test func dragChangedEmitsCursorMoveDeltasSinceLastPoint() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        translator.processDrag(state: .began, point: CGPoint(x: 50, y: 50))
+        translator.processDrag(state: .changed, point: CGPoint(x: 60, y: 70))
+        translator.processDrag(state: .changed, point: CGPoint(x: 75, y: 70))
+
+        #expect(recorder.events.count == 3)
+        #expect(recorder.events[0] == .dragStart)
+        #expect(recorder.events[1] == .cursorMove(dx: 10, dy: 20))
+        #expect(recorder.events[2] == .cursorMove(dx: 15, dy: 0))
+    }
+
+    @Test func dragEndedEmitsDragEndAndAllowsPanAgain() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        translator.processDrag(state: .began, point: .zero)
+        translator.processDrag(state: .ended, point: CGPoint(x: 50, y: 50))
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0] == .dragStart)
+        #expect(recorder.events[1] == .dragEnd)
+
+        // After the drag closes, pan emits cursor moves again.
+        translator.processPan(state: .began, translation: .zero)
+        translator.processPan(state: .changed, translation: CGPoint(x: 5, y: 5))
+
+        #expect(recorder.events.count == 3)
+        #expect(recorder.events[2] == .cursorMove(dx: 5, dy: 5))
+    }
+
+    @Test func panIsSuppressedDuringDrag() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        translator.processDrag(state: .began, point: .zero)
+        translator.processPan(state: .began, translation: .zero)
+        translator.processPan(state: .changed, translation: CGPoint(x: 30, y: 30))
+        translator.processDrag(state: .ended, point: .zero)
+
+        // Pan deltas are dropped while drag is active; only dragStart and
+        // dragEnd survive. The drag recognizer owns cursor emission for
+        // the duration of the gesture so the host doesn't see double
+        // motion from both pan and drag firing concurrently.
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0] == .dragStart)
+        #expect(recorder.events[1] == .dragEnd)
+    }
 }
 
 @MainActor

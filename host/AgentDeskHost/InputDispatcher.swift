@@ -29,6 +29,11 @@ final class InputDispatcher: @unchecked Sendable {
     // emit. Accumulate the fractional remainder across calls so they
     // eventually trip the threshold and emit a single-pixel event.
     private var scrollRemainder: CGFloat = 0
+    // R10.2: while the iPhone-side double-tap-drag is held, cursorMove
+    // events promote to leftMouseDragged on the host so apps see one
+    // continuous click-drag rather than a click followed by free cursor
+    // motion. dragStart sets this true, dragEnd clears it.
+    private var inDrag = false
     // Serial queue so dispatch() is callable from any context (network
     // Task, MainActor, tests) without racing on loggedUntrusted /
     // scrollRemainder. Previously the AppDelegate forced every input
@@ -77,8 +82,12 @@ final class InputDispatcher: @unchecked Sendable {
             postClick(button)
         case .scroll(let dx, let dy, let phase):
             postScroll(dx: dx, dy: dy, phase: phase)
-        case .dragStart, .dragEnd, .switchSpace, .key, .modifierArm:
-            // Out of scope for R9 / R10. Wired in later iterations.
+        case .dragStart:
+            postDragStart()
+        case .dragEnd:
+            postDragEnd()
+        case .switchSpace, .key, .modifierArm:
+            // R11 (switchSpace) and R12 (key / modifierArm) territory.
             break
         }
     }
@@ -98,13 +107,38 @@ final class InputDispatcher: @unchecked Sendable {
         // would shape the motion, but those fields are inert once we set
         // position, so the client-side curve in GestureTranslator is the
         // only one that matters.
+        //
+        // While inDrag, the same cursor stream becomes leftMouseDragged so
+        // the OS treats it as a continuation of the leftMouseDown that
+        // opened the drag, not a separate cursor pass that loses the click.
+        let type: CGEventType = inDrag ? .leftMouseDragged : .mouseMoved
         guard let event = CGEvent(
             mouseEventSource: cursorEventSource,
-            mouseType: .mouseMoved,
+            mouseType: type,
             mouseCursorPosition: next,
             mouseButton: .left
         ) else { return }
+        if inDrag {
+            event.setIntegerValueField(.mouseEventClickState, value: 1)
+        }
         eventPoster(event)
+    }
+
+    private func postDragStart() {
+        if inDrag { return }
+        inDrag = true
+        let location = currentLocation()
+        // Mark the leftMouseDown as click state 1 so the OS treats the
+        // subsequent leftMouseDragged stream as a continuation of one
+        // discrete click, not the start of a separate gesture.
+        postClickEvent(.leftMouseDown, at: location, button: .left)
+    }
+
+    private func postDragEnd() {
+        if !inDrag { return }
+        let location = currentLocation()
+        postClickEvent(.leftMouseUp, at: location, button: .left)
+        inDrag = false
     }
 
     private func clamp(_ point: CGPoint, to bounds: CGRect) -> CGPoint {

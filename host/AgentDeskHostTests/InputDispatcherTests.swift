@@ -186,6 +186,74 @@ struct InputDispatcherTests {
         #expect(recorder.events[1].location == CGPoint(x: 500, y: 400))
     }
 
+    @Test func dragStartPostsLeftMouseDownAtCurrentLocation() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 100, y: 100) }
+        )
+
+        dispatcher.performDispatch(.dragStart)
+
+        #expect(recorder.events.count == 1)
+        #expect(recorder.events[0].type == .leftMouseDown)
+        #expect(recorder.events[0].location == CGPoint(x: 100, y: 100))
+    }
+
+    @Test func dragEndPostsLeftMouseUpAtCurrentLocation() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 200, y: 200) }
+        )
+
+        dispatcher.performDispatch(.dragStart)
+        dispatcher.performDispatch(.dragEnd)
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0].type == .leftMouseDown)
+        #expect(recorder.events[1].type == .leftMouseUp)
+        #expect(recorder.events[1].location == CGPoint(x: 200, y: 200))
+    }
+
+    @Test func cursorMoveDuringDragPromotesToLeftMouseDragged() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 100, y: 100) }
+        )
+
+        dispatcher.performDispatch(.dragStart)
+        dispatcher.performDispatch(.cursorMove(dx: 10, dy: 10))
+        dispatcher.performDispatch(.cursorMove(dx: 5, dy: 5))
+        dispatcher.performDispatch(.dragEnd)
+
+        #expect(recorder.events.count == 4)
+        #expect(recorder.events[0].type == .leftMouseDown)
+        #expect(recorder.events[1].type == .leftMouseDragged)
+        #expect(recorder.events[2].type == .leftMouseDragged)
+        #expect(recorder.events[3].type == .leftMouseUp)
+    }
+
+    @Test func cursorMoveAfterDragEndRevertsToMouseMoved() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 100, y: 100) }
+        )
+
+        dispatcher.performDispatch(.dragStart)
+        dispatcher.performDispatch(.dragEnd)
+        dispatcher.performDispatch(.cursorMove(dx: 10, dy: 10))
+
+        #expect(recorder.events.count == 3)
+        #expect(recorder.events[2].type == .mouseMoved)
+    }
+
     @Test func outOfScopeInputsAreNoOps() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(
@@ -194,8 +262,6 @@ struct InputDispatcherTests {
             locationProvider: { .zero }
         )
 
-        dispatcher.performDispatch(.dragStart)
-        dispatcher.performDispatch(.dragEnd)
         dispatcher.performDispatch(.click(button: .double))
 
         #expect(recorder.events.isEmpty)
