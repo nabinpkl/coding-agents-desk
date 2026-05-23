@@ -24,6 +24,7 @@
 		B0000000000000000000020F /* WebSocketSignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* WebSocketSignalingChannel.swift */; };
 		B00000000000000000000210 /* LibWebRTCMediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000111 /* LibWebRTCMediaTransport.swift */; };
 		B00000000000000000000211 /* RTCMTLVideoSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000112 /* RTCMTLVideoSink.swift */; };
+		B00000000000000000000212 /* GestureTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000113 /* GestureTranslator.swift */; };
 		B00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000102 /* Base64URL.swift */; };
 		B00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000103 /* Config.swift */; };
 		B00000000000000000000223 /* DeviceSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000104 /* DeviceSigningKeyStore.swift */; };
@@ -56,6 +57,7 @@
 		B00000000000000000000110 /* WebSocketSignalingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketSignalingChannel.swift; sourceTree = "<group>"; };
 		B00000000000000000000111 /* LibWebRTCMediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibWebRTCMediaTransport.swift; sourceTree = "<group>"; };
 		B00000000000000000000112 /* RTCMTLVideoSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RTCMTLVideoSink.swift; sourceTree = "<group>"; };
+		B00000000000000000000113 /* GestureTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureTranslator.swift; sourceTree = "<group>"; };
 		B00000000000000000000121 /* PairingClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClientTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000141 /* AgentDeskClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000142 /* AgentDeskClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -118,6 +120,7 @@
 				B00000000000000000000110 /* WebSocketSignalingChannel.swift */,
 				B00000000000000000000111 /* LibWebRTCMediaTransport.swift */,
 				B00000000000000000000112 /* RTCMTLVideoSink.swift */,
+				B00000000000000000000113 /* GestureTranslator.swift */,
 				B0000000000000000000010A /* Info.plist */,
 			);
 			path = AgentDeskClient;
@@ -270,6 +273,7 @@
 				B0000000000000000000020F /* WebSocketSignalingChannel.swift in Sources */,
 				B00000000000000000000210 /* LibWebRTCMediaTransport.swift in Sources */,
 				B00000000000000000000211 /* RTCMTLVideoSink.swift in Sources */,
+				B00000000000000000000212 /* GestureTranslator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

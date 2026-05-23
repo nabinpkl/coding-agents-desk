@@ -1,7 +1,7 @@
 import AVFoundation
 import UIKit
 
-final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate {
+final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate, @preconcurrency GestureTranslatorDelegate {
     private let pairingClient = PairingClient()
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
@@ -15,6 +15,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private var videoSink: VideoFrameSink?
     private var mediaStateTask: Task<Void, Never>?
     private var iceGraceTask: Task<Void, Never>?
+    // R9.2: trackpad surface in the bottom region. The translator owns the
+    // recognizers and emits NormalizedInput; we forward to mediaTransport.send.
+    private let trackpadView = UIView()
+    private let trackpadHint = UILabel()
+    private let gestureTranslator = GestureTranslator()
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -69,6 +74,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         videoSink = sink
         mediaTransport = transport
         mountSinkView(sink.view)
+        showTrackpad()
 
         mediaStateTask?.cancel()
         mediaStateTask = Task { [weak self, transport] in
@@ -119,9 +125,50 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     private func mountSinkView(_ sinkView: UIView) {
-        sinkView.frame = view.bounds
-        sinkView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // Top portion shows the Mac display, bottom is the trackpad zone.
+        // 55/45 leaves plenty of trackpad real estate without making the
+        // video unreadable; the Mac display is landscape so it aspect-fits
+        // comfortably in the top half.
+        sinkView.translatesAutoresizingMaskIntoConstraints = false
         view.insertSubview(sinkView, at: 0)
+        NSLayoutConstraint.activate([
+            sinkView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            sinkView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            sinkView.topAnchor.constraint(equalTo: view.topAnchor),
+            sinkView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.55)
+        ])
+    }
+
+    private func showTrackpad() {
+        if trackpadView.superview != nil { return }
+        trackpadView.translatesAutoresizingMaskIntoConstraints = false
+        trackpadView.backgroundColor = UIColor.secondarySystemBackground
+        trackpadView.layer.cornerRadius = 12
+        trackpadView.isUserInteractionEnabled = true
+        view.addSubview(trackpadView)
+
+        trackpadHint.text = "Trackpad"
+        trackpadHint.textColor = .tertiaryLabel
+        trackpadHint.font = .preferredFont(forTextStyle: .footnote)
+        trackpadHint.textAlignment = .center
+        trackpadHint.translatesAutoresizingMaskIntoConstraints = false
+        trackpadView.addSubview(trackpadHint)
+
+        NSLayoutConstraint.activate([
+            trackpadView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            trackpadView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            trackpadView.topAnchor.constraint(equalTo: view.centerYAnchor, constant: 24),
+            trackpadView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            trackpadHint.centerXAnchor.constraint(equalTo: trackpadView.centerXAnchor),
+            trackpadHint.bottomAnchor.constraint(equalTo: trackpadView.bottomAnchor, constant: -10)
+        ])
+
+        gestureTranslator.delegate = self
+        gestureTranslator.attach(to: trackpadView)
+    }
+
+    private func hideTrackpad() {
+        trackpadView.removeFromSuperview()
     }
 
     private func teardownMediaTransport() {
@@ -129,6 +176,20 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         mediaTransport = nil
         videoSink?.view.removeFromSuperview()
         videoSink = nil
+        hideTrackpad()
+    }
+
+    // MARK: - GestureTranslatorDelegate
+
+    func gestureTranslator(_ translator: GestureTranslator, didProduce input: NormalizedInput) {
+        guard let transport = mediaTransport else { return }
+        do {
+            try transport.send(input)
+        } catch {
+            // Channel not open yet during the brief window between WebRTC
+            // connected and the data channel transitioning to .open. Drop
+            // silently; the next event will succeed.
+        }
     }
 
     private func configureViews() {
