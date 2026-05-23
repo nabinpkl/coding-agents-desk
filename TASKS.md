@@ -65,7 +65,20 @@ Phase goal: a single frame of the host's active display rendered on the iPhone, 
   - R8.6.6. `MediaConnectionState.failed` propagates to `signalingServer.endSession(fingerprint:)` on host and `PairingClient.state = .pairedDisconnected` on client, with a 5s ICE-disconnected grace.
   - R8.6.7. HITL on-device hello-pixels: real frame visible, both UIs `connected`, screenshots captured for HANDOVER.
 
-- R9. Phase 3 (S3, #5): cursor move and basic click. AFK. Blocked by R8.
+### Phase 3 (S3, #5): cursor and basic click. AFK. Blocked by R8.
+
+Phase goal: a single-finger drag on the iPhone trackpad zone moves the Mac cursor, a single-finger tap left-clicks. Relative motion only, no absolute coordinate mapping; the trackpad zone occupies the empty space below the video frame in the iPhone client.
+
+Two-finger gestures (right-click, scroll) and double-tap-drag belong to Phase 4 per SPEC §3.2 and stay out of scope here. Keyboard and modifier-arm belong to Phase 6. The `NormalizedInput` schema per SPEC §13.1 carries those kinds already; only `cursorMove` and `click(.left)` are implemented in R9.
+
+R9.1 lands the input data channel before R9.2 and R9.3 because both the gesture translator and the dispatcher need the transport surface to exist. R9.2 (translator) ships before R9.3 is wired into `MediaStack` so the channel has a producer to feed it. R9.4 (Accessibility TCC flow) ships in the same commit as R9.3 because the dispatcher cannot post `CGEvent`s without the permission and we do not want code that fails silently. R9.5 (tests) closes the slice; the test obligation in SPEC §13 names `InputDispatcher` and `GestureTranslator` explicitly.
+
+- R9.1. Introduce the input data channel on both sides. Host: in `host/AgentDeskHost/LibWebRTCMediaTransport.swift`, create a reliable+ordered `RTCDataChannel` labelled `"input"` after the peer connection is constructed and before the offer is created (so the data channel travels in the offer SDP); expose an `onInputEvent: (Data) -> Void` callback through `MediaTransport` in `host/AgentDeskHost/MediaTransport.swift`. Client: in `client/AgentDeskClient/LibWebRTCMediaTransport.swift`, receive the remote-opened channel via `RTCPeerConnectionDelegate.peerConnection(_:didOpen:)`, retain a strong ref to it for the connection lifetime, and expose `send(_ input: NormalizedInput)` on the client `MediaTransport` protocol.
+- R9.2. Define `NormalizedInput` as a Codable enum per SPEC §13.1 (kinds `cursorMove`, `click`, `scroll`, `dragStart`, `dragEnd`, `switchSpace`, `key`, `modifierArm`). Add to `host/AgentDeskHost/SharedTypes.swift` and mirror in `client/AgentDeskClient/SharedTypes.swift`. Introduce `client/AgentDeskClient/GestureTranslator.swift` with public surface `attach(to view: UIView)` and a `delegate: GestureTranslatorDelegate` that receives `NormalizedInput`. Behavior in R9: `UIPanGestureRecognizer` produces `cursorMove(dx, dy)` per `.changed` callback with deltas since the previous callback; `UITapGestureRecognizer` produces `click(.left)`. Add a `UIView` trackpad zone below the video frame in `client/AgentDeskClient/PairingViewController.swift`, distinct background so it reads as a trackpad surface, and wire it to the translator.
+- R9.3. Introduce `host/AgentDeskHost/InputDispatcher.swift` with public surface `dispatch(_ input: NormalizedInput)` and a `eventPoster: (CGEvent) -> Void` constructor seam defaulting to `{ $0.post(tap: .cghidEventTap) }` so tests can capture posted events without touching the real HID tap. `cursorMove(dx, dy)`: read the current cursor location via `CGEventSource.location`, construct a `.mouseMoved` `CGEvent` at offset `(x + dx, y + dy)`, post via the seam. `click(.left)`: post `.leftMouseDown` then `.leftMouseUp` at the current location. Wire into `host/AgentDeskHost/MediaStack.swift` so the host transport's `onInputEvent` callback decodes JSON to `NormalizedInput` and calls `dispatcher.dispatch(_:)`.
+- R9.4. Accessibility permission flow. On first `dispatch` call, `InputDispatcher` checks `AXIsProcessTrusted()` and no-ops the event with an `os.Logger` warning when untrusted. `host/AgentDeskHost/AppDelegate.swift` calls `AXIsProcessTrustedWithOptions` with the prompt-enabled options dict at startup so the user is asked once. `host/AgentDeskHost/PopoverViewController.swift` gains an `accessibilityRequired` view state parallel to the existing `screenRecordingDenied`, rendering a button that opens `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`. No `Info.plist` change is required for `CGEvent` posting.
+- R9.5. Tests. `host/AgentDeskHostTests/InputDispatcherTests.swift`: inject a recording `eventPoster`; feed `cursorMove(10, 20)` and assert exactly one `CGEvent` posted with type `.mouseMoved` and the expected offset; feed `click(.left)` and assert a `.leftMouseDown` followed by `.leftMouseUp` at the same location. `client/AgentDeskClientTests/GestureTranslatorTests.swift`: drive the translator with synthetic `UIPanGestureRecognizer` state transitions (`.began`, `.changed` with successive translations, `.ended`) and assert the emitted sequence of `cursorMove(dx, dy)` events use deltas-since-last, not absolute translation; drive a `UITapGestureRecognizer` recognized state and assert one `click(.left)`.
+
 - R10. Phase 4 (S4, #6): full trackpad gestures (two-finger right-click, two-finger scroll, double-tap drag). AFK. Blocked by R9.
 - R11. Phase 5 (S5, #7): Spaces enumeration via private CGS and 3-finger swipe via synthesized `Ctrl+Arrow`. AFK. Blocked by R10.
 - R12. Phase 6 (S6, #8): compact keyboard and accessory row with sticky-tap modifiers. AFK. Blocked by R11.
@@ -114,7 +127,12 @@ R8.6.4   2026-05-20  committed   LibWebRTCMediaTransport client + RTCMTLVideoSin
 R8.6.5   2026-05-20  committed   ScreenCaptureKitFrameSource + TCC handling + popover screenRecordingDenied state
 R8.6.6   2026-05-20  committed   MediaConnectionState observers with 5s ICE-disconnected grace on both ends
 R8.6.7   pending     pending     HITL hello-pixels on-device verification
-R9       pending     pending     Phase 3 captured (S3, #5)
+R9       pending     pending     Phase 3 expanded into R9.1 through R9.5 (S3, #5)
+R9.1     pending     pending     input data channel on both sides; onInputEvent + send surfaces
+R9.2     pending     pending     NormalizedInput Codable; GestureTranslator; trackpad UIView wired
+R9.3     pending     pending     InputDispatcher posting CGEvents; MediaStack wiring
+R9.4     pending     pending     Accessibility TCC prompt at launch; popover accessibilityRequired state
+R9.5     pending     pending     InputDispatcher and GestureTranslator tests
 R10      pending     pending     Phase 4 captured (S4, #6)
 R11      pending     pending     Phase 5 captured (S5, #7)
 R12      pending     pending     Phase 6 captured (S6, #8)
