@@ -1,28 +1,40 @@
+import CoreGraphics
 import Foundation
 import os
 
-// SkyLight (private CoreGraphics-Services) binding for Mission Control
-// Spaces. Direct synthesised Ctrl+Arrow keystrokes turned out to depend
-// on System Settings (Mission Control "Move left/right a space" must be
-// enabled), which made the v0 acceptance gesture fragile on stock
-// macOS installs. This module talks to the same private surface every
-// serious window manager (Yabai, Amethyst, Rectangle Pro) uses, so
-// switching does not depend on user settings.
+// Mission Control Spaces. Two responsibilities:
 //
-// Symbol provenance: validated on Darwin 25 in claude-copilot
-// (mac_core/cgs.py). Stable on this surface since macOS 10.10 (2014)
-// when WindowServer became SkyLight. Each macOS major bump is a risk
-// surface; the smoke test in SpacesProviderTests catches regressions.
+//   - Enumeration. SkyLight private API (CGSCopyManagedDisplaySpaces +
+//     CGSGetActiveSpace + CGSMainConnectionID). Read-only, works on
+//     stock macOS without SIP changes. Same surface every serious
+//     window manager (Yabai, Amethyst, Rectangle Pro) uses, validated
+//     in claude-copilot/mac_core/cgs.py on Darwin 25.
+//
+//   - Switching. Synthesised dock-swipe CGEvent (kCGSEventDockControl
+//     with kIOHIDEventTypeDockSwipe and a Began -> Changed -> Ended
+//     phase sequence, high horizontal velocity). The direct setter
+//     CGSManagedDisplaySetCurrentSpace exists in SkyLight but only
+//     accepts calls from Dock.app, which is why yabai requires SIP
+//     to be disabled to inject into Dock. The gesture-synthesis path
+//     produces the same end result without privileged access; it is
+//     the pattern shipping in InstantSpaceSwitcher 2.0 (Apr 2026),
+//     joshuarli/iss, and theo-sardin/instant-switcher.
+//
+// Symbol naming: Apple is migrating from the `CGS*` aliases (legacy
+// from the ApplicationServices era) to the `SLS*` (SkyLight Services)
+// names. Both resolve to the same SkyLight symbols today. We probe
+// `SLS*` first and fall back to `CGS*` so we keep working when Apple
+// eventually drops the legacy aliases.
 //
 // Space `id64` semantics (per claude-copilot/mac_workspace/learnings):
-// it is WindowServer's monotonic uint64 assigned at Space creation,
-// never reused. The "Desktop 1, 2, ..." names Mission Control shows
-// are ordinal positions in the per-display Spaces list, computed live.
-// Carry `id64` for identity, compute the ordinal yourself for display.
+// monotonic uint64 assigned at Space creation, never reused. The
+// "Desktop 1, 2, ..." labels Mission Control shows are ordinal
+// positions in the per-display Spaces list, computed live.
 //
 // Space `type` field: 0 = user (Desktop N), 4 = fullscreen-app Space.
-// The dots band counts user Spaces only; fullscreen Spaces would
-// otherwise pollute the carousel.
+// User Spaces only feed the dot carousel and the gesture walk;
+// fullscreen Spaces are skipped because Mission Control's left/right
+// navigation skips them too.
 
 private let skylightPath = "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
 
@@ -30,36 +42,72 @@ private struct SkyLight {
     typealias MainConnectionIDFn = @convention(c) () -> Int32
     typealias GetActiveSpaceFn = @convention(c) (Int32) -> UInt64
     typealias CopyManagedDisplaySpacesFn = @convention(c) (Int32) -> CFArray?
-    typealias ManagedDisplaySetCurrentSpaceFn = @convention(c) (Int32, CFString, UInt64) -> Int32
 
     let mainConnectionID: MainConnectionIDFn
     let getActiveSpace: GetActiveSpaceFn
     let copyManagedDisplaySpaces: CopyManagedDisplaySpacesFn
-    let managedDisplaySetCurrentSpace: ManagedDisplaySetCurrentSpaceFn
 
     static let shared: SkyLight? = {
         guard let handle = dlopen(skylightPath, RTLD_NOW) else { return nil }
+        // SLS-prefixed lookup first (current convention as of yabai's
+        // 2026 source); CGS-prefixed fallback (legacy alias still
+        // present on all macOS versions through 26 / Tahoe).
+        func resolve(_ slsName: String, _ cgsName: String) -> UnsafeMutableRawPointer? {
+            dlsym(handle, slsName) ?? dlsym(handle, cgsName)
+        }
         guard
-            let m1 = dlsym(handle, "CGSMainConnectionID"),
-            let m2 = dlsym(handle, "CGSGetActiveSpace"),
-            let m3 = dlsym(handle, "CGSCopyManagedDisplaySpaces"),
-            let m4 = dlsym(handle, "CGSManagedDisplaySetCurrentSpace")
+            let m1 = resolve("SLSMainConnectionID", "CGSMainConnectionID"),
+            let m2 = resolve("SLSGetActiveSpace", "CGSGetActiveSpace"),
+            let m3 = resolve("SLSCopyManagedDisplaySpaces", "CGSCopyManagedDisplaySpaces")
         else { return nil }
         return SkyLight(
             mainConnectionID: unsafeBitCast(m1, to: MainConnectionIDFn.self),
             getActiveSpace: unsafeBitCast(m2, to: GetActiveSpaceFn.self),
-            copyManagedDisplaySpaces: unsafeBitCast(m3, to: CopyManagedDisplaySpacesFn.self),
-            managedDisplaySetCurrentSpace: unsafeBitCast(m4, to: ManagedDisplaySetCurrentSpaceFn.self)
+            copyManagedDisplaySpaces: unsafeBitCast(m3, to: CopyManagedDisplaySpacesFn.self)
         )
     }()
 }
 
 // Pure plan struct so the index-walk logic is testable without a live
-// SkyLight binding. SpacesProvider.switchSpace composes
-// `planSwitch(from:direction:)` with the actual setter call.
+// SkyLight binding. Drives the "do we have a neighbour Space?" check
+// in switchSpace; nil means we are at an edge and no gesture should
+// fire.
 struct SpaceSwitchPlan: Equatable {
     let displayId: String
     let targetSpaceId: UInt64
+}
+
+// Reverse-engineered CGEventField indices used by the dock-swipe
+// synthesis path. Names mirror the constants InstantSpaceSwitcher /
+// iss / Karabiner expose. Stable since the 3-finger swipe gesture
+// shipped in 10.11; if Apple ever changes these the symptom is the
+// gesture posts but nothing happens.
+private enum DockSwipeField {
+    static let cgsEventType = CGEventField(rawValue: 55)!
+    static let gestureHIDType = CGEventField(rawValue: 110)!
+    static let gestureSwipeMotion = CGEventField(rawValue: 123)!
+    static let gestureSwipeProgress = CGEventField(rawValue: 124)!
+    static let gestureSwipeVelocityX = CGEventField(rawValue: 129)!
+    static let gestureSwipeVelocityY = CGEventField(rawValue: 130)!
+    static let gesturePhase = CGEventField(rawValue: 132)!
+}
+
+private enum DockSwipeConstant {
+    // kCGSEventDockControl (30) is the umbrella event type the Dock
+    // process listens for to drive Spaces / Mission Control transitions.
+    static let dockControl: Int64 = 30
+    // kIOHIDEventTypeDockSwipe (23) is the HID-side classifier the Dock
+    // expects on a dock-targeted gesture.
+    static let dockSwipeHIDType: Int64 = 23
+    static let motionHorizontal: Int64 = 1
+    // Phases match CGSGesturePhase: Began=1, Changed=2, Ended=4.
+    static let phaseBegan: Int64 = 1
+    static let phaseChanged: Int64 = 2
+    static let phaseEnded: Int64 = 4
+    // Velocity in points-per-second. ISS 2.0's default is 2000.0;
+    // anything ~> 400 skips the animated swipe and produces an
+    // "instant" Space switch.
+    static let velocity: Double = 2000.0
 }
 
 final class SpacesProvider {
@@ -74,16 +122,14 @@ final class SpacesProvider {
         let activeId = sl.getActiveSpace(cid)
 
         guard let arrRef = sl.copyManagedDisplaySpaces(cid) else {
-            logger.error("CGSCopyManagedDisplaySpaces returned null")
+            logger.error("CopyManagedDisplaySpaces returned null")
             return nil
         }
-        // Bridged via takeRetainedValue: the CGSCopy* family follows the
-        // Create Rule and we own the +1 retain.
         let cfArr = Unmanaged<CFArray>.fromOpaque(
             Unmanaged.passUnretained(arrRef).toOpaque()
         ).takeUnretainedValue()
         guard let displaysRaw = cfArr as? [[String: Any]] else {
-            logger.error("CGSCopyManagedDisplaySpaces returned non-array structure")
+            logger.error("CopyManagedDisplaySpaces returned non-array structure")
             return nil
         }
 
@@ -126,18 +172,62 @@ final class SpacesProvider {
 
     @discardableResult
     func switchSpace(direction: NormalizedInput.SpaceDirection) -> Bool {
-        guard let sl = SkyLight.shared else { return false }
+        // Don't fire a gesture if there is no neighbour to switch to
+        // (single Space, or already at the edge). Matches macOS native
+        // edge-stop behaviour and avoids the brief "swipe rejected"
+        // bounce.
         guard let state = current(),
-              let plan = Self.planSwitch(from: state, direction: direction) else {
+              Self.planSwitch(from: state, direction: direction) != nil else {
             logger.notice("switchSpace no-op: no neighbour Space in direction \(String(describing: direction), privacy: .public)")
             return false
         }
-        let cid = sl.mainConnectionID()
-        let err = sl.managedDisplaySetCurrentSpace(cid, plan.displayId as CFString, plan.targetSpaceId)
-        if err != 0 {
-            logger.error("CGSManagedDisplaySetCurrentSpace failed err=\(err, privacy: .public)")
-            return false
+        return performSwitchGesture(direction: direction)
+    }
+
+    // Synthesise a 3-finger horizontal dock-swipe in three phases.
+    // The Dock listens for kCGSEventDockControl events and treats a
+    // Began -> Changed -> Ended sequence as a complete swipe. Setting
+    // the velocity high (~2000 pt/sec) makes the Dock skip the swipe
+    // animation and switch instantly. Only Accessibility permission
+    // is needed (same permission the cursor / keyboard paths already
+    // use); no SIP changes.
+    //
+    // Two events (Began + Ended) are not enough; the Dock requires the
+    // Changed event in the middle or the swipe is dropped.
+    @discardableResult
+    func performSwitchGesture(direction: NormalizedInput.SpaceDirection) -> Bool {
+        let phases: [Int64] = [
+            DockSwipeConstant.phaseBegan,
+            DockSwipeConstant.phaseChanged,
+            DockSwipeConstant.phaseEnded,
+        ]
+        for phase in phases {
+            guard postDockSwipe(phase: phase, direction: direction) else {
+                logger.error("dock-swipe post failed at phase \(phase, privacy: .public)")
+                return false
+            }
         }
+        return true
+    }
+
+    private func postDockSwipe(phase: Int64, direction: NormalizedInput.SpaceDirection) -> Bool {
+        guard let event = CGEvent(source: nil) else { return false }
+        let isRight = direction == .right
+        // FLT_TRUE_MIN-sized progress nudge is what InstantSpaceSwitcher
+        // empirically settled on; a literal zero progress reads as "no
+        // swipe in progress" and the Dock drops the event.
+        let progressNudge = Double(Float.leastNonzeroMagnitude)
+        let progress = isRight ? progressNudge : -progressNudge
+        let velocity = isRight ? DockSwipeConstant.velocity : -DockSwipeConstant.velocity
+
+        event.setIntegerValueField(DockSwipeField.cgsEventType, value: DockSwipeConstant.dockControl)
+        event.setIntegerValueField(DockSwipeField.gestureHIDType, value: DockSwipeConstant.dockSwipeHIDType)
+        event.setIntegerValueField(DockSwipeField.gesturePhase, value: phase)
+        event.setDoubleValueField(DockSwipeField.gestureSwipeProgress, value: progress)
+        event.setIntegerValueField(DockSwipeField.gestureSwipeMotion, value: DockSwipeConstant.motionHorizontal)
+        event.setDoubleValueField(DockSwipeField.gestureSwipeVelocityX, value: velocity)
+        event.setDoubleValueField(DockSwipeField.gestureSwipeVelocityY, value: velocity)
+        event.post(tap: .cgSessionEventTap)
         return true
     }
 

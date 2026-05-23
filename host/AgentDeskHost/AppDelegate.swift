@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installPairingSignalHandler()
         refreshConnectedState()
         installSpacesSwitchHandler()
+        installSpacesChangeObserver()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
         }
@@ -223,12 +224,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    // R11: dispatcher routes .switchSpace through SpacesProvider (private
-    // SkyLight, see SpacesProvider.swift). After the switch lands, push
-    // the fresh DesktopState to every active input channel so the dots
-    // band updates without a round-trip. Captures the registry weakly
-    // so a long-lived dispatcher closure does not retain a reference
-    // graph back into AppDelegate.
+    // R11: NSWorkspace publishes activeSpaceDidChangeNotification on
+    // its OWN notification center (not NotificationCenter.default)
+    // whenever the active Space changes, regardless of trigger.
+    // Covers Mac-initiated switches (F3, four-finger swipe on the Mac
+    // trackpad, full-screen entry/exit, Mission Control click) that
+    // the iPhone-initiated path's explicit post-switch broadcast
+    // alone would miss. The push is idempotent on the client; if our
+    // own iPhone-initiated switch also triggers this observer, the
+    // client just receives the same state twice.
+    private func installSpacesChangeObserver() {
+        let registry = sessions
+        let provider = spacesProvider
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak registry] _ in
+            guard let registry, let state = provider.current() else { return }
+            for server in registry.allInputChannelServers() {
+                server.pushDesktopState(state)
+            }
+        }
+    }
+
+    // R11: dispatcher routes .switchSpace through SpacesProvider, which
+    // synthesises a dock-swipe CGEvent (the direct SkyLight setter
+    // CGSManagedDisplaySetCurrentSpace is restricted to Dock.app, hence
+    // yabai's SIP-disable requirement; gesture synthesis is the
+    // unprivileged path InstantSpaceSwitcher / iss use). The explicit
+    // post-switch broadcast here gives the dots band a ~0-frame update
+    // for iPhone-initiated switches; the NSWorkspace observer above
+    // handles Mac-initiated switches and any cases where our
+    // CGEventPost call beats the OS commit.
     private func installSpacesSwitchHandler() {
         let provider = spacesProvider
         let registry = sessions
