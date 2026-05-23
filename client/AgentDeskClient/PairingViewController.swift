@@ -53,11 +53,15 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Grouped palette so the trackpad and scroll-strip read as white
-        // cards on a soft grey ground (iOS Settings shape). The flat
-        // .systemBackground / .secondarySystemBackground pairing collapsed
-        // to white-on-white in light mode with no visual hierarchy.
-        view.backgroundColor = .systemGroupedBackground
+        // Plain system palette so the cards and canvas live in the same
+        // tonal family in both modes: white canvas + soft grey cards in
+        // light, near-black canvas + slightly-elevated dark grey cards
+        // in dark. The earlier grouped palette inverted this in light
+        // mode (grey canvas, white cards) which read as "sheets of paper
+        // pasted on a grey wall" -- visually busy and asymmetric with
+        // dark mode's unified look. Card definition in light mode comes
+        // from the .separator hairlines below, not from luminance jump.
+        view.backgroundColor = .systemBackground
         configureViews()
         configureSettingsButton()
         configureKeyboardSurface()
@@ -291,11 +295,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private func showTrackpad() {
         if trackpadView.superview != nil { return }
         trackpadView.translatesAutoresizingMaskIntoConstraints = false
-        // White card in light, elevated dark grey in dark. .separator gives
-        // a hairline edge that defines the surface in both modes; without
-        // it the card lost its boundary against the grouped ground at the
-        // edges of the trackpad's safe touch region.
-        trackpadView.backgroundColor = UIColor.secondarySystemGroupedBackground
+        // Soft grey card in light, slightly-elevated dark grey in dark.
+        // .separator gives a hairline edge that defines the surface; in
+        // light mode the colour contrast alone is intentionally subtle,
+        // so the hairline does the boundary work.
+        trackpadView.backgroundColor = UIColor.secondarySystemBackground
         trackpadView.layer.cornerRadius = 16
         trackpadView.layer.borderColor = UIColor.separator.cgColor
         trackpadView.layer.borderWidth = 0.5
@@ -313,7 +317,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         trackpadView.addSubview(trackpadHint)
 
         scrollStripView.translatesAutoresizingMaskIntoConstraints = false
-        scrollStripView.backgroundColor = UIColor.secondarySystemGroupedBackground
+        scrollStripView.backgroundColor = UIColor.secondarySystemBackground
         scrollStripView.layer.cornerRadius = 16
         scrollStripView.layer.borderColor = UIColor.separator.cgColor
         scrollStripView.layer.borderWidth = 0.5
@@ -423,7 +427,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // pills on a grey ground.
     private func styleActionButton(_ button: UIButton, title: String) {
         button.setTitle(title, for: .normal)
-        button.backgroundColor = .secondarySystemGroupedBackground
+        button.backgroundColor = .secondarySystemBackground
         button.layer.cornerRadius = 12
         button.layer.borderColor = UIColor.separator.cgColor
         button.layer.borderWidth = 0.5

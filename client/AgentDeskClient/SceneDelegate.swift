@@ -11,6 +11,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = scene as? UIWindowScene else {
             return
         }
+        Self.persistDevHostOverrideIfPresent()
         let window = UIWindow(windowScene: windowScene)
         let pairingVC = PairingViewController()
         window.rootViewController = pairingVC
@@ -52,6 +53,22 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             }
         }
         return nil
+    }
+
+    // Simulator-only: capture AGENTDESK_DEV_HOST_OVERRIDE from the launch
+    // environment into UserDefaults so subsequent relaunches (e.g. a
+    // Maestro flow's launchApp that does not forward env vars) still
+    // use the loopback dial host. Without this the first launch via
+    // pair-sim works but the auto-reconnect on the next launch falls
+    // back to the Tailnet FQDN and parks the app in "Paired
+    // (reconnecting)". Gated by targetEnvironment so device builds
+    // cannot persist or honour the override.
+    private static func persistDevHostOverrideIfPresent() {
+        #if targetEnvironment(simulator)
+        if let env = ProcessInfo.processInfo.environment["AGENTDESK_DEV_HOST_OVERRIDE"], !env.isEmpty {
+            UserDefaults.standard.set(env, forKey: "agentDesk.dev.hostOverride")
+        }
+        #endif
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {

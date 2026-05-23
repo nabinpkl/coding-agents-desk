@@ -292,9 +292,17 @@ final class PairingClient {
         // validation so the Tailnet-FQDN cert mismatch on localhost is
         // tolerated. Guard rail: this entire branch compiles out of
         // device builds via targetEnvironment.
+        //
+        // Env first (so a fresh override beats a stale persisted one),
+        // then UserDefaults (SceneDelegate persists on launch so the
+        // override survives Maestro relaunches that do not forward env).
         if let override = ProcessInfo.processInfo.environment["AGENTDESK_DEV_HOST_OVERRIDE"],
            !override.isEmpty {
             return override
+        }
+        if let stored = UserDefaults.standard.string(forKey: "agentDesk.dev.hostOverride"),
+           !stored.isEmpty {
+            return stored
         }
         #endif
         let fqdn = rawFQDN.hasSuffix(".") ? String(rawFQDN.dropLast()) : rawFQDN

@@ -111,8 +111,9 @@ final class KeyboardSurface: UITextField {
         // confirmation, in addition to the wire events going to the
         // Mac. insertText / deleteBackward still call super so text
         // accumulates here. Card-style to match the trackpad and button
-        // row above it (white in light mode, elevated dark in dark mode).
-        backgroundColor = .secondarySystemGroupedBackground
+        // row above it: soft grey card in light, elevated dark grey in
+        // dark, with the same .separator hairline.
+        backgroundColor = .secondarySystemBackground
         textColor = .label
         font = .systemFont(ofSize: 16)
         borderStyle = .none

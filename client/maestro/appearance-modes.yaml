@@ -2,8 +2,13 @@ appId: com.example.agentdesk.AgentDeskClient
 ---
 - launchApp:
     clearState: false
-- waitForAnimationToEnd:
-    timeout: 8000
+# Pairing handshake + WebRTC ICE takes a few seconds; the trackpad UI
+# only mounts once startMediaTransportIfNeeded fires. Gate the rest of
+# the flow on the "Trackpad" hint being visible so screenshots don't
+# capture the transient "Connecting" splash.
+- extendedWaitUntil:
+    visible: "Trackpad"
+    timeout: 20000
 - tapOn:
     id: "settings-button"
 - waitForAnimationToEnd:

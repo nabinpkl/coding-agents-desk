@@ -25,7 +25,7 @@ final class SettingsViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemGroupedBackground
+        view.backgroundColor = .systemBackground
         title = "Trackpad Settings"
 
         navigationItem.rightBarButtonItem = UIBarButtonItem(
