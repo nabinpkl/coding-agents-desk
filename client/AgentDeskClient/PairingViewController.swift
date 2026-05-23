@@ -1,7 +1,7 @@
 import AVFoundation
 import UIKit
 
-final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate, GestureTranslatorDelegate {
+final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate, GestureTranslatorDelegate, KeyboardSurfaceDelegate {
     private let pairingClient = PairingClient()
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
@@ -37,6 +37,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // press-and-hold    -> drag (UILongPressGestureRecognizer in GestureTranslator)
     private let buttonRow = UIStackView()
     private let rightClickButton = UIButton(type: .system)
+    private let showKeyboardButton = UIButton(type: .system)
+    // R12.3: hidden first-responder that backs the iOS soft keyboard.
+    // Lives as a permanent zero-size subview so becomeFirstResponder /
+    // resignFirstResponder route correctly through the responder chain.
+    private let keyboardSurface = KeyboardSurface()
+    private var buttonRowBottomConstraint: NSLayoutConstraint?
     // CGEvent posts at the userspace layer don't actually trigger macOS
     // pointer accel (that lives in IOKit, below CGEvent), so we apply our
     // own approximation client-side. The .mac curve keeps the standard
@@ -49,6 +55,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         view.backgroundColor = .systemBackground
         configureViews()
         configureSettingsButton()
+        configureKeyboardSurface()
         applySettingsToTranslator()
         pairingClient.loadStoredPairingMaterial()
         render()
@@ -64,6 +71,33 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             name: SettingsStore.changedNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardWillChangeFrame(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardWillHide(_:)),
+            name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
+    }
+
+    private func configureKeyboardSurface() {
+        keyboardSurface.delegate = self
+        // Zero-size hidden subview is enough: the responder chain only
+        // cares that the view is in the window hierarchy when
+        // becomeFirstResponder is called. The visible UI is the system
+        // soft keyboard plus our inputAccessoryView.
+        keyboardSurface.translatesAutoresizingMaskIntoConstraints = false
+        keyboardSurface.isHidden = true
+        view.addSubview(keyboardSurface)
+        NSLayoutConstraint.activate([
+            keyboardSurface.widthAnchor.constraint(equalToConstant: 0),
+            keyboardSurface.heightAnchor.constraint(equalToConstant: 0)
+        ])
     }
 
     private func configureSettingsButton() {
@@ -240,10 +274,20 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         rightClickButton.addTarget(self, action: #selector(rightClickTapped), for: .touchUpInside)
         buttonRow.addArrangedSubview(rightClickButton)
 
+        showKeyboardButton.setTitle("Show keyboard", for: .normal)
+        showKeyboardButton.backgroundColor = .tertiarySystemBackground
+        showKeyboardButton.layer.cornerRadius = 10
+        showKeyboardButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        showKeyboardButton.addTarget(self, action: #selector(toggleKeyboard), for: .touchUpInside)
+        buttonRow.addArrangedSubview(showKeyboardButton)
+
+        let bottomConstraint = buttonRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
+        buttonRowBottomConstraint = bottomConstraint
+
         NSLayoutConstraint.activate([
             buttonRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             buttonRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            buttonRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            bottomConstraint,
             buttonRow.heightAnchor.constraint(equalToConstant: 44),
 
             trackpadView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
@@ -271,10 +315,57 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         scrollStripView.removeFromSuperview()
         buttonRow.removeFromSuperview()
         rightClickButton.removeFromSuperview()
+        showKeyboardButton.removeFromSuperview()
+        keyboardSurface.setVisible(false)
+        buttonRowBottomConstraint = nil
     }
 
     @objc private func rightClickTapped() {
         sendInput(.click(button: .right))
+    }
+
+    @objc private func toggleKeyboard() {
+        if keyboardSurface.isFirstResponder {
+            keyboardSurface.setVisible(false)
+        } else {
+            keyboardSurface.setVisible(true)
+        }
+    }
+
+    @objc private func keyboardWillChangeFrame(_ note: Notification) {
+        guard
+            let endFrame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+            let bottom = buttonRowBottomConstraint
+        else { return }
+        // Convert from screen coords to view coords so multi-window /
+        // split-view setups don't double-count safe area. overlap is the
+        // y-distance the keyboard hides from the bottom of our view.
+        let endInView = view.convert(endFrame, from: nil)
+        let overlap = max(0, view.bounds.maxY - endInView.minY)
+        let safeBottom = view.safeAreaInsets.bottom
+        // The safe-area anchor already accounts for safeBottom, so add
+        // only the extra that the keyboard hides on top of it.
+        let extra = max(0, overlap - safeBottom)
+        animateButtonRow(to: -(extra + 12), with: note)
+    }
+
+    @objc private func keyboardWillHide(_ note: Notification) {
+        animateButtonRow(to: -12, with: note)
+    }
+
+    private func animateButtonRow(to constant: CGFloat, with note: Notification) {
+        guard let bottom = buttonRowBottomConstraint else { return }
+        bottom.constant = constant
+        let duration = (note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval) ?? 0.25
+        UIView.animate(withDuration: duration) {
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    // MARK: - KeyboardSurfaceDelegate
+
+    func keyboardSurface(_ surface: KeyboardSurface, didProduce input: NormalizedInput) {
+        sendInput(input)
     }
 
     private func sendInput(_ input: NormalizedInput) {
