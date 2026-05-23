@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let sessions = SessionRegistry()
     private let mediaFactory: MediaTransportFactory = MediaStack.makeFactory()
     private let inputDispatcher = InputDispatcher()
+    private let spacesProvider = SpacesProvider()
     private var pairingSignalSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -26,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startSignalingServer()
         installPairingSignalHandler()
         refreshConnectedState()
+        installSpacesSwitchHandler()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
         }
@@ -202,6 +204,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleInputChannelReady(_ fingerprint: DeviceFingerprint, server: InputChannelServer) {
         signalingLogger.notice("input channel ready fp=\(fingerprint.rawValue, privacy: .public)")
         sessions.attachInputChannelServer(server, for: fingerprint)
+        // R11: push the current DesktopState as soon as the channel is
+        // attached so the client can render the dots band immediately
+        // on session start without waiting for a Spaces switch.
+        if let state = spacesProvider.current() {
+            server.pushDesktopState(state)
+        }
         let dispatcher = inputDispatcher
         let logger = signalingLogger
         sessions.attachInputTask(
@@ -213,6 +221,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             for: fingerprint
         )
+    }
+
+    // R11: dispatcher routes .switchSpace through SpacesProvider (private
+    // SkyLight, see SpacesProvider.swift). After the switch lands, push
+    // the fresh DesktopState to every active input channel so the dots
+    // band updates without a round-trip. Captures the registry weakly
+    // so a long-lived dispatcher closure does not retain a reference
+    // graph back into AppDelegate.
+    private func installSpacesSwitchHandler() {
+        let provider = spacesProvider
+        let registry = sessions
+        let logger = signalingLogger
+        inputDispatcher.switchSpaceHandler = { [weak registry] direction in
+            let didSwitch = provider.switchSpace(direction: direction)
+            guard didSwitch, let registry, let state = provider.current() else {
+                if !didSwitch {
+                    logger.notice("switchSpace dropped (no neighbour or SkyLight unavailable)")
+                }
+                return
+            }
+            // Bounce back to MainActor to read registry state, which is
+            // MainActor-isolated. The dispatcher's queue called us off
+            // MainActor.
+            Task { @MainActor in
+                for server in registry.allInputChannelServers() {
+                    server.pushDesktopState(state)
+                }
+            }
+        }
     }
 
     private func handleMediaConnectionState(_ state: MediaConnectionState, for fingerprint: DeviceFingerprint) {

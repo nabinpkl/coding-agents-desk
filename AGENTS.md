@@ -58,7 +58,7 @@ Before doing project work, read `PRD.md` and `SPEC.md` once. They are short on p
 - No hardcoded configs. URLs, credentials, tokens, and `~/`-rooted paths go through a central config module, never inline in random files.
 - `.env` is gitignored by reflex. If you create one, gitignore it before the first commit.
 - Iteration over compatibility. Until v0 ships, breaking changes are free. After v0, breaking changes require an ADR.
-- Tests are written for **Pairing, InputDispatcher, GestureTranslator, SpacesStripView** (see `SPEC.md` for why these four). `SpacesProvider` joins the list when v1 lands and the host starts reading Space state. Other modules get tests when a bug demands one.
+- Tests are written for **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView** (see `SPEC.md` for why these five). `SpacesProvider`'s smoke test runs against the live SkyLight binding and is the canary for private-API surface drift across macOS versions. Other modules get tests when a bug demands one.
 - Domain glossary terms (`Space`, `Display`, `NormalizedInput`, `DesktopState`, `SessionToken`, `PairingPayload`) are stable. Renames require an ADR.
 
 ## ADRs

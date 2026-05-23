@@ -91,4 +91,13 @@ final class SessionRegistry {
     func signalingChannel(for fingerprint: DeviceFingerprint) -> SignalingChannel? {
         channels[fingerprint]
     }
+
+    // R11: AppDelegate's switchSpaceHandler needs to push the new
+    // DesktopState after each successful Spaces switch. The handler
+    // captures the registry weakly and walks every active input
+    // channel server to push (v0 has at most one; v1 may grow to
+    // multiple paired clients).
+    func allInputChannelServers() -> [InputChannelServer] {
+        Array(inputChannelServers.values)
+    }
 }

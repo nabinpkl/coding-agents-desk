@@ -28,8 +28,8 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 
 1. **CaptureEngine.** Owns `ScreenCaptureKit`. Produces `CMSampleBuffer` frames for the active Space on the active display. Interface: `start(displayId) -> AsyncStream<Frame>`, `stop()`.
 2. **Encoder.** Wraps VideoToolbox HEVC. Interface: `encode(Frame) -> EncodedChunk`. Hides hardware vs software fallback, keyframe cadence, bitrate adaptation.
-3. **SpacesProvider.** *(v1.)* Hides the private CoreGraphics calls (`CGSGetActiveSpace`, `CGSCopySpaces`, `CGSSpaceCopyOwners`) and the `DesktopState` shape. Interface: `current() -> DesktopState`, `observe() -> AsyncStream<DesktopState>`. Deferred from v0 because the v0 thesis gesture (`SpacesStripView` swipe) does not read Space state; the host synthesises `Ctrl+Arrow` and the OS handles the switch. v1's per-agent carousel is the first consumer that needs Space identity to map agents to Spaces.
-4. **InputDispatcher.** Consumes `NormalizedInput`, emits `CGEvent`. Interface: `dispatch(NormalizedInput)`. Hides the `Ctrl+Arrow` synthesis for Spaces switch (which routes through `postKey("left"|"right", [.ctrl])` against `KeyCodeMap`, reusing the R12 keyboard path) and the modifier-arm state machine.
+3. **SpacesProvider.** Hides the private SkyLight (`/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight`) symbols `CGSMainConnectionID`, `CGSGetActiveSpace`, `CGSCopyManagedDisplaySpaces`, and `CGSManagedDisplaySetCurrentSpace`. Interface: `current() -> DesktopState?`, `switchSpace(direction: SpaceDirection) -> Bool`. Bound dynamically via `dlopen` + `dlsym` so the host project does not need a bridging header or framework link. The R11 backend for Spaces switching; replaces the earlier synthesised-`Ctrl+Arrow` path which depended on user System Settings to be effective. v1's per-agent carousel will extend this with Space-to-agent mapping.
+4. **InputDispatcher.** Consumes `NormalizedInput`, emits `CGEvent`. Interface: `dispatch(NormalizedInput)`. Hides the modifier-arm state machine. `.switchSpace` is routed through an injected `switchSpaceHandler` closure that `AppDelegate` wires to `SpacesProvider.switchSpace`; after each successful switch, the handler pushes the fresh `DesktopState` to every active `InputChannelServer` so the client's dots band updates without polling.
 5. **Pairing.** Generates QR payload, validates incoming tokens, stores in Keychain. Interface: `mintPairingPayload() -> PairingPayload`, `validate(token) -> SessionToken?`.
 6. **SessionAuthenticator.** Runs the per-connection mutual challenge-response defined in ADR-0003 on the `/session` path of the existing TLS WebSocket. Interface: `authenticate(connection) -> ActiveSession`. Throws closed-set rejection reasons. Same test obligation as `Pairing`; the long-term key material is shared.
 7. **MediaTransport.** Protocol per ADR-0004. v0 concrete impl `LibWebRTCMediaTransport` wraps libwebrtc and carries the video track. After ADR-0005 the transport is video-only; the `RTCDataChannel` input path was removed. SDP and ICE travel only over an `ActiveSession` produced by `SessionAuthenticator`; the DTLS fingerprint binding is structural. AppDelegate holds a `MediaTransportFactory` by protocol so the library, codec, and capturer can swap behind a single composition root (`MediaStack`).
@@ -41,14 +41,14 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 
 1. **VideoFrameSink.** Protocol per ADR-0004. v0 concrete impl `RTCMTLVideoSink` wraps `RTCMTLVideoView` and renders at native DPR. An `AVSampleBufferVideoSink` is a future drop-in via the same protocol; AVSampleBufferDisplayLayer was the original v0 target per ADR-0001 but deferred to v1 in ADR-0004 because the AVSBDL path requires recovering encoded `CMSampleBuffer`s from libwebrtc's decode pipeline.
 2. **GestureTranslator.** Converts UIKit gesture recognizers on the trackpad / scroll-strip surface to `NormalizedInput`. Owns cursor pan, scroll, tap, and bare-hold-drag. Multi-touch recognizers stay off the trackpad because the v0 target is one-handed.
-3. **SpacesStripView.** R11 one-handed substitute for the canonical three-finger Spaces swipe. Dedicated 44pt horizontal strip with chevron taps and a single-finger horizontal-swipe recognizer; emits `NormalizedInput.switchSpace(direction:)`. Wire shape is identical to what a three-finger swipe would produce, so the host is unaware of the affordance.
+3. **SpacesDotsView.** R11 one-handed Spaces switch surface. 32pt horizontal band mounted between the screen-share video sink and the trackpad cluster (positional multiplier 0.55 of view height). Renders one dot per user (`type=0`) Space on the active display; the active dot is filled. State is host-pushed via `DesktopStatePush` over the input WSS; the band hides itself when `count <= 1`. A single-finger horizontal swipe (60pt threshold, 2:1 horizontal:vertical dominance, one emission per gesture) produces `NormalizedInput.switchSpace(direction:)`. Wire shape is the same a three-finger swipe would produce, so the host is unaware of the affordance.
 4. **KeyboardSurface.** Compact keyboard plus accessory row. Emits `NormalizedInput { kind: "key" }` and `modifierArm`.
 5. **PairingClient.** Camera, QR decode, Keychain write.
 6. **SessionDialer.** Mirror of host `SessionAuthenticator`. Drives the four-message handshake from the client side, owns the four-state UI machine (`unpaired | paired-disconnected | connecting | connected`, plus terminal `revoked`), and clears stored credentials on `revoked` / `unknown-device` / `bad-signature` per ADR-0003.
 7. **MediaTransport.** Mirror of host. Video-only after ADR-0005; same protocol surface as host, same composition-root pattern via `MediaStack`. PairingClient holds the factory by protocol.
 8. **InputChannel.** Per ADR-0005. Owns the client side of the dedicated input WebSocket. Protocol surface: `send(_ input:) async throws`, `close()`. v0 impl `WebSocketInputChannel` wraps one `URLSessionWebSocketTask`. `InputChannelOpener` performs the handshake (sends `InputChannelHello` as the first frame) and returns the ready channel. `PairingClient.attemptSession` opens it alongside the WebRTC session and exposes it via `activeInputChannel`; `PairingViewController.sendInput` routes through it.
 
-Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesStripView.** These four are where regressions are most expensive and where the contracts are most stable. `SpacesProvider` joins the list when v1 lands.
+Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView.** These five are where regressions are most expensive and where the contracts are most stable. `SpacesProvider`'s smoke test is the canary for private-SkyLight surface drift across macOS versions.
 
 ## Wire shapes
 
@@ -117,16 +117,21 @@ signaling, classified by first-frame discriminator (no URL path
 routing; matches the existing `/pair` and `/session` pattern).
 
 ```
-InputChannelHello  { sessionToken }                       // t: "input-hello"
-InputChannelEvent  { event: NormalizedInput }             // t: "input-event"
-InputChannelClose  { reason }                             // t: "input-close"  (optional, server-initiated)
+InputChannelHello  { sessionToken }                       // t: "input-hello"     (client -> host)
+InputChannelEvent  { event: NormalizedInput }             // t: "input-event"     (client -> host)
+InputChannelClose  { reason }                             // t: "input-close"     (server -> client, optional)
+DesktopStatePush   { state: DesktopState }                // t: "desktop-state"   (server -> client, R11)
 ```
 
 First frame on a new connection MUST be `InputChannelHello`; the host
 validates the token via `Pairing.validate(token:)` and closes the
 connection with `SessionRejected(.unauthorized)` on mismatch. After the
 hello is accepted, subsequent frames are `InputChannelEvent`, one
-`NormalizedInput` per WebSocket text frame.
+`NormalizedInput` per WebSocket text frame. The host pushes
+`DesktopStatePush` frames in the opposite direction (server -> client)
+on session attach and after every successful Spaces switch; the client
+uses these to drive the `SpacesDotsView` render. The WSS was already
+bidirectional but R11 added the server-pushed direction.
 
 Both signatures are ECDSA-P256 over `"agentdesk-session" || clientNonce || hostNonce || hostFingerprint || deviceFingerprint`. `SessionToken` continues to be issued at pairing approval per ADR-0002 but is reframed as an approval-time receipt that identifies the device to the host's allowlist; it is not sufficient on its own to authenticate a session. The fresh `clientSignature` in `SessionProof` is the authentication. See ADR-0003 for the full canonical encoding, rejection-reason semantics, and the UI state machines.
 

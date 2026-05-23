@@ -460,7 +460,11 @@ struct InputDispatcherTests {
         #expect(recorder.events.isEmpty)
     }
 
-    @Test func switchSpaceRightPostsCtrlRightArrowKeyDownThenKeyUp() {
+    @Test func switchSpaceWithoutHandlerPostsNoEvents() {
+        // Default-installed dispatcher (no switchSpaceHandler) treats
+        // .switchSpace as a no-op rather than synthesising any CGEvent.
+        // AppDelegate is the only call site that installs the handler;
+        // tests stay free of the SpacesProvider dependency.
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(
             eventPoster: { recorder.record($0) },
@@ -469,51 +473,44 @@ struct InputDispatcherTests {
         )
 
         dispatcher.performDispatch(.switchSpace(direction: .right))
-
-        #expect(recorder.events.count == 2)
-        #expect(recorder.events[0].type == .keyDown)
-        #expect(recorder.events[1].type == .keyUp)
-        #expect(recorder.events[0].getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_RightArrow))
-        #expect(recorder.events[1].getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_RightArrow))
-        #expect(recorder.events[0].flags.contains(.maskControl))
-        #expect(recorder.events[1].flags.contains(.maskControl))
-    }
-
-    @Test func switchSpaceLeftPostsCtrlLeftArrowKeyDownThenKeyUp() {
-        let recorder = EventRecorder()
-        let dispatcher = InputDispatcher(
-            eventPoster: { recorder.record($0) },
-            isTrusted: { true },
-            locationProvider: { .zero }
-        )
-
         dispatcher.performDispatch(.switchSpace(direction: .left))
 
-        #expect(recorder.events.count == 2)
-        #expect(recorder.events[0].type == .keyDown)
-        #expect(recorder.events[1].type == .keyUp)
-        #expect(recorder.events[0].getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_LeftArrow))
-        #expect(recorder.events[1].getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_LeftArrow))
-        #expect(recorder.events[0].flags.contains(.maskControl))
-        #expect(recorder.events[1].flags.contains(.maskControl))
+        #expect(recorder.events.isEmpty)
     }
 
-    @Test func cursorMoveAfterSwitchSpaceCarriesNoModifierFlags() {
-        // Regression guard mirroring the modifier-bleed guard on .key:
-        // a Ctrl+Arrow synthesised for Spaces switch must not leak the
-        // Control flag into the next cursor move.
+    @Test func switchSpaceForwardsDirectionToHandler() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(
             eventPoster: { recorder.record($0) },
             isTrusted: { true },
-            locationProvider: { CGPoint(x: 0, y: 0) }
+            locationProvider: { .zero }
         )
+        var seen: [NormalizedInput.SpaceDirection] = []
+        dispatcher.switchSpaceHandler = { seen.append($0) }
 
         dispatcher.performDispatch(.switchSpace(direction: .right))
-        dispatcher.performDispatch(.cursorMove(dx: 10, dy: 10))
+        dispatcher.performDispatch(.switchSpace(direction: .left))
 
-        #expect(recorder.events.count == 3)
-        #expect(!recorder.events[2].flags.contains(.maskControl))
+        #expect(seen == [.right, .left])
+        #expect(recorder.events.isEmpty)
+    }
+
+    @Test func switchSpaceHandlerNotCalledWhenUntrusted() {
+        // The accessibility-trust gate applies uniformly across dispatch
+        // paths. An untrusted process must not silently call into the
+        // private SkyLight path either.
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { false },
+            locationProvider: { .zero }
+        )
+        var called = false
+        dispatcher.switchSpaceHandler = { _ in called = true }
+
+        dispatcher.performDispatch(.switchSpace(direction: .right))
+
+        #expect(!called)
     }
 }
 

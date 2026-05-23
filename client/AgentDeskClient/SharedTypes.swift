@@ -470,3 +470,57 @@ struct InputChannelClose: Codable, Equatable {
         self.reason = reason
     }
 }
+
+// R11 DesktopState. Mirror of host's definition. Pushed host -> client
+// over the input WSS; drives the dots band rendering.
+
+struct DisplayMetadata: Codable, Equatable {
+    let id: String
+
+    enum CodingKeys: String, CodingKey {
+        case id = "i"
+    }
+}
+
+struct SpaceMetadata: Codable, Equatable {
+    let id: UInt64
+    let displayId: String
+    let index: Int?
+    let type: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id = "i"
+        case displayId = "d"
+        case index = "x"
+        case type = "t"
+    }
+}
+
+struct DesktopState: Codable, Equatable {
+    let displays: [DisplayMetadata]
+    let spaces: [SpaceMetadata]
+    let activeDisplayId: String?
+    let activeSpaceId: UInt64?
+
+    enum CodingKeys: String, CodingKey {
+        case displays = "d"
+        case spaces = "s"
+        case activeDisplayId = "ad"
+        case activeSpaceId = "as"
+    }
+}
+
+struct DesktopStatePush: Codable, Equatable {
+    let type: String
+    let state: DesktopState
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case state = "s"
+    }
+
+    init(state: DesktopState) {
+        self.type = "desktop-state"
+        self.state = state
+    }
+}

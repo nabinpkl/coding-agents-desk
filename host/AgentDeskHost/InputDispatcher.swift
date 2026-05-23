@@ -14,6 +14,7 @@ final class InputDispatcher: @unchecked Sendable {
     typealias LocationProvider = () -> CGPoint
     typealias DisplayBoundsProvider = () -> CGRect
     typealias Clock = () -> CFTimeInterval
+    typealias SwitchSpaceHandler = (NormalizedInput.SpaceDirection) -> Void
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "input")
     private let eventPoster: EventPoster
@@ -21,6 +22,14 @@ final class InputDispatcher: @unchecked Sendable {
     private let locationProvider: LocationProvider
     private let displayBoundsProvider: DisplayBoundsProvider
     private let clock: Clock
+    // R11: AppDelegate installs this to route .switchSpace to
+    // SpacesProvider (private SkyLight). Default no-op so unit tests
+    // can leave it unset. Synthesised Ctrl+Arrow via postKey was the
+    // previous backend but depended on the user having Mission
+    // Control's "Move left/right a space" shortcut enabled in System
+    // Settings; the private-API path makes Spaces switching work on
+    // stock macOS without user configuration.
+    var switchSpaceHandler: SwitchSpaceHandler?
     private var loggedUntrusted = false
     // Custom event source so we can disable the 0.25s synthetic-event
     // suppression interval macOS otherwise applies. Without this, posted
@@ -118,15 +127,15 @@ final class InputDispatcher: @unchecked Sendable {
             // compose host-side.
             break
         case .switchSpace(let direction):
-            // Mission Control's default keyboard shortcut for moving between
-            // Spaces is Ctrl + Left/Right Arrow (System Settings > Keyboard >
-            // Keyboard Shortcuts > Mission Control). Synthesising that key
-            // event is the same path the OS routes for a physical press, so
-            // no private CoreGraphics SpacesProvider call is needed at the
-            // dispatch seam. Reuses postKey so the modifier-flag composition
-            // and arrow-key mapping path validated by R12 carries through.
-            let code = direction == .left ? "left" : "right"
-            postKey(code: code, modifiers: [.ctrl])
+            // Routed to SpacesProvider via the injected handler. See
+            // switchSpaceHandler above for the rationale (private CGS
+            // path vs synthesised Ctrl+Arrow). The handler runs on
+            // this serial queue too, so the post-switch DesktopState
+            // push it triggers is ordered after the switch and before
+            // any next input event.
+            if let switchSpaceHandler {
+                switchSpaceHandler(direction)
+            }
         }
     }
 

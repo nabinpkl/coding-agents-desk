@@ -1,7 +1,7 @@
 import AVFoundation
 import UIKit
 
-final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate, GestureTranslatorDelegate, KeyboardSurfaceDelegate, SpacesStripViewDelegate, UIGestureRecognizerDelegate {
+final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate, GestureTranslatorDelegate, KeyboardSurfaceDelegate, SpacesDotsViewDelegate, UIGestureRecognizerDelegate {
     private let pairingClient = PairingClient()
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
@@ -15,6 +15,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private var videoSink: VideoFrameSink?
     private var mediaStateTask: Task<Void, Never>?
     private var iceGraceTask: Task<Void, Never>?
+    // R11: observes the input channel's desktopStateUpdates stream and
+    // pushes each DesktopState into the dots band. Lifecycle matches
+    // sessionTask: cancelled on background, restarted on the next
+    // attemptSession.
+    private var desktopStateTask: Task<Void, Never>?
     // R9.2: trackpad surface in the bottom region. The translator owns the
     // recognizers and emits NormalizedInput; we forward to the input channel.
     private let trackpadView = UIView()
@@ -35,14 +40,17 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // bottom button row -> right-click (R10.1) and Show-keyboard (R12.3)
     // right-edge strip  -> scroll with momentum (attached via GestureTranslator)
     // press-and-hold    -> drag (UILongPressGestureRecognizer in GestureTranslator)
-    // spaces strip      -> single-finger swipe + chevron taps (R11.2,
-    //                      SpacesStripView) substituting the canonical
-    //                      three-finger horizontal swipe which is not
-    //                      reachable one-handed.
+    // spaces dots band  -> single-finger horizontal swipe on a dots
+    //                      indicator mounted between the screen-share
+    //                      video and the trackpad (R11, SpacesDotsView).
+    //                      Substitutes the canonical three-finger
+    //                      horizontal swipe (not reachable one-handed)
+    //                      and visually couples the Space indicator
+    //                      with the screen content it switches.
     private let buttonRow = UIStackView()
     private let rightClickButton = UIButton(type: .system)
     private let showKeyboardButton = UIButton(type: .system)
-    private let spacesStripView = SpacesStripView()
+    private let spacesDotsView = SpacesDotsView()
     // R12.3: hidden first-responder that backs the iOS soft keyboard.
     // Lives as a permanent zero-size subview so becomeFirstResponder /
     // resignFirstResponder route correctly through the responder chain.
@@ -218,6 +226,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         iceGraceTask = nil
         mediaStateTask?.cancel()
         mediaStateTask = nil
+        desktopStateTask?.cancel()
+        desktopStateTask = nil
         teardownMediaTransport()
         // Closes activeSignaling + activeInputChannel and flips state
         // .connected -> .pairedDisconnected. Idempotent for other states.
@@ -244,6 +254,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         sessionTask?.cancel()
         mediaStateTask?.cancel()
         iceGraceTask?.cancel()
+        desktopStateTask?.cancel()
         mediaTransport?.stop()
     }
 
@@ -382,12 +393,27 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         showKeyboardButton.addTarget(self, action: #selector(toggleKeyboard), for: .touchUpInside)
         buttonRow.addArrangedSubview(showKeyboardButton)
 
-        spacesStripView.translatesAutoresizingMaskIntoConstraints = false
-        spacesStripView.delegate = self
-        view.addSubview(spacesStripView)
+        spacesDotsView.translatesAutoresizingMaskIntoConstraints = false
+        spacesDotsView.delegate = self
+        view.addSubview(spacesDotsView)
 
         let bottomConstraint = buttonRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
         buttonRowBottomConstraint = bottomConstraint
+
+        // Dots band's top aligns with the video sink's bottom edge
+        // (sink occupies the top 0.55 of the view height; see
+        // mountSinkView). Using NSLayoutConstraint's positional
+        // multiplier (vs storing the sink view reference) keeps the
+        // band's layout independent of when the sink mounts.
+        let dotsTopAtVideoBottom = NSLayoutConstraint(
+            item: spacesDotsView,
+            attribute: .top,
+            relatedBy: .equal,
+            toItem: view,
+            attribute: .bottom,
+            multiplier: 0.55,
+            constant: 0
+        )
 
         NSLayoutConstraint.activate([
             buttonRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
@@ -395,22 +421,17 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             bottomConstraint,
             buttonRow.heightAnchor.constraint(equalToConstant: 44),
 
-            // Spaces strip sits between the trackpad/scroll cluster and
-            // the bottom button row. Anchoring its bottom to the button
-            // row's top means the keyboard-frame observer below (which
-            // raises buttonRowBottomConstraint) lifts the whole cluster
-            // as one unit when the soft keyboard appears.
-            spacesStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            spacesStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            spacesStripView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
-            spacesStripView.heightAnchor.constraint(equalToConstant: 44),
+            spacesDotsView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            spacesDotsView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            dotsTopAtVideoBottom,
+            spacesDotsView.heightAnchor.constraint(equalToConstant: 32),
 
             keyboardSurface.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
 
             trackpadView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
-            trackpadView.topAnchor.constraint(equalTo: view.centerYAnchor, constant: 24),
-            trackpadView.bottomAnchor.constraint(equalTo: spacesStripView.topAnchor, constant: -8),
+            trackpadView.topAnchor.constraint(equalTo: spacesDotsView.bottomAnchor, constant: 4),
+            trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
             trackpadHint.centerXAnchor.constraint(equalTo: trackpadView.centerXAnchor),
             trackpadHint.bottomAnchor.constraint(equalTo: trackpadView.bottomAnchor, constant: -10),
 
@@ -425,6 +446,25 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         gestureTranslator.delegate = self
         gestureTranslator.attach(to: trackpadView)
         gestureTranslator.attachScrollStrip(to: scrollStripView)
+
+        startDesktopStateObservation()
+    }
+
+    // R11: drains the InputChannel's host-pushed DesktopState frames
+    // into the dots band. Restarted on each showTrackpad because
+    // activeInputChannel may have been replaced by a reconnect during
+    // foreground (D13.1 + D13.2 lifecycle).
+    private func startDesktopStateObservation() {
+        desktopStateTask?.cancel()
+        guard let channel = pairingClient.activeInputChannel else { return }
+        spacesDotsView.renderEmpty()
+        desktopStateTask = Task { [weak self, channel] in
+            for await state in channel.desktopStateUpdates {
+                await MainActor.run {
+                    self?.spacesDotsView.apply(state: state)
+                }
+            }
+        }
     }
 
     private func hideTrackpad() {
@@ -433,7 +473,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         buttonRow.removeFromSuperview()
         rightClickButton.removeFromSuperview()
         showKeyboardButton.removeFromSuperview()
-        spacesStripView.removeFromSuperview()
+        spacesDotsView.removeFromSuperview()
+        spacesDotsView.renderEmpty()
+        desktopStateTask?.cancel()
+        desktopStateTask = nil
         keyboardSurface.setVisible(false)
         buttonRowBottomConstraint = nil
     }
@@ -466,7 +509,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // them instantly instead of leaving stale hairlines from the
         // previous mode.
         let resolved = UIColor.separator.cgColor
-        for layer in [trackpadView.layer, scrollStripView.layer, rightClickButton.layer, showKeyboardButton.layer, keyboardSurface.layer, spacesStripView.layer] {
+        for layer in [trackpadView.layer, scrollStripView.layer, rightClickButton.layer, showKeyboardButton.layer, keyboardSurface.layer, spacesDotsView.layer] {
             if layer.borderWidth > 0 {
                 layer.borderColor = resolved
             }
@@ -493,7 +536,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private func setTrackpadHidden(_ hidden: Bool) {
         trackpadView.isHidden = hidden
         scrollStripView.isHidden = hidden
-        spacesStripView.isHidden = hidden
+        spacesDotsView.isHidden = hidden
     }
 
     @objc private func keyboardWillChangeFrame(_ note: Notification) {
@@ -532,9 +575,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         sendInput(input)
     }
 
-    // MARK: - SpacesStripViewDelegate
+    // MARK: - SpacesDotsViewDelegate
 
-    func spacesStrip(_ view: SpacesStripView, didProduce input: NormalizedInput) {
+    func spacesDots(_ view: SpacesDotsView, didProduce input: NormalizedInput) {
         sendInput(input)
     }
 

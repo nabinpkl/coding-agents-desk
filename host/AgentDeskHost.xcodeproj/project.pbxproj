@@ -55,6 +55,9 @@
 		A00000000000000000000230 /* InputDispatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000125 /* InputDispatcherTests.swift */; };
 		A00000000000000000000233 /* KeyCodeMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011E /* KeyCodeMap.swift */; };
 		A00000000000000000000234 /* InputChannelServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011F /* InputChannelServer.swift */; };
+		A00000000000000000000235 /* SpacesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000120 /* SpacesProvider.swift */; };
+		A00000000000000000000236 /* SpacesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000120 /* SpacesProvider.swift */; };
+		A00000000000000000000237 /* SpacesProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000126 /* SpacesProviderTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -89,6 +92,8 @@
 		A0000000000000000000011D /* SessionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRegistry.swift; sourceTree = "<group>"; };
 		A0000000000000000000011E /* KeyCodeMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCodeMap.swift; sourceTree = "<group>"; };
 		A0000000000000000000011F /* InputChannelServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannelServer.swift; sourceTree = "<group>"; };
+		A00000000000000000000120 /* SpacesProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacesProvider.swift; sourceTree = "<group>"; };
+		A00000000000000000000126 /* SpacesProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacesProviderTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000124 /* SignalingFrameRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingFrameRoutingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000125 /* InputDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcherTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
@@ -167,6 +172,7 @@
 				A0000000000000000000011D /* SessionRegistry.swift */,
 				A0000000000000000000011E /* KeyCodeMap.swift */,
 				A0000000000000000000011F /* InputChannelServer.swift */,
+				A00000000000000000000120 /* SpacesProvider.swift */,
 				A0000000000000000000011B /* Assets.xcassets */,
 				A0000000000000000000010C /* Info.plist */,
 			);
@@ -181,6 +187,7 @@
 				A00000000000000000000123 /* SessionAuthenticatorTests.swift */,
 				A00000000000000000000124 /* SignalingFrameRoutingTests.swift */,
 				A00000000000000000000125 /* InputDispatcherTests.swift */,
+				A00000000000000000000126 /* SpacesProviderTests.swift */,
 			);
 			path = AgentDeskHostTests;
 			sourceTree = "<group>";
@@ -337,6 +344,7 @@
 				A00000000000000000000231 /* SessionRegistry.swift in Sources */,
 				A00000000000000000000232 /* KeyCodeMap.swift in Sources */,
 				A00000000000000000000234 /* InputChannelServer.swift in Sources */,
+				A00000000000000000000235 /* SpacesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -361,6 +369,8 @@
 				A0000000000000000000022F /* InputDispatcher.swift in Sources */,
 				A00000000000000000000230 /* InputDispatcherTests.swift in Sources */,
 				A00000000000000000000233 /* KeyCodeMap.swift in Sources */,
+				A00000000000000000000236 /* SpacesProvider.swift in Sources */,
+				A00000000000000000000237 /* SpacesProviderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

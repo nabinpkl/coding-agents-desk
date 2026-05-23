@@ -2,6 +2,12 @@ import Foundation
 import Network
 import os
 
+// R11 wire shape: a server-pushed DesktopStatePush frame travels over
+// the same input WSS as the client-initiated InputChannelEvent frames.
+// The WS is bidirectional already; only the client->host direction was
+// previously wired. The push is one frame per emit (state on attach,
+// state after every successful server-side Spaces switch).
+
 // ADR-0005: per-session input channel server. Owns one NWConnection
 // that has already been classified by PairingSignalingServer as an
 // `input-hello`-fronted connection and bound to an active session.
@@ -46,6 +52,32 @@ final class InputChannelServer: @unchecked Sendable {
         continuation?.finish()
         continuation = nil
         connection.cancel()
+    }
+
+    func pushDesktopState(_ state: DesktopState) {
+        let frame = DesktopStatePush(state: state)
+        let data: Data
+        do {
+            data = try JSONEncoder().encode(frame)
+        } catch {
+            logger.error("desktop-state encode failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
+        let context = NWConnection.ContentContext(
+            identifier: "desktop-state",
+            metadata: [metadata]
+        )
+        connection.send(
+            content: data,
+            contentContext: context,
+            isComplete: true,
+            completion: .contentProcessed { [weak self] error in
+                if let error {
+                    self?.logger.error("desktop-state send failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+        )
     }
 
     private func receiveNext() {

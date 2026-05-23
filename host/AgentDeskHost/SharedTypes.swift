@@ -478,3 +478,67 @@ struct InputChannelClose: Codable, Equatable {
         self.reason = reason
     }
 }
+
+// R11 DesktopState. Pushed host -> client over the same input WSS,
+// distinct from the client -> host InputChannelEvent path. The client
+// uses it to render the dots band (one dot per user Space on the
+// active display; the active one is filled). Field set is the v0
+// minimum needed for that render; v1's per-agent carousel will extend
+// DisplayMetadata with name / isMain / nativePixelSize.
+//
+// Space `id` is WindowServer's monotonic uint64 (CGS `id64`), not the
+// "Desktop N" ordinal Mission Control displays. `index` is the 0-based
+// ordinal position among user (type=0) Spaces on the owning display;
+// it is nil for non-user (fullscreen) Spaces. The two together let the
+// client reconstruct the dot layout deterministically.
+
+struct DisplayMetadata: Codable, Equatable {
+    let id: String
+
+    enum CodingKeys: String, CodingKey {
+        case id = "i"
+    }
+}
+
+struct SpaceMetadata: Codable, Equatable {
+    let id: UInt64
+    let displayId: String
+    let index: Int?
+    let type: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id = "i"
+        case displayId = "d"
+        case index = "x"
+        case type = "t"
+    }
+}
+
+struct DesktopState: Codable, Equatable {
+    let displays: [DisplayMetadata]
+    let spaces: [SpaceMetadata]
+    let activeDisplayId: String?
+    let activeSpaceId: UInt64?
+
+    enum CodingKeys: String, CodingKey {
+        case displays = "d"
+        case spaces = "s"
+        case activeDisplayId = "ad"
+        case activeSpaceId = "as"
+    }
+}
+
+struct DesktopStatePush: Codable, Equatable {
+    let type: String
+    let state: DesktopState
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case state = "s"
+    }
+
+    init(state: DesktopState) {
+        self.type = "desktop-state"
+        self.state = state
+    }
+}
