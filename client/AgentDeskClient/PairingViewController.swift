@@ -22,9 +22,19 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private let scrollStripView = UIView()
     private let scrollStripHint = UILabel()
     private let settingsButton = UIButton(type: .system)
-    // R10.1: bottom button row under the trackpad. Right-click lives here
-    // because two-finger gestures are not reachable one-handed on iPhone.
-    // R12.3 will mount the Show-keyboard button as the second occupant.
+    // MARK: - One-handed affordances
+    //
+    // Issue #6 originally called for two-finger right-click and two-finger
+    // scroll. Both dropped: the v0 target user holds the phone one-handed
+    // and cannot reach two fingers on the trackpad with the thumb of the
+    // same hand. Substitutions all funnel back into the existing wire
+    // shapes (NormalizedInput.click(.right), NormalizedInput.scroll), so
+    // the Mac is unaware of the affordance change. See GestureTranslator
+    // for the matching note on the gesture side.
+    //
+    // bottom button row -> right-click (R10.1) and Show-keyboard (R12.3)
+    // right-edge strip  -> scroll with momentum (attached via GestureTranslator)
+    // press-and-hold    -> drag (UILongPressGestureRecognizer in GestureTranslator)
     private let buttonRow = UIStackView()
     private let rightClickButton = UIButton(type: .system)
     // CGEvent posts at the userspace layer don't actually trigger macOS

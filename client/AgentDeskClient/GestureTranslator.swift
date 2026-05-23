@@ -235,6 +235,27 @@ struct GestureTuning: Equatable, Sendable {
     static let `default` = GestureTuning()
 }
 
+// MARK: - One-handed affordances
+//
+// Issue #6 originally called for two-finger right-click and two-finger
+// scroll. Both were dropped because the v0 target user holds the phone
+// in one hand and operates the trackpad with the thumb of the same
+// hand; two fingers are not reachable. Substitutions ship the same wire
+// shapes (NormalizedInput.click(.right), NormalizedInput.scroll) so the
+// host is unaware of the affordance change:
+//   right-click -> bottom-row [Right-click] button (PairingViewController)
+//   scroll      -> right-edge strip (attachScrollStrip below)
+//   double/triple/quad click -> consecutive single taps; host tracks
+//                               click state on the wire-level .click(.left)
+//                               events and emits the right kCGMouseEventClickState
+//   drag        -> bare press-and-hold (UILongPressGestureRecognizer below,
+//                  numberOfTapsRequired=0, minimumPressDuration=0.25)
+//
+// Multi-touch recognizers stay off the trackpad surface by default for
+// the same reason. If a future target (iPad two-handed, dock with a
+// stand) makes multi-touch reachable, the wire shapes already abstract
+// the affordance so the change is recognizer-only.
+
 // MARK: - Translator
 
 @MainActor
