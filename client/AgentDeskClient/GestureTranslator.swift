@@ -9,13 +9,39 @@ protocol GestureTranslatorDelegate: AnyObject {
     @MainActor func gestureTranslator(_ translator: GestureTranslator, didProduce input: NormalizedInput)
 }
 
+// Velocity-scaled gain curve. Slow finger moves keep a small floor so
+// precision dragging still works; fast moves multiply more aggressively so
+// the cursor can cross the Mac display in a single sweep without exhausting
+// the iPhone's trackpad zone. Speed is in points-per-changed-callback, which
+// at the ~60 Hz delivery rate is roughly velocity / 60.
+struct GestureAcceleration: Sendable {
+    let scale: @Sendable (CGFloat) -> CGFloat
+
+    static let identity = GestureAcceleration { _ in 1.0 }
+
+    // Linear ramp with a floor and a ceiling. Tuned by feel against the
+    // iPhone trackpad zone, not derived from macOS internals.
+    //   speed = 1   -> gain 2.3 (precision-friendly)
+    //   speed = 5   -> gain 3.5
+    //   speed = 15+ -> gain 6.0 (clamped)
+    static let mac = GestureAcceleration { speed in
+        2.0 + min(speed * 0.3, 4.0)
+    }
+}
+
 @MainActor
 final class GestureTranslator: NSObject {
     weak var delegate: GestureTranslatorDelegate?
+    private let acceleration: GestureAcceleration
     // The pan recognizer reports cumulative translation, but we want
     // deltas-since-last-callback so the receiver can integrate them as
     // relative cursor motion without knowing the trackpad size.
     private var lastPanTranslation: CGPoint = .zero
+
+    init(acceleration: GestureAcceleration = .identity) {
+        self.acceleration = acceleration
+        super.init()
+    }
 
     func attach(to view: UIView) {
         view.isUserInteractionEnabled = true
@@ -38,12 +64,15 @@ final class GestureTranslator: NSObject {
         case .began:
             lastPanTranslation = translation
         case .changed:
-            let dx = Float(translation.x - lastPanTranslation.x)
-            let dy = Float(translation.y - lastPanTranslation.y)
+            let rawDx = translation.x - lastPanTranslation.x
+            let rawDy = translation.y - lastPanTranslation.y
             lastPanTranslation = translation
-            if dx != 0 || dy != 0 {
-                delegate?.gestureTranslator(self, didProduce: .cursorMove(dx: dx, dy: dy))
-            }
+            if rawDx == 0 && rawDy == 0 { return }
+            let speed = (rawDx * rawDx + rawDy * rawDy).squareRoot()
+            let gain = acceleration.scale(speed)
+            let dx = Float(rawDx * gain)
+            let dy = Float(rawDy * gain)
+            delegate?.gestureTranslator(self, didProduce: .cursorMove(dx: dx, dy: dy))
         case .ended, .cancelled, .failed:
             lastPanTranslation = .zero
         default:

@@ -1,7 +1,7 @@
 import AVFoundation
 import UIKit
 
-final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate, @preconcurrency GestureTranslatorDelegate {
+final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate, GestureTranslatorDelegate {
     private let pairingClient = PairingClient()
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
@@ -19,7 +19,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // recognizers and emits NormalizedInput; we forward to mediaTransport.send.
     private let trackpadView = UIView()
     private let trackpadHint = UILabel()
-    private let gestureTranslator = GestureTranslator()
+    private let gestureTranslator = GestureTranslator(acceleration: .mac)
 
     override func viewDidLoad() {
         super.viewDidLoad()
