@@ -14,30 +14,10 @@ struct PairingHandshakeResponse: Codable {
     let error: String?
 }
 
-private struct FirstFrameEnvelope: Decodable {
-    let type: String
-
-    enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case typeLong = "type"
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let t = try container.decodeIfPresent(String.self, forKey: .type) {
-            self.type = t
-        } else if let t = try container.decodeIfPresent(String.self, forKey: .typeLong) {
-            self.type = t
-        } else {
-            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "no type field"))
-        }
-    }
-}
-
 final class PairingSignalingServer: @unchecked Sendable {
     typealias ApprovalHandler = (DeviceFingerprint, @escaping (Bool) -> Void) -> Void
     typealias SessionAttemptStartedHandler = (DeviceFingerprint) -> Void
-    typealias SessionReadyHandler = (ActiveSession) -> Void
+    typealias SessionReadyHandler = (ActiveSession, SignalingChannel) -> Void
     typealias SessionEndedHandler = (DeviceFingerprint) -> Void
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
@@ -53,7 +33,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         pairing: Pairing,
         approvalHandler: @escaping ApprovalHandler,
         sessionAttemptStartedHandler: @escaping SessionAttemptStartedHandler = { _ in },
-        sessionReadyHandler: @escaping SessionReadyHandler = { _ in },
+        sessionReadyHandler: @escaping SessionReadyHandler = { _, _ in },
         sessionEndedHandler: @escaping SessionEndedHandler = { _ in }
     ) {
         self.pairing = pairing
@@ -116,6 +96,8 @@ final class PairingSignalingServer: @unchecked Sendable {
     private func connectionDidClose(_ connection: NWConnection) {
         let id = ObjectIdentifier(connection)
         guard let context = connections.removeValue(forKey: id) else { return }
+        context.activeSessionChannel?.close()
+        context.activeSessionChannel = nil
         if let fingerprint = context.activeSessionFingerprint ?? context.attemptingFingerprint {
             sessionEndedHandler(fingerprint)
         }
@@ -143,6 +125,11 @@ final class PairingSignalingServer: @unchecked Sendable {
         let id = ObjectIdentifier(connection)
         let context = connections[id]
 
+        if let context, let channel = context.activeSessionChannel {
+            handleActiveSessionFrame(data: data, channel: channel, on: connection)
+            return
+        }
+
         if let context, let phase = context.phase {
             switch phase {
             case .awaitingSessionProof(let authenticator):
@@ -151,17 +138,28 @@ final class PairingSignalingServer: @unchecked Sendable {
             }
         }
 
-        guard let envelope = try? JSONDecoder().decode(FirstFrameEnvelope.self, from: data) else {
+        switch SignalingFrameRouter.classifyFirstFrame(data) {
+        case .pair:
+            handlePair(data: data, on: connection)
+        case .sessionInit:
+            handleSessionInit(data: data, context: context, on: connection)
+        case .malformed:
             sendSessionRejected(reason: .malformed, on: connection)
             connection.cancel()
-            return
         }
-        switch envelope.type {
-        case "pair":
-            handlePair(data: data, on: connection)
-        case "session-init":
-            handleSessionInit(data: data, context: context, on: connection)
-        default:
+    }
+
+    private func handleActiveSessionFrame(
+        data: Data,
+        channel: WebSocketSignalingChannel,
+        on connection: NWConnection
+    ) {
+        switch SignalingFrameRouter.classifyActiveSessionFrame(data) {
+        case .webrtc(let frame):
+            channel.deliver(frame)
+            receiveNextMessage(on: connection)
+        case .malformed:
+            logger.error("active-session frame malformed")
             sendSessionRejected(reason: .malformed, on: connection)
             connection.cancel()
         }
@@ -256,7 +254,10 @@ final class PairingSignalingServer: @unchecked Sendable {
             context.phase = nil
             context.attemptingFingerprint = nil
             context.activeSessionFingerprint = active.deviceFingerprint
-            sessionReadyHandler(active)
+            let channel = makeActiveSessionChannel(on: connection)
+            context.activeSessionChannel = channel
+            sessionReadyHandler(active, channel)
+            receiveNextMessage(on: connection)
         } catch let rejection as SessionRejected {
             sendSessionRejected(reason: rejection.reason, on: connection)
             connection.cancel()
@@ -291,6 +292,38 @@ final class PairingSignalingServer: @unchecked Sendable {
         send(sessionMessage: SessionRejected(reason: reason), on: connection)
     }
 
+    private func makeActiveSessionChannel(on connection: NWConnection) -> WebSocketSignalingChannel {
+        WebSocketSignalingChannel(
+            sender: { [weak self, weak connection] frame in
+                guard let self, let connection else { return }
+                try await self.sendActiveSessionFrame(frame, on: connection)
+            },
+            closer: { [weak connection] in
+                connection?.cancel()
+            }
+        )
+    }
+
+    private func sendActiveSessionFrame(_ frame: WebRTCSignalingFrame, on connection: NWConnection) async throws {
+        let data = try JSONEncoder().encode(frame)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
+            let context = NWConnection.ContentContext(identifier: "webrtc-frame", metadata: [metadata])
+            connection.send(
+                content: data,
+                contentContext: context,
+                isComplete: true,
+                completion: .contentProcessed { error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume()
+                    }
+                }
+            )
+        }
+    }
+
     private func sendWebSocket(data: Data, identifier: String, on connection: NWConnection) {
         let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
         let context = NWConnection.ContentContext(identifier: identifier, metadata: [metadata])
@@ -314,6 +347,7 @@ private final class ConnectionContext {
     var phase: SessionPhase?
     var attemptingFingerprint: DeviceFingerprint?
     var activeSessionFingerprint: DeviceFingerprint?
+    var activeSessionChannel: WebSocketSignalingChannel?
 
     init(connection: NWConnection) {
         self.connection = connection

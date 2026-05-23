@@ -148,13 +148,17 @@ final class PairingClient {
 
     func clearStoredCredentials() {
         try? tokenStore.clear()
+        (activeSignaling as? WebSocketSignalingChannel)?.close()
+        activeSignaling = nil
         state = .unpaired
     }
+
+    private(set) var activeSignaling: SignalingChannel?
 
     func attemptSession(
         dialer: SessionDialer = SessionDialer(),
         port: UInt16 = Config.signalingPort
-    ) async throws -> ActiveSession {
+    ) async throws -> SessionConnection {
         guard let record = storedPairingMaterial else {
             throw PairingClientError.invalidState
         }
@@ -172,7 +176,7 @@ final class PairingClient {
             throw PairingClientError.malformedURL
         }
         do {
-            let active = try await dialer.dial(
+            let connection = try await dialer.dial(
                 url: url,
                 deviceFingerprint: DeviceFingerprint(try deviceKeyProvider.publicKey.agentDeskFingerprint),
                 sessionToken: record.token,
@@ -180,8 +184,9 @@ final class PairingClient {
                 deviceKey: deviceKeyProvider,
                 urlSession: urlSession
             )
-            state = .connected(active)
-            return active
+            activeSignaling = connection.signaling
+            state = .connected(connection.active)
+            return connection
         } catch let rejection as SessionRejected {
             applyRejection(rejection)
             throw rejection

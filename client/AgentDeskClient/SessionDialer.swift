@@ -25,7 +25,7 @@ final class SessionDialer {
         hostPublicKey: Data,
         deviceKey: DeviceSigningKeyProviding,
         urlSession: URLSession
-    ) async throws -> ActiveSession {
+    ) async throws -> SessionConnection {
         let hostPub: P256.Signing.PublicKey
         do {
             hostPub = try P256.Signing.PublicKey(x963Representation: hostPublicKey)
@@ -36,7 +36,9 @@ final class SessionDialer {
 
         let task = urlSession.webSocketTask(with: url)
         task.resume()
-        defer { task.cancel(with: .normalClosure, reason: nil) }
+
+        var success = false
+        defer { if !success { task.cancel(with: .normalClosure, reason: nil) } }
 
         let clientNonce = try randomBytes(32)
         let initMessage = SessionInit(
@@ -67,9 +69,55 @@ final class SessionDialer {
         try await send(SessionProof(clientSignature: clientSignature), on: task)
 
         _ = try await receive(SessionReady.self, expectedType: "session-ready", on: task)
-        return ActiveSession(
-            deviceFingerprint: deviceFingerprint,
-            establishedAt: Int(now().timeIntervalSince1970)
+
+        let channel = WebSocketSignalingChannel(
+            sender: { frame in
+                let data = try JSONEncoder().encode(frame)
+                guard let text = String(data: data, encoding: .utf8) else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                try await task.send(.string(text))
+            },
+            closer: {
+                task.cancel(with: .normalClosure, reason: nil)
+            }
+        )
+
+        // Background receive loop. Exits when the task closes or yields a
+        // non-decodable frame. Closing the channel on exit propagates the
+        // end-of-stream signal to consumers.
+        Task.detached { [task, channel] in
+            while !Task.isCancelled {
+                do {
+                    let message = try await task.receive()
+                    let data: Data
+                    switch message {
+                    case .data(let bytes): data = bytes
+                    case .string(let text): data = Data(text.utf8)
+                    @unknown default:
+                        channel.close()
+                        return
+                    }
+                    if let frame = try? JSONDecoder().decode(WebRTCSignalingFrame.self, from: data) {
+                        channel.deliver(frame)
+                    } else {
+                        channel.close()
+                        return
+                    }
+                } catch {
+                    channel.close()
+                    return
+                }
+            }
+        }
+
+        success = true
+        return SessionConnection(
+            active: ActiveSession(
+                deviceFingerprint: deviceFingerprint,
+                establishedAt: Int(now().timeIntervalSince1970)
+            ),
+            signaling: channel
         )
     }
 

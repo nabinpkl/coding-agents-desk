@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var signalingServer: PairingSignalingServer?
     private var activeSessions: Set<DeviceFingerprint> = []
     private var attemptingSessions: Set<DeviceFingerprint> = []
+    private var activeSignalingChannels: [DeviceFingerprint: SignalingChannel] = [:]
     private var pairingSignalSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -96,9 +97,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.handleSessionAttemptStarted(fingerprint)
                 }
             },
-            sessionReadyHandler: { [weak self] active in
+            sessionReadyHandler: { [weak self] active, channel in
                 Task { @MainActor in
-                    self?.handleSessionReady(active)
+                    self?.handleSessionReady(active, channel: channel)
                 }
             },
             sessionEndedHandler: { [weak self] fingerprint in
@@ -122,9 +123,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshConnectedState()
     }
 
-    private func handleSessionReady(_ active: ActiveSession) {
+    private func handleSessionReady(_ active: ActiveSession, channel: SignalingChannel) {
         attemptingSessions.remove(active.deviceFingerprint)
         activeSessions.insert(active.deviceFingerprint)
+        activeSignalingChannels[active.deviceFingerprint] = channel
         signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
     }
@@ -132,6 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleSessionEnded(_ fingerprint: DeviceFingerprint) {
         attemptingSessions.remove(fingerprint)
         activeSessions.remove(fingerprint)
+        activeSignalingChannels.removeValue(forKey: fingerprint)
         signalingLogger.notice("session ended fingerprint=\(fingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
     }

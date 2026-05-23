@@ -26,6 +26,10 @@
 		A00000000000000000000212 /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000112 /* SignalingChannel.swift */; };
 		A00000000000000000000213 /* VideoFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000113 /* VideoFrameSource.swift */; };
 		A00000000000000000000214 /* MediaStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000114 /* MediaStack.swift */; };
+		A00000000000000000000215 /* WebSocketSignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000115 /* WebSocketSignalingChannel.swift */; };
+		A00000000000000000000216 /* SignalingFrameRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000116 /* SignalingFrameRouting.swift */; };
+		A0000000000000000000022D /* SignalingFrameRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000116 /* SignalingFrameRouting.swift */; };
+		A0000000000000000000022E /* SignalingFrameRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000124 /* SignalingFrameRoutingTests.swift */; };
 		A00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* Base64URL.swift */; };
 		A00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Config.swift */; };
 		A00000000000000000000223 /* HostSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HostSigningKeyStore.swift */; };
@@ -61,6 +65,9 @@
 		A00000000000000000000112 /* SignalingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingChannel.swift; sourceTree = "<group>"; };
 		A00000000000000000000113 /* VideoFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFrameSource.swift; sourceTree = "<group>"; };
 		A00000000000000000000114 /* MediaStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaStack.swift; sourceTree = "<group>"; };
+		A00000000000000000000115 /* WebSocketSignalingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketSignalingChannel.swift; sourceTree = "<group>"; };
+		A00000000000000000000116 /* SignalingFrameRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingFrameRouting.swift; sourceTree = "<group>"; };
+		A00000000000000000000124 /* SignalingFrameRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingFrameRoutingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000122 /* LaunchAgentInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstallerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000123 /* SessionAuthenticatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAuthenticatorTests.swift; sourceTree = "<group>"; };
@@ -126,6 +133,8 @@
 				A00000000000000000000112 /* SignalingChannel.swift */,
 				A00000000000000000000113 /* VideoFrameSource.swift */,
 				A00000000000000000000114 /* MediaStack.swift */,
+				A00000000000000000000115 /* WebSocketSignalingChannel.swift */,
+				A00000000000000000000116 /* SignalingFrameRouting.swift */,
 				A0000000000000000000010C /* Info.plist */,
 			);
 			path = AgentDeskHost;
@@ -137,6 +146,7 @@
 				A00000000000000000000121 /* PairingTests.swift */,
 				A00000000000000000000122 /* LaunchAgentInstallerTests.swift */,
 				A00000000000000000000123 /* SessionAuthenticatorTests.swift */,
+				A00000000000000000000124 /* SignalingFrameRoutingTests.swift */,
 			);
 			path = AgentDeskHostTests;
 			sourceTree = "<group>";
@@ -257,6 +267,8 @@
 				A00000000000000000000212 /* SignalingChannel.swift in Sources */,
 				A00000000000000000000213 /* VideoFrameSource.swift in Sources */,
 				A00000000000000000000214 /* MediaStack.swift in Sources */,
+				A00000000000000000000215 /* WebSocketSignalingChannel.swift in Sources */,
+				A00000000000000000000216 /* SignalingFrameRouting.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -276,6 +288,8 @@
 				A0000000000000000000022A /* LaunchAgentInstallerTests.swift in Sources */,
 				A0000000000000000000022B /* SessionAuthenticator.swift in Sources */,
 				A0000000000000000000022C /* SessionAuthenticatorTests.swift in Sources */,
+				A0000000000000000000022D /* SignalingFrameRouting.swift in Sources */,
+				A0000000000000000000022E /* SignalingFrameRoutingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

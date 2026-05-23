@@ -108,7 +108,7 @@ R8.4     2026-05-20  committed   four-state UI machines on both ends, auto-dial 
 R8.5     2026-05-20  committed   SessionAuthenticator tests including bearer-token regression guard
 R8.6     pending     pending     hello-pixels, expanded into R8.6.1 through R8.6.7
 R8.6.1   2026-05-20  committed   ADR-0004 media-transport seams accepted; SPEC updated; protocol files + stubs landed
-R8.6.2   pending     pending     WebSocketSignalingChannel and SessionConnection wiring
+R8.6.2   2026-05-20  committed   WebSocketSignalingChannel + SessionConnection + SignalingFrameRouting tests
 R8.6.3   pending     pending     LibWebRTCMediaTransport host + TestPatternFrameSource + stasel/WebRTC dep
 R8.6.4   pending     pending     LibWebRTCMediaTransport client + RTCMTLVideoSink, test-pattern frames on iPhone
 R8.6.5   pending     pending     ScreenCaptureKitFrameSource + TCC handling
