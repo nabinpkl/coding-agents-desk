@@ -121,13 +121,14 @@ final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Key.accessoryKeySpacing); postChange() }
     }
 
-    // ADR-0006: opt-in for the Spaces preview strip. Default false so
-    // the phone doesn't mirror non-active-Space contents until the
-    // user has decided that's acceptable. PairingViewController reads
-    // this on input-channel open and on settings change, sends a
-    // ClientConfig frame, and mounts / unmounts the strip.
+    // ADR-0006: Spaces preview strip. Default on; a daily-driver agent
+    // surface wants the at-a-glance thumbnails available immediately.
+    // Users who don't want the phone to mirror non-active-Space contents
+    // can flip it off in settings. PairingViewController reads this on
+    // input-channel open and on settings change, sends a ClientConfig
+    // frame, and mounts / unmounts the strip.
     var showSpacePreviews: Bool {
-        get { defaults.bool(forKey: Key.showSpacePreviews) }
+        get { defaults.object(forKey: Key.showSpacePreviews) as? Bool ?? true }
         set {
             defaults.set(newValue, forKey: Key.showSpacePreviews)
             postChange()
