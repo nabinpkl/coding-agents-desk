@@ -109,8 +109,16 @@ final class InputDispatcher: @unchecked Sendable {
             postDragStart()
         case .dragEnd:
             postDragEnd()
-        case .switchSpace, .key, .modifierArm:
-            // R11 (switchSpace) and R12 (key / modifierArm) territory.
+        case .key(let code, let modifiers):
+            postKey(code: code, modifiers: modifiers)
+        case .modifierArm:
+            // iOS composes modifiers before sending (per issue #8 and
+            // SPEC §3). The host treats .modifierArm as a no-op; it
+            // exists on the wire for future / alternate clients that
+            // compose host-side.
+            break
+        case .switchSpace:
+            // R11 territory.
             break
         }
     }
@@ -219,6 +227,42 @@ final class InputDispatcher: @unchecked Sendable {
         ) else { return }
         event.setIntegerValueField(.mouseEventClickState, value: clickState)
         eventPoster(event)
+    }
+
+    private func postKey(code: String, modifiers: [NormalizedInput.Modifier]) {
+        guard let virtualKey = KeyCodeMap.lookup(code) else {
+            logger.warning("Unknown key code from client: \(code, privacy: .public)")
+            return
+        }
+        let flags = cgEventFlags(for: modifiers)
+        postKeyEvent(virtualKey: virtualKey, keyDown: true, flags: flags)
+        postKeyEvent(virtualKey: virtualKey, keyDown: false, flags: flags)
+    }
+
+    private func postKeyEvent(virtualKey: CGKeyCode, keyDown: Bool, flags: CGEventFlags) {
+        guard let event = CGEvent(
+            keyboardEventSource: cursorEventSource,
+            virtualKey: virtualKey,
+            keyDown: keyDown
+        ) else { return }
+        // Set flags directly rather than OR-ing into the OS-current flag
+        // state so a held physical modifier on the host (e.g. user's local
+        // Shift) doesn't leak into the synthesised event.
+        event.flags = flags
+        eventPoster(event)
+    }
+
+    private func cgEventFlags(for modifiers: [NormalizedInput.Modifier]) -> CGEventFlags {
+        var flags: CGEventFlags = []
+        for mod in modifiers {
+            switch mod {
+            case .cmd:    flags.insert(.maskCommand)
+            case .ctrl:   flags.insert(.maskControl)
+            case .option: flags.insert(.maskAlternate)
+            case .shift:  flags.insert(.maskShift)
+            }
+        }
+        return flags
     }
 
     private func nextLeftClickState(at location: CGPoint) -> Int64 {

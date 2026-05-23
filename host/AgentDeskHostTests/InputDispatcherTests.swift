@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
 import Testing
@@ -351,6 +352,101 @@ struct InputDispatcherTests {
         #expect(recorder.events[4].getIntegerValueField(.mouseEventClickState) == 2)
     }
 
+    @Test func keyEventPostsKeyDownThenKeyUpAtMappedVirtualKey() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        dispatcher.performDispatch(.key(code: "ansi-S", modifiers: []))
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0].type == .keyDown)
+        #expect(recorder.events[1].type == .keyUp)
+        #expect(recorder.events[0].getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_ANSI_S))
+        #expect(recorder.events[1].getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_ANSI_S))
+    }
+
+    @Test func keyEventCarriesSingleModifierFlag() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        dispatcher.performDispatch(.key(code: "ansi-S", modifiers: [.cmd]))
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0].flags.contains(.maskCommand))
+        #expect(recorder.events[1].flags.contains(.maskCommand))
+    }
+
+    @Test func keyEventComposesMultipleModifierFlags() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        dispatcher.performDispatch(.key(code: "ansi-S", modifiers: [.cmd, .shift]))
+
+        #expect(recorder.events[0].flags.contains(.maskCommand))
+        #expect(recorder.events[0].flags.contains(.maskShift))
+        #expect(!recorder.events[0].flags.contains(.maskControl))
+        #expect(!recorder.events[0].flags.contains(.maskAlternate))
+    }
+
+    @Test func cursorMoveAfterKeyEventCarriesNoModifierFlags() {
+        // Regression guard: modifier state from a key event must not bleed
+        // into the next cursor move. macOS pointer drift if the OS were to
+        // see a held Cmd while the cursor moves alone.
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 0, y: 0) }
+        )
+
+        dispatcher.performDispatch(.key(code: "ansi-S", modifiers: [.cmd]))
+        dispatcher.performDispatch(.cursorMove(dx: 10, dy: 10))
+
+        #expect(recorder.events.count == 3)
+        #expect(!recorder.events[2].flags.contains(.maskCommand))
+    }
+
+    @Test func unknownKeyCodeIsDropped() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        dispatcher.performDispatch(.key(code: "ansi-nonexistent", modifiers: []))
+
+        #expect(recorder.events.isEmpty)
+    }
+
+    @Test func modifierArmIsNoOp() {
+        // iOS composes modifiers before sending; host treats modifierArm
+        // as a no-op so the wire still carries it (for future / alternate
+        // clients) but the host emits nothing.
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        dispatcher.performDispatch(.modifierArm(mod: .cmd))
+
+        #expect(recorder.events.isEmpty)
+    }
+
     @Test func outOfScopeInputsAreNoOps() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(
@@ -360,6 +456,7 @@ struct InputDispatcherTests {
         )
 
         dispatcher.performDispatch(.click(button: .double))
+        dispatcher.performDispatch(.switchSpace(direction: .left))
 
         #expect(recorder.events.isEmpty)
     }
