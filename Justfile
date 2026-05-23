@@ -87,13 +87,31 @@ client-sim-reinstall:
     -xcrun simctl uninstall {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient 2>/dev/null || true
     just client-sim-install
 
-# Rebuild and relaunch the Mac host, then uninstall and reinstall the
-# iOS app on the simulator. Use after changes that affect either side's
-# install-time metadata, or when you want a known-clean simulator
-# starting point for a Maestro flow run.
+# Simulator equivalent of `pair-iphone`. Asks the running host to mint
+# a fresh pair URL (SIGUSR1 -> writes to {{last_pair_url_path}}), then
+# delivers the URL via `simctl openurl` which both launches the app and
+# routes the URL through SceneDelegate's openURLContexts handler. End
+# state: the app is open on the simulator in a paired session.
+pair-sim:
+    @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
+    rm -f "{{last_pair_url_path}}"
+    kill -USR1 $(pgrep -f AgentDeskHost)
+    @i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
+    @echo "URL: $(cat '{{last_pair_url_path}}')"
+    xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
+    xcrun simctl openurl {{ios_sim_udid}} "$(cat '{{last_pair_url_path}}')"
+
+# Rebuild and relaunch the Mac host, uninstall and reinstall the iOS
+# app on the simulator, then pair and open it. Use after changes that
+# affect either side's install-time metadata, or when you want a
+# known-clean simulator starting point for a Maestro flow run.
+# Uninstall wipes UserDefaults so pairing always has to be re-done;
+# pair-sim handles that and leaves the app open on the trackpad screen.
 sim-fresh-install:
     just host-run
     just client-sim-reinstall
+    just pair-sim
 
 # Drive the iPhone simulator with a Maestro flow. Maestro is the standard
 # tool for declarative iOS UI automation (Playwright-equivalent for mobile);
