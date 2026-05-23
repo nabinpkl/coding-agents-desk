@@ -88,16 +88,16 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     private func configureKeyboardSurface() {
         keyboardSurface.keyboardDelegate = self
-        // Zero-size hidden subview is enough: the responder chain only
-        // cares that the view is in the window hierarchy when
-        // becomeFirstResponder is called. The visible UI is the system
-        // soft keyboard plus our inputAccessoryView.
         keyboardSurface.translatesAutoresizingMaskIntoConstraints = false
+        // Sits just above the bottom button row so the user sees what
+        // they typed locally as confirmation while wire events go to
+        // the Mac. Hidden until the user summons it.
         keyboardSurface.isHidden = true
         view.addSubview(keyboardSurface)
         NSLayoutConstraint.activate([
-            keyboardSurface.widthAnchor.constraint(equalToConstant: 0),
-            keyboardSurface.heightAnchor.constraint(equalToConstant: 0)
+            keyboardSurface.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            keyboardSurface.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            keyboardSurface.heightAnchor.constraint(equalToConstant: 36)
         ])
         // Any tap on the app's main view dismisses the keyboard. The
         // iOS soft keyboard and its inputAccessoryView render in a
@@ -332,6 +332,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             bottomConstraint,
             buttonRow.heightAnchor.constraint(equalToConstant: 44),
 
+            keyboardSurface.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
+
             trackpadView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
             trackpadView.topAnchor.constraint(equalTo: view.centerYAnchor, constant: 24),
@@ -369,7 +371,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     @objc private func toggleKeyboard() {
         if keyboardSurface.isFirstResponder {
             keyboardSurface.setVisible(false)
+            keyboardSurface.isHidden = true
+            keyboardSurface.text = ""
         } else {
+            keyboardSurface.isHidden = false
             keyboardSurface.setVisible(true)
         }
     }

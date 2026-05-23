@@ -77,10 +77,6 @@ final class KeyboardSurface: UITextField {
     }
 
     private func configureTraits() {
-        // Auto-correction, smart punctuation, and capitalisation are off
-        // so a code-input field is what reaches the host. Auto-correct
-        // would silently mutate the keystroke stream and break code
-        // typing.
         autocorrectionType = .no
         autocapitalizationType = .none
         smartDashesType = .no
@@ -89,13 +85,15 @@ final class KeyboardSurface: UITextField {
         spellCheckingType = .no
         keyboardType = .asciiCapable
         returnKeyType = .default
-        // Visually invisible even if the parent forgets to hide us.
-        // The field's text never grows because insertText doesn't call
-        // super, so this clear-text styling is belt-and-suspenders.
-        textColor = .clear
-        tintColor = .clear
-        backgroundColor = .clear
-        borderStyle = .none
+        // Visible field so the user sees what they've typed locally as
+        // confirmation, in addition to the wire events going to the
+        // Mac. insertText / deleteBackward still call super so text
+        // accumulates here.
+        backgroundColor = .tertiarySystemBackground
+        textColor = .label
+        font = .systemFont(ofSize: 16)
+        borderStyle = .roundedRect
+        placeholder = "Type to send to Mac"
     }
 
     // MARK: First-responder visibility
@@ -141,10 +139,12 @@ final class KeyboardSurface: UITextField {
         for char in text {
             emitForCharacter(char)
         }
+        super.insertText(text)
     }
 
     override func deleteBackward() {
         emit(code: "delete")
+        super.deleteBackward()
     }
 
     // MARK: Internals
