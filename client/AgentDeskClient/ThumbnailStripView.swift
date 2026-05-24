@@ -66,6 +66,7 @@ final class ThumbnailStripView: UIView {
     private var activeSpaceId: UInt64?
     private var thumbnails: [String: String] = [:]
     private var gestureBandWidth: CGFloat = 1.0
+    private var isSwipeActive = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -118,16 +119,24 @@ final class ThumbnailStripView: UIView {
     }
 
     private func updateSelectionOverlayFrame() {
+        // R27 v4: never touch the overlay frame while a swipe is
+        // active - setting frame while transform is non-identity is
+        // undefined per UIKit docs, and it was wiping the on-screen
+        // slide visible to the user.
+        if isSwipeActive { return }
         guard let activeIdx = activeIndex, activeIdx < tiles.count else {
             selectionOverlay.isHidden = true
             return
         }
         let activeTile = tiles[activeIdx]
-        // Tile is inside the stack which sits in the strip's local
-        // coordinate space. Use convert(_:to:) so the overlay frame
-        // accounts for the stack's center placement and any tile
-        // ordering offset.
+        // Force the stack to lay out so the tile's frame is current
+        // before we read it. Without this, tile.frame can still be
+        // .zero on the first apply(state:) and the overlay lands at
+        // the strip's origin instead of over the active tile.
+        stack.setNeedsLayout()
+        stack.layoutIfNeeded()
         let frame = activeTile.convert(activeTile.bounds, to: self)
+        selectionOverlay.transform = .identity
         selectionOverlay.frame = frame
         selectionOverlay.isHidden = false
     }
@@ -256,26 +265,30 @@ final class ThumbnailStripView: UIView {
         case .began:
             gestureBandWidth = max(bandWidth, 1.0)
             feedback.selectionChanged()
+            isSwipeActive = true
             // R26: cancel any in-flight snap-back so a rapid second
             // pan starts cleanly from the current transform instead
             // of fighting the spring.
             stack.layer.removeAllAnimations()
+            selectionOverlay.layer.removeAllAnimations()
             emit(phase: .began, progress: 0, velocityX: 0)
         case .changed:
             let raw = Float(translation.x / gestureBandWidth)
             let progress = min(max(raw, -1.0), 1.0)
             let nudged = nudgeAwayFromZero(progress)
             applyVisualSlide(translation: translation)
-            applyOverlapHighlight(translation: translation, signedProgress: CGFloat(progress))
+            applyOverlapHighlight(translation: translation)
             emit(phase: .changed, progress: nudged, velocityX: Float(velocity.x))
         case .ended:
             let raw = Float(translation.x / gestureBandWidth)
             let progress = min(max(raw, -1.0), 1.0)
             emit(phase: .ended, progress: progress, velocityX: Float(velocity.x))
+            isSwipeActive = false
             snapStackBack()
             restoreActiveHighlight()
         case .cancelled, .failed:
             emit(phase: .cancelled, progress: 0, velocityX: 0)
+            isSwipeActive = false
             snapStackBack()
             restoreActiveHighlight()
         default:
@@ -304,48 +317,21 @@ final class ThumbnailStripView: UIView {
         stack.transform = CGAffineTransform(translationX: visualX, y: 0)
     }
 
-    // R27 v3: slide the overlay so it linearly interpolates between
-    // the active tile's CURRENT visual position (which moves with the
-    // stack's slide) and the destination tile's CURRENT visual
-    // position. Both tiles slide together with the stack; the
-    // overlay's transform = stack_translation + magnitude *
-    // destSign * tileDistance keeps the overlay glued to the active
-    // tile at progress=0 and to the destination tile at progress=1.
-    // The previous formula only added the magnitude * destSign *
-    // tileDistance part, so the overlay didn't keep up with the
-    // stack and stayed effectively pinned to the strip while tiles
-    // slid past underneath - looked like nothing was sliding.
-    //
-    // Direction: useMacOSDirection=true -> destSign matches finger
-    // direction (next Space is right). useMacOSDirection=false ->
-    // destSign opposite finger direction (next Space is left under
-    // the scrollbar reading).
-    private func applyOverlapHighlight(translation: CGPoint, signedProgress: CGFloat) {
-        guard let activeIdx = activeIndex, !tiles.isEmpty else { return }
-        let magnitude = min(1.0, abs(signedProgress))
-        let tileDistance = Self.tileWidth + Self.tileSpacing
-        let fingerSign: CGFloat = signedProgress >= 0 ? 1 : -1
-        let destSign: CGFloat = useMacOSDirection ? fingerSign : -fingerSign
-        let destIdx = activeIdx + Int(destSign)
-        // Mirror the stack's slide (with the same overdraft resistance
-        // applied in applyVisualSlide) so the overlay tracks the
-        // active tile while the stack moves.
-        let stackVisualX: CGFloat
-        let band = gestureBandWidth
-        if abs(translation.x) <= band {
-            stackVisualX = translation.x
-        } else {
-            let sign: CGFloat = translation.x >= 0 ? 1 : -1
-            let overshoot = abs(translation.x) - band
-            stackVisualX = sign * (band + overshoot * 0.35)
-        }
-        // If there's a valid destination, add the toward-destination
-        // offset. Otherwise just track the stack (no relative slide).
-        let neighbourOffset: CGFloat = (destIdx >= 0 && destIdx < tiles.count)
-            ? destSign * magnitude * tileDistance
-            : 0
+    // R27 v4: overlay slides at 2x the finger rate. The stack slides
+    // at 1x (applyVisualSlide), so the overlay's net motion RELATIVE
+    // to the active tile equals 1x the finger translation - exactly
+    // the "blue box leaves the active tile by whatever distance I
+    // slide" the user asked for. Direction matches the finger
+    // (overlay goes the same way the finger goes); the
+    // useMacOSDirection setting only flips the wire-level sign in
+    // emit(), not the on-screen overlay motion. The previous
+    // formulas with destSign / magnitude / tileDistance produced
+    // tiny relative offsets (~12pt at a 50pt drag) that were
+    // invisible against the stack's full-rate slide.
+    private func applyOverlapHighlight(translation: CGPoint) {
+        guard activeIndex != nil else { return }
         selectionOverlay.transform = CGAffineTransform(
-            translationX: stackVisualX + neighbourOffset,
+            translationX: translation.x * 2.0,
             y: 0
         )
     }
