@@ -19,6 +19,11 @@ final class InputDispatcher: @unchecked Sendable {
     private let locationProvider: LocationProvider
     private let displayBoundsProvider: DisplayBoundsProvider
     private var loggedUntrusted = false
+    // Custom event source so we can disable the 0.25s synthetic-event
+    // suppression interval macOS otherwise applies. Without this, posted
+    // moves overlapping with the user's local trackpad or other CGEvent
+    // sources cause visible cursor hitches.
+    private let cursorEventSource: CGEventSource?
     // Sub-pixel scroll deltas (precision drags after lowering the iPhone
     // scroll gain floor to 1.0) round to zero individually and would never
     // emit. Accumulate the fractional remainder across calls so they
@@ -35,6 +40,9 @@ final class InputDispatcher: @unchecked Sendable {
         self.isTrusted = isTrusted
         self.locationProvider = locationProvider
         self.displayBoundsProvider = displayBoundsProvider
+        let source = CGEventSource(stateID: .hidSystemState)
+        source?.localEventsSuppressionInterval = 0.0
+        self.cursorEventSource = source
     }
 
     func dispatch(_ input: NormalizedInput) {
@@ -67,12 +75,26 @@ final class InputDispatcher: @unchecked Sendable {
         let current = currentLocation()
         let raw = CGPoint(x: current.x + dx, y: current.y + dy)
         let next = clamp(raw, to: displayBoundsProvider())
+        // Use the applied delta (post-clamp) so the relative-motion fields
+        // agree with the resulting position when we hit a display edge.
+        let appliedDx = next.x - current.x
+        let appliedDy = next.y - current.y
         guard let event = CGEvent(
-            mouseEventSource: nil,
+            mouseEventSource: cursorEventSource,
             mouseType: .mouseMoved,
             mouseCursorPosition: next,
             mouseButton: .left
         ) else { return }
+        // Setting kCGMouseEventDeltaX/Y routes the event through the macOS
+        // pointer-acceleration pipeline, so the user's "Tracking speed"
+        // preference shapes the curve. Without these fields, posting only
+        // mouseCursorPosition warps the cursor with no system curve, which
+        // is why a per-event accel multiplier on the iPhone side felt like
+        // it was fighting the OS (because it was).
+        event.setIntegerValueField(.mouseEventDeltaX, value: Int64(appliedDx.rounded()))
+        event.setIntegerValueField(.mouseEventDeltaY, value: Int64(appliedDy.rounded()))
+        event.setDoubleValueField(.mouseEventDeltaX, value: Double(appliedDx))
+        event.setDoubleValueField(.mouseEventDeltaY, value: Double(appliedDy))
         eventPoster(event)
     }
 

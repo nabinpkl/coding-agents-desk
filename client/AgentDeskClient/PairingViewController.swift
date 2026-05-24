@@ -21,7 +21,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private let trackpadHint = UILabel()
     private let scrollStripView = UIView()
     private let scrollStripHint = UILabel()
-    private let gestureTranslator = GestureTranslator(acceleration: .mac, scrollAcceleration: .scroll)
+    // Cursor acceleration is now provided by macOS pointer accel (the host
+    // sets kCGMouseEventDeltaX/Y on every posted move, so the user's
+    // "Tracking speed" preference shapes the curve). Sending an identity
+    // curve here means we ship raw finger deltas and stop fighting the OS.
+    private let gestureTranslator = GestureTranslator(acceleration: .identity, scrollAcceleration: .scroll)
 
     override func viewDidLoad() {
         super.viewDidLoad()
