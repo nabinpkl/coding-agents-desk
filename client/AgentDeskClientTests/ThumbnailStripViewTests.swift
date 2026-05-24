@@ -72,11 +72,17 @@ struct ThumbnailStripViewTests {
     // right positive) and the wire emit. useMacOSDirection toggles
     // whether to flip.
 
-    @Test func defaultDirectionFlipsSignBeforeEmit() {
+    @Test func defaultDirectionPassesSignThrough() {
+        // Per AGENTS.md "Scroll and slide direction", the default is
+        // OPPOSITE of Mac native: finger LEFT (rawProgress negative
+        // under our drag convention) commits the right-neighbour
+        // Space, finger RIGHT (rawProgress positive) commits the
+        // left-neighbour. The wire sign that Dock reads as "next"
+        // under the user's trackpad setting matches computeRawProgress
+        // directly, so the default branch passes raw through.
         let recorder = StripRecorder()
         let view = ThumbnailStripView()
         view.delegate = recorder
-        // useMacOSDirection stays at its default `false`.
 
         view.emitSwipeFrame(phase: .changed, rawProgress: 0.5, velocityX: 1200)
 
@@ -84,11 +90,11 @@ struct ThumbnailStripViewTests {
             Issue.record("expected switchSpaceGesture")
             return
         }
-        #expect(progress == -0.5)
-        #expect(velocityX == -1200)
+        #expect(progress == 0.5)
+        #expect(velocityX == 1200)
     }
 
-    @Test func useMacOSDirectionPassesSignThrough() {
+    @Test func useMacOSDirectionFlipsSign() {
         let recorder = StripRecorder()
         let view = ThumbnailStripView()
         view.delegate = recorder
@@ -100,8 +106,8 @@ struct ThumbnailStripViewTests {
             Issue.record("expected switchSpaceGesture")
             return
         }
-        #expect(progress == 0.5)
-        #expect(velocityX == 1200)
+        #expect(progress == -0.5)
+        #expect(velocityX == -1200)
     }
 
     @Test func eachEmitProducesOnePhasedFrame() {

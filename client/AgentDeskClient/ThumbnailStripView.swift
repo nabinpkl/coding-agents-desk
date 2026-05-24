@@ -365,11 +365,16 @@ final class ThumbnailStripView: UIView {
     // exercise the sign-flip logic without spinning a real
     // UIScrollView.
     func emitSwipeFrame(phase: NormalizedInput.SwipePhase, rawProgress: Float, velocityX: CGFloat) {
-        // useMacOSDirection=true passes finger direction through;
-        // false (default) inverts so finger-right maps to Space-on-
-        // the-left (scrollbar reading).
-        let signedProgress = useMacOSDirection ? rawProgress : -rawProgress
-        let signedVelocity = Float(useMacOSDirection ? velocityX : -velocityX)
+        // Per AGENTS.md "Scroll and slide direction": the default
+        // (useMacOSDirection=false) is OPPOSITE of Mac native. Finger
+        // LEFT commits the right-neighbour Space, finger RIGHT commits
+        // the left-neighbour. computeRawProgress returns negative for
+        // finger-LEFT (drag positive in offset space, translation
+        // negative), which is exactly the wire sign macOS Dock reads
+        // as "next Space" under the user's trackpad setting -- so the
+        // default passes through. The toggle inverts.
+        let signedProgress = useMacOSDirection ? -rawProgress : rawProgress
+        let signedVelocity = Float(useMacOSDirection ? -velocityX : velocityX)
         delegate?.thumbnailStrip(self, didProduce: .switchSpaceGesture(
             phase: phase,
             progress: signedProgress,
