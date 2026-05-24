@@ -9,23 +9,26 @@ protocol GestureTranslatorDelegate: AnyObject {
     @MainActor func gestureTranslator(_ translator: GestureTranslator, didProduce input: NormalizedInput)
 }
 
-// Velocity-scaled gain curve. Slow finger moves keep a small floor so
-// precision dragging still works; fast moves multiply more aggressively so
-// the cursor can cross the Mac display in a single sweep without exhausting
-// the iPhone's trackpad zone. Speed is in points-per-changed-callback, which
-// at the ~60 Hz delivery rate is roughly velocity / 60.
+// Acceleration curve over the iPhone's hardware touch velocity (points per
+// second from UIPanGestureRecognizer.velocity). Slow drags keep a small
+// floor so precision still works; fast flicks multiply much more so the
+// cursor can cross the Mac display in a single sweep without exhausting
+// the iPhone's trackpad zone.
 struct GestureAcceleration: Sendable {
     let scale: @Sendable (CGFloat) -> CGFloat
 
     static let identity = GestureAcceleration { _ in 1.0 }
 
-    // Linear ramp with a floor and a ceiling. Tuned by feel against the
-    // iPhone trackpad zone, not derived from macOS internals.
-    //   speed = 1   -> gain 2.3 (precision-friendly)
-    //   speed = 5   -> gain 3.5
-    //   speed = 15+ -> gain 6.0 (clamped)
-    static let mac = GestureAcceleration { speed in
-        2.0 + min(speed * 0.3, 4.0)
+    // Linear ramp with a precision floor and a flick ceiling. Tuned by feel
+    // against an iPhone trackpad zone driving a 1512x982 Mac display, not
+    // derived from macOS internals. Numbers below are points per second.
+    //   0     ->  2.0  (still moving even from a near-stop)
+    //   200   ->  3.2  (precision drag for pixel-level work)
+    //   800   ->  6.8  (typical drag)
+    //   2000  -> 14.0  (fast drag, cursor easily crosses the screen)
+    //   4000+ -> 26.0  (flick, capped so it does not overshoot)
+    static let mac = GestureAcceleration { velocity in
+        2.0 + min(velocity * 0.006, 24.0)
     }
 }
 
@@ -56,10 +59,11 @@ final class GestureTranslator: NSObject {
         view.addGestureRecognizer(tap)
     }
 
-    // Pure functions over (state, translation) so tests can drive them
-    // without a live UIWindow attaching synthetic touches. The @objc shims
-    // below pull the gesture's current state and forward in.
-    func processPan(state: UIGestureRecognizer.State, translation: CGPoint) {
+    // Pure functions over (state, translation, velocity) so tests can drive
+    // them without a live UIWindow attaching synthetic touches. The @objc
+    // shims below pull the gesture's current state and velocity in points
+    // per second from UIPanGestureRecognizer.
+    func processPan(state: UIGestureRecognizer.State, translation: CGPoint, velocity: CGPoint = .zero) {
         switch state {
         case .began:
             lastPanTranslation = translation
@@ -68,7 +72,7 @@ final class GestureTranslator: NSObject {
             let rawDy = translation.y - lastPanTranslation.y
             lastPanTranslation = translation
             if rawDx == 0 && rawDy == 0 { return }
-            let speed = (rawDx * rawDx + rawDy * rawDy).squareRoot()
+            let speed = (velocity.x * velocity.x + velocity.y * velocity.y).squareRoot()
             let gain = acceleration.scale(speed)
             let dx = Float(rawDx * gain)
             let dy = Float(rawDy * gain)
@@ -87,7 +91,11 @@ final class GestureTranslator: NSObject {
 
     @objc private func handlePanGesture(_ gesture: UIPanGestureRecognizer) {
         guard let view = gesture.view else { return }
-        processPan(state: gesture.state, translation: gesture.translation(in: view))
+        processPan(
+            state: gesture.state,
+            translation: gesture.translation(in: view),
+            velocity: gesture.velocity(in: view)
+        )
     }
 
     @objc private func handleTapGesture(_ gesture: UITapGestureRecognizer) {
