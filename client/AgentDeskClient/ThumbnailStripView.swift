@@ -317,21 +317,20 @@ final class ThumbnailStripView: UIView {
         stack.transform = CGAffineTransform(translationX: visualX, y: 0)
     }
 
-    // R27 v4: overlay slides at 2x the finger rate. The stack slides
-    // at 1x (applyVisualSlide), so the overlay's net motion RELATIVE
-    // to the active tile equals 1x the finger translation - exactly
-    // the "blue box leaves the active tile by whatever distance I
-    // slide" the user asked for. Direction matches the finger
-    // (overlay goes the same way the finger goes); the
-    // useMacOSDirection setting only flips the wire-level sign in
-    // emit(), not the on-screen overlay motion. The previous
-    // formulas with destSign / magnitude / tileDistance produced
-    // tiny relative offsets (~12pt at a 50pt drag) that were
-    // invisible against the stack's full-rate slide.
+    // R27 v5: overlay slides TOWARD the destination Space at 2x the
+    // finger rate. Under the default useMacOSDirection=false (pull /
+    // scrollbar reading), pulling the finger LEFT commits to the
+    // RIGHT-neighbour Space, so the overlay slides RIGHT. Under
+    // useMacOSDirection=true, the destination matches finger
+    // direction so the overlay slides WITH the finger. Either way,
+    // the overlay clearly leaves the active tile in the direction
+    // of the destination, while the stack still slides with the
+    // finger - giving the "two things moving" overlap effect.
     private func applyOverlapHighlight(translation: CGPoint) {
         guard activeIndex != nil else { return }
+        let directionMultiplier: CGFloat = useMacOSDirection ? 2.0 : -2.0
         selectionOverlay.transform = CGAffineTransform(
-            translationX: translation.x * 2.0,
+            translationX: translation.x * directionMultiplier,
             y: 0
         )
     }
