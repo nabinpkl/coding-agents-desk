@@ -96,6 +96,15 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private let keyboardSurface = KeyboardSurface()
     private var buttonRowBottomConstraint: NSLayoutConstraint?
     private var dismissKeyboardTap: UITapGestureRecognizer?
+    // R23: orientation-variant constraints built fresh on every session
+    // (mountSinkView + showTrackpad both append) and one set is active at
+    // a time. viewWillTransition swaps them inside the rotation
+    // coordinator's animator block. The shared (orientation-invariant)
+    // constraints stay active for the entire session and aren't tracked
+    // here.
+    private var portraitConstraints: [NSLayoutConstraint] = []
+    private var landscapeConstraints: [NSLayoutConstraint] = []
+    private var currentIsLandscape: Bool?
     // CGEvent posts at the userspace layer don't actually trigger macOS
     // pointer accel (that lives in IOKit, below CGEvent), so we apply our
     // own approximation client-side. The .mac curve keeps the standard
@@ -160,9 +169,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // the Mac. Hidden until the user summons it.
         keyboardSurface.isHidden = true
         view.addSubview(keyboardSurface)
+        // R23: leading/trailing are orientation-variant (full-width in
+        // portrait, right-column in landscape) and live in the
+        // portrait/landscape arrays built by showTrackpad. Height and
+        // bottom (relative to buttonRow.topAnchor) stay shared.
         NSLayoutConstraint.activate([
-            keyboardSurface.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            keyboardSurface.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
             keyboardSurface.heightAnchor.constraint(equalToConstant: 36)
         ])
         // Any tap on the app's main view dismisses the keyboard. The
@@ -397,12 +408,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         scroll.addSubview(sinkView)
         view.insertSubview(scroll, at: 0)
 
+        // Inner constraints (sink view inside the scroll) are
+        // orientation-invariant; activate immediately.
         NSLayoutConstraint.activate([
-            scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: view.topAnchor),
-            scroll.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.55),
-
             // The sink fills the scroll view's content area exactly at
             // zoomScale = 1. As the user pinches, UIScrollView scales
             // its zoom subview's transform, the content size grows, and
@@ -413,6 +421,22 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             sinkView.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             sinkView.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
             sinkView.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor)
+        ])
+
+        // R23: outer scroll constraints (position + extent in the
+        // controller view) are orientation-variant. Captured here into
+        // the portrait array; the matching landscape entries (which need
+        // the topBandStack reference for the scroll's bottom edge) are
+        // appended in showTrackpad before applyOrientationConstraints
+        // fires. Until showTrackpad runs, no layout pass happens between
+        // mountSinkView and showTrackpad (both are called synchronously
+        // from startMediaTransportIfNeeded), so the scroll has no extent
+        // briefly without producing a layout warning.
+        portraitConstraints.append(contentsOf: [
+            scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: view.topAnchor),
+            scroll.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.55)
         ])
 
         // Double-tap zoom toggle: 1.0 ↔ 2.0, animated, centered on the
@@ -548,10 +572,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         let bottomConstraint = buttonRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
         buttonRowBottomConstraint = bottomConstraint
 
-        // Stack's top aligns with the video sink's bottom edge (sink
-        // occupies the top 0.55 of the view height; see mountSinkView).
-        // Multiplier on view.bottom keeps the band's position
-        // independent of when the sink mounts.
+        // Stack's top aligns with the video sink's bottom edge in
+        // portrait (sink occupies the top 0.55 of the view height; see
+        // mountSinkView). Multiplier on view.bottom keeps the band's
+        // position independent of when the sink mounts.
         let bandTopAtVideoBottom = NSLayoutConstraint(
             item: topBandStack,
             attribute: .top,
@@ -562,34 +586,87 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             constant: 0
         )
 
+        // Shared constraints, active for the entire session in both
+        // orientations. Heights, fixed widths, intra-card hint
+        // placement, and anchors that resolve to the same edge in
+        // either orientation (e.g. buttonRow bottom to safe-area
+        // bottom, scrollStrip top/bottom relative to trackpad).
         NSLayoutConstraint.activate([
-            buttonRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            buttonRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
             bottomConstraint,
             buttonRow.heightAnchor.constraint(equalToConstant: 44),
 
-            topBandStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            topBandStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            bandTopAtVideoBottom,
             spacesDotsView.heightAnchor.constraint(equalToConstant: 32),
             thumbnailStripView.heightAnchor.constraint(equalToConstant: 56),
 
             keyboardSurface.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
 
-            trackpadView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
-            trackpadView.topAnchor.constraint(equalTo: topBandStack.bottomAnchor, constant: 4),
-            trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
             trackpadHint.centerXAnchor.constraint(equalTo: trackpadView.centerXAnchor),
             trackpadHint.bottomAnchor.constraint(equalTo: trackpadView.bottomAnchor, constant: -10),
 
             scrollStripView.widthAnchor.constraint(equalToConstant: 60),
-            scrollStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
             scrollStripView.topAnchor.constraint(equalTo: trackpadView.topAnchor),
             scrollStripView.bottomAnchor.constraint(equalTo: trackpadView.bottomAnchor),
             scrollStripHint.centerXAnchor.constraint(equalTo: scrollStripView.centerXAnchor),
             scrollStripHint.centerYAnchor.constraint(equalTo: scrollStripView.centerYAnchor)
         ])
+
+        // Portrait layout. Trackpad + scroll strip span the bottom row;
+        // band stack sits at view.bottom * 0.55 above the trackpad;
+        // video scroll (constrained in mountSinkView) takes the top
+        // 0.55. Keyboard surface and button row stretch full width.
+        portraitConstraints.append(contentsOf: [
+            buttonRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            buttonRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+
+            topBandStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            topBandStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            bandTopAtVideoBottom,
+
+            keyboardSurface.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            keyboardSurface.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+
+            trackpadView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
+            trackpadView.topAnchor.constraint(equalTo: topBandStack.bottomAnchor, constant: 4),
+            trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
+
+            scrollStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12)
+        ])
+
+        // Landscape layout. Video scroll occupies the left ~62% of the
+        // safe area at full height; band stack pins below it on the
+        // left column. Trackpad + scroll strip + buttons live in the
+        // right column. Scroll's bottom edge (deferred from
+        // mountSinkView) is added here because the topBandStack only
+        // exists at this point.
+        if let scroll = sinkScrollView {
+            let safe = view.safeAreaLayoutGuide
+            landscapeConstraints.append(contentsOf: [
+                scroll.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+                scroll.topAnchor.constraint(equalTo: safe.topAnchor),
+                scroll.widthAnchor.constraint(equalTo: safe.widthAnchor, multiplier: 0.62),
+                scroll.bottomAnchor.constraint(equalTo: topBandStack.topAnchor, constant: -8),
+
+                topBandStack.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+                topBandStack.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
+                topBandStack.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
+
+                trackpadView.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 12),
+                trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
+                trackpadView.topAnchor.constraint(equalTo: safe.topAnchor),
+                trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
+
+                scrollStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
+
+                buttonRow.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 12),
+                buttonRow.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
+
+                keyboardSurface.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 12),
+                keyboardSurface.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8)
+            ])
+        }
+
+        applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
 
         gestureTranslator.delegate = self
         gestureTranslator.attach(to: trackpadView)
@@ -598,6 +675,26 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         startDesktopStateObservation()
         startThumbnailsObservation()
         sendCurrentClientConfig()
+    }
+
+    // R23: swap the active orientation's constraint set. Safe to call
+    // when both arrays are empty (initial state before the first
+    // session): NSLayoutConstraint.deactivate/activate on an empty
+    // array is a no-op. Tracks the last applied orientation in
+    // currentIsLandscape so repeated calls with the same flag are
+    // cheap.
+    private func applyOrientationConstraints(forLandscape isLandscape: Bool) {
+        if currentIsLandscape == isLandscape && (!portraitConstraints.isEmpty || !landscapeConstraints.isEmpty) {
+            return
+        }
+        if isLandscape {
+            NSLayoutConstraint.deactivate(portraitConstraints)
+            NSLayoutConstraint.activate(landscapeConstraints)
+        } else {
+            NSLayoutConstraint.deactivate(landscapeConstraints)
+            NSLayoutConstraint.activate(portraitConstraints)
+        }
+        currentIsLandscape = isLandscape
     }
 
     // R11: drains the InputChannel's host-pushed DesktopState frames
@@ -710,6 +807,17 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         lastDesktopState = nil
         keyboardSurface.setVisible(false)
         buttonRowBottomConstraint = nil
+        // R23: drop the orientation-variant constraints built in
+        // mountSinkView + showTrackpad. They reference views that have
+        // either been removed (trackpad, scrollStrip, buttonRow,
+        // topBandStack) or will be next via teardownMediaTransport
+        // (sinkScrollView). The next mountSinkView/showTrackpad will
+        // repopulate fresh arrays and re-apply orientation.
+        NSLayoutConstraint.deactivate(portraitConstraints)
+        NSLayoutConstraint.deactivate(landscapeConstraints)
+        portraitConstraints.removeAll()
+        landscapeConstraints.removeAll()
+        currentIsLandscape = nil
     }
 
     @objc private func rightClickTapped() {
@@ -729,6 +837,25 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             keyboardSurface.setVisible(true)
             showKeyboardButton.setTitle("Hide keyboard", for: .normal)
         }
+    }
+
+    // R23: orientation flip. The coordinator's animate block aligns
+    // the constraint swap with the system-driven rotation animation so
+    // the layout interpolates cleanly. Zoom is reset to 1.0 because
+    // the aspect-fit padding of the video (and therefore the
+    // contentOffset that makes any zoomed region land sensibly) is
+    // fundamentally different after the aspect flip; carrying a
+    // zoomed offset across produces a confusing landing spot.
+    // cursorSourcePos is in source-display coords and stays put.
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        let willBeLandscape = size.width > size.height
+        coordinator.animate(alongsideTransition: { _ in
+            self.applyOrientationConstraints(forLandscape: willBeLandscape)
+            self.sinkScrollView?.setZoomScale(1.0, animated: false)
+            self.sinkScrollView?.setContentOffset(.zero, animated: false)
+            self.view.layoutIfNeeded()
+        })
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
