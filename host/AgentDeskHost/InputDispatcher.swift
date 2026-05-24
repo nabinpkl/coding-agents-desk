@@ -94,23 +94,23 @@ final class InputDispatcher: @unchecked Sendable {
     }
 
     private func postScroll(dx: Float, dy: Float) {
-        // CGEvent scroll wheel pixel convention: wheel1 positive = scroll up
-        // = page slides up = content below becomes visible. The iPhone scroll
-        // strip is modeled after a scrollbar, so dragging the finger DOWN on
-        // the strip should reveal content BELOW (scroll the page UP in the
-        // traditional sense). dy from UIPan is positive when the finger
-        // moves down, so we pass it through directly.
-        // macOS applies the user's "Natural scrolling" preference on top of
-        // this; if the feel is inverted, they can flip System Settings >
-        // Trackpad > Scroll Direction.
+        // Vertical only for now (wheelCount=1). Int32(dy) of a fractional
+        // Float between -1 and 1 truncates to 0, which would silently drop
+        // small scrolls; round to nearest instead.
+        let dyInt = Int32(dy.rounded())
+        if dyInt == 0 { return }
         guard let event = CGEvent(
             scrollWheelEvent2Source: nil,
             units: .pixel,
-            wheelCount: 2,
-            wheel1: Int32(dy),
-            wheel2: Int32(dx),
+            wheelCount: 1,
+            wheel1: dyInt,
+            wheel2: 0,
             wheel3: 0
-        ) else { return }
+        ) else {
+            logger.error("scroll CGEvent creation returned nil dy=\(dyInt, privacy: .public)")
+            return
+        }
+        logger.notice("scroll dy=\(dyInt, privacy: .public)")
         eventPoster(event)
     }
 
