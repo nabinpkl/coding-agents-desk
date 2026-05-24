@@ -1,36 +1,31 @@
 import UIKit
 
 // Spaces strip. Horizontal UICollectionView of one cell per non-fullscreen
-// user Space on the active display, with a fixed border-only indicator
-// pinned to the strip's horizontal centre. Tiles scroll past the
-// indicator; that motion is the swipe-to-switch gesture.
+// user Space on the active display, with two layout modes:
 //
-// The earlier hand-rolled approach overlaid a translucent rect over the
-// active tile and animated it manually as the user dragged. That
-// produced five rounds of "the highlight isn't moving" before the user
-// reminded me to reach for the canonical iOS pattern, which is this
-// one: tiles in a scroll container, indicator pinned to the viewport.
+// - Fits: all tiles fit in the strip's bounds. Spacing expands so the
+//   row spans from the strip's leading edge to its trailing edge. No
+//   scrolling. The active tile draws its own tinted border in place.
 //
-// Gesture wire is unchanged. Drag-began/scroll/end map onto
+// - Overflow: more tiles than fit. Cells use the default 8pt spacing
+//   and the row scrolls horizontally. The partial-cut tiles at the
+//   leading and trailing edges of the visible window are the cue that
+//   more exists. The active tile is scrolled into view (centered when
+//   possible); the host-side commit math hasn't changed.
+//
+// Selection is per-cell: ThumbnailTileCell flips its own border colour
+// when active. The previous floating overlay approach was wrong because
+// it pinned the selection to the strip's centerX even when the active
+// tile was elsewhere.
+//
+// Gesture wire is unchanged. Scroll began/scroll/end map onto
 // .switchSpaceGesture(.began/.changed/.ended); the host's
 // InputDispatcher posts one dock-swipe CGEvent per frame.
-//
-// State arrives as two streams: DesktopState drives the tile lineup
-// (which Spaces exist, which is active), and `thumbnails` drives the
-// images. PairingViewController applies both as they update.
 
 @MainActor
 protocol ThumbnailStripViewDelegate: AnyObject {
-    // Triggered on tap. The view emits a chain of single-step
-    // .switchSpaceGesture frames in the controller, so the existing
-    // dock-swipe synthesis path can commit a multi-step move without a
-    // new wire shape.
     func thumbnailStrip(_ view: ThumbnailStripView, didTapStepDelta delta: Int)
-    // Triggered on long-press. Routes to a client-config refresh
-    // frame.
     func thumbnailStrip(_ view: ThumbnailStripView, didLongPressSpaceId spaceId: UInt64)
-    // Triggered on continuous scroll. Forwards .switchSpaceGesture(...)
-    // frames in lockstep with UIScrollView's drag/scroll callbacks.
     func thumbnailStrip(_ view: ThumbnailStripView, didProduce input: NormalizedInput)
 }
 
@@ -40,22 +35,22 @@ final class ThumbnailStripView: UIView {
 
     static let tileWidth: CGFloat = 64
     static let tileHeight: CGFloat = 40
-    static let tileSpacing: CGFloat = 8
     static let tileCaptionHeight: CGFloat = 14
-    static var pageWidth: CGFloat { tileWidth + tileSpacing }
+    static let defaultTileSpacing: CGFloat = 8
+    static var pageWidth: CGFloat { tileWidth + defaultTileSpacing }
 
-    // Direction mapping mirrored from the retired manual implementation.
     // False (default, toggle OFF) inverts the wire-level sign so
-    // finger-right maps to the Space on the LEFT (scrollbar-style
-    // reading). True passes through (macOS-native trackpad direction).
+    // finger-right maps to the Space on the LEFT (scrollbar reading).
+    // True passes through (macOS-native trackpad direction).
     var useMacOSDirection: Bool = false
 
     private lazy var layout: UICollectionViewFlowLayout = {
         let l = UICollectionViewFlowLayout()
         l.scrollDirection = .horizontal
         l.itemSize = CGSize(width: Self.tileWidth, height: Self.tileHeight + Self.tileCaptionHeight)
-        l.minimumLineSpacing = Self.tileSpacing
+        l.minimumLineSpacing = Self.defaultTileSpacing
         l.minimumInteritemSpacing = 0
+        l.sectionInset = .zero
         return l
     }()
 
@@ -65,12 +60,9 @@ final class ThumbnailStripView: UIView {
         cv.showsHorizontalScrollIndicator = false
         cv.showsVerticalScrollIndicator = false
         cv.decelerationRate = .fast
-        cv.alwaysBounceHorizontal = true
-        // Default is .automatic, which lets iOS add safe-area /
-        // keyboard-tracking padding to the scroll's contentInset
-        // behind our back. The strip lives in the middle of the
-        // view, not at edges, so we want no auto adjustment; what we
-        // set is what we get.
+        cv.alwaysBounceHorizontal = false
+        // The strip lives in the middle of the view, not at edges; no
+        // auto-adjustment of insets behind our back.
         cv.contentInsetAdjustmentBehavior = .never
         cv.dataSource = self
         cv.delegate = self
@@ -79,34 +71,16 @@ final class ThumbnailStripView: UIView {
         return cv
     }()
 
-    // Fixed indicator. Sits over the collection view at horizontal
-    // centre; tiles scroll past underneath. Transparent fill so the
-    // active tile's thumbnail shows through; tinted border alone marks
-    // the selection.
-    private lazy var selectionOverlay: UIView = {
-        let v = UIView()
-        v.backgroundColor = .clear
-        v.layer.cornerRadius = 6
-        v.layer.borderColor = UIColor.tintColor.cgColor
-        v.layer.borderWidth = 1.5
-        v.isUserInteractionEnabled = false
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
-    }()
-
     private var orderedSpaces: [SpaceMetadata] = []
     private var activeSpaceId: UInt64?
     private var thumbnails: [String: String] = [:]
-    // Guards against scrollViewDidScroll firing while we're
-    // programmatically recentering after a state update.
     private var isProgrammaticScroll: Bool = false
     private var isDragging: Bool = false
-    private var lastEmittedActiveIndex: Int?
-    // The "resting offset" at which the currently-active tile sits
-    // centred under the indicator. Recomputed when bounds, tile count,
-    // or active index change.
+    // contentOffset at which the active cell is at its resting
+    // position. Drag progress is measured relative to this.
     private var activeRestingOffsetX: CGFloat = 0
     private var lastBoundsWidth: CGFloat = 0
+    private var lastTileCount: Int = -1
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -124,23 +98,11 @@ final class ThumbnailStripView: UIView {
         isUserInteractionEnabled = true
 
         addSubview(collectionView)
-        addSubview(selectionOverlay)
-
         NSLayoutConstraint.activate([
             collectionView.leadingAnchor.constraint(equalTo: leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: trailingAnchor),
             collectionView.topAnchor.constraint(equalTo: topAnchor),
-            collectionView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            selectionOverlay.centerXAnchor.constraint(equalTo: centerXAnchor),
-            selectionOverlay.centerYAnchor.constraint(
-                equalTo: topAnchor,
-                constant: (Self.tileHeight + Self.tileCaptionHeight) / 2
-            ),
-            selectionOverlay.widthAnchor.constraint(equalToConstant: Self.tileWidth),
-            selectionOverlay.heightAnchor.constraint(
-                equalToConstant: Self.tileHeight + Self.tileCaptionHeight
-            )
+            collectionView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
@@ -152,24 +114,42 @@ final class ThumbnailStripView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Inset so the first and last tile can centre under the
-        // indicator. Depends on bounds.width; recompute when it
-        // changes.
-        let inset = max(0, (bounds.width - Self.tileWidth) / 2)
-        let needsUpdate = collectionView.contentInset.left != inset
-            || lastBoundsWidth != bounds.width
-        if needsUpdate {
-            collectionView.contentInset = UIEdgeInsets(
-                top: 0, left: inset, bottom: 0, right: inset
-            )
+        // Recompute layout mode whenever bounds or tile count change.
+        let needsRelayout = lastBoundsWidth != bounds.width
+            || lastTileCount != orderedSpaces.count
+        if needsRelayout {
+            applyLayoutMode()
             lastBoundsWidth = bounds.width
-            // Force the flow layout to recompute now so scrollToItem
-            // and the resting-offset readback below see the
-            // post-inset content size.
-            collectionView.collectionViewLayout.invalidateLayout()
+            lastTileCount = orderedSpaces.count
             collectionView.layoutIfNeeded()
             recenterOnActive(animated: false)
         }
+    }
+
+    // Picks the layout mode for the current bounds and tile count:
+    //   - Fits: lineSpacing expanded so the row spans leading-to-trailing.
+    //   - Overflow: default 8pt spacing; row scrolls; partial-cut tiles at
+    //     the edges of the visible window indicate "more exists".
+    //
+    // Both modes use sectionInset = .zero. In Fits, contentOffset stays
+    // at 0; in Overflow, recenterOnActive scrolls the active cell into
+    // view.
+    private func applyLayoutMode() {
+        let count = orderedSpaces.count
+        guard count > 0, bounds.width > 0 else { return }
+        let totalAtDefault = CGFloat(count) * Self.tileWidth
+            + CGFloat(max(0, count - 1)) * Self.defaultTileSpacing
+        let fits = totalAtDefault <= bounds.width
+        if fits && count > 1 {
+            // Distribute remaining width across the gaps so cells
+            // span leading-to-trailing.
+            let extra = bounds.width - CGFloat(count) * Self.tileWidth
+            layout.minimumLineSpacing = max(Self.defaultTileSpacing, extra / CGFloat(count - 1))
+        } else {
+            layout.minimumLineSpacing = Self.defaultTileSpacing
+        }
+        layout.invalidateLayout()
+        collectionView.isScrollEnabled = !fits
     }
 
     // MARK: - Public state surface
@@ -188,16 +168,20 @@ final class ThumbnailStripView: UIView {
 
         if countChanged {
             collectionView.reloadData()
+            // Re-derive layout mode for the new count.
+            applyLayoutMode()
+            lastTileCount = orderedSpaces.count
         } else {
-            // Just re-render visible cells so active-mark updates.
+            // Re-render visible cells so their active-state border
+            // tracks the new activeSpaceId.
             for ip in collectionView.indexPathsForVisibleItems {
                 if let cell = collectionView.cellForItem(at: ip) as? ThumbnailTileCell {
                     configureCell(cell, atIndex: ip.item)
                 }
             }
         }
+        collectionView.layoutIfNeeded()
         recenterOnActive(animated: !countChanged)
-        selectionOverlay.isHidden = activeIndex == nil
     }
 
     func apply(thumbnails: [String: String]) {
@@ -214,7 +198,7 @@ final class ThumbnailStripView: UIView {
         activeSpaceId = nil
         thumbnails = [:]
         collectionView.reloadData()
-        selectionOverlay.isHidden = true
+        lastTileCount = 0
     }
 
     var userSpaceCount: Int { orderedSpaces.count }
@@ -230,47 +214,49 @@ final class ThumbnailStripView: UIView {
 
     // MARK: - Internals
 
+    // Scrolls the active cell into view in Overflow mode. In Fits
+    // mode all cells are visible already; nothing to do.
     private func recenterOnActive(animated: Bool) {
         guard let idx = activeIndex, bounds.width > 0 else { return }
-        // Let UICollectionView do the centering math itself. It
-        // accounts for contentInset, sectionInset, and the special
-        // cases at the start and end of the list. The previous
-        // hand-rolled `i * pageWidth - inset` formula occasionally
-        // landed off-centre when the strip's bounds and the
-        // collection view's contentInset hadn't fully synchronised.
-        let ip = IndexPath(item: idx, section: 0)
-        isProgrammaticScroll = true
-        collectionView.scrollToItem(at: ip, at: .centeredHorizontally, animated: animated)
-        // After scrollToItem the contentOffset reflects "active
-        // centred", which is the reference point the progress math
-        // measures drags against.
-        if !animated {
-            collectionView.layoutIfNeeded()
-            activeRestingOffsetX = collectionView.contentOffset.x
-            isProgrammaticScroll = false
-        } else {
-            // For animated scroll, capture an approximate resting
-            // offset now so an interrupting drag has a reference.
-            // didEndScrollingAnimation will refine it.
-            activeRestingOffsetX = restingOffsetEstimate(forIndex: idx)
+        if !collectionView.isScrollEnabled {
+            // Fits mode: no scrolling, contentOffset stays at 0.
+            activeRestingOffsetX = 0
+            return
         }
-    }
-
-    private func restingOffsetEstimate(forIndex i: Int) -> CGFloat {
-        let inset = collectionView.contentInset.left
-        return CGFloat(i) * Self.pageWidth - inset
+        guard let attrs = collectionView.layoutAttributesForItem(
+            at: IndexPath(item: idx, section: 0)
+        ) else { return }
+        // Center the active cell in the visible window, clamped to
+        // valid scroll bounds (UICollectionView clamps itself when
+        // we hand it a target).
+        let target = attrs.frame.midX - collectionView.bounds.width / 2
+        let maxOffset = max(0, collectionView.contentSize.width - collectionView.bounds.width)
+        let clamped = max(0, min(target, maxOffset))
+        activeRestingOffsetX = clamped
+        if abs(collectionView.contentOffset.x - clamped) < 0.5 { return }
+        isProgrammaticScroll = true
+        collectionView.setContentOffset(CGPoint(x: clamped, y: 0), animated: animated)
+        if !animated {
+            isProgrammaticScroll = false
+        }
     }
 
     fileprivate func configureCell(_ cell: ThumbnailTileCell, atIndex i: Int) {
         let space = orderedSpaces[i]
         let key = String(space.id)
-        if let base64 = thumbnails[key],
-           let data = Data(base64Encoded: base64),
-           let image = UIImage(data: data) {
-            cell.configure(ordinal: i + 1, image: image)
-        } else {
-            cell.configure(ordinal: i + 1, image: nil)
-        }
+        let image: UIImage? = {
+            if let base64 = thumbnails[key],
+               let data = Data(base64Encoded: base64),
+               let img = UIImage(data: data) {
+                return img
+            }
+            return nil
+        }()
+        cell.configure(
+            ordinal: i + 1,
+            image: image,
+            isActive: space.id == activeSpaceId
+        )
     }
 
     // MARK: - Long-press
@@ -283,19 +269,14 @@ final class ThumbnailStripView: UIView {
         delegate?.thumbnailStrip(self, didLongPressSpaceId: orderedSpaces[ip.item].id)
     }
 
-    // MARK: - Gesture emission (pure function, testable)
+    // MARK: - Gesture emission (pure functions, testable)
 
-    // Maps a scroll offset to the .switchSpaceGesture progress the
-    // host expects. Pure function so tests can exercise it directly
-    // without UIKit setup.
-    //
-    // Old translation.x maps inversely to contentOffset: dragging the
-    // finger RIGHT pulls content right, which DECREASES
+    // Maps a scroll offset onto the .switchSpaceGesture progress the
+    // host expects. Old translation.x maps inversely to contentOffset:
+    // dragging the finger RIGHT pulls content right, DECREASING
     // contentOffset.x. The "translation-equivalent" is therefore
-    // -(currentOffset - resting).
-    //
-    // Progress is normalised to one pageWidth (one tile + spacing) and
-    // clamped to [-1, 1].
+    // -(currentOffset - resting). Progress is normalised to one
+    // pageWidth (one tile + spacing) and clamped to [-1, 1].
     static func computeRawProgress(
         currentOffsetX: CGFloat,
         activeRestingOffsetX: CGFloat,
@@ -307,15 +288,22 @@ final class ThumbnailStripView: UIView {
         return min(max(raw, -1.0), 1.0)
     }
 
-    // Internal, not private: scrollView delegate methods call this in
-    // production, and ThumbnailStripViewTests calls it directly to
+    // Dock reads progress=0 on a .changed frame as "no gesture in
+    // progress" and drops it. Nudge to FLT_TRUE_MIN-sized away from
+    // zero so the direction-required guard still passes when the
+    // user's drag transits the resting position.
+    static func nudgeAwayFromZero(_ progress: Float) -> Float {
+        progress == 0 ? .leastNonzeroMagnitude : progress
+    }
+
+    // Internal, not private: scrollView delegate methods call this
+    // in production and ThumbnailStripViewTests calls it directly to
     // exercise the sign-flip logic without spinning a real
     // UIScrollView.
     func emitSwipeFrame(phase: NormalizedInput.SwipePhase, rawProgress: Float, velocityX: CGFloat) {
         // useMacOSDirection=true passes finger direction through;
-        // false (default) inverts so finger-right maps to Space-on-the-
-        // left (scrollbar reading). The progress sign here is in old
-        // translation.x convention (finger-right positive).
+        // false (default) inverts so finger-right maps to Space-on-
+        // the-left (scrollbar reading).
         let signedProgress = useMacOSDirection ? rawProgress : -rawProgress
         let signedVelocity = Float(useMacOSDirection ? velocityX : -velocityX)
         delegate?.thumbnailStrip(self, didProduce: .switchSpaceGesture(
@@ -323,14 +311,6 @@ final class ThumbnailStripView: UIView {
             progress: signedProgress,
             velocityX: signedVelocity
         ))
-    }
-
-    // Dock reads progress=0 on a .changed frame as "no gesture in
-    // progress" and drops it. Nudge to FLT_TRUE_MIN-sized away from
-    // zero so the direction-required guard still passes when the
-    // user's drag transits the resting position.
-    static func nudgeAwayFromZero(_ progress: Float) -> Float {
-        progress == 0 ? .leastNonzeroMagnitude : progress
     }
 }
 
@@ -377,40 +357,21 @@ extension ThumbnailStripView: UICollectionViewDelegate {
         emitSwipeFrame(phase: .changed, rawProgress: nudged, velocityX: velocity)
     }
 
-    // Predict where the snap will land and override the target so the
-    // strip lands cleanly under the indicator. Also emit .ended with
-    // the predicted progress so the host's commit decision matches
-    // what the user sees.
+    // Predict which step the drag will commit to. We don't override
+    // targetContentOffset.pointee; UICollectionView lands wherever it
+    // naturally lands (free scroll). The next DesktopState from the
+    // host will recenter on the new active cell.
     func scrollViewWillEndDragging(
         _ scrollView: UIScrollView,
         withVelocity velocity: CGPoint,
         targetContentOffset: UnsafeMutablePointer<CGPoint>
     ) {
-        guard let activeIdx = activeIndex else { return }
-        // Velocity here is in points-per-millisecond; multiply by 1000
-        // to project a 1-second drift forward.
         let projected = scrollView.contentOffset.x + velocity.x * 200
-        let tileFromActive = (projected - activeRestingOffsetX) / Self.pageWidth
-        let step: Int
-        if tileFromActive > 0.5 { step = 1 }
-        else if tileFromActive < -0.5 { step = -1 }
-        else { step = 0 }
-        let targetIdx = max(0, min(orderedSpaces.count - 1, activeIdx + step))
-        let landing = restingOffsetEstimate(forIndex: targetIdx)
-        targetContentOffset.pointee = CGPoint(x: landing, y: 0)
-
-        // Emit .ended with the post-drag progress (clamped). The host
-        // will commit if |progress| or |velocity| crosses its
-        // threshold; predicting the same step here keeps the visual
-        // and the host in agreement.
         let raw = Self.computeRawProgress(
-            currentOffsetX: landing,
+            currentOffsetX: projected,
             activeRestingOffsetX: activeRestingOffsetX,
             pageWidth: Self.pageWidth
         )
-        // panGestureRecognizer velocity is in points/sec; pass it
-        // through with the same sign convention as the old code (old
-        // used velocity.x from pan.translation, same units).
         let panVelocity = scrollView.panGestureRecognizer.velocity(in: scrollView).x
         emitSwipeFrame(phase: .ended, rawProgress: raw, velocityX: panVelocity)
         isDragging = false
@@ -421,9 +382,6 @@ extension ThumbnailStripView: UICollectionViewDelegate {
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        // After an animated recenter, the actual resting offset is
-        // whatever UICollectionView landed on. Capture it so the
-        // progress math measures drags against the true reference.
         if isProgrammaticScroll {
             activeRestingOffsetX = scrollView.contentOffset.x
         }
@@ -478,14 +436,18 @@ final class ThumbnailTileCell: UICollectionViewCell {
         ])
     }
 
-    func configure(ordinal: Int, image: UIImage?) {
+    func configure(ordinal: Int, image: UIImage?, isActive: Bool) {
         captionLabel.text = "Desktop \(ordinal)"
         imageView.image = image
+        contentView.layer.borderColor = (isActive ? UIColor.tintColor : UIColor.separator).cgColor
+        contentView.layer.borderWidth = isActive ? 1.5 : 0.5
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
         imageView.image = nil
         captionLabel.text = nil
+        contentView.layer.borderColor = UIColor.separator.cgColor
+        contentView.layer.borderWidth = 0.5
     }
 }

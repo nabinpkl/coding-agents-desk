@@ -1,0 +1,19 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible: "Trackpad"
+    timeout: 20000
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: 01-initial
+# Tap Desktop 2 first (it's visible), to start moving leftward.
+- tapOn: "Desktop 2"
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: 02-after-tap-d2
+- tapOn: "Desktop 1"
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: 03-after-tap-d1

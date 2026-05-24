@@ -1,0 +1,11 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible: "Trackpad"
+    timeout: 20000
+# Wait a bit so DesktopState arrives and the strip populates.
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: strip-at-rest
