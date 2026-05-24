@@ -83,12 +83,13 @@ final class ThumbnailStripView: UIView {
     private var lastTileCount: Int = -1
 
     // Fraction of the strip width past which a drag is treated as a
-    // commit. 0.5 means "half a strip's worth of drag commits one
-    // Space". Velocity is intentionally not in the prediction: the
-    // user's mental model is "slide and stay = commit, slide and
-    // return = cancel", and a fast return-flick would otherwise read
-    // as a commit in the wrong direction.
+    // commit on its own. Half a strip's worth.
     private static let commitThreshold: CGFloat = 0.5
+    // Pan velocity (pt/sec) past which a flick commits even if the
+    // user didn't drag past the distance threshold. Tuned to feel
+    // like an iOS paging flick: an intentional flick is in the
+    // 800-2000 range, casual scroll inertia is below 500.
+    private static let commitVelocity: CGFloat = 800
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -373,18 +374,31 @@ extension ThumbnailStripView: UICollectionViewDelegate {
     }
 
     // Predict commit / cancel and override targetContentOffset so the
-    // strip snaps to the right resting position. The user's model is
-    // "slide and stay = commit, slide and return = cancel" so the
-    // decision is drag-distance only; velocity does not push a small
-    // peek into a commit.
+    // strip snaps to the right resting position. Three buckets:
+    //
+    // - Drag past 50% of strip width: commit in the drag's direction.
+    //   Velocity doesn't matter, the user clearly pushed it past.
+    // - Drag short, but pan velocity past flick threshold AND in the
+    //   same direction as the drag (or no drag, pure flick from
+    //   rest): commit in the velocity's direction.
+    // - Anything else (including a quick flick BACK after a peek,
+    //   where drag and velocity point opposite ways): cancel.
+    //
+    // Sign convention: dragging the finger LEFT increases
+    // contentOffset.x (positive drag in offset space) AND yields a
+    // negative pan.velocity.x (finger-right is positive). We work in
+    // "offset space" by negating pan velocity, so drag and offset-
+    // velocity share a sign when they agree.
     //
     // To keep the host (CGEvent dock-swipe -> macOS Dock) in
-    // agreement with what the user sees on the strip: on cancel we
-    // emit a .ended frame with progress=0 and velocity=0, which Dock
-    // reads as "complete the gesture with no displacement, snap
-    // back". On commit we pass through the drag's progress and
-    // velocity so Dock commits to the same neighbour we already
-    // predicted.
+    // agreement with what the user sees: on cancel we emit a .ended
+    // frame with progress=0 velocity=0 so Dock snaps back; on commit
+    // we emit progress=±1.0 (saturating past Dock's own threshold)
+    // so Dock commits in the same direction we just snapped to. The
+    // sign is the inverse of step because drag-positive yields
+    // rawProgress-negative under our translation convention, and the
+    // sign-flip in emitSwipeFrame turns that back into the correct
+    // host-side direction under useMacOSDirection=false.
     func scrollViewWillEndDragging(
         _ scrollView: UIScrollView,
         withVelocity velocity: CGPoint,
@@ -396,13 +410,19 @@ extension ThumbnailStripView: UICollectionViewDelegate {
         }
         let reference = max(1, bounds.width)
         let drag = scrollView.contentOffset.x - activeRestingOffsetX
-        let fraction = drag / reference
+        let dragFraction = drag / reference
         let panVelocity = scrollView.panGestureRecognizer.velocity(in: scrollView).x
+        let offsetVelocity = -panVelocity
 
         let step: Int
-        if fraction > Self.commitThreshold { step = 1 }
-        else if fraction < -Self.commitThreshold { step = -1 }
-        else { step = 0 }
+        if abs(dragFraction) > Self.commitThreshold {
+            step = dragFraction > 0 ? 1 : -1
+        } else if abs(offsetVelocity) > Self.commitVelocity
+                  && (drag == 0 || drag * offsetVelocity > 0) {
+            step = offsetVelocity > 0 ? 1 : -1
+        } else {
+            step = 0
+        }
         let targetIdx = max(0, min(orderedSpaces.count - 1, activeIdx + step))
 
         if let attrs = collectionView.layoutAttributesForItem(
@@ -414,12 +434,13 @@ extension ThumbnailStripView: UICollectionViewDelegate {
         }
 
         if step == 0 {
-            // Cancel: zero out progress + velocity so Dock snaps
-            // back instead of treating a quick flick-return as a
-            // commit in the opposite direction.
             emitSwipeFrame(phase: .ended, rawProgress: 0, velocityX: 0)
         } else {
-            emitSwipeFrame(phase: .ended, rawProgress: Float(fraction), velocityX: panVelocity)
+            // step=+1 corresponds to drag>0 (offset right), which is
+            // rawProgress<0 in our translation convention. Saturate
+            // so Dock's commit threshold is unambiguously crossed.
+            let rawForEmit: Float = step > 0 ? -1.0 : 1.0
+            emitSwipeFrame(phase: .ended, rawProgress: rawForEmit, velocityX: panVelocity)
         }
         isDragging = false
     }
