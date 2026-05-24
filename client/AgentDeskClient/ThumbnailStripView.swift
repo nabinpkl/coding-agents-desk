@@ -170,26 +170,25 @@ final class ThumbnailStripView: UIView {
     }
 
     // Picks the layout mode for the current bounds and tile count:
-    //   - Fits: lineSpacing expanded so the row spans leading-to-trailing.
-    //   - Overflow: default 8pt spacing; row scrolls; partial-cut tiles at
-    //     the edges of the visible window indicate "more exists".
-    //
-    // Both modes use sectionInset = .zero. In Fits, contentOffset stays
-    // at 0; in Overflow, recenterOnActive scrolls the active cell into
-    // view.
+    //   - Fits: default 8pt spacing, the whole tile row centered as a
+    //     block via sectionInset. Two desktops sit side-by-side in the
+    //     middle; five desktops are still tight in the middle with
+    //     extra empty space on either side.
+    //   - Overflow: default 8pt spacing; row scrolls; partial-cut tiles
+    //     at the edges of the visible window indicate "more exists".
     private func applyLayoutMode() {
         let count = orderedSpaces.count
         guard count > 0, bounds.width > 0 else { return }
+        layout.minimumLineSpacing = Self.defaultTileSpacing
         let totalAtDefault = CGFloat(count) * Self.tileWidth
             + CGFloat(max(0, count - 1)) * Self.defaultTileSpacing
         let fits = totalAtDefault <= bounds.width
-        if fits && count > 1 {
-            // Distribute remaining width across the gaps so cells
-            // span leading-to-trailing.
-            let extra = bounds.width - CGFloat(count) * Self.tileWidth
-            layout.minimumLineSpacing = max(Self.defaultTileSpacing, extra / CGFloat(count - 1))
+        if fits {
+            // Center the tile block: equal inset on left and right.
+            let inset = max(0, (bounds.width - totalAtDefault) / 2)
+            layout.sectionInset = UIEdgeInsets(top: 0, left: inset, bottom: 0, right: inset)
         } else {
-            layout.minimumLineSpacing = Self.defaultTileSpacing
+            layout.sectionInset = .zero
         }
         layout.invalidateLayout()
         // Scroll stays enabled in both modes. In fits mode, drags
