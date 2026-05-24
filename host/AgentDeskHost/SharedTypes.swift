@@ -259,6 +259,7 @@ enum SessionRejectionReason: String, Codable, Equatable {
     case replay
     case badSignature = "bad-signature"
     case malformed
+    case unauthorized
 }
 
 struct SessionRejected: Codable, Equatable, Error {
@@ -422,5 +423,58 @@ enum NormalizedInput: Codable, Equatable {
         case momentumBegan    // first inertia event after lift
         case momentumChanged  // subsequent inertia events
         case momentumEnded    // inertia decayed below cutoff
+    }
+}
+
+// ADR-0005 input-channel wire shapes. Sent over a dedicated WebSocket
+// Secure connection on the existing signaling port 41888, distinct
+// from the WebRTC PeerConnection that carries video. First frame on a
+// new connection MUST be `InputChannelHello`; anything else closes the
+// connection. Subsequent frames are `InputChannelEvent`, one
+// `NormalizedInput` per WebSocket text frame. `InputChannelClose` is
+// optional, server-initiated, for clean teardown with reason.
+
+struct InputChannelHello: Codable, Equatable {
+    let type: String
+    let sessionToken: SessionToken
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case sessionToken = "tk"
+    }
+
+    init(sessionToken: SessionToken) {
+        self.type = "input-hello"
+        self.sessionToken = sessionToken
+    }
+}
+
+struct InputChannelEvent: Codable, Equatable {
+    let type: String
+    let event: NormalizedInput
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case event = "ev"
+    }
+
+    init(event: NormalizedInput) {
+        self.type = "input-event"
+        self.event = event
+    }
+}
+
+struct InputChannelClose: Codable, Equatable {
+    let type: String
+    let reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case reason = "r"
+    }
+
+    init(reason: String) {
+        self.type = "input-close"
+        self.reason = reason
     }
 }

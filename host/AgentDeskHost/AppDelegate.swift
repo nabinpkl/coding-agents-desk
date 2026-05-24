@@ -128,6 +128,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor in
                     self?.handleSessionEnded(fingerprint)
                 }
+            },
+            inputChannelReadyHandler: { [weak self] fingerprint, server in
+                Task { @MainActor in
+                    self?.handleInputChannelReady(fingerprint, server: server)
+                }
             }
         )
         do {
@@ -170,25 +175,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // R9.1+R9.3: forward incoming input bytes to the dispatcher.
-        // Dispatcher owns its own serial queue so no MainActor hop is
-        // needed; serializing CGEvent.post behind UI work produced
-        // visible cursor cadence stalls.
-        let dispatcher = inputDispatcher
-        let logger = signalingLogger
-        sessions.attachInputTask(
-            Task { [transport, dispatcher, logger] in
-                let decoder = JSONDecoder()
-                for await data in transport.inputEvents {
-                    guard let input = try? decoder.decode(NormalizedInput.self, from: data) else {
-                        logger.error("input decode failed; \(data.count, privacy: .public) bytes")
-                        continue
-                    }
-                    dispatcher.dispatch(input)
-                }
-            },
-            for: fingerprint
-        )
+        // ADR-0005: input no longer rides the WebRTC data channel; the
+        // input dispatch task is wired in handleInputChannelReady when
+        // the client opens its dedicated WSS. Media transport here is
+        // video-only.
 
         Task { [signalingLogger, transport, channel, frameSource] in
             do {
@@ -203,6 +193,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 signalingLogger.error("media transport start failed: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    // ADR-0005: client opened its input WSS; wire the server's event
+    // stream into the dispatcher. Off-MainActor like the previous
+    // data-channel-input task (dispatcher owns its serial queue so
+    // CGEvent.post never serialises behind UI work).
+    private func handleInputChannelReady(_ fingerprint: DeviceFingerprint, server: InputChannelServer) {
+        signalingLogger.notice("input channel ready fp=\(fingerprint.rawValue, privacy: .public)")
+        sessions.attachInputChannelServer(server, for: fingerprint)
+        let dispatcher = inputDispatcher
+        let logger = signalingLogger
+        sessions.attachInputTask(
+            Task { [server, dispatcher, logger] in
+                for await input in server.events {
+                    dispatcher.dispatch(input)
+                }
+                logger.notice("input event stream finished")
+            },
+            for: fingerprint
+        )
     }
 
     private func handleMediaConnectionState(_ state: MediaConnectionState, for fingerprint: DeviceFingerprint) {
@@ -246,9 +256,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             applyIcon(symbolName: "qrcode", accessibilityDescription: "AgentDesk pairing")
             popoverController.render(.pairing(url, QRCodeRenderer.image(for: url)))
         } catch is TailscaleRequiredError {
+            signalingLogger.error("startPairing failed: tailscale required")
             applyIcon(symbolName: "exclamationmark.triangle", accessibilityDescription: "Tailscale required")
             popoverController.render(.tailscaleRequired)
         } catch {
+            signalingLogger.error("startPairing failed: \(String(describing: error), privacy: .public)")
             applyIcon(symbolName: "exclamationmark.triangle", accessibilityDescription: "Pairing failed")
             popoverController.render(.idle)
         }

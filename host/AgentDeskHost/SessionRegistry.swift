@@ -16,6 +16,7 @@ final class SessionRegistry {
     private var transports: [DeviceFingerprint: MediaTransport] = [:]
     private var iceGraceTimers: [DeviceFingerprint: Task<Void, Never>] = [:]
     private var inputTasks: [DeviceFingerprint: Task<Void, Never>] = [:]
+    private var inputChannelServers: [DeviceFingerprint: InputChannelServer] = [:]
 
     // Phase transitions
     func noteAttempt(_ fingerprint: DeviceFingerprint) {
@@ -42,6 +43,8 @@ final class SessionRegistry {
         iceGraceTimers.removeValue(forKey: fingerprint)
         inputTasks[fingerprint]?.cancel()
         inputTasks.removeValue(forKey: fingerprint)
+        inputChannelServers[fingerprint]?.close()
+        inputChannelServers.removeValue(forKey: fingerprint)
         if let transport = transports.removeValue(forKey: fingerprint) {
             transport.stop()
         }
@@ -55,6 +58,15 @@ final class SessionRegistry {
     func attachInputTask(_ task: Task<Void, Never>, for fingerprint: DeviceFingerprint) {
         inputTasks[fingerprint]?.cancel()
         inputTasks[fingerprint] = task
+    }
+
+    // ADR-0005: input channel server has its own NWConnection independent
+    // of the WebRTC PeerConnection. Registry owns its close() so session
+    // teardown reliably tears it down without each call site having to
+    // remember.
+    func attachInputChannelServer(_ server: InputChannelServer, for fingerprint: DeviceFingerprint) {
+        inputChannelServers[fingerprint]?.close()
+        inputChannelServers[fingerprint] = server
     }
 
     func scheduleIceGrace(_ task: Task<Void, Never>, for fingerprint: DeviceFingerprint) {

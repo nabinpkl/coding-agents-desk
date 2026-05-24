@@ -42,7 +42,17 @@ final class WebSocketSignalingChannel: SignalingChannel, @unchecked Sendable {
     }
 }
 
+// SessionDialer's output: the WebRTC signaling channel and the active
+// session metadata, after the per-connection handshake succeeds.
+struct SessionHandshakeOutcome {
+    let active: ActiveSession
+    let signaling: SignalingChannel
+}
+
+// PairingClient.attemptSession's output: the handshake outcome plus
+// the dedicated input transport opened in the same step. ADR-0005.
 struct SessionConnection {
     let active: ActiveSession
     let signaling: SignalingChannel
+    let inputChannel: InputChannel
 }

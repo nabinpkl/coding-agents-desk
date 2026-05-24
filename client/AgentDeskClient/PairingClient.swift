@@ -167,10 +167,15 @@ final class PairingClient {
         try? tokenStore.clear()
         (activeSignaling as? WebSocketSignalingChannel)?.close()
         activeSignaling = nil
+        activeInputChannel?.close()
+        activeInputChannel = nil
         state = .unpaired
     }
 
     private(set) var activeSignaling: SignalingChannel?
+    // ADR-0005: dedicated input transport. PairingViewController.sendInput
+    // routes through this instead of the deleted MediaTransport.send.
+    private(set) var activeInputChannel: InputChannel?
 
     /// Called by PairingViewController when the WebRTC media plane reports
     /// .failed (or 5s of .disconnected). Tears down the signaling channel
@@ -179,6 +184,8 @@ final class PairingClient {
     func handleMediaSessionFailed() {
         (activeSignaling as? WebSocketSignalingChannel)?.close()
         activeSignaling = nil
+        activeInputChannel?.close()
+        activeInputChannel = nil
         if case .connected = state {
             state = .pairedDisconnected
         }
@@ -213,9 +220,26 @@ final class PairingClient {
                 deviceKey: deviceKeyProvider,
                 urlSession: urlSession
             )
-            activeSignaling = connection.signaling
-            state = .connected(connection.active)
-            return connection
+            // ADR-0005: open the dedicated input channel alongside the
+            // session signaling channel. Same host, same port, different
+            // URL path. Failure to open the input channel fails the
+            // whole session attempt -- a session with no input is not
+            // useful and we'd rather retry the dial than half-connect.
+            let inputChannel = try await InputChannelOpener.open(
+                host: host,
+                port: port,
+                sessionToken: record.token,
+                urlSession: urlSession
+            )
+            let session = SessionConnection(
+                active: connection.active,
+                signaling: connection.signaling,
+                inputChannel: inputChannel
+            )
+            activeSignaling = session.signaling
+            activeInputChannel = session.inputChannel
+            state = .connected(session.active)
+            return session
         } catch let rejection as SessionRejected {
             applyRejection(rejection)
             throw rejection
@@ -227,7 +251,7 @@ final class PairingClient {
 
     private func applyRejection(_ rejection: SessionRejected) {
         switch rejection.reason {
-        case .revoked, .unknownDevice, .badSignature:
+        case .revoked, .unknownDevice, .badSignature, .unauthorized:
             try? tokenStore.clear()
             state = .revoked
         case .replay, .malformed:

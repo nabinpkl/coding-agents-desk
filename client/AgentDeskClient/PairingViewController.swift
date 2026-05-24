@@ -16,7 +16,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private var mediaStateTask: Task<Void, Never>?
     private var iceGraceTask: Task<Void, Never>?
     // R9.2: trackpad surface in the bottom region. The translator owns the
-    // recognizers and emits NormalizedInput; we forward to mediaTransport.send.
+    // recognizers and emits NormalizedInput; we forward to the input channel.
     private let trackpadView = UIView()
     private let trackpadHint = UILabel()
     private let scrollStripView = UIView()
@@ -483,13 +483,13 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     private func sendInput(_ input: NormalizedInput) {
-        guard let transport = mediaTransport else { return }
-        do {
-            try transport.send(input)
-        } catch {
-            // Channel not open yet during the brief window between WebRTC
-            // connected and the data channel transitioning to .open. Drop
-            // silently; the next event will succeed.
+        // ADR-0005: input rides its own WebSocket Secure channel,
+        // independent of the WebRTC video PC. The channel send is
+        // async; fire-and-forget into a detached Task so the trackpad
+        // / keyboard caller stays synchronous and main-thread.
+        guard let channel = pairingClient.activeInputChannel else { return }
+        Task { [channel, input] in
+            try? await channel.send(input)
         }
     }
 

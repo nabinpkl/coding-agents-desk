@@ -19,6 +19,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     typealias SessionAttemptStartedHandler = (DeviceFingerprint) -> Void
     typealias SessionReadyHandler = (ActiveSession, SignalingChannel) -> Void
     typealias SessionEndedHandler = (DeviceFingerprint) -> Void
+    typealias InputChannelReadyHandler = (DeviceFingerprint, InputChannelServer) -> Void
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private let pairing: Pairing
@@ -26,6 +27,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     private let sessionAttemptStartedHandler: SessionAttemptStartedHandler
     private let sessionReadyHandler: SessionReadyHandler
     private let sessionEndedHandler: SessionEndedHandler
+    private let inputChannelReadyHandler: InputChannelReadyHandler
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: ConnectionContext] = [:]
 
@@ -34,13 +36,15 @@ final class PairingSignalingServer: @unchecked Sendable {
         approvalHandler: @escaping ApprovalHandler,
         sessionAttemptStartedHandler: @escaping SessionAttemptStartedHandler = { _ in },
         sessionReadyHandler: @escaping SessionReadyHandler = { _, _ in },
-        sessionEndedHandler: @escaping SessionEndedHandler = { _ in }
+        sessionEndedHandler: @escaping SessionEndedHandler = { _ in },
+        inputChannelReadyHandler: @escaping InputChannelReadyHandler = { _, _ in }
     ) {
         self.pairing = pairing
         self.approvalHandler = approvalHandler
         self.sessionAttemptStartedHandler = sessionAttemptStartedHandler
         self.sessionReadyHandler = sessionReadyHandler
         self.sessionEndedHandler = sessionEndedHandler
+        self.inputChannelReadyHandler = inputChannelReadyHandler
     }
 
     func start(port: UInt16 = Config.signalingPort) throws {
@@ -143,10 +147,48 @@ final class PairingSignalingServer: @unchecked Sendable {
             handlePair(data: data, on: connection)
         case .sessionInit:
             handleSessionInit(data: data, context: context, on: connection)
+        case .inputHello:
+            handleInputHello(data: data, context: context, on: connection)
         case .malformed:
             sendSessionRejected(reason: .malformed, on: connection)
             connection.cancel()
         }
+    }
+
+    // ADR-0005: input channel first-frame handler. Decodes
+    // InputChannelHello, validates the session token against `Pairing`,
+    // and hands the connection off to an InputChannelServer that owns
+    // its receive loop from here on. The connection is removed from
+    // PairingSignalingServer's tracking dictionary because input frames
+    // no longer route through `dispatch`; the connection lives under
+    // SessionRegistry until the session ends.
+    private func handleInputHello(data: Data, context: ConnectionContext?, on connection: NWConnection) {
+        let hello: InputChannelHello
+        do {
+            hello = try JSONDecoder().decode(InputChannelHello.self, from: data)
+        } catch {
+            logger.error("input-hello decode failed: \(String(describing: error), privacy: .public)")
+            sendSessionRejected(reason: .malformed, on: connection)
+            connection.cancel()
+            return
+        }
+        guard pairing.validate(token: hello.sessionToken) else {
+            logger.error("input-hello token rejected fp=\(hello.sessionToken.deviceFingerprint.rawValue, privacy: .public)")
+            sendSessionRejected(reason: .unauthorized, on: connection)
+            connection.cancel()
+            return
+        }
+        let fingerprint = hello.sessionToken.deviceFingerprint
+        logger.notice("input-hello accepted fp=\(fingerprint.rawValue, privacy: .public)")
+        // Detach from PairingSignalingServer's connection tracking so
+        // its dispatch loop never sees subsequent frames on this
+        // connection. InputChannelServer owns the receive loop now.
+        if let context {
+            context.connection.stateUpdateHandler = nil
+            connections.removeValue(forKey: ObjectIdentifier(context.connection))
+        }
+        let server = InputChannelServer(connection: connection, fingerprint: fingerprint)
+        inputChannelReadyHandler(fingerprint, server)
     }
 
     private func handleActiveSessionFrame(

@@ -71,4 +71,45 @@ struct SignalingFrameRoutingTests {
         let decoded = try JSONDecoder().decode(WebRTCSignalingFrame.self, from: data)
         #expect(decoded == frame)
     }
+
+    // ADR-0005 input channel first-frame discriminator.
+
+    @Test func classifyFirstFrameInputHelloRoutesToInputHello() {
+        let data = Data(#"{"t":"input-hello"}"#.utf8)
+        #expect(SignalingFrameRouter.classifyFirstFrame(data) == .inputHello)
+    }
+
+    @Test func inputHelloFrameRoundTripsThroughCodable() throws {
+        let token = SessionToken(
+            hostFingerprint: "host-fp",
+            deviceFingerprint: DeviceFingerprint("device-fp"),
+            issuedAt: 1234567890,
+            signature: Data([0xAA, 0xBB, 0xCC])
+        )
+        let hello = InputChannelHello(sessionToken: token)
+        let data = try JSONEncoder().encode(hello)
+        let decoded = try JSONDecoder().decode(InputChannelHello.self, from: data)
+        #expect(decoded == hello)
+        #expect(decoded.type == "input-hello")
+        #expect(decoded.sessionToken == token)
+    }
+
+    @Test func inputEventFrameRoundTripsThroughCodable() throws {
+        let event = NormalizedInput.key(code: "ansi-A", modifiers: [.cmd, .shift])
+        let frame = InputChannelEvent(event: event)
+        let data = try JSONEncoder().encode(frame)
+        let decoded = try JSONDecoder().decode(InputChannelEvent.self, from: data)
+        #expect(decoded == frame)
+        #expect(decoded.type == "input-event")
+        #expect(decoded.event == event)
+    }
+
+    @Test func inputCloseFrameRoundTripsThroughCodable() throws {
+        let close = InputChannelClose(reason: "revoked")
+        let data = try JSONEncoder().encode(close)
+        let decoded = try JSONDecoder().decode(InputChannelClose.self, from: data)
+        #expect(decoded == close)
+        #expect(decoded.type == "input-close")
+        #expect(decoded.reason == "revoked")
+    }
 }

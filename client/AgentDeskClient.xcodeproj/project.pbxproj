@@ -28,6 +28,8 @@
 		B00000000000000000000213 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000114 /* SettingsStore.swift */; };
 		B00000000000000000000214 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000115 /* SettingsViewController.swift */; };
 		B00000000000000000000215 /* KeyboardSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000116 /* KeyboardSurface.swift */; };
+		B00000000000000000000216 /* InputChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000117 /* InputChannel.swift */; };
+		B0000000000000000000022F1 /* InputChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000117 /* InputChannel.swift */; };
 		B00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000102 /* Base64URL.swift */; };
 		B00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000103 /* Config.swift */; };
 		B00000000000000000000223 /* DeviceSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000104 /* DeviceSigningKeyStore.swift */; };
@@ -42,6 +44,7 @@
 		B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000122 /* GestureTranslatorTests.swift */; };
 		B0000000000000000000022D /* KeyboardSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000116 /* KeyboardSurface.swift */; };
 		B0000000000000000000022E /* KeyboardSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000123 /* KeyboardSurfaceTests.swift */; };
+		B0000000000000000000022E1 /* InputChannelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000124 /* InputChannelTests.swift */; };
 		B0000000000000000000022F /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000114 /* SettingsStore.swift */; };
 		B00000000000000000000401 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = B00000000000000000000501 /* WebRTC */; };
 /* End PBXBuildFile section */
@@ -69,9 +72,11 @@
 		B00000000000000000000114 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		B00000000000000000000115 /* SettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
 		B00000000000000000000116 /* KeyboardSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSurface.swift; sourceTree = "<group>"; };
+		B00000000000000000000117 /* InputChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannel.swift; sourceTree = "<group>"; };
 		B00000000000000000000121 /* PairingClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClientTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000122 /* GestureTranslatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureTranslatorTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000123 /* KeyboardSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSurfaceTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000124 /* InputChannelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannelTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000141 /* AgentDeskClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000142 /* AgentDeskClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -137,6 +142,7 @@
 				B00000000000000000000114 /* SettingsStore.swift */,
 				B00000000000000000000115 /* SettingsViewController.swift */,
 				B00000000000000000000116 /* KeyboardSurface.swift */,
+				B00000000000000000000117 /* InputChannel.swift */,
 				B0000000000000000000010A /* Info.plist */,
 			);
 			path = AgentDeskClient;
@@ -148,6 +154,7 @@
 				B00000000000000000000121 /* PairingClientTests.swift */,
 				B00000000000000000000122 /* GestureTranslatorTests.swift */,
 				B00000000000000000000123 /* KeyboardSurfaceTests.swift */,
+				B00000000000000000000124 /* InputChannelTests.swift */,
 			);
 			path = AgentDeskClientTests;
 			sourceTree = "<group>";
@@ -295,6 +302,7 @@
 				B00000000000000000000213 /* SettingsStore.swift in Sources */,
 				B00000000000000000000214 /* SettingsViewController.swift in Sources */,
 				B00000000000000000000215 /* KeyboardSurface.swift in Sources */,
+				B00000000000000000000216 /* InputChannel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -316,7 +324,9 @@
 				B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */,
 				B0000000000000000000022D /* KeyboardSurface.swift in Sources */,
 				B0000000000000000000022E /* KeyboardSurfaceTests.swift in Sources */,
+				B0000000000000000000022E1 /* InputChannelTests.swift in Sources */,
 				B0000000000000000000022F /* SettingsStore.swift in Sources */,
+				B0000000000000000000022F1 /* InputChannel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

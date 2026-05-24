@@ -25,7 +25,7 @@ final class SessionDialer {
         hostPublicKey: Data,
         deviceKey: DeviceSigningKeyProviding,
         urlSession: URLSession
-    ) async throws -> SessionConnection {
+    ) async throws -> SessionHandshakeOutcome {
         let hostPub: P256.Signing.PublicKey
         do {
             hostPub = try P256.Signing.PublicKey(x963Representation: hostPublicKey)
@@ -112,7 +112,7 @@ final class SessionDialer {
         }
 
         success = true
-        return SessionConnection(
+        return SessionHandshakeOutcome(
             active: ActiveSession(
                 deviceFingerprint: deviceFingerprint,
                 establishedAt: Int(now().timeIntervalSince1970)
