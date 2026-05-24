@@ -97,7 +97,9 @@ final class ThumbnailStripView: UIView {
         // R27 v2: selection overlay sits above the stack in z-order
         // and is positioned via frame in updateSelectionOverlayFrame.
         // Not user-interactive so taps fall through to tiles.
-        selectionOverlay.backgroundColor = UIColor.tintColor.withAlphaComponent(0.20)
+        // R28: transparent fill so the underlying thumbnail stays
+        // visible. Border alone is enough to mark the active tile.
+        selectionOverlay.backgroundColor = .clear
         selectionOverlay.layer.cornerRadius = 6
         selectionOverlay.layer.borderColor = UIColor.tintColor.cgColor
         selectionOverlay.layer.borderWidth = 1.5
@@ -206,13 +208,13 @@ final class ThumbnailStripView: UIView {
     }
 
     private func applyThumbnailsToTiles() {
+        // R28: every tile gets its image if the host sent one,
+        // including the active tile - the selection overlay no
+        // longer obscures it, so showing the thumbnail makes the
+        // strip read consistently across all tiles.
         for tile in tiles {
-            if tile.spaceId == activeSpaceId {
-                tile.setActive(true)
-                tile.clearImage()
-                continue
-            }
             let key = String(tile.spaceId)
+            tile.setActive(tile.spaceId == activeSpaceId)
             if let base64 = thumbnails[key],
                let data = Data(base64Encoded: base64),
                let image = UIImage(data: data) {
