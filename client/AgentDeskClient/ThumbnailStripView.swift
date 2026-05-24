@@ -266,7 +266,7 @@ final class ThumbnailStripView: UIView {
             let progress = min(max(raw, -1.0), 1.0)
             let nudged = nudgeAwayFromZero(progress)
             applyVisualSlide(translation: translation)
-            applyOverlapHighlight(rawFingerProgress: CGFloat(progress))
+            applyOverlapHighlight(translation: translation, signedProgress: CGFloat(progress))
             emit(phase: .changed, progress: nudged, velocityX: Float(velocity.x))
         case .ended:
             let raw = Float(translation.x / gestureBandWidth)
@@ -304,41 +304,50 @@ final class ThumbnailStripView: UIView {
         stack.transform = CGAffineTransform(translationX: visualX, y: 0)
     }
 
-    // R27 v2: slide the floating selection overlay between adjacent
-    // tile positions. The overlay's resting frame is over the active
-    // tile (updated in updateSelectionOverlayFrame on every layout).
-    // During the swipe we add a transform that translates by
-    // |progress| * tileDistance toward the destination tile's centre,
-    // so at progress=0 it sits exactly on the active tile and at
-    // progress=1 it sits exactly on the neighbour - and in between
-    // it visually overlaps both, which is the "two desktops
-    // overlapping" cue the user wants.
+    // R27 v3: slide the overlay so it linearly interpolates between
+    // the active tile's CURRENT visual position (which moves with the
+    // stack's slide) and the destination tile's CURRENT visual
+    // position. Both tiles slide together with the stack; the
+    // overlay's transform = stack_translation + magnitude *
+    // destSign * tileDistance keeps the overlay glued to the active
+    // tile at progress=0 and to the destination tile at progress=1.
+    // The previous formula only added the magnitude * destSign *
+    // tileDistance part, so the overlay didn't keep up with the
+    // stack and stayed effectively pinned to the strip while tiles
+    // slid past underneath - looked like nothing was sliding.
     //
-    // Direction: the overlay slides TOWARD the destination tile. Under
-    // the default useMacOSDirection=false (scrollbar reading), a
-    // finger-right drag commits to Space N-1 on the host, so the
-    // overlay slides LEFT (toward Space N-1's tile). Under
-    // useMacOSDirection=true, it slides RIGHT with the finger.
-    private func applyOverlapHighlight(rawFingerProgress: CGFloat) {
+    // Direction: useMacOSDirection=true -> destSign matches finger
+    // direction (next Space is right). useMacOSDirection=false ->
+    // destSign opposite finger direction (next Space is left under
+    // the scrollbar reading).
+    private func applyOverlapHighlight(translation: CGPoint, signedProgress: CGFloat) {
         guard let activeIdx = activeIndex, !tiles.isEmpty else { return }
-        let magnitude = min(1.0, abs(rawFingerProgress))
+        let magnitude = min(1.0, abs(signedProgress))
         let tileDistance = Self.tileWidth + Self.tileSpacing
-        // Finger-right -> destination idx
-        //   useMacOSDirection=true:  active + 1 (Mac native)
-        //   useMacOSDirection=false: active - 1 (scrollbar reading)
-        let fingerSign: CGFloat = rawFingerProgress >= 0 ? 1 : -1
+        let fingerSign: CGFloat = signedProgress >= 0 ? 1 : -1
         let destSign: CGFloat = useMacOSDirection ? fingerSign : -fingerSign
         let destIdx = activeIdx + Int(destSign)
-        guard destIdx >= 0, destIdx < tiles.count else {
-            // No tile to slide toward; cap overlay translation at 0.
-            selectionOverlay.transform = .identity
-            return
+        // Mirror the stack's slide (with the same overdraft resistance
+        // applied in applyVisualSlide) so the overlay tracks the
+        // active tile while the stack moves.
+        let stackVisualX: CGFloat
+        let band = gestureBandWidth
+        if abs(translation.x) <= band {
+            stackVisualX = translation.x
+        } else {
+            let sign: CGFloat = translation.x >= 0 ? 1 : -1
+            let overshoot = abs(translation.x) - band
+            stackVisualX = sign * (band + overshoot * 0.35)
         }
-        // Sign of the screen-x translation: dest at activeIdx+1 means
-        // overlay slides right (+x); dest at activeIdx-1 means it
-        // slides left (-x).
-        let translationX = destSign * magnitude * tileDistance
-        selectionOverlay.transform = CGAffineTransform(translationX: translationX, y: 0)
+        // If there's a valid destination, add the toward-destination
+        // offset. Otherwise just track the stack (no relative slide).
+        let neighbourOffset: CGFloat = (destIdx >= 0 && destIdx < tiles.count)
+            ? destSign * magnitude * tileDistance
+            : 0
+        selectionOverlay.transform = CGAffineTransform(
+            translationX: stackVisualX + neighbourOffset,
+            y: 0
+        )
     }
 
     private func restoreActiveHighlight() {
