@@ -111,12 +111,12 @@ final class ThumbnailStripView: UIView {
     private var lastTileCount: Int = -1
 
     // Fraction of the strip width past which a drag is treated as a
-    // commit on its own. Kept low because fits-mode drags bounce off
-    // the contentSize edges almost immediately, so half a strip's
-    // worth is unreachable in a natural-feeling swipe. 15% is roughly
-    // one tile + spacing on a portrait iPhone, which lines up with
-    // the rest-state metaphor "drag a neighbour into the indicator".
-    private static let commitThreshold: CGFloat = 0.15
+    // commit on its own. Half a strip's worth: drag past 50% and rest
+    // there to commit; drag past 50% and return below before release
+    // to cancel. The cancel path uses .cancelled phase so Dock truly
+    // abandons the in-flight gesture instead of committing at last
+    // progress.
+    private static let commitThreshold: CGFloat = 0.5
     // Pan velocity (pt/sec) past which a flick commits even if the
     // user didn't drag past the distance threshold. Tuned to feel
     // like an iOS paging flick: an intentional flick is in the
