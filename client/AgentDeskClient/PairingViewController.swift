@@ -57,6 +57,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }()
     private let scrollStripHint = UIImageView()
     private let settingsButton = UIButton(type: .system)
+    // R24: top-right orientation toggle. Sits to the left of the
+    // settings button and synthesises a UIWindowScene geometry update
+    // when tapped, flipping the scene between portrait and landscape
+    // without requiring the user to physically rotate the phone.
+    private let orientationToggleButton = UIButton(type: .system)
     // MARK: - One-handed affordances
     //
     // Issue #6 originally called for two-finger right-click and two-finger
@@ -235,6 +240,56 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             settingsButton.widthAnchor.constraint(equalToConstant: 36),
             settingsButton.heightAnchor.constraint(equalToConstant: 36)
         ])
+
+        // R24: orientation toggle to the left of the settings button.
+        // Same pill style. Icon shows the orientation the tap will
+        // produce: portrait icon when the scene is landscape, landscape
+        // icon when the scene is portrait. Icon is refreshed inside
+        // viewWillTransition whenever the orientation flips (either
+        // from this button or from physical rotation).
+        orientationToggleButton.tintColor = .label
+        orientationToggleButton.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.7)
+        orientationToggleButton.layer.cornerRadius = 18
+        orientationToggleButton.layer.masksToBounds = true
+        orientationToggleButton.accessibilityIdentifier = "orientation-toggle"
+        orientationToggleButton.addTarget(self, action: #selector(toggleOrientation), for: .touchUpInside)
+        orientationToggleButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(orientationToggleButton)
+        NSLayoutConstraint.activate([
+            orientationToggleButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            orientationToggleButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -8),
+            orientationToggleButton.widthAnchor.constraint(equalToConstant: 36),
+            orientationToggleButton.heightAnchor.constraint(equalToConstant: 36)
+        ])
+        updateOrientationToggleIcon(forLandscape: view.bounds.width > view.bounds.height)
+    }
+
+    private func updateOrientationToggleIcon(forLandscape isLandscape: Bool) {
+        // Show the target orientation (what tapping produces). SF
+        // Symbol "rectangle.portrait.rotate" shows a portrait
+        // rectangle with a rotation arc; the .landscape variant
+        // shows the landscape version. Template tinted, so the
+        // icon tracks .label in both appearances.
+        let name = isLandscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate"
+        orientationToggleButton.setImage(UIImage(systemName: name), for: .normal)
+        orientationToggleButton.accessibilityLabel = isLandscape ? "Rotate to portrait" : "Rotate to landscape"
+    }
+
+    @objc private func toggleOrientation() {
+        guard let scene = view.window?.windowScene else { return }
+        let isCurrentlyLandscape = view.bounds.width > view.bounds.height
+        // .landscape (not .landscapeRight) lets iOS pick whichever
+        // landscape orientation is closer to the device's current
+        // physical pose, so a user holding the phone with the home
+        // indicator on the left doesn't get flipped upside down.
+        let target: UIInterfaceOrientationMask = isCurrentlyLandscape ? .portrait : .landscape
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: target)) { _ in
+            // Geometry update is denied only if the requested
+            // orientation is missing from the app's supported set.
+            // Info.plist permits Portrait + LandscapeLeft +
+            // LandscapeRight, so this is unreachable in practice.
+            // Silently ignore.
+        }
     }
 
     @objc private func openSettings() {
@@ -854,6 +909,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             self.applyOrientationConstraints(forLandscape: willBeLandscape)
             self.sinkScrollView?.setZoomScale(1.0, animated: false)
             self.sinkScrollView?.setContentOffset(.zero, animated: false)
+            self.updateOrientationToggleIcon(forLandscape: willBeLandscape)
             self.view.layoutIfNeeded()
         })
     }
