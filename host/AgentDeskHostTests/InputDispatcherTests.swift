@@ -4,26 +4,58 @@ import Testing
 
 @MainActor
 struct InputDispatcherTests {
-    @Test func cursorMovePostsDeltaOnlyMouseMovedEvent() {
+    @Test func cursorMovePostsOneMouseMovedEventAtOffset() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(
             eventPoster: { recorder.record($0) },
-            isTrusted: { true }
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 100, y: 200) }
         )
 
         dispatcher.dispatch(.cursorMove(dx: 10, dy: -20))
 
         #expect(recorder.events.count == 1)
+        #expect(recorder.events[0].type == .mouseMoved)
+        #expect(recorder.events[0].location == CGPoint(x: 110, y: 180))
+    }
+
+    @Test func cursorMoveSetsRelativeDeltaFieldsForPointerAcceleration() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 500, y: 300) }
+        )
+
+        dispatcher.dispatch(.cursorMove(dx: 15, dy: -10))
+
+        #expect(recorder.events.count == 1)
         let event = recorder.events[0]
-        #expect(event.type == .mouseMoved)
         // Integer delta fields drive the discrete part of macOS pointer
-        // accel; the double fields preserve sub-pixel resolution. We do
-        // NOT set mouseCursorPosition so macOS applies its own curve and
-        // moves the cursor itself.
-        #expect(event.getIntegerValueField(.mouseEventDeltaX) == 10)
-        #expect(event.getIntegerValueField(.mouseEventDeltaY) == -20)
-        #expect(event.getDoubleValueField(.mouseEventDeltaX) == 10.0)
-        #expect(event.getDoubleValueField(.mouseEventDeltaY) == -20.0)
+        // accel; the double fields preserve sub-pixel resolution.
+        #expect(event.getIntegerValueField(.mouseEventDeltaX) == 15)
+        #expect(event.getIntegerValueField(.mouseEventDeltaY) == -10)
+        #expect(event.getDoubleValueField(.mouseEventDeltaX) == 15.0)
+        #expect(event.getDoubleValueField(.mouseEventDeltaY) == -10.0)
+    }
+
+    @Test func cursorMoveDeltaFieldsReflectClampedTravel() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 1490, y: 500) },
+            displayBoundsProvider: { CGRect(x: 0, y: 0, width: 1500, height: 1000) }
+        )
+
+        // Requesting +100 in X from x=1490 with maxX=1499 should clamp to
+        // a +9 delta on the wire, not the requested +100.
+        dispatcher.dispatch(.cursorMove(dx: 100, dy: 0))
+
+        #expect(recorder.events.count == 1)
+        let event = recorder.events[0]
+        #expect(event.getIntegerValueField(.mouseEventDeltaX) == 9)
+        #expect(event.getIntegerValueField(.mouseEventDeltaY) == 0)
     }
 
     @Test func leftClickPostsMouseDownThenMouseUpAtCurrentLocation() {
@@ -55,6 +87,23 @@ struct InputDispatcherTests {
         dispatcher.dispatch(.click(button: .left))
 
         #expect(recorder.events.isEmpty)
+    }
+
+    @Test func cursorMoveClampsToDisplayBounds() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 1000, y: 500) },
+            displayBoundsProvider: { CGRect(x: 0, y: 0, width: 1500, height: 1000) }
+        )
+
+        dispatcher.dispatch(.cursorMove(dx: 2000, dy: 2000))
+        dispatcher.dispatch(.cursorMove(dx: -5000, dy: -5000))
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0].location == CGPoint(x: 1499, y: 999))
+        #expect(recorder.events[1].location == CGPoint(x: 0, y: 0))
     }
 
     @Test func scrollPostsScrollWheelEventWithDyOnWheel1() {

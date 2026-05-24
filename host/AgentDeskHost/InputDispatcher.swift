@@ -11,11 +11,13 @@ import os
 final class InputDispatcher: @unchecked Sendable {
     typealias EventPoster = (CGEvent) -> Void
     typealias LocationProvider = () -> CGPoint
+    typealias DisplayBoundsProvider = () -> CGRect
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "input")
     private let eventPoster: EventPoster
     private let isTrusted: () -> Bool
     private let locationProvider: LocationProvider
+    private let displayBoundsProvider: DisplayBoundsProvider
     private var loggedUntrusted = false
     // Custom event source so we can disable the 0.25s synthetic-event
     // suppression interval macOS otherwise applies. Without this, posted
@@ -31,11 +33,13 @@ final class InputDispatcher: @unchecked Sendable {
     init(
         eventPoster: @escaping EventPoster = { $0.post(tap: .cghidEventTap) },
         isTrusted: @escaping () -> Bool = { AXIsProcessTrusted() },
-        locationProvider: @escaping LocationProvider = { CGEvent(source: nil)?.location ?? .zero }
+        locationProvider: @escaping LocationProvider = { CGEvent(source: nil)?.location ?? .zero },
+        displayBoundsProvider: @escaping DisplayBoundsProvider = { CGDisplayBounds(CGMainDisplayID()) }
     ) {
         self.eventPoster = eventPoster
         self.isTrusted = isTrusted
         self.locationProvider = locationProvider
+        self.displayBoundsProvider = displayBoundsProvider
         let source = CGEventSource(stateID: .hidSystemState)
         source?.localEventsSuppressionInterval = 0.0
         self.cursorEventSource = source
@@ -68,21 +72,40 @@ final class InputDispatcher: @unchecked Sendable {
     }
 
     private func postCursorMove(dx: CGFloat, dy: CGFloat) {
-        // Delta-only mouseMoved event: macOS reads kCGMouseEventDeltaX/Y
-        // through the HID pointer-accel pipeline, applies the user's
-        // "Tracking speed" curve, moves the cursor itself, and clamps to
-        // display bounds. Setting mouseCursorPosition alongside the delta
-        // (as we did before) made macOS warp to the absolute coordinate
-        // and bypass the accel curve entirely — that's why the previous
-        // attempt felt like raw pixel-by-pixel motion. Barrier and
-        // Multi.app use this same delta-only pattern.
-        guard let event = CGEvent(source: cursorEventSource) else { return }
-        event.type = .mouseMoved
-        event.setIntegerValueField(.mouseEventDeltaX, value: Int64(dx.rounded()))
-        event.setIntegerValueField(.mouseEventDeltaY, value: Int64(dy.rounded()))
-        event.setDoubleValueField(.mouseEventDeltaX, value: Double(dx))
-        event.setDoubleValueField(.mouseEventDeltaY, value: Double(dy))
+        let current = currentLocation()
+        let raw = CGPoint(x: current.x + dx, y: current.y + dy)
+        let next = clamp(raw, to: displayBoundsProvider())
+        // Use the applied delta (post-clamp) so the relative-motion fields
+        // agree with the resulting position when we hit a display edge.
+        let appliedDx = next.x - current.x
+        let appliedDy = next.y - current.y
+        guard let event = CGEvent(
+            mouseEventSource: cursorEventSource,
+            mouseType: .mouseMoved,
+            mouseCursorPosition: next,
+            mouseButton: .left
+        ) else { return }
+        // Setting kCGMouseEventDeltaX/Y routes the event through the macOS
+        // pointer-acceleration pipeline, so the user's "Tracking speed"
+        // preference shapes the curve. Without these fields, posting only
+        // mouseCursorPosition warps the cursor with no system curve, which
+        // is why a per-event accel multiplier on the iPhone side felt like
+        // it was fighting the OS (because it was).
+        event.setIntegerValueField(.mouseEventDeltaX, value: Int64(appliedDx.rounded()))
+        event.setIntegerValueField(.mouseEventDeltaY, value: Int64(appliedDy.rounded()))
+        event.setDoubleValueField(.mouseEventDeltaX, value: Double(appliedDx))
+        event.setDoubleValueField(.mouseEventDeltaY, value: Double(appliedDy))
         eventPoster(event)
+    }
+
+    private func clamp(_ point: CGPoint, to bounds: CGRect) -> CGPoint {
+        // maxX - 1 / maxY - 1 because CGDisplayBounds is exclusive on the
+        // far edges; posting at exactly maxX has been seen to flick the
+        // cursor onto an adjacent display in multi-monitor setups.
+        CGPoint(
+            x: min(max(bounds.minX, point.x), bounds.maxX - 1),
+            y: min(max(bounds.minY, point.y), bounds.maxY - 1)
+        )
     }
 
     private func postClick(_ button: NormalizedInput.MouseButton) {
