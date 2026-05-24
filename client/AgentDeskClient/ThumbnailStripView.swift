@@ -219,21 +219,61 @@ final class ThumbnailStripView: UIView {
         case .began:
             gestureBandWidth = max(bandWidth, 1.0)
             feedback.selectionChanged()
+            // R26: cancel any in-flight snap-back so a rapid second
+            // pan starts cleanly from the current transform instead
+            // of fighting the spring.
+            stack.layer.removeAllAnimations()
             emit(phase: .began, progress: 0, velocityX: 0)
         case .changed:
             let raw = Float(translation.x / gestureBandWidth)
             let progress = min(max(raw, -1.0), 1.0)
             let nudged = nudgeAwayFromZero(progress)
+            applyVisualSlide(translation: translation)
             emit(phase: .changed, progress: nudged, velocityX: Float(velocity.x))
         case .ended:
             let raw = Float(translation.x / gestureBandWidth)
             let progress = min(max(raw, -1.0), 1.0)
             emit(phase: .ended, progress: progress, velocityX: Float(velocity.x))
+            snapStackBack()
         case .cancelled, .failed:
             emit(phase: .cancelled, progress: 0, velocityX: 0)
+            snapStackBack()
         default:
             break
         }
+    }
+
+    // R26: slide the tile stack 1:1 with the finger inside the band,
+    // and apply diminishing resistance beyond the band edge so a long
+    // overdrag doesn't shoot the strip off-screen. Tracks the finger
+    // direction (not the host's swipe direction), so under the
+    // default useMacOSDirection=false reading where finger-right maps
+    // to the Space-on-the-left, the strip still slides right with the
+    // finger - matches the user's tactile expectation.
+    private func applyVisualSlide(translation: CGPoint) {
+        let raw = translation.x
+        let band = gestureBandWidth
+        let visualX: CGFloat
+        if abs(raw) <= band {
+            visualX = raw
+        } else {
+            let sign: CGFloat = raw >= 0 ? 1 : -1
+            let overshoot = abs(raw) - band
+            visualX = sign * (band + overshoot * 0.35)
+        }
+        stack.transform = CGAffineTransform(translationX: visualX, y: 0)
+    }
+
+    private func snapStackBack() {
+        UIView.animate(
+            withDuration: 0.35,
+            delay: 0,
+            usingSpringWithDamping: 0.72,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+            animations: { self.stack.transform = .identity },
+            completion: nil
+        )
     }
 
     // Dock reads progress=0 on a .changed frame as "no gesture in
@@ -325,15 +365,17 @@ final class ThumbnailTileView: UIView {
     }
 
     func setActive(_ active: Bool) {
+        // R26: caption stays "Desktop N" for both states. The
+        // tintColor highlight is the active indicator on its own;
+        // the previous "Here" label was redundant with that signal
+        // and broke the visual rhythm of the strip.
         if active {
             backgroundColor = .tintColor.withAlphaComponent(0.18)
             layer.borderColor = UIColor.tintColor.cgColor
-            captionLabel.text = "Here"
             imageView.image = nil
         } else {
             backgroundColor = .secondarySystemBackground
             layer.borderColor = UIColor.separator.cgColor
-            captionLabel.text = "Desktop \(ordinal)"
         }
     }
 
