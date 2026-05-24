@@ -66,6 +66,12 @@ final class ThumbnailStripView: UIView {
         cv.showsVerticalScrollIndicator = false
         cv.decelerationRate = .fast
         cv.alwaysBounceHorizontal = true
+        // Default is .automatic, which lets iOS add safe-area /
+        // keyboard-tracking padding to the scroll's contentInset
+        // behind our back. The strip lives in the middle of the
+        // view, not at edges, so we want no auto adjustment; what we
+        // set is what we get.
+        cv.contentInsetAdjustmentBehavior = .never
         cv.dataSource = self
         cv.delegate = self
         cv.register(ThumbnailTileCell.self, forCellWithReuseIdentifier: ThumbnailTileCell.reuseId)
@@ -157,6 +163,11 @@ final class ThumbnailStripView: UIView {
                 top: 0, left: inset, bottom: 0, right: inset
             )
             lastBoundsWidth = bounds.width
+            // Force the flow layout to recompute now so scrollToItem
+            // and the resting-offset readback below see the
+            // post-inset content size.
+            collectionView.collectionViewLayout.invalidateLayout()
+            collectionView.layoutIfNeeded()
             recenterOnActive(animated: false)
         }
     }
@@ -221,20 +232,31 @@ final class ThumbnailStripView: UIView {
 
     private func recenterOnActive(animated: Bool) {
         guard let idx = activeIndex, bounds.width > 0 else { return }
-        let target = restingOffset(forIndex: idx)
-        activeRestingOffsetX = target
-        // Skip if we're already there to avoid extra scroll callbacks.
-        if abs(collectionView.contentOffset.x - target) < 0.5 { return }
+        // Let UICollectionView do the centering math itself. It
+        // accounts for contentInset, sectionInset, and the special
+        // cases at the start and end of the list. The previous
+        // hand-rolled `i * pageWidth - inset` formula occasionally
+        // landed off-centre when the strip's bounds and the
+        // collection view's contentInset hadn't fully synchronised.
+        let ip = IndexPath(item: idx, section: 0)
         isProgrammaticScroll = true
-        collectionView.setContentOffset(CGPoint(x: target, y: 0), animated: animated)
+        collectionView.scrollToItem(at: ip, at: .centeredHorizontally, animated: animated)
+        // After scrollToItem the contentOffset reflects "active
+        // centred", which is the reference point the progress math
+        // measures drags against.
         if !animated {
-            // setContentOffset(animated:false) doesn't always fire a
-            // didEndScrollingAnimation; reset the flag synchronously.
+            collectionView.layoutIfNeeded()
+            activeRestingOffsetX = collectionView.contentOffset.x
             isProgrammaticScroll = false
+        } else {
+            // For animated scroll, capture an approximate resting
+            // offset now so an interrupting drag has a reference.
+            // didEndScrollingAnimation will refine it.
+            activeRestingOffsetX = restingOffsetEstimate(forIndex: idx)
         }
     }
 
-    private func restingOffset(forIndex i: Int) -> CGFloat {
+    private func restingOffsetEstimate(forIndex i: Int) -> CGFloat {
         let inset = collectionView.contentInset.left
         return CGFloat(i) * Self.pageWidth - inset
     }
@@ -374,7 +396,7 @@ extension ThumbnailStripView: UICollectionViewDelegate {
         else if tileFromActive < -0.5 { step = -1 }
         else { step = 0 }
         let targetIdx = max(0, min(orderedSpaces.count - 1, activeIdx + step))
-        let landing = restingOffset(forIndex: targetIdx)
+        let landing = restingOffsetEstimate(forIndex: targetIdx)
         targetContentOffset.pointee = CGPoint(x: landing, y: 0)
 
         // Emit .ended with the post-drag progress (clamped). The host
@@ -399,6 +421,12 @@ extension ThumbnailStripView: UICollectionViewDelegate {
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        // After an animated recenter, the actual resting offset is
+        // whatever UICollectionView landed on. Capture it so the
+        // progress math measures drags against the true reference.
+        if isProgrammaticScroll {
+            activeRestingOffsetX = scrollView.contentOffset.x
+        }
         isProgrammaticScroll = false
     }
 }
