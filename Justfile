@@ -41,6 +41,14 @@ client-install:
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -destination 'platform=iOS,id={{ios_device}}' build >/dev/null
     xcrun devicectl device install app --device {{ios_device}} "{{client_app}}"
 
+# Uninstall + clean install. iOS caches device-family and other bundle
+# metadata for an installed bundle id; rebuilding alone does not flush
+# that cache. Use this after changes to TARGETED_DEVICE_FAMILY,
+# UIRequires*, or anything else iOS reads at install time.
+client-reinstall:
+    -xcrun devicectl device uninstall app --device {{ios_device}} com.example.agentdesk.AgentDeskClient 2>/dev/null || true
+    just client-install
+
 # Trigger pairing without scanning the QR. Sends SIGUSR1 to the running host
 # (which mints a fresh URL and writes it to {{last_pair_url_path}}), then
 # launches the iPhone client with the URL as a CommandLine argument so
