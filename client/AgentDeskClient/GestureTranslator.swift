@@ -32,19 +32,39 @@ final class InstantPanGestureRecognizer: UIPanGestureRecognizer {
     }
 }
 
-// Cursor trackpad variant: the default ~10pt slop swallows rapid micro-
-// drags entirely (gesture .fails before crossing slop, no cursor move
-// emitted), but zero-slop InstantPan amplifies orthogonal finger tremor
-// into visible cursor stutter. 3pt is the middle ground: still above
-// typical finger tremor (~1pt) so the cursor doesn't jitter on a still
-// touch, but small enough that intentional 3-10pt drags register.
-final class SmallSlopPanGestureRecognizer: UIPanGestureRecognizer {
+// Cursor trackpad recognizer. Reads UIEvent.coalescedTouches(for:) so we
+// can emit cursor deltas at the device's full touch sample rate (up to
+// 120Hz on ProMotion) rather than UIPanGestureRecognizer's once-per-frame
+// action callback. More events with smaller per-event deltas = smoother
+// cursor motion on the Mac side (less "step by step" feel).
+//
+// Slop: 3pt cumulative from touchDown before any delta is emitted, to
+// filter quick taps and orthogonal finger tremor. Above ~1pt sub-pixel
+// jitter so a still finger doesn't move the cursor, below the system
+// default ~10pt so intentional 3-10pt micro-drags still register.
+//
+// Emits via a closure so the gesture translator doesn't have to receive
+// sub-frame data through UIPan's action callback (which only fires once
+// per frame).
+final class CoalescingTrackpadGestureRecognizer: UIPanGestureRecognizer {
+    typealias SampleHandler = @MainActor (_ dx: CGFloat, _ dy: CGFloat, _ velocity: CGFloat) -> Void
+
     private static let slopThreshold: CGFloat = 3.0
+    var onSampleDelta: SampleHandler?
+
     private var startLocation: CGPoint?
+    private var lastLocation: CGPoint?
+    private var lastTimestamp: TimeInterval?
+    private var didCrossSlop = false
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
-        startLocation = touches.first?.location(in: view)
+        guard let touch = touches.first, let view = view else { return }
+        let p = touch.location(in: view)
+        startLocation = p
+        lastLocation = p
+        lastTimestamp = touch.timestamp
+        didCrossSlop = false
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
@@ -52,18 +72,53 @@ final class SmallSlopPanGestureRecognizer: UIPanGestureRecognizer {
         guard let touch = touches.first,
               let view = view,
               let start = startLocation else { return }
-        let current = touch.location(in: view)
-        let distance = hypot(current.x - start.x, current.y - start.y)
-        if state == .possible && distance >= Self.slopThreshold {
-            state = .began
-        } else if state == .began {
-            state = .changed
+
+        let coalesced = event.coalescedTouches(for: touch) ?? [touch]
+        for sample in coalesced {
+            let p = sample.location(in: view)
+
+            // Gate on cumulative distance from touchDown, not from the
+            // last emitted sample, so we don't accidentally swallow large
+            // first deltas just because slop hasn't passed yet.
+            if !didCrossSlop {
+                let cumulative = hypot(p.x - start.x, p.y - start.y)
+                if cumulative >= Self.slopThreshold {
+                    didCrossSlop = true
+                    if state == .possible { state = .began }
+                } else {
+                    lastLocation = p
+                    lastTimestamp = sample.timestamp
+                    continue
+                }
+            } else if state == .began {
+                state = .changed
+            }
+
+            if let lastP = lastLocation, let lastTs = lastTimestamp {
+                let dx = p.x - lastP.x
+                let dy = p.y - lastP.y
+                if dx != 0 || dy != 0 {
+                    // Per-sample velocity (pts/sec) from the actual touch
+                    // timestamps gives the acceleration curve a finer
+                    // input than UIPan.velocity, which is exponentially
+                    // smoothed by UIKit and lags reality.
+                    let dt = max(sample.timestamp - lastTs, 0.001)
+                    let speed = hypot(dx, dy) / CGFloat(dt)
+                    onSampleDelta?(dx, dy, speed)
+                }
+            }
+
+            lastLocation = p
+            lastTimestamp = sample.timestamp
         }
     }
 
     override func reset() {
         super.reset()
         startLocation = nil
+        lastLocation = nil
+        lastTimestamp = nil
+        didCrossSlop = false
     }
 }
 
@@ -163,18 +218,29 @@ final class GestureTranslator: NSObject {
 
     func attach(to view: UIView) {
         view.isUserInteractionEnabled = true
-        // 3pt slop: filters tremor (which is sub-pixel) while letting
-        // rapid micro-drags register. The standard 10pt slop was causing
-        // user-reported "fails to register on rapid finger lift and use".
-        let pan = SmallSlopPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
+        let pan = CoalescingTrackpadGestureRecognizer()
         pan.minimumNumberOfTouches = 1
         pan.maximumNumberOfTouches = 1
+        pan.onSampleDelta = { [weak self] dx, dy, velocity in
+            self?.emitCursorDelta(dx: dx, dy: dy, velocity: velocity)
+        }
         view.addGestureRecognizer(pan)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTapGesture(_:)))
         tap.numberOfTouchesRequired = 1
         tap.numberOfTapsRequired = 1
         view.addGestureRecognizer(tap)
+    }
+
+    // Shared cursor emission used by both the new coalescing recognizer
+    // (production path, ~120Hz sub-frame samples) and processPan below
+    // (legacy per-frame API kept for tests). Identical math in both so
+    // the test path stays representative.
+    private func emitCursorDelta(dx: CGFloat, dy: CGFloat, velocity: CGFloat) {
+        let gain = acceleration.scale(velocity) * cursorAccelMultiplier
+        let outDx = Float(dx * gain * cursorSpeedMultiplier)
+        let outDy = Float(dy * gain * cursorSpeedMultiplier)
+        delegate?.gestureTranslator(self, didProduce: .cursorMove(dx: outDx, dy: outDy))
     }
 
     func attachScrollStrip(to view: UIView) {
@@ -201,10 +267,7 @@ final class GestureTranslator: NSObject {
             lastPanTranslation = translation
             if rawDx == 0 && rawDy == 0 { return }
             let speed = (velocity.x * velocity.x + velocity.y * velocity.y).squareRoot()
-            let gain = acceleration.scale(speed) * cursorAccelMultiplier
-            let dx = Float(rawDx * gain * cursorSpeedMultiplier)
-            let dy = Float(rawDy * gain * cursorSpeedMultiplier)
-            delegate?.gestureTranslator(self, didProduce: .cursorMove(dx: dx, dy: dy))
+            emitCursorDelta(dx: rawDx, dy: rawDy, velocity: speed)
         case .ended, .cancelled, .failed:
             lastPanTranslation = .zero
         default:
@@ -310,14 +373,6 @@ final class GestureTranslator: NSObject {
         delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: dy, phase: phase))
     }
 
-    @objc private func handlePanGesture(_ gesture: UIPanGestureRecognizer) {
-        guard let view = gesture.view else { return }
-        processPan(
-            state: gesture.state,
-            translation: gesture.translation(in: view),
-            velocity: gesture.velocity(in: view)
-        )
-    }
 
     @objc private func handleTapGesture(_ gesture: UITapGestureRecognizer) {
         processTap(state: gesture.state)
