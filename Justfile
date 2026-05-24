@@ -89,9 +89,17 @@ client-sim-reinstall:
 
 # Simulator equivalent of `pair-iphone`. Asks the running host to mint
 # a fresh pair URL (SIGUSR1 -> writes to {{last_pair_url_path}}), then
-# delivers the URL via `simctl openurl` which both launches the app and
-# routes the URL through SceneDelegate's openURLContexts handler. End
-# state: the app is open on the simulator in a paired session.
+# launches the app with two env vars:
+#   AGENTDESK_LAUNCH_URL -- SceneDelegate reads this and routes through
+#     handleIncomingPairingURL on launch (same path as openurl).
+#   AGENTDESK_DEV_HOST_OVERRIDE=localhost -- PairingClient swaps the
+#     Tailnet FQDN / IPv4 for localhost (simulator-only code path) so
+#     the handshake reaches the host through the loopback interface.
+#     Without this the simulator times out at NSURLError -1001 because
+#     it cannot resolve or route to *.ts.net hostnames without
+#     Tailscale running inside the simulator sandbox.
+# simctl propagates SIMCTL_CHILD_*-prefixed caller env into the app's
+# ProcessInfo.environment.
 pair-sim:
     @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "{{last_pair_url_path}}"
@@ -100,7 +108,9 @@ pair-sim:
     @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     @echo "URL: $(cat '{{last_pair_url_path}}')"
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
-    xcrun simctl openurl {{ios_sim_udid}} "$(cat '{{last_pair_url_path}}')"
+    SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$(cat '{{last_pair_url_path}}')" \
+        SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost \
+        xcrun simctl launch --terminate-running-process {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient
 
 # Rebuild and relaunch the Mac host, uninstall and reinstall the iOS
 # app on the simulator, then pair and open it. Use after changes that

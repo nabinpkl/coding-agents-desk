@@ -280,6 +280,23 @@ final class PairingClient {
     }
 
     func resolvedHost(fqdn rawFQDN: String, ipv4: String) -> String {
+        #if targetEnvironment(simulator)
+        // Simulator dev path: the simulator shares the Mac's network
+        // stack but cannot reach the host's Tailscale magic-DNS name or
+        // the Tailnet IPv4 (no Tailscale running inside the simulator
+        // sandbox), so both fqdn and ipv4 fail with NSURLErrorTimedOut.
+        // pair-sim sets AGENTDESK_DEV_HOST_OVERRIDE=localhost so we dial
+        // the host's listener on the loopback interface instead. The
+        // host's NWListener binds to all interfaces, and the DEBUG
+        // PermissiveURLSessionDelegate already bypasses TLS hostname
+        // validation so the Tailnet-FQDN cert mismatch on localhost is
+        // tolerated. Guard rail: this entire branch compiles out of
+        // device builds via targetEnvironment.
+        if let override = ProcessInfo.processInfo.environment["AGENTDESK_DEV_HOST_OVERRIDE"],
+           !override.isEmpty {
+            return override
+        }
+        #endif
         let fqdn = rawFQDN.hasSuffix(".") ? String(rawFQDN.dropLast()) : rawFQDN
         if !fqdn.isEmpty, resolver.canResolve(fqdn) {
             return fqdn
