@@ -129,10 +129,12 @@ final class ThumbnailStripView: UIView {
             selectionOverlay.centerXAnchor.constraint(equalTo: centerXAnchor),
             selectionOverlay.centerYAnchor.constraint(
                 equalTo: topAnchor,
-                constant: Self.tileHeight / 2
+                constant: (Self.tileHeight + Self.tileCaptionHeight) / 2
             ),
             selectionOverlay.widthAnchor.constraint(equalToConstant: Self.tileWidth),
-            selectionOverlay.heightAnchor.constraint(equalToConstant: Self.tileHeight)
+            selectionOverlay.heightAnchor.constraint(
+                equalToConstant: Self.tileHeight + Self.tileCaptionHeight
+            )
         ])
 
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
