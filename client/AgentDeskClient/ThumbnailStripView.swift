@@ -71,6 +71,25 @@ final class ThumbnailStripView: UIView {
         return cv
     }()
 
+    // Floating selection indicator. Lives in the strip's coordinate
+    // space (sibling of collectionView, not inside it), so it stays
+    // put while the cells scroll past during a drag. That stationary
+    // behaviour is what gives the "half-on-current, half-on-next"
+    // overlap visual as the user slides between Spaces. After a
+    // commit the overlay slides to the new active cell's resting
+    // position; in Fits mode where active can be anywhere along the
+    // row, that motion is the only thing that moves.
+    private lazy var selectionOverlay: UIView = {
+        let v = UIView()
+        v.backgroundColor = .clear
+        v.layer.cornerRadius = 6
+        v.layer.borderColor = UIColor.tintColor.cgColor
+        v.layer.borderWidth = 1.5
+        v.isUserInteractionEnabled = false
+        v.isHidden = true
+        return v
+    }()
+
     private var orderedSpaces: [SpaceMetadata] = []
     private var activeSpaceId: UInt64?
     private var thumbnails: [String: String] = [:]
@@ -107,6 +126,7 @@ final class ThumbnailStripView: UIView {
         isUserInteractionEnabled = true
 
         addSubview(collectionView)
+        addSubview(selectionOverlay)
         NSLayoutConstraint.activate([
             collectionView.leadingAnchor.constraint(equalTo: leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -132,6 +152,7 @@ final class ThumbnailStripView: UIView {
             lastTileCount = orderedSpaces.count
             collectionView.layoutIfNeeded()
             recenterOnActive(animated: false)
+            updateSelectionOverlayFrame(animated: false)
         }
     }
 
@@ -191,6 +212,7 @@ final class ThumbnailStripView: UIView {
         }
         collectionView.layoutIfNeeded()
         recenterOnActive(animated: !countChanged)
+        updateSelectionOverlayFrame(animated: !countChanged)
     }
 
     func apply(thumbnails: [String: String]) {
@@ -208,6 +230,7 @@ final class ThumbnailStripView: UIView {
         thumbnails = [:]
         collectionView.reloadData()
         lastTileCount = 0
+        selectionOverlay.isHidden = true
     }
 
     var userSpaceCount: Int { orderedSpaces.count }
@@ -261,11 +284,43 @@ final class ThumbnailStripView: UIView {
             }
             return nil
         }()
-        cell.configure(
-            ordinal: i + 1,
-            image: image,
-            isActive: space.id == activeSpaceId
+        cell.configure(ordinal: i + 1, image: image)
+    }
+
+    // Position the floating indicator over the active cell's current
+    // visible frame. Called only when the resting state could have
+    // changed (layout pass, state apply); intentionally NOT called
+    // from scrollViewDidScroll, so the indicator stays put while the
+    // user drags. That stationary behaviour is what produces the
+    // half-on-current / half-on-next overlap as cells scroll past.
+    private func updateSelectionOverlayFrame(animated: Bool) {
+        guard let idx = activeIndex,
+              let attrs = collectionView.layoutAttributesForItem(
+                at: IndexPath(item: idx, section: 0)
+              )
+        else {
+            selectionOverlay.isHidden = true
+            return
+        }
+        // Cell frame is in collection view's content coords.
+        // Convert to strip coords (collection view fills the strip,
+        // so subtracting contentOffset is all we need).
+        let cellFrame = attrs.frame
+        let target = CGRect(
+            x: cellFrame.origin.x - collectionView.contentOffset.x,
+            y: cellFrame.origin.y - collectionView.contentOffset.y,
+            width: cellFrame.size.width,
+            height: cellFrame.size.height
         )
+        let apply = {
+            self.selectionOverlay.frame = target
+            self.selectionOverlay.isHidden = false
+        }
+        if animated {
+            UIView.animate(withDuration: 0.25, animations: apply)
+        } else {
+            apply()
+        }
     }
 
     // MARK: - Long-press
@@ -504,18 +559,14 @@ final class ThumbnailTileCell: UICollectionViewCell {
         ])
     }
 
-    func configure(ordinal: Int, image: UIImage?, isActive: Bool) {
+    func configure(ordinal: Int, image: UIImage?) {
         captionLabel.text = "Desktop \(ordinal)"
         imageView.image = image
-        contentView.layer.borderColor = (isActive ? UIColor.tintColor : UIColor.separator).cgColor
-        contentView.layer.borderWidth = isActive ? 1.5 : 0.5
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
         imageView.image = nil
         captionLabel.text = nil
-        contentView.layer.borderColor = UIColor.separator.cgColor
-        contentView.layer.borderWidth = 0.5
     }
 }
