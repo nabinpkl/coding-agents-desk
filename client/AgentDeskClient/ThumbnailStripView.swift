@@ -1,17 +1,19 @@
 import UIKit
 
-// R25 merged Spaces band. Replaces SpacesDotsView entirely: the active
-// tile's tintColor / "Here" treatment is the position indicator, and a
-// horizontal pan anywhere on the strip drives the continuous dock-swipe
-// stream the dots band used to drive. Tap = jump to that Space.
-// Long-press = refresh thumbnail.
+// Spaces strip. Horizontal UICollectionView of one cell per non-fullscreen
+// user Space on the active display, with a fixed border-only indicator
+// pinned to the strip's horizontal centre. Tiles scroll past the
+// indicator; that motion is the swipe-to-switch gesture.
 //
-// Gesture model is unchanged from the old dots band: single-finger
-// horizontal pan streams SwipePhase + normalised progress + velocity
-// frame-by-frame; the host's InputDispatcher posts one dock-swipe
-// CGEvent per frame and Dock animates / commits accordingly. Pan and
-// tap coexist via UIKit's natural arbitration: tap fires below the
-// pan slop (~10pt), pan wins once it crosses.
+// The earlier hand-rolled approach overlaid a translucent rect over the
+// active tile and animated it manually as the user dragged. That
+// produced five rounds of "the highlight isn't moving" before the user
+// reminded me to reach for the canonical iOS pattern, which is this
+// one: tiles in a scroll container, indicator pinned to the viewport.
+//
+// Gesture wire is unchanged. Drag-began/scroll/end map onto
+// .switchSpaceGesture(.began/.changed/.ended); the host's
+// InputDispatcher posts one dock-swipe CGEvent per frame.
 //
 // State arrives as two streams: DesktopState drives the tile lineup
 // (which Spaces exist, which is active), and `thumbnails` drives the
@@ -20,15 +22,15 @@ import UIKit
 @MainActor
 protocol ThumbnailStripViewDelegate: AnyObject {
     // Triggered on tap. The view emits a chain of single-step
-    // .switchSpaceGesture frames (one per index step toward the
-    // target) so the host's existing dock-swipe synthesis path can
-    // commit the multi-step move without a new wire shape.
+    // .switchSpaceGesture frames in the controller, so the existing
+    // dock-swipe synthesis path can commit a multi-step move without a
+    // new wire shape.
     func thumbnailStrip(_ view: ThumbnailStripView, didTapStepDelta delta: Int)
-    // Triggered on long-press. Routes to a client-config frame.
+    // Triggered on long-press. Routes to a client-config refresh
+    // frame.
     func thumbnailStrip(_ view: ThumbnailStripView, didLongPressSpaceId spaceId: UInt64)
-    // Triggered on continuous pan. Forwards .switchSpaceGesture(...)
-    // frames in lockstep with UIKit pan callbacks (began -> ... ->
-    // ended/cancelled). PairingViewController forwards to sendInput.
+    // Triggered on continuous scroll. Forwards .switchSpaceGesture(...)
+    // frames in lockstep with UIScrollView's drag/scroll callbacks.
     func thumbnailStrip(_ view: ThumbnailStripView, didProduce input: NormalizedInput)
 }
 
@@ -36,37 +38,69 @@ protocol ThumbnailStripViewDelegate: AnyObject {
 final class ThumbnailStripView: UIView {
     weak var delegate: ThumbnailStripViewDelegate?
 
-    // Layout: a horizontal stack of fixed-width tiles, centered in
-    // the band. 64x40 keeps the strip dense enough for 6+ Spaces on
-    // a standard iPhone while leaving captions legible.
     static let tileWidth: CGFloat = 64
     static let tileHeight: CGFloat = 40
     static let tileSpacing: CGFloat = 8
+    static let tileCaptionHeight: CGFloat = 14
+    static var pageWidth: CGFloat { tileWidth + tileSpacing }
 
-    // R25: swipe-to-switch direction mapping, mirrored from the old
-    // SpacesDotsView. False (default, toggle OFF) inverts the
-    // wire-level sign so finger-right maps to the Space on the LEFT
-    // (scrollbar-style reading). True passes through (macOS-native
-    // trackpad direction). PairingViewController reads
-    // SettingsStore.shared.useMacOSSpacesDirection.
+    // Direction mapping mirrored from the retired manual implementation.
+    // False (default, toggle OFF) inverts the wire-level sign so
+    // finger-right maps to the Space on the LEFT (scrollbar-style
+    // reading). True passes through (macOS-native trackpad direction).
     var useMacOSDirection: Bool = false
 
-    private let stack = UIStackView()
-    private let feedback = UISelectionFeedbackGenerator()
-    // R27 v2: floating selection overlay. Sits on top of the active
-    // tile in the strip's coordinate space (not inside the stack), so
-    // it can slide between tile positions independently of the stack's
-    // own slide-with-finger transform. The previous per-tile
-    // cross-fade fought the stack's transform and the user couldn't
-    // perceive the overlap; one overlay sliding across tile centres
-    // gives the clean "moving between two desktops" visual.
-    private let selectionOverlay = UIView()
-    private var tiles: [ThumbnailTileView] = []
+    private lazy var layout: UICollectionViewFlowLayout = {
+        let l = UICollectionViewFlowLayout()
+        l.scrollDirection = .horizontal
+        l.itemSize = CGSize(width: Self.tileWidth, height: Self.tileHeight + Self.tileCaptionHeight)
+        l.minimumLineSpacing = Self.tileSpacing
+        l.minimumInteritemSpacing = 0
+        return l
+    }()
+
+    private lazy var collectionView: UICollectionView = {
+        let cv = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        cv.backgroundColor = .clear
+        cv.showsHorizontalScrollIndicator = false
+        cv.showsVerticalScrollIndicator = false
+        cv.decelerationRate = .fast
+        cv.alwaysBounceHorizontal = true
+        cv.dataSource = self
+        cv.delegate = self
+        cv.register(ThumbnailTileCell.self, forCellWithReuseIdentifier: ThumbnailTileCell.reuseId)
+        cv.translatesAutoresizingMaskIntoConstraints = false
+        return cv
+    }()
+
+    // Fixed indicator. Sits over the collection view at horizontal
+    // centre; tiles scroll past underneath. Transparent fill so the
+    // active tile's thumbnail shows through; tinted border alone marks
+    // the selection.
+    private lazy var selectionOverlay: UIView = {
+        let v = UIView()
+        v.backgroundColor = .clear
+        v.layer.cornerRadius = 6
+        v.layer.borderColor = UIColor.tintColor.cgColor
+        v.layer.borderWidth = 1.5
+        v.isUserInteractionEnabled = false
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+
     private var orderedSpaces: [SpaceMetadata] = []
     private var activeSpaceId: UInt64?
     private var thumbnails: [String: String] = [:]
-    private var gestureBandWidth: CGFloat = 1.0
-    private var isSwipeActive = false
+    // Guards against scrollViewDidScroll firing while we're
+    // programmatically recentering after a state update.
+    private var isProgrammaticScroll: Bool = false
+    private var isDragging: Bool = false
+    private var lastEmittedActiveIndex: Int?
+    // The "resting offset" at which the currently-active tile sits
+    // centred under the indicator. Recomputed when bounds, tile count,
+    // or active index change.
+    private var activeRestingOffsetX: CGFloat = 0
+    private var lastBoundsWidth: CGFloat = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -82,72 +116,51 @@ final class ThumbnailStripView: UIView {
         backgroundColor = .clear
         accessibilityIdentifier = "thumbnail-strip"
         isUserInteractionEnabled = true
-        stack.axis = .horizontal
-        stack.spacing = Self.tileSpacing
-        stack.alignment = .center
-        stack.distribution = .equalSpacing
-        stack.isUserInteractionEnabled = true
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor)
-        ])
 
-        // R27 v2: selection overlay sits above the stack in z-order
-        // and is positioned via frame in updateSelectionOverlayFrame.
-        // Not user-interactive so taps fall through to tiles.
-        // R28: transparent fill so the underlying thumbnail stays
-        // visible. Border alone is enough to mark the active tile.
-        selectionOverlay.backgroundColor = .clear
-        selectionOverlay.layer.cornerRadius = 6
-        selectionOverlay.layer.borderColor = UIColor.tintColor.cgColor
-        selectionOverlay.layer.borderWidth = 1.5
-        selectionOverlay.isUserInteractionEnabled = false
-        selectionOverlay.isHidden = true
+        addSubview(collectionView)
         addSubview(selectionOverlay)
 
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
-        pan.minimumNumberOfTouches = 1
-        pan.maximumNumberOfTouches = 1
-        addGestureRecognizer(pan)
+        NSLayoutConstraint.activate([
+            collectionView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            collectionView.topAnchor.constraint(equalTo: topAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            selectionOverlay.centerXAnchor.constraint(equalTo: centerXAnchor),
+            selectionOverlay.centerYAnchor.constraint(
+                equalTo: topAnchor,
+                constant: Self.tileHeight / 2
+            ),
+            selectionOverlay.widthAnchor.constraint(equalToConstant: Self.tileWidth),
+            selectionOverlay.heightAnchor.constraint(equalToConstant: Self.tileHeight)
+        ])
+
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.4
+        collectionView.addGestureRecognizer(longPress)
 
         isHidden = true
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        updateSelectionOverlayFrame()
-    }
-
-    private func updateSelectionOverlayFrame() {
-        // R27 v4: never touch the overlay frame while a swipe is
-        // active - setting frame while transform is non-identity is
-        // undefined per UIKit docs, and it was wiping the on-screen
-        // slide visible to the user.
-        if isSwipeActive { return }
-        guard let activeIdx = activeIndex, activeIdx < tiles.count else {
-            selectionOverlay.isHidden = true
-            return
+        // Inset so the first and last tile can centre under the
+        // indicator. Depends on bounds.width; recompute when it
+        // changes.
+        let inset = max(0, (bounds.width - Self.tileWidth) / 2)
+        let needsUpdate = collectionView.contentInset.left != inset
+            || lastBoundsWidth != bounds.width
+        if needsUpdate {
+            collectionView.contentInset = UIEdgeInsets(
+                top: 0, left: inset, bottom: 0, right: inset
+            )
+            lastBoundsWidth = bounds.width
+            recenterOnActive(animated: false)
         }
-        let activeTile = tiles[activeIdx]
-        // Force the stack to lay out so the tile's frame is current
-        // before we read it. Without this, tile.frame can still be
-        // .zero on the first apply(state:) and the overlay lands at
-        // the strip's origin instead of over the active tile.
-        stack.setNeedsLayout()
-        stack.layoutIfNeeded()
-        let frame = activeTile.convert(activeTile.bounds, to: self)
-        selectionOverlay.transform = .identity
-        selectionOverlay.frame = frame
-        selectionOverlay.isHidden = false
     }
 
-    // Called whenever DesktopState arrives. Recomputes the tile list
-    // from the active display's user Spaces; identity-stable so a tile
-    // for the same Space doesn't reload between ticks. Does not manage
-    // its own isHidden; PairingViewController combines the settings
-    // toggle and the Space count to decide visibility.
+    // MARK: - Public state surface
+
     func apply(state: DesktopState) {
         guard let activeDisplayId = state.activeDisplayId else {
             renderEmpty()
@@ -156,328 +169,293 @@ final class ThumbnailStripView: UIView {
         let userSpaces = state.spaces
             .filter { $0.displayId == activeDisplayId && $0.type == 0 }
             .sorted { ($0.index ?? Int.max) < ($1.index ?? Int.max) }
+        let countChanged = userSpaces.map { $0.id } != orderedSpaces.map { $0.id }
         orderedSpaces = userSpaces
         activeSpaceId = state.activeSpaceId
-        rebuildIfNeeded()
-        applyThumbnailsToTiles()
-        setNeedsLayout()
-        layoutIfNeeded()
-        updateSelectionOverlayFrame()
+
+        if countChanged {
+            collectionView.reloadData()
+        } else {
+            // Just re-render visible cells so active-mark updates.
+            for ip in collectionView.indexPathsForVisibleItems {
+                if let cell = collectionView.cellForItem(at: ip) as? ThumbnailTileCell {
+                    configureCell(cell, atIndex: ip.item)
+                }
+            }
+        }
+        recenterOnActive(animated: !countChanged)
+        selectionOverlay.isHidden = activeIndex == nil
     }
 
-    // Called whenever ThumbnailsPush arrives.
     func apply(thumbnails: [String: String]) {
         self.thumbnails = thumbnails
-        applyThumbnailsToTiles()
+        for ip in collectionView.indexPathsForVisibleItems {
+            if let cell = collectionView.cellForItem(at: ip) as? ThumbnailTileCell {
+                configureCell(cell, atIndex: ip.item)
+            }
+        }
     }
 
     func renderEmpty() {
         orderedSpaces = []
         activeSpaceId = nil
         thumbnails = [:]
-        for tile in tiles { tile.removeFromSuperview() }
-        tiles = []
+        collectionView.reloadData()
         selectionOverlay.isHidden = true
     }
 
-    // PairingViewController calls this to expose the tile count it
-    // needs for the show/hide decision without leaking internals.
     var userSpaceCount: Int { orderedSpaces.count }
+
+    var activeIndex: Int? {
+        guard let activeSpaceId else { return nil }
+        return orderedSpaces.firstIndex { $0.id == activeSpaceId }
+    }
+
+    // Test affordances.
+    var renderedTileCount: Int { orderedSpaces.count }
+    func tileSpaceIds() -> [UInt64] { orderedSpaces.map { $0.id } }
 
     // MARK: - Internals
 
-    private func rebuildIfNeeded() {
-        // Identity-by-spaceId. A change to active-Space pointer alone
-        // doesn't require recreating tiles; only count / id list does.
-        let desiredIds = orderedSpaces.map { $0.id }
-        let currentIds = tiles.map { $0.spaceId }
-        guard desiredIds != currentIds else {
-            // Just re-mark active.
-            for tile in tiles { tile.setActive(tile.spaceId == activeSpaceId) }
-            return
-        }
-        for tile in tiles { tile.removeFromSuperview() }
-        tiles = []
-        for (idx, space) in orderedSpaces.enumerated() {
-            let tile = ThumbnailTileView(spaceId: space.id, ordinal: idx + 1)
-            tile.delegate = self
-            tile.setActive(space.id == activeSpaceId)
-            stack.addArrangedSubview(tile)
-            tiles.append(tile)
+    private func recenterOnActive(animated: Bool) {
+        guard let idx = activeIndex, bounds.width > 0 else { return }
+        let target = restingOffset(forIndex: idx)
+        activeRestingOffsetX = target
+        // Skip if we're already there to avoid extra scroll callbacks.
+        if abs(collectionView.contentOffset.x - target) < 0.5 { return }
+        isProgrammaticScroll = true
+        collectionView.setContentOffset(CGPoint(x: target, y: 0), animated: animated)
+        if !animated {
+            // setContentOffset(animated:false) doesn't always fire a
+            // didEndScrollingAnimation; reset the flag synchronously.
+            isProgrammaticScroll = false
         }
     }
 
-    private func applyThumbnailsToTiles() {
-        // R28: every tile gets its image if the host sent one,
-        // including the active tile - the selection overlay no
-        // longer obscures it, so showing the thumbnail makes the
-        // strip read consistently across all tiles.
-        for tile in tiles {
-            let key = String(tile.spaceId)
-            tile.setActive(tile.spaceId == activeSpaceId)
-            if let base64 = thumbnails[key],
-               let data = Data(base64Encoded: base64),
-               let image = UIImage(data: data) {
-                tile.setImage(image)
-            } else {
-                tile.clearImage()
-            }
-        }
+    private func restingOffset(forIndex i: Int) -> CGFloat {
+        let inset = collectionView.contentInset.left
+        return CGFloat(i) * Self.pageWidth - inset
     }
 
-    // MARK: - Tile callbacks
-
-    fileprivate func tileTapped(_ tile: ThumbnailTileView) {
-        guard let activeSpaceId else { return }
-        guard let activeIdx = orderedSpaces.firstIndex(where: { $0.id == activeSpaceId }),
-              let targetIdx = orderedSpaces.firstIndex(where: { $0.id == tile.spaceId })
-        else { return }
-        let delta = targetIdx - activeIdx
-        guard delta != 0 else { return }
-        delegate?.thumbnailStrip(self, didTapStepDelta: delta)
-    }
-
-    fileprivate func tileLongPressed(_ tile: ThumbnailTileView) {
-        delegate?.thumbnailStrip(self, didLongPressSpaceId: tile.spaceId)
-    }
-
-    // MARK: - Swipe state machine
-    //
-    // Ported from the retired SpacesDotsView. Same shape so the host
-    // contract (one .switchSpaceGesture frame per UIKit pan callback)
-    // doesn't change. Pure function: tests drive processGesture
-    // without UIKit setup.
-
-    @objc private func handleSwipe(_ gesture: UIPanGestureRecognizer) {
-        processGesture(
-            state: gesture.state,
-            translation: gesture.translation(in: self),
-            velocity: gesture.velocity(in: self),
-            bandWidth: bounds.width
-        )
-    }
-
-    func processGesture(
-        state: UIGestureRecognizer.State,
-        translation: CGPoint,
-        velocity: CGPoint,
-        bandWidth: CGFloat
-    ) {
-        switch state {
-        case .began:
-            gestureBandWidth = max(bandWidth, 1.0)
-            feedback.selectionChanged()
-            isSwipeActive = true
-            // R26: cancel any in-flight snap-back so a rapid second
-            // pan starts cleanly from the current transform instead
-            // of fighting the spring.
-            stack.layer.removeAllAnimations()
-            selectionOverlay.layer.removeAllAnimations()
-            emit(phase: .began, progress: 0, velocityX: 0)
-        case .changed:
-            let raw = Float(translation.x / gestureBandWidth)
-            let progress = min(max(raw, -1.0), 1.0)
-            let nudged = nudgeAwayFromZero(progress)
-            applyVisualSlide(translation: translation)
-            applyOverlapHighlight(translation: translation)
-            emit(phase: .changed, progress: nudged, velocityX: Float(velocity.x))
-        case .ended:
-            let raw = Float(translation.x / gestureBandWidth)
-            let progress = min(max(raw, -1.0), 1.0)
-            emit(phase: .ended, progress: progress, velocityX: Float(velocity.x))
-            isSwipeActive = false
-            snapStackBack()
-            restoreActiveHighlight()
-        case .cancelled, .failed:
-            emit(phase: .cancelled, progress: 0, velocityX: 0)
-            isSwipeActive = false
-            snapStackBack()
-            restoreActiveHighlight()
-        default:
-            break
-        }
-    }
-
-    // R26: slide the tile stack 1:1 with the finger inside the band,
-    // and apply diminishing resistance beyond the band edge so a long
-    // overdrag doesn't shoot the strip off-screen. Tracks the finger
-    // direction (not the host's swipe direction), so under the
-    // default useMacOSDirection=false reading where finger-right maps
-    // to the Space-on-the-left, the strip still slides right with the
-    // finger - matches the user's tactile expectation.
-    private func applyVisualSlide(translation: CGPoint) {
-        let raw = translation.x
-        let band = gestureBandWidth
-        let visualX: CGFloat
-        if abs(raw) <= band {
-            visualX = raw
+    fileprivate func configureCell(_ cell: ThumbnailTileCell, atIndex i: Int) {
+        let space = orderedSpaces[i]
+        let key = String(space.id)
+        if let base64 = thumbnails[key],
+           let data = Data(base64Encoded: base64),
+           let image = UIImage(data: data) {
+            cell.configure(ordinal: i + 1, image: image)
         } else {
-            let sign: CGFloat = raw >= 0 ? 1 : -1
-            let overshoot = abs(raw) - band
-            visualX = sign * (band + overshoot * 0.35)
+            cell.configure(ordinal: i + 1, image: nil)
         }
-        stack.transform = CGAffineTransform(translationX: visualX, y: 0)
     }
 
-    // R27 v5: overlay slides TOWARD the destination Space at 2x the
-    // finger rate. Under the default useMacOSDirection=false (pull /
-    // scrollbar reading), pulling the finger LEFT commits to the
-    // RIGHT-neighbour Space, so the overlay slides RIGHT. Under
-    // useMacOSDirection=true, the destination matches finger
-    // direction so the overlay slides WITH the finger. Either way,
-    // the overlay clearly leaves the active tile in the direction
-    // of the destination, while the stack still slides with the
-    // finger - giving the "two things moving" overlap effect.
-    private func applyOverlapHighlight(translation: CGPoint) {
-        guard activeIndex != nil else { return }
-        let directionMultiplier: CGFloat = useMacOSDirection ? 2.0 : -2.0
-        selectionOverlay.transform = CGAffineTransform(
-            translationX: translation.x * directionMultiplier,
-            y: 0
-        )
+    // MARK: - Long-press
+
+    @objc private func handleLongPress(_ gr: UILongPressGestureRecognizer) {
+        guard gr.state == .began else { return }
+        let point = gr.location(in: collectionView)
+        guard let ip = collectionView.indexPathForItem(at: point),
+              ip.item < orderedSpaces.count else { return }
+        delegate?.thumbnailStrip(self, didLongPressSpaceId: orderedSpaces[ip.item].id)
     }
 
-    private func restoreActiveHighlight() {
-        // Spring the overlay back to the (current) active tile's
-        // frame. If the swipe committed, the host's DesktopState
-        // arrives next and updateSelectionOverlayFrame moves the
-        // resting position to the new active tile.
-        UIView.animate(
-            withDuration: 0.35,
-            delay: 0,
-            usingSpringWithDamping: 0.72,
-            initialSpringVelocity: 0,
-            options: [.allowUserInteraction, .beginFromCurrentState],
-            animations: { self.selectionOverlay.transform = .identity },
-            completion: nil
-        )
+    // MARK: - Gesture emission (pure function, testable)
+
+    // Maps a scroll offset to the .switchSpaceGesture progress the
+    // host expects. Pure function so tests can exercise it directly
+    // without UIKit setup.
+    //
+    // Old translation.x maps inversely to contentOffset: dragging the
+    // finger RIGHT pulls content right, which DECREASES
+    // contentOffset.x. The "translation-equivalent" is therefore
+    // -(currentOffset - resting).
+    //
+    // Progress is normalised to one pageWidth (one tile + spacing) and
+    // clamped to [-1, 1].
+    static func computeRawProgress(
+        currentOffsetX: CGFloat,
+        activeRestingOffsetX: CGFloat,
+        pageWidth: CGFloat
+    ) -> Float {
+        guard pageWidth > 0 else { return 0 }
+        let translation = -(currentOffsetX - activeRestingOffsetX)
+        let raw = Float(translation / pageWidth)
+        return min(max(raw, -1.0), 1.0)
     }
 
-    private func snapStackBack() {
-        UIView.animate(
-            withDuration: 0.35,
-            delay: 0,
-            usingSpringWithDamping: 0.72,
-            initialSpringVelocity: 0,
-            options: [.allowUserInteraction, .beginFromCurrentState],
-            animations: { self.stack.transform = .identity },
-            completion: nil
-        )
+    // Internal, not private: scrollView delegate methods call this in
+    // production, and ThumbnailStripViewTests calls it directly to
+    // exercise the sign-flip logic without spinning a real
+    // UIScrollView.
+    func emitSwipeFrame(phase: NormalizedInput.SwipePhase, rawProgress: Float, velocityX: CGFloat) {
+        // useMacOSDirection=true passes finger direction through;
+        // false (default) inverts so finger-right maps to Space-on-the-
+        // left (scrollbar reading). The progress sign here is in old
+        // translation.x convention (finger-right positive).
+        let signedProgress = useMacOSDirection ? rawProgress : -rawProgress
+        let signedVelocity = Float(useMacOSDirection ? velocityX : -velocityX)
+        delegate?.thumbnailStrip(self, didProduce: .switchSpaceGesture(
+            phase: phase,
+            progress: signedProgress,
+            velocityX: signedVelocity
+        ))
     }
 
     // Dock reads progress=0 on a .changed frame as "no gesture in
     // progress" and drops it. Nudge to FLT_TRUE_MIN-sized away from
-    // zero so the direction-required guard still passes.
-    private func nudgeAwayFromZero(_ progress: Float) -> Float {
-        if progress != 0 { return progress }
-        return .leastNonzeroMagnitude
-    }
-
-    private func emit(phase: NormalizedInput.SwipePhase, progress: Float, velocityX: Float) {
-        // Flip when NOT using macOS direction; pass through when
-        // using macOS direction. Default (false) gives the inverted
-        // scrollbar-style feel.
-        let signedProgress = useMacOSDirection ? progress : -progress
-        let signedVelocityX = useMacOSDirection ? velocityX : -velocityX
-        delegate?.thumbnailStrip(self, didProduce: .switchSpaceGesture(
-            phase: phase, progress: signedProgress, velocityX: signedVelocityX
-        ))
-    }
-
-    // Test affordances.
-    var renderedTileCount: Int { tiles.count }
-    func tileSpaceIds() -> [UInt64] { tiles.map { $0.spaceId } }
-    var activeIndex: Int? {
-        guard let activeSpaceId else { return nil }
-        return tiles.firstIndex(where: { $0.spaceId == activeSpaceId })
+    // zero so the direction-required guard still passes when the
+    // user's drag transits the resting position.
+    static func nudgeAwayFromZero(_ progress: Float) -> Float {
+        progress == 0 ? .leastNonzeroMagnitude : progress
     }
 }
 
-// MARK: - ThumbnailTileView
+// MARK: - UICollectionViewDataSource
+
+extension ThumbnailStripView: UICollectionViewDataSource {
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        orderedSpaces.count
+    }
+
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        let cell = collectionView.dequeueReusableCell(
+            withReuseIdentifier: ThumbnailTileCell.reuseId, for: indexPath
+        ) as! ThumbnailTileCell
+        configureCell(cell, atIndex: indexPath.item)
+        return cell
+    }
+}
+
+// MARK: - UICollectionViewDelegate / UIScrollViewDelegate
+
+extension ThumbnailStripView: UICollectionViewDelegate {
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        guard let activeIdx = activeIndex, indexPath.item < orderedSpaces.count else { return }
+        let delta = indexPath.item - activeIdx
+        guard delta != 0 else { return }
+        delegate?.thumbnailStrip(self, didTapStepDelta: delta)
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        isDragging = true
+        emitSwipeFrame(phase: .began, rawProgress: 0, velocityX: 0)
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if isProgrammaticScroll || !isDragging { return }
+        let raw = Self.computeRawProgress(
+            currentOffsetX: scrollView.contentOffset.x,
+            activeRestingOffsetX: activeRestingOffsetX,
+            pageWidth: Self.pageWidth
+        )
+        let nudged = Self.nudgeAwayFromZero(raw)
+        let velocity = scrollView.panGestureRecognizer.velocity(in: scrollView).x
+        emitSwipeFrame(phase: .changed, rawProgress: nudged, velocityX: velocity)
+    }
+
+    // Predict where the snap will land and override the target so the
+    // strip lands cleanly under the indicator. Also emit .ended with
+    // the predicted progress so the host's commit decision matches
+    // what the user sees.
+    func scrollViewWillEndDragging(
+        _ scrollView: UIScrollView,
+        withVelocity velocity: CGPoint,
+        targetContentOffset: UnsafeMutablePointer<CGPoint>
+    ) {
+        guard let activeIdx = activeIndex else { return }
+        // Velocity here is in points-per-millisecond; multiply by 1000
+        // to project a 1-second drift forward.
+        let projected = scrollView.contentOffset.x + velocity.x * 200
+        let tileFromActive = (projected - activeRestingOffsetX) / Self.pageWidth
+        let step: Int
+        if tileFromActive > 0.5 { step = 1 }
+        else if tileFromActive < -0.5 { step = -1 }
+        else { step = 0 }
+        let targetIdx = max(0, min(orderedSpaces.count - 1, activeIdx + step))
+        let landing = restingOffset(forIndex: targetIdx)
+        targetContentOffset.pointee = CGPoint(x: landing, y: 0)
+
+        // Emit .ended with the post-drag progress (clamped). The host
+        // will commit if |progress| or |velocity| crosses its
+        // threshold; predicting the same step here keeps the visual
+        // and the host in agreement.
+        let raw = Self.computeRawProgress(
+            currentOffsetX: landing,
+            activeRestingOffsetX: activeRestingOffsetX,
+            pageWidth: Self.pageWidth
+        )
+        // panGestureRecognizer velocity is in points/sec; pass it
+        // through with the same sign convention as the old code (old
+        // used velocity.x from pan.translation, same units).
+        let panVelocity = scrollView.panGestureRecognizer.velocity(in: scrollView).x
+        emitSwipeFrame(phase: .ended, rawProgress: raw, velocityX: panVelocity)
+        isDragging = false
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        isProgrammaticScroll = false
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        isProgrammaticScroll = false
+    }
+}
+
+// MARK: - ThumbnailTileCell
 
 @MainActor
-final class ThumbnailTileView: UIView {
-    let spaceId: UInt64
-    private let ordinal: Int
+final class ThumbnailTileCell: UICollectionViewCell {
+    static let reuseId = "ThumbnailTileCell"
+
     private let imageView = UIImageView()
     private let captionLabel = UILabel()
-    fileprivate weak var delegate: ThumbnailStripView?
 
-    init(spaceId: UInt64, ordinal: Int) {
-        self.spaceId = spaceId
-        self.ordinal = ordinal
-        super.init(frame: .zero)
+    override init(frame: CGRect) {
+        super.init(frame: frame)
         configure()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
 
     private func configure() {
-        translatesAutoresizingMaskIntoConstraints = false
-        backgroundColor = .secondarySystemBackground
-        layer.cornerRadius = 6
-        layer.borderColor = UIColor.separator.cgColor
-        layer.borderWidth = 0.5
-        clipsToBounds = true
-        isUserInteractionEnabled = true
+        contentView.backgroundColor = .secondarySystemBackground
+        contentView.layer.cornerRadius = 6
+        contentView.layer.borderColor = UIColor.separator.cgColor
+        contentView.layer.borderWidth = 0.5
+        contentView.clipsToBounds = true
 
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(imageView)
+        contentView.addSubview(imageView)
 
-        captionLabel.text = "Desktop \(ordinal)"
         captionLabel.font = .preferredFont(forTextStyle: .caption2)
         captionLabel.textColor = .secondaryLabel
         captionLabel.textAlignment = .center
         captionLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(captionLabel)
+        contentView.addSubview(captionLabel)
 
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: ThumbnailStripView.tileWidth),
-            heightAnchor.constraint(equalToConstant: ThumbnailStripView.tileHeight + 14),
-            imageView.topAnchor.constraint(equalTo: topAnchor),
-            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             imageView.heightAnchor.constraint(equalToConstant: ThumbnailStripView.tileHeight),
+
             captionLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 1),
-            captionLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            captionLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
-            captionLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1)
+            captionLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            captionLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            captionLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -1)
         ])
-
-        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
-        addGestureRecognizer(tap)
-        let press = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
-        press.minimumPressDuration = 0.4
-        addGestureRecognizer(press)
     }
 
-    private(set) var isActive: Bool = false
-
-    // R27 v2: per-tile highlight is gone. The strip's floating
-    // selectionOverlay sits over (or between) tiles and is the only
-    // active-state cue. setActive still tracks the bool for the
-    // delegate's tap-step-delta math; visually a tile always looks
-    // the same (separator border, secondary background).
-    func setActive(_ active: Bool) {
-        isActive = active
-    }
-
-    func setImage(_ image: UIImage) {
+    func configure(ordinal: Int, image: UIImage?) {
+        captionLabel.text = "Desktop \(ordinal)"
         imageView.image = image
     }
 
-    func clearImage() {
+    override func prepareForReuse() {
+        super.prepareForReuse()
         imageView.image = nil
-    }
-
-    @objc private func handleTap() {
-        delegate?.tileTapped(self)
-    }
-
-    @objc private func handleLongPress(_ gr: UILongPressGestureRecognizer) {
-        guard gr.state == .began else { return }
-        delegate?.tileLongPressed(self)
+        captionLabel.text = nil
     }
 }

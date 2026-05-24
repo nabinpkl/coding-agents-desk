@@ -4,148 +4,88 @@ import UIKit
 
 @MainActor
 struct ThumbnailStripViewTests {
-    // MARK: - Continuous gesture emission
+    // MARK: - Pure progress math
     //
-    // R25 merged the dots band's swipe state machine into
-    // ThumbnailStripView. These tests mirror the retired
-    // SpacesDotsViewTests so the host contract (one
-    // .switchSpaceGesture frame per UIKit pan callback, with the same
-    // progress / velocity / direction-flip semantics) doesn't drift.
+    // The new strip rides on UICollectionView; the host contract is
+    // unchanged (one .switchSpaceGesture(.began|.changed|.ended) frame
+    // per scroll-view callback, signed progress in [-1, 1], signed
+    // velocity). The pure math that maps contentOffset onto that
+    // progress lives on the type so tests don't need a real
+    // UIScrollView to exercise the sign and clamp logic.
 
-    @Test func panBeganEmitsBeganFrameWithZeroProgress() {
-        let recorder = StripRecorder()
-        let view = ThumbnailStripView()
-        view.delegate = recorder
-
-        view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 320)
-
-        #expect(recorder.events.count == 1)
-        if case let .switchSpaceGesture(phase, progress, velocityX) = recorder.events[0] {
-            #expect(phase == .began)
-            #expect(progress == 0)
-            #expect(velocityX == 0)
-        } else {
-            Issue.record("expected switchSpaceGesture began")
-        }
+    @Test func progressIsZeroAtRestingOffset() {
+        let p = ThumbnailStripView.computeRawProgress(
+            currentOffsetX: 100, activeRestingOffsetX: 100, pageWidth: 72
+        )
+        #expect(p == 0)
     }
 
-    @Test func panChangedEmitsChangedFrameWithProgressNormalisedToBandWidth() {
-        let recorder = StripRecorder()
-        let view = ThumbnailStripView()
-        view.delegate = recorder
-        view.useMacOSDirection = true  // raw-sign pass-through for layout assertions
-
-        view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
-        view.processGesture(
-            state: .changed,
-            translation: CGPoint(x: 100, y: 0),
-            velocity: CGPoint(x: 800, y: 0),
-            bandWidth: 200
+    @Test func progressIsPositiveWhenScrolledOppositeOfFinger() {
+        // Dragging the finger RIGHT pulls content right, DECREASING
+        // contentOffset.x. "Translation-equivalent" is positive, so
+        // progress before sign-flip is positive.
+        let p = ThumbnailStripView.computeRawProgress(
+            currentOffsetX: 64, activeRestingOffsetX: 100, pageWidth: 72
         )
+        #expect(p > 0)
+        #expect(p < 1)
+    }
 
-        #expect(recorder.events.count == 2)
-        if case let .switchSpaceGesture(phase, progress, velocityX) = recorder.events[1] {
-            #expect(phase == .changed)
-            #expect(progress == 0.5)
-            #expect(velocityX == 800)
-        } else {
-            Issue.record("expected switchSpaceGesture changed")
-        }
+    @Test func progressIsNegativeWhenScrolledWithFinger() {
+        let p = ThumbnailStripView.computeRawProgress(
+            currentOffsetX: 140, activeRestingOffsetX: 100, pageWidth: 72
+        )
+        #expect(p < 0)
+        #expect(p > -1)
     }
 
     @Test func progressClampsToSignedUnitInterval() {
-        let recorder = StripRecorder()
-        let view = ThumbnailStripView()
-        view.delegate = recorder
-        view.useMacOSDirection = true
-
-        view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
-        view.processGesture(
-            state: .changed,
-            translation: CGPoint(x: 500, y: 0),
-            velocity: CGPoint(x: 2000, y: 0),
-            bandWidth: 200
+        let high = ThumbnailStripView.computeRawProgress(
+            currentOffsetX: -500, activeRestingOffsetX: 100, pageWidth: 72
         )
-
-        if case let .switchSpaceGesture(_, progress, _) = recorder.events[1] {
-            #expect(progress == 1.0)
-        } else {
-            Issue.record("expected switchSpaceGesture changed")
-        }
+        #expect(high == 1.0)
+        let low = ThumbnailStripView.computeRawProgress(
+            currentOffsetX: 500, activeRestingOffsetX: 100, pageWidth: 72
+        )
+        #expect(low == -1.0)
     }
 
-    @Test func leftwardDragEmitsNegativeProgressAndVelocity() {
-        let recorder = StripRecorder()
-        let view = ThumbnailStripView()
-        view.delegate = recorder
-        view.useMacOSDirection = true
-
-        view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
-        view.processGesture(
-            state: .changed,
-            translation: CGPoint(x: -80, y: 0),
-            velocity: CGPoint(x: -1200, y: 0),
-            bandWidth: 200
+    @Test func progressIsZeroIfPageWidthIsZero() {
+        let p = ThumbnailStripView.computeRawProgress(
+            currentOffsetX: 50, activeRestingOffsetX: 0, pageWidth: 0
         )
-
-        if case let .switchSpaceGesture(_, progress, velocityX) = recorder.events[1] {
-            #expect(progress < 0)
-            #expect(velocityX < 0)
-        } else {
-            Issue.record("expected switchSpaceGesture changed")
-        }
+        #expect(p == 0)
     }
 
-    @Test func panEndedEmitsEndedFrameWithTerminalProgressAndVelocity() {
-        let recorder = StripRecorder()
-        let view = ThumbnailStripView()
-        view.delegate = recorder
-        view.useMacOSDirection = true
-
-        view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
-        view.processGesture(
-            state: .changed,
-            translation: CGPoint(x: 120, y: 0),
-            velocity: CGPoint(x: 1400, y: 0),
-            bandWidth: 200
-        )
-        view.processGesture(
-            state: .ended,
-            translation: CGPoint(x: 150, y: 0),
-            velocity: CGPoint(x: 1600, y: 0),
-            bandWidth: 200
-        )
-
-        #expect(recorder.events.count == 3)
-        if case let .switchSpaceGesture(phase, progress, velocityX) = recorder.events[2] {
-            #expect(phase == .ended)
-            #expect(progress == 0.75)
-            #expect(velocityX == 1600)
-        } else {
-            Issue.record("expected switchSpaceGesture ended")
-        }
+    @Test func nudgeMovesExactZeroOffSoDockGuardPasses() {
+        #expect(ThumbnailStripView.nudgeAwayFromZero(0) != 0)
+        #expect(abs(ThumbnailStripView.nudgeAwayFromZero(0)) <= Float.leastNormalMagnitude)
+        // Non-zero passes through.
+        #expect(ThumbnailStripView.nudgeAwayFromZero(0.5) == 0.5)
+        #expect(ThumbnailStripView.nudgeAwayFromZero(-0.5) == -0.5)
     }
 
-    @Test func defaultDirectionFlipsSignFromNative() {
+    // MARK: - Sign-flip / direction handling
+    //
+    // emitSwipeFrame is the production seam between the strip's
+    // internal progress (old translation.x sign convention: finger-
+    // right positive) and the wire emit. useMacOSDirection toggles
+    // whether to flip.
+
+    @Test func defaultDirectionFlipsSignBeforeEmit() {
         let recorder = StripRecorder()
         let view = ThumbnailStripView()
         view.delegate = recorder
-        // view.useMacOSDirection stays at its default `false`.
+        // useMacOSDirection stays at its default `false`.
 
-        view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
-        view.processGesture(
-            state: .changed,
-            translation: CGPoint(x: 80, y: 0),
-            velocity: CGPoint(x: 1200, y: 0),
-            bandWidth: 200
-        )
+        view.emitSwipeFrame(phase: .changed, rawProgress: 0.5, velocityX: 1200)
 
-        if case let .switchSpaceGesture(_, progress, velocityX) = recorder.events[1] {
-            #expect(progress < 0)
-            #expect(velocityX < 0)
-        } else {
-            Issue.record("expected switchSpaceGesture changed")
+        guard case let .switchSpaceGesture(_, progress, velocityX) = recorder.events.last else {
+            Issue.record("expected switchSpaceGesture")
+            return
         }
+        #expect(progress == -0.5)
+        #expect(velocityX == -1200)
     }
 
     @Test func useMacOSDirectionPassesSignThrough() {
@@ -154,60 +94,37 @@ struct ThumbnailStripViewTests {
         view.delegate = recorder
         view.useMacOSDirection = true
 
-        view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
-        view.processGesture(
-            state: .changed,
-            translation: CGPoint(x: 80, y: 0),
-            velocity: CGPoint(x: 1200, y: 0),
-            bandWidth: 200
-        )
+        view.emitSwipeFrame(phase: .changed, rawProgress: 0.5, velocityX: 1200)
 
-        if case let .switchSpaceGesture(_, progress, velocityX) = recorder.events[1] {
-            #expect(progress > 0)
-            #expect(velocityX > 0)
-        } else {
-            Issue.record("expected switchSpaceGesture changed")
+        guard case let .switchSpaceGesture(_, progress, velocityX) = recorder.events.last else {
+            Issue.record("expected switchSpaceGesture")
+            return
         }
+        #expect(progress == 0.5)
+        #expect(velocityX == 1200)
     }
 
-    @Test func panCancelledEmitsCancelledFrame() {
+    @Test func eachEmitProducesOnePhasedFrame() {
         let recorder = StripRecorder()
         let view = ThumbnailStripView()
         view.delegate = recorder
 
-        view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
-        view.processGesture(state: .cancelled, translation: CGPoint(x: 40, y: 0), velocity: .zero, bandWidth: 200)
+        view.emitSwipeFrame(phase: .began, rawProgress: 0, velocityX: 0)
+        view.emitSwipeFrame(phase: .changed, rawProgress: 0.3, velocityX: 800)
+        view.emitSwipeFrame(phase: .ended, rawProgress: 0.7, velocityX: 1400)
 
-        if case let .switchSpaceGesture(phase, _, _) = recorder.events.last {
-            #expect(phase == .cancelled)
-        } else {
-            Issue.record("expected switchSpaceGesture cancelled")
-        }
-    }
-
-    @Test func zeroProgressOnChangedNudgesAwayFromExactZero() {
-        let recorder = StripRecorder()
-        let view = ThumbnailStripView()
-        view.delegate = recorder
-
-        view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
-        view.processGesture(state: .changed, translation: .zero, velocity: .zero, bandWidth: 200)
-
-        if case let .switchSpaceGesture(phase, progress, _) = recorder.events[1] {
-            #expect(phase == .changed)
-            #expect(progress != 0)
-            #expect(abs(progress) <= Float.leastNormalMagnitude)
-        } else {
-            Issue.record("expected switchSpaceGesture changed")
-        }
+        #expect(recorder.events.count == 3)
+        if case let .switchSpaceGesture(p0, _, _) = recorder.events[0] { #expect(p0 == .began) }
+        if case let .switchSpaceGesture(p1, _, _) = recorder.events[1] { #expect(p1 == .changed) }
+        if case let .switchSpaceGesture(p2, _, _) = recorder.events[2] { #expect(p2 == .ended) }
     }
 
     // MARK: - Tile rendering from DesktopState
     //
     // The strip's visibility is owned by PairingViewController
-    // (refreshThumbnailStripVisibility) post-R25, so these tests
-    // assert userSpaceCount and activeIndex rather than the view's
-    // own isHidden.
+    // (refreshThumbnailStripVisibility), so these tests assert
+    // userSpaceCount and activeIndex rather than the view's own
+    // isHidden.
 
     @Test func applyStateRendersOneTilePerUserSpaceOnActiveDisplay() {
         let view = ThumbnailStripView()
