@@ -75,7 +75,7 @@ struct InputDispatcherTests {
             locationProvider: { .zero }
         )
 
-        dispatcher.dispatch(.scroll(dx: 0, dy: 30))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 30, phase: .changed))
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events[0].type == .scrollWheel)
@@ -93,13 +93,61 @@ struct InputDispatcherTests {
         )
 
         // Four 0.4 dy ticks: 0.4, 0.8, 1.2 -> emit 1, 0.6.
-        dispatcher.dispatch(.scroll(dx: 0, dy: 0.4))
-        dispatcher.dispatch(.scroll(dx: 0, dy: 0.4))
-        dispatcher.dispatch(.scroll(dx: 0, dy: 0.4))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 0.4, phase: .changed))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 0.4, phase: .changed))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 0.4, phase: .changed))
 
         #expect(recorder.events.count == 1)
         let delta = recorder.events[0].getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
         #expect(delta == 1)
+    }
+
+    @Test func scrollPhaseFieldsAreSetOnCGEvent() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        dispatcher.dispatch(.scroll(dx: 0, dy: 5, phase: .began))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 5, phase: .changed))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 0, phase: .ended))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 3, phase: .momentumBegan))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 2, phase: .momentumChanged))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 0, phase: .momentumEnded))
+
+        #expect(recorder.events.count == 6)
+        // ScrollPhase: began=1, changed=2, ended=4; MomentumPhase=0 on drag.
+        #expect(recorder.events[0].getIntegerValueField(.scrollWheelEventScrollPhase) == 1)
+        #expect(recorder.events[0].getIntegerValueField(.scrollWheelEventMomentumPhase) == 0)
+        #expect(recorder.events[1].getIntegerValueField(.scrollWheelEventScrollPhase) == 2)
+        #expect(recorder.events[2].getIntegerValueField(.scrollWheelEventScrollPhase) == 4)
+        // Momentum phase events leave ScrollPhase=0; MomentumPhase: begin=1, continue=2, end=3.
+        #expect(recorder.events[3].getIntegerValueField(.scrollWheelEventScrollPhase) == 0)
+        #expect(recorder.events[3].getIntegerValueField(.scrollWheelEventMomentumPhase) == 1)
+        #expect(recorder.events[4].getIntegerValueField(.scrollWheelEventMomentumPhase) == 2)
+        #expect(recorder.events[5].getIntegerValueField(.scrollWheelEventMomentumPhase) == 3)
+    }
+
+    @Test func scrollDelimiterPhasesEmitEvenWithZeroDelta() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        // Zero-delta changed/momentumChanged should NOT emit (continuous phases),
+        // but ended/momentumEnded must emit so macOS sees the phase transition.
+        dispatcher.dispatch(.scroll(dx: 0, dy: 0, phase: .changed))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 0, phase: .ended))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 0, phase: .momentumChanged))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 0, phase: .momentumEnded))
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0].getIntegerValueField(.scrollWheelEventScrollPhase) == 4)
+        #expect(recorder.events[1].getIntegerValueField(.scrollWheelEventMomentumPhase) == 3)
     }
 
     @Test func outOfScopeInputsAreNoOps() {

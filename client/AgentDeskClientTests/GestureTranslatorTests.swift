@@ -69,9 +69,26 @@ struct GestureTranslatorTests {
         translator.processScrollPan(state: .changed, translation: CGPoint(x: 5, y: 25))
         translator.processScrollPan(state: .ended, translation: CGPoint(x: 5, y: 25))
 
-        #expect(recorder.events.count == 2)
-        #expect(recorder.events[0] == .scroll(dx: 0, dy: 10))
-        #expect(recorder.events[1] == .scroll(dx: 0, dy: 15))
+        // First .changed emits .began phase (drag start), second is .changed,
+        // .ended emits a zero-delta .ended delimiter so macOS knows the touch
+        // drag is over.
+        #expect(recorder.events.count == 3)
+        #expect(recorder.events[0] == .scroll(dx: 0, dy: 10, phase: .began))
+        #expect(recorder.events[1] == .scroll(dx: 0, dy: 15, phase: .changed))
+        #expect(recorder.events[2] == .scroll(dx: 0, dy: 0, phase: .ended))
+    }
+
+    @Test func scrollEndedWithoutAnyChangedEmitsNothing() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        // Touch and lift without movement: no .began ever emitted, so the
+        // .ended delimiter must also be suppressed.
+        translator.processScrollPan(state: .began, translation: .zero)
+        translator.processScrollPan(state: .ended, translation: .zero)
+
+        #expect(recorder.events.isEmpty)
     }
 
     @Test func tapStatesOtherThanEndedEmitNothing() {

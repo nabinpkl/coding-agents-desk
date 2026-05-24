@@ -383,7 +383,7 @@ enum SessionSigning {
 enum NormalizedInput: Codable, Equatable {
     case cursorMove(dx: Float, dy: Float)
     case click(button: MouseButton)
-    case scroll(dx: Float, dy: Float)
+    case scroll(dx: Float, dy: Float, phase: ScrollPhase)
     case dragStart
     case dragEnd
     case switchSpace(direction: SpaceDirection)
@@ -406,5 +406,19 @@ enum NormalizedInput: Codable, Equatable {
         case ctrl
         case option
         case shift
+    }
+
+    // Mirrors the two-axis macOS scroll phase model so the host can post
+    // CGEvents with the right kCGScrollWheelEventScrollPhase /
+    // kCGScrollWheelEventMomentumPhase combination. Without these, macOS
+    // treats every event as a discrete mouse-wheel notch rather than a
+    // continuous trackpad-style scroll.
+    enum ScrollPhase: String, Codable {
+        case began            // first event of a touch drag
+        case changed          // subsequent events during drag
+        case ended            // finger lift signal (often zero delta)
+        case momentumBegan    // first inertia event after lift
+        case momentumChanged  // subsequent inertia events
+        case momentumEnded    // inertia decayed below cutoff
     }
 }

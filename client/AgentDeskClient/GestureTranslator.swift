@@ -1,8 +1,5 @@
-import os
 import QuartzCore
 import UIKit
-
-private let scrollLog = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "scroll")
 
 // R9.2 SPEC §13 module. Owns the UIKit gesture recognizers on the trackpad
 // zone and emits NormalizedInput to its delegate. Only cursorMove and
@@ -91,6 +88,11 @@ final class GestureTranslator: NSObject {
     // every .changed callback and use the most recent non-zero value as
     // the momentum seed at .ended.
     private var lastScrollVelocityY: CGFloat = 0
+    // The first emitted scroll event of a touch drag carries phase=.began;
+    // subsequent ones carry .changed. Reset at each gesture .began.
+    private var didEmitScrollBegan = false
+    // Same idea for the inertia tail.
+    private var didEmitMomentumBegan = false
     // Velocity threshold (points/sec) below which a finger-lift is treated
     // as a slow drag finishing, not a flick. No momentum below this.
     private static let momentumFlickThreshold: CGFloat = 200
@@ -170,12 +172,12 @@ final class GestureTranslator: NSObject {
     func processScrollPan(state: UIGestureRecognizer.State, translation: CGPoint, velocity: CGPoint = .zero) {
         switch state {
         case .began:
-            scrollLog.debug("began translation=\(translation.y, format: .fixed(precision: 1))")
             // A fresh touch on the scroll strip cancels any in-flight
             // momentum (matches the Mac trackpad: touching aborts inertia).
-            stopMomentum()
+            stopMomentum(emitEnd: true)
             lastScrollTranslation = translation
             lastScrollVelocityY = 0
+            didEmitScrollBegan = false
         case .changed:
             let rawDy = translation.y - lastScrollTranslation.y
             lastScrollTranslation = translation
@@ -184,40 +186,55 @@ final class GestureTranslator: NSObject {
             let speed = abs(velocity.y)
             let gain = scrollAcceleration.scale(speed)
             let dy = Float(rawDy * gain)
-            scrollLog.debug("changed rawDy=\(rawDy, format: .fixed(precision: 2)) vy=\(velocity.y, format: .fixed(precision: 0)) gain=\(gain, format: .fixed(precision: 2)) emit=\(dy, format: .fixed(precision: 2))")
-            delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: dy))
+            let phase: NormalizedInput.ScrollPhase = didEmitScrollBegan ? .changed : .began
+            didEmitScrollBegan = true
+            delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: dy, phase: phase))
         case .ended:
             lastScrollTranslation = .zero
+            // Tell macOS the touch drag has ended even when no actual
+            // movement occurred; without this, the next drag's .began
+            // event can be coalesced into the previous gesture.
+            if didEmitScrollBegan {
+                delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: 0, phase: .ended))
+            }
+            didEmitScrollBegan = false
             // Recognizer-reported velocity at .ended is unreliable. Prefer
             // the last non-zero velocity sampled during .changed; fall back
             // to whatever the recognizer reports if that's all we have.
             let liftV = lastScrollVelocityY != 0 ? lastScrollVelocityY : velocity.y
-            scrollLog.debug("ended velocity.y=\(velocity.y, format: .fixed(precision: 0)) lastChanged=\(self.lastScrollVelocityY, format: .fixed(precision: 0)) liftV=\(liftV, format: .fixed(precision: 0))")
             if abs(liftV) >= Self.momentumFlickThreshold {
                 startMomentum(initialVelocity: liftV)
             }
         case .cancelled, .failed:
-            scrollLog.debug("cancelled/failed state=\(state.rawValue)")
             lastScrollTranslation = .zero
+            if didEmitScrollBegan {
+                delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: 0, phase: .ended))
+            }
+            didEmitScrollBegan = false
         default:
             break
         }
     }
 
     private func startMomentum(initialVelocity: CGFloat) {
-        stopMomentum()
-        scrollLog.debug("startMomentum v0=\(initialVelocity, format: .fixed(precision: 0))")
+        stopMomentum(emitEnd: false)
         momentumVelocity = initialVelocity
         momentumLastTime = CACurrentMediaTime()
+        didEmitMomentumBegan = false
         let link = CADisplayLink(target: self, selector: #selector(tickMomentum(_:)))
         link.add(to: .main, forMode: .common)
         momentumDisplayLink = link
     }
 
-    private func stopMomentum() {
+    private func stopMomentum(emitEnd: Bool) {
+        let wasRunning = momentumDisplayLink != nil
         momentumDisplayLink?.invalidate()
         momentumDisplayLink = nil
         momentumVelocity = 0
+        if emitEnd && wasRunning && didEmitMomentumBegan {
+            delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: 0, phase: .momentumEnded))
+        }
+        didEmitMomentumBegan = false
     }
 
     @objc private func tickMomentum(_ link: CADisplayLink) {
@@ -228,13 +245,15 @@ final class GestureTranslator: NSObject {
         // rate variation doesn't change the overall decay curve.
         momentumVelocity *= exp(-Self.momentumDecayK * dt)
         if abs(momentumVelocity) < Self.momentumStopThreshold {
-            stopMomentum()
+            stopMomentum(emitEnd: true)
             return
         }
         let rawDy = momentumVelocity * dt
         let gain = scrollAcceleration.scale(abs(momentumVelocity))
         let dy = Float(rawDy * gain)
-        delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: dy))
+        let phase: NormalizedInput.ScrollPhase = didEmitMomentumBegan ? .momentumChanged : .momentumBegan
+        didEmitMomentumBegan = true
+        delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: dy, phase: phase))
     }
 
     @objc private func handlePanGesture(_ gesture: UIPanGestureRecognizer) {

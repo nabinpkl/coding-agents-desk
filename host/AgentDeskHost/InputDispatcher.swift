@@ -51,8 +51,8 @@ final class InputDispatcher: @unchecked Sendable {
             postCursorMove(dx: CGFloat(dx), dy: CGFloat(dy))
         case .click(let button):
             postClick(button)
-        case .scroll(let dx, let dy):
-            postScroll(dx: dx, dy: dy)
+        case .scroll(let dx, let dy, let phase):
+            postScroll(dx: dx, dy: dy, phase: phase)
         case .dragStart, .dragEnd, .switchSpace, .key, .modifierArm:
             // Out of scope for R9 / R10. Wired in later iterations.
             break
@@ -98,7 +98,7 @@ final class InputDispatcher: @unchecked Sendable {
         }
     }
 
-    private func postScroll(dx: Float, dy: Float) {
+    private func postScroll(dx: Float, dy: Float, phase: NormalizedInput.ScrollPhase) {
         // Vertical only for now (wheelCount=1). Accumulate fractional dy so
         // a stream of sub-pixel deltas (slow precision drag) still emits
         // events at the integer threshold rather than rounding each call
@@ -107,7 +107,11 @@ final class InputDispatcher: @unchecked Sendable {
         scrollRemainder += CGFloat(dy)
         let dyInt = Int32(scrollRemainder.rounded(.towardZero))
         scrollRemainder -= CGFloat(dyInt)
-        if dyInt == 0 { return }
+        // Skip zero-delta posts only for continuous "changed" phases. The
+        // delimiter phases (began / ended / momentumBegan / momentumEnded)
+        // carry phase info macOS needs even when their delta is zero.
+        let isDelimiter = phase != .changed && phase != .momentumChanged
+        if dyInt == 0 && !isDelimiter { return }
         guard let event = CGEvent(
             scrollWheelEvent2Source: nil,
             units: .pixel,
@@ -116,7 +120,27 @@ final class InputDispatcher: @unchecked Sendable {
             wheel2: 0,
             wheel3: 0
         ) else { return }
+        let (scrollPhase, momentumPhase) = cgPhaseValues(phase)
+        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: scrollPhase)
+        event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentumPhase)
         eventPoster(event)
+    }
+
+    // Map the wire-level ScrollPhase to the two CG integer field values
+    // macOS expects. Values come from CGEventTypes.h:
+    //   CGScrollPhase: began=1, changed=2, ended=4
+    //   CGMomentumScrollPhase: none=0, begin=1, continue=2, end=3
+    // Touch-drag events set ScrollPhase, leave MomentumPhase=0. Inertia
+    // events set MomentumPhase, leave ScrollPhase=0.
+    private func cgPhaseValues(_ phase: NormalizedInput.ScrollPhase) -> (Int64, Int64) {
+        switch phase {
+        case .began:           return (1, 0)
+        case .changed:         return (2, 0)
+        case .ended:           return (4, 0)
+        case .momentumBegan:   return (0, 1)
+        case .momentumChanged: return (0, 2)
+        case .momentumEnded:   return (0, 3)
+        }
     }
 
     private func postMouseEvent(_ type: CGEventType, at point: CGPoint, button: CGMouseButton) {
