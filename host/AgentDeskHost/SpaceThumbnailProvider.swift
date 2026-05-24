@@ -206,14 +206,16 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
 
         // Map windowID -> spaceID via SkyLight. Per-window query is
         // O(W); for v0 W is small (single-digit to low-double-digit).
-        let activeSpaceId = sky.activeSpaceId()
+        // R28 follow-up: include the active Space too. The client's
+        // active tile now reads as "selected" via a transparent
+        // border-only overlay over the same thumbnail every other tile
+        // has, so an empty active tile would look inconsistent. The
+        // duplicate capture cost (active Space is also on the WebRTC
+        // stream) is a few ms every 3s. Trivial.
         var windowsBySpace: [UInt64: [SCWindow]] = [:]
         for win in candidates {
             let wid = CGWindowID(win.windowID)
             guard let spaceId = sky.firstSpaceContaining(windowID: wid) else { continue }
-            // Skip the active Space; WebRTC streams it. The "you're
-            // here" tile renders on the client without a thumbnail.
-            if spaceId == activeSpaceId { continue }
             windowsBySpace[spaceId, default: []].append(win)
         }
         if windowsBySpace.isEmpty { return [:] }
