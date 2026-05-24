@@ -35,6 +35,8 @@
 		B00000000000000000000228 /* SessionDialer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010B /* SessionDialer.swift */; };
 		B00000000000000000000229 /* WebSocketSignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* WebSocketSignalingChannel.swift */; };
 		B0000000000000000000022A /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010D /* SignalingChannel.swift */; };
+		B0000000000000000000022B /* GestureTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000113 /* GestureTranslator.swift */; };
+		B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000122 /* GestureTranslatorTests.swift */; };
 		B00000000000000000000401 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = B00000000000000000000501 /* WebRTC */; };
 /* End PBXBuildFile section */
 
@@ -59,6 +61,7 @@
 		B00000000000000000000112 /* RTCMTLVideoSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RTCMTLVideoSink.swift; sourceTree = "<group>"; };
 		B00000000000000000000113 /* GestureTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureTranslator.swift; sourceTree = "<group>"; };
 		B00000000000000000000121 /* PairingClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClientTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000122 /* GestureTranslatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureTranslatorTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000141 /* AgentDeskClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000142 /* AgentDeskClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -130,6 +133,7 @@
 			isa = PBXGroup;
 			children = (
 				B00000000000000000000121 /* PairingClientTests.swift */,
+				B00000000000000000000122 /* GestureTranslatorTests.swift */,
 			);
 			path = AgentDeskClientTests;
 			sourceTree = "<group>";
@@ -291,6 +295,8 @@
 				B00000000000000000000228 /* SessionDialer.swift in Sources */,
 				B00000000000000000000229 /* WebSocketSignalingChannel.swift in Sources */,
 				B0000000000000000000022A /* SignalingChannel.swift in Sources */,
+				B0000000000000000000022B /* GestureTranslator.swift in Sources */,
+				B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

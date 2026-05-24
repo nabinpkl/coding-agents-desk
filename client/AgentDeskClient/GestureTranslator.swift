@@ -19,25 +19,25 @@ final class GestureTranslator: NSObject {
 
     func attach(to view: UIView) {
         view.isUserInteractionEnabled = true
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
         pan.minimumNumberOfTouches = 1
         pan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(pan)
 
-        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTapGesture(_:)))
         tap.numberOfTouchesRequired = 1
         tap.numberOfTapsRequired = 1
         view.addGestureRecognizer(tap)
     }
 
-    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        guard let view = gesture.view else { return }
-        switch gesture.state {
+    // Pure functions over (state, translation) so tests can drive them
+    // without a live UIWindow attaching synthetic touches. The @objc shims
+    // below pull the gesture's current state and forward in.
+    func processPan(state: UIGestureRecognizer.State, translation: CGPoint) {
+        switch state {
         case .began:
-            lastPanTranslation = .zero
-            gesture.setTranslation(.zero, in: view)
+            lastPanTranslation = translation
         case .changed:
-            let translation = gesture.translation(in: view)
             let dx = Float(translation.x - lastPanTranslation.x)
             let dy = Float(translation.y - lastPanTranslation.y)
             lastPanTranslation = translation
@@ -51,8 +51,17 @@ final class GestureTranslator: NSObject {
         }
     }
 
-    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
-        guard gesture.state == .ended else { return }
+    func processTap(state: UIGestureRecognizer.State) {
+        guard state == .ended else { return }
         delegate?.gestureTranslator(self, didProduce: .click(button: .left))
+    }
+
+    @objc private func handlePanGesture(_ gesture: UIPanGestureRecognizer) {
+        guard let view = gesture.view else { return }
+        processPan(state: gesture.state, translation: gesture.translation(in: view))
+    }
+
+    @objc private func handleTapGesture(_ gesture: UITapGestureRecognizer) {
+        processTap(state: gesture.state)
     }
 }

@@ -49,6 +49,8 @@
 		A0000000000000000000022A /* LaunchAgentInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000122 /* LaunchAgentInstallerTests.swift */; };
 		A0000000000000000000022B /* SessionAuthenticator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000110 /* SessionAuthenticator.swift */; };
 		A0000000000000000000022C /* SessionAuthenticatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000123 /* SessionAuthenticatorTests.swift */; };
+		A0000000000000000000022F /* InputDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011C /* InputDispatcher.swift */; };
+		A00000000000000000000230 /* InputDispatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000125 /* InputDispatcherTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -81,6 +83,7 @@
 		A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureKitFrameSource.swift; sourceTree = "<group>"; };
 		A0000000000000000000011C /* InputDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcher.swift; sourceTree = "<group>"; };
 		A00000000000000000000124 /* SignalingFrameRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingFrameRoutingTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000125 /* InputDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcherTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000122 /* LaunchAgentInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstallerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000123 /* SessionAuthenticatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAuthenticatorTests.swift; sourceTree = "<group>"; };
@@ -167,6 +170,7 @@
 				A00000000000000000000122 /* LaunchAgentInstallerTests.swift */,
 				A00000000000000000000123 /* SessionAuthenticatorTests.swift */,
 				A00000000000000000000124 /* SignalingFrameRoutingTests.swift */,
+				A00000000000000000000125 /* InputDispatcherTests.swift */,
 			);
 			path = AgentDeskHostTests;
 			sourceTree = "<group>";
@@ -341,6 +345,8 @@
 				A0000000000000000000022C /* SessionAuthenticatorTests.swift in Sources */,
 				A0000000000000000000022D /* SignalingFrameRouting.swift in Sources */,
 				A0000000000000000000022E /* SignalingFrameRoutingTests.swift in Sources */,
+				A0000000000000000000022F /* InputDispatcher.swift in Sources */,
+				A00000000000000000000230 /* InputDispatcherTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

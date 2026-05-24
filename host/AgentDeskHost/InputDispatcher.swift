@@ -10,18 +10,22 @@ import os
 
 final class InputDispatcher: @unchecked Sendable {
     typealias EventPoster = (CGEvent) -> Void
+    typealias LocationProvider = () -> CGPoint
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "input")
     private let eventPoster: EventPoster
     private let isTrusted: () -> Bool
+    private let locationProvider: LocationProvider
     private var loggedUntrusted = false
 
     init(
         eventPoster: @escaping EventPoster = { $0.post(tap: .cghidEventTap) },
-        isTrusted: @escaping () -> Bool = { AXIsProcessTrusted() }
+        isTrusted: @escaping () -> Bool = { AXIsProcessTrusted() },
+        locationProvider: @escaping LocationProvider = { CGEvent(source: nil)?.location ?? .zero }
     ) {
         self.eventPoster = eventPoster
         self.isTrusted = isTrusted
+        self.locationProvider = locationProvider
     }
 
     func dispatch(_ input: NormalizedInput) {
@@ -45,7 +49,7 @@ final class InputDispatcher: @unchecked Sendable {
     }
 
     private func currentLocation() -> CGPoint {
-        CGEvent(source: nil)?.location ?? .zero
+        locationProvider()
     }
 
     private func postCursorMove(dx: CGFloat, dy: CGFloat) {

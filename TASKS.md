@@ -132,7 +132,7 @@ R9.1     pending     pending     input data channel on both sides; onInputEvent 
 R9.2     pending     pending     NormalizedInput Codable; GestureTranslator; trackpad UIView wired
 R9.3     pending     pending     InputDispatcher posting CGEvents; MediaStack wiring
 R9.4     pending     pending     Accessibility TCC prompt at launch; popover accessibilityRequired state
-R9.5     pending     pending     InputDispatcher and GestureTranslator tests
+R9.5     2026-05-21  committed   InputDispatcher and GestureTranslator tests
 R10      pending     pending     Phase 4 captured (S4, #6)
 R11      pending     pending     Phase 5 captured (S5, #7)
 R12      pending     pending     Phase 6 captured (S6, #8)
