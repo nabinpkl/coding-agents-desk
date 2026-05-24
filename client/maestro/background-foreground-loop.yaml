@@ -1,0 +1,34 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible: "Trackpad"
+    timeout: 20000
+- takeScreenshot: bgfg-1-connected
+# Send to background, wait a few seconds so iOS settles the suspend,
+# then bring back. PairingViewController.applicationDidEnterBackground
+# must close transports and flip state to .pairedDisconnected;
+# applicationWillEnterForeground re-dials via triggerSessionIfPaired.
+- pressKey: HOME
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: bgfg-2-backgrounded
+- launchApp:
+    clearState: false
+# Trackpad should reappear after re-establishment. If state is stuck
+# at .connected (background path didn't fire), Trackpad would never
+# vanish; if foreground re-dial fails, we'd never see it again.
+- extendedWaitUntil:
+    visible: "Trackpad"
+    timeout: 20000
+- takeScreenshot: bgfg-3-reconnected
+# Exercise the input wire after reconnect to prove the new
+# InputChannel was opened by the second attemptSession.
+- tapOn: "Show keyboard"
+- waitForAnimationToEnd:
+    timeout: 1500
+- tapOn: "Tab"
+- waitForAnimationToEnd:
+    timeout: 1000
+- takeScreenshot: bgfg-4-typed-after-reconnect

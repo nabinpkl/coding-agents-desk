@@ -76,6 +76,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(applicationDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(settingsChanged),
             name: SettingsStore.changedNotification,
             object: nil
@@ -189,6 +195,29 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     @objc private func applicationWillEnterForeground() {
         triggerSessionIfPaired()
+    }
+
+    // R13.1: on background, tear down both transports explicitly.
+    // iOS suspends the app and the WebRTC PC / input WS quietly die in
+    // some network conditions; if we don't flip state here, foreground
+    // sees state=.connected and triggerSessionIfPaired short-circuits,
+    // leaving the user with a zombie session that produces no input
+    // and no video. Closing here forces state to .pairedDisconnected
+    // so the next foreground reliably re-attempts.
+    @objc private func applicationDidEnterBackground() {
+        sessionTask?.cancel()
+        sessionTask = nil
+        handshakeTask?.cancel()
+        handshakeTask = nil
+        iceGraceTask?.cancel()
+        iceGraceTask = nil
+        mediaStateTask?.cancel()
+        mediaStateTask = nil
+        teardownMediaTransport()
+        // Closes activeSignaling + activeInputChannel and flips state
+        // .connected -> .pairedDisconnected. Idempotent for other states.
+        pairingClient.handleMediaSessionFailed()
+        render()
     }
 
     private func triggerSessionIfPaired() {
