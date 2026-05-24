@@ -1,14 +1,17 @@
 import UIKit
 
-// R20 / ADR-0006 thumbnail preview strip. Sits in the band between the
-// screen-share video sink and the SpacesDotsView. Renders one tile per
-// non-active user Space (the active Space's tile is a "you're here"
-// placeholder since WebRTC already shows it).
+// R25 merged Spaces band. Replaces SpacesDotsView entirely: the active
+// tile's tintColor / "Here" treatment is the position indicator, and a
+// horizontal pan anywhere on the strip drives the continuous dock-swipe
+// stream the dots band used to drive. Tap = jump to that Space.
+// Long-press = refresh thumbnail.
 //
-// Tap: emits a `.switchSpaceGesture` swipe directed at the target
-// Space, computed from the signed index delta to the active Space.
-// Long-press: emits a thumbnailRefresh request via the delegate, which
-// routes through the input channel's client-config frame.
+// Gesture model is unchanged from the old dots band: single-finger
+// horizontal pan streams SwipePhase + normalised progress + velocity
+// frame-by-frame; the host's InputDispatcher posts one dock-swipe
+// CGEvent per frame and Dock animates / commits accordingly. Pan and
+// tap coexist via UIKit's natural arbitration: tap fires below the
+// pan slop (~10pt), pan wins once it crosses.
 //
 // State arrives as two streams: DesktopState drives the tile lineup
 // (which Spaces exist, which is active), and `thumbnails` drives the
@@ -23,6 +26,10 @@ protocol ThumbnailStripViewDelegate: AnyObject {
     func thumbnailStrip(_ view: ThumbnailStripView, didTapStepDelta delta: Int)
     // Triggered on long-press. Routes to a client-config frame.
     func thumbnailStrip(_ view: ThumbnailStripView, didLongPressSpaceId spaceId: UInt64)
+    // Triggered on continuous pan. Forwards .switchSpaceGesture(...)
+    // frames in lockstep with UIKit pan callbacks (began -> ... ->
+    // ended/cancelled). PairingViewController forwards to sendInput.
+    func thumbnailStrip(_ view: ThumbnailStripView, didProduce input: NormalizedInput)
 }
 
 @MainActor
@@ -36,11 +43,23 @@ final class ThumbnailStripView: UIView {
     static let tileHeight: CGFloat = 40
     static let tileSpacing: CGFloat = 8
 
+    // R25: swipe-to-switch direction mapping, mirrored from the old
+    // SpacesDotsView. False (default, toggle OFF) inverts the
+    // wire-level sign so finger-right maps to the Space on the LEFT
+    // (scrollbar-style reading). True passes through (macOS-native
+    // trackpad direction). PairingViewController reads
+    // SettingsStore.shared.useMacOSSpacesDirection.
+    var useMacOSDirection: Bool = false
+
     private let stack = UIStackView()
+    private let feedback = UISelectionFeedbackGenerator()
     private var tiles: [ThumbnailTileView] = []
     private var orderedSpaces: [SpaceMetadata] = []
     private var activeSpaceId: UInt64?
     private var thumbnails: [String: String] = [:]
+    // Width captured at gesture .began so progress normalisation uses
+    // a stable denominator even if the strip re-layouts mid-swipe.
+    private var gestureBandWidth: CGFloat = 1.0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -55,16 +74,29 @@ final class ThumbnailStripView: UIView {
     private func configure() {
         backgroundColor = .clear
         accessibilityIdentifier = "thumbnail-strip"
+        isUserInteractionEnabled = true
         stack.axis = .horizontal
         stack.spacing = Self.tileSpacing
         stack.alignment = .center
         stack.distribution = .equalSpacing
+        stack.isUserInteractionEnabled = true
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
+
+        // R25: continuous swipe pan. Attached to the strip root so it
+        // sees touches that land in the gaps between tiles too. Below
+        // the pan slop (~10pt) tile taps still arbitrate-and-fire;
+        // above it, pan wins and tile taps are cancelled. Long-press
+        // (0.4s) is unaffected since it has its own duration gate.
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
+        pan.minimumNumberOfTouches = 1
+        pan.maximumNumberOfTouches = 1
+        addGestureRecognizer(pan)
+
         isHidden = true
     }
 
@@ -159,6 +191,68 @@ final class ThumbnailStripView: UIView {
 
     fileprivate func tileLongPressed(_ tile: ThumbnailTileView) {
         delegate?.thumbnailStrip(self, didLongPressSpaceId: tile.spaceId)
+    }
+
+    // MARK: - Swipe state machine
+    //
+    // Ported from the retired SpacesDotsView. Same shape so the host
+    // contract (one .switchSpaceGesture frame per UIKit pan callback)
+    // doesn't change. Pure function: tests drive processGesture
+    // without UIKit setup.
+
+    @objc private func handleSwipe(_ gesture: UIPanGestureRecognizer) {
+        processGesture(
+            state: gesture.state,
+            translation: gesture.translation(in: self),
+            velocity: gesture.velocity(in: self),
+            bandWidth: bounds.width
+        )
+    }
+
+    func processGesture(
+        state: UIGestureRecognizer.State,
+        translation: CGPoint,
+        velocity: CGPoint,
+        bandWidth: CGFloat
+    ) {
+        switch state {
+        case .began:
+            gestureBandWidth = max(bandWidth, 1.0)
+            feedback.selectionChanged()
+            emit(phase: .began, progress: 0, velocityX: 0)
+        case .changed:
+            let raw = Float(translation.x / gestureBandWidth)
+            let progress = min(max(raw, -1.0), 1.0)
+            let nudged = nudgeAwayFromZero(progress)
+            emit(phase: .changed, progress: nudged, velocityX: Float(velocity.x))
+        case .ended:
+            let raw = Float(translation.x / gestureBandWidth)
+            let progress = min(max(raw, -1.0), 1.0)
+            emit(phase: .ended, progress: progress, velocityX: Float(velocity.x))
+        case .cancelled, .failed:
+            emit(phase: .cancelled, progress: 0, velocityX: 0)
+        default:
+            break
+        }
+    }
+
+    // Dock reads progress=0 on a .changed frame as "no gesture in
+    // progress" and drops it. Nudge to FLT_TRUE_MIN-sized away from
+    // zero so the direction-required guard still passes.
+    private func nudgeAwayFromZero(_ progress: Float) -> Float {
+        if progress != 0 { return progress }
+        return .leastNonzeroMagnitude
+    }
+
+    private func emit(phase: NormalizedInput.SwipePhase, progress: Float, velocityX: Float) {
+        // Flip when NOT using macOS direction; pass through when
+        // using macOS direction. Default (false) gives the inverted
+        // scrollbar-style feel.
+        let signedProgress = useMacOSDirection ? progress : -progress
+        let signedVelocityX = useMacOSDirection ? velocityX : -velocityX
+        delegate?.thumbnailStrip(self, didProduce: .switchSpaceGesture(
+            phase: phase, progress: signedProgress, velocityX: signedVelocityX
+        ))
     }
 
     // Test affordances.

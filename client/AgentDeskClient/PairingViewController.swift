@@ -1,7 +1,7 @@
 import AVFoundation
 import UIKit
 
-final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate, GestureTranslatorDelegate, KeyboardSurfaceDelegate, SpacesDotsViewDelegate, ThumbnailStripViewDelegate, UIGestureRecognizerDelegate, UIScrollViewDelegate {
+final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate, GestureTranslatorDelegate, KeyboardSurfaceDelegate, ThumbnailStripViewDelegate, UIGestureRecognizerDelegate, UIScrollViewDelegate {
     private let pairingClient = PairingClient()
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
@@ -75,9 +75,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // bottom button row -> right-click (R10.1) and Show-keyboard (R12.3)
     // right-edge strip  -> scroll with momentum (attached via GestureTranslator)
     // press-and-hold    -> drag (UILongPressGestureRecognizer in GestureTranslator)
-    // spaces dots band  -> single-finger horizontal swipe on a dots
-    //                      indicator mounted between the screen-share
-    //                      video and the trackpad (R11, SpacesDotsView).
+    // thumbnail strip   -> single-finger horizontal swipe on the
+    //                      merged Spaces band (R25, ThumbnailStripView).
+    //                      Active tile's "Here" highlight is the
+    //                      position indicator; tap on a tile jumps;
+    //                      long-press refreshes its preview.
     //                      Substitutes the canonical three-finger
     //                      horizontal swipe (not reachable one-handed)
     //                      and visually couples the Space indicator
@@ -85,12 +87,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private let buttonRow = UIStackView()
     private let rightClickButton = UIButton(type: .system)
     private let showKeyboardButton = UIButton(type: .system)
-    private let spacesDotsView = SpacesDotsView()
-    // R20: thumbnail preview strip. Mounted between the sink container
-    // and the dots band; off by default and hidden until settings opt in.
+    // R25: merged Spaces band. Replaces the old dots band; the active
+    // tile's highlight is the position indicator and the strip's own
+    // pan recognizer drives the swipe-to-switch stream.
     private let thumbnailStripView = ThumbnailStripView()
     private var thumbnailsTask: Task<Void, Never>?
-    private weak var topBandStackRef: UIStackView?
     // Most-recent DesktopState mirrored so the strip can re-render when
     // a thumbnails-push arrives without DesktopState changing, or when
     // the settings toggle flips after a state has already landed.
@@ -314,7 +315,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     private func applySettingsToTranslator() {
         gestureTranslator.tuning = SettingsStore.shared.tuning
-        spacesDotsView.useMacOSDirection = SettingsStore.shared.useMacOSSpacesDirection
+        thumbnailStripView.useMacOSDirection = SettingsStore.shared.useMacOSSpacesDirection
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -481,7 +482,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // R23: outer scroll constraints (position + extent in the
         // controller view) are orientation-variant. Captured here into
         // the portrait array; the matching landscape entries (which need
-        // the topBandStack reference for the scroll's bottom edge) are
+        // the thumbnailStripView reference for the scroll's bottom edge) are
         // appended in showTrackpad before applyOrientationConstraints
         // fires. Until showTrackpad runs, no layout pass happens between
         // mountSinkView and showTrackpad (both are called synchronously
@@ -604,35 +605,25 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         showKeyboardButton.addTarget(self, action: #selector(toggleKeyboard), for: .touchUpInside)
         buttonRow.addArrangedSubview(showKeyboardButton)
 
-        spacesDotsView.translatesAutoresizingMaskIntoConstraints = false
-        spacesDotsView.delegate = self
-
-        // R20: dots band and thumbnail strip share a vertical stack
-        // pinned at view.bottom * 0.55. Stacking them means the strip's
-        // isHidden = true (settings off OR single-Space state) collapses
-        // its layout space; the dots band slides up to the original
-        // 0.55 position and the trackpad takes back the height the
-        // strip would have occupied. No second set of constraints.
+        // R25: the merged Spaces band is just the thumbnail strip.
+        // Active tile's tintColor "Here" treatment replaces the dots
+        // indicator; the strip's own pan recognizer drives the same
+        // continuous swipe-to-switch wire frames the dots band used
+        // to drive.
         thumbnailStripView.translatesAutoresizingMaskIntoConstraints = false
         thumbnailStripView.delegate = self
         thumbnailStripView.isHidden = true
-        let topBandStack = UIStackView(arrangedSubviews: [spacesDotsView, thumbnailStripView])
-        topBandStack.axis = .vertical
-        topBandStack.spacing = 4
-        topBandStack.alignment = .fill
-        topBandStack.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(topBandStack)
-        topBandStackRef = topBandStack
+        view.addSubview(thumbnailStripView)
 
         let bottomConstraint = buttonRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
         buttonRowBottomConstraint = bottomConstraint
 
-        // Stack's top aligns with the video sink's bottom edge in
+        // Strip's top aligns with the video sink's bottom edge in
         // portrait (sink occupies the top 0.55 of the view height; see
         // mountSinkView). Multiplier on view.bottom keeps the band's
         // position independent of when the sink mounts.
         let bandTopAtVideoBottom = NSLayoutConstraint(
-            item: topBandStack,
+            item: thumbnailStripView,
             attribute: .top,
             relatedBy: .equal,
             toItem: view,
@@ -650,7 +641,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             bottomConstraint,
             buttonRow.heightAnchor.constraint(equalToConstant: 44),
 
-            spacesDotsView.heightAnchor.constraint(equalToConstant: 32),
             thumbnailStripView.heightAnchor.constraint(equalToConstant: 56),
 
             keyboardSurface.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
@@ -666,15 +656,15 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         ])
 
         // Portrait layout. Trackpad + scroll strip span the bottom row;
-        // band stack sits at view.bottom * 0.55 above the trackpad;
-        // video scroll (constrained in mountSinkView) takes the top
-        // 0.55. Keyboard surface and button row stretch full width.
+        // strip sits at view.bottom * 0.55 above the trackpad; video
+        // scroll (constrained in mountSinkView) takes the top 0.55.
+        // Keyboard surface and button row stretch full width.
         portraitConstraints.append(contentsOf: [
             buttonRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             buttonRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
 
-            topBandStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            topBandStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            thumbnailStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
             bandTopAtVideoBottom,
 
             keyboardSurface.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
@@ -682,29 +672,29 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
             trackpadView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
-            trackpadView.topAnchor.constraint(equalTo: topBandStack.bottomAnchor, constant: 4),
+            trackpadView.topAnchor.constraint(equalTo: thumbnailStripView.bottomAnchor, constant: 4),
             trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
 
             scrollStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12)
         ])
 
         // Landscape layout. Video scroll occupies the left ~62% of the
-        // safe area at full height; band stack pins below it on the
-        // left column. Trackpad + scroll strip + buttons live in the
-        // right column. Scroll's bottom edge (deferred from
-        // mountSinkView) is added here because the topBandStack only
-        // exists at this point.
+        // safe area at full height; strip pins below it on the left
+        // column. Trackpad + scroll strip + buttons live in the right
+        // column. Scroll's bottom edge (deferred from mountSinkView) is
+        // added here because thumbnailStripView is the anchor reference
+        // and its session lifecycle starts now.
         if let scroll = sinkScrollView {
             let safe = view.safeAreaLayoutGuide
             landscapeConstraints.append(contentsOf: [
                 scroll.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
                 scroll.topAnchor.constraint(equalTo: safe.topAnchor),
                 scroll.widthAnchor.constraint(equalTo: safe.widthAnchor, multiplier: 0.62),
-                scroll.bottomAnchor.constraint(equalTo: topBandStack.topAnchor, constant: -8),
+                scroll.bottomAnchor.constraint(equalTo: thumbnailStripView.topAnchor, constant: -8),
 
-                topBandStack.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-                topBandStack.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
-                topBandStack.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
+                thumbnailStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+                thumbnailStripView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
+                thumbnailStripView.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
 
                 trackpadView.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 12),
                 trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
@@ -769,13 +759,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private func startDesktopStateObservation() {
         desktopStateTask?.cancel()
         guard let channel = pairingClient.activeInputChannel else { return }
-        spacesDotsView.renderEmpty()
         thumbnailStripView.renderEmpty()
         desktopStateTask = Task { [weak self, channel] in
             for await state in channel.desktopStateUpdates {
                 await MainActor.run {
                     self?.lastDesktopState = state
-                    self?.spacesDotsView.apply(state: state)
                     self?.thumbnailStripView.apply(state: state)
                     self?.refreshThumbnailStripVisibility()
                     self?.applyDesktopStateForCursorModel(state)
@@ -831,14 +819,15 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     // The strip is visible when (a) the user has opted in via settings,
-    // and (b) the active display has more than one user Space (a single
-    // Space has no "switch to" target). Centralised here so the dots-
-    // band hide rule (count <= 1) and the settings toggle compose
-    // cleanly without each owning a piece of the decision.
+    // R25: the strip is the only Spaces UI now, so visibility depends
+    // solely on whether there's a Space to switch to. The Show-Space-
+    // previews setting still gates host-side thumbnail capture (see
+    // sendCurrentClientConfig) but no longer hides the strip; the
+    // user always needs a way to switch Spaces from the phone, and
+    // the tiles read fine as plain captioned rectangles when the
+    // host isn't capturing images.
     private func refreshThumbnailStripVisibility() {
-        let countOk = thumbnailStripView.userSpaceCount > 1
-        let optIn = SettingsStore.shared.showSpacePreviews
-        thumbnailStripView.isHidden = !(optIn && countOk)
+        thumbnailStripView.isHidden = thumbnailStripView.userSpaceCount <= 1
     }
 
     // ADR-0006: send the current client-config on input-channel open
@@ -859,11 +848,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         buttonRow.removeFromSuperview()
         rightClickButton.removeFromSuperview()
         showKeyboardButton.removeFromSuperview()
-        topBandStackRef?.removeFromSuperview()
-        topBandStackRef = nil
-        spacesDotsView.removeFromSuperview()
         thumbnailStripView.removeFromSuperview()
-        spacesDotsView.renderEmpty()
         thumbnailStripView.renderEmpty()
         desktopStateTask?.cancel()
         desktopStateTask = nil
@@ -875,7 +860,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // R23: drop the orientation-variant constraints built in
         // mountSinkView + showTrackpad. They reference views that have
         // either been removed (trackpad, scrollStrip, buttonRow,
-        // topBandStack) or will be next via teardownMediaTransport
+        // thumbnailStripView) or will be next via teardownMediaTransport
         // (sinkScrollView). The next mountSinkView/showTrackpad will
         // repopulate fresh arrays and re-apply orientation.
         NSLayoutConstraint.deactivate(portraitConstraints)
@@ -933,7 +918,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // them instantly instead of leaving stale hairlines from the
         // previous mode.
         let resolved = UIColor.separator.cgColor
-        for layer in [trackpadView.layer, scrollStripView.layer, rightClickButton.layer, showKeyboardButton.layer, keyboardSurface.layer, spacesDotsView.layer] {
+        for layer in [trackpadView.layer, scrollStripView.layer, rightClickButton.layer, showKeyboardButton.layer, keyboardSurface.layer] {
             if layer.borderWidth > 0 {
                 layer.borderColor = resolved
             }
@@ -960,7 +945,13 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private func setTrackpadHidden(_ hidden: Bool) {
         trackpadView.isHidden = hidden
         scrollStripView.isHidden = hidden
-        spacesDotsView.isHidden = hidden
+        if hidden {
+            thumbnailStripView.isHidden = true
+        } else {
+            // Strip visibility otherwise depends on userSpaceCount; let
+            // the canonical helper decide when restoring.
+            refreshThumbnailStripVisibility()
+        }
     }
 
     @objc private func keyboardWillChangeFrame(_ note: Notification) {
@@ -999,12 +990,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         sendInput(input)
     }
 
-    // MARK: - SpacesDotsViewDelegate
-
-    func spacesDots(_ view: SpacesDotsView, didProduce input: NormalizedInput) {
-        sendInput(input)
-    }
-
     // MARK: - ThumbnailStripViewDelegate
 
     // R20: a tap on a non-active tile emits one step-direction swipe
@@ -1021,6 +1006,14 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             sendInput(.switchSpaceGesture(phase: .changed, progress: direction * 0.5, velocityX: direction * 1500))
             sendInput(.switchSpaceGesture(phase: .ended, progress: direction, velocityX: direction * 2000))
         }
+    }
+
+    // R25: continuous swipe-to-switch frames produced by the strip's
+    // pan recognizer (used to live on SpacesDotsView). Forward
+    // unchanged; the host's InputDispatcher synthesises one
+    // dock-swipe CGEvent per frame.
+    func thumbnailStrip(_ view: ThumbnailStripView, didProduce input: NormalizedInput) {
+        sendInput(input)
     }
 
     func thumbnailStrip(_ view: ThumbnailStripView, didLongPressSpaceId spaceId: UInt64) {

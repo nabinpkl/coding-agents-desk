@@ -3,12 +3,18 @@ import Testing
 import UIKit
 
 @MainActor
-struct SpacesDotsViewTests {
+struct ThumbnailStripViewTests {
     // MARK: - Continuous gesture emission
+    //
+    // R25 merged the dots band's swipe state machine into
+    // ThumbnailStripView. These tests mirror the retired
+    // SpacesDotsViewTests so the host contract (one
+    // .switchSpaceGesture frame per UIKit pan callback, with the same
+    // progress / velocity / direction-flip semantics) doesn't drift.
 
     @Test func panBeganEmitsBeganFrameWithZeroProgress() {
-        let recorder = DotsRecorder()
-        let view = SpacesDotsView()
+        let recorder = StripRecorder()
+        let view = ThumbnailStripView()
         view.delegate = recorder
 
         view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 320)
@@ -24,12 +30,11 @@ struct SpacesDotsViewTests {
     }
 
     @Test func panChangedEmitsChangedFrameWithProgressNormalisedToBandWidth() {
-        let recorder = DotsRecorder()
-        let view = SpacesDotsView()
+        let recorder = StripRecorder()
+        let view = ThumbnailStripView()
         view.delegate = recorder
         view.useMacOSDirection = true  // raw-sign pass-through for layout assertions
 
-        // Began captures the bandWidth used for normalisation.
         view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
         view.processGesture(
             state: .changed,
@@ -41,7 +46,6 @@ struct SpacesDotsViewTests {
         #expect(recorder.events.count == 2)
         if case let .switchSpaceGesture(phase, progress, velocityX) = recorder.events[1] {
             #expect(phase == .changed)
-            // 100 / 200 = 0.5.
             #expect(progress == 0.5)
             #expect(velocityX == 800)
         } else {
@@ -50,18 +54,15 @@ struct SpacesDotsViewTests {
     }
 
     @Test func progressClampsToSignedUnitInterval() {
-        // A long flick past the band edge produces translation >
-        // bandWidth. Dock treats progress > 1 as "swipe done"; we cap
-        // at ±1 so the wire payload is stable.
-        let recorder = DotsRecorder()
-        let view = SpacesDotsView()
+        let recorder = StripRecorder()
+        let view = ThumbnailStripView()
         view.delegate = recorder
-        view.useMacOSDirection = true  // raw-sign pass-through for clamp assertion
+        view.useMacOSDirection = true
 
         view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
         view.processGesture(
             state: .changed,
-            translation: CGPoint(x: 500, y: 0),  // 2.5x bandWidth
+            translation: CGPoint(x: 500, y: 0),
             velocity: CGPoint(x: 2000, y: 0),
             bandWidth: 200
         )
@@ -74,10 +75,10 @@ struct SpacesDotsViewTests {
     }
 
     @Test func leftwardDragEmitsNegativeProgressAndVelocity() {
-        let recorder = DotsRecorder()
-        let view = SpacesDotsView()
+        let recorder = StripRecorder()
+        let view = ThumbnailStripView()
         view.delegate = recorder
-        view.useMacOSDirection = true  // raw-sign pass-through
+        view.useMacOSDirection = true
 
         view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
         view.processGesture(
@@ -96,10 +97,10 @@ struct SpacesDotsViewTests {
     }
 
     @Test func panEndedEmitsEndedFrameWithTerminalProgressAndVelocity() {
-        let recorder = DotsRecorder()
-        let view = SpacesDotsView()
+        let recorder = StripRecorder()
+        let view = ThumbnailStripView()
         view.delegate = recorder
-        view.useMacOSDirection = true  // raw-sign pass-through
+        view.useMacOSDirection = true
 
         view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
         view.processGesture(
@@ -118,7 +119,7 @@ struct SpacesDotsViewTests {
         #expect(recorder.events.count == 3)
         if case let .switchSpaceGesture(phase, progress, velocityX) = recorder.events[2] {
             #expect(phase == .ended)
-            #expect(progress == 0.75)  // 150/200
+            #expect(progress == 0.75)
             #expect(velocityX == 1600)
         } else {
             Issue.record("expected switchSpaceGesture ended")
@@ -126,13 +127,8 @@ struct SpacesDotsViewTests {
     }
 
     @Test func defaultDirectionFlipsSignFromNative() {
-        // Default (useMacOSDirection == false) inverts the wire-level
-        // sign so finger-right on the band switches to the Space on
-        // the left (scrollbar-reading feel). The flip happens at emit
-        // time on both progress and velocity; the host never sees the
-        // user preference.
-        let recorder = DotsRecorder()
-        let view = SpacesDotsView()
+        let recorder = StripRecorder()
+        let view = ThumbnailStripView()
         view.delegate = recorder
         // view.useMacOSDirection stays at its default `false`.
 
@@ -145,17 +141,16 @@ struct SpacesDotsViewTests {
         )
 
         if case let .switchSpaceGesture(_, progress, velocityX) = recorder.events[1] {
-            #expect(progress < 0)  // raw 0.4 -> -0.4
-            #expect(velocityX < 0)  // raw 1200 -> -1200
+            #expect(progress < 0)
+            #expect(velocityX < 0)
         } else {
             Issue.record("expected switchSpaceGesture changed")
         }
     }
 
     @Test func useMacOSDirectionPassesSignThrough() {
-        // Toggle ON = use macOS-native direction. Sign is unchanged.
-        let recorder = DotsRecorder()
-        let view = SpacesDotsView()
+        let recorder = StripRecorder()
+        let view = ThumbnailStripView()
         view.delegate = recorder
         view.useMacOSDirection = true
 
@@ -168,7 +163,7 @@ struct SpacesDotsViewTests {
         )
 
         if case let .switchSpaceGesture(_, progress, velocityX) = recorder.events[1] {
-            #expect(progress > 0)  // raw 0.4 stays +0.4
+            #expect(progress > 0)
             #expect(velocityX > 0)
         } else {
             Issue.record("expected switchSpaceGesture changed")
@@ -176,8 +171,8 @@ struct SpacesDotsViewTests {
     }
 
     @Test func panCancelledEmitsCancelledFrame() {
-        let recorder = DotsRecorder()
-        let view = SpacesDotsView()
+        let recorder = StripRecorder()
+        let view = ThumbnailStripView()
         view.delegate = recorder
 
         view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
@@ -191,11 +186,8 @@ struct SpacesDotsViewTests {
     }
 
     @Test func zeroProgressOnChangedNudgesAwayFromExactZero() {
-        // Dock drops .changed frames with progress=0 (reads as "no
-        // gesture in progress"); the view substitutes FLT_TRUE_MIN so
-        // the direction-required guard still passes through.
-        let recorder = DotsRecorder()
-        let view = SpacesDotsView()
+        let recorder = StripRecorder()
+        let view = ThumbnailStripView()
         view.delegate = recorder
 
         view.processGesture(state: .began, translation: .zero, velocity: .zero, bandWidth: 200)
@@ -210,10 +202,15 @@ struct SpacesDotsViewTests {
         }
     }
 
-    // MARK: - Dot rendering from DesktopState
+    // MARK: - Tile rendering from DesktopState
+    //
+    // The strip's visibility is owned by PairingViewController
+    // (refreshThumbnailStripVisibility) post-R25, so these tests
+    // assert userSpaceCount and activeIndex rather than the view's
+    // own isHidden.
 
-    @Test func applyStateRendersOneDotPerUserSpaceOnActiveDisplay() {
-        let view = SpacesDotsView()
+    @Test func applyStateRendersOneTilePerUserSpaceOnActiveDisplay() {
+        let view = ThumbnailStripView()
         view.apply(state: DesktopState(
             displays: [DisplayMetadata(id: "DISP-1", widthPoints: 1512, heightPoints: 982)],
             spaces: [
@@ -224,13 +221,12 @@ struct SpacesDotsViewTests {
             activeDisplayId: "DISP-1",
             activeSpaceId: 200
         ))
-        #expect(view.renderedDotCount == 3)
-        #expect(view.renderedActiveIndex == 1)
-        #expect(view.isHidden == false)
+        #expect(view.userSpaceCount == 3)
+        #expect(view.activeIndex == 1)
     }
 
     @Test func applyStateSkipsFullscreenSpaces() {
-        let view = SpacesDotsView()
+        let view = ThumbnailStripView()
         view.apply(state: DesktopState(
             displays: [DisplayMetadata(id: "DISP-1", widthPoints: 1512, heightPoints: 982)],
             spaces: [
@@ -241,12 +237,12 @@ struct SpacesDotsViewTests {
             activeDisplayId: "DISP-1",
             activeSpaceId: 100
         ))
-        #expect(view.renderedDotCount == 2)
-        #expect(view.renderedActiveIndex == 0)
+        #expect(view.userSpaceCount == 2)
+        #expect(view.activeIndex == 0)
     }
 
     @Test func applyStateOnlyCountsActiveDisplaySpaces() {
-        let view = SpacesDotsView()
+        let view = ThumbnailStripView()
         view.apply(state: DesktopState(
             displays: [
                 DisplayMetadata(id: "DISP-1", widthPoints: 1512, heightPoints: 982),
@@ -262,12 +258,12 @@ struct SpacesDotsViewTests {
             activeDisplayId: "DISP-1",
             activeSpaceId: 200
         ))
-        #expect(view.renderedDotCount == 2)
-        #expect(view.renderedActiveIndex == 1)
+        #expect(view.userSpaceCount == 2)
+        #expect(view.activeIndex == 1)
     }
 
-    @Test func applyStateHidesViewWhenOnlyOneUserSpaceExists() {
-        let view = SpacesDotsView()
+    @Test func applyStateHandlesSingleUserSpace() {
+        let view = ThumbnailStripView()
         view.apply(state: DesktopState(
             displays: [DisplayMetadata(id: "DISP-1", widthPoints: 1512, heightPoints: 982)],
             spaces: [
@@ -276,27 +272,29 @@ struct SpacesDotsViewTests {
             activeDisplayId: "DISP-1",
             activeSpaceId: 100
         ))
-        #expect(view.renderedDotCount == 1)
-        #expect(view.isHidden == true)
+        #expect(view.userSpaceCount == 1)
+        #expect(view.activeIndex == 0)
     }
 
-    @Test func applyStateHidesViewWhenNoActiveDisplay() {
-        let view = SpacesDotsView()
+    @Test func applyStateHandlesNoActiveDisplay() {
+        let view = ThumbnailStripView()
         view.apply(state: DesktopState(
             displays: [],
             spaces: [],
             activeDisplayId: nil,
             activeSpaceId: nil
         ))
-        #expect(view.renderedDotCount == 0)
-        #expect(view.isHidden == true)
+        #expect(view.userSpaceCount == 0)
+        #expect(view.activeIndex == nil)
     }
 }
 
 @MainActor
-private final class DotsRecorder: SpacesDotsViewDelegate {
+private final class StripRecorder: ThumbnailStripViewDelegate {
     private(set) var events: [NormalizedInput] = []
-    func spacesDots(_ view: SpacesDotsView, didProduce input: NormalizedInput) {
+    func thumbnailStrip(_ view: ThumbnailStripView, didTapStepDelta delta: Int) {}
+    func thumbnailStrip(_ view: ThumbnailStripView, didLongPressSpaceId spaceId: UInt64) {}
+    func thumbnailStrip(_ view: ThumbnailStripView, didProduce input: NormalizedInput) {
         events.append(input)
     }
 }
