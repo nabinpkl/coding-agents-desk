@@ -11,21 +11,25 @@ import os
 final class InputDispatcher: @unchecked Sendable {
     typealias EventPoster = (CGEvent) -> Void
     typealias LocationProvider = () -> CGPoint
+    typealias DisplayBoundsProvider = () -> CGRect
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "input")
     private let eventPoster: EventPoster
     private let isTrusted: () -> Bool
     private let locationProvider: LocationProvider
+    private let displayBoundsProvider: DisplayBoundsProvider
     private var loggedUntrusted = false
 
     init(
         eventPoster: @escaping EventPoster = { $0.post(tap: .cghidEventTap) },
         isTrusted: @escaping () -> Bool = { AXIsProcessTrusted() },
-        locationProvider: @escaping LocationProvider = { CGEvent(source: nil)?.location ?? .zero }
+        locationProvider: @escaping LocationProvider = { CGEvent(source: nil)?.location ?? .zero },
+        displayBoundsProvider: @escaping DisplayBoundsProvider = { CGDisplayBounds(CGMainDisplayID()) }
     ) {
         self.eventPoster = eventPoster
         self.isTrusted = isTrusted
         self.locationProvider = locationProvider
+        self.displayBoundsProvider = displayBoundsProvider
     }
 
     func dispatch(_ input: NormalizedInput) {
@@ -54,7 +58,8 @@ final class InputDispatcher: @unchecked Sendable {
 
     private func postCursorMove(dx: CGFloat, dy: CGFloat) {
         let current = currentLocation()
-        let next = CGPoint(x: current.x + dx, y: current.y + dy)
+        let raw = CGPoint(x: current.x + dx, y: current.y + dy)
+        let next = clamp(raw, to: displayBoundsProvider())
         guard let event = CGEvent(
             mouseEventSource: nil,
             mouseType: .mouseMoved,
@@ -62,6 +67,16 @@ final class InputDispatcher: @unchecked Sendable {
             mouseButton: .left
         ) else { return }
         eventPoster(event)
+    }
+
+    private func clamp(_ point: CGPoint, to bounds: CGRect) -> CGPoint {
+        // maxX - 1 / maxY - 1 because CGDisplayBounds is exclusive on the
+        // far edges; posting at exactly maxX has been seen to flick the
+        // cursor onto an adjacent display in multi-monitor setups.
+        CGPoint(
+            x: min(max(bounds.minX, point.x), bounds.maxX - 1),
+            y: min(max(bounds.minY, point.y), bounds.maxY - 1)
+        )
     }
 
     private func postClick(_ button: NormalizedInput.MouseButton) {

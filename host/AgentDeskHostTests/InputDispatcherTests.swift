@@ -50,6 +50,23 @@ struct InputDispatcherTests {
         #expect(recorder.events.isEmpty)
     }
 
+    @Test func cursorMoveClampsToDisplayBounds() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 1000, y: 500) },
+            displayBoundsProvider: { CGRect(x: 0, y: 0, width: 1500, height: 1000) }
+        )
+
+        dispatcher.dispatch(.cursorMove(dx: 2000, dy: 2000))
+        dispatcher.dispatch(.cursorMove(dx: -5000, dy: -5000))
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0].location == CGPoint(x: 1499, y: 999))
+        #expect(recorder.events[1].location == CGPoint(x: 0, y: 0))
+    }
+
     @Test func outOfScopeInputsAreNoOps() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(
