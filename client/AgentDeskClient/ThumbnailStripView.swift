@@ -111,8 +111,12 @@ final class ThumbnailStripView: UIView {
     private var lastTileCount: Int = -1
 
     // Fraction of the strip width past which a drag is treated as a
-    // commit on its own. Half a strip's worth.
-    private static let commitThreshold: CGFloat = 0.5
+    // commit on its own. Kept low because fits-mode drags bounce off
+    // the contentSize edges almost immediately, so half a strip's
+    // worth is unreachable in a natural-feeling swipe. 15% is roughly
+    // one tile + spacing on a portrait iPhone, which lines up with
+    // the rest-state metaphor "drag a neighbour into the indicator".
+    private static let commitThreshold: CGFloat = 0.15
     // Pan velocity (pt/sec) past which a flick commits even if the
     // user didn't drag past the distance threshold. Tuned to feel
     // like an iOS paging flick: an intentional flick is in the
@@ -310,13 +314,19 @@ final class ThumbnailStripView: UIView {
             selectionOverlay.isHidden = true
             return
         }
-        // Cell frame is in collection view's content coords.
-        // Convert to strip coords (collection view fills the strip,
-        // so subtracting contentOffset is all we need).
+        // Cell frame is in collection view's content coords. Convert
+        // to strip coords by subtracting the offset at which the
+        // active cell will REST, not the live contentOffset.x. The
+        // live offset is often mid-animation when apply(state:) calls
+        // us (the user's bounce is still decelerating, or
+        // recenterOnActive just kicked off setContentOffset(animated:
+        // true)), so reading it produces a frame that lines up with
+        // the cell only at the start of the animation, not at
+        // settlement. activeRestingOffsetX is the destination.
         let cellFrame = attrs.frame
         let target = CGRect(
-            x: cellFrame.origin.x - collectionView.contentOffset.x,
-            y: cellFrame.origin.y - collectionView.contentOffset.y,
+            x: cellFrame.origin.x - activeRestingOffsetX,
+            y: cellFrame.origin.y,
             width: cellFrame.size.width,
             height: cellFrame.size.height
         )
@@ -506,7 +516,11 @@ extension ThumbnailStripView: UICollectionViewDelegate {
         }
 
         if step == 0 {
-            emitSwipeFrame(phase: .ended, rawProgress: 0, velocityX: 0)
+            // .ended(0, 0) does NOT cancel; Dock commits at whatever
+            // direction the most recent .changed was trending. Use the
+            // .cancelled phase (CGS phase 8) so Dock snaps back to the
+            // current Space and discards the in-flight gesture.
+            emitSwipeFrame(phase: .cancelled, rawProgress: 0, velocityX: 0)
         } else {
             // step=+1 corresponds to drag>0 (offset right), which is
             // rawProgress<0 in our translation convention. Saturate
