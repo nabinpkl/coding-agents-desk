@@ -438,16 +438,19 @@ extension ThumbnailStripView: UICollectionViewDelegate {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         if isProgrammaticScroll || !isDragging { return }
-        // Reference progress against the full strip width so a small
-        // drag stays a small progress (and the host doesn't commit
-        // until the user has dragged a meaningful distance). The old
-        // SpacesDotsView used the same reference; the previous
-        // pageWidth-based normalisation made every 30pt nudge read as
-        // ~0.4 progress and triggered premature commits.
+        // Drag distance comes from the pan recognizer's translation
+        // (the user's actual finger movement), NOT contentOffset.x.
+        // In fits mode the scroll view bounces with built-in
+        // resistance: a 300pt finger travel only nudges contentOffset
+        // by ~70pt, which made the strip read 90%-visual drags as
+        // 19% progress and never crossed the commit threshold.
+        // pan.translation.x is the raw finger delta and gives a
+        // proportional reading in both fits and overflow modes.
         let reference = max(1, bounds.width)
+        let panTranslation = scrollView.panGestureRecognizer.translation(in: scrollView).x
         let raw = Self.computeRawProgress(
-            currentOffsetX: scrollView.contentOffset.x,
-            activeRestingOffsetX: activeRestingOffsetX,
+            currentOffsetX: -panTranslation,
+            activeRestingOffsetX: 0,
             pageWidth: reference
         )
         let nudged = Self.nudgeAwayFromZero(raw)
@@ -491,7 +494,15 @@ extension ThumbnailStripView: UICollectionViewDelegate {
             return
         }
         let reference = max(1, bounds.width)
-        let drag = scrollView.contentOffset.x - activeRestingOffsetX
+        // Same reason as in scrollViewDidScroll: contentOffset.x
+        // saturates against the scroll-view's bounce limit in fits
+        // mode, so it can't represent a "swiped 90% of the strip"
+        // gesture. pan.translation.x is the user's actual finger
+        // travel since the gesture began, finger-LEFT negative.
+        // Negate so drag>0 means "step toward right-neighbour"
+        // (the same sign convention the rest of this function uses).
+        let panTranslation = scrollView.panGestureRecognizer.translation(in: scrollView).x
+        let drag = -panTranslation
         let dragFraction = drag / reference
         let panVelocity = scrollView.panGestureRecognizer.velocity(in: scrollView).x
         let offsetVelocity = -panVelocity
