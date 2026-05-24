@@ -1,3 +1,4 @@
+import QuartzCore
 import UIKit
 
 // R9.2 SPEC §13 module. Owns the UIKit gesture recognizers on the trackpad
@@ -7,6 +8,18 @@ import UIKit
 
 protocol GestureTranslatorDelegate: AnyObject {
     @MainActor func gestureTranslator(_ translator: GestureTranslator, didProduce input: NormalizedInput)
+}
+
+// UIPanGestureRecognizer waits ~10 points of finger travel before recognizing.
+// That feels like "I have to press into the strip to start scrolling" on the
+// scroll strip where users expect Mac-trackpad-style instant response. This
+// subclass promotes to .began on touchDown so the first move event is
+// translated 1:1, with no swallowed slop.
+final class InstantPanGestureRecognizer: UIPanGestureRecognizer {
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        if state == .possible { state = .began }
+    }
 }
 
 // Acceleration curve over the iPhone's hardware touch velocity (points per
@@ -32,15 +45,15 @@ struct GestureAcceleration: Sendable {
         1.5 + min(velocity * 0.003, 5.0)
     }
 
-    // Vertical scroll curve. Tuned for code/document reading rather than
-    // screen-traversal: a slow finger drag of one screen-height should
-    // produce roughly half a screen of content scroll; a flick should
-    // produce one to two screens.
-    //   0     -> 3.0
-    //   500   -> 5.0
-    //   2000+ -> 8.0 (capped)
+    // Vertical scroll curve. Floor sits at 1.0 so a glacial finger drag is
+    // near 1:1 with the Mac scroll position (the precision range), and
+    // velocity carries the multiplier up for normal reading and flicks.
+    // Previous 3.0 floor amplified every move and killed precision.
+    //   0     -> 1.0  (true precision)
+    //   500   -> 2.25 (typical drag)
+    //   2000+ -> 6.0  (flick, capped)
     static let scroll = GestureAcceleration { velocity in
-        3.0 + min(velocity * 0.004, 5.0)
+        1.0 + min(velocity * 0.0025, 5.0)
     }
 }
 
@@ -54,6 +67,21 @@ final class GestureTranslator: NSObject {
     // relative cursor motion without knowing the trackpad size.
     private var lastPanTranslation: CGPoint = .zero
     private var lastScrollTranslation: CGPoint = .zero
+    // Momentum: after the finger lifts with non-trivial velocity, emit
+    // decaying scroll events on a display link until velocity falls below
+    // the cutoff. Approximates the Mac trackpad's inertia tail.
+    private var momentumDisplayLink: CADisplayLink?
+    private var momentumVelocity: CGFloat = 0
+    private var momentumLastTime: CFTimeInterval = 0
+    // Velocity threshold (points/sec) below which a finger-lift is treated
+    // as a slow drag finishing, not a flick. No momentum below this.
+    private static let momentumFlickThreshold: CGFloat = 200
+    // Velocity threshold (points/sec) below which momentum stops on its
+    // own. ~30 px/sec is about one pixel every two frames; visually static.
+    private static let momentumStopThreshold: CGFloat = 30
+    // Exponential decay k. With k=4: half-life ~173ms, ~13% at 500ms,
+    // fully spent by ~700ms. Close to Mac trackpad inertia feel.
+    private static let momentumDecayK: CGFloat = 4
 
     init(
         acceleration: GestureAcceleration = .identity,
@@ -79,7 +107,9 @@ final class GestureTranslator: NSObject {
 
     func attachScrollStrip(to view: UIView) {
         view.isUserInteractionEnabled = true
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleScrollGesture(_:)))
+        // InstantPan eliminates the ~10pt slop before .began fires, so first
+        // finger move maps 1:1 to first scroll event.
+        let pan = InstantPanGestureRecognizer(target: self, action: #selector(handleScrollGesture(_:)))
         pan.minimumNumberOfTouches = 1
         pan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(pan)
@@ -122,6 +152,9 @@ final class GestureTranslator: NSObject {
     func processScrollPan(state: UIGestureRecognizer.State, translation: CGPoint, velocity: CGPoint = .zero) {
         switch state {
         case .began:
+            // A fresh touch on the scroll strip cancels any in-flight
+            // momentum (matches the Mac trackpad: touching aborts inertia).
+            stopMomentum()
             lastScrollTranslation = translation
         case .changed:
             let rawDy = translation.y - lastScrollTranslation.y
@@ -131,11 +164,48 @@ final class GestureTranslator: NSObject {
             let gain = scrollAcceleration.scale(speed)
             let dy = Float(rawDy * gain)
             delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: dy))
-        case .ended, .cancelled, .failed:
+        case .ended:
+            lastScrollTranslation = .zero
+            if abs(velocity.y) >= Self.momentumFlickThreshold {
+                startMomentum(initialVelocity: velocity.y)
+            }
+        case .cancelled, .failed:
             lastScrollTranslation = .zero
         default:
             break
         }
+    }
+
+    private func startMomentum(initialVelocity: CGFloat) {
+        stopMomentum()
+        momentumVelocity = initialVelocity
+        momentumLastTime = CACurrentMediaTime()
+        let link = CADisplayLink(target: self, selector: #selector(tickMomentum(_:)))
+        link.add(to: .main, forMode: .common)
+        momentumDisplayLink = link
+    }
+
+    private func stopMomentum() {
+        momentumDisplayLink?.invalidate()
+        momentumDisplayLink = nil
+        momentumVelocity = 0
+    }
+
+    @objc private func tickMomentum(_ link: CADisplayLink) {
+        let now = CACurrentMediaTime()
+        let dt = CGFloat(now - momentumLastTime)
+        momentumLastTime = now
+        // v(t) = v0 * e^(-k*dt) per frame. Applied incrementally so frame
+        // rate variation doesn't change the overall decay curve.
+        momentumVelocity *= exp(-Self.momentumDecayK * dt)
+        if abs(momentumVelocity) < Self.momentumStopThreshold {
+            stopMomentum()
+            return
+        }
+        let rawDy = momentumVelocity * dt
+        let gain = scrollAcceleration.scale(abs(momentumVelocity))
+        let dy = Float(rawDy * gain)
+        delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: dy))
     }
 
     @objc private func handlePanGesture(_ gesture: UIPanGestureRecognizer) {

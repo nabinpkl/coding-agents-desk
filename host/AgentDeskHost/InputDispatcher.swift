@@ -19,6 +19,11 @@ final class InputDispatcher: @unchecked Sendable {
     private let locationProvider: LocationProvider
     private let displayBoundsProvider: DisplayBoundsProvider
     private var loggedUntrusted = false
+    // Sub-pixel scroll deltas (precision drags after lowering the iPhone
+    // scroll gain floor to 1.0) round to zero individually and would never
+    // emit. Accumulate the fractional remainder across calls so they
+    // eventually trip the threshold and emit a single-pixel event.
+    private var scrollRemainder: CGFloat = 0
 
     init(
         eventPoster: @escaping EventPoster = { $0.post(tap: .cghidEventTap) },
@@ -94,10 +99,14 @@ final class InputDispatcher: @unchecked Sendable {
     }
 
     private func postScroll(dx: Float, dy: Float) {
-        // Vertical only for now (wheelCount=1). Int32(dy) of a fractional
-        // Float between -1 and 1 truncates to 0, which would silently drop
-        // small scrolls; round to nearest instead.
-        let dyInt = Int32(dy.rounded())
+        // Vertical only for now (wheelCount=1). Accumulate fractional dy so
+        // a stream of sub-pixel deltas (slow precision drag) still emits
+        // events at the integer threshold rather than rounding each call
+        // independently to zero. Truncate toward zero so emitted pixels
+        // never exceed the accumulated input.
+        scrollRemainder += CGFloat(dy)
+        let dyInt = Int32(scrollRemainder.rounded(.towardZero))
+        scrollRemainder -= CGFloat(dyInt)
         if dyInt == 0 { return }
         guard let event = CGEvent(
             scrollWheelEvent2Source: nil,

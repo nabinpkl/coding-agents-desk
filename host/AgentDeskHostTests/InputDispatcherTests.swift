@@ -84,6 +84,24 @@ struct InputDispatcherTests {
         #expect(pixelDelta == 30)
     }
 
+    @Test func subPixelScrollsAccumulateUntilEmitting() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        // Four 0.4 dy ticks: 0.4, 0.8, 1.2 -> emit 1, 0.6.
+        dispatcher.dispatch(.scroll(dx: 0, dy: 0.4))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 0.4))
+        dispatcher.dispatch(.scroll(dx: 0, dy: 0.4))
+
+        #expect(recorder.events.count == 1)
+        let delta = recorder.events[0].getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
+        #expect(delta == 1)
+    }
+
     @Test func outOfScopeInputsAreNoOps() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(
