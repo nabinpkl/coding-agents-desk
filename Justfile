@@ -15,6 +15,14 @@ dev:
     open host/AgentDeskHost.xcodeproj
     open client/AgentDeskClient.xcodeproj
 
+# Stream the host's os_log output live (ctrl-c to stop), echoing to
+# the terminal AND appending to /tmp/agentdesk-host.log so an agent
+# can read the captured stream back without the user copy-pasting it.
+# Truncates the file on each run so each session starts clean.
+host-logs:
+    : > /tmp/agentdesk-host.log
+    log stream --predicate 'subsystem == "com.example.agentdesk.AgentDeskHost"' --info --style compact | tee -a /tmp/agentdesk-host.log
+
 # Build host Debug and (re)launch it via LaunchServices so macOS TCC
 # attributes Screen Recording (and any other privacy prompt) to
 # AgentDeskHost itself, not to the terminal/IDE that runs this recipe.
