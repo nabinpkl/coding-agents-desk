@@ -1,5 +1,31 @@
 import CoreGraphics
 import Foundation
+import UIKit
+
+// User preference for app appearance. Persisted as the raw value so the
+// UISegmentedControl in SettingsViewController can map slot index to
+// UIUserInterfaceStyle without a separate mapping table.
+enum AppearancePreference: Int, CaseIterable {
+    case system = 0
+    case light = 1
+    case dark = 2
+
+    var interfaceStyle: UIUserInterfaceStyle {
+        switch self {
+        case .system: return .unspecified
+        case .light:  return .light
+        case .dark:   return .dark
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .system: return "System"
+        case .light:  return "Light"
+        case .dark:   return "Dark"
+        }
+    }
+}
 
 // UserDefaults-backed store for trackpad / scroll feel preferences. The
 // raw values are unitless multipliers (1.0 = default) so the UI can show
@@ -25,6 +51,7 @@ final class SettingsStore: @unchecked Sendable {
         static let accessoryContainerHeight = "agentDesk.accessoryContainerHeight"
         static let accessoryKeyHeight = "agentDesk.accessoryKeyHeight"
         static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
+        static let appearance = "agentDesk.appearance"
     }
 
     // iOS HIG / QuickType bar standard is 44pt; key chiclets at 36pt
@@ -100,6 +127,19 @@ final class SettingsStore: @unchecked Sendable {
     var accessoryKeySpacing: Double {
         get { defaults.object(forKey: Key.accessoryKeySpacing) as? Double ?? Self.defaultAccessoryKeySpacing }
         set { defaults.set(newValue, forKey: Key.accessoryKeySpacing); postChange() }
+    }
+
+    // Appearance preference. Default .system so the app follows the
+    // device's Light/Dark setting until the user picks one explicitly.
+    var appearance: AppearancePreference {
+        get {
+            let raw = defaults.object(forKey: Key.appearance) as? Int ?? AppearancePreference.system.rawValue
+            return AppearancePreference(rawValue: raw) ?? .system
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Key.appearance)
+            postChange()
+        }
     }
 
     private func postChange() {

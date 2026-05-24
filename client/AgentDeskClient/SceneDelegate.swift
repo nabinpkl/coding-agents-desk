@@ -14,13 +14,24 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let window = UIWindow(windowScene: windowScene)
         let pairingVC = PairingViewController()
         window.rootViewController = pairingVC
+        window.overrideUserInterfaceStyle = SettingsStore.shared.appearance.interfaceStyle
         window.makeKeyAndVisible()
         self.window = window
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applyAppearance),
+            name: SettingsStore.changedNotification,
+            object: nil
+        )
         if let url = connectionOptions.urlContexts.first?.url {
             pairingVC.handleIncomingPairingURL(url)
         } else if let url = Self.pairingURLFromLaunchArguments() {
             pairingVC.handleIncomingPairingURL(url)
         }
+    }
+
+    @objc private func applyAppearance() {
+        window?.overrideUserInterfaceStyle = SettingsStore.shared.appearance.interfaceStyle
     }
 
     // Dev path: `xcrun devicectl device process launch --environment-variables`

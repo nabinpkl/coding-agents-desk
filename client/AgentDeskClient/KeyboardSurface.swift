@@ -110,11 +110,22 @@ final class KeyboardSurface: UITextField {
         // Visible field so the user sees what they've typed locally as
         // confirmation, in addition to the wire events going to the
         // Mac. insertText / deleteBackward still call super so text
-        // accumulates here.
-        backgroundColor = .tertiarySystemBackground
+        // accumulates here. Card-style to match the trackpad and button
+        // row above it (white in light mode, elevated dark in dark mode).
+        backgroundColor = .secondarySystemGroupedBackground
         textColor = .label
         font = .systemFont(ofSize: 16)
-        borderStyle = .roundedRect
+        borderStyle = .none
+        layer.cornerRadius = 12
+        layer.borderColor = UIColor.separator.cgColor
+        layer.borderWidth = 0.5
+        // Inset the text so it doesn't kiss the rounded edge now that
+        // borderStyle isn't doing the padding for us.
+        let padding = UIView(frame: CGRect(x: 0, y: 0, width: 10, height: 0))
+        leftView = padding
+        leftViewMode = .always
+        rightView = UIView(frame: CGRect(x: 0, y: 0, width: 10, height: 0))
+        rightViewMode = .always
         placeholder = "Type to send to Mac"
     }
 

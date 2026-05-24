@@ -20,7 +20,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private let trackpadView = UIView()
     private let trackpadHint = UILabel()
     private let scrollStripView = UIView()
-    private let scrollStripHint = UILabel()
+    private let scrollStripHint = UIImageView()
     private let settingsButton = UIButton(type: .system)
     // MARK: - One-handed affordances
     //
@@ -53,7 +53,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        // Grouped palette so the trackpad and scroll-strip read as white
+        // cards on a soft grey ground (iOS Settings shape). The flat
+        // .systemBackground / .secondarySystemBackground pairing collapsed
+        // to white-on-white in light mode with no visual hierarchy.
+        view.backgroundColor = .systemGroupedBackground
         configureViews()
         configureSettingsButton()
         configureKeyboardSurface()
@@ -140,6 +144,15 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         let image = UIImage(systemName: "gearshape")
         settingsButton.setImage(image, for: .normal)
         settingsButton.tintColor = .label
+        // Sits on top of the live screen-share video, whose colour we
+        // cannot predict (a dark editor blends with a .label-coloured icon
+        // in light mode). The translucent system-background pill keeps the
+        // icon legible against arbitrary video content in both appearances.
+        settingsButton.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.7)
+        settingsButton.layer.cornerRadius = 18
+        settingsButton.layer.masksToBounds = true
+        settingsButton.accessibilityLabel = "Settings"
+        settingsButton.accessibilityIdentifier = "settings-button"
         settingsButton.addTarget(self, action: #selector(openSettings), for: .touchUpInside)
         settingsButton.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(settingsButton)
@@ -278,28 +291,42 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private func showTrackpad() {
         if trackpadView.superview != nil { return }
         trackpadView.translatesAutoresizingMaskIntoConstraints = false
-        trackpadView.backgroundColor = UIColor.secondarySystemBackground
-        trackpadView.layer.cornerRadius = 12
+        // White card in light, elevated dark grey in dark. .separator gives
+        // a hairline edge that defines the surface in both modes; without
+        // it the card lost its boundary against the grouped ground at the
+        // edges of the trackpad's safe touch region.
+        trackpadView.backgroundColor = UIColor.secondarySystemGroupedBackground
+        trackpadView.layer.cornerRadius = 16
+        trackpadView.layer.borderColor = UIColor.separator.cgColor
+        trackpadView.layer.borderWidth = 0.5
         trackpadView.isUserInteractionEnabled = true
         view.addSubview(trackpadView)
 
         trackpadHint.text = "Trackpad"
-        trackpadHint.textColor = .tertiaryLabel
+        // .tertiaryLabel reads as near-invisible grey-on-grey in light mode.
+        // .secondaryLabel keeps the hint subordinate to the screen-share
+        // but actually legible in both appearances.
+        trackpadHint.textColor = .secondaryLabel
         trackpadHint.font = .preferredFont(forTextStyle: .footnote)
         trackpadHint.textAlignment = .center
         trackpadHint.translatesAutoresizingMaskIntoConstraints = false
         trackpadView.addSubview(trackpadHint)
 
         scrollStripView.translatesAutoresizingMaskIntoConstraints = false
-        scrollStripView.backgroundColor = UIColor.tertiarySystemBackground
-        scrollStripView.layer.cornerRadius = 12
+        scrollStripView.backgroundColor = UIColor.secondarySystemGroupedBackground
+        scrollStripView.layer.cornerRadius = 16
+        scrollStripView.layer.borderColor = UIColor.separator.cgColor
+        scrollStripView.layer.borderWidth = 0.5
         scrollStripView.isUserInteractionEnabled = true
         view.addSubview(scrollStripView)
 
-        scrollStripHint.text = "↕"
-        scrollStripHint.textColor = .tertiaryLabel
-        scrollStripHint.font = .systemFont(ofSize: 20, weight: .medium)
-        scrollStripHint.textAlignment = .center
+        // SF Symbol instead of the "↕" character: iOS auto-emojifies arrow
+        // codepoints and renders them as a dark blue tile, which reads as
+        // a foreign UI element in light mode. The symbol image is template
+        // tinted, so it tracks .secondaryLabel in both appearances.
+        scrollStripHint.image = UIImage(systemName: "arrow.up.arrow.down")
+        scrollStripHint.tintColor = .secondaryLabel
+        scrollStripHint.contentMode = .scaleAspectFit
         scrollStripHint.translatesAutoresizingMaskIntoConstraints = false
         scrollStripView.addSubview(scrollStripHint)
 
@@ -309,17 +336,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         buttonRow.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(buttonRow)
 
-        rightClickButton.setTitle("Right-click", for: .normal)
-        rightClickButton.backgroundColor = .tertiarySystemBackground
-        rightClickButton.layer.cornerRadius = 10
-        rightClickButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        styleActionButton(rightClickButton, title: "Right-click")
         rightClickButton.addTarget(self, action: #selector(rightClickTapped), for: .touchUpInside)
         buttonRow.addArrangedSubview(rightClickButton)
 
-        showKeyboardButton.setTitle("Show keyboard", for: .normal)
-        showKeyboardButton.backgroundColor = .tertiarySystemBackground
-        showKeyboardButton.layer.cornerRadius = 10
-        showKeyboardButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        styleActionButton(showKeyboardButton, title: "Show keyboard")
         showKeyboardButton.addTarget(self, action: #selector(toggleKeyboard), for: .touchUpInside)
         buttonRow.addArrangedSubview(showKeyboardButton)
 
@@ -379,6 +400,34 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             setTrackpadHidden(true)
             keyboardSurface.setVisible(true)
         }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle else { return }
+        // CALayer.borderColor is a CGColor and does not auto-resolve dynamic
+        // UIColors on appearance changes the way UIView.backgroundColor
+        // does. Re-resolve each card border so toggling Light/Dark updates
+        // them instantly instead of leaving stale hairlines from the
+        // previous mode.
+        let resolved = UIColor.separator.cgColor
+        for layer in [trackpadView.layer, scrollStripView.layer, rightClickButton.layer, showKeyboardButton.layer, keyboardSurface.layer] {
+            if layer.borderWidth > 0 {
+                layer.borderColor = resolved
+            }
+        }
+    }
+
+    // Match the trackpad / scroll-strip card treatment so the button row
+    // reads as part of the same surface family rather than floating tinted
+    // pills on a grey ground.
+    private func styleActionButton(_ button: UIButton, title: String) {
+        button.setTitle(title, for: .normal)
+        button.backgroundColor = .secondarySystemGroupedBackground
+        button.layer.cornerRadius = 12
+        button.layer.borderColor = UIColor.separator.cgColor
+        button.layer.borderWidth = 0.5
+        button.titleLabel?.font = .preferredFont(forTextStyle: .body)
     }
 
     // Trackpad and scroll-strip serve no purpose while the keyboard is up

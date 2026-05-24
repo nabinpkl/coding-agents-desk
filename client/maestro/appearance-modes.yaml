@@ -1,0 +1,36 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- launchApp:
+    clearState: false
+- waitForAnimationToEnd:
+    timeout: 8000
+- tapOn:
+    id: "settings-button"
+- waitForAnimationToEnd:
+    timeout: 2000
+- tapOn: "Light"
+- waitForAnimationToEnd:
+    timeout: 1500
+- tapOn: "Done"
+- waitForAnimationToEnd:
+    timeout: 1500
+- takeScreenshot: appearance-light
+- tapOn:
+    id: "settings-button"
+- waitForAnimationToEnd:
+    timeout: 1500
+- tapOn: "Dark"
+- waitForAnimationToEnd:
+    timeout: 1500
+- tapOn: "Done"
+- waitForAnimationToEnd:
+    timeout: 1500
+- takeScreenshot: appearance-dark
+- tapOn:
+    id: "settings-button"
+- waitForAnimationToEnd:
+    timeout: 1500
+- tapOn: "System"
+- waitForAnimationToEnd:
+    timeout: 1500
+- tapOn: "Done"
