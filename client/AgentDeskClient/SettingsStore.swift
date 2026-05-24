@@ -22,7 +22,14 @@ final class SettingsStore: @unchecked Sendable {
         static let cursorAccel = "agentDesk.cursorAcceleration"
         static let scrollSpeed = "agentDesk.scrollSpeed"
         static let scrollInverted = "agentDesk.scrollInverted"
+        static let accessoryContainerHeight = "agentDesk.accessoryContainerHeight"
+        static let accessoryKeyHeight = "agentDesk.accessoryKeyHeight"
+        static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
     }
+
+    static let defaultAccessoryContainerHeight: Double = 48
+    static let defaultAccessoryKeyHeight: Double = 36
+    static let defaultAccessoryKeySpacing: Double = 6
 
     // Materialize the current tuning as one value. PairingViewController
     // copies this onto the translator on each change; SettingsViewController
@@ -69,6 +76,27 @@ final class SettingsStore: @unchecked Sendable {
             defaults.set(newValue, forKey: Key.scrollInverted)
             postChange()
         }
+    }
+
+    // Whole accessory bar height in points. Drives both the inputAccessoryView
+    // frame and its intrinsicContentSize so iOS sizes the container the
+    // same way every render.
+    var accessoryContainerHeight: Double {
+        get { defaults.object(forKey: Key.accessoryContainerHeight) as? Double ?? Self.defaultAccessoryContainerHeight }
+        set { defaults.set(newValue, forKey: Key.accessoryContainerHeight); postChange() }
+    }
+
+    // Per-key height. Smaller than container leaves top/bottom padding;
+    // equal to container makes keys flush.
+    var accessoryKeyHeight: Double {
+        get { defaults.object(forKey: Key.accessoryKeyHeight) as? Double ?? Self.defaultAccessoryKeyHeight }
+        set { defaults.set(newValue, forKey: Key.accessoryKeyHeight); postChange() }
+    }
+
+    // Gap between adjacent keys in points.
+    var accessoryKeySpacing: Double {
+        get { defaults.object(forKey: Key.accessoryKeySpacing) as? Double ?? Self.defaultAccessoryKeySpacing }
+        set { defaults.set(newValue, forKey: Key.accessoryKeySpacing); postChange() }
     }
 
     private func postChange() {

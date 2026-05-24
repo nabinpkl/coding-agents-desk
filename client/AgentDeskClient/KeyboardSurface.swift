@@ -68,12 +68,34 @@ final class KeyboardSurface: UITextField {
     override init(frame: CGRect) {
         super.init(frame: frame)
         configureTraits()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(settingsChanged),
+            name: SettingsStore.changedNotification,
+            object: nil
+        )
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
 
     convenience init() {
         self.init(frame: .zero)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func settingsChanged() {
+        // Drop the cached accessory so the next becomeFirstResponder
+        // rebuilds it with the new tunings. If currently first
+        // responder, bounce so the bar swaps in immediately.
+        accessoryView = nil
+        inputAccessoryView = nil
+        if isFirstResponder {
+            _ = resignFirstResponder()
+            _ = becomeFirstResponder()
+        }
     }
 
     private func configureTraits() {
@@ -203,20 +225,21 @@ final class KeyboardAccessoryView: UIInputView {
     private weak var surface: KeyboardSurface?
     private var modifierButtons: [NormalizedInput.Modifier: UIButton] = [:]
 
-    private static let accessoryHeight: CGFloat = 48
+    private let containerHeight: CGFloat
+    private let keyHeight: CGFloat
+    private let keySpacing: CGFloat
 
     init(surface: KeyboardSurface) {
         self.surface = surface
+        let store = SettingsStore.shared
+        self.containerHeight = CGFloat(store.accessoryContainerHeight)
+        self.keyHeight = CGFloat(store.accessoryKeyHeight)
+        self.keySpacing = CGFloat(store.accessoryKeySpacing)
         let initialWidth = UIScreen.main.bounds.width
         super.init(
-            frame: CGRect(x: 0, y: 0, width: initialWidth, height: Self.accessoryHeight),
+            frame: CGRect(x: 0, y: 0, width: initialWidth, height: containerHeight),
             inputViewStyle: .keyboard
         )
-        // .flexibleWidth so the bar tracks orientation changes; NOT
-        // .flexibleHeight, otherwise iOS stretches the bar vertically
-        // and pushes the soft keyboard's overall container down /
-        // up out of normal sizing. Fixed height comes from
-        // intrinsicContentSize below.
         autoresizingMask = .flexibleWidth
         backgroundColor = .secondarySystemBackground
         setupViews()
@@ -225,13 +248,8 @@ final class KeyboardAccessoryView: UIInputView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
 
-    // Hard cap on the bar's height. UIKit otherwise consults the bar's
-    // current frame; if anything in the stack ever bumps the height
-    // (orientation, dynamic-type round, autoresize math), the keyboard's
-    // total container would grow with it. Pinning intrinsicContentSize
-    // keeps the total container at iOS-native size.
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: Self.accessoryHeight)
+        CGSize(width: UIView.noIntrinsicMetric, height: containerHeight)
     }
 
     private func setupViews() {
@@ -244,17 +262,22 @@ final class KeyboardAccessoryView: UIInputView {
 
         let stack = UIStackView(arrangedSubviews: [escape, tab, arrowCluster, cmd, ctrl, option])
         stack.axis = .horizontal
-        stack.spacing = 6
+        stack.spacing = keySpacing
         stack.distribution = .fillEqually
-        stack.alignment = .fill
+        stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
+        // Vertical padding derived from (container - key) / 2 so the row
+        // of keys sits centered with even space above and below; never
+        // negative so a key taller than the container clamps to flush.
+        let verticalInset = max(0, (containerHeight - keyHeight) / 2)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6)
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: keySpacing),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -keySpacing),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: verticalInset),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -verticalInset),
+            stack.heightAnchor.constraint(equalToConstant: keyHeight)
         ])
     }
 

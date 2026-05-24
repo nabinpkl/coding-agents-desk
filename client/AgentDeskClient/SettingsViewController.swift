@@ -13,6 +13,12 @@ final class SettingsViewController: UIViewController {
     private let scrollSpeedSlider = UISlider()
     private let scrollSpeedLabel = UILabel()
     private let scrollDirectionSwitch = UISwitch()
+    private let accessoryContainerSlider = UISlider()
+    private let accessoryContainerLabel = UILabel()
+    private let accessoryKeySlider = UISlider()
+    private let accessoryKeyLabel = UILabel()
+    private let accessoryGapSlider = UISlider()
+    private let accessoryGapLabel = UILabel()
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -41,7 +47,16 @@ final class SettingsViewController: UIViewController {
             switchRow: ("Invert direction", scrollDirectionSwitch)
         )
 
-        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection])
+        let accessorySection = makeSection(
+            title: "Keyboard accessory bar",
+            rows: [
+                ("Container height", accessoryContainerLabel, accessoryContainerSlider),
+                ("Key height", accessoryKeyLabel, accessoryKeySlider),
+                ("Key spacing", accessoryGapLabel, accessoryGapSlider)
+            ]
+        )
+
+        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, accessorySection])
         stack.axis = .vertical
         stack.spacing = 28
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -69,6 +84,24 @@ final class SettingsViewController: UIViewController {
         cursorAccelSlider.addTarget(self, action: #selector(cursorAccelChanged), for: .valueChanged)
         scrollSpeedSlider.addTarget(self, action: #selector(scrollSpeedChanged), for: .valueChanged)
         scrollDirectionSwitch.addTarget(self, action: #selector(scrollDirectionChanged), for: .valueChanged)
+
+        // Accessory bar tunings live in points so the slider value maps
+        // directly to layout. Ranges chosen to cover "tiny chiclet" to
+        // "iPad-tall" without nonsense extremes.
+        accessoryContainerSlider.minimumValue = 28
+        accessoryContainerSlider.maximumValue = 80
+        accessoryContainerSlider.isContinuous = true
+        accessoryContainerSlider.addTarget(self, action: #selector(accessoryContainerChanged), for: .valueChanged)
+
+        accessoryKeySlider.minimumValue = 20
+        accessoryKeySlider.maximumValue = 64
+        accessoryKeySlider.isContinuous = true
+        accessoryKeySlider.addTarget(self, action: #selector(accessoryKeyChanged), for: .valueChanged)
+
+        accessoryGapSlider.minimumValue = 0
+        accessoryGapSlider.maximumValue = 16
+        accessoryGapSlider.isContinuous = true
+        accessoryGapSlider.addTarget(self, action: #selector(accessoryGapChanged), for: .valueChanged)
     }
 
     private func loadFromStore() {
@@ -76,6 +109,9 @@ final class SettingsViewController: UIViewController {
         cursorAccelSlider.value = Float(store.cursorAcceleration)
         scrollSpeedSlider.value = Float(store.scrollSpeed)
         scrollDirectionSwitch.isOn = store.scrollInverted
+        accessoryContainerSlider.value = Float(store.accessoryContainerHeight)
+        accessoryKeySlider.value = Float(store.accessoryKeyHeight)
+        accessoryGapSlider.value = Float(store.accessoryKeySpacing)
         refreshLabels()
     }
 
@@ -83,10 +119,17 @@ final class SettingsViewController: UIViewController {
         cursorSpeedLabel.text = formatted(cursorSpeedSlider.value)
         cursorAccelLabel.text = formatted(cursorAccelSlider.value)
         scrollSpeedLabel.text = formatted(scrollSpeedSlider.value)
+        accessoryContainerLabel.text = formattedPoints(accessoryContainerSlider.value)
+        accessoryKeyLabel.text = formattedPoints(accessoryKeySlider.value)
+        accessoryGapLabel.text = formattedPoints(accessoryGapSlider.value)
     }
 
     private func formatted(_ value: Float) -> String {
         String(format: "%.1fx", value)
+    }
+
+    private func formattedPoints(_ value: Float) -> String {
+        String(format: "%.0fpt", value)
     }
 
     @objc private func cursorSpeedChanged() {
@@ -106,6 +149,21 @@ final class SettingsViewController: UIViewController {
 
     @objc private func scrollDirectionChanged() {
         store.scrollInverted = scrollDirectionSwitch.isOn
+    }
+
+    @objc private func accessoryContainerChanged() {
+        store.accessoryContainerHeight = Double(accessoryContainerSlider.value)
+        refreshLabels()
+    }
+
+    @objc private func accessoryKeyChanged() {
+        store.accessoryKeyHeight = Double(accessoryKeySlider.value)
+        refreshLabels()
+    }
+
+    @objc private func accessoryGapChanged() {
+        store.accessoryKeySpacing = Double(accessoryGapSlider.value)
+        refreshLabels()
     }
 
     @objc private func dismissSelf() {

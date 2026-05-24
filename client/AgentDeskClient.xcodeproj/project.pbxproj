@@ -42,6 +42,7 @@
 		B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000122 /* GestureTranslatorTests.swift */; };
 		B0000000000000000000022D /* KeyboardSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000116 /* KeyboardSurface.swift */; };
 		B0000000000000000000022E /* KeyboardSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000123 /* KeyboardSurfaceTests.swift */; };
+		B0000000000000000000022F /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000114 /* SettingsStore.swift */; };
 		B00000000000000000000401 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = B00000000000000000000501 /* WebRTC */; };
 /* End PBXBuildFile section */
 
@@ -315,6 +316,7 @@
 				B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */,
 				B0000000000000000000022D /* KeyboardSurface.swift in Sources */,
 				B0000000000000000000022E /* KeyboardSurfaceTests.swift in Sources */,
+				B0000000000000000000022F /* SettingsStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
