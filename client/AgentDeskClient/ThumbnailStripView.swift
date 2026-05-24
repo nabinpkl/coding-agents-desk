@@ -53,12 +53,18 @@ final class ThumbnailStripView: UIView {
 
     private let stack = UIStackView()
     private let feedback = UISelectionFeedbackGenerator()
+    // R27 v2: floating selection overlay. Sits on top of the active
+    // tile in the strip's coordinate space (not inside the stack), so
+    // it can slide between tile positions independently of the stack's
+    // own slide-with-finger transform. The previous per-tile
+    // cross-fade fought the stack's transform and the user couldn't
+    // perceive the overlap; one overlay sliding across tile centres
+    // gives the clean "moving between two desktops" visual.
+    private let selectionOverlay = UIView()
     private var tiles: [ThumbnailTileView] = []
     private var orderedSpaces: [SpaceMetadata] = []
     private var activeSpaceId: UInt64?
     private var thumbnails: [String: String] = [:]
-    // Width captured at gesture .began so progress normalisation uses
-    // a stable denominator even if the strip re-layouts mid-swipe.
     private var gestureBandWidth: CGFloat = 1.0
 
     override init(frame: CGRect) {
@@ -87,17 +93,43 @@ final class ThumbnailStripView: UIView {
             stack.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
 
-        // R25: continuous swipe pan. Attached to the strip root so it
-        // sees touches that land in the gaps between tiles too. Below
-        // the pan slop (~10pt) tile taps still arbitrate-and-fire;
-        // above it, pan wins and tile taps are cancelled. Long-press
-        // (0.4s) is unaffected since it has its own duration gate.
+        // R27 v2: selection overlay sits above the stack in z-order
+        // and is positioned via frame in updateSelectionOverlayFrame.
+        // Not user-interactive so taps fall through to tiles.
+        selectionOverlay.backgroundColor = UIColor.tintColor.withAlphaComponent(0.20)
+        selectionOverlay.layer.cornerRadius = 6
+        selectionOverlay.layer.borderColor = UIColor.tintColor.cgColor
+        selectionOverlay.layer.borderWidth = 1.5
+        selectionOverlay.isUserInteractionEnabled = false
+        selectionOverlay.isHidden = true
+        addSubview(selectionOverlay)
+
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
         pan.minimumNumberOfTouches = 1
         pan.maximumNumberOfTouches = 1
         addGestureRecognizer(pan)
 
         isHidden = true
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateSelectionOverlayFrame()
+    }
+
+    private func updateSelectionOverlayFrame() {
+        guard let activeIdx = activeIndex, activeIdx < tiles.count else {
+            selectionOverlay.isHidden = true
+            return
+        }
+        let activeTile = tiles[activeIdx]
+        // Tile is inside the stack which sits in the strip's local
+        // coordinate space. Use convert(_:to:) so the overlay frame
+        // accounts for the stack's center placement and any tile
+        // ordering offset.
+        let frame = activeTile.convert(activeTile.bounds, to: self)
+        selectionOverlay.frame = frame
+        selectionOverlay.isHidden = false
     }
 
     // Called whenever DesktopState arrives. Recomputes the tile list
@@ -117,6 +149,9 @@ final class ThumbnailStripView: UIView {
         activeSpaceId = state.activeSpaceId
         rebuildIfNeeded()
         applyThumbnailsToTiles()
+        setNeedsLayout()
+        layoutIfNeeded()
+        updateSelectionOverlayFrame()
     }
 
     // Called whenever ThumbnailsPush arrives.
@@ -131,6 +166,7 @@ final class ThumbnailStripView: UIView {
         thumbnails = [:]
         for tile in tiles { tile.removeFromSuperview() }
         tiles = []
+        selectionOverlay.isHidden = true
     }
 
     // PairingViewController calls this to expose the tile count it
@@ -164,6 +200,7 @@ final class ThumbnailStripView: UIView {
         for tile in tiles {
             if tile.spaceId == activeSpaceId {
                 tile.setActive(true)
+                tile.clearImage()
                 continue
             }
             let key = String(tile.spaceId)
@@ -267,54 +304,57 @@ final class ThumbnailStripView: UIView {
         stack.transform = CGAffineTransform(translationX: visualX, y: 0)
     }
 
-    // R27: cross-fade the active highlight from the current Space's
-    // tile to its neighbour as the swipe progresses. rawFingerProgress
-    // is signed in finger-direction (finger-right = positive),
-    // unaffected by useMacOSDirection - because the visual cue follows
-    // where the user's destination *appears* to be, which under the
-    // default scrollbar-reading is the tile in the direction of the
-    // finger drag.
+    // R27 v2: slide the floating selection overlay between adjacent
+    // tile positions. The overlay's resting frame is over the active
+    // tile (updated in updateSelectionOverlayFrame on every layout).
+    // During the swipe we add a transform that translates by
+    // |progress| * tileDistance toward the destination tile's centre,
+    // so at progress=0 it sits exactly on the active tile and at
+    // progress=1 it sits exactly on the neighbour - and in between
+    // it visually overlaps both, which is the "two desktops
+    // overlapping" cue the user wants.
+    //
+    // Direction: the overlay slides TOWARD the destination tile. Under
+    // the default useMacOSDirection=false (scrollbar reading), a
+    // finger-right drag commits to Space N-1 on the host, so the
+    // overlay slides LEFT (toward Space N-1's tile). Under
+    // useMacOSDirection=true, it slides RIGHT with the finger.
     private func applyOverlapHighlight(rawFingerProgress: CGFloat) {
         guard let activeIdx = activeIndex, !tiles.isEmpty else { return }
         let magnitude = min(1.0, abs(rawFingerProgress))
-        // Default useMacOSDirection=false: finger-right -> Space-on-
-        // the-left committed by the host. But on the strip, "Space on
-        // the left" is the tile to the left of active. We want the
-        // highlight to slide toward the tile the user expects to land
-        // on, which under the default reading is the tile in the
-        // direction the strip itself is sliding. The strip slides
-        // with the finger, so the destination tile is on the SAME
-        // side as the finger drag direction. So finger-right (raw > 0)
-        // -> destination is activeIdx + 1; finger-left -> activeIdx - 1.
-        let neighbourIdx: Int? = {
-            if rawFingerProgress > 0, activeIdx + 1 < tiles.count {
-                return activeIdx + 1
-            }
-            if rawFingerProgress < 0, activeIdx - 1 >= 0 {
-                return activeIdx - 1
-            }
-            return nil
-        }()
-        for (i, tile) in tiles.enumerated() {
-            if i == activeIdx {
-                tile.applyHighlight(factor: 1.0 - magnitude)
-            } else if i == neighbourIdx {
-                tile.applyHighlight(factor: magnitude)
-            } else {
-                tile.applyHighlight(factor: 0)
-            }
+        let tileDistance = Self.tileWidth + Self.tileSpacing
+        // Finger-right -> destination idx
+        //   useMacOSDirection=true:  active + 1 (Mac native)
+        //   useMacOSDirection=false: active - 1 (scrollbar reading)
+        let fingerSign: CGFloat = rawFingerProgress >= 0 ? 1 : -1
+        let destSign: CGFloat = useMacOSDirection ? fingerSign : -fingerSign
+        let destIdx = activeIdx + Int(destSign)
+        guard destIdx >= 0, destIdx < tiles.count else {
+            // No tile to slide toward; cap overlay translation at 0.
+            selectionOverlay.transform = .identity
+            return
         }
+        // Sign of the screen-x translation: dest at activeIdx+1 means
+        // overlay slides right (+x); dest at activeIdx-1 means it
+        // slides left (-x).
+        let translationX = destSign * magnitude * tileDistance
+        selectionOverlay.transform = CGAffineTransform(translationX: translationX, y: 0)
     }
 
     private func restoreActiveHighlight() {
-        // The host's DesktopState push will land soon with the new
-        // active Space if the swipe committed; in the meantime snap
-        // the highlight back to whichever tile we think is active so
-        // there's no flicker between gesture-end and state-arrival.
-        guard let activeIdx = activeIndex else { return }
-        for (i, tile) in tiles.enumerated() {
-            tile.applyHighlight(factor: i == activeIdx ? 1.0 : 0.0)
-        }
+        // Spring the overlay back to the (current) active tile's
+        // frame. If the swipe committed, the host's DesktopState
+        // arrives next and updateSelectionOverlayFrame moves the
+        // resting position to the new active tile.
+        UIView.animate(
+            withDuration: 0.35,
+            delay: 0,
+            usingSpringWithDamping: 0.72,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+            animations: { self.selectionOverlay.transform = .identity },
+            completion: nil
+        )
     }
 
     private func snapStackBack() {
@@ -419,42 +459,13 @@ final class ThumbnailTileView: UIView {
 
     private(set) var isActive: Bool = false
 
+    // R27 v2: per-tile highlight is gone. The strip's floating
+    // selectionOverlay sits over (or between) tiles and is the only
+    // active-state cue. setActive still tracks the bool for the
+    // delegate's tap-step-delta math; visually a tile always looks
+    // the same (separator border, secondary background).
     func setActive(_ active: Bool) {
         isActive = active
-        applyHighlight(factor: active ? 1.0 : 0.0)
-    }
-
-    // R27: continuous highlight cross-fade so the "selected" state
-    // can slide between adjacent tiles in lockstep with the swipe.
-    // factor 0 = fully inactive look (separator border, secondary
-    // background), 1 = fully active (tintColor border, tintColor 18%
-    // background). Intermediate values blend the two so a 50% drag
-    // shows both the active tile and its neighbour at half-highlight.
-    func applyHighlight(factor: CGFloat) {
-        let clamped = max(0, min(1, factor))
-        let active = UIColor.tintColor
-        let inactiveBorder = UIColor.separator
-        let inactiveBg = UIColor.secondarySystemBackground
-        let blendedBorder = blend(inactiveBorder, active, t: clamped)
-        let blendedBg = blend(inactiveBg, active.withAlphaComponent(0.18), t: clamped)
-        backgroundColor = blendedBg
-        layer.borderColor = blendedBorder.cgColor
-        if clamped > 0.5 {
-            imageView.image = nil
-        }
-    }
-
-    private func blend(_ a: UIColor, _ b: UIColor, t: CGFloat) -> UIColor {
-        var ar: CGFloat = 0, ag: CGFloat = 0, ab: CGFloat = 0, aa: CGFloat = 0
-        var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0, ba: CGFloat = 0
-        a.resolvedColor(with: traitCollection).getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
-        b.resolvedColor(with: traitCollection).getRed(&br, green: &bg, blue: &bb, alpha: &ba)
-        return UIColor(
-            red: ar + (br - ar) * t,
-            green: ag + (bg - ag) * t,
-            blue: ab + (bb - ab) * t,
-            alpha: aa + (ba - aa) * t
-        )
     }
 
     func setImage(_ image: UIImage) {
