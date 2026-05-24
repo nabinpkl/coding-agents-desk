@@ -36,6 +36,11 @@
 		B00000000000000000000219 /* EdgeFollow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000127 /* EdgeFollow.swift */; };
 		B0000000000000000000022F4 /* EdgeFollow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000127 /* EdgeFollow.swift */; };
 		B0000000000000000000022E3 /* EdgeFollowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000128 /* EdgeFollowTests.swift */; };
+		B0000000000000000000021A /* HitOutsetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000129 /* HitOutsetView.swift */; };
+		B0000000000000000000021B /* PairingViewController+Layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000012A /* PairingViewController+Layout.swift */; };
+		B0000000000000000000021C /* PairingViewController+Keyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000012B /* PairingViewController+Keyboard.swift */; };
+		B0000000000000000000021D /* PairingViewController+EdgeFollow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000012C /* PairingViewController+EdgeFollow.swift */; };
+		B0000000000000000000021E /* PairingViewController+Gestures.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000012D /* PairingViewController+Gestures.swift */; };
 		B00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000102 /* Base64URL.swift */; };
 		B00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000103 /* Config.swift */; };
 		B00000000000000000000223 /* DeviceSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000104 /* DeviceSigningKeyStore.swift */; };
@@ -83,6 +88,11 @@
 		B00000000000000000000126 /* ThumbnailStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailStripView.swift; sourceTree = "<group>"; };
 		B00000000000000000000127 /* EdgeFollow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeFollow.swift; sourceTree = "<group>"; };
 		B00000000000000000000128 /* EdgeFollowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeFollowTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000129 /* HitOutsetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HitOutsetView.swift; sourceTree = "<group>"; };
+		B0000000000000000000012A /* PairingViewController+Layout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+Layout.swift"; sourceTree = "<group>"; };
+		B0000000000000000000012B /* PairingViewController+Keyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+Keyboard.swift"; sourceTree = "<group>"; };
+		B0000000000000000000012C /* PairingViewController+EdgeFollow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+EdgeFollow.swift"; sourceTree = "<group>"; };
+		B0000000000000000000012D /* PairingViewController+Gestures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+Gestures.swift"; sourceTree = "<group>"; };
 		B00000000000000000000121 /* PairingClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClientTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000122 /* GestureTranslatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureTranslatorTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000123 /* KeyboardSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSurfaceTests.swift; sourceTree = "<group>"; };
@@ -155,6 +165,11 @@
 				B00000000000000000000117 /* InputChannel.swift */,
 				B00000000000000000000126 /* ThumbnailStripView.swift */,
 				B00000000000000000000127 /* EdgeFollow.swift */,
+				B00000000000000000000129 /* HitOutsetView.swift */,
+				B0000000000000000000012A /* PairingViewController+Layout.swift */,
+				B0000000000000000000012B /* PairingViewController+Keyboard.swift */,
+				B0000000000000000000012C /* PairingViewController+EdgeFollow.swift */,
+				B0000000000000000000012D /* PairingViewController+Gestures.swift */,
 				B0000000000000000000010A /* Info.plist */,
 			);
 			path = AgentDeskClient;
@@ -319,6 +334,11 @@
 				B00000000000000000000216 /* InputChannel.swift in Sources */,
 				B00000000000000000000218 /* ThumbnailStripView.swift in Sources */,
 				B00000000000000000000219 /* EdgeFollow.swift in Sources */,
+				B0000000000000000000021A /* HitOutsetView.swift in Sources */,
+				B0000000000000000000021B /* PairingViewController+Layout.swift in Sources */,
+				B0000000000000000000021C /* PairingViewController+Keyboard.swift in Sources */,
+				B0000000000000000000021D /* PairingViewController+EdgeFollow.swift in Sources */,
+				B0000000000000000000021E /* PairingViewController+Gestures.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
