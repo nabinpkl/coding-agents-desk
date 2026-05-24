@@ -82,6 +82,14 @@ final class ThumbnailStripView: UIView {
     private var lastBoundsWidth: CGFloat = 0
     private var lastTileCount: Int = -1
 
+    // Fraction of the strip width past which a drag is treated as a
+    // commit. 0.5 means "half a strip's worth of drag commits one
+    // Space". Velocity is intentionally not in the prediction: the
+    // user's mental model is "slide and stay = commit, slide and
+    // return = cancel", and a fast return-flick would otherwise read
+    // as a commit in the wrong direction.
+    private static let commitThreshold: CGFloat = 0.5
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         configure()
@@ -347,33 +355,72 @@ extension ThumbnailStripView: UICollectionViewDelegate {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         if isProgrammaticScroll || !isDragging { return }
+        // Reference progress against the full strip width so a small
+        // drag stays a small progress (and the host doesn't commit
+        // until the user has dragged a meaningful distance). The old
+        // SpacesDotsView used the same reference; the previous
+        // pageWidth-based normalisation made every 30pt nudge read as
+        // ~0.4 progress and triggered premature commits.
+        let reference = max(1, bounds.width)
         let raw = Self.computeRawProgress(
             currentOffsetX: scrollView.contentOffset.x,
             activeRestingOffsetX: activeRestingOffsetX,
-            pageWidth: Self.pageWidth
+            pageWidth: reference
         )
         let nudged = Self.nudgeAwayFromZero(raw)
         let velocity = scrollView.panGestureRecognizer.velocity(in: scrollView).x
         emitSwipeFrame(phase: .changed, rawProgress: nudged, velocityX: velocity)
     }
 
-    // Predict which step the drag will commit to. We don't override
-    // targetContentOffset.pointee; UICollectionView lands wherever it
-    // naturally lands (free scroll). The next DesktopState from the
-    // host will recenter on the new active cell.
+    // Predict commit / cancel and override targetContentOffset so the
+    // strip snaps to the right resting position. The user's model is
+    // "slide and stay = commit, slide and return = cancel" so the
+    // decision is drag-distance only; velocity does not push a small
+    // peek into a commit.
+    //
+    // To keep the host (CGEvent dock-swipe -> macOS Dock) in
+    // agreement with what the user sees on the strip: on cancel we
+    // emit a .ended frame with progress=0 and velocity=0, which Dock
+    // reads as "complete the gesture with no displacement, snap
+    // back". On commit we pass through the drag's progress and
+    // velocity so Dock commits to the same neighbour we already
+    // predicted.
     func scrollViewWillEndDragging(
         _ scrollView: UIScrollView,
         withVelocity velocity: CGPoint,
         targetContentOffset: UnsafeMutablePointer<CGPoint>
     ) {
-        let projected = scrollView.contentOffset.x + velocity.x * 200
-        let raw = Self.computeRawProgress(
-            currentOffsetX: projected,
-            activeRestingOffsetX: activeRestingOffsetX,
-            pageWidth: Self.pageWidth
-        )
+        guard let activeIdx = activeIndex else {
+            isDragging = false
+            return
+        }
+        let reference = max(1, bounds.width)
+        let drag = scrollView.contentOffset.x - activeRestingOffsetX
+        let fraction = drag / reference
         let panVelocity = scrollView.panGestureRecognizer.velocity(in: scrollView).x
-        emitSwipeFrame(phase: .ended, rawProgress: raw, velocityX: panVelocity)
+
+        let step: Int
+        if fraction > Self.commitThreshold { step = 1 }
+        else if fraction < -Self.commitThreshold { step = -1 }
+        else { step = 0 }
+        let targetIdx = max(0, min(orderedSpaces.count - 1, activeIdx + step))
+
+        if let attrs = collectionView.layoutAttributesForItem(
+            at: IndexPath(item: targetIdx, section: 0)
+        ) {
+            let maxOffset = max(0, collectionView.contentSize.width - collectionView.bounds.width)
+            let landing = max(0, min(attrs.frame.midX - collectionView.bounds.width / 2, maxOffset))
+            targetContentOffset.pointee = CGPoint(x: landing, y: 0)
+        }
+
+        if step == 0 {
+            // Cancel: zero out progress + velocity so Dock snaps
+            // back instead of treating a quick flick-return as a
+            // commit in the opposite direction.
+            emitSwipeFrame(phase: .ended, rawProgress: 0, velocityX: 0)
+        } else {
+            emitSwipeFrame(phase: .ended, rawProgress: Float(fraction), velocityX: panVelocity)
+        }
         isDragging = false
     }
 
