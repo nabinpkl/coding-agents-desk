@@ -32,6 +32,41 @@ final class InstantPanGestureRecognizer: UIPanGestureRecognizer {
     }
 }
 
+// Cursor trackpad variant: the default ~10pt slop swallows rapid micro-
+// drags entirely (gesture .fails before crossing slop, no cursor move
+// emitted), but zero-slop InstantPan amplifies orthogonal finger tremor
+// into visible cursor stutter. 3pt is the middle ground: still above
+// typical finger tremor (~1pt) so the cursor doesn't jitter on a still
+// touch, but small enough that intentional 3-10pt drags register.
+final class SmallSlopPanGestureRecognizer: UIPanGestureRecognizer {
+    private static let slopThreshold: CGFloat = 3.0
+    private var startLocation: CGPoint?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        startLocation = touches.first?.location(in: view)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesMoved(touches, with: event)
+        guard let touch = touches.first,
+              let view = view,
+              let start = startLocation else { return }
+        let current = touch.location(in: view)
+        let distance = hypot(current.x - start.x, current.y - start.y)
+        if state == .possible && distance >= Self.slopThreshold {
+            state = .began
+        } else if state == .began {
+            state = .changed
+        }
+    }
+
+    override func reset() {
+        super.reset()
+        startLocation = nil
+    }
+}
+
 // Acceleration curve over the iPhone's hardware touch velocity (points per
 // second from UIPanGestureRecognizer.velocity). Slow drags keep a small
 // floor so precision still works; fast flicks multiply much more so the
@@ -118,11 +153,10 @@ final class GestureTranslator: NSObject {
 
     func attach(to view: UIView) {
         view.isUserInteractionEnabled = true
-        // Standard UIPan (with ~10pt slop) for cursor. Trying InstantPan
-        // here caused stutter: without slop, microscopic finger tremor in
-        // the orthogonal axis amplified through the acceleration curve and
-        // showed as visible cursor jitter. Slop acts as a free deadzone.
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
+        // 3pt slop: filters tremor (which is sub-pixel) while letting
+        // rapid micro-drags register. The standard 10pt slop was causing
+        // user-reported "fails to register on rapid finger lift and use".
+        let pan = SmallSlopPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
         pan.minimumNumberOfTouches = 1
         pan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(pan)
