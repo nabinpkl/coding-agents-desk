@@ -98,6 +98,17 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             keyboardSurface.widthAnchor.constraint(equalToConstant: 0),
             keyboardSurface.heightAnchor.constraint(equalToConstant: 0)
         ])
+        // Any tap on the app's main view dismisses the keyboard. The
+        // iOS soft keyboard and its inputAccessoryView render in a
+        // separate UIWindow, so this recognizer doesn't see touches
+        // on the keys themselves. cancelsTouchesInView=false so button
+        // taps and trackpad gestures still reach their own handlers.
+        // dismissKeyboardIfShown is idempotent when the keyboard isn't
+        // first responder, so taps when the keyboard is already hidden
+        // have no side effect.
+        let dismissTap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboardIfShown))
+        dismissTap.cancelsTouchesInView = false
+        view.addGestureRecognizer(dismissTap)
     }
 
     private func configureSettingsButton() {
@@ -224,7 +235,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // video unreadable; the Mac display is landscape so it aspect-fits
         // comfortably in the top half.
         sinkView.translatesAutoresizingMaskIntoConstraints = false
-        sinkView.isUserInteractionEnabled = true
         view.insertSubview(sinkView, at: 0)
         NSLayoutConstraint.activate([
             sinkView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -232,14 +242,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             sinkView.topAnchor.constraint(equalTo: view.topAnchor),
             sinkView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.55)
         ])
-        // Tap on the visible Mac-preview area dismisses the keyboard.
-        // The trackpad and accessory row keep their own touches; only
-        // the read-only video area treats a tap as "hide the keyboard,
-        // I want to see the Mac". cancelsTouchesInView = false so the
-        // sink's own pixel rendering isn't affected.
-        let dismissTap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboardIfShown))
-        dismissTap.cancelsTouchesInView = false
-        sinkView.addGestureRecognizer(dismissTap)
     }
 
     @objc private func dismissKeyboardIfShown() {
