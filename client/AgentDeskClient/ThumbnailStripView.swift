@@ -4,8 +4,11 @@ import UIKit
 // user Space on the active display, with two layout modes:
 //
 // - Fits: all tiles fit in the strip's bounds. Spacing expands so the
-//   row spans from the strip's leading edge to its trailing edge. No
-//   scrolling. The active tile draws its own tinted border in place.
+//   row spans from the strip's leading edge to its trailing edge.
+//   Scroll is still enabled (alwaysBounceHorizontal) so a drag bounces
+//   off the edges and fires scroll-view callbacks; the strip emits
+//   .switchSpaceGesture frames the same way as overflow mode, the
+//   landing offset just snaps back to 0 on release.
 //
 // - Overflow: more tiles than fit. Cells use the default 8pt spacing
 //   and the row scrolls horizontally. The partial-cut tiles at the
@@ -60,7 +63,13 @@ final class ThumbnailStripView: UIView {
         cv.showsHorizontalScrollIndicator = false
         cv.showsVerticalScrollIndicator = false
         cv.decelerationRate = .fast
-        cv.alwaysBounceHorizontal = false
+        // Always-bounce + always-scroll-enabled so the swipe-to-commit
+        // pan fires even when all tiles fit in the strip (fits mode).
+        // Without this, isScrollEnabled would be false in fits mode and
+        // drags on the strip would do nothing, which surfaces any time
+        // the active-display Space count is small enough or the screen
+        // wide enough that the tiles don't overflow.
+        cv.alwaysBounceHorizontal = true
         // The strip lives in the middle of the view, not at edges; no
         // auto-adjustment of insets behind our back.
         cv.contentInsetAdjustmentBehavior = .never
@@ -179,7 +188,10 @@ final class ThumbnailStripView: UIView {
             layout.minimumLineSpacing = Self.defaultTileSpacing
         }
         layout.invalidateLayout()
-        collectionView.isScrollEnabled = !fits
+        // Scroll stays enabled in both modes. In fits mode, drags
+        // bounce off the contentSize edges and snap back to 0 on
+        // release, but the scroll-view delegate methods still fire
+        // and the strip's switchSpace emission goes out as normal.
     }
 
     // MARK: - Public state surface
@@ -247,14 +259,10 @@ final class ThumbnailStripView: UIView {
     // MARK: - Internals
 
     // Scrolls the active cell into view in Overflow mode. In Fits
-    // mode all cells are visible already; nothing to do.
+    // mode the math collapses naturally: contentSize.width <=
+    // bounds.width so maxOffset == 0 and the clamp lands at 0.
     private func recenterOnActive(animated: Bool) {
         guard let idx = activeIndex, bounds.width > 0 else { return }
-        if !collectionView.isScrollEnabled {
-            // Fits mode: no scrolling, contentOffset stays at 0.
-            activeRestingOffsetX = 0
-            return
-        }
         guard let attrs = collectionView.layoutAttributesForItem(
             at: IndexPath(item: idx, section: 0)
         ) else { return }
