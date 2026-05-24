@@ -30,7 +30,7 @@ protocol KeyboardSurfaceDelegate: AnyObject {
 // isHidden = true on the instance keeps the cursor and selection handles
 // off-screen.
 @MainActor
-final class KeyboardSurface: UITextField {
+final class KeyboardSurface: UITextField, UITextFieldDelegate {
     // Named keyboardDelegate to avoid colliding with UITextField.delegate
     // (which is UITextFieldDelegate).
     weak var keyboardDelegate: KeyboardSurfaceDelegate?
@@ -68,6 +68,13 @@ final class KeyboardSurface: UITextField {
     override init(frame: CGRect) {
         super.init(frame: frame)
         configureTraits()
+        // Self-delegate so shouldChangeCharactersIn fires for every
+        // mutation path iOS uses (insertText, replace(_:withText:),
+        // autocorrect, QuickType bar). Overriding UIKeyInput.insertText
+        // alone misses the UITextInput paths on real devices, which is
+        // why typed characters accumulated locally but never propagated
+        // upstream to the wire.
+        self.delegate = self
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(settingsChanged),
@@ -163,22 +170,33 @@ final class KeyboardSurface: UITextField {
         emit(code: code)
     }
 
-    // MARK: UIKeyInput overrides
+    // MARK: Input intercepts
     //
-    // UITextField conforms to UIKeyInput; we override insertText and
-    // deleteBackward to intercept input and forward to the wire. Not
-    // calling super means the field's own text storage never grows, so
-    // the field stays empty and no cursor / selection UI is needed.
-    override func insertText(_ text: String) {
-        for char in text {
-            emitForCharacter(char)
+    // UITextField text mutations arrive via several iOS paths
+    // (UIKeyInput.insertText, UITextInput.replace(_:withText:), the
+    // QuickType bar, paste). All of them ask the delegate's
+    // shouldChangeCharactersIn before applying, which is why this is
+    // the only reliable hook on real devices -- overriding insertText
+    // alone misses the UITextInput path the system uses for ordinary
+    // typing.
+    //
+    // We emit one event per character then return true, so iOS applies
+    // the text mutation and the user gets local echo in the field
+    // (visual confirmation while the wire round-trip lands on the
+    // Mac). Tests drive this method directly.
+    func textField(
+        _ textField: UITextField,
+        shouldChangeCharactersIn range: NSRange,
+        replacementString string: String
+    ) -> Bool {
+        if string.isEmpty {
+            emit(code: "delete")
+        } else {
+            for char in string {
+                emitForCharacter(char)
+            }
         }
-        super.insertText(text)
-    }
-
-    override func deleteBackward() {
-        emit(code: "delete")
-        super.deleteBackward()
+        return true
     }
 
     // MARK: Internals

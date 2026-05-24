@@ -399,10 +399,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             keyboardSurface.isHidden = true
             keyboardSurface.text = ""
             setTrackpadHidden(false)
+            showKeyboardButton.setTitle("Show keyboard", for: .normal)
         } else {
             keyboardSurface.isHidden = false
             setTrackpadHidden(true)
             keyboardSurface.setVisible(true)
+            showKeyboardButton.setTitle("Hide keyboard", for: .normal)
         }
     }
 

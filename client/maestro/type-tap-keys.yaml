@@ -1,0 +1,22 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible: "Trackpad"
+    timeout: 20000
+- tapOn: "Show keyboard"
+- waitForAnimationToEnd:
+    timeout: 1500
+# Tap the accessory-row Tab key. This calls surface.sendKey("tab") which
+# routes through the same emit() -> delegate -> sendInput -> transport
+# pipe as insertText'd letters. If Tab reaches the Mac, the wire is
+# healthy and any QWERTY issue is upstream (in the soft-keyboard
+# -> insertText hop). If Tab also fails, the wire is broken.
+- tapOn: "Tab"
+- waitForAnimationToEnd:
+    timeout: 1000
+- tapOn: "Esc"
+- waitForAnimationToEnd:
+    timeout: 1000
+- takeScreenshot: after-accessory-keys

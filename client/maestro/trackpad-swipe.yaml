@@ -1,0 +1,16 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible: "Trackpad"
+    timeout: 20000
+# Swipe across the trackpad to fire cursorMove events. If cursor moves
+# on the Mac side, the data channel is alive and the bug is key-specific.
+- swipe:
+    start: 30%, 75%
+    end: 70%, 75%
+    duration: 500
+- waitForAnimationToEnd:
+    timeout: 1000
+- takeScreenshot: after-swipe

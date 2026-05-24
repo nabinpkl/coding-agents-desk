@@ -1,0 +1,15 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible: "Trackpad"
+    timeout: 20000
+- tapOn: "Show keyboard"
+- waitForAnimationToEnd:
+    timeout: 1500
+- takeScreenshot: keyboard-opened
+- inputText: "abc"
+- waitForAnimationToEnd:
+    timeout: 1000
+- takeScreenshot: after-typing

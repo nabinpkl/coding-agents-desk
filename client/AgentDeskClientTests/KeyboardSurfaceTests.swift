@@ -9,7 +9,7 @@ struct KeyboardSurfaceTests {
         let recorder = Recorder()
         surface.keyboardDelegate = recorder
 
-        surface.insertText("s")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "s")
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events[0] == .key(code: "ansi-S", modifiers: []))
@@ -20,7 +20,7 @@ struct KeyboardSurfaceTests {
         let recorder = Recorder()
         surface.keyboardDelegate = recorder
 
-        surface.insertText("S")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "S")
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events[0] == .key(code: "ansi-S", modifiers: [.shift]))
@@ -31,7 +31,7 @@ struct KeyboardSurfaceTests {
         let recorder = Recorder()
         surface.keyboardDelegate = recorder
 
-        surface.insertText("!")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "!")
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events[0] == .key(code: "ansi-1", modifiers: [.shift]))
@@ -42,7 +42,7 @@ struct KeyboardSurfaceTests {
         let recorder = Recorder()
         surface.keyboardDelegate = recorder
 
-        surface.insertText(",")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: ",")
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events[0] == .key(code: "ansi-comma", modifiers: []))
@@ -53,7 +53,7 @@ struct KeyboardSurfaceTests {
         let recorder = Recorder()
         surface.keyboardDelegate = recorder
 
-        surface.insertText("\n")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "\n")
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events[0] == .key(code: "return", modifiers: []))
@@ -64,7 +64,7 @@ struct KeyboardSurfaceTests {
         let recorder = Recorder()
         surface.keyboardDelegate = recorder
 
-        surface.deleteBackward()
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "")
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events[0] == .key(code: "delete", modifiers: []))
@@ -78,9 +78,9 @@ struct KeyboardSurfaceTests {
         surface.tapModifier(.cmd)
         #expect(surface.state(of: .cmd) == .armed)
 
-        surface.insertText("s")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "s")
         #expect(surface.state(of: .cmd) == .off)
-        surface.insertText("s")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "s")
 
         #expect(recorder.events.count == 2)
         #expect(recorder.events[0] == .key(code: "ansi-S", modifiers: [.cmd]))
@@ -96,8 +96,8 @@ struct KeyboardSurfaceTests {
         surface.tapModifier(.cmd)
         #expect(surface.state(of: .cmd) == .locked)
 
-        surface.insertText("s")
-        surface.insertText("s")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "s")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "s")
         #expect(surface.state(of: .cmd) == .locked)
 
         #expect(recorder.events.count == 2)
@@ -125,7 +125,7 @@ struct KeyboardSurfaceTests {
         surface.keyboardDelegate = recorder
 
         surface.tapModifier(.cmd)
-        surface.insertText("S")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "S")
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events[0] == .key(code: "ansi-S", modifiers: [.cmd, .shift]))
@@ -140,7 +140,7 @@ struct KeyboardSurfaceTests {
 
         surface.tapModifier(.cmd)
         surface.tapModifier(.option)
-        surface.insertText("a")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "a")
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events[0] == .key(code: "ansi-A", modifiers: [.cmd, .option]))
@@ -156,8 +156,8 @@ struct KeyboardSurfaceTests {
         surface.tapModifier(.cmd)
         surface.tapModifier(.cmd)   // locked
         surface.tapModifier(.shift) // armed
-        surface.insertText("a")
-        surface.insertText("a")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "a")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "a")
 
         #expect(recorder.events.count == 2)
         #expect(recorder.events[0] == .key(code: "ansi-A", modifiers: [.cmd, .shift]))
@@ -171,7 +171,7 @@ struct KeyboardSurfaceTests {
         let recorder = Recorder()
         surface.keyboardDelegate = recorder
 
-        surface.insertText("abc")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "abc")
 
         #expect(recorder.events.count == 3)
         #expect(recorder.events[0] == .key(code: "ansi-A", modifiers: []))
@@ -187,7 +187,7 @@ struct KeyboardSurfaceTests {
         // Emoji and non-ASCII drop because neither side has a table
         // entry. Better silent than an unknown wire code that the host
         // would warn about.
-        surface.insertText("\u{1F600}")
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "\u{1F600}")
 
         #expect(recorder.events.isEmpty)
     }
