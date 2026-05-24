@@ -27,7 +27,10 @@ final class SettingsStore: @unchecked Sendable {
         static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
     }
 
-    static let defaultAccessoryContainerHeight: Double = 48
+    // iOS HIG / QuickType bar standard is 44pt; key chiclets at 36pt
+    // leave 4pt of breathing room top and bottom. Match that so the
+    // accessory row reads as part of the system keyboard, not a stranger.
+    static let defaultAccessoryContainerHeight: Double = 44
     static let defaultAccessoryKeyHeight: Double = 36
     static let defaultAccessoryKeySpacing: Double = 6
 

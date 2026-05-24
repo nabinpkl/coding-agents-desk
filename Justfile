@@ -1,5 +1,7 @@
 ios_test_destination := env_var_or_default("AGENTDESK_IOS_TEST_DESTINATION", "platform=iOS Simulator,name=iPhone 17,OS=latest")
 ios_device := env_var_or_default("AGENTDESK_IOS_DEVICE", "93DF5649-FC7B-5460-A6B4-74D2C1CEAB07")
+# UDID of the iPhone simulator used for Maestro UI flows. Override via env.
+ios_sim_udid := env_var_or_default("AGENTDESK_IOS_SIM_UDID", "00000000-0000-4000-8000-000000000022")
 last_pair_url_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.last-pair-url"
 host_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskHost-gmjyarrzlrjgctfcursfnnulwzfg/Build/Products/Debug/AgentDeskHost.app"
 client_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskClient-asnebogtvhgngpdusosdqtlwsphl/Build/Products/Debug-iphoneos/AgentDeskClient.app"
@@ -67,3 +69,20 @@ fresh-install:
     just host-run
     just client-reinstall
     just pair-iphone
+
+# Drive the iPhone simulator with a Maestro flow. Maestro is the standard
+# tool for declarative iOS UI automation (Playwright-equivalent for mobile);
+# prefer adding a flow under client/maestro/ over hacking the app with
+# env-gated triggers when you need to inspect a transient UI state.
+#
+# Screenshots emitted by `takeScreenshot:` land in the CWD where maestro
+# runs, so we cd into client/maestro/screenshots first to keep them
+# corralled and gitignorable. Pass the flow as the positional arg, eg.
+# `just ui-flow keyboard-up`.
+#
+# Requires brew-installed openjdk on PATH for JAVA_HOME.
+ui-flow flow:
+    mkdir -p client/maestro/screenshots
+    cd client/maestro/screenshots && \
+        JAVA_HOME="$(brew --prefix openjdk)/libexec/openjdk.jdk/Contents/Home" \
+        maestro --udid {{ios_sim_udid}} test ../{{flow}}.yaml

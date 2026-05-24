@@ -373,10 +373,22 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             keyboardSurface.setVisible(false)
             keyboardSurface.isHidden = true
             keyboardSurface.text = ""
+            setTrackpadHidden(false)
         } else {
             keyboardSurface.isHidden = false
+            setTrackpadHidden(true)
             keyboardSurface.setVisible(true)
         }
+    }
+
+    // Trackpad and scroll-strip serve no purpose while the keyboard is up
+    // (the user is typing, not pointing). Leaving them visible caused the
+    // trackpad's "Trackpad" hint and the scroll strip's chevron to bleed
+    // through behind the text-echo field, since both views and the field
+    // were anchored to the same vertical band above the button row.
+    private func setTrackpadHidden(_ hidden: Bool) {
+        trackpadView.isHidden = hidden
+        scrollStripView.isHidden = hidden
     }
 
     @objc private func keyboardWillChangeFrame(_ note: Notification) {

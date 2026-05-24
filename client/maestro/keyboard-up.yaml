@@ -1,0 +1,12 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- launchApp:
+    clearState: false
+- waitForAnimationToEnd:
+    timeout: 8000
+- takeScreenshot: paired-idle
+- tapOn:
+    text: "Show keyboard"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: keyboard-up

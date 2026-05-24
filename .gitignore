@@ -17,3 +17,6 @@ build/
 DerivedData/
 .swiftpm/
 .build/
+
+# Maestro UI flow screenshots
+client/maestro/screenshots/
