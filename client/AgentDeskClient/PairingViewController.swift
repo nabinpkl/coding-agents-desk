@@ -723,6 +723,16 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
         applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
 
+        // R24: the chrome buttons (settings + orientation toggle) were
+        // added to the view in configureSettingsButton (viewDidLoad)
+        // before the session UI existed, so showTrackpad's addSubview
+        // calls for scrollStripView et al land in front of them. Bring
+        // the chrome back to the top so the pills are tappable in the
+        // landscape right column where their 36pt box overlaps the
+        // scroll strip's x range.
+        view.bringSubviewToFront(orientationToggleButton)
+        view.bringSubviewToFront(settingsButton)
+
         gestureTranslator.delegate = self
         gestureTranslator.attach(to: trackpadView)
         gestureTranslator.attachScrollStrip(to: scrollStripView)
