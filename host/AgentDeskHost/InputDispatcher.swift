@@ -127,12 +127,12 @@ final class InputDispatcher: @unchecked Sendable {
         // independently to zero. Truncate toward zero so emitted pixels
         // never exceed the accumulated input.
         //
-        // iPhone reports +dy when the finger moves down; macOS scroll
-        // wheel convention is +wheel1 = content scrolls up. Invert so a
-        // finger drag down causes content to follow the finger (matches
-        // macOS "Natural" scrolling and iOS scroll convention).
-        let signedDy = -dy
-        scrollRemainder += CGFloat(signedDy)
+        // iPhone reports -dy when finger flicks UP; macOS treats positive
+        // wheel1 as "scroll up the document" (you see content above the
+        // current view). So a finger flick UP -> negative dy -> negative
+        // wheel1 -> document scrolls forward -> content visibly moves UP
+        // out of view, matching iOS Safari behavior.
+        scrollRemainder += CGFloat(dy)
         let dyInt = Int32(scrollRemainder.rounded(.towardZero))
         scrollRemainder -= CGFloat(dyInt)
         // Skip zero-delta posts only for continuous "changed" phases. The
