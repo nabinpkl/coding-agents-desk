@@ -129,12 +129,16 @@ final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Key.accessoryKeySpacing); postChange() }
     }
 
-    // Appearance preference. Default .system so the app follows the
-    // device's Light/Dark setting until the user picks one explicitly.
+    // Appearance preference. Default .dark because the app's primary
+    // visual is the screen-share video above the trackpad; a dark chrome
+    // recedes behind that content the way a Magic Trackpad's matte
+    // surface does, while a light chrome jumps to the eye and pulls
+    // attention away from the Mac display. Light remains available in
+    // the picker for users who specifically want it.
     var appearance: AppearancePreference {
         get {
-            let raw = defaults.object(forKey: Key.appearance) as? Int ?? AppearancePreference.system.rawValue
-            return AppearancePreference(rawValue: raw) ?? .system
+            let raw = defaults.object(forKey: Key.appearance) as? Int ?? AppearancePreference.dark.rawValue
+            return AppearancePreference(rawValue: raw) ?? .dark
         }
         set {
             defaults.set(newValue.rawValue, forKey: Key.appearance)
