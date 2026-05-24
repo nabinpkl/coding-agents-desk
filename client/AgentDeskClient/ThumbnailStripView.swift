@@ -381,8 +381,12 @@ final class ThumbnailStripView: UIView {
         // negative), which is exactly the wire sign macOS Dock reads
         // as "next Space" under the user's trackpad setting -- so the
         // default passes through. The toggle inverts.
-        let signedProgress = useMacOSDirection ? -rawProgress : rawProgress
-        let signedVelocity = Float(useMacOSDirection ? -velocityX : velocityX)
+        // Verified on hardware 2026-05-24: with the default (iPhone-
+        // opposite-of-Mac) toggle, the wire needs the inverse of the
+        // raw progress sign for finger-LEFT to commit to the right-
+        // neighbour Space. The Mac-native toggle leaves it passthrough.
+        let signedProgress = useMacOSDirection ? rawProgress : -rawProgress
+        let signedVelocity = Float(useMacOSDirection ? velocityX : -velocityX)
         delegate?.thumbnailStrip(self, didProduce: .switchSpaceGesture(
             phase: phase,
             progress: signedProgress,
