@@ -229,15 +229,18 @@ final class ThumbnailStripView: UIView {
             let progress = min(max(raw, -1.0), 1.0)
             let nudged = nudgeAwayFromZero(progress)
             applyVisualSlide(translation: translation)
+            applyOverlapHighlight(rawFingerProgress: CGFloat(progress))
             emit(phase: .changed, progress: nudged, velocityX: Float(velocity.x))
         case .ended:
             let raw = Float(translation.x / gestureBandWidth)
             let progress = min(max(raw, -1.0), 1.0)
             emit(phase: .ended, progress: progress, velocityX: Float(velocity.x))
             snapStackBack()
+            restoreActiveHighlight()
         case .cancelled, .failed:
             emit(phase: .cancelled, progress: 0, velocityX: 0)
             snapStackBack()
+            restoreActiveHighlight()
         default:
             break
         }
@@ -262,6 +265,56 @@ final class ThumbnailStripView: UIView {
             visualX = sign * (band + overshoot * 0.35)
         }
         stack.transform = CGAffineTransform(translationX: visualX, y: 0)
+    }
+
+    // R27: cross-fade the active highlight from the current Space's
+    // tile to its neighbour as the swipe progresses. rawFingerProgress
+    // is signed in finger-direction (finger-right = positive),
+    // unaffected by useMacOSDirection - because the visual cue follows
+    // where the user's destination *appears* to be, which under the
+    // default scrollbar-reading is the tile in the direction of the
+    // finger drag.
+    private func applyOverlapHighlight(rawFingerProgress: CGFloat) {
+        guard let activeIdx = activeIndex, !tiles.isEmpty else { return }
+        let magnitude = min(1.0, abs(rawFingerProgress))
+        // Default useMacOSDirection=false: finger-right -> Space-on-
+        // the-left committed by the host. But on the strip, "Space on
+        // the left" is the tile to the left of active. We want the
+        // highlight to slide toward the tile the user expects to land
+        // on, which under the default reading is the tile in the
+        // direction the strip itself is sliding. The strip slides
+        // with the finger, so the destination tile is on the SAME
+        // side as the finger drag direction. So finger-right (raw > 0)
+        // -> destination is activeIdx + 1; finger-left -> activeIdx - 1.
+        let neighbourIdx: Int? = {
+            if rawFingerProgress > 0, activeIdx + 1 < tiles.count {
+                return activeIdx + 1
+            }
+            if rawFingerProgress < 0, activeIdx - 1 >= 0 {
+                return activeIdx - 1
+            }
+            return nil
+        }()
+        for (i, tile) in tiles.enumerated() {
+            if i == activeIdx {
+                tile.applyHighlight(factor: 1.0 - magnitude)
+            } else if i == neighbourIdx {
+                tile.applyHighlight(factor: magnitude)
+            } else {
+                tile.applyHighlight(factor: 0)
+            }
+        }
+    }
+
+    private func restoreActiveHighlight() {
+        // The host's DesktopState push will land soon with the new
+        // active Space if the swipe committed; in the meantime snap
+        // the highlight back to whichever tile we think is active so
+        // there's no flicker between gesture-end and state-arrival.
+        guard let activeIdx = activeIndex else { return }
+        for (i, tile) in tiles.enumerated() {
+            tile.applyHighlight(factor: i == activeIdx ? 1.0 : 0.0)
+        }
     }
 
     private func snapStackBack() {
@@ -364,19 +417,44 @@ final class ThumbnailTileView: UIView {
         addGestureRecognizer(press)
     }
 
+    private(set) var isActive: Bool = false
+
     func setActive(_ active: Bool) {
-        // R26: caption stays "Desktop N" for both states. The
-        // tintColor highlight is the active indicator on its own;
-        // the previous "Here" label was redundant with that signal
-        // and broke the visual rhythm of the strip.
-        if active {
-            backgroundColor = .tintColor.withAlphaComponent(0.18)
-            layer.borderColor = UIColor.tintColor.cgColor
+        isActive = active
+        applyHighlight(factor: active ? 1.0 : 0.0)
+    }
+
+    // R27: continuous highlight cross-fade so the "selected" state
+    // can slide between adjacent tiles in lockstep with the swipe.
+    // factor 0 = fully inactive look (separator border, secondary
+    // background), 1 = fully active (tintColor border, tintColor 18%
+    // background). Intermediate values blend the two so a 50% drag
+    // shows both the active tile and its neighbour at half-highlight.
+    func applyHighlight(factor: CGFloat) {
+        let clamped = max(0, min(1, factor))
+        let active = UIColor.tintColor
+        let inactiveBorder = UIColor.separator
+        let inactiveBg = UIColor.secondarySystemBackground
+        let blendedBorder = blend(inactiveBorder, active, t: clamped)
+        let blendedBg = blend(inactiveBg, active.withAlphaComponent(0.18), t: clamped)
+        backgroundColor = blendedBg
+        layer.borderColor = blendedBorder.cgColor
+        if clamped > 0.5 {
             imageView.image = nil
-        } else {
-            backgroundColor = .secondarySystemBackground
-            layer.borderColor = UIColor.separator.cgColor
         }
+    }
+
+    private func blend(_ a: UIColor, _ b: UIColor, t: CGFloat) -> UIColor {
+        var ar: CGFloat = 0, ag: CGFloat = 0, ab: CGFloat = 0, aa: CGFloat = 0
+        var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0, ba: CGFloat = 0
+        a.resolvedColor(with: traitCollection).getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
+        b.resolvedColor(with: traitCollection).getRed(&br, green: &bg, blue: &bb, alpha: &ba)
+        return UIColor(
+            red: ar + (br - ar) * t,
+            green: ag + (bg - ag) * t,
+            blue: ab + (bb - ab) * t,
+            alpha: aa + (ba - aa) * t
+        )
     }
 
     func setImage(_ image: UIImage) {
