@@ -7,7 +7,7 @@ struct KeyboardSurfaceTests {
     @Test func unmodifiedLowercaseLetterEmitsAnsiCodeWithNoModifiers() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
-        surface.delegate = recorder
+        surface.keyboardDelegate = recorder
 
         surface.insertText("s")
 
@@ -18,7 +18,7 @@ struct KeyboardSurfaceTests {
     @Test func uppercaseLetterEmitsAnsiCodeWithShift() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
-        surface.delegate = recorder
+        surface.keyboardDelegate = recorder
 
         surface.insertText("S")
 
@@ -29,7 +29,7 @@ struct KeyboardSurfaceTests {
     @Test func shiftedDigitRowPunctuationEmitsDigitCodeWithShift() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
-        surface.delegate = recorder
+        surface.keyboardDelegate = recorder
 
         surface.insertText("!")
 
@@ -40,7 +40,7 @@ struct KeyboardSurfaceTests {
     @Test func unshiftedPunctuationEmitsAnsiCodeWithNoModifiers() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
-        surface.delegate = recorder
+        surface.keyboardDelegate = recorder
 
         surface.insertText(",")
 
@@ -51,7 +51,7 @@ struct KeyboardSurfaceTests {
     @Test func returnKeyEmitsReturnCode() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
-        surface.delegate = recorder
+        surface.keyboardDelegate = recorder
 
         surface.insertText("\n")
 
@@ -62,7 +62,7 @@ struct KeyboardSurfaceTests {
     @Test func deleteBackwardEmitsDeleteCode() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
-        surface.delegate = recorder
+        surface.keyboardDelegate = recorder
 
         surface.deleteBackward()
 
@@ -73,7 +73,7 @@ struct KeyboardSurfaceTests {
     @Test func singleTapModifierArmsForNextKeyThenClears() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
-        surface.delegate = recorder
+        surface.keyboardDelegate = recorder
 
         surface.tapModifier(.cmd)
         #expect(surface.state(of: .cmd) == .armed)
@@ -90,7 +90,7 @@ struct KeyboardSurfaceTests {
     @Test func doubleTapModifierLocksAcrossMultipleKeys() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
-        surface.delegate = recorder
+        surface.keyboardDelegate = recorder
 
         surface.tapModifier(.cmd)
         surface.tapModifier(.cmd)
@@ -122,7 +122,7 @@ struct KeyboardSurfaceTests {
         // from the character, not from a sticky-tap).
         let surface = KeyboardSurface()
         let recorder = Recorder()
-        surface.delegate = recorder
+        surface.keyboardDelegate = recorder
 
         surface.tapModifier(.cmd)
         surface.insertText("S")
@@ -136,7 +136,7 @@ struct KeyboardSurfaceTests {
     @Test func multipleArmedModifiersComposeAndClearTogether() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
-        surface.delegate = recorder
+        surface.keyboardDelegate = recorder
 
         surface.tapModifier(.cmd)
         surface.tapModifier(.option)
@@ -151,7 +151,7 @@ struct KeyboardSurfaceTests {
     @Test func lockedAndArmedModifiersCoexistThenArmedClears() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
-        surface.delegate = recorder
+        surface.keyboardDelegate = recorder
 
         surface.tapModifier(.cmd)
         surface.tapModifier(.cmd)   // locked
@@ -169,7 +169,7 @@ struct KeyboardSurfaceTests {
     @Test func multiCharacterInsertEmitsOneEventPerCharacter() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
-        surface.delegate = recorder
+        surface.keyboardDelegate = recorder
 
         surface.insertText("abc")
 
@@ -182,7 +182,7 @@ struct KeyboardSurfaceTests {
     @Test func unmappedCharactersAreSilentlyDropped() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
-        surface.delegate = recorder
+        surface.keyboardDelegate = recorder
 
         // Emoji and non-ASCII drop because neither side has a table
         // entry. Better silent than an unknown wire code that the host

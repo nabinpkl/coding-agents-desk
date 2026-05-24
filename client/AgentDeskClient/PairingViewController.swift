@@ -87,7 +87,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     private func configureKeyboardSurface() {
-        keyboardSurface.delegate = self
+        keyboardSurface.keyboardDelegate = self
         // Zero-size hidden subview is enough: the responder chain only
         // cares that the view is in the window hierarchy when
         // becomeFirstResponder is called. The visible UI is the system

@@ -18,25 +18,22 @@ protocol KeyboardSurfaceDelegate: AnyObject {
     func keyboardSurface(_ surface: KeyboardSurface, didProduce input: NormalizedInput)
 }
 
+// Subclasses UITextField (instead of being a bare UIView + UIKeyInput)
+// because the iOS soft keyboard renders with non-standard letter pitch
+// and key height when the first responder is a custom UIView: the system
+// falls back to a wider layout it uses for free-form text input
+// surfaces. UITextField is the shape iOS recognises, so the standard
+// iPhone QWERTY layout drops in unchanged.
+//
+// Text storage is suppressed (insertText and deleteBackward don't call
+// super) so no characters accumulate; the field stays visually empty.
+// isHidden = true on the instance keeps the cursor and selection handles
+// off-screen.
 @MainActor
-final class KeyboardSurface: UIView, UIKeyInput, UITextInputTraits {
-    weak var delegate: KeyboardSurfaceDelegate?
-
-    // MARK: UITextInputTraits
-    //
-    // Auto-correction, smart punctuation, and capitalisation are off so
-    // a code-input field is what reaches the host. Auto-correct would
-    // mutate the keystroke stream after the fact (replacing "teh" with
-    // "the" silently) and break code typing. ASCII keyboard avoids the
-    // numeric-row-only mode and keeps punctuation reachable.
-    var autocorrectionType: UITextAutocorrectionType = .no
-    var autocapitalizationType: UITextAutocapitalizationType = .none
-    var smartDashesType: UITextSmartDashesType = .no
-    var smartQuotesType: UITextSmartQuotesType = .no
-    var smartInsertDeleteType: UITextSmartInsertDeleteType = .no
-    var spellCheckingType: UITextSpellCheckingType = .no
-    var keyboardType: UIKeyboardType = .asciiCapable
-    var returnKeyType: UIReturnKeyType = .default
+final class KeyboardSurface: UITextField {
+    // Named keyboardDelegate to avoid colliding with UITextField.delegate
+    // (which is UITextFieldDelegate).
+    weak var keyboardDelegate: KeyboardSurfaceDelegate?
 
     // MARK: Modifier state
     enum ModifierState { case off, armed, locked }
@@ -67,9 +64,41 @@ final class KeyboardSurface: UIView, UIKeyInput, UITextInputTraits {
         accessoryView?.refreshModifierStates()
     }
 
-    // MARK: First-responder visibility
-    override var canBecomeFirstResponder: Bool { true }
+    // MARK: Lifecycle
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configureTraits()
+    }
 
+    required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    convenience init() {
+        self.init(frame: .zero)
+    }
+
+    private func configureTraits() {
+        // Auto-correction, smart punctuation, and capitalisation are off
+        // so a code-input field is what reaches the host. Auto-correct
+        // would silently mutate the keystroke stream and break code
+        // typing.
+        autocorrectionType = .no
+        autocapitalizationType = .none
+        smartDashesType = .no
+        smartQuotesType = .no
+        smartInsertDeleteType = .no
+        spellCheckingType = .no
+        keyboardType = .asciiCapable
+        returnKeyType = .default
+        // Visually invisible even if the parent forgets to hide us.
+        // The field's text never grows because insertText doesn't call
+        // super, so this clear-text styling is belt-and-suspenders.
+        textColor = .clear
+        tintColor = .clear
+        backgroundColor = .clear
+        borderStyle = .none
+    }
+
+    // MARK: First-responder visibility
     func setVisible(_ visible: Bool) {
         if visible {
             becomeFirstResponder()
@@ -79,15 +108,19 @@ final class KeyboardSurface: UIView, UIKeyInput, UITextInputTraits {
     }
 
     // MARK: Accessory row
-    // Lazy so test code that never reads inputAccessoryView doesn't
-    // instantiate a UIView in the test process.
+    // Lazy so test code that never summons the keyboard doesn't
+    // instantiate a UIView in the test process. Created on first
+    // becomeFirstResponder and assigned to UITextField.inputAccessoryView
+    // (settable, so we can't shadow it with a getter-only override).
     private var accessoryView: KeyboardAccessoryView?
 
-    override var inputAccessoryView: UIView? {
+    override func becomeFirstResponder() -> Bool {
         if accessoryView == nil {
-            accessoryView = KeyboardAccessoryView(surface: self)
+            let bar = KeyboardAccessoryView(surface: self)
+            accessoryView = bar
+            inputAccessoryView = bar
         }
-        return accessoryView
+        return super.becomeFirstResponder()
     }
 
     // Public alias so the accessory row's Esc / Tab / arrow / Cmd / Ctrl /
@@ -98,16 +131,19 @@ final class KeyboardSurface: UIView, UIKeyInput, UITextInputTraits {
         emit(code: code)
     }
 
-    // MARK: UIKeyInput
-    var hasText: Bool { false }
-
-    func insertText(_ text: String) {
+    // MARK: UIKeyInput overrides
+    //
+    // UITextField conforms to UIKeyInput; we override insertText and
+    // deleteBackward to intercept input and forward to the wire. Not
+    // calling super means the field's own text storage never grows, so
+    // the field stays empty and no cursor / selection UI is needed.
+    override func insertText(_ text: String) {
         for char in text {
             emitForCharacter(char)
         }
     }
 
-    func deleteBackward() {
+    override func deleteBackward() {
         emit(code: "delete")
     }
 
@@ -139,7 +175,7 @@ final class KeyboardSurface: UIView, UIKeyInput, UITextInputTraits {
             active.insert(.shift)
         }
         let ordered = Self.modifierOrder.filter { active.contains($0) }
-        delegate?.keyboardSurface(self, didProduce: .key(code: code, modifiers: ordered))
+        keyboardDelegate?.keyboardSurface(self, didProduce: .key(code: code, modifiers: ordered))
         clearArmedModifiers()
     }
 
