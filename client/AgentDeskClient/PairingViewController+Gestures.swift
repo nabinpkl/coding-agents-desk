@@ -120,6 +120,16 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         let endedProgress = wireSign
         let changedVelocity = wireSign * 1500
         let endedVelocity = wireSign * 2000
+        // Glide the selection overlay directly to the target tile in a
+        // single continuous animation. Without this, the overlay snaps
+        // tile-by-tile as each intermediate Dock commit pushes a fresh
+        // DesktopState; visually that reads as "hops" instead of one
+        // smooth multi-tile slide.
+        if let activeIdx = view.activeIndex {
+            let target = max(0, min(view.userSpaceCount - 1, activeIdx + delta))
+            let duration = min(0.5, 0.18 + Double(steps - 1) * 0.10)
+            view.previewActiveTransition(toIndex: target, duration: duration)
+        }
         Task { [channel, steps, changedProgress, endedProgress, changedVelocity, endedVelocity] in
             for i in 0..<steps {
                 try? await channel.send(.switchSpaceGesture(phase: .began, progress: 0, velocityX: 0))

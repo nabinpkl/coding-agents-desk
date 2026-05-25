@@ -109,6 +109,13 @@ final class ThumbnailStripView: UIView {
     private var activeRestingOffsetX: CGFloat = 0
     private var lastBoundsWidth: CGFloat = 0
     private var lastTileCount: Int = -1
+    // Set by previewActiveTransition for the duration of a multi-step
+    // tap-jump chain. While non-nil, apply(state:) skips its overlay
+    // re-animation so the in-flight single glide isn't interrupted by
+    // each intermediate Dock commit. Cleared when the host's state
+    // catches up to the predicted target, or by the safety timer below.
+    private var pendingPreviewIndex: Int?
+    private var previewClearWorkItem: DispatchWorkItem?
 
     // Fraction of the strip width past which a drag is treated as a
     // commit on its own. Half a strip's worth: drag past 50% and rest
@@ -226,6 +233,22 @@ final class ThumbnailStripView: UIView {
             }
         }
         collectionView.layoutIfNeeded()
+        // If a multi-step preview is in flight, only re-sync the overlay
+        // once the host's actual activeIndex has caught up to (or past)
+        // the predicted target. Intermediate state arrivals (one per
+        // Dock commit in the chain) skip the re-animation so the single
+        // smooth glide started by previewActiveTransition isn't broken
+        // into per-commit hops.
+        if let pending = pendingPreviewIndex {
+            if activeIndex == pending || countChanged {
+                pendingPreviewIndex = nil
+                previewClearWorkItem?.cancel()
+                previewClearWorkItem = nil
+                recenterOnActive(animated: !countChanged)
+                updateSelectionOverlayFrame(animated: !countChanged)
+            }
+            return
+        }
         recenterOnActive(animated: !countChanged)
         updateSelectionOverlayFrame(animated: !countChanged)
     }
@@ -246,6 +269,77 @@ final class ThumbnailStripView: UIView {
         collectionView.reloadData()
         lastTileCount = 0
         selectionOverlay.isHidden = true
+        pendingPreviewIndex = nil
+        previewClearWorkItem?.cancel()
+        previewClearWorkItem = nil
+    }
+
+    // Predict the final tile for a tap-jump and slide the selection
+    // overlay directly there in a single continuous animation. Used by
+    // the tap-step handler so a multi-step jump (e.g. Desktop 5 -> 1)
+    // looks like one smooth glide instead of hopping per Dock commit.
+    // While the preview is active, apply(state:) suppresses its own
+    // overlay re-animation for intermediate states (see pendingPreview-
+    // Index handling there); a safety timer clears the lock if the
+    // chain stalls so the overlay always resyncs to truth eventually.
+    func previewActiveTransition(toIndex targetIdx: Int, duration: TimeInterval) {
+        guard targetIdx >= 0, targetIdx < orderedSpaces.count else { return }
+        guard bounds.width > 0 else { return }
+        collectionView.layoutIfNeeded()
+        guard let attrs = collectionView.layoutAttributesForItem(
+            at: IndexPath(item: targetIdx, section: 0)
+        ) else { return }
+
+        let target = attrs.frame.midX - collectionView.bounds.width / 2
+        let maxOffset = max(0, collectionView.contentSize.width - collectionView.bounds.width)
+        let clampedOffset = max(0, min(target, maxOffset))
+        activeRestingOffsetX = clampedOffset
+
+        // Glide the scroll position (overflow mode) and overlay frame
+        // in the same animation block so both motions share a curve
+        // and finish together. In fits mode clampedOffset matches the
+        // current contentOffset so setContentOffset is a no-op.
+        let targetFrame = CGRect(
+            x: attrs.frame.origin.x - clampedOffset,
+            y: attrs.frame.origin.y,
+            width: attrs.frame.size.width,
+            height: attrs.frame.size.height
+        )
+        let needsScroll = abs(collectionView.contentOffset.x - clampedOffset) >= 0.5
+        if needsScroll {
+            isProgrammaticScroll = true
+        }
+        UIView.animate(
+            withDuration: duration,
+            delay: 0,
+            options: [.curveEaseInOut, .beginFromCurrentState],
+            animations: {
+                if needsScroll {
+                    self.collectionView.setContentOffset(
+                        CGPoint(x: clampedOffset, y: 0), animated: false
+                    )
+                }
+                self.selectionOverlay.frame = targetFrame
+                self.selectionOverlay.isHidden = false
+            },
+            completion: { _ in
+                if needsScroll {
+                    self.isProgrammaticScroll = false
+                }
+            }
+        )
+
+        pendingPreviewIndex = targetIdx
+        previewClearWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingPreviewIndex = nil
+            self.previewClearWorkItem = nil
+            self.recenterOnActive(animated: true)
+            self.updateSelectionOverlayFrame(animated: true)
+        }
+        previewClearWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 1.5, execute: work)
     }
 
     var userSpaceCount: Int { orderedSpaces.count }
