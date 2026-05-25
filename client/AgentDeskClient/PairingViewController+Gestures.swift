@@ -94,16 +94,48 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
 
     // R20: a tap on a non-active tile emits one step-direction swipe
     // per signed index delta. The host's dock-swipe synthesis already
-    // commits one Space per Began-Changed-Ended cycle; we just chain
+    // commits one Space per Began-Changed-Ended cycle; we chain
     // |delta| of them.
+    //
+    // The chain MUST run inside a single Task. Previously each frame
+    // went through sendInput, which wraps the channel write in its own
+    // detached Task; for |delta|>=2 the six resulting tasks raced
+    // through Swift's cooperative scheduler and arrived at the host in
+    // arbitrary order. Dock's gesture synthesis is strictly began ->
+    // changed -> ended; scrambled frames produced "tap Desktop 4 from
+    // Desktop 2, land on Desktop 3 (or somewhere else entirely)".
+    //
+    // Sign convention mirrors the strip's swipe path
+    // (scrollViewWillEndDragging emits rawProgress=-1 for a right-
+    // neighbour step, then emitSwipeFrame inverts under the default
+    // direction toggle). Tap-to-jump now honors useMacOSDirection too,
+    // so tap and swipe stay in agreement under either setting.
     func thumbnailStrip(_ view: ThumbnailStripView, didTapStepDelta delta: Int) {
         guard delta != 0 else { return }
+        guard let channel = pairingClient.activeInputChannel else { return }
         let steps = abs(delta)
-        let direction: Float = delta > 0 ? 1.0 : -1.0
-        for _ in 0..<steps {
-            sendInput(.switchSpaceGesture(phase: .began, progress: 0, velocityX: 0))
-            sendInput(.switchSpaceGesture(phase: .changed, progress: direction * 0.5, velocityX: direction * 1500))
-            sendInput(.switchSpaceGesture(phase: .ended, progress: direction, velocityX: direction * 2000))
+        let rawForEmit: Float = delta > 0 ? -1.0 : 1.0
+        let wireSign: Float = view.useMacOSDirection ? rawForEmit : -rawForEmit
+        let changedProgress = wireSign * 0.5
+        let endedProgress = wireSign
+        let changedVelocity = wireSign * 1500
+        let endedVelocity = wireSign * 2000
+        Task { [channel, steps, changedProgress, endedProgress, changedVelocity, endedVelocity] in
+            for i in 0..<steps {
+                try? await channel.send(.switchSpaceGesture(phase: .began, progress: 0, velocityX: 0))
+                try? await channel.send(.switchSpaceGesture(phase: .changed, progress: changedProgress, velocityX: changedVelocity))
+                try? await channel.send(.switchSpaceGesture(phase: .ended, progress: endedProgress, velocityX: endedVelocity))
+                // Pace cycles so Dock can animate the prior commit
+                // before the next .began opens a fresh gesture. Without
+                // this gap the second cycle arrives mid-animation and
+                // Dock either merges the two into one Space transition
+                // or drops the second outright. 200ms matches the feel
+                // of a deliberate trackpad swipe chain. Skip after the
+                // last cycle so we don't tail-pad the chain.
+                if i < steps - 1 {
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                }
+            }
         }
     }
 
