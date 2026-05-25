@@ -4,6 +4,77 @@ import os
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private enum HostStatusIcon {
+        case idle
+        case pairedIdle
+        case pairing
+        case screenRecordingRequired
+        case accessibilityRequired
+        case tailscaleRequired
+        case pairingFailed
+        case connecting
+        case connected
+
+        var accessibilityDescription: String {
+            switch self {
+            case .idle:
+                "AgentDesk idle"
+            case .pairedIdle:
+                "AgentDesk paired idle"
+            case .pairing:
+                "AgentDesk pairing"
+            case .screenRecordingRequired:
+                "Screen Recording required"
+            case .accessibilityRequired:
+                "Accessibility required"
+            case .tailscaleRequired:
+                "Tailscale required"
+            case .pairingFailed:
+                "Pairing failed"
+            case .connecting:
+                "AgentDesk connecting"
+            case .connected:
+                "AgentDesk connected"
+            }
+        }
+
+        var assetName: String? {
+            switch self {
+            case .idle, .pairedIdle:
+                "StatusIcon"
+            case .pairing,
+                 .screenRecordingRequired,
+                 .accessibilityRequired,
+                 .tailscaleRequired,
+                 .pairingFailed,
+                 .connecting,
+                 .connected:
+                nil
+            }
+        }
+
+        var symbolName: String? {
+            switch self {
+            case .idle, .pairedIdle:
+                nil
+            case .pairing:
+                "qrcode"
+            case .screenRecordingRequired, .accessibilityRequired:
+                "exclamationmark.shield"
+            case .tailscaleRequired, .pairingFailed:
+                "exclamationmark.triangle"
+            case .connecting:
+                "antenna.radiowaves.left.and.right"
+            case .connected:
+                "dot.radiowaves.left.and.right"
+            }
+        }
+
+        var isTemplate: Bool {
+            symbolName != nil
+        }
+    }
+
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private let popoverController = PopoverViewController()
@@ -79,16 +150,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureStatusItem() {
-        applyIcon(symbolName: "macbook.and.iphone", accessibilityDescription: "AgentDesk idle")
+        applyIcon(.idle)
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePopover)
     }
 
-    private func applyIcon(symbolName: String, accessibilityDescription: String) {
-        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityDescription)
-        image?.isTemplate = true
+    private func applyIcon(_ icon: HostStatusIcon) {
+        let image: NSImage?
+        if let assetName = icon.assetName {
+            image = NSImage(named: assetName)
+        } else if let symbolName = icon.symbolName {
+            image = NSImage(systemSymbolName: symbolName, accessibilityDescription: icon.accessibilityDescription)
+        } else {
+            image = nil
+        }
+
+        image?.size = NSSize(width: 18, height: 18)
+        image?.isTemplate = icon.isTemplate
         statusItem.button?.image = image
+        statusItem.button?.imagePosition = .imageOnly
         statusItem.button?.title = image == nil ? "AgentDesk" : ""
+        statusItem.button?.toolTip = icon.accessibilityDescription
+        statusItem.button?.setAccessibilityLabel(icon.accessibilityDescription)
     }
 
     private func configurePopover() {
@@ -339,15 +422,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let url = try payload.pairingURL()
             signalingLogger.notice("pairing URL minted: \(url.absoluteString, privacy: .public)")
             try? url.absoluteString.write(to: Config.devLastPairURLPath, atomically: true, encoding: .utf8)
-            applyIcon(symbolName: "qrcode", accessibilityDescription: "AgentDesk pairing")
+            applyIcon(.pairing)
             popoverController.render(.pairing(url, QRCodeRenderer.image(for: url)))
         } catch is TailscaleRequiredError {
             signalingLogger.error("startPairing failed: tailscale required")
-            applyIcon(symbolName: "exclamationmark.triangle", accessibilityDescription: "Tailscale required")
+            applyIcon(.tailscaleRequired)
             popoverController.render(.tailscaleRequired)
         } catch {
             signalingLogger.error("startPairing failed: \(String(describing: error), privacy: .public)")
-            applyIcon(symbolName: "exclamationmark.triangle", accessibilityDescription: "Pairing failed")
+            applyIcon(.pairingFailed)
             popoverController.render(.idle)
         }
     }
@@ -355,28 +438,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshConnectedState() {
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission()
             && ProcessInfo.processInfo.environment["AGENTDESK_USE_TEST_PATTERN"] != "1" {
-            applyIcon(symbolName: "exclamationmark.shield", accessibilityDescription: "Screen Recording required")
+            applyIcon(.screenRecordingRequired)
             popoverController.render(.screenRecordingDenied)
             return
         }
         if !AXIsProcessTrusted() {
-            applyIcon(symbolName: "exclamationmark.shield", accessibilityDescription: "Accessibility required")
+            applyIcon(.accessibilityRequired)
             popoverController.render(.accessibilityRequired)
             return
         }
         guard let record = try? pairing.approvedDevices().first else {
-            applyIcon(symbolName: "macbook.and.iphone", accessibilityDescription: "AgentDesk idle")
+            applyIcon(.idle)
             popoverController.render(.idle)
             return
         }
         if sessions.isActive(record.deviceFingerprint) {
-            applyIcon(symbolName: "dot.radiowaves.left.and.right", accessibilityDescription: "AgentDesk connected")
+            applyIcon(.connected)
             popoverController.render(.connected(record))
         } else if sessions.isAttempting(record.deviceFingerprint) {
-            applyIcon(symbolName: "antenna.radiowaves.left.and.right", accessibilityDescription: "AgentDesk connecting")
+            applyIcon(.connecting)
             popoverController.render(.connecting(record))
         } else {
-            applyIcon(symbolName: "macbook.and.iphone.slash", accessibilityDescription: "AgentDesk paired idle")
+            applyIcon(.pairedIdle)
             popoverController.render(.pairedNoActiveSession(record))
         }
     }
