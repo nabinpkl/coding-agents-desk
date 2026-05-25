@@ -100,6 +100,23 @@ final class SpacesProvider {
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "spaces")
     private let eventPoster: EventPoster
+    // Dedicated serial queue for tap-to-jump chains. We can't run the
+    // chain on InputDispatcher's queue because we Thread.sleep between
+    // cycles (Dock needs a beat per commit) and that would backpressure
+    // cursor moves and clicks for the duration of the jump. Separate
+    // queue keeps the input stream flowing and still serializes
+    // multiple overlapping jumps (rare in practice).
+    private let switchQueue = DispatchQueue(
+        label: "com.example.agentdesk.agentdesk.spaces-switch",
+        qos: .userInteractive
+    )
+    // Inter-cycle gap. Dock's space-switch animation runs ~250ms;
+    // posting the next .began before Dock has accepted the prior
+    // .ended either merges them into one transition or drops the
+    // second. 90ms is the smallest gap that empirically commits each
+    // step independently when the chain runs locally (no WSS round-
+    // trip between cycles). Bump if HITL reports merged commits.
+    private let interCycleGapMs: UInt32 = 90
 
     init(eventPoster: @escaping EventPoster = { $0.post(tap: .cgSessionEventTap) }) {
         self.eventPoster = eventPoster
@@ -191,6 +208,39 @@ final class SpacesProvider {
     // commit-vs-snap-back at Ended. A high velocity (~2000+) plus low
     // progress still commits; a low velocity at low progress snaps
     // back; the same heuristic the trackpad path uses.
+    // Tap-to-jump entry point. Client sends a single .switchSpaceStep
+    // frame; we expand it into |delta| Began/Changed/Ended cycles
+    // locally so Dock commits each transition with the tightest pacing
+    // it can accept. Sign convention matches postDockSwipeFrame
+    // progress: positive delta = positive wire progress per step.
+    func commitStep(delta: Int) {
+        guard delta != 0 else { return }
+        let steps = abs(delta)
+        let dir: Float = delta > 0 ? 1.0 : -1.0
+        let gapMs = interCycleGapMs
+        switchQueue.async { [weak self] in
+            guard let self else { return }
+            for i in 0..<steps {
+                self.postDockSwipeFrame(phase: .began, progress: 0, velocityX: 0)
+                self.postDockSwipeFrame(
+                    phase: .changed, progress: dir * 0.5, velocityX: dir * 1500
+                )
+                self.postDockSwipeFrame(
+                    phase: .ended, progress: dir, velocityX: dir * 2000
+                )
+                if i < steps - 1 {
+                    usleep(gapMs * 1000)
+                }
+            }
+        }
+    }
+
+    // Test-only barrier: blocks until any in-flight commitStep chain
+    // on switchQueue has drained. Production code never calls this.
+    func _drainSwitchQueueForTests() {
+        switchQueue.sync {}
+    }
+
     @discardableResult
     func postDockSwipeFrame(
         phase: NormalizedInput.SwipePhase,

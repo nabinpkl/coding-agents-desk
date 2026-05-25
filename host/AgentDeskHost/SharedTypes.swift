@@ -390,6 +390,15 @@ enum NormalizedInput: Codable, Equatable {
     case dragStart
     case dragEnd
     case switchSpaceGesture(phase: SwipePhase, progress: Float, velocityX: Float)
+    // Tap-to-jump: one wire frame covers an N-Space jump. The host runs
+    // |delta| Began/Changed/Ended dock-swipe cycles back-to-back on a
+    // dedicated serial queue, much tighter than the WSS round-trip the
+    // client could afford between cycles. Sign convention matches
+    // switchSpaceGesture's progress sign for the equivalent direction:
+    // positive delta = same direction a positive-progress swipe would
+    // commit. Client applies its direction toggle when computing the
+    // sign so tap-to-jump and swipe-to-jump stay in agreement.
+    case switchSpaceStep(delta: Int)
     case key(code: String, modifiers: [Modifier])
     case modifierArm(mod: Modifier)
 

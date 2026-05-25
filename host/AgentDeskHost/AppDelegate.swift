@@ -296,6 +296,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         inputDispatcher.switchSpaceGestureHandler = { phase, progress, velocityX in
             provider.postDockSwipeFrame(phase: phase, progress: progress, velocityX: velocityX)
         }
+        inputDispatcher.switchSpaceStepHandler = { delta in
+            provider.commitStep(delta: delta)
+        }
     }
 
     private func handleMediaConnectionState(_ state: MediaConnectionState, for fingerprint: DeviceFingerprint) {

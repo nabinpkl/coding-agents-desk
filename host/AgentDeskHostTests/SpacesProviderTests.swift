@@ -87,6 +87,81 @@ struct SpacesProviderTests {
         #expect(progress < 0)
         #expect(velocity < 0)
     }
+
+    // commitStep expands one .switchSpaceStep wire frame into |delta|
+    // back-to-back Began/Changed/Ended dock-swipe cycles on a dedicated
+    // queue. These tests verify the cycle count, phase ordering, and
+    // sign-pass-through. The _drainSwitchQueueForTests barrier waits
+    // for the async chain to finish before assertions run.
+
+    @Test func commitStepZeroDeltaEmitsNothing() {
+        let recorder = EventRecorder()
+        let provider = SpacesProvider(eventPoster: { recorder.record($0) })
+
+        provider.commitStep(delta: 0)
+        provider._drainSwitchQueueForTests()
+
+        #expect(recorder.events.isEmpty)
+    }
+
+    @Test func commitStepUnitDeltaEmitsOneCycleInPhaseOrder() {
+        let recorder = EventRecorder()
+        let provider = SpacesProvider(eventPoster: { recorder.record($0) })
+
+        provider.commitStep(delta: 1)
+        provider._drainSwitchQueueForTests()
+
+        #expect(recorder.events.count == 3)
+        let phaseField = CGEventField(rawValue: 132)!
+        #expect(recorder.events[0].getIntegerValueField(phaseField) == 1) // Began
+        #expect(recorder.events[1].getIntegerValueField(phaseField) == 2) // Changed
+        #expect(recorder.events[2].getIntegerValueField(phaseField) == 4) // Ended
+    }
+
+    @Test func commitStepMultiDeltaEmitsThreeFramesPerStep() {
+        let recorder = EventRecorder()
+        let provider = SpacesProvider(eventPoster: { recorder.record($0) })
+
+        provider.commitStep(delta: 3)
+        provider._drainSwitchQueueForTests()
+
+        #expect(recorder.events.count == 9)
+        let phaseField = CGEventField(rawValue: 132)!
+        // Three repetitions of began -> changed -> ended.
+        for cycle in 0..<3 {
+            let base = cycle * 3
+            #expect(recorder.events[base].getIntegerValueField(phaseField) == 1)
+            #expect(recorder.events[base + 1].getIntegerValueField(phaseField) == 2)
+            #expect(recorder.events[base + 2].getIntegerValueField(phaseField) == 4)
+        }
+    }
+
+    @Test func commitStepPositiveDeltaEmitsPositiveProgress() {
+        let recorder = EventRecorder()
+        let provider = SpacesProvider(eventPoster: { recorder.record($0) })
+
+        provider.commitStep(delta: 1)
+        provider._drainSwitchQueueForTests()
+
+        let progressField = CGEventField(rawValue: 124)!
+        // Began is exactly 0; Changed and Ended carry positive progress.
+        #expect(recorder.events[0].getDoubleValueField(progressField) == 0)
+        #expect(recorder.events[1].getDoubleValueField(progressField) > 0)
+        #expect(recorder.events[2].getDoubleValueField(progressField) > 0)
+    }
+
+    @Test func commitStepNegativeDeltaEmitsNegativeProgress() {
+        let recorder = EventRecorder()
+        let provider = SpacesProvider(eventPoster: { recorder.record($0) })
+
+        provider.commitStep(delta: -1)
+        provider._drainSwitchQueueForTests()
+
+        let progressField = CGEventField(rawValue: 124)!
+        #expect(recorder.events[0].getDoubleValueField(progressField) == 0)
+        #expect(recorder.events[1].getDoubleValueField(progressField) < 0)
+        #expect(recorder.events[2].getDoubleValueField(progressField) < 0)
+    }
 }
 
 private final class EventRecorder {

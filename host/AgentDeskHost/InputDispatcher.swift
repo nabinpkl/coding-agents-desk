@@ -15,6 +15,7 @@ final class InputDispatcher: @unchecked Sendable {
     typealias DisplayBoundsProvider = () -> CGRect
     typealias Clock = () -> CFTimeInterval
     typealias SwitchSpaceGestureHandler = (NormalizedInput.SwipePhase, Float, Float) -> Void
+    typealias SwitchSpaceStepHandler = (Int) -> Void
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "input")
     private let eventPoster: EventPoster
@@ -28,6 +29,11 @@ final class InputDispatcher: @unchecked Sendable {
     // One handler call per wire frame; the dispatcher's serial queue
     // preserves the Began -> Changed* -> Ended order the Dock expects.
     var switchSpaceGestureHandler: SwitchSpaceGestureHandler?
+    // Tap-to-jump: client sends one .switchSpaceStep(delta:) frame; the
+    // handler expands it into |delta| dock-swipe cycles on a dedicated
+    // queue inside SpacesProvider. Default no-op so unit tests can
+    // leave it unset.
+    var switchSpaceStepHandler: SwitchSpaceStepHandler?
     private var loggedUntrusted = false
     // Custom event source so we can disable the 0.25s synthetic-event
     // suppression interval macOS otherwise applies. Without this, posted
@@ -130,6 +136,15 @@ final class InputDispatcher: @unchecked Sendable {
             // commits-or-snaps-back at Ended. See SpacesProvider.
             if let switchSpaceGestureHandler {
                 switchSpaceGestureHandler(phase, progress, velocityX)
+            }
+        case .switchSpaceStep(let delta):
+            // Hand off to SpacesProvider.commitStep, which expands the
+            // step into |delta| Began/Changed/Ended cycles on its own
+            // serial queue. The expansion can't run on this queue:
+            // commitStep sleeps between cycles and would block cursor
+            // and click dispatch for the duration of the jump.
+            if let switchSpaceStepHandler {
+                switchSpaceStepHandler(delta)
             }
         }
     }
