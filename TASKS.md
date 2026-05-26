@@ -4,13 +4,13 @@
 
 ## Position
 
-v0 is one iteration. Acceptance is empirical, not duration-based: v0 ships when the qualitative friction list reaches steady state (per `PRD.md`). The original GitHub-issue phases through R21 have either landed, been dropped, or remain captured as distribution work. The active iteration is R22, the macOS host Space Agent overlay.
+v0 is one iteration. Acceptance is empirical, not duration-based: v0 ships when the qualitative friction list reaches steady state (per `PRD.md`). The original GitHub-issue phases through R22 have either landed, been dropped, or remain captured as distribution work.
 
-R22 is host-local and does not replace the existing menu-bar pairing/status popover. The menu-bar app remains the server and status surface. Space Agent is a separate always-visible, draggable spaceship overlay that can expand an attached Spaces panel for the active display.
+D22 is host-local and does not replace the existing menu-bar pairing/status popover. The menu-bar app remains the server and status surface. Space Agent is a separate always-visible, draggable spaceship overlay that can expand an attached Spaces panel for the active display.
 
 R14 distribution remains captured and not active in this iteration. Apple Developer Program enrollment landed by 2026-05-23. Both projects sign with `Apple Development: Owner Name (CERT000000)` / team `TEAMID0000` (~1-year cert, no 7-day reinstall cadence). The remaining distribution items are Developer ID Application notarized DMG and iOS App Distribution / TestFlight.
 
-The first R22 slice starts with module isolation before UI behaviour. The Space Agent can share neutral primitives (`SpacesProvider`, `SpaceThumbnailProvider`, `DesktopState`, `SpaceMetadata`), but its owner code lives under `host/AgentDeskHost/SpaceAgent/` so it can later move into a separate product shell.
+The first Space Agent slice kept module isolation before UI behaviour. The Space Agent shares neutral primitives (`SpacesProvider`, `SpaceThumbnailProvider`, `DesktopState`, `SpaceMetadata`), but its owner code lives under `host/AgentDeskHost/SpaceAgent/` so it can later move into a separate product shell.
 
 ## Done: Phases 0 through 3 (gists)
 
@@ -147,19 +147,19 @@ R21 sub-tasks:
 - Per-pinch-frame viewport updates (Option B). Continuous re-cropping during the gesture. Rejected because each `SCStream.updateConfiguration` forces a fresh IDR keyframe; per-frame churn would keyframe-storm the encoder.
 - Cursor warping ("tap on the zoomed view = warp Mac cursor to that point", Microsoft RDP touch-mode). Deferred to v2. The pattern AltTab, Dock, and Mission Control use; bypasses Screen Recording prompt. Rejected because the host already has Screen Recording permission (`ScreenCaptureKitFrameSource` uses it for the main stream), so the prompt cost is zero, and SCK is the supported surface Apple maintains. Revisit if SCK proves unreliable for off-Space windows during R20.0.
 
-## v0 Phase 11 (R22): Space Agent host overlay. AFK. Active.
+## v0 Phase 11 (D22): Space Agent host overlay. Done.
 
 Phase goal: a small draggable spaceship overlay is visible while the host app runs. Clicking it expands an attached active-display Spaces panel with live 128 x 80 thumbnails. Clicking a non-active tile switches Spaces and keeps the panel open. The existing menu-bar popover remains unchanged.
 
-R22 sub-tasks:
+D22 sub-tasks:
 
-- [ ] R22.1. Introduce `host/AgentDeskHost/SpaceAgent/SpaceAgentModel.swift`. It derives active-display user-Space tile models from `DesktopState` and `[UInt64: Data]`, marks the active tile inert, computes the step delta for non-active tiles, and returns placeholder tile state when thumbnail bytes are missing.
-- [ ] R22.2. Introduce `host/AgentDeskHost/SpaceAgent/SpaceAgentViewController.swift`. It renders a static bitmap spaceship in collapsed state and an attached horizontal 128 x 80 Space thumbnail strip when expanded. The header/spaceship region is draggable, the active tile is inert, and non-active tile selection emits the delta needed by `SpacesProvider.commitStep(delta:)`.
-- [ ] R22.3. Introduce `host/AgentDeskHost/SpaceAgent/SpaceAgentController.swift`. It owns a non-activating floating `NSPanel`, starts visible at host launch, uses `.canJoinAllSpaces` and `.fullScreenAuxiliary` where AppKit permits, persists and clamps position, owns collapsed/expanded state, refreshes from `SpacesProvider.current()` at launch and on `NSWorkspace.activeSpaceDidChangeNotification`, listens to `SpaceThumbnailProvider.thumbnails` while expanded, and keeps the panel expanded after a tile selection.
-- [ ] R22.4. Add a static transparent bitmap spaceship asset local to Space Agent. Keep it about 48 x 48 pt, bright on dark and light desktops, and text-free.
-- [ ] R22.5. Add owner-scoped thumbnail demand around the shared `SpaceThumbnailProvider`. Introduce `setDemand(owner:enabled:)`; `.spaceAgent` and client fingerprints independently request thumbnails; the provider is enabled while at least one owner is active.
-- [ ] R22.6. Wire `AppDelegate` to instantiate Space Agent at launch with `SpacesProvider`, `SpaceThumbnailProvider`, and a selection callback that calls `SpacesProvider.commitStep(delta:)`. Existing menu-bar pairing/status popover behaviour stays unchanged.
-- [ ] R22.7. Tests. `SpaceAgentModel` maps `DesktopState` to active-display user tiles and delta math; thumbnail demand owner set keeps the provider enabled until the last owner clears; controller position clamp/persistence is covered if factored into a pure helper.
+- [x] D22.1. Introduced `host/AgentDeskHost/SpaceAgent/SpaceAgentModel.swift`. It derives active-display user-Space tile models from `DesktopState` and `[UInt64: Data]`, marks the active tile inert, computes the step delta for non-active tiles, and returns placeholder tile state when thumbnail bytes are missing.
+- [x] D22.2. Introduced `host/AgentDeskHost/SpaceAgent/SpaceAgentViewController.swift`. It renders a static bitmap spaceship in collapsed state and an attached horizontal 128 x 80 Space thumbnail strip when expanded. The header/spaceship region is draggable, the active tile is inert, and non-active tile selection emits the delta needed by `SpacesProvider.commitStep(delta:)`.
+- [x] D22.3. Introduced `host/AgentDeskHost/SpaceAgent/SpaceAgentController.swift`. It owns a non-activating floating `NSPanel`, starts visible at host launch, uses `.canJoinAllSpaces` and `.fullScreenAuxiliary`, persists and clamps position, owns collapsed/expanded state, refreshes from `SpacesProvider.current()` at launch and on `NSWorkspace.activeSpaceDidChangeNotification`, listens to `SpaceThumbnailProvider.thumbnails` while expanded, and keeps the panel expanded after a tile selection.
+- [x] D22.4. Added a static transparent bitmap spaceship asset at `host/AgentDeskHost/Assets.xcassets/SpaceAgentSpaceship.imageset`.
+- [x] D22.5. Added owner-scoped thumbnail demand around the shared `SpaceThumbnailProvider`. `setDemand(owner:enabled:)` lets `.spaceAgent` and client fingerprints independently request thumbnails; the provider is enabled while at least one owner is active.
+- [x] D22.6. Wired `AppDelegate` to instantiate Space Agent at launch with `SpacesProvider`, `SpaceThumbnailProvider`, and a selection callback that calls `SpacesProvider.commitStep(delta:)`. Existing menu-bar pairing/status popover behaviour stays unchanged.
+- [x] D22.7. Tests. `SpaceAgentModel` maps `DesktopState` to active-display user tiles and delta math; thumbnail demand owner set keeps the provider enabled until the last owner clears; panel position clamping is covered by a pure helper test.
 
 ### Alternative arc (rejected for R22, captured)
 
@@ -251,12 +251,12 @@ D21.0     2026-05-23  committed   ADR-0007 host-side viewport crop with active p
 D21.1     2026-05-23  committed   RegionalVideoFrameSource protocol + SCK setSourceRect via updateConfiguration
 D21.2     2026-05-23  committed   ClientConfig.viewport wire + AppDelegate downcast routing
 D21.3     2026-05-23  committed   client pinch-start prefill + pinch-end snapshot + pan-settle resend
-R22       pending     pending     Phase 11: Space Agent host overlay
-R22.1     pending     pending     SpaceAgentModel active-display user-Space tile models and delta math
-R22.2     pending     pending     SpaceAgentViewController spaceship plus attached thumbnail strip
-R22.3     pending     pending     SpaceAgentController floating always-visible draggable panel
-R22.4     pending     pending     static transparent bitmap spaceship asset
-R22.5     pending     pending     owner-scoped SpaceThumbnailProvider demand
-R22.6     pending     pending     AppDelegate launch wiring without menu-bar popover changes
-R22.7     pending     pending     model, thumbnail-demand, and clamp/persistence tests
+D22       2026-05-26  committed   Phase 11: Space Agent host overlay shipped
+D22.1     2026-05-26  committed   SpaceAgentModel active-display user-Space tile models and delta math
+D22.2     2026-05-26  committed   SpaceAgentViewController spaceship plus attached thumbnail strip
+D22.3     2026-05-26  committed   SpaceAgentController floating always-visible draggable panel
+D22.4     2026-05-26  committed   static transparent bitmap spaceship asset
+D22.5     2026-05-26  committed   owner-scoped SpaceThumbnailProvider demand
+D22.6     2026-05-26  committed   AppDelegate launch wiring without menu-bar popover changes
+D22.7     2026-05-26  committed   model, thumbnail-demand, and clamp/persistence tests
 ```

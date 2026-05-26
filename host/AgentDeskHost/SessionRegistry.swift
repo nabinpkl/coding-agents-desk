@@ -100,4 +100,8 @@ final class SessionRegistry {
     func allInputChannelServers() -> [InputChannelServer] {
         Array(inputChannelServers.values)
     }
+
+    func allInputChannelServersByFingerprint() -> [(DeviceFingerprint, InputChannelServer)] {
+        inputChannelServers.map { ($0.key, $0.value) }
+    }
 }

@@ -91,7 +91,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let inputDispatcher = InputDispatcher()
     private let spacesProvider = SpacesProvider()
     private let spaceThumbnailProvider = SpaceThumbnailProvider()
+    private var spaceAgentController: SpaceAgentController?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
+    private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
     private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()
     private var pairingSignalSource: DispatchSourceSignal?
 
@@ -108,6 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installSpacesSwitchHandler()
         installSpacesChangeObserver()
         installThumbnailsBroadcast()
+        startSpaceAgent()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
         }
@@ -150,6 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        spaceAgentController?.stop()
         signalingServer?.stop()
     }
 
@@ -252,6 +256,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleSessionEnded(_ fingerprint: DeviceFingerprint) {
+        thumbnailEnabledClients.remove(fingerprint)
+        spaceThumbnailProvider.setDemand(owner: .client(fingerprint.rawValue), enabled: false)
         sessions.endSession(fingerprint)
         signalingLogger.notice("session ended fingerprint=\(fingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
@@ -302,16 +308,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let state = spacesProvider.current() {
             server.pushDesktopState(state)
         }
-        // ADR-0006: clients opt in to thumbnail capture via a
-        // client-config frame. v0 has one client at most so we route
-        // the toggle directly into the shared provider; with multiple
-        // clients we'd OR enable flags across all clients before
-        // touching the provider.
+        // ADR-0006 + D22: clients opt in to thumbnail capture via a
+        // client-config frame. Demand is owner-scoped so the iPhone
+        // strip and Space Agent cannot disable each other.
         let provider = spaceThumbnailProvider
-        server.configHandler = { config in
-            provider.setEnabled(config.thumbnailsEnabled)
-            if let spaceId = config.thumbnailRefresh {
-                provider.forceRefresh(spaceId: spaceId)
+        let clientFingerprint = fingerprint
+        let thumbnailOwner = SpaceThumbnailDemandOwner.client(fingerprint.rawValue)
+        server.configHandler = { [weak self, server] config in
+            let enabled = config.thumbnailsEnabled
+            let refresh = config.thumbnailRefresh
+            Task { @MainActor [weak self, provider, thumbnailOwner, server] in
+                guard let self else { return }
+                if enabled {
+                    self.thumbnailEnabledClients.insert(clientFingerprint)
+                } else {
+                    self.thumbnailEnabledClients.remove(clientFingerprint)
+                    server.pushThumbnails([:])
+                }
+                provider.setDemand(owner: thumbnailOwner, enabled: enabled)
+                if let spaceId = refresh {
+                    provider.forceRefresh(spaceId: spaceId)
+                }
             }
         }
         let dispatcher = inputDispatcher
@@ -330,20 +347,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // ADR-0006: drains the SpaceThumbnailProvider's emit stream and
     // fans the latest result out to every active input channel server.
     // Stays alive for the process lifetime; the provider gates capture
-    // itself based on client-config, so this loop costs nothing when
-    // no client has opted in.
+    // itself based on owner-scoped demand, and this loop only forwards
+    // thumbnails to clients that explicitly opted in.
     private func installThumbnailsBroadcast() {
         let registry = sessions
         let provider = spaceThumbnailProvider
         thumbnailsBroadcastTask?.cancel()
-        thumbnailsBroadcastTask = Task { @MainActor [weak registry, provider] in
+        thumbnailsBroadcastTask = Task { @MainActor [weak self, weak registry, provider] in
             for await thumbnails in provider.thumbnails {
-                guard let registry else { return }
-                for server in registry.allInputChannelServers() {
+                guard let self, let registry else { return }
+                let enabledClients = self.thumbnailEnabledClients
+                for (fingerprint, server) in registry.allInputChannelServersByFingerprint()
+                    where enabledClients.contains(fingerprint) {
                     server.pushThumbnails(thumbnails)
                 }
             }
         }
+    }
+
+    private func startSpaceAgent() {
+        let controller = SpaceAgentController(
+            spacesProvider: spacesProvider,
+            thumbnailProvider: spaceThumbnailProvider,
+            commitStep: { [spacesProvider] delta in
+                spacesProvider.commitStep(delta: delta)
+            }
+        )
+        spaceAgentController = controller
+        controller.start()
     }
 
     // R11: NSWorkspace publishes activeSpaceDidChangeNotification on

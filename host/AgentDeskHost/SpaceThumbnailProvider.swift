@@ -13,13 +13,18 @@ import os
 // recomputes (3 s timer + NSWorkspace.activeSpaceDidChangeNotification
 // + explicit forceRefresh).
 //
-// Toggleable via `setEnabled(_:)`: when disabled, the timer and the
-// observer stop and the stream stops emitting. The host pays zero
-// capture cost when no client has asked for thumbnails.
+// Toggleable via owner-scoped demand: when no owner needs thumbnails,
+// the timer and the observer stop and the stream stops emitting. The
+// host pays zero capture cost when no surface has asked for thumbnails.
 //
 // Resolves its own SkyLight symbol for `SLSCopySpacesForWindows`; does
 // not widen SpacesProvider's struct so a single private surface failure
 // here cannot break Spaces enumeration / switching.
+
+enum SpaceThumbnailDemandOwner: Hashable, Sendable {
+    case spaceAgent
+    case client(String)
+}
 
 final class SpaceThumbnailProvider: @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "thumbnails")
@@ -38,18 +43,31 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
     // about" without per-app heuristics in v0.
     static let maxWindowsPerSpace: Int = 6
 
-    let thumbnails: AsyncStream<[UInt64: Data]>
-    private let continuation: AsyncStream<[UInt64: Data]>.Continuation
+    var thumbnails: AsyncStream<[UInt64: Data]> {
+        AsyncStream { continuation in
+            let id = UUID()
+            let latest = state.withLock { s -> [UInt64: Data] in
+                s.continuations[id] = continuation
+                return s.latest
+            }
+            continuation.yield(latest)
+            continuation.onTermination = { [state] _ in
+                state.withLock { $0.continuations[id] = nil }
+            }
+        }
+    }
 
     // State held under an OSAllocatedUnfairLock so the scheduling
-    // decision can be read+modified atomically from both sync (setEnabled,
+    // decision can be read+modified atomically from both sync (setDemand,
     // installSpaceChangeObserver callback) and async (Task.detached
     // capture pipeline) contexts. NSLock is unavailable in async on
     // Swift 6; this is the recommended replacement.
     private struct State {
-        var enabled: Bool = false
+        var demandOwners: Set<SpaceThumbnailDemandOwner> = []
         var capturing: Bool = false
         var pendingForceRefreshSpaceId: UInt64?
+        var latest: [UInt64: Data] = [:]
+        var continuations: [UUID: AsyncStream<[UInt64: Data]>.Continuation] = [:]
     }
     private let state = OSAllocatedUnfairLock<State>(initialState: State())
 
@@ -59,9 +77,6 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
 
     init(skylight: SkyLightThumbnailBinding? = SkyLightThumbnailBinding.shared) {
         self.sky = skylight
-        var captured: AsyncStream<[UInt64: Data]>.Continuation!
-        self.thumbnails = AsyncStream { captured = $0 }
-        self.continuation = captured
         if skylight == nil {
             logger.error("SLSCopySpacesForWindows not resolvable; thumbnails will be empty")
         }
@@ -72,18 +87,41 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
         refreshTask?.cancel()
-        continuation.finish()
+        let continuations = state.withLock { s -> [AsyncStream<[UInt64: Data]>.Continuation] in
+            let values = Array(s.continuations.values)
+            s.continuations.removeAll()
+            return values
+        }
+        for continuation in continuations {
+            continuation.finish()
+        }
     }
 
     // MARK: - Public surface
 
-    func setEnabled(_ enabled: Bool) {
-        let wasEnabled = state.withLock { s -> Bool in
-            let prev = s.enabled
-            s.enabled = enabled
-            return prev
+    var hasActiveDemand: Bool {
+        state.withLock { !$0.demandOwners.isEmpty }
+    }
+
+    func setDemand(owner: SpaceThumbnailDemandOwner, enabled: Bool) {
+        let transition = state.withLock { s -> (wasEnabled: Bool, isEnabled: Bool) in
+            let wasEnabled = !s.demandOwners.isEmpty
+            if enabled {
+                s.demandOwners.insert(owner)
+            } else {
+                s.demandOwners.remove(owner)
+            }
+            return (wasEnabled, !s.demandOwners.isEmpty)
         }
-        guard wasEnabled != enabled else { return }
+        guard transition.wasEnabled != transition.isEnabled else { return }
+        setCaptureEnabled(transition.isEnabled)
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        setDemand(owner: .client("legacy"), enabled: enabled)
+    }
+
+    private func setCaptureEnabled(_ enabled: Bool) {
         if enabled {
             logger.notice("thumbnails enabled")
             installSpaceChangeObserver()
@@ -98,7 +136,7 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             refreshTask = nil
             // Emit empty so the client clears its strip without waiting
             // on its own settings change to ack the disable.
-            continuation.yield([:])
+            emit([:])
         }
     }
 
@@ -109,7 +147,7 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
     // so the hint is recorded but not consulted by the compositor.
     func forceRefresh(spaceId: UInt64) {
         let shouldSchedule = state.withLock { s -> Bool in
-            guard s.enabled else { return false }
+            guard !s.demandOwners.isEmpty else { return false }
             s.pendingForceRefreshSpaceId = spaceId
             return true
         }
@@ -140,7 +178,7 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
     private func startRefreshLoop() {
         refreshTask?.cancel()
         refreshTask = Task.detached(priority: .utility) { [weak self] in
-            // Don't fire an immediate tick; setEnabled already scheduled
+            // Don't fire an immediate tick; setCaptureEnabled already scheduled
             // one. From here, wait then capture until cancelled.
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(Self.refreshInterval * 1_000_000_000))
@@ -155,7 +193,7 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
         // capture is still running just skips; the next tick (or the
         // forceRefresh / Space-change observer) will pick up.
         let shouldRun = state.withLock { s -> Bool in
-            guard s.enabled, !s.capturing else { return false }
+            guard !s.demandOwners.isEmpty, !s.capturing else { return false }
             s.capturing = true
             return true
         }
@@ -167,8 +205,18 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             let result = await self.captureAsync()
             let elapsed = Date().timeIntervalSince(start)
             self.logger.debug("thumbnails capture reason=\(reason, privacy: .public) spaces=\(result.count, privacy: .public) elapsed=\(String(format: "%.3f", elapsed), privacy: .public)s")
-            self.continuation.yield(result)
+            self.emit(result)
             self.state.withLock { $0.capturing = false }
+        }
+    }
+
+    private func emit(_ thumbnails: [UInt64: Data]) {
+        let continuations = state.withLock { s -> [AsyncStream<[UInt64: Data]>.Continuation] in
+            s.latest = thumbnails
+            return Array(s.continuations.values)
+        }
+        for continuation in continuations {
+            continuation.yield(thumbnails)
         }
     }
 
