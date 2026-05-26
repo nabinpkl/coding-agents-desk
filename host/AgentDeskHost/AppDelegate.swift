@@ -73,6 +73,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var isTemplate: Bool {
             true
         }
+
+        var pointSize: CGFloat {
+            assetName == nil ? 18 : 20
+        }
     }
 
     private var statusItem: NSStatusItem!
@@ -165,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             image = nil
         }
 
-        image?.size = NSSize(width: 18, height: 18)
+        image?.size = NSSize(width: icon.pointSize, height: icon.pointSize)
         image?.isTemplate = icon.isTemplate
         statusItem.button?.image = image
         statusItem.button?.imagePosition = .imageOnly
