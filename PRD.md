@@ -4,7 +4,7 @@
 
 ## One-line thesis
 
-AgentDesk is an AnyDesk replacement for one solo developer controlling one macOS host from an iPhone, with **macOS Spaces as a first-class primitive** accessed via a 3-finger swipe.
+AgentDesk is an AnyDesk replacement for one solo developer controlling one macOS host from an iPhone, with **macOS Spaces as a first-class primitive** on both the iPhone client and the Mac host.
 
 ## Who it is for
 
@@ -18,7 +18,7 @@ Secondary pain: AnyDesk on phone often degrades to a black canvas with a moving 
 
 ## Solution
 
-Native iOS app plus native macOS menu-bar host, paired over Tailscale, streaming HEVC over WebRTC. The iPhone shows the active Space at native DPR with an AnyDesk-style trackpad and a compact keyboard, plus one new gesture: **3-finger horizontal swipe switches Spaces** on the host.
+Native iOS app plus native macOS menu-bar host, paired over Tailscale, streaming HEVC over WebRTC. The iPhone shows the active Space at native DPR with an AnyDesk-style trackpad and a compact keyboard, plus a one-handed Spaces control that drives the host's native Spaces transition.
 
 The macOS host also owns a local **Space Agent** overlay: a small draggable spaceship that stays visible while the host app runs. Clicking the spaceship expands an attached Spaces panel showing live thumbnails for the active display's user Spaces; clicking a non-active Space switches the Mac to it. This is a host-side desktop navigator, not the iPhone remote-control surface.
 
@@ -31,7 +31,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 1. Pair iPhone to Mac once by scanning a QR code on the Mac.
 2. Open iPhone app, see the active Space at native DPR.
 3. Trackpad area accepts: cursor move, tap-to-click, two-finger right-click, two-finger scroll, double-tap-drag.
-4. **Three-finger horizontal swipe switches Spaces.** Visible feedback within one frame.
+4. **One-handed Spaces control switches Spaces.** Visible feedback within one frame.
 5. Compact keyboard with Esc, Tab, arrows, and sticky-tap modifiers (Cmd, Ctrl, Option, Shift).
 6. When the iPhone app backgrounds, the session drops within one second. Foregrounding reconnects in under five seconds.
 7. macOS host runs as a menu-bar app that auto-starts when the user actively opens it (not on every boot).
