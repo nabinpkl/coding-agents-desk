@@ -1,16 +1,16 @@
-# TASKS: v0 daily-driver replacement of AnyDesk (Phases 4 through 8 active)
+# TASKS: v0 Space Agent host overlay
 
 `R<N>` = remaining. `D<N>` = done. Numbers are stable; retire dropped IDs in the promotion log, never reuse.
 
 ## Position
 
-v0 is one iteration. Acceptance is empirical, not duration-based: v0 ships when the qualitative friction list reaches steady state (per `PRD.md`). Nine vertical phases mirror GitHub issues #2 through #10. Phases 0 through 3 are landed and pixels-plus-input-plus-scroll work on hardware. A tenth phase (R20, Spaces preview strip) was opened on 2026-05-23 against felt dead-band friction; it does not block distribution and can run parallel with R14.
+v0 is one iteration. Acceptance is empirical, not duration-based: v0 ships when the qualitative friction list reaches steady state (per `PRD.md`). The original GitHub-issue phases through R21 have either landed, been dropped, or remain captured as distribution work. The active iteration is R22, the macOS host Space Agent overlay.
 
-Per the GitHub issues, Phases 4 through 7 (#6, #7, #8, #9) are each only blocked by Phase 3 (#5, cursor + click), not by each other. They can sequence on priority, not on a forced serial chain. Phase 8 (#10) is blocked by Phases 4 and 5 (#6 and #7) plus the paid Developer ID cert. The prior serial chain in this file overstated dependencies.
+R22 is host-local and does not replace the existing menu-bar pairing/status popover. The menu-bar app remains the server and status surface. Space Agent is a separate always-visible, draggable spaceship overlay that can expand an attached Spaces panel for the active display.
 
-Apple Developer Program enrollment landed by 2026-05-23. Both projects sign with `Apple Development: Owner Name (CERT000000)` / team `TEAMID0000` (~1-year cert, no 7-day reinstall cadence). The remaining distribution items (Developer ID Application notarized DMG + iOS App Distribution / TestFlight) live under R14.
+R14 distribution remains captured and not active in this iteration. Apple Developer Program enrollment landed by 2026-05-23. Both projects sign with `Apple Development: Owner Name (CERT000000)` / team `TEAMID0000` (~1-year cert, no 7-day reinstall cadence). The remaining distribution items are Developer ID Application notarized DMG and iOS App Distribution / TestFlight.
 
-Authoritative dependency edges live in each issue's "Blocked by" section, not here.
+The first R22 slice starts with module isolation before UI behaviour. The Space Agent can share neutral primitives (`SpacesProvider`, `SpaceThumbnailProvider`, `DesktopState`, `SpaceMetadata`), but its owner code lives under `host/AgentDeskHost/SpaceAgent/` so it can later move into a separate product shell.
 
 ## Done: Phases 0 through 3 (gists)
 
@@ -24,7 +24,7 @@ One line per landed slice. Detail lives in commits, ADRs (`architecture-decision
 
 Tuning and refactors landed alongside but not against R-numbers (inferable from `git log` and the code): cursor acceleration curve driven by real `UIPan` touch velocity, settings screen for cursor and scroll feel, frame-pipeline color and perf fixes (NV12 full-range, BT.709 tagging, `SCStream` queueDepth, VP9 default codec), libwebrtc retain fixes for Swift weak-ref semantics, dev pairing affordances (SIGUSR1 + `devicectl` env-var URL delivery), refactors (`SessionRegistry` extracted from `AppDelegate`, `GestureTuning` value type, MARK section headers in `GestureTranslator`).
 
-## v0 Phase 4 (S4, #6): full trackpad gestures. AFK. In progress. Blocked by R9.
+## v0 Phase 4 (S4, #6): full trackpad gestures. Done.
 
 Phase goal: round out the gesture vocabulary with two-finger right-click and double-tap-drag so the trackpad matches the AnyDesk-equivalent set on one-handed phone use.
 
@@ -39,7 +39,7 @@ R10 sub-tasks:
 - [x] D10.3. Reconciled with issue #6. Issue body rewritten to describe the bottom-row `[Right-click]` button, right-edge scroll strip, consecutive-click state increment (1 → 4 = click / word / line-or-paragraph / select-all), and bare press-and-hold drag (replacing the two-finger and double-tap-drag vocabulary from the original spec). Inline `// MARK: - One-handed affordances` block in `client/AgentDeskClient/GestureTranslator.swift` and `client/AgentDeskClient/PairingViewController.swift` captures the rationale and the mapping back to the unchanged wire shapes (`NormalizedInput.click(.right)`, `NormalizedInput.scroll`).
 - [x] D10.4. Tests landed alongside the feature commits: `InputDispatcherTests` covers `.click(.right)` (D10.1), the consecutive-click state increment to 4 plus the location-far and time-out resets (D10.1 / quad-click), `.dragStart` / `.dragEnd` posting and `.cursorMove` promotion to `.leftMouseDragged` during drag (D10.2), and the tap-then-drag opens-at-state-2 case. `GestureTranslatorTests` covers `processDrag` `.began` / `.changed` / `.ended` transitions and the `pan-suppressed-during-drag` invariant. The right-click button itself stays untested in isolation per plan; covered by the host-side `.click(.right)` assertion and HITL.
 
-## v0 Phase 5 (S5, #7): one-handed Spaces switch. AFK. Blocked by R9 (per issue #7). Parallel with R10.
+## v0 Phase 5 (S5, #7): one-handed Spaces switch. Done.
 
 Phase goal: the iPhone-side one-handed Spaces-switch surface drives macOS Spaces on the host. This is the v0 thesis gesture (`PRD.md`).
 
@@ -62,7 +62,7 @@ R11 sub-tasks:
 - Direct `SLSManagedDisplaySetCurrentSpace` / `CGSManagedDisplaySetCurrentSpace` to switch Spaces. The original D11 backend. Rejected after the May 2026 industry-pattern review: the setter is restricted to `Dock.app` (every other process's call silently no-ops), which is why yabai requires SIP partially disabled to inject into Dock. The unprivileged path the entire 2026 ecosystem (`jurplel/InstantSpaceSwitcher` 2.0, `joshuarli/iss`, `theo-sardin/instant-switcher`) ships is synthesised dock-swipe `CGEvent` posting; that is what we now use. Accessibility permission only, no SIP changes.
 - Polling `SpacesProvider.current()` on a timer to sync Mac-initiated switches. Rejected because `NSWorkspace.activeSpaceDidChangeNotification` (public AppKit API on `NSWorkspace.shared.notificationCenter`) fires unconditionally on every Space change regardless of trigger; no polling needed.
 
-## v0 Phase 6 (S6, #8): keyboard + accessory row. AFK. Blocked by R9 (per issue #8). Parallel with R10, R11, R13.
+## v0 Phase 6 (S6, #8): keyboard + accessory row. Done.
 
 Phase goal: iOS soft keyboard plus a sticky-tap accessory row types into the connected Mac. Issue #8 acceptance is the source of truth.
 
@@ -75,7 +75,7 @@ R12 sub-tasks:
 - [x] D12.3. PairingViewController integration. `[Show keyboard]` joins `[Right-click]` in the bottom button row. Tap toggles `KeyboardSurface.setVisible(_:)`. Hidden zero-size `KeyboardSurface` mounted as a permanent subview so the responder chain routes through it. `keyboardWillChangeFrame` and `keyboardWillHide` notifications animate `buttonRowBottomConstraint` to keep the trackpad above the soft keyboard (computes overlap in view coords, subtracts safe area so the safe-area anchor doesn't double-count). `KeyboardSurfaceDelegate.keyboardSurface(_:didProduce:)` forwards `.key` events through the same `sendInput(_:)` path the gesture and right-click paths use. `KeyboardAccessoryView` is the `inputAccessoryView`: horizontal stack of Esc, Tab, 2×2 arrow cluster, Cmd, Ctrl, Option. Modifier buttons render `off / armed (tinted background) / locked (solid tint + inset border)` states; Cmd / Ctrl / Option route through `surface.tapModifier(_:)`, Esc / Tab / arrows route through `surface.sendKey(code:)` so armed modifiers attach to them.
 - [x] D12.4. Tests landed across D12.1 and D12.2 commits. `host/AgentDeskHostTests/InputDispatcherTests.swift` gains: `keyDown` + `keyUp` posting at the mapped `virtualKey`; single modifier flag carries; multi-modifier composition (`.cmd` + `.shift` both set); no-modifier-bleed regression guard between a key event and the next cursor move; unknown wire code drops with a warning; `modifierArm` is a no-op. `client/AgentDeskClientTests/KeyboardSurfaceTests.swift`: lowercase / uppercase letters, shifted digit-row punctuation, unshifted ANSI punctuation, return, deleteBackward, sticky-tap three-state cycle (single-tap arms-then-clears, double-tap locks, triple-tap clears), multi-modifier composition, locked + armed coexistence with armed clearing, multi-character insertText, and silent drop of out-of-table characters.
 
-## v0 Phase 7 (S7, #9): lifecycle + reconnect. AFK. Blocked by R9 (per issue #9). Parallel with R10, R11, R12.
+## v0 Phase 7 (S7, #9): lifecycle + reconnect. Done with stopwatch row retired.
 
 Phase goal: client tears down its peer within 1s of backgrounding; foregrounding reconnects in under 5s (PRD acceptance bullet 6).
 
@@ -83,7 +83,7 @@ R13 sub-tasks:
 
 - [x] D13.1. `PairingViewController.applicationDidEnterBackground` (observer on `UIApplication.didEnterBackgroundNotification`) cancels `sessionTask`, `handshakeTask`, `iceGraceTask`, `mediaStateTask`, calls `teardownMediaTransport()` (stops the WebRTC PC, drops the video sink, hides the trackpad), then `pairingClient.handleMediaSessionFailed()` (closes `activeSignaling` + `activeInputChannel`, flips state `.connected → .pairedDisconnected`). Keychain token / host pubkey persist. Host sees the WS close, fires `sessionEndedHandler → SessionRegistry.endSession` which closes the input channel server, the media transport, and the media-state tasks for that fingerprint. Verified via `just ui-flow background-foreground-loop` (host log shows `input-channel peer closed` then `session ended` within ~50ms of Home tap).
 - [x] D13.2. `applicationWillEnterForeground` already calls `triggerSessionIfPaired()` which is now reliably hit because D13.1 flipped state to `.pairedDisconnected`. `attemptSession` reuses the stored `SessionToken`, runs the four-message handshake per ADR-0003, and opens the dedicated `InputChannel` (ADR-0005) alongside the WebRTC session. End-to-end re-establishment timing observed on simulator ~2s (handshake + ICE + first video frame); hardware timing measurement deferred to D13.3 (HITL). Verified via the same flow: post-foreground `tapOn "Tab"` produces `input recv key(code: "tab")` on the host.
-- [ ] R13.3. Hardware verification (HITL). Measure background-to-teardown and foreground-to-pixels with a stopwatch over three iterations on the developer's iPhone. Capture timings in `HANDOVER.md`. Fail the slice and open an investigation R-task if either budget is missed.
+- [x] R13.3 dropped. Retired the hardware stopwatch row. v0 acceptance is empirical and friction-list based, not a standalone timed self-test.
 
 ## v0 input transport refactor (R19, ADR-0005). AFK. Blocked by R12 landing. Blocks R14.
 
@@ -101,7 +101,7 @@ R19 sub-tasks:
 - [x] D19.6. End-to-end verification. Re-run the `just ui-flow type-tap-keys` Maestro flow against the simulator after the refactor; the trackpad+keyboard path must still complete with input events reaching the host log. On the developer's iPhone, type a paragraph and observe the latency cadence (subjective: characters should land at the same beat the user is typing, not in bursts). If variance is still visible, open a follow-up R-task; do not paper it.
 - [x] D19.7. SPEC.md updates. `§Module boundaries` gains `InputChannel` (client) and `InputChannelServer` (host) as named modules. The transport seam diagram updates to show two transports per session (video PC + input WSS) instead of one. The `MediaTransport` surface in `§Wire shapes` loses `send` and `inputEvents`. Cross-reference ADR-0005 by number.
 
-## v0 Phase 8 (S8, #10): distribution. HITL. Blocked by R10, R11, R12, R13, R19 and by Apple Developer Program enrollment landing.
+## v0 Phase 8 (S8, #10): distribution. Captured, not active.
 
 Phase goal: ship a Developer ID notarized DMG (host) and a TestFlight build (client). The standalone 7-day self-test that originally closed this phase was retired on 2026-05-23 (see PRD §v0 acceptance and R14.4 in the promotion log): acceptance is now empirical and steady-state, not duration-gated, because AnyDesk does not navigate Spaces and so cannot anchor a like-for-like reach metric on the v0 thesis gesture.
 
@@ -111,7 +111,7 @@ R14 sub-tasks:
 - [ ] R14.2. Host distribution. Notarize the host `.app` via `xcrun notarytool submit ... --wait` and staple via `xcrun stapler staple`. Package as a signed DMG. Verify Gatekeeper acceptance on a clean account.
 - [ ] R14.3. Client distribution. Archive and upload to App Store Connect; expose via internal TestFlight to the developer's iPhone. Verify install and launch from TestFlight.
 
-## v0 Phase 9 (R20): Spaces preview strip in the dead band. AFK after R20.0 gates green. Parallel with R14.
+## v0 Phase 9 (D20): Spaces preview strip in the dead band. Done.
 
 Phase goal: the band of empty pixels between the bottom of the aspect-fit screen-share video and the top of `SpacesDotsView` (currently dead on the v0 client layout) becomes a horizontal strip of thumbnail previews of the user's macOS Spaces. Tap a thumbnail to switch; long-press to force-refresh that thumbnail. This is the first surface in v0 that exposes off-active-Space state on the phone (the dots band shows the count, not the contents). Replaces "switching Spaces blind" with "switching Spaces against a glanceable picture."
 
@@ -129,7 +129,7 @@ R20 sub-tasks:
 
 - Private `SLSHWCaptureWindowList` for the thumbnail capture path.
 
-## v0 Phase 10 (R21): pinch-to-zoom on the Mac-display view. AFK. Parallel with R14.
+## v0 Phase 10 (D21): pinch-to-zoom on the Mac-display view. Done.
 
 Phase goal: the iPhone-side screen-share view supports pinch-and-pan zoom. Local-only zoom (Path A) landed first as a one-commit slice and shipped acceptable up to ~2x; the host-side viewport crop (Path B, ADR-0007) lands on top to keep text sharp at higher zoom, with active prefill on pinch-start so pinch-out is smooth.
 
@@ -147,6 +147,26 @@ R21 sub-tasks:
 - Per-pinch-frame viewport updates (Option B). Continuous re-cropping during the gesture. Rejected because each `SCStream.updateConfiguration` forces a fresh IDR keyframe; per-frame churn would keyframe-storm the encoder.
 - Cursor warping ("tap on the zoomed view = warp Mac cursor to that point", Microsoft RDP touch-mode). Deferred to v2. The pattern AltTab, Dock, and Mission Control use; bypasses Screen Recording prompt. Rejected because the host already has Screen Recording permission (`ScreenCaptureKitFrameSource` uses it for the main stream), so the prompt cost is zero, and SCK is the supported surface Apple maintains. Revisit if SCK proves unreliable for off-Space windows during R20.0.
 
+## v0 Phase 11 (R22): Space Agent host overlay. AFK. Active.
+
+Phase goal: a small draggable spaceship overlay is visible while the host app runs. Clicking it expands an attached active-display Spaces panel with live 128 x 80 thumbnails. Clicking a non-active tile switches Spaces and keeps the panel open. The existing menu-bar popover remains unchanged.
+
+R22 sub-tasks:
+
+- [ ] R22.1. Introduce `host/AgentDeskHost/SpaceAgent/SpaceAgentModel.swift`. It derives active-display user-Space tile models from `DesktopState` and `[UInt64: Data]`, marks the active tile inert, and computes the step delta for non-active tiles.
+- [ ] R22.2. Introduce `host/AgentDeskHost/SpaceAgent/SpaceAgentViewController.swift`. It renders a static bitmap spaceship in collapsed state and an attached horizontal 128 x 80 Space thumbnail strip when expanded. The header/spaceship region is draggable, the active tile is inert, and non-active tile selection emits the target action.
+- [ ] R22.3. Introduce `host/AgentDeskHost/SpaceAgent/SpaceAgentController.swift`. It owns a non-activating floating `NSPanel`, starts visible at host launch, uses `.canJoinAllSpaces` and `.fullScreenAuxiliary` where AppKit permits, persists and clamps position, and owns collapsed/expanded state.
+- [ ] R22.4. Add a static transparent bitmap spaceship asset local to Space Agent. Keep it about 48 x 48 pt, bright on dark and light desktops, and text-free.
+- [ ] R22.5. Add owner-scoped thumbnail demand around the shared `SpaceThumbnailProvider`. Introduce `setDemand(owner:enabled:)`; `.spaceAgent` and client fingerprints independently request thumbnails; the provider is enabled while at least one owner is active.
+- [ ] R22.6. Wire `AppDelegate` to instantiate Space Agent at launch with `SpacesProvider`, `SpaceThumbnailProvider`, and callbacks. Existing menu-bar pairing/status popover behaviour stays unchanged.
+- [ ] R22.7. Tests. `SpaceAgentModel` maps `DesktopState` to active-display user tiles and delta math; thumbnail demand owner set keeps the provider enabled until the last owner clears; controller position clamp/persistence is covered if factored into a pure helper.
+
+### Alternative arc (rejected for R22, captured)
+
+- Replacing the menu-bar popover with Space Agent. Rejected for now. The tray host remains the server and status surface.
+- Always showing the expanded Spaces grid. Rejected because the core affordance is a small draggable spaceship that can stay out of the way.
+- Building a second thumbnail provider. Rejected because `SpaceThumbnailProvider` is the neutral primitive. The correct isolation boundary is owner-scoped demand, not duplicated capture logic.
+
 ---
 
 ## v1 scope (captured, not started until v0 acceptance passes)
@@ -157,6 +177,7 @@ R15 onwards reserves the v1 block.
 - [ ] R16. Multi-display picker on the iOS client. Protocol already carries `displays[]` and `activeDisplayId`; UI-only slice.
 - [ ] R17. iPad-optimised layout. Same codebase; anchor sizes adapt.
 - [ ] R18. Sparkle-based auto-update for the macOS host. Replaces the v0 manual download-and-replace.
+- [ ] R23. Extract Space Agent into a separate product shell once the host-local boundary stabilizes.
 
 ### Alternative arc (rejected for v0, captured)
 
@@ -209,25 +230,33 @@ D12.1     2026-05-22  committed   InputDispatcher .key handling + KeyCodeMap (Ca
 D12.2     2026-05-22  committed   KeyboardSurface UIView with sticky-mod state and CharacterToKey table
 D12.3     2026-05-22  committed   PairingViewController integration + KeyboardAccessoryView + keyboard-frame layout
 D12.4     2026-05-22  committed   tests landed across D12.1 / D12.2
-R13       pending     pending     Phase 7 (S7, #9): drop-on-background + foreground reconnect under 5s
-R13.1     pending     pending     background teardown within 1s; close peer + cancel dialer
-R13.2     pending     pending     foreground reconnect under 5s via existing auto-dial path
-R13.3     pending     pending     HITL stopwatch verification on hardware; timings in HANDOVER
-R14       pending     pending     Phase 8 (S8, #10): paid signing + DMG + TestFlight
+D13       2026-05-23  committed   Phase 7 (S7, #9): drop-on-background + foreground reconnect shipped
+D13.1     2026-05-23  committed   background teardown within 1s; close peer + cancel dialer
+D13.2     2026-05-23  committed   foreground reconnect under 5s via existing auto-dial path
+R13.3     2026-05-26  dropped     hardware stopwatch row retired; empirical friction acceptance remains PRD signal
+R14       pending     captured    Phase 8 (S8, #10): paid signing + DMG + TestFlight, not active in R22
 R14.1     pending     pending     switch to paid team identity; retire signing pivot memory
 R14.2     pending     pending     host notarized + stapled DMG; Gatekeeper acceptance
 R14.3     pending     pending     client TestFlight upload; install + launch verified
 R14.4     2026-05-23  dropped     7-day self-test retired; PRD acceptance reframed to empirical / steady-state
-R20       pending     pending     Phase 9: Spaces preview strip in the dead band (opt-in, default off)
+D20       2026-05-23  committed   Phase 9: Spaces preview strip in the dead band shipped (opt-in, default off)
 D20.0     2026-05-23  committed   ADR-0006 (spike retired; SCK + SLSCopySpacesForWindows + opt-in)
 D20.1     2026-05-23  committed   SpaceThumbnailProvider host module + own SkyLight resolver
 D20.2     2026-05-23  committed   ThumbnailsPush + ClientConfig wire frames + host opt-in routing
 D20.3     2026-05-23  committed   ThumbnailStripView client + top-band stack layout
 D20.4     2026-05-23  committed   showSpacePreviews SettingsStore + toggle row footnote
-R21       pending     pending     Phase 10: pinch-to-zoom on the screen-share view
+D21       2026-05-23  committed   Phase 10: pinch-to-zoom on the screen-share view shipped
 D21.A     2026-05-23  committed   local-only zoom via UIScrollView wrapping the sink (Path A)
 D21.0     2026-05-23  committed   ADR-0007 host-side viewport crop with active prefill
 D21.1     2026-05-23  committed   RegionalVideoFrameSource protocol + SCK setSourceRect via updateConfiguration
 D21.2     2026-05-23  committed   ClientConfig.viewport wire + AppDelegate downcast routing
 D21.3     2026-05-23  committed   client pinch-start prefill + pinch-end snapshot + pan-settle resend
+R22       pending     pending     Phase 11: Space Agent host overlay
+R22.1     pending     pending     SpaceAgentModel active-display user-Space tile models and delta math
+R22.2     pending     pending     SpaceAgentViewController spaceship plus attached thumbnail strip
+R22.3     pending     pending     SpaceAgentController floating always-visible draggable panel
+R22.4     pending     pending     static transparent bitmap spaceship asset
+R22.5     pending     pending     owner-scoped SpaceThumbnailProvider demand
+R22.6     pending     pending     AppDelegate launch wiring without menu-bar popover changes
+R22.7     pending     pending     model, thumbnail-demand, and clamp/persistence tests
 ```

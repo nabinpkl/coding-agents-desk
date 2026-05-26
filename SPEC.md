@@ -6,7 +6,7 @@
 
 | Layer | Choice | Why |
 | --- | --- | --- |
-| macOS host | Swift, AppKit menu-bar app via `NSStatusItem` | Fresh implementation, owned end-to-end. Python sister project's pyobjc learnings reused, code is not. |
+| macOS host | Swift, AppKit menu-bar app via `NSStatusItem` plus a floating `NSPanel` Space Agent | Fresh implementation, owned end-to-end. The menu-bar host remains the server/status process; Space Agent is a local desktop navigator. Python sister project's pyobjc learnings reused, code is not. |
 | iOS client | Swift, UIKit, `AVSampleBufferDisplayLayer` for video | Native required for HEVC crispness and gesture fidelity. Browser path rejected (see PRD). |
 | Capture | `ScreenCaptureKit` (macOS 12.3+) | First-party, captures the active Space without composition tricks. |
 | Encode / decode | VideoToolbox via libwebrtc, codec preference list | Apple Silicon native. H.264 in v0 per ADR-0004; HEVC tracked as a follow-up through `MediaCodecPreferences`. |
@@ -36,6 +36,8 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 8. **InputChannelServer.** Per ADR-0005. Owns the host side of the dedicated input WebSocket: validates `InputChannelHello.sessionToken` against `Pairing`, then drains `InputChannelEvent` frames into `events: AsyncStream<NormalizedInput>` for `InputDispatcher`. One instance per active session, owned by `SessionRegistry`. Independent lifecycle from the video PeerConnection.
 9. **SignalingChannel.** Protocol per ADR-0004. Wraps the authenticated WebSocket post-`SessionReady`. Carries the three `WebRTCSignalingFrame` cases (`.offer`, `.answer`, `.ice`). Concrete impl `WebSocketSignalingChannel`.
 10. **VideoFrameSource.** Protocol per ADR-0004. Concrete impl `ScreenCaptureKitFrameSource` captures the active Space's display at native cadence; a `ScreenCaptureKitVideoCapturer: RTCVideoCapturer` adapter bridges into libwebrtc's `RTCVideoSource`. `TestPatternFrameSource` exists as a diagnostic impl.
+11. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces. Uses `ScreenCaptureKit` plus an isolated SkyLight `SLSCopySpacesForWindows` binding to map windows to Spaces and composite 128x80 JPEG thumbnails. Surface: `setDemand(owner:enabled:)`, `forceRefresh(spaceId:)`, `thumbnails: AsyncStream<[UInt64: Data]>`. It is shared by the iPhone preview strip and the host Space Agent through owner-scoped demand; it captures only while at least one owner needs thumbnails.
+12. **SpaceAgent.** Host-local overlay under `host/AgentDeskHost/SpaceAgent/`. `SpaceAgentController` owns a floating non-activating `NSPanel`, persisted screen position, expanded/collapsed state, and thumbnail-demand ownership. `SpaceAgentViewController` renders the small draggable bitmap spaceship and the attached horizontal active-display Spaces strip. `SpaceAgentModel` derives view models from `DesktopState` and thumbnail bytes. The current menu-bar popover remains pairing/status UI; Space Agent is independent and starts visible with the host app.
 
 ### Client (iOS)
 
@@ -145,6 +147,7 @@ Both signatures are ECDSA-P256 over `"agentdesk-session" || clientNonce || hostN
 ## Lifecycle
 
 - Host runs only when the user opens it. No auto-launch on boot (charging-while-docked behavior excluded from v0).
+- Space Agent appears while the host runs. It is a small draggable spaceship overlay that joins all Spaces where AppKit permits. Clicking the spaceship expands or collapses an attached active-display Spaces panel. Thumbnail capture is enabled only while expanded and only through owner-scoped demand on the shared `SpaceThumbnailProvider`.
 - Client suspends on background; the WebRTC peer is torn down within 1 second; Keychain token and host pubkey persist.
 - On foreground, the client transitions to `paired-disconnected` and runs the session-establishment exchange per ADR-0003 using the stored `SessionToken` to identify itself and a fresh `clientSignature` to authenticate. Re-pairing only occurs after a `revoked`, `unknown-device`, `bad-signature`, or `unauthorized` rejection from the host.
 - The dedicated input channel (ADR-0005) is opened immediately after session establishment and lives for the session. Its lifecycle is independent of the WebRTC video PeerConnection: a video failure does not tear down input, and vice versa. Reconnection uses the same exponential-backoff policy as `SessionDialer`.
