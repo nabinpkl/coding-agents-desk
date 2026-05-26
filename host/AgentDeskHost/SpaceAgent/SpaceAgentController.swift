@@ -17,6 +17,7 @@ final class SpaceAgentController: NSObject {
     private var latestThumbnails: [UInt64: Data] = [:]
     private var thumbnailsTask: Task<Void, Never>?
     private var spaceChangeObserver: NSObjectProtocol?
+    private var pendingHandleScreenOrigin: CGPoint?
 
     init(
         spacesProvider: SpacesProvider,
@@ -102,6 +103,7 @@ final class SpaceAgentController: NSObject {
 
     private func setExpanded(_ expanded: Bool) {
         guard viewController.isExpanded != expanded else { return }
+        pendingHandleScreenOrigin = viewController.handleScreenOrigin()
         viewController.isExpanded = expanded
         if expanded {
             latestState = spacesProvider.current()
@@ -130,13 +132,49 @@ final class SpaceAgentController: NSObject {
     private func resizePanel() {
         guard let panel else { return }
         let size = viewController.preferredPanelSize
-        let origin = SpaceAgentPanelPlacement.clampedOrigin(
-            proposed: panel.frame.origin,
+        let origin = resizedPanelOrigin(
+            panel: panel,
             size: size,
-            visibleFrames: visibleFrames()
+            pinnedHandleScreenOrigin: pendingHandleScreenOrigin
         )
+        pendingHandleScreenOrigin = nil
         panel.setFrame(CGRect(origin: origin, size: size), display: true)
         save(origin: origin)
+    }
+
+    private func resizedPanelOrigin(
+        panel: NSPanel,
+        size: CGSize,
+        pinnedHandleScreenOrigin: CGPoint?
+    ) -> CGPoint {
+        let visibleFrames = visibleFrames()
+        guard let pinnedHandleScreenOrigin else {
+            return SpaceAgentPanelPlacement.clampedOrigin(
+                proposed: panel.frame.origin,
+                size: size,
+                visibleFrames: visibleFrames
+            )
+        }
+
+        let originalOrigin = panel.frame.origin
+        panel.setFrame(CGRect(origin: originalOrigin, size: size), display: false)
+        viewController.view.layoutSubtreeIfNeeded()
+        guard let resizedHandleScreenOrigin = viewController.handleScreenOrigin() else {
+            return SpaceAgentPanelPlacement.clampedOrigin(
+                proposed: originalOrigin,
+                size: size,
+                visibleFrames: visibleFrames
+            )
+        }
+        let correctedOrigin = CGPoint(
+            x: originalOrigin.x + pinnedHandleScreenOrigin.x - resizedHandleScreenOrigin.x,
+            y: originalOrigin.y + pinnedHandleScreenOrigin.y - resizedHandleScreenOrigin.y
+        )
+        return SpaceAgentPanelPlacement.clampedOrigin(
+            proposed: correctedOrigin,
+            size: size,
+            visibleFrames: visibleFrames
+        )
     }
 
     private func restoredOrigin(size: CGSize) -> CGPoint? {

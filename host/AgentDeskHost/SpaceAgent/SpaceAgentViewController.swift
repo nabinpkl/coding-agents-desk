@@ -61,6 +61,13 @@ final class SpaceAgentViewController: NSViewController {
         preferredContentSize = preferredPanelSize
     }
 
+    func handleScreenOrigin() -> CGPoint? {
+        guard let window = view.window else { return nil }
+        view.layoutSubtreeIfNeeded()
+        let windowRect = handleView.convert(handleView.bounds, to: nil)
+        return window.convertPoint(toScreen: windowRect.origin)
+    }
+
     private func configure() {
         rootView.handleView = handleView
         rootView.tileHost = tileScrollView
