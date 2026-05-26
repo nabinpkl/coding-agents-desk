@@ -14,6 +14,7 @@ final class SpaceAgentViewController: NSViewController {
     private let expandedHeight: CGFloat = 104
     private let tileSize = CGSize(width: 128, height: 80)
     private let tileSpacing: CGFloat = 8
+    private let tileStripHeight: CGFloat = 100
     private let rootView = SpaceAgentRootView()
     private let handleView = SpaceAgentHandleView()
     private let tileScrollView = NSScrollView()
@@ -65,6 +66,7 @@ final class SpaceAgentViewController: NSViewController {
         rootView.tileHost = tileScrollView
         rootView.handleSize = handleSize
         rootView.expandedHeight = expandedHeight
+        rootView.tileStripHeight = tileStripHeight
         rootView.translatesAutoresizingMaskIntoConstraints = false
 
         handleView.image = NSImage(named: "SpaceAgentSpaceship")
@@ -111,6 +113,7 @@ private final class SpaceAgentRootView: NSView {
     var isExpanded: Bool = false
     var handleSize = CGSize(width: 52, height: 52)
     var expandedHeight: CGFloat = 104
+    var tileStripHeight: CGFloat = 100
 
     override var isFlipped: Bool { true }
 
@@ -122,9 +125,9 @@ private final class SpaceAgentRootView: NSView {
         let x = handleSize.width + 12
         tileHost.frame = CGRect(
             x: x,
-            y: max(0, (bounds.height - SpaceThumbnailProvider.thumbnailHeight.cgFloat) / 2),
+            y: max(0, (bounds.height - tileStripHeight) / 2),
             width: max(0, bounds.width - x),
-            height: SpaceThumbnailProvider.thumbnailHeight.cgFloat + 20
+            height: tileStripHeight
         )
     }
 }

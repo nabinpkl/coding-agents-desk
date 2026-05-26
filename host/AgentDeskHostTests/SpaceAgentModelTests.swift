@@ -84,4 +84,33 @@ struct SpaceAgentModelTests {
 
         #expect(controller.preferredPanelSize.width == 640)
     }
+
+    @Test func expandedPanelKeepsTileStripInsideBounds() throws {
+        let controller = SpaceAgentViewController()
+        _ = controller.view
+        controller.isExpanded = true
+        controller.render(tiles: [
+            SpaceAgentTile(spaceId: 1, title: "Desktop 1", isActive: true, stepDelta: 0, thumbnail: nil),
+            SpaceAgentTile(spaceId: 2, title: "Desktop 2", isActive: false, stepDelta: 1, thumbnail: nil)
+        ])
+        controller.view.frame = CGRect(origin: .zero, size: controller.preferredPanelSize)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let scrollView = try #require(firstScrollView(in: controller.view))
+
+        #expect(scrollView.frame.minY >= controller.view.bounds.minY)
+        #expect(scrollView.frame.maxY <= controller.view.bounds.maxY)
+    }
+
+    private func firstScrollView(in view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView {
+            return scrollView
+        }
+        for subview in view.subviews {
+            if let scrollView = firstScrollView(in: subview) {
+                return scrollView
+            }
+        }
+        return nil
+    }
 }
