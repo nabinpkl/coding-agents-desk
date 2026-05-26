@@ -296,12 +296,16 @@ private final class SpaceAgentTileView: NSControl {
         path.lineWidth = tile.isActive ? 2 : 1
         path.stroke()
 
+        let titleBackground = CGRect(x: 0, y: 80, width: bounds.width, height: 18)
+        NSColor(calibratedWhite: 0.03, alpha: 0.78).setFill()
+        NSBezierPath(roundedRect: titleBackground, xRadius: 5, yRadius: 5).fill()
+
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11, weight: tile.isActive ? .semibold : .regular),
             .foregroundColor: NSColor.white.withAlphaComponent(tile.isActive ? 0.98 : 0.76)
         ]
         NSString(string: tile.title).draw(
-            in: CGRect(x: 4, y: 82, width: bounds.width - 8, height: 16),
+            in: CGRect(x: 8, y: 82, width: bounds.width - 16, height: 16),
             withAttributes: attrs
         )
     }
