@@ -71,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         var isTemplate: Bool {
-            symbolName != nil
+            true
         }
     }
 
