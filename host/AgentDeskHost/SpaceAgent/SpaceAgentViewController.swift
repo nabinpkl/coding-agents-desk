@@ -16,6 +16,7 @@ final class SpaceAgentViewController: NSViewController {
     private let tileSpacing: CGFloat = 8
     private let rootView = SpaceAgentRootView()
     private let handleView = SpaceAgentHandleView()
+    private let tileScrollView = NSScrollView()
     private let tileHost = SpaceAgentTileHostView()
     private var tiles: [SpaceAgentTile] = []
 
@@ -61,7 +62,7 @@ final class SpaceAgentViewController: NSViewController {
 
     private func configure() {
         rootView.handleView = handleView
-        rootView.tileHost = tileHost
+        rootView.tileHost = tileScrollView
         rootView.handleSize = handleSize
         rootView.expandedHeight = expandedHeight
         rootView.translatesAutoresizingMaskIntoConstraints = false
@@ -71,6 +72,16 @@ final class SpaceAgentViewController: NSViewController {
             guard let self else { return }
             delegate?.spaceAgentViewControllerDidToggle(self)
         }
+
+        tileScrollView.drawsBackground = false
+        tileScrollView.borderType = .noBorder
+        tileScrollView.hasVerticalScroller = false
+        tileScrollView.hasHorizontalScroller = true
+        tileScrollView.autohidesScrollers = true
+        tileScrollView.scrollerStyle = .overlay
+        tileScrollView.horizontalScrollElasticity = .allowed
+        tileScrollView.verticalScrollElasticity = .none
+        tileScrollView.documentView = tileHost
 
         tileHost.tileSize = tileSize
         tileHost.tileSpacing = tileSpacing
@@ -186,10 +197,19 @@ private final class SpaceAgentTileHostView: NSView {
     var tileSpacing: CGFloat = 8
     var onSelectDelta: ((Int) -> Void)?
     private var tileViews: [SpaceAgentTileView] = []
+    private var renderedSpaceIds: [UInt64] = []
+    private var renderedActiveSpaceId: UInt64?
 
     override var isFlipped: Bool { true }
 
     func render(tiles: [SpaceAgentTile]) {
+        let nextSpaceIds = tiles.map(\.spaceId)
+        let nextActiveSpaceId = tiles.first(where: \.isActive)?.spaceId
+        let shouldScrollActiveTile = nextSpaceIds != renderedSpaceIds
+            || nextActiveSpaceId != renderedActiveSpaceId
+        renderedSpaceIds = nextSpaceIds
+        renderedActiveSpaceId = nextActiveSpaceId
+
         while tileViews.count < tiles.count {
             let view = SpaceAgentTileView()
             view.onSelectDelta = { [weak self] delta in
@@ -204,7 +224,11 @@ private final class SpaceAgentTileHostView: NSView {
         for (idx, tile) in tiles.enumerated() {
             tileViews[idx].tile = tile
         }
+        resizeDocument(for: tiles.count)
         needsLayout = true
+        if shouldScrollActiveTile {
+            scrollActiveTileToVisible()
+        }
     }
 
     override func layout() {
@@ -214,6 +238,19 @@ private final class SpaceAgentTileHostView: NSView {
             view.frame = CGRect(x: x, y: 0, width: tileSize.width, height: tileSize.height + 18)
             x += tileSize.width + tileSpacing
         }
+    }
+
+    private func resizeDocument(for tileCount: Int) {
+        let width = CGFloat(tileCount) * tileSize.width
+            + CGFloat(max(0, tileCount - 1)) * tileSpacing
+        let height = tileSize.height + 18
+        frame = CGRect(origin: .zero, size: CGSize(width: max(0, width), height: height))
+    }
+
+    private func scrollActiveTileToVisible() {
+        guard let activeIndex = tileViews.firstIndex(where: { $0.tile?.isActive == true }) else { return }
+        layoutSubtreeIfNeeded()
+        scrollToVisible(tileViews[activeIndex].frame)
     }
 }
 

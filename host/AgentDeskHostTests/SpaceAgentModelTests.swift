@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -65,5 +66,22 @@ struct SpaceAgentModelTests {
 
         #expect(low == CGPoint(x: 100, y: 50))
         #expect(high == CGPoint(x: 480, y: 370))
+    }
+
+    @Test func expandedPanelCapsWidthForScrollableTiles() {
+        let controller = SpaceAgentViewController()
+        _ = controller.view
+        controller.isExpanded = true
+        controller.render(tiles: (0..<8).map { index in
+            SpaceAgentTile(
+                spaceId: UInt64(index + 1),
+                title: "Desktop \(index + 1)",
+                isActive: index == 0,
+                stepDelta: index,
+                thumbnail: nil
+            )
+        })
+
+        #expect(controller.preferredPanelSize.width == 640)
     }
 }
