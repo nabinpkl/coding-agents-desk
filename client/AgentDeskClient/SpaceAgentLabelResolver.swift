@@ -15,6 +15,18 @@ enum SpaceAgentLabelResolver {
     static let primaryMaxLength: Int = 28
     static let secondaryMaxLength: Int = 28
 
+    // See host-side resolver for the rationale. Editor window titles
+    // (VS Code, Cursor, Xcode, JetBrains, Zed) split into
+    // "<file>  <workspace>" so we hand-parse: row 1 = file, row 2 =
+    // workspace. App name dropped because the dock icon already conveys
+    // which editor is running.
+    static let editorAppNames: Set<String> = [
+        "Code", "Code - Insiders", "Cursor", "Xcode", "Zed",
+        "IntelliJ IDEA", "WebStorm", "PyCharm", "GoLand", "RubyMine",
+        "CLion", "AppCode", "PhpStorm", "DataGrip", "Rider",
+        "Android Studio"
+    ]
+
     static func resolve(topWindow: SpaceTopWindow?, fallback: String) -> ResolvedLabel {
         guard let topWindow else {
             return ResolvedLabel(primary: fallback, secondary: "")
@@ -30,9 +42,28 @@ enum SpaceAgentLabelResolver {
                 secondary: ""
             )
         }
+        if editorAppNames.contains(appName) {
+            return splitEditorTitle(title)
+        }
         return ResolvedLabel(
             primary: truncate(title, maxLength: primaryMaxLength),
             secondary: truncate(appName, maxLength: secondaryMaxLength)
+        )
+    }
+
+    static func splitEditorTitle(_ title: String) -> ResolvedLabel {
+        let parts = title.components(separatedBy: " \u{2014} ")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if parts.count >= 2, let first = parts.first, let last = parts.last {
+            return ResolvedLabel(
+                primary: truncate(first, maxLength: primaryMaxLength),
+                secondary: truncate(last, maxLength: secondaryMaxLength)
+            )
+        }
+        return ResolvedLabel(
+            primary: truncate(title, maxLength: primaryMaxLength),
+            secondary: ""
         )
     }
 

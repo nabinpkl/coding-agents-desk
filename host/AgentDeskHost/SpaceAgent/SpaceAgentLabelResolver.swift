@@ -20,6 +20,20 @@ enum SpaceAgentLabelResolver {
     static let primaryMaxLength: Int = 22
     static let secondaryMaxLength: Int = 22
 
+    // Editors render their window title as "<file>  <workspace>" with an
+    // em-dash separator. For these apps the app name on row 2 is wasted
+    // (dock icon already says "Code"), so we hand-parse the title:
+    //   row 1 = file (transient, what's being edited right now)
+    //   row 2 = workspace / project (stable identifier of the window)
+    // Match on appName string; bundle ID would be sturdier but we don't
+    // plumb it today. Add new editors here as they show up.
+    static let editorAppNames: Set<String> = [
+        "Code", "Code - Insiders", "Cursor", "Xcode", "Zed",
+        "IntelliJ IDEA", "WebStorm", "PyCharm", "GoLand", "RubyMine",
+        "CLion", "AppCode", "PhpStorm", "DataGrip", "Rider",
+        "Android Studio"
+    ]
+
     static func resolve(topWindow: SpaceTopWindow?, fallback: String) -> ResolvedLabel {
         guard let topWindow else {
             return ResolvedLabel(primary: fallback, secondary: "")
@@ -35,9 +49,28 @@ enum SpaceAgentLabelResolver {
                 secondary: ""
             )
         }
+        if editorAppNames.contains(appName) {
+            return splitEditorTitle(title)
+        }
         return ResolvedLabel(
             primary: truncate(title, maxLength: primaryMaxLength),
             secondary: truncate(appName, maxLength: secondaryMaxLength)
+        )
+    }
+
+    static func splitEditorTitle(_ title: String) -> ResolvedLabel {
+        let parts = title.components(separatedBy: " \u{2014} ")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if parts.count >= 2, let first = parts.first, let last = parts.last {
+            return ResolvedLabel(
+                primary: truncate(first, maxLength: primaryMaxLength),
+                secondary: truncate(last, maxLength: secondaryMaxLength)
+            )
+        }
+        return ResolvedLabel(
+            primary: truncate(title, maxLength: primaryMaxLength),
+            secondary: ""
         )
     }
 

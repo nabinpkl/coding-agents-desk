@@ -151,6 +151,77 @@ struct SpaceAgentModelTests {
         #expect(resolved.secondary == "")
     }
 
+    @Test func resolveSplitsVSCodeTitleIntoFileAndWorkspace() {
+        let topWindow = SpaceTopWindow(
+            title: "SpaceAgentViewController.swift \u{2014} agent-desk",
+            appName: "Code"
+        )
+        let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop 1")
+        // primaryMaxLength = 22, so prefix(21) + ellipsis.
+        #expect(resolved.primary == "SpaceAgentViewControl\u{2026}")
+        #expect(resolved.secondary == "agent-desk")
+    }
+
+    @Test func resolveSplitsXcodeTitleIntoFileAndProject() {
+        let topWindow = SpaceTopWindow(
+            title: "ContentView.swift \u{2014} MyApp",
+            appName: "Xcode"
+        )
+        let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop 1")
+        #expect(resolved.primary == "ContentView.swift")
+        #expect(resolved.secondary == "MyApp")
+    }
+
+    @Test func resolveSplitsCursorTitleSameAsVSCode() {
+        let topWindow = SpaceTopWindow(
+            title: "package.json \u{2014} my-project",
+            appName: "Cursor"
+        )
+        let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop 1")
+        #expect(resolved.primary == "package.json")
+        #expect(resolved.secondary == "my-project")
+    }
+
+    @Test func resolveEditorTitleWithNoSeparatorKeepsFileInPrimary() {
+        let topWindow = SpaceTopWindow(title: "Untitled-1", appName: "Code")
+        let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop 1")
+        #expect(resolved.primary == "Untitled-1")
+        #expect(resolved.secondary == "")
+    }
+
+    @Test func resolveEditorTitleKeepsDirtyMarker() {
+        let topWindow = SpaceTopWindow(
+            title: "\u{25CF} foo.swift \u{2014} agent-desk",
+            appName: "Code"
+        )
+        let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop 1")
+        #expect(resolved.primary == "\u{25CF} foo.swift")
+        #expect(resolved.secondary == "agent-desk")
+    }
+
+    @Test func resolveEditorMultiSegmentTakesFirstAndLast() {
+        let topWindow = SpaceTopWindow(
+            title: "foo.swift \u{2014} subdir \u{2014} agent-desk",
+            appName: "Code"
+        )
+        let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop 1")
+        #expect(resolved.primary == "foo.swift")
+        #expect(resolved.secondary == "agent-desk")
+    }
+
+    @Test func resolveNonEditorAppDoesNotSplit() {
+        // A non-editor app with an em-dash title keeps the title intact
+        // and shows the app name on row 2. Confirms we only hand-split
+        // for known editors.
+        let topWindow = SpaceTopWindow(
+            title: "Inbox \u{2014} dev@agent",
+            appName: "Mail"
+        )
+        let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop 1")
+        #expect(resolved.primary == "Inbox \u{2014} dev@agent")
+        #expect(resolved.secondary == "Mail")
+    }
+
     @Test func tileTitlesPreferTopWindowLabels() {
         let state = DesktopState(
             displays: [DisplayMetadata(id: "display-a", widthPoints: 1000, heightPoints: 800)],
