@@ -68,9 +68,14 @@ enum SpaceAgentLabelResolver {
                 secondary: truncate(last, maxLength: secondaryMaxLength)
             )
         }
+        // Single-segment editor title means no file is focused; VS Code
+        // and friends just show the workspace name. Push it into the
+        // workspace row and render an em-dash placeholder up top so the
+        // two-row caption stays uniform across editor tiles whether or
+        // not a file is currently open.
         return ResolvedLabel(
-            primary: truncate(title, maxLength: primaryMaxLength),
-            secondary: ""
+            primary: "\u{2014}",
+            secondary: truncate(title, maxLength: secondaryMaxLength)
         )
     }
 

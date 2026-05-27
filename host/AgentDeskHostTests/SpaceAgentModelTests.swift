@@ -182,11 +182,14 @@ struct SpaceAgentModelTests {
         #expect(resolved.secondary == "my-project")
     }
 
-    @Test func resolveEditorTitleWithNoSeparatorKeepsFileInPrimary() {
-        let topWindow = SpaceTopWindow(title: "Untitled-1", appName: "Code")
+    @Test func resolveEditorTitleWithNoSeparatorTreatsAsWorkspace() {
+        // Single-segment editor title is the workspace (no file focused).
+        // Lands in secondary; primary is the em-dash placeholder so the
+        // tile keeps its two-row shape.
+        let topWindow = SpaceTopWindow(title: "agent-desk", appName: "Code")
         let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop 1")
-        #expect(resolved.primary == "Untitled-1")
-        #expect(resolved.secondary == "")
+        #expect(resolved.primary == "\u{2014}")
+        #expect(resolved.secondary == "agent-desk")
     }
 
     @Test func resolveEditorTitleKeepsDirtyMarker() {

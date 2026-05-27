@@ -61,9 +61,12 @@ enum SpaceAgentLabelResolver {
                 secondary: truncate(last, maxLength: secondaryMaxLength)
             )
         }
+        // Single-segment editor title means no file is focused; push the
+        // workspace into the secondary row and use an em-dash placeholder
+        // up top so the two-row caption stays uniform across tiles.
         return ResolvedLabel(
-            primary: truncate(title, maxLength: primaryMaxLength),
-            secondary: ""
+            primary: "\u{2014}",
+            secondary: truncate(title, maxLength: secondaryMaxLength)
         )
     }
 
