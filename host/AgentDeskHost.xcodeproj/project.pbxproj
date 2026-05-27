@@ -68,6 +68,8 @@
 		A0000000000000000000023F /* SpaceThumbnailProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000127 /* SpaceThumbnailProvider.swift */; };
 		A00000000000000000000240 /* SpaceAgentModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012B /* SpaceAgentModelTests.swift */; };
 		A00000000000000000000241 /* SpaceThumbnailProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */; };
+		A00000000000000000000242 /* SpaceAgentLabelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012D /* SpaceAgentLabelResolver.swift */; };
+		A00000000000000000000243 /* SpaceAgentLabelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012D /* SpaceAgentLabelResolver.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -115,6 +117,7 @@
 		A0000000000000000000012A /* SpaceAgentController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceAgentController.swift; sourceTree = "<group>"; };
 		A0000000000000000000012B /* SpaceAgentModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceAgentModelTests.swift; sourceTree = "<group>"; };
 		A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceThumbnailProviderTests.swift; sourceTree = "<group>"; };
+		A0000000000000000000012D /* SpaceAgentLabelResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceAgentLabelResolver.swift; sourceTree = "<group>"; };
 		A00000000000000000000141 /* AgentDeskHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00000000000000000000142 /* AgentDeskHostTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskHostTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -203,6 +206,7 @@
 				A00000000000000000000128 /* SpaceAgentModel.swift */,
 				A00000000000000000000129 /* SpaceAgentViewController.swift */,
 				A0000000000000000000012A /* SpaceAgentController.swift */,
+				A0000000000000000000012D /* SpaceAgentLabelResolver.swift */,
 			);
 			path = SpaceAgent;
 			sourceTree = "<group>";
@@ -379,6 +383,7 @@
 				A00000000000000000000239 /* SpaceAgentModel.swift in Sources */,
 				A0000000000000000000023A /* SpaceAgentViewController.swift in Sources */,
 				A0000000000000000000023B /* SpaceAgentController.swift in Sources */,
+				A00000000000000000000242 /* SpaceAgentLabelResolver.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -411,6 +416,7 @@
 				A0000000000000000000023E /* SpaceAgentController.swift in Sources */,
 				A00000000000000000000240 /* SpaceAgentModelTests.swift in Sources */,
 				A00000000000000000000241 /* SpaceThumbnailProviderTests.swift in Sources */,
+				A00000000000000000000243 /* SpaceAgentLabelResolver.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

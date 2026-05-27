@@ -251,6 +251,8 @@ extension PairingViewController {
         desktopStateTask = nil
         thumbnailsTask?.cancel()
         thumbnailsTask = nil
+        topWindowsTask?.cancel()
+        topWindowsTask = nil
         lastDesktopState = nil
         keyboardSurface.setVisible(false)
         buttonRowBottomConstraint = nil

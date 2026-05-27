@@ -38,7 +38,11 @@ final class ThumbnailStripView: UIView {
 
     static let tileWidth: CGFloat = 64
     static let tileHeight: CGFloat = 40
-    static let tileCaptionHeight: CGFloat = 14
+    // Two stacked single-line captions: row 1 is the window title (tab
+    // name, file name, channel, ...), row 2 is the app name. Each row
+    // truncates independently with its own ellipsis so neither steals
+    // the other's width.
+    static let tileCaptionHeight: CGFloat = 28
     static let defaultTileSpacing: CGFloat = 8
     static var pageWidth: CGFloat { tileWidth + defaultTileSpacing }
 
@@ -102,6 +106,7 @@ final class ThumbnailStripView: UIView {
     private var orderedSpaces: [SpaceMetadata] = []
     private var activeSpaceId: UInt64?
     private var thumbnails: [String: String] = [:]
+    private var topWindows: [String: SpaceTopWindow] = [:]
     private var isProgrammaticScroll: Bool = false
     private var isDragging: Bool = false
     // contentOffset at which the active cell is at its resting
@@ -262,10 +267,23 @@ final class ThumbnailStripView: UIView {
         }
     }
 
+    // Update per-space top-window metadata. Cells re-render their label
+    // from this map using SpaceAgentLabelResolver, falling back to
+    // "Desktop N" when a space has no captured top window.
+    func apply(topWindows: [String: SpaceTopWindow]) {
+        self.topWindows = topWindows
+        for ip in collectionView.indexPathsForVisibleItems {
+            if let cell = collectionView.cellForItem(at: ip) as? ThumbnailTileCell {
+                configureCell(cell, atIndex: ip.item)
+            }
+        }
+    }
+
     func renderEmpty() {
         orderedSpaces = []
         activeSpaceId = nil
         thumbnails = [:]
+        topWindows = [:]
         collectionView.reloadData()
         lastTileCount = 0
         selectionOverlay.isHidden = true
@@ -389,7 +407,12 @@ final class ThumbnailStripView: UIView {
             }
             return nil
         }()
-        cell.configure(ordinal: i + 1, image: image)
+        let fallback = "Desktop \(i + 1)"
+        let resolved = SpaceAgentLabelResolver.resolve(
+            topWindow: topWindows[key],
+            fallback: fallback
+        )
+        cell.configure(primary: resolved.primary, secondary: resolved.secondary, image: image)
     }
 
     // Position the floating indicator over the active cell's current
@@ -654,7 +677,8 @@ final class ThumbnailTileCell: UICollectionViewCell {
     static let reuseId = "ThumbnailTileCell"
 
     private let imageView = UIImageView()
-    private let captionLabel = UILabel()
+    private let primaryLabel = UILabel()
+    private let secondaryLabel = UILabel()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -675,11 +699,28 @@ final class ThumbnailTileCell: UICollectionViewCell {
         imageView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(imageView)
 
-        captionLabel.font = .preferredFont(forTextStyle: .caption2)
-        captionLabel.textColor = .secondaryLabel
-        captionLabel.textAlignment = .center
-        captionLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(captionLabel)
+        // Two independently truncating single-line labels stacked below
+        // the thumbnail. primary = window title (e.g. tab name, file
+        // name), secondary = app name. Each gets its own ellipsis at
+        // its own width so a long tab title doesn't push the app name
+        // off the row.
+        primaryLabel.font = .systemFont(ofSize: 9, weight: .medium)
+        primaryLabel.textColor = .label
+        primaryLabel.textAlignment = .center
+        primaryLabel.numberOfLines = 1
+        primaryLabel.lineBreakMode = .byTruncatingTail
+        primaryLabel.adjustsFontSizeToFitWidth = false
+        primaryLabel.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(primaryLabel)
+
+        secondaryLabel.font = .systemFont(ofSize: 8, weight: .regular)
+        secondaryLabel.textColor = .secondaryLabel
+        secondaryLabel.textAlignment = .center
+        secondaryLabel.numberOfLines = 1
+        secondaryLabel.lineBreakMode = .byTruncatingTail
+        secondaryLabel.adjustsFontSizeToFitWidth = false
+        secondaryLabel.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(secondaryLabel)
 
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -687,21 +728,29 @@ final class ThumbnailTileCell: UICollectionViewCell {
             imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             imageView.heightAnchor.constraint(equalToConstant: ThumbnailStripView.tileHeight),
 
-            captionLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 1),
-            captionLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            captionLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            captionLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -1)
+            primaryLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 1),
+            primaryLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            primaryLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+
+            secondaryLabel.topAnchor.constraint(equalTo: primaryLabel.bottomAnchor),
+            secondaryLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            secondaryLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            secondaryLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -1)
         ])
     }
 
-    func configure(ordinal: Int, image: UIImage?) {
-        captionLabel.text = "Desktop \(ordinal)"
+    func configure(primary: String, secondary: String, image: UIImage?) {
+        primaryLabel.text = primary
+        secondaryLabel.text = secondary
+        secondaryLabel.isHidden = secondary.isEmpty
         imageView.image = image
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
         imageView.image = nil
-        captionLabel.text = nil
+        primaryLabel.text = nil
+        secondaryLabel.text = nil
+        secondaryLabel.isHidden = false
     }
 }

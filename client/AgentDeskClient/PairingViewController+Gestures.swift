@@ -50,12 +50,20 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // synthetic state push per timer tick (rejected in ADR-0006).
     func startThumbnailsObservation() {
         thumbnailsTask?.cancel()
+        topWindowsTask?.cancel()
         guard let channel = pairingClient.activeInputChannel else { return }
         thumbnailsTask = Task { [weak self, channel] in
             for await thumbnails in channel.thumbnailsUpdates {
                 await MainActor.run {
                     self?.thumbnailStripView.apply(thumbnails: thumbnails)
                     self?.refreshThumbnailStripVisibility()
+                }
+            }
+        }
+        topWindowsTask = Task { [weak self, channel] in
+            for await topWindows in channel.topWindowsUpdates {
+                await MainActor.run {
+                    self?.thumbnailStripView.apply(topWindows: topWindows)
                 }
             }
         }

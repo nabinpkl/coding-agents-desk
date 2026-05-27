@@ -579,18 +579,35 @@ struct DesktopStatePush: Codable, Equatable {
 // otherwise serialize a [UInt64: T] as an alternating key-value array.
 // Each value is a base64-encoded JPEG (q=0.5 at 128 x 80) per ADR-0006.
 
+// Per-Space dominant-window metadata. Captured by SpaceThumbnailProvider
+// on the same cadence as the JPEGs and shipped alongside them so both
+// the macOS host and iOS client can label a tile with the actual app /
+// project (e.g. "agent-desk", "Slack") instead of "Desktop N".
+struct SpaceTopWindow: Codable, Equatable, Sendable {
+    let title: String
+    let appName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title = "t"
+        case appName = "a"
+    }
+}
+
 struct ThumbnailsPush: Codable, Equatable {
     let type: String
     let thumbnails: [String: String]
+    let topWindows: [String: SpaceTopWindow]?
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case thumbnails = "tn"
+        case topWindows = "tw"
     }
 
-    init(thumbnails: [String: String]) {
+    init(thumbnails: [String: String], topWindows: [String: SpaceTopWindow]? = nil) {
         self.type = "thumbnails-push"
         self.thumbnails = thumbnails
+        self.topWindows = topWindows
     }
 }
 

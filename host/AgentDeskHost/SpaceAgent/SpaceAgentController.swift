@@ -18,6 +18,7 @@ final class SpaceAgentController: NSObject {
     private var thumbnailsTask: Task<Void, Never>?
     private var spaceChangeObserver: NSObjectProtocol?
     private var pendingHandleScreenOrigin: CGPoint?
+    private var outsideClickMonitor: Any?
 
     init(
         spacesProvider: SpacesProvider,
@@ -40,6 +41,7 @@ final class SpaceAgentController: NSObject {
             NSWorkspace.shared.notificationCenter.removeObserver(spaceChangeObserver)
             self.spaceChangeObserver = nil
         }
+        uninstallOutsideClickMonitor()
         thumbnailProvider.setDemand(owner: .spaceAgent, enabled: false)
         panel?.close()
         panel = nil
@@ -96,7 +98,8 @@ final class SpaceAgentController: NSObject {
     private func render() {
         viewController.render(tiles: SpaceAgentModel.tiles(
             state: latestState,
-            thumbnails: latestThumbnails
+            thumbnails: latestThumbnails,
+            topWindows: thumbnailProvider.latestTopWindows
         ))
         resizePanel()
     }
@@ -109,12 +112,37 @@ final class SpaceAgentController: NSObject {
             latestState = spacesProvider.current()
             thumbnailProvider.setDemand(owner: .spaceAgent, enabled: true)
             startThumbnailTask()
+            installOutsideClickMonitor()
         } else {
             thumbnailsTask?.cancel()
             thumbnailsTask = nil
             thumbnailProvider.setDemand(owner: .spaceAgent, enabled: false)
+            uninstallOutsideClickMonitor()
         }
         render()
+    }
+
+    // Global monitors only fire for events outside the receiving process,
+    // so any click this picks up while the popover is expanded is by
+    // definition outside our panel. That makes it the right hook for a
+    // "tap-outside-to-dismiss" affordance without having to compute hit
+    // rects against the panel's frame ourselves.
+    private func installOutsideClickMonitor() {
+        guard outsideClickMonitor == nil else { return }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.viewController.isExpanded else { return }
+                self.setExpanded(false)
+            }
+        }
+    }
+
+    private func uninstallOutsideClickMonitor() {
+        guard let monitor = outsideClickMonitor else { return }
+        NSEvent.removeMonitor(monitor)
+        outsideClickMonitor = nil
     }
 
     private func startThumbnailTask() {

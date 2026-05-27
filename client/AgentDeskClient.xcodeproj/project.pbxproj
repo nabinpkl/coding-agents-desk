@@ -33,6 +33,8 @@
 		B0000000000000000000022E2 /* ThumbnailStripViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000125 /* ThumbnailStripViewTests.swift */; };
 		B00000000000000000000218 /* ThumbnailStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000126 /* ThumbnailStripView.swift */; };
 		B0000000000000000000022F3 /* ThumbnailStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000126 /* ThumbnailStripView.swift */; };
+		B00000000000000000000220 /* SpaceAgentLabelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000140 /* SpaceAgentLabelResolver.swift */; };
+		B0000000000000000000022F5 /* SpaceAgentLabelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000140 /* SpaceAgentLabelResolver.swift */; };
 		B00000000000000000000219 /* EdgeFollow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000127 /* EdgeFollow.swift */; };
 		B0000000000000000000022F4 /* EdgeFollow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000127 /* EdgeFollow.swift */; };
 		B0000000000000000000022E3 /* EdgeFollowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000128 /* EdgeFollowTests.swift */; };
@@ -86,6 +88,7 @@
 		B00000000000000000000117 /* InputChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannel.swift; sourceTree = "<group>"; };
 		B00000000000000000000125 /* ThumbnailStripViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailStripViewTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000126 /* ThumbnailStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailStripView.swift; sourceTree = "<group>"; };
+		B00000000000000000000140 /* SpaceAgentLabelResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceAgentLabelResolver.swift; sourceTree = "<group>"; };
 		B00000000000000000000127 /* EdgeFollow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeFollow.swift; sourceTree = "<group>"; };
 		B00000000000000000000128 /* EdgeFollowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeFollowTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000129 /* HitOutsetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HitOutsetView.swift; sourceTree = "<group>"; };
@@ -164,6 +167,7 @@
 				B00000000000000000000116 /* KeyboardSurface.swift */,
 				B00000000000000000000117 /* InputChannel.swift */,
 				B00000000000000000000126 /* ThumbnailStripView.swift */,
+				B00000000000000000000140 /* SpaceAgentLabelResolver.swift */,
 				B00000000000000000000127 /* EdgeFollow.swift */,
 				B00000000000000000000129 /* HitOutsetView.swift */,
 				B0000000000000000000012A /* PairingViewController+Layout.swift */,
@@ -333,6 +337,7 @@
 				B00000000000000000000215 /* KeyboardSurface.swift in Sources */,
 				B00000000000000000000216 /* InputChannel.swift in Sources */,
 				B00000000000000000000218 /* ThumbnailStripView.swift in Sources */,
+				B00000000000000000000220 /* SpaceAgentLabelResolver.swift in Sources */,
 				B00000000000000000000219 /* EdgeFollow.swift in Sources */,
 				B0000000000000000000021A /* HitOutsetView.swift in Sources */,
 				B0000000000000000000021B /* PairingViewController+Layout.swift in Sources */,
@@ -365,6 +370,7 @@
 				B0000000000000000000022F1 /* InputChannel.swift in Sources */,
 				B0000000000000000000022E2 /* ThumbnailStripViewTests.swift in Sources */,
 				B0000000000000000000022F3 /* ThumbnailStripView.swift in Sources */,
+				B0000000000000000000022F5 /* SpaceAgentLabelResolver.swift in Sources */,
 				B0000000000000000000022F4 /* EdgeFollow.swift in Sources */,
 				B0000000000000000000022E3 /* EdgeFollowTests.swift in Sources */,
 			);

@@ -71,6 +71,7 @@ struct SpaceAgentModelTests {
     @Test func expandedPanelCapsWidthForScrollableTiles() {
         let controller = SpaceAgentViewController()
         _ = controller.view
+        controller.popoverMaxWidth = 400
         controller.isExpanded = true
         controller.render(tiles: (0..<8).map { index in
             SpaceAgentTile(
@@ -82,7 +83,7 @@ struct SpaceAgentModelTests {
             )
         })
 
-        #expect(controller.preferredPanelSize.width == 652)
+        #expect(controller.preferredPanelSize.width == 400)
     }
 
     @Test func expandedPanelKeepsTileStripInsideBounds() throws {
@@ -112,5 +113,63 @@ struct SpaceAgentModelTests {
             }
         }
         return nil
+    }
+
+    @Test func resolveSplitsTitleAndAppNameAcrossTwoRows() {
+        let topWindow = SpaceTopWindow(
+            title: "Inbox - dev@agent",
+            appName: "Google Chrome"
+        )
+        let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop 1")
+        #expect(resolved.primary == "Inbox - dev@agent")
+        #expect(resolved.secondary == "Google Chrome")
+    }
+
+    @Test func resolveTruncatesEachRowIndependently() {
+        let topWindow = SpaceTopWindow(
+            title: "this is a very very long browser tab title",
+            appName: "Visual Studio Code Insiders Build"
+        )
+        let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop X")
+        // primary truncates at 22, secondary truncates at 22, independent.
+        #expect(resolved.primary.count <= SpaceAgentLabelResolver.primaryMaxLength)
+        #expect(resolved.primary.hasSuffix("\u{2026}"))
+        #expect(resolved.secondary.count <= SpaceAgentLabelResolver.secondaryMaxLength)
+        #expect(resolved.secondary.hasSuffix("\u{2026}"))
+    }
+
+    @Test func resolvePromotesAppNameToPrimaryWhenTitleEmpty() {
+        let topWindow = SpaceTopWindow(title: "", appName: "Slack")
+        let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop 3")
+        #expect(resolved.primary == "Slack")
+        #expect(resolved.secondary == "")
+    }
+
+    @Test func resolveFallsBackWhenWindowIsNil() {
+        let resolved = SpaceAgentLabelResolver.resolve(topWindow: nil, fallback: "Desktop 4")
+        #expect(resolved.primary == "Desktop 4")
+        #expect(resolved.secondary == "")
+    }
+
+    @Test func tileTitlesPreferTopWindowLabels() {
+        let state = DesktopState(
+            displays: [DisplayMetadata(id: "display-a", widthPoints: 1000, heightPoints: 800)],
+            spaces: [
+                SpaceMetadata(id: 10, displayId: "display-a", index: 0, type: 0),
+                SpaceMetadata(id: 11, displayId: "display-a", index: 1, type: 0)
+            ],
+            activeDisplayId: "display-a",
+            activeSpaceId: 10
+        )
+        let topWindows: [UInt64: SpaceTopWindow] = [
+            10: SpaceTopWindow(title: "Inbox - dev@agent", appName: "Google Chrome")
+        ]
+
+        let tiles = SpaceAgentModel.tiles(state: state, thumbnails: [:], topWindows: topWindows)
+
+        #expect(tiles[0].title == "Inbox - dev@agent")
+        #expect(tiles[0].secondary == "Google Chrome")
+        #expect(tiles[1].title == "Desktop 2")
+        #expect(tiles[1].secondary == "")
     }
 }

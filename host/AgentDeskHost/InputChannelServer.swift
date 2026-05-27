@@ -68,13 +68,24 @@ final class InputChannelServer: @unchecked Sendable {
     // refresh cadence doesn't pollute the event-driven DesktopState
     // push path. Sent only when SpaceThumbnailProvider has produced a
     // result; an empty dict is a valid "clear" signal.
-    func pushThumbnails(_ thumbnails: [UInt64: Data]) {
+    func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow] = [:]) {
         var stringKeyed: [String: String] = [:]
         stringKeyed.reserveCapacity(thumbnails.count)
         for (spaceId, jpeg) in thumbnails {
             stringKeyed[String(spaceId)] = jpeg.base64EncodedString()
         }
-        sendCodableFrame(ThumbnailsPush(thumbnails: stringKeyed), identifier: "thumbnails-push")
+        var topWindowsKeyed: [String: SpaceTopWindow] = [:]
+        topWindowsKeyed.reserveCapacity(topWindows.count)
+        for (spaceId, info) in topWindows {
+            topWindowsKeyed[String(spaceId)] = info
+        }
+        sendCodableFrame(
+            ThumbnailsPush(
+                thumbnails: stringKeyed,
+                topWindows: topWindowsKeyed.isEmpty ? nil : topWindowsKeyed
+            ),
+            identifier: "thumbnails-push"
+        )
     }
 
     private func sendCodableFrame<T: Encodable>(_ frame: T, identifier: String) {

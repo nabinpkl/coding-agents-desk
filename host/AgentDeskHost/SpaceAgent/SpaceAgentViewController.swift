@@ -11,17 +11,25 @@ final class SpaceAgentViewController: NSViewController {
     weak var delegate: SpaceAgentViewControllerDelegate?
 
     private let handleSize = CGSize(width: 52, height: 52)
-    private let expandedHeight: CGFloat = 120
     private let tileSize = CGSize(width: 128, height: 80)
     private let tileSpacing: CGFloat = 8
-    private let tileStripHeight: CGFloat = 116
     private let stripInset: CGFloat = 8
+    private let tileStripHeight: CGFloat = 130
+    private let tailHeight: CGFloat = 0
+    private let popoverToAnchorGap: CGFloat = 6
+    private let popoverScreenMargin: CGFloat = 0
     private let rootView = SpaceAgentRootView()
     private let handleView = SpaceAgentHandleView()
     private let tileBackdrop = SpaceAgentTileBackdropView()
     private let tileScrollView = NSScrollView()
     private let tileHost = SpaceAgentTileHostView()
     private var tiles: [SpaceAgentTile] = []
+
+    /// Hard cap on the popover's outer width. Set to a positive value to
+    /// override the screen-derived default (used by tests).
+    var popoverMaxWidth: CGFloat = 0 {
+        didSet { preferredContentSize = preferredPanelSize }
+    }
 
     var isExpanded: Bool = false {
         didSet {
@@ -36,11 +44,21 @@ final class SpaceAgentViewController: NSViewController {
         }
         let tileWidth = CGFloat(max(1, tiles.count)) * tileSize.width
             + CGFloat(max(0, tiles.count - 1)) * tileSpacing
-        let backdropWidth = tileWidth + stripInset * 2
-        return NSSize(
-            width: min(handleSize.width + 12 + backdropWidth, handleSize.width + 12 + 588),
-            height: expandedHeight
-        )
+        let idealWidth = tileWidth + stripInset * 2
+        let maxWidth = resolvedPopoverMaxWidth
+        let popoverWidth = min(max(handleSize.width, idealWidth), maxWidth)
+        let height = tileStripHeight + tailHeight + popoverToAnchorGap + handleSize.height
+        return NSSize(width: popoverWidth, height: height)
+    }
+
+    private var resolvedPopoverMaxWidth: CGFloat {
+        if popoverMaxWidth > 0 {
+            return popoverMaxWidth
+        }
+        let visible = view.window?.screen?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        return max(handleSize.width, visible.width - popoverScreenMargin * 2)
     }
 
     override func loadView() {
@@ -76,10 +94,13 @@ final class SpaceAgentViewController: NSViewController {
         rootView.tileBackdrop = tileBackdrop
         rootView.tileHost = tileScrollView
         rootView.handleSize = handleSize
-        rootView.expandedHeight = expandedHeight
         rootView.tileStripHeight = tileStripHeight
         rootView.stripInset = stripInset
+        rootView.tailHeight = tailHeight
+        rootView.popoverToAnchorGap = popoverToAnchorGap
         rootView.translatesAutoresizingMaskIntoConstraints = false
+
+        tileBackdrop.tailHeight = tailHeight
 
         handleView.image = NSImage(named: "SpaceAgentSpaceship")
         handleView.onToggle = { [weak self] in
@@ -116,7 +137,7 @@ private final class SpaceAgentRootView: NSView {
             if let handleView { addSubview(handleView) }
         }
     }
-    var tileBackdrop: NSView? {
+    var tileBackdrop: SpaceAgentTileBackdropView? {
         didSet {
             oldValue?.removeFromSuperview()
             if let tileBackdrop {
@@ -132,30 +153,58 @@ private final class SpaceAgentRootView: NSView {
     }
     var isExpanded: Bool = false
     var handleSize = CGSize(width: 52, height: 52)
-    var expandedHeight: CGFloat = 104
-    var tileStripHeight: CGFloat = 100
+    var tileStripHeight: CGFloat = 116
     var stripInset: CGFloat = 8
+    var tailHeight: CGFloat = 8
+    var popoverToAnchorGap: CGFloat = 2
 
     override var isFlipped: Bool { true }
 
     override func layout() {
         super.layout()
-        let handleY = max(0, (bounds.height - handleSize.height) / 2)
-        handleView?.frame = CGRect(origin: CGPoint(x: 0, y: handleY), size: handleSize)
-        guard isExpanded else { return }
-        let x = handleSize.width + 12
-        let stripFrame = CGRect(
-            x: x,
-            y: max(0, (bounds.height - tileStripHeight) / 2),
-            width: max(0, bounds.width - x),
-            height: tileStripHeight
+        let handleX = max(0, (bounds.width - handleSize.width) / 2)
+        if !isExpanded {
+            let handleY = max(0, (bounds.height - handleSize.height) / 2)
+            handleView?.frame = CGRect(x: handleX, y: handleY, width: handleSize.width, height: handleSize.height)
+            tileBackdrop?.frame = .zero
+            tileHost?.frame = .zero
+            return
+        }
+
+        let popoverWidth = bounds.width
+        let backdropHeight = tileStripHeight + tailHeight
+        let backdropFrame = CGRect(x: 0, y: 0, width: popoverWidth, height: backdropHeight)
+        tileBackdrop?.frame = backdropFrame
+
+        let bodyFrame = CGRect(
+            x: stripInset,
+            y: stripInset,
+            width: max(0, popoverWidth - stripInset * 2),
+            height: max(0, tileStripHeight - stripInset * 2)
         )
-        tileBackdrop?.frame = stripFrame
-        tileHost?.frame = stripFrame.insetBy(dx: stripInset, dy: stripInset)
+        tileHost?.frame = bodyFrame
+
+        let handleY = backdropHeight + popoverToAnchorGap
+        handleView?.frame = CGRect(x: handleX, y: handleY, width: handleSize.width, height: handleSize.height)
+
+        let rocketCenter = handleX + handleSize.width / 2
+        tileBackdrop?.tailCenterX = rocketCenter
     }
 }
 
 private final class SpaceAgentTileBackdropView: NSVisualEffectView {
+    var tailHeight: CGFloat = 0 { didSet { needsLayout = true } }
+    var tailWidth: CGFloat = 18 { didSet { needsLayout = true } }
+    var cornerRadius: CGFloat = 0 { didSet { needsLayout = true } }
+    var tailCenterX: CGFloat = 0 {
+        didSet {
+            guard oldValue != tailCenterX else { return }
+            needsLayout = true
+        }
+    }
+
+    private let maskLayer = CAShapeLayer()
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         commonInit()
@@ -171,19 +220,56 @@ private final class SpaceAgentTileBackdropView: NSVisualEffectView {
         blendingMode = .behindWindow
         state = .active
         wantsLayer = true
-        layer?.cornerRadius = 16
-        layer?.masksToBounds = true
-        layer?.borderWidth = 1
-        updateBorderColor()
+        layer?.masksToBounds = false
+        maskLayer.fillRule = .nonZero
+        layer?.mask = maskLayer
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateBorderColor()
+    override func layout() {
+        super.layout()
+        updatePaths()
     }
 
-    private func updateBorderColor() {
-        layer?.borderColor = NSColor(calibratedWhite: 1, alpha: 0.12).cgColor
+    private func updatePaths() {
+        guard let layer else { return }
+        maskLayer.frame = layer.bounds
+        guard bounds.width > 0, bounds.height > tailHeight else {
+            maskLayer.path = nil
+            return
+        }
+        maskLayer.path = makePath(in: bounds, tailCenterX: clampedTailCenter(in: bounds))
+    }
+
+    private func clampedTailCenter(in rect: CGRect) -> CGFloat {
+        let minX = rect.minX + cornerRadius + tailWidth / 2
+        let maxX = rect.maxX - cornerRadius - tailWidth / 2
+        guard minX <= maxX else { return rect.midX }
+        return min(max(tailCenterX, minX), maxX)
+    }
+
+    private func makePath(in rect: CGRect, tailCenterX cx: CGFloat) -> CGPath {
+        // Layer coordinates: y increases upward. When tailHeight > 0 a small
+        // triangle pokes out of the bottom (y = rect.minY); otherwise the
+        // mask is just the body rectangle (with optional corner radius).
+        let body = CGRect(
+            x: rect.minX,
+            y: rect.minY + tailHeight,
+            width: rect.width,
+            height: max(0, rect.height - tailHeight)
+        )
+        let path = CGMutablePath()
+        if cornerRadius > 0 {
+            path.addRoundedRect(in: body, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
+        } else {
+            path.addRect(body)
+        }
+        if tailHeight > 0 {
+            path.move(to: CGPoint(x: cx + tailWidth / 2, y: body.minY))
+            path.addLine(to: CGPoint(x: cx, y: rect.minY))
+            path.addLine(to: CGPoint(x: cx - tailWidth / 2, y: body.minY))
+            path.closeSubpath()
+        }
+        return path
     }
 }
 
@@ -293,7 +379,12 @@ private final class SpaceAgentTileHostView: NSView {
         super.layout()
         var x: CGFloat = 0
         for view in tileViews {
-            view.frame = CGRect(x: x, y: 0, width: tileSize.width, height: tileSize.height + 18)
+            view.frame = CGRect(
+                x: x,
+                y: 0,
+                width: tileSize.width,
+                height: tileSize.height + SpaceAgentTileView.labelHeight
+            )
             x += tileSize.width + tileSpacing
         }
     }
@@ -301,7 +392,7 @@ private final class SpaceAgentTileHostView: NSView {
     private func resizeDocument(for tileCount: Int) {
         let width = CGFloat(tileCount) * tileSize.width
             + CGFloat(max(0, tileCount - 1)) * tileSpacing
-        let height = tileSize.height + 18
+        let height = tileSize.height + SpaceAgentTileView.labelHeight
         frame = CGRect(origin: .zero, size: CGSize(width: max(0, width), height: height))
     }
 
@@ -313,9 +404,15 @@ private final class SpaceAgentTileHostView: NSView {
 }
 
 private final class SpaceAgentTileView: NSControl {
+    static let labelHeight: CGFloat = 32
+    static let imageCornerRadius: CGFloat = 8
+
     var tile: SpaceAgentTile? {
         didSet {
-            toolTip = tile?.title
+            toolTip = [tile?.title, tile?.secondary]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .joined(separator: " \u{2014} ")
             needsDisplay = true
         }
     }
@@ -325,13 +422,23 @@ private final class SpaceAgentTileView: NSControl {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let tile else { return }
-        let imageRect = CGRect(x: 0, y: 0, width: bounds.width, height: 80)
-        let path = NSBezierPath(roundedRect: imageRect, xRadius: 8, yRadius: 8)
+        let imageRect = CGRect(
+            x: 0,
+            y: 0,
+            width: bounds.width,
+            height: max(0, bounds.height - Self.labelHeight)
+        )
+        let path = NSBezierPath(
+            roundedRect: imageRect,
+            xRadius: Self.imageCornerRadius,
+            yRadius: Self.imageCornerRadius
+        )
         NSColor(calibratedWhite: 0.12, alpha: 0.90).setFill()
         path.fill()
 
         if let data = tile.thumbnail, let image = NSImage(data: data) {
             NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current?.imageInterpolation = .high
             path.addClip()
             image.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1)
             NSGraphicsContext.restoreGraphicsState()
@@ -344,17 +451,39 @@ private final class SpaceAgentTileView: NSControl {
         path.lineWidth = tile.isActive ? 2 : 1
         path.stroke()
 
+        drawCaption(in: bounds, imageRect: imageRect, tile: tile)
+    }
+
+    private func drawCaption(in bounds: CGRect, imageRect: CGRect, tile: SpaceAgentTile) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
-        let attrs: [NSAttributedString.Key: Any] = [
+        paragraph.lineBreakMode = .byTruncatingTail
+        let primaryAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11, weight: tile.isActive ? .semibold : .regular),
-            .foregroundColor: NSColor.white.withAlphaComponent(tile.isActive ? 0.98 : 0.76),
+            .foregroundColor: NSColor.white.withAlphaComponent(tile.isActive ? 0.98 : 0.82),
             .paragraphStyle: paragraph
         ]
-        NSString(string: tile.title).draw(
-            in: CGRect(x: 8, y: 82, width: bounds.width - 16, height: 16),
-            withAttributes: attrs
+        let secondaryAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 10, weight: .regular),
+            .foregroundColor: NSColor.white.withAlphaComponent(tile.isActive ? 0.70 : 0.55),
+            .paragraphStyle: paragraph
+        ]
+        let primaryRect = CGRect(
+            x: 8,
+            y: imageRect.maxY + 2,
+            width: bounds.width - 16,
+            height: 14
         )
+        NSAttributedString(string: tile.title, attributes: primaryAttrs).draw(in: primaryRect)
+
+        guard !tile.secondary.isEmpty else { return }
+        let secondaryRect = CGRect(
+            x: 8,
+            y: primaryRect.maxY + 1,
+            width: bounds.width - 16,
+            height: 13
+        )
+        NSAttributedString(string: tile.secondary, attributes: secondaryAttrs).draw(in: secondaryRect)
     }
 
     override func mouseUp(with event: NSEvent) {

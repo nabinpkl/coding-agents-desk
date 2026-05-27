@@ -357,9 +357,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for await thumbnails in provider.thumbnails {
                 guard let self, let registry else { return }
                 let enabledClients = self.thumbnailEnabledClients
+                let topWindows = provider.latestTopWindows
                 for (fingerprint, server) in registry.allInputChannelServersByFingerprint()
                     where enabledClients.contains(fingerprint) {
-                    server.pushThumbnails(thumbnails)
+                    server.pushThumbnails(thumbnails, topWindows: topWindows)
                 }
             }
         }

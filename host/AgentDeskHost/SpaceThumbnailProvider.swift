@@ -26,6 +26,10 @@ enum SpaceThumbnailDemandOwner: Hashable, Sendable {
     case client(String)
 }
 
+// SpaceTopWindow now lives in SharedTypes.swift so it can ride along the
+// thumbnails-push wire shape into the iOS client and feed the same
+// labelling logic on both sides.
+
 final class SpaceThumbnailProvider: @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "thumbnails")
 
@@ -33,10 +37,13 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
     // thumbnails feel stale, lower this. The wire shape doesn't change.
     static let refreshInterval: TimeInterval = 3.0
 
-    // ADR-0006 size and quality.
-    static let thumbnailWidth: Int = 128
-    static let thumbnailHeight: Int = 80
-    static let jpegQuality: Double = 0.5
+    // ADR-0006 size and quality. Bitmap dimensions are kept above the
+    // 128 x 80 point tile size so the SpaceAgent strip draws crisp on
+    // 2x / 3x Retina displays; JPEG quality is high enough that window
+    // chrome and text stay legible when scaled down to thumbnail size.
+    static let thumbnailWidth: Int = 384
+    static let thumbnailHeight: Int = 240
+    static let jpegQuality: Double = 0.85
 
     // Capture cap so a workstation with dozens of windows doesn't pin
     // the CPU. Top-N by area, biased toward "the window the user cares
@@ -67,9 +74,18 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
         var capturing: Bool = false
         var pendingForceRefreshSpaceId: UInt64?
         var latest: [UInt64: Data] = [:]
+        var latestTopWindows: [UInt64: SpaceTopWindow] = [:]
         var continuations: [UUID: AsyncStream<[UInt64: Data]>.Continuation] = [:]
     }
     private let state = OSAllocatedUnfairLock<State>(initialState: State())
+
+    /// Cached top-window metadata for each Space, updated atomically with
+    /// the thumbnails on every capture tick. Callers read this when they
+    /// receive a new value from the `thumbnails` stream so labels and
+    /// images stay in lockstep without needing a second async stream.
+    var latestTopWindows: [UInt64: SpaceTopWindow] {
+        state.withLock { $0.latestTopWindows }
+    }
 
     private var refreshTask: Task<Void, Never>?
     private var spaceChangeObserver: NSObjectProtocol?
@@ -136,7 +152,7 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             refreshTask = nil
             // Emit empty so the client clears its strip without waiting
             // on its own settings change to ack the disable.
-            emit([:])
+            emit(thumbnails: [:], topWindows: [:])
         }
     }
 
@@ -204,15 +220,16 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             let start = Date()
             let result = await self.captureAsync()
             let elapsed = Date().timeIntervalSince(start)
-            self.logger.debug("thumbnails capture reason=\(reason, privacy: .public) spaces=\(result.count, privacy: .public) elapsed=\(String(format: "%.3f", elapsed), privacy: .public)s")
-            self.emit(result)
+            self.logger.debug("thumbnails capture reason=\(reason, privacy: .public) spaces=\(result.thumbnails.count, privacy: .public) elapsed=\(String(format: "%.3f", elapsed), privacy: .public)s")
+            self.emit(thumbnails: result.thumbnails, topWindows: result.topWindows)
             self.state.withLock { $0.capturing = false }
         }
     }
 
-    private func emit(_ thumbnails: [UInt64: Data]) {
+    private func emit(thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow]) {
         let continuations = state.withLock { s -> [AsyncStream<[UInt64: Data]>.Continuation] in
             s.latest = thumbnails
+            s.latestTopWindows = topWindows
             return Array(s.continuations.values)
         }
         for continuation in continuations {
@@ -220,11 +237,16 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
         }
     }
 
+    struct CaptureResult {
+        var thumbnails: [UInt64: Data]
+        var topWindows: [UInt64: SpaceTopWindow]
+    }
+
     // Detached-async capture pipeline. Per-tick total time bounded by
     // the per-Space window cap. Awaits SCK directly rather than
     // bridging via a semaphore (which fights Swift 6 concurrency).
-    private func captureAsync() async -> [UInt64: Data] {
-        guard let sky else { return [:] }
+    private func captureAsync() async -> CaptureResult {
+        guard let sky else { return CaptureResult(thumbnails: [:], topWindows: [:]) }
 
         // Enumerate windows including off-screen so Spaces other than
         // the active one are visible.
@@ -236,7 +258,7 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             )
         } catch {
             logger.error("SCShareableContent failed: \(String(describing: error), privacy: .public)")
-            return [:]
+            return CaptureResult(thumbnails: [:], topWindows: [:])
         }
 
         // Filter out wallpaper, dock, menu-bar, control center, and
@@ -250,7 +272,7 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             if win.frame.width < 50 || win.frame.height < 50 { return false }
             return true
         }
-        if candidates.isEmpty { return [:] }
+        if candidates.isEmpty { return CaptureResult(thumbnails: [:], topWindows: [:]) }
 
         // Map windowID -> spaceID via SkyLight. Per-window query is
         // O(W); for v0 W is small (single-digit to low-double-digit).
@@ -266,25 +288,52 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             guard let spaceId = sky.firstSpaceContaining(windowID: wid) else { continue }
             windowsBySpace[spaceId, default: []].append(win)
         }
-        if windowsBySpace.isEmpty { return [:] }
+        if windowsBySpace.isEmpty { return CaptureResult(thumbnails: [:], topWindows: [:]) }
 
-        var out: [UInt64: Data] = [:]
+        var thumbnailsOut: [UInt64: Data] = [:]
+        var topWindowsOut: [UInt64: SpaceTopWindow] = [:]
         for (spaceId, windows) in windowsBySpace {
-            // Cap per-Space windows to keep capture cost bounded.
-            let topWindows = windows
+            // Cap per-Space windows to keep capture cost bounded. Same
+            // area-sorted order is used to pick the dominant window's
+            // label, so the title we surface matches the thumbnail's
+            // most-prominent window.
+            let ranked = windows
                 .sorted { $0.frame.width * $0.frame.height > $1.frame.width * $1.frame.height }
-                .prefix(Self.maxWindowsPerSpace)
+            if let top = ranked.first {
+                topWindowsOut[spaceId] = SpaceTopWindow(
+                    title: top.title ?? "",
+                    appName: top.owningApplication?.applicationName
+                )
+            }
+            let topRanked = ranked.prefix(Self.maxWindowsPerSpace)
             var captured: [(image: CGImage, frame: CGRect)] = []
-            for win in topWindows {
+            for win in topRanked {
                 if let cg = await captureWindow(win) {
                     captured.append((cg, win.frame))
                 }
             }
             if captured.isEmpty { continue }
-            guard let jpeg = Self.composite(captured: captured) else { continue }
-            out[spaceId] = jpeg
+            let canvas = Self.canvasFrame(for: captured.map(\.frame), displays: content.displays)
+            guard let jpeg = Self.composite(captured: captured, canvas: canvas) else { continue }
+            thumbnailsOut[spaceId] = jpeg
         }
-        return out
+        return CaptureResult(thumbnails: thumbnailsOut, topWindows: topWindowsOut)
+    }
+
+    // Pick the display the captured windows live on so the thumbnail's
+    // canvas matches the actual desktop. Falls back to the union of
+    // window frames when no display contains the windows (multi-monitor
+    // edge cases, or displays array was empty).
+    static func canvasFrame(for windowFrames: [CGRect], displays: [SCDisplay]) -> CGRect {
+        let windowUnion = windowFrames.reduce(CGRect.null) { $0.union($1) }
+        let containing = displays.first { display in
+            display.frame.intersection(windowUnion).width > 0
+        }
+        if let containing { return containing.frame }
+        if !windowUnion.isNull, windowUnion.width > 0, windowUnion.height > 0 {
+            return windowUnion
+        }
+        return displays.first?.frame ?? CGRect(x: 0, y: 0, width: 1920, height: 1200)
     }
 
     private func captureWindow(_ window: SCWindow) async -> CGImage? {
@@ -304,19 +353,19 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
         }
     }
 
-    // Pure compositor; unit-testable. Lays captured windows out
-    // proportional to their on-screen positions onto a fixed-size
-    // canvas, then JPEG-encodes. Background is dark grey so windows
-    // pop against the strip.
-    static func composite(captured: [(image: CGImage, frame: CGRect)]) -> Data? {
-        guard !captured.isEmpty else { return nil }
-        let union = captured.reduce(CGRect.null) { $0.union($1.frame) }
-        guard union.width > 0, union.height > 0 else { return nil }
+    // Pure compositor; unit-testable. Scales the supplied display canvas
+    // to fit the thumbnail and draws the captured windows in their actual
+    // positions on that canvas, so each tile looks like the whole desktop
+    // shrunk down (matching Mission Control), not just the bounding box of
+    // the windows. JPEG-encodes the result. Background is dark grey so
+    // empty regions of the desktop read as wallpaper-ish.
+    static func composite(captured: [(image: CGImage, frame: CGRect)], canvas: CGRect) -> Data? {
+        guard !captured.isEmpty, canvas.width > 0, canvas.height > 0 else { return nil }
         let w = thumbnailWidth
         let h = thumbnailHeight
-        let scale = min(CGFloat(w) / union.width, CGFloat(h) / union.height)
-        let offsetX = (CGFloat(w) - union.width * scale) / 2
-        let offsetY = (CGFloat(h) - union.height * scale) / 2
+        let scale = min(CGFloat(w) / canvas.width, CGFloat(h) / canvas.height)
+        let offsetX = (CGFloat(w) - canvas.width * scale) / 2
+        let offsetY = (CGFloat(h) - canvas.height * scale) / 2
 
         let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
         guard let ctx = CGContext(
@@ -329,15 +378,23 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
 
+        ctx.interpolationQuality = .high
+        ctx.setShouldAntialias(true)
         ctx.setFillColor(CGColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 1.0))
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
 
+        // Flip the context to a top-left origin space so SCKit's screen
+        // coordinates and CGImage's natural row order both map directly.
+        // Without this, ctx.draw renders each window image upside-down
+        // (CG draws images bottom-up by default in a y-up context), which
+        // shows up as the window's title bar / traffic-light buttons
+        // landing at the bottom of the tile.
+        ctx.translateBy(x: 0, y: CGFloat(h))
+        ctx.scaleBy(x: 1, y: -1)
+
         for (img, frame) in captured {
-            let dx = (frame.minX - union.minX) * scale + offsetX
-            // SCWindow.frame is in display points with origin at top-left.
-            // CGContext's origin is bottom-left. Flip Y so windows render
-            // in their relative position rather than mirrored.
-            let dy = CGFloat(h) - ((frame.minY - union.minY) * scale + offsetY + frame.height * scale)
+            let dx = (frame.minX - canvas.minX) * scale + offsetX
+            let dy = (frame.minY - canvas.minY) * scale + offsetY
             let dw = frame.width * scale
             let dh = frame.height * scale
             ctx.draw(img, in: CGRect(x: dx, y: dy, width: dw, height: dh))

@@ -88,6 +88,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // R25: merged Spaces band. Replaces the old dots band.
     let thumbnailStripView = ThumbnailStripView()
     var thumbnailsTask: Task<Void, Never>?
+    var topWindowsTask: Task<Void, Never>?
     // Most-recent DesktopState mirrored so the strip can re-render when
     // a thumbnails-push arrives without DesktopState changing, or when
     // the settings toggle flips after a state has already landed.

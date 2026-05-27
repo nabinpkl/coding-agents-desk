@@ -27,6 +27,11 @@ protocol InputChannel: AnyObject, Sendable {
     // into UIImage on the main thread and applies to ThumbnailStripView.
     var thumbnailsUpdates: AsyncStream<[String: String]> { get }
 
+    // ADR-0006 (extended): dominant-window metadata per Space. Sent on
+    // the same thumbnails-push frame, surfaced as a separate stream so
+    // existing thumbnail subscribers don't need to change.
+    var topWindowsUpdates: AsyncStream<[String: SpaceTopWindow]> { get }
+
     // ADR-0006: client -> host opt-in / force-refresh. Sent on channel
     // open and on settings change.
     func sendConfig(_ config: ClientConfig) async throws
@@ -67,6 +72,8 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
     // DesktopState push path.
     private let thumbnailsContinuation: AsyncStream<[String: String]>.Continuation
     let thumbnailsUpdates: AsyncStream<[String: String]>
+    private let topWindowsContinuation: AsyncStream<[String: SpaceTopWindow]>.Continuation
+    let topWindowsUpdates: AsyncStream<[String: SpaceTopWindow]>
 
     init(task: URLSessionWebSocketTask) {
         self.task = task
@@ -76,6 +83,9 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
         var thCont: AsyncStream<[String: String]>.Continuation!
         self.thumbnailsUpdates = AsyncStream { thCont = $0 }
         self.thumbnailsContinuation = thCont
+        var twCont: AsyncStream<[String: SpaceTopWindow]>.Continuation!
+        self.topWindowsUpdates = AsyncStream { twCont = $0 }
+        self.topWindowsContinuation = twCont
         startReceiveLoop()
     }
 
@@ -114,6 +124,7 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
         guard !wasClosed else { return }
         desktopStateContinuation.finish()
         thumbnailsContinuation.finish()
+        topWindowsContinuation.finish()
         task.cancel(with: .normalClosure, reason: nil)
     }
 
@@ -164,6 +175,7 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
         case "thumbnails-push":
             if let push = try? JSONDecoder().decode(ThumbnailsPush.self, from: data) {
                 thumbnailsContinuation.yield(push.thumbnails)
+                topWindowsContinuation.yield(push.topWindows ?? [:])
             }
         default:
             inputLogger.debug("input channel ignored frame type=\(header.type, privacy: .public)")

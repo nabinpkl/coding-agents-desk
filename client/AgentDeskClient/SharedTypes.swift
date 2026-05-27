@@ -543,18 +543,31 @@ struct DesktopStatePush: Codable, Equatable {
 
 // ADR-0006. Mirror of the host's thumbnail wire shapes.
 
+struct SpaceTopWindow: Codable, Equatable, Sendable {
+    let title: String
+    let appName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title = "t"
+        case appName = "a"
+    }
+}
+
 struct ThumbnailsPush: Codable, Equatable {
     let type: String
     let thumbnails: [String: String]
+    let topWindows: [String: SpaceTopWindow]?
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case thumbnails = "tn"
+        case topWindows = "tw"
     }
 
-    init(thumbnails: [String: String]) {
+    init(thumbnails: [String: String], topWindows: [String: SpaceTopWindow]? = nil) {
         self.type = "thumbnails-push"
         self.thumbnails = thumbnails
+        self.topWindows = topWindows
     }
 }
 
