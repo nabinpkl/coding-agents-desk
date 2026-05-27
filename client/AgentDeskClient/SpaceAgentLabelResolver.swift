@@ -43,7 +43,7 @@ enum SpaceAgentLabelResolver {
             )
         }
         if editorAppNames.contains(appName) {
-            return splitEditorTitle(title)
+            return splitEditorTitle(title, appName: appName)
         }
         return ResolvedLabel(
             primary: truncate(title, maxLength: primaryMaxLength),
@@ -51,7 +51,7 @@ enum SpaceAgentLabelResolver {
         )
     }
 
-    static func splitEditorTitle(_ title: String) -> ResolvedLabel {
+    static func splitEditorTitle(_ title: String, appName: String) -> ResolvedLabel {
         let parts = title.components(separatedBy: " \u{2014} ")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -62,11 +62,12 @@ enum SpaceAgentLabelResolver {
                 secondary: truncate(first, maxLength: secondaryMaxLength)
             )
         }
-        // Single-segment editor title is just the workspace; row 2
-        // empty when there's no file focused.
+        // Single-segment editor title is the workspace; fall back to
+        // the app name on row 2 so every tile carries a populated
+        // subtitle and the strip's row-2 baseline is uniform.
         return ResolvedLabel(
             primary: truncate(title, maxLength: primaryMaxLength),
-            secondary: ""
+            secondary: truncate(appName, maxLength: secondaryMaxLength)
         )
     }
 

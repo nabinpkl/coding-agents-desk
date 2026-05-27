@@ -36,14 +36,15 @@ protocol ThumbnailStripViewDelegate: AnyObject {
 final class ThumbnailStripView: UIView {
     weak var delegate: ThumbnailStripViewDelegate?
 
-    static let tileWidth: CGFloat = 64
-    static let tileHeight: CGFloat = 40
-    // Two stacked single-line captions: row 1 is the window title (tab
-    // name, file name, channel, ...), row 2 is the app name. Each row
-    // truncates independently with its own ellipsis so neither steals
-    // the other's width.
-    static let tileCaptionHeight: CGFloat = 28
-    static let defaultTileSpacing: CGFloat = 8
+    // Tile sized to give the caption enough room for the Spotify-style
+    // hierarchy (11pt semibold title + 9pt regular subtitle, both
+    // left-aligned). Wider than the original 64pt strip: density drops
+    // from ~5 tiles to ~4 visible on a standard phone screen, in
+    // exchange for legible captions and a stable two-row baseline.
+    static let tileWidth: CGFloat = 88
+    static let tileHeight: CGFloat = 56
+    static let tileCaptionHeight: CGFloat = 36
+    static let defaultTileSpacing: CGFloat = 10
     static var pageWidth: CGFloat { tileWidth + defaultTileSpacing }
 
     // False (default, toggle OFF) inverts the wire-level sign so
@@ -688,34 +689,36 @@ final class ThumbnailTileCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
 
     private func configure() {
-        contentView.backgroundColor = .secondarySystemBackground
-        contentView.layer.cornerRadius = 6
-        contentView.layer.borderColor = UIColor.separator.cgColor
+        contentView.backgroundColor = .secondarySystemBackground.withAlphaComponent(0.6)
+        contentView.layer.cornerRadius = 8
+        contentView.layer.borderColor = UIColor.separator.withAlphaComponent(0.4).cgColor
         contentView.layer.borderWidth = 0.5
         contentView.clipsToBounds = true
 
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
+        imageView.layer.cornerRadius = 4
         imageView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(imageView)
 
-        // Two independently truncating single-line labels stacked below
-        // the thumbnail. primary = window title (e.g. tab name, file
-        // name), secondary = app name. Each gets its own ellipsis at
-        // its own width so a long tab title doesn't push the app name
-        // off the row.
-        primaryLabel.font = .systemFont(ofSize: 9, weight: .medium)
+        // Spotify-style hierarchy: bold title at full opacity, dimmer
+        // regular-weight subtitle. Both left-aligned and single-line so
+        // each truncates independently with its own ellipsis. Subtitle
+        // is always populated (file name when in an editor with an
+        // open file, app name otherwise) so the row-2 baseline stays
+        // uniform across tiles.
+        primaryLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         primaryLabel.textColor = .label
-        primaryLabel.textAlignment = .center
+        primaryLabel.textAlignment = .left
         primaryLabel.numberOfLines = 1
         primaryLabel.lineBreakMode = .byTruncatingTail
         primaryLabel.adjustsFontSizeToFitWidth = false
         primaryLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(primaryLabel)
 
-        secondaryLabel.font = .systemFont(ofSize: 8, weight: .regular)
+        secondaryLabel.font = .systemFont(ofSize: 9, weight: .regular)
         secondaryLabel.textColor = .secondaryLabel
-        secondaryLabel.textAlignment = .center
+        secondaryLabel.textAlignment = .left
         secondaryLabel.numberOfLines = 1
         secondaryLabel.lineBreakMode = .byTruncatingTail
         secondaryLabel.adjustsFontSizeToFitWidth = false
@@ -723,19 +726,19 @@ final class ThumbnailTileCell: UICollectionViewCell {
         contentView.addSubview(secondaryLabel)
 
         NSLayoutConstraint.activate([
-            imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            imageView.heightAnchor.constraint(equalToConstant: ThumbnailStripView.tileHeight),
+            imageView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
+            imageView.heightAnchor.constraint(equalToConstant: ThumbnailStripView.tileHeight - 8),
 
-            primaryLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 1),
-            primaryLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            primaryLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            primaryLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 6),
+            primaryLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 6),
+            primaryLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -6),
 
-            secondaryLabel.topAnchor.constraint(equalTo: primaryLabel.bottomAnchor),
-            secondaryLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            secondaryLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            secondaryLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -1)
+            secondaryLabel.topAnchor.constraint(equalTo: primaryLabel.bottomAnchor, constant: 1),
+            secondaryLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 6),
+            secondaryLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -6),
+            secondaryLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -4)
         ])
     }
 

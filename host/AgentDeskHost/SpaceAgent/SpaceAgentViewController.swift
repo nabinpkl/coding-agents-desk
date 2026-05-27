@@ -11,10 +11,10 @@ final class SpaceAgentViewController: NSViewController {
     weak var delegate: SpaceAgentViewControllerDelegate?
 
     private let handleSize = CGSize(width: 52, height: 52)
-    private let tileSize = CGSize(width: 128, height: 80)
-    private let tileSpacing: CGFloat = 8
-    private let stripInset: CGFloat = 8
-    private let tileStripHeight: CGFloat = 130
+    private let tileSize = CGSize(width: 168, height: 100)
+    private let tileSpacing: CGFloat = 12
+    private let stripInset: CGFloat = 10
+    private let tileStripHeight: CGFloat = 188
     private let tailHeight: CGFloat = 0
     private let popoverToAnchorGap: CGFloat = 6
     private let popoverScreenMargin: CGFloat = 0
@@ -404,8 +404,16 @@ private final class SpaceAgentTileHostView: NSView {
 }
 
 private final class SpaceAgentTileView: NSControl {
-    static let labelHeight: CGFloat = 32
-    static let imageCornerRadius: CGFloat = 8
+    // Caption laid out Spotify-style: 10pt gap from thumbnail, 17pt
+    // bold title, 4pt gap, 14pt regular dim subtitle, 12pt tail
+    // padding. Adds up to 57pt of caption + thumbnail height.
+    static let labelHeight: CGFloat = 57
+    static let imageCornerRadius: CGFloat = 6
+    static let captionLeadingInset: CGFloat = 10
+    static let captionTopInset: CGFloat = 10
+    static let primaryRowHeight: CGFloat = 17
+    static let primaryToSecondaryGap: CGFloat = 4
+    static let secondaryRowHeight: CGFloat = 14
 
     var tile: SpaceAgentTile? {
         didSet {
@@ -422,6 +430,8 @@ private final class SpaceAgentTileView: NSControl {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let tile else { return }
+        drawTileBackground(in: bounds, active: tile.isActive)
+
         let imageRect = CGRect(
             x: 0,
             y: 0,
@@ -433,7 +443,7 @@ private final class SpaceAgentTileView: NSControl {
             xRadius: Self.imageCornerRadius,
             yRadius: Self.imageCornerRadius
         )
-        NSColor(calibratedWhite: 0.12, alpha: 0.90).setFill()
+        NSColor(calibratedWhite: 0.10, alpha: 1.0).setFill()
         path.fill()
 
         if let data = tile.thumbnail, let image = NSImage(data: data) {
@@ -446,42 +456,61 @@ private final class SpaceAgentTileView: NSControl {
             drawPlaceholder(in: imageRect, active: tile.isActive)
         }
 
-        let borderColor: NSColor = tile.isActive ? .controlAccentColor : NSColor(calibratedWhite: 1, alpha: 0.20)
+        let borderColor: NSColor = tile.isActive ? .controlAccentColor : NSColor(calibratedWhite: 1, alpha: 0.10)
         borderColor.setStroke()
-        path.lineWidth = tile.isActive ? 2 : 1
+        path.lineWidth = tile.isActive ? 2 : 0.5
         path.stroke()
 
         drawCaption(in: bounds, imageRect: imageRect, tile: tile)
     }
 
+    private func drawTileBackground(in bounds: CGRect, active: Bool) {
+        // Subtle inset bg gives the caption a "card" feel without
+        // competing with the thumbnail's own contrast. Active tile
+        // gets a faint accent tint instead of just a thicker border.
+        let bg = NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8)
+        if active {
+            NSColor.controlAccentColor.withAlphaComponent(0.10).setFill()
+        } else {
+            NSColor(calibratedWhite: 1, alpha: 0.03).setFill()
+        }
+        bg.fill()
+    }
+
     private func drawCaption(in bounds: CGRect, imageRect: CGRect, tile: SpaceAgentTile) {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        paragraph.lineBreakMode = .byTruncatingTail
+        let captionLeft = Self.captionLeadingInset
+        let captionWidth = bounds.width - Self.captionLeadingInset * 2
+
+        let leftPara = NSMutableParagraphStyle()
+        leftPara.alignment = .left
+        leftPara.lineBreakMode = .byTruncatingTail
+
         let primaryAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11, weight: tile.isActive ? .semibold : .regular),
-            .foregroundColor: NSColor.white.withAlphaComponent(tile.isActive ? 0.98 : 0.82),
-            .paragraphStyle: paragraph
+            .font: NSFont.systemFont(ofSize: 13, weight: .bold),
+            .foregroundColor: NSColor.white.withAlphaComponent(tile.isActive ? 1.0 : 0.95),
+            .paragraphStyle: leftPara,
+            .kern: -0.1
         ]
         let secondaryAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10, weight: .regular),
-            .foregroundColor: NSColor.white.withAlphaComponent(tile.isActive ? 0.70 : 0.55),
-            .paragraphStyle: paragraph
+            .font: NSFont.systemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: NSColor.white.withAlphaComponent(tile.isActive ? 0.70 : 0.62),
+            .paragraphStyle: leftPara
         ]
+
         let primaryRect = CGRect(
-            x: 8,
-            y: imageRect.maxY + 2,
-            width: bounds.width - 16,
-            height: 14
+            x: captionLeft,
+            y: imageRect.maxY + Self.captionTopInset,
+            width: captionWidth,
+            height: Self.primaryRowHeight
         )
         NSAttributedString(string: tile.title, attributes: primaryAttrs).draw(in: primaryRect)
 
         guard !tile.secondary.isEmpty else { return }
         let secondaryRect = CGRect(
-            x: 8,
-            y: primaryRect.maxY + 1,
-            width: bounds.width - 16,
-            height: 13
+            x: captionLeft,
+            y: primaryRect.maxY + Self.primaryToSecondaryGap,
+            width: captionWidth,
+            height: Self.secondaryRowHeight
         )
         NSAttributedString(string: tile.secondary, attributes: secondaryAttrs).draw(in: secondaryRect)
     }

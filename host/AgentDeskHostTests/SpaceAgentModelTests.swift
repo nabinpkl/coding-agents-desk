@@ -182,14 +182,15 @@ struct SpaceAgentModelTests {
         #expect(resolved.secondary == "package.json")
     }
 
-    @Test func resolveEditorTitleWithNoSeparatorIsJustWorkspace() {
-        // Single-segment editor title is the workspace (no file focused).
-        // Lands in primary; secondary is empty so the tile reads as
-        // "this workspace, no current file".
+    @Test func resolveEditorTitleWithNoSeparatorFallsBackToAppName() {
+        // Single-segment editor title is the workspace (no file
+        // focused). Workspace stays in primary; secondary falls back to
+        // the app name so every tile carries a populated subtitle and
+        // the row-2 baseline stays uniform across the strip.
         let topWindow = SpaceTopWindow(title: "agent-desk", appName: "Code")
         let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop 1")
         #expect(resolved.primary == "agent-desk")
-        #expect(resolved.secondary == "")
+        #expect(resolved.secondary == "Code")
     }
 
     @Test func resolveEditorTitleKeepsDirtyMarker() {

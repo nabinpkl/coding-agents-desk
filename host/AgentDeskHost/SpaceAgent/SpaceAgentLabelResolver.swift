@@ -53,7 +53,7 @@ enum SpaceAgentLabelResolver {
             )
         }
         if editorAppNames.contains(appName) {
-            return splitEditorTitle(title)
+            return splitEditorTitle(title, appName: appName)
         }
         return ResolvedLabel(
             primary: truncate(title, maxLength: primaryMaxLength),
@@ -61,7 +61,7 @@ enum SpaceAgentLabelResolver {
         )
     }
 
-    static func splitEditorTitle(_ title: String) -> ResolvedLabel {
+    static func splitEditorTitle(_ title: String, appName: String) -> ResolvedLabel {
         let parts = title.components(separatedBy: " \u{2014} ")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -73,11 +73,12 @@ enum SpaceAgentLabelResolver {
             )
         }
         // Single-segment editor title means no file is focused; the
-        // segment is the workspace. Leave row 2 empty rather than fake
-        // a placeholder; the workspace name on its own reads cleanly.
+        // segment is the workspace. Fall back to the app name on row 2
+        // so the two-row caption stays uniform across the strip
+        // (Spotify's "category descriptor" move).
         return ResolvedLabel(
             primary: truncate(title, maxLength: primaryMaxLength),
-            secondary: ""
+            secondary: truncate(appName, maxLength: secondaryMaxLength)
         )
     }
 
