@@ -23,8 +23,11 @@ enum SpaceAgentLabelResolver {
     // Editors render their window title as "<file>  <workspace>" with an
     // em-dash separator. For these apps the app name on row 2 is wasted
     // (dock icon already says "Code"), so we hand-parse the title:
-    //   row 1 = file (transient, what's being edited right now)
-    //   row 2 = workspace / project (stable identifier of the window)
+    //   row 1 = workspace / project (the stable identity of the window)
+    //   row 2 = file (transient, what's being edited right now; empty
+    //           when no file is focused)
+    // Workspace gets the prominent slot because it's how the user
+    // identifies which desktop this is; file is the changing detail.
     // Match on appName string; bundle ID would be sturdier but we don't
     // plumb it today. Add new editors here as they show up.
     static let editorAppNames: Set<String> = [
@@ -63,19 +66,18 @@ enum SpaceAgentLabelResolver {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         if parts.count >= 2, let first = parts.first, let last = parts.last {
+            // Last segment is the workspace, first segment is the file.
             return ResolvedLabel(
-                primary: truncate(first, maxLength: primaryMaxLength),
-                secondary: truncate(last, maxLength: secondaryMaxLength)
+                primary: truncate(last, maxLength: primaryMaxLength),
+                secondary: truncate(first, maxLength: secondaryMaxLength)
             )
         }
-        // Single-segment editor title means no file is focused; VS Code
-        // and friends just show the workspace name. Push it into the
-        // workspace row and render an em-dash placeholder up top so the
-        // two-row caption stays uniform across editor tiles whether or
-        // not a file is currently open.
+        // Single-segment editor title means no file is focused; the
+        // segment is the workspace. Leave row 2 empty rather than fake
+        // a placeholder; the workspace name on its own reads cleanly.
         return ResolvedLabel(
-            primary: "\u{2014}",
-            secondary: truncate(title, maxLength: secondaryMaxLength)
+            primary: truncate(title, maxLength: primaryMaxLength),
+            secondary: ""
         )
     }
 

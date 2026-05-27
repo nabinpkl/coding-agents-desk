@@ -56,17 +56,17 @@ enum SpaceAgentLabelResolver {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         if parts.count >= 2, let first = parts.first, let last = parts.last {
+            // Workspace on top, file below.
             return ResolvedLabel(
-                primary: truncate(first, maxLength: primaryMaxLength),
-                secondary: truncate(last, maxLength: secondaryMaxLength)
+                primary: truncate(last, maxLength: primaryMaxLength),
+                secondary: truncate(first, maxLength: secondaryMaxLength)
             )
         }
-        // Single-segment editor title means no file is focused; push the
-        // workspace into the secondary row and use an em-dash placeholder
-        // up top so the two-row caption stays uniform across tiles.
+        // Single-segment editor title is just the workspace; row 2
+        // empty when there's no file focused.
         return ResolvedLabel(
-            primary: "\u{2014}",
-            secondary: truncate(title, maxLength: secondaryMaxLength)
+            primary: truncate(title, maxLength: primaryMaxLength),
+            secondary: ""
         )
     }
 
