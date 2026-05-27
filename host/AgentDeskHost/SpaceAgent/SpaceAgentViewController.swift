@@ -300,9 +300,12 @@ private final class SpaceAgentTileView: NSControl {
         NSColor(calibratedWhite: 0.03, alpha: 0.78).setFill()
         NSBezierPath(roundedRect: titleBackground, xRadius: 5, yRadius: 5).fill()
 
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11, weight: tile.isActive ? .semibold : .regular),
-            .foregroundColor: NSColor.white.withAlphaComponent(tile.isActive ? 0.98 : 0.76)
+            .foregroundColor: NSColor.white.withAlphaComponent(tile.isActive ? 0.98 : 0.76),
+            .paragraphStyle: paragraph
         ]
         NSString(string: tile.title).draw(
             in: CGRect(x: 8, y: 82, width: bounds.width - 16, height: 16),
