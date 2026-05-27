@@ -18,6 +18,7 @@ final class SpaceAgentController: NSObject {
     private var thumbnailsTask: Task<Void, Never>?
     private var spaceChangeObserver: NSObjectProtocol?
     private var pendingHandleScreenOrigin: CGPoint?
+    private var collapsedPanelOrigin: CGPoint?
     private var outsideClickMonitor: Any?
 
     init(
@@ -106,7 +107,21 @@ final class SpaceAgentController: NSObject {
 
     private func setExpanded(_ expanded: Bool) {
         guard viewController.isExpanded != expanded else { return }
-        pendingHandleScreenOrigin = viewController.handleScreenOrigin()
+        if expanded {
+            // Save the spaceship's resting (collapsed) panel origin so
+            // we can return to it on collapse. The expand-time clamp
+            // can shift the panel toward the screen interior to fit
+            // the popover; without this restore, the spaceship would
+            // stay at that shifted position after collapse instead of
+            // returning to the user's parked corner.
+            collapsedPanelOrigin = panel?.frame.origin
+            pendingHandleScreenOrigin = viewController.handleScreenOrigin()
+        } else {
+            // On collapse we do not pin the handle to its current
+            // (mid-screen) position; we restore the parked corner
+            // origin we saved at expand time.
+            pendingHandleScreenOrigin = nil
+        }
         viewController.isExpanded = expanded
         if expanded {
             latestState = spacesProvider.current()
@@ -120,6 +135,23 @@ final class SpaceAgentController: NSObject {
             uninstallOutsideClickMonitor()
         }
         render()
+        if !expanded {
+            restoreCollapsedOrigin()
+        }
+    }
+
+    private func restoreCollapsedOrigin() {
+        guard let panel, let saved = collapsedPanelOrigin else { return }
+        collapsedPanelOrigin = nil
+        let size = viewController.preferredPanelSize
+        let clamped = SpaceAgentPanelPlacement.clampedOrigin(
+            proposed: saved,
+            size: size,
+            visibleFrames: visibleFrames()
+        )
+        guard clamped != panel.frame.origin else { return }
+        panel.setFrame(CGRect(origin: clamped, size: size), display: true)
+        save(origin: clamped)
     }
 
     // Global monitors only fire for events outside the receiving process,
