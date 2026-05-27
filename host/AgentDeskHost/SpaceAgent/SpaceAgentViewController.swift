@@ -11,12 +11,14 @@ final class SpaceAgentViewController: NSViewController {
     weak var delegate: SpaceAgentViewControllerDelegate?
 
     private let handleSize = CGSize(width: 52, height: 52)
-    private let expandedHeight: CGFloat = 104
+    private let expandedHeight: CGFloat = 120
     private let tileSize = CGSize(width: 128, height: 80)
     private let tileSpacing: CGFloat = 8
-    private let tileStripHeight: CGFloat = 100
+    private let tileStripHeight: CGFloat = 116
+    private let stripInset: CGFloat = 8
     private let rootView = SpaceAgentRootView()
     private let handleView = SpaceAgentHandleView()
+    private let tileBackdrop = SpaceAgentTileBackdropView()
     private let tileScrollView = NSScrollView()
     private let tileHost = SpaceAgentTileHostView()
     private var tiles: [SpaceAgentTile] = []
@@ -34,8 +36,9 @@ final class SpaceAgentViewController: NSViewController {
         }
         let tileWidth = CGFloat(max(1, tiles.count)) * tileSize.width
             + CGFloat(max(0, tiles.count - 1)) * tileSpacing
+        let backdropWidth = tileWidth + stripInset * 2
         return NSSize(
-            width: min(handleSize.width + 12 + tileWidth, handleSize.width + 588),
+            width: min(handleSize.width + 12 + backdropWidth, handleSize.width + 12 + 588),
             height: expandedHeight
         )
     }
@@ -70,10 +73,12 @@ final class SpaceAgentViewController: NSViewController {
 
     private func configure() {
         rootView.handleView = handleView
+        rootView.tileBackdrop = tileBackdrop
         rootView.tileHost = tileScrollView
         rootView.handleSize = handleSize
         rootView.expandedHeight = expandedHeight
         rootView.tileStripHeight = tileStripHeight
+        rootView.stripInset = stripInset
         rootView.translatesAutoresizingMaskIntoConstraints = false
 
         handleView.image = NSImage(named: "SpaceAgentSpaceship")
@@ -85,8 +90,7 @@ final class SpaceAgentViewController: NSViewController {
         tileScrollView.drawsBackground = false
         tileScrollView.borderType = .noBorder
         tileScrollView.hasVerticalScroller = false
-        tileScrollView.hasHorizontalScroller = true
-        tileScrollView.autohidesScrollers = true
+        tileScrollView.hasHorizontalScroller = false
         tileScrollView.scrollerStyle = .overlay
         tileScrollView.horizontalScrollElasticity = .allowed
         tileScrollView.verticalScrollElasticity = .none
@@ -99,6 +103,7 @@ final class SpaceAgentViewController: NSViewController {
     private func applyVisibility() {
         rootView.isExpanded = isExpanded
         tileHost.isHidden = !isExpanded
+        tileBackdrop.isHidden = !isExpanded
         preferredContentSize = preferredPanelSize
         rootView.needsLayout = true
     }
@@ -111,6 +116,14 @@ private final class SpaceAgentRootView: NSView {
             if let handleView { addSubview(handleView) }
         }
     }
+    var tileBackdrop: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let tileBackdrop {
+                addSubview(tileBackdrop, positioned: .below, relativeTo: tileHost)
+            }
+        }
+    }
     var tileHost: NSView? {
         didSet {
             oldValue?.removeFromSuperview()
@@ -121,6 +134,7 @@ private final class SpaceAgentRootView: NSView {
     var handleSize = CGSize(width: 52, height: 52)
     var expandedHeight: CGFloat = 104
     var tileStripHeight: CGFloat = 100
+    var stripInset: CGFloat = 8
 
     override var isFlipped: Bool { true }
 
@@ -128,14 +142,48 @@ private final class SpaceAgentRootView: NSView {
         super.layout()
         let handleY = max(0, (bounds.height - handleSize.height) / 2)
         handleView?.frame = CGRect(origin: CGPoint(x: 0, y: handleY), size: handleSize)
-        guard isExpanded, let tileHost else { return }
+        guard isExpanded else { return }
         let x = handleSize.width + 12
-        tileHost.frame = CGRect(
+        let stripFrame = CGRect(
             x: x,
             y: max(0, (bounds.height - tileStripHeight) / 2),
             width: max(0, bounds.width - x),
             height: tileStripHeight
         )
+        tileBackdrop?.frame = stripFrame
+        tileHost?.frame = stripFrame.insetBy(dx: stripInset, dy: stripInset)
+    }
+}
+
+private final class SpaceAgentTileBackdropView: NSVisualEffectView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        commonInit()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        commonInit()
+    }
+
+    private func commonInit() {
+        material = .hudWindow
+        blendingMode = .behindWindow
+        state = .active
+        wantsLayer = true
+        layer?.cornerRadius = 16
+        layer?.masksToBounds = true
+        layer?.borderWidth = 1
+        updateBorderColor()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateBorderColor()
+    }
+
+    private func updateBorderColor() {
+        layer?.borderColor = NSColor(calibratedWhite: 1, alpha: 0.12).cgColor
     }
 }
 
@@ -295,10 +343,6 @@ private final class SpaceAgentTileView: NSControl {
         borderColor.setStroke()
         path.lineWidth = tile.isActive ? 2 : 1
         path.stroke()
-
-        let titleBackground = CGRect(x: 0, y: 80, width: bounds.width, height: 18)
-        NSColor(calibratedWhite: 0.03, alpha: 0.78).setFill()
-        NSBezierPath(roundedRect: titleBackground, xRadius: 5, yRadius: 5).fill()
 
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center

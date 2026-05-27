@@ -82,7 +82,7 @@ struct SpaceAgentModelTests {
             )
         })
 
-        #expect(controller.preferredPanelSize.width == 640)
+        #expect(controller.preferredPanelSize.width == 652)
     }
 
     @Test func expandedPanelKeepsTileStripInsideBounds() throws {
