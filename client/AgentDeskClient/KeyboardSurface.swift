@@ -191,10 +191,25 @@ final class KeyboardSurface: UITextField, UITextFieldDelegate {
     ) -> Bool {
         if string.isEmpty {
             emit(code: "delete")
-        } else {
-            for char in string {
-                emitForCharacter(char)
+            return true
+        }
+        var containsReturn = false
+        for char in string {
+            if char == "\n" { containsReturn = true }
+            emitForCharacter(char)
+        }
+        if containsReturn {
+            // Reset the local echo on Enter so each press starts a
+            // fresh line. Wire events for the batch already went out
+            // above; returning false stops iOS from inserting the "\n"
+            // itself, which on a single-line field would be a no-op but
+            // would also leave the previously-typed text in place.
+            // Async because mutating text inside the delegate callback
+            // is unsupported on some iOS versions.
+            DispatchQueue.main.async {
+                textField.text = ""
             }
+            return false
         }
         return true
     }
