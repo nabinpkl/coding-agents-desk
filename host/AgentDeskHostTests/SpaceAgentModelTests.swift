@@ -248,3 +248,27 @@ struct SpaceAgentModelTests {
         #expect(tiles[1].secondary == "")
     }
 }
+
+// Placement math that keeps the dictation bar clear of the SpaceAgent handle.
+struct SpaceAgentPanelPlacementTests {
+    private let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
+    private let barSize = CGSize(width: 60, height: 52)
+    private let handle = CGRect(x: 100, y: 100, width: 52, height: 52)
+
+    @Test func keepsProposedOriginWhenItDoesNotOverlap() {
+        let origin = CGPoint(x: 500, y: 500)
+        let result = SpaceAgentPanelPlacement.nonOverlappingOrigin(
+            proposed: origin, size: barSize, avoid: handle, visibleFrames: [screen]
+        )
+        #expect(result == origin)
+    }
+
+    @Test func slidesClearOfAnOverlappingHandleWithinScreen() {
+        let result = SpaceAgentPanelPlacement.nonOverlappingOrigin(
+            proposed: CGPoint(x: 110, y: 110), size: barSize, avoid: handle, visibleFrames: [screen]
+        )
+        let placed = CGRect(origin: result, size: barSize)
+        #expect(!placed.intersects(handle))
+        #expect(screen.contains(placed))
+    }
+}

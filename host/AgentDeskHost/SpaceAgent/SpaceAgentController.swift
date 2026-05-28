@@ -21,6 +21,10 @@ final class SpaceAgentController: NSObject {
     private var collapsedPanelOrigin: CGPoint?
     private var outsideClickMonitor: Any?
 
+    // Fired whenever the handle's screen position changes (user drag, expand
+    // or collapse resize) so a sibling overlay can keep clear of it.
+    var onHandleFrameDidChange: (() -> Void)?
+
     init(
         spacesProvider: SpacesProvider,
         thumbnailProvider: SpaceThumbnailProvider,
@@ -33,6 +37,12 @@ final class SpaceAgentController: NSObject {
         self.commitStep = commitStep
         super.init()
         viewController.delegate = self
+    }
+
+    // The handle's current rect in screen coordinates, for a sibling overlay
+    // to avoid. Nil before the panel is on screen.
+    func currentHandleScreenFrame() -> CGRect? {
+        viewController.handleScreenFrame()
     }
 
     func stop() {
@@ -200,6 +210,7 @@ final class SpaceAgentController: NSObject {
         pendingHandleScreenOrigin = nil
         panel.setFrame(CGRect(origin: origin, size: size), display: true)
         save(origin: origin)
+        onHandleFrameDidChange?()
     }
 
     private func resizedPanelOrigin(
@@ -277,6 +288,7 @@ extension SpaceAgentController: NSWindowDelegate {
     func windowDidMove(_ notification: Notification) {
         guard let panel else { return }
         save(origin: panel.frame.origin)
+        onHandleFrameDidChange?()
     }
 }
 
@@ -303,6 +315,38 @@ enum SpaceAgentPanelPlacement {
             x: min(max(proposed.x, frame.minX), maxX),
             y: min(max(proposed.y, frame.minY), maxY)
         )
+    }
+
+    // Slides a panel of `size` placed at `proposed` clear of `avoid`, picking
+    // the nearest of four axis-aligned positions that clears it (with a small
+    // gap), each clamped back into the visible frames. Returns `proposed`
+    // unchanged when it already clears `avoid`. Used to keep the dictation bar
+    // out from under the SpaceAgent handle: the two are sibling floating
+    // panels, and where they overlap the front one swallows the press, so a
+    // grab at the spaceship would otherwise land on the bar's mic button.
+    static func nonOverlappingOrigin(
+        proposed: CGPoint,
+        size: CGSize,
+        avoid: CGRect,
+        visibleFrames: [CGRect]
+    ) -> CGPoint {
+        let gap: CGFloat = 8
+        guard CGRect(origin: proposed, size: size).intersects(avoid) else { return proposed }
+        let candidates = [
+            CGPoint(x: avoid.maxX + gap, y: proposed.y),
+            CGPoint(x: avoid.minX - size.width - gap, y: proposed.y),
+            CGPoint(x: proposed.x, y: avoid.maxY + gap),
+            CGPoint(x: proposed.x, y: avoid.minY - size.height - gap)
+        ].map { clampedOrigin(proposed: $0, size: size, visibleFrames: visibleFrames) }
+        // Prefer candidates that still clear `avoid` after the visible-frame
+        // clamp; fall back to the clamped set if none do (handle larger than
+        // the free space). Pick whichever moves the bar the least.
+        let cleared = candidates.filter { !CGRect(origin: $0, size: size).intersects(avoid) }
+        let pool = cleared.isEmpty ? candidates : cleared
+        return pool.min {
+            hypot($0.x - proposed.x, $0.y - proposed.y)
+                < hypot($1.x - proposed.x, $1.y - proposed.y)
+        } ?? proposed
     }
 
     private static func bestFrame(for candidate: CGRect, visibleFrames: [CGRect]) -> CGRect? {

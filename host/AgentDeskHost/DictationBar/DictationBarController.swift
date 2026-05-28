@@ -20,6 +20,10 @@ final class DictationBarController: NSObject {
     private let transcriber: TranscriptionClient
     private let userDefaults: UserDefaults
     private let typeText: (String) -> Void
+    // Supplies the SpaceAgent handle's screen rect so the bar can stay clear of
+    // it. Without this the two floating panels can overlap and a press meant
+    // for the spaceship lands on the bar's mic button, starting a recording.
+    var spaceAgentHandleFrame: (() -> CGRect?)?
     private var panel: NSPanel?
     private var isCapturing = false
     private var transcribeTask: Task<Void, Never>?
@@ -51,7 +55,10 @@ final class DictationBarController: NSObject {
     func start() {
         guard panel == nil else { return }
         let size = viewController.compactSize
-        let origin = restoredOrigin(size: size) ?? bottomCenterOrigin(size: size)
+        let origin = avoiding(
+            origin: restoredOrigin(size: size) ?? bottomCenterOrigin(size: size),
+            size: size
+        )
         let panel = NSPanel(
             contentRect: CGRect(origin: origin, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -155,7 +162,30 @@ final class DictationBarController: NSObject {
             size: size,
             visibleFrames: NSScreen.screens.map(\.visibleFrame)
         )
-        panel.setFrame(CGRect(origin: clamped, size: size), display: true)
+        panel.setFrame(CGRect(origin: avoiding(origin: clamped, size: size), size: size), display: true)
+    }
+
+    // Nudge a proposed origin out from under the SpaceAgent handle, if one is
+    // present. No-op when nothing supplies the handle frame or they do not
+    // overlap.
+    private func avoiding(origin: CGPoint, size: CGSize) -> CGPoint {
+        guard let handle = spaceAgentHandleFrame?() else { return origin }
+        return SpaceAgentPanelPlacement.nonOverlappingOrigin(
+            proposed: origin,
+            size: size,
+            avoid: handle,
+            visibleFrames: NSScreen.screens.map(\.visibleFrame)
+        )
+    }
+
+    // Re-run avoidance when the SpaceAgent handle moves under the bar. Skipped
+    // mid-capture so a recording is never interrupted by the bar relocating.
+    func keepClearOfSpaceAgentHandle() {
+        guard let panel, !isCapturing else { return }
+        let size = panel.frame.size
+        let placed = avoiding(origin: panel.frame.origin, size: size)
+        guard placed != panel.frame.origin else { return }
+        panel.setFrame(CGRect(origin: placed, size: size), display: true)
     }
 
     private func bottomCenterOrigin(size: CGSize) -> CGPoint {

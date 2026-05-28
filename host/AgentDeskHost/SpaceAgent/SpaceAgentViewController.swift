@@ -83,10 +83,16 @@ final class SpaceAgentViewController: NSViewController {
     }
 
     func handleScreenOrigin() -> CGPoint? {
+        handleScreenFrame()?.origin
+    }
+
+    // The handle's rect in screen coordinates. Used both for the pin-on-resize
+    // math and for keeping the dictation bar clear of the handle.
+    func handleScreenFrame() -> CGRect? {
         guard let window = view.window else { return nil }
         view.layoutSubtreeIfNeeded()
-        let windowRect = handleView.convert(handleView.bounds, to: nil)
-        return window.convertPoint(toScreen: windowRect.origin)
+        let inWindow = handleView.convert(handleView.bounds, to: nil)
+        return window.convertToScreen(inWindow)
     }
 
     private func configure() {

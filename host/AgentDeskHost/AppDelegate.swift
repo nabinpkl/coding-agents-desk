@@ -385,8 +385,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = DictationBarController(
             typeText: { [inputDispatcher] text in inputDispatcher.typeText(text) }
         )
+        // Set the handle-frame provider before start() so the bar's first
+        // placement already dodges the SpaceAgent handle (started just above).
+        controller.spaceAgentHandleFrame = { [weak self] in
+            self?.spaceAgentController?.currentHandleScreenFrame()
+        }
         dictationBarController = controller
         controller.start()
+        // And keep dodging as the handle is dragged or the popover resizes.
+        spaceAgentController?.onHandleFrameDidChange = { [weak self] in
+            self?.dictationBarController?.keepClearOfSpaceAgentHandle()
+        }
     }
 
     // R11: NSWorkspace publishes activeSpaceDidChangeNotification on
