@@ -90,6 +90,15 @@ final class SpaceAgentViewController: NSViewController {
     }
 
     private func configure() {
+        // The overlay is a dark-glass HUD: captions are drawn white, tile
+        // backgrounds and borders are white-alpha tints, the handle is near
+        // black. The only appearance-sensitive piece is the backdrop's
+        // .hudWindow material, which renders light under the system light
+        // appearance and leaves the white captions on a white strip,
+        // unreadable. Pin the whole overlay to darkAqua so the material
+        // stays dark in both system modes and the design reads as intended.
+        rootView.appearance = NSAppearance(named: .darkAqua)
+
         rootView.handleView = handleView
         rootView.tileBackdrop = tileBackdrop
         rootView.tileHost = tileScrollView
