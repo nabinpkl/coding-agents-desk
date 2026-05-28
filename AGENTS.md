@@ -88,3 +88,8 @@ When in doubt about which direction a code path should produce, the test is: fin
 - Anything that would change the v0 acceptance test in `PRD.md` (the 7-day daily-driver criterion).
 
 If you find yourself about to pick one of those on the user's behalf, stop and surface it instead.
+
+
+# Need to revisit
+  - http://localhost needs an ATS exception (NSAllowsLocalNetworking)
+  since the app isn't sandbox-exempt for cleartext HTTP.
