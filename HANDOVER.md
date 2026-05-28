@@ -1,142 +1,78 @@
-## Handover (post-R19 input transport split)
+# Handover: host-side dictation bar
 
-Snapshot of what landed in the current session and what is left, for the next session or the next pair of eyes. Read after `AGENTS.md`. Authoritative state lives in `PRD.md`, `SPEC.md`, the ADRs, and `TASKS.md`; this file points at them and adds only what those do not already say.
+For the next agent picking up the AgentDesk macOS host dictation feature. Read `AGENTS.md` first (it loads the universal worker rules, `PRD.md`, and `SPEC.md`). This doc only covers what those artifacts do not. The previous handover (post-R19 input transport split) is preserved in this file's git history; its still-open v0 items are summarised at the bottom.
 
-## Where v0 is now
+## What the feature is
 
-Phases 0 through 4 and 6 landed. Phase 5 (R11 Spaces switching) is the remaining unstarted slice. Phase 7 (R13 lifecycle) is mostly done: R13.1 + R13.2 (background teardown + foreground re-dial) landed this session; R13.3 (HITL hardware timing on the iPhone) is open and only the human can close it. Phase 8 (R14 distribution + 7-day self-test) is blocked on the Apple Developer Program cert and on R11 + R13.3.
+A host-local push-to-talk dictation bar on the Mac. Hold the mic button or the Fn/Globe key, speak, release; the clip is captured in memory, POSTed to a localhost OpenAI-compatible transcription server, and the returned text is typed at the focused cursor and shown briefly in the bar.
 
-ADR-0005 is accepted as of this session. The input transport architecture is now two transports per session: video on a libwebrtc PeerConnection, input on a dedicated WebSocket Secure connection at the existing signaling port. The previous bundled SCTP data channel is deleted on both sides.
+Authoritative detail lives in:
+- `architecture-decisions/0010-host-mic-dictation.md` (design, rejected options, constraints).
+- `SPEC.md` Host module boundary 13 (DictationBar) and the stack notes.
+- `PRD.md` "What v0 is not" (the audio non-goal was reopened for this host-local utility only).
 
-## What landed in this session
+## Current state
 
-### ADR-0005: input channel separation (`d76a173`)
+Shipped and on `main`. All work is committed and pushed; `just check` is green (host + client targets). Commits, newest first.
 
-Architectural pivot motivated by a typing latency observation. After R12 keyboard landed, hardware testing on the physical iPhone showed "sometimes fast, sometimes slow" cadence for keystrokes. The cause was head-of-line / pacer contention: the SCTP input data channel shared a DTLS/UDP 5-tuple with the SRTP video track. A keyframe burst could deprioritise data packets enough to be visible to a human typist. `RTCDataChannelConfiguration.priority` does not undo OS-level queueing on a shared socket; only a separate transport does. NVIDIA GameStream / Moonlight / Steam Remote Play all reach the same conclusion (input on its own ordered transport). The pre-v0 affordance from `universal-AGENTS.md` (iteration over compatibility) made this the right time to fix the shape rather than tweak around it.
+Host overlay appearance and overlap (latest session): `2bb5134` the dictation bar is now a white pill, `3c0100a` keep the dictation bar clear of the SpaceAgent handle, `c72d3f8` pin the SpaceAgent overlay to dark appearance. Two of these supersede dead ends: `215e2cd` first pinned the dictation bar to dark for the old dark pill, then `2bb5134` switched it to the white look; and a misdirected client-side strip restyle `c2df795` was reverted whole in `252369e` (the wash-out it chased was actually the SpaceAgent overlay, not the iPhone client).
 
-ADR open questions resolved as: first-frame discriminator (not URL path), session-token-in-first-frame auth, exponential backoff reuse from `SessionDialer`, no enforced send-queue bound.
+Dictation feature: `35878fe` compact-bar-widens-for-content, `b9567da` Fn-key push-to-talk, `b346280` trailing space after transcript, `140ce80` type transcript at cursor, `08610d9` OpenAI-compatible endpoint, `681ef7f` level meter, `a00341f` draggable/persistent, `b1d2b80` initial feature. Use `git show <hash>` for any one.
 
-### R19 implementation, end to end (`6388c62`)
+The two host overlays now have a deliberate, opposite look, both appearance-pinned so they render the same in macOS light and dark mode: the SpaceAgent strip is dark glass (`rootView.appearance = .darkAqua`, its captions and tints are dark-tuned and its backdrop is an `.hudWindow` material that otherwise goes light), and the dictation bar is a white pill (`root.appearance = .aqua`, container filled white with a `separatorColor` hairline, foreground moved to `labelColor`/`secondaryLabelColor` and the meter's unlit bars to black-alpha).
 
-Rip-and-replace, both ends in one commit, no compat shim.
+Files (all under `host/AgentDeskHost/`): `MicRecorder.swift`, `WAVEncoder.swift`, `TranscriptionClient.swift`, `DictationBar/DictationBarController.swift`, `DictationBar/DictationBarViewController.swift`, plus wiring in `AppDelegate.swift`, knobs in `Config.swift`, `Info.plist` (mic usage + `NSAllowsLocalNetworking`), and `AgentDeskHost.entitlements` (mic under Hardened Runtime). Test: `host/AgentDeskHostTests/WAVEncoderTests.swift`. Project file `host/AgentDeskHost.xcodeproj/project.pbxproj` registers each new source manually; this project uses explicit file references, not synced folders, so any new file must be added there too. To avoid that step for one new test, the SpaceAgent-handle placement tests were appended to the already-registered `host/AgentDeskHostTests/SpaceAgentModelTests.swift` (struct `SpaceAgentPanelPlacementTests`).
 
-**Wire shape (`SharedTypes.swift`, mirrored both sides):**
+Overlap avoidance spans both overlays: `SpaceAgentPanelPlacement.nonOverlappingOrigin` (in `SpaceAgent/SpaceAgentController.swift`, next to `clampedOrigin`) does the math; `SpaceAgentController` exposes `currentHandleScreenFrame()` and fires `onHandleFrameDidChange` on every handle move (drag, expand, collapse); `DictationBarController` holds a `spaceAgentHandleFrame` provider and a `keepClearOfSpaceAgentHandle()` entry point, and `AppDelegate.startDictationBar` wires the two (provider set before `start()` so even first placement dodges).
 
-```
-InputChannelHello  { sessionToken }   // t: "input-hello"
-InputChannelEvent  { event }          // t: "input-event"
-InputChannelClose  { reason }         // t: "input-close"  (optional, server-initiated)
-```
+## Verified vs not
 
-`SessionRejectionReason` gains `.unauthorized` for token-mismatch on the input-hello path.
+- Verified: builds, unit tests pass (`just check`), including the WAV header test and the two `SpaceAgentPanelPlacementTests` (the dodge math: returns the proposed origin when clear, slides clear and stays on-screen when overlapping).
+- NOT verified end to end: live mic capture, the transcription round-trip, and cursor typing. These need a physical mic, the one-time TCC mic prompt, and the transcription server running. They cannot be driven headless. The next agent or the user must confirm in the real app. This is the most important open item for the feature.
+- NOT visually verified: the appearance work this session. The white dictation pill, the dark SpaceAgent strip, and the bar dodging out from under the spaceship all pass build and the placement unit tests, but rendered appearance and the live dodge cannot be checked headless. Confirm on a real Mac in both light and dark mode.
 
-**Host new pieces:**
+## How to run and test
 
-- `host/AgentDeskHost/InputChannelServer.swift`. Owns one `NWConnection` per session, drains `InputChannelEvent` frames into `events: AsyncStream<NormalizedInput>`. One instance per active session, owned by `SessionRegistry`.
-- `PairingSignalingServer.handleInputHello`. First-frame router classifies `input-hello`, validates via `Pairing.validate(token:)`, detaches the connection from the signaling router's tracking, hands it to a fresh `InputChannelServer`.
-- `SessionRegistry.attachInputChannelServer` and `endSession` close it.
-- `AppDelegate.handleInputChannelReady`. Wires `server.events` into the existing `InputDispatcher.dispatch` path off-MainActor.
+1. Start the OpenAI-compatible transcription server on `http://localhost:8000` (endpoint `/v1/audio/transcriptions`, multipart fields `file` + `model`, response `{ "text": ... }`).
+2. `just host-run` (builds Debug, relaunches via LaunchServices so TCC attributes permissions to the app, not the terminal).
+3. Grant Microphone and Accessibility if prompted. Accessibility is what lets the global Fn monitor fire and what gates cursor typing.
+4. Trigger: hold the mic button in the bottom-centre bar, or hold Fn/Globe. Release to transcribe. Text types into whatever app is frontmost (the bar is a non-activating panel, so focus stays put).
+5. Logs: `just host-logs`, categories `dictation`, `mic`, `input`.
 
-**Client new pieces:**
+Config knobs (documented in `.env.example`): `AGENTDESK_TRANSCRIBE_URL`, `AGENTDESK_TRANSCRIBE_MODEL` (default `mlx-community/whisper-large-v3-turbo`). Set via `launchctl setenv` before `open`, per the host-run pattern.
 
-- `client/AgentDeskClient/InputChannel.swift`. Protocol + `WebSocketInputChannel` impl owning one `URLSessionWebSocketTask`. `InputChannelOpener.open` performs the handshake (sends `InputChannelHello` first, returns ready channel).
-- `SessionConnection` carries the input channel alongside the signaling channel. `SessionDialer` now returns `SessionHandshakeOutcome` (active + signaling); `PairingClient.attemptSession` assembles the full `SessionConnection` by opening the input channel after the handshake completes.
-- `PairingClient.activeInputChannel` exposed; teardown paths (`clearStoredCredentials`, `handleMediaSessionFailed`) close it.
-- `PairingViewController.sendInput` routes through `pairingClient.activeInputChannel` instead of the deleted `mediaTransport.send`.
+## Gotchas specific to this feature
 
-**Deleted on both sides:**
+- Mic under Hardened Runtime requires the `com.apple.security.device.audio-input` entitlement; that is why the entitlements file exists. Removing it silently breaks mic access.
+- `http://localhost` works only because of the `NSAllowsLocalNetworking` ATS exception in `Info.plist`.
+- Fn/Globe behaviour can collide with System Settings > Keyboard > "Press Globe key to". If a single Fn press pops the emoji/input UI, that setting is the cause, not our code.
+- Capture is in-memory by hard requirement (ADR-0010). Do not introduce `AVAudioRecorder` or any temp-file path.
+- Transcript is typed with a trailing space; the bar auto-collapses about 4s after showing text (`transcriptDismissDelay` constant in the controller).
+- The bar anchors to `NSScreen.main` only; multi-display is not handled.
+- The dictation bar and the SpaceAgent handle are sibling borderless non-activating floating panels. Where they overlap the front panel swallows the press, and the mic button uses `acceptsFirstMouse` and records on `mouseDown`, so a press meant for the spaceship that lands on the mic starts a recording. The dodge wiring above prevents this. Removing it (or the provider) makes "dragging the space agent triggers dictation" come back.
+- Both overlays are appearance-pinned on purpose. Do not remove the `.aqua` (dictation) or `.darkAqua` (SpaceAgent) pins to "support light/dark mode": their colours are hardcoded or semantic and tuned for one fixed surface, so dropping the pin reintroduces the white-on-white (or dark-on-dark) wash-out. If you change either overlay's surface colour, recolour its foreground in the same change.
 
-- All `RTCDataChannel` plumbing in `LibWebRTCMediaTransport.swift` (data-channel creation, delegate methods, send path).
-- `MediaTransport.send(_:)` (client), `MediaTransport.inputEvents` (host).
-- `MediaTransportError.inputChannelNotOpen`, `MediaTransportError.inputEncodeFailed`.
+## Open follow-ups for the dictation feature (not started)
 
-The `MediaTransport` protocol surface now matches its name: video only.
+- Fixed-duration auto-stop for recording was offered and declined for now; revisit if push-to-talk hold is awkward.
+- Programmatic resize does not persist the compact resting origin (only user drags are saved via `windowDidMove`). Minor; revisit if the bar drifts after collapse.
+- The dodge re-runs on every `onHandleFrameDidChange`, which fires per move event while the spaceship is dragged. If it looks jumpy, debounce it or only dodge on drag-end.
+- The mic still has no tap-vs-drag tolerance: `acceptsFirstMouse` plus record-on-`mouseDown` means any stray press on the mic records. The dodge removes the panel-overlap cause; a press-becomes-drag cancel in `PushToTalkButton` would be the belt-and-suspenders fix.
+- Idle mic tint is `.systemGray`, which reads softer on the new white pill than the old near-black on dark. Darken to `labelColor` if it looks faint.
+- End-to-end live verification (above).
 
-**Tests:**
+## Other v0 work still open (carried from the prior handover)
 
-- `SignalingFrameRoutingTests` gains input-hello classification and round-trips for all three new frame structs.
-- `client/AgentDeskClientTests/InputChannelTests.swift` (new) covers compact-key encoding and `NormalizedInput` round-trip via the event frame.
-- Old data-channel-input tests deleted alongside the deleted code.
-- Full suite still green via `just check`.
+These are unrelated to dictation but were open before this session. Detail is in the previous version of this file (git history) and in `TASKS.md`.
 
-**SPEC.md updated:** §Stack (two transports), §Module boundaries (gains `InputChannelServer` host + `InputChannel` client), §Wire shapes (new frames + `.unauthorized`), §Lifecycle (independent input-channel reconnect).
+- R11.1-R11.4: Spaces enumeration + 3-finger swipe. AFK, not started.
+- R13.3: HITL hardware timing measurement on the physical iPhone. Only the human can close.
+- R14.1-R14.4: distribution + 7-day self-test. Blocked on the Apple Developer Program cert and R11.
 
-### R13.1 + R13.2 lifecycle (`e685c01`)
+General repo gotchas from the prior handover that still apply: wipe `~/Library/Application Support/AgentDesk/` if a resigned host build hits "Operation not permitted" on pairing (stale `com.apple.provenance` xattrs); SourceKit reports spurious missing-type errors for same-module symbols, `xcodebuild` builds clean; Maestro needs `JAVA_HOME` (the `ui-flow` recipe sets it).
 
-`PairingViewController` previously only observed foreground notifications. iOS suspends the app on background and the WebRTC PC / input WS quietly die in some network conditions; without an explicit teardown on background, state stayed `.connected` and the foreground `triggerSessionIfPaired` short-circuited (its precondition is `.pairedDisconnected`), leaving a zombie session.
+## Suggested skills
 
-Added `applicationDidEnterBackground` that cancels every in-flight task, calls `teardownMediaTransport()`, then calls `pairingClient.handleMediaSessionFailed()` to close both `activeSignaling` and `activeInputChannel` and flip state. The next foreground reliably re-attempts the session and the input channel re-opens.
-
-Verified via new `client/maestro/background-foreground-loop.yaml`. Host log shows the full cycle ending with `input recv key(code: "tab")` after the post-foreground keystroke.
-
-### End-to-end verification (`R19.6` + `D13.1/.2`)
-
-Two Maestro flows now cover the input path end to end. Both live under `client/maestro/` and run via `just ui-flow <name>`:
-
-- `type-tap-keys.yaml`. Launches paired app, opens keyboard, taps Esc + Tab on the accessory row. Proves the dedicated WSS reaches the host (the `tapOn "a"` style for QWERTY letters fails on the simulator because the simulator suppresses the on-screen keyboard when "Connect Hardware Keyboard" is on; accessory row taps exercise the wire equivalently).
-- `background-foreground-loop.yaml`. Launches → Home → Launch → reads Trackpad → types. Proves reconnect lands.
-
-`trackpad-swipe.yaml` proves cursor moves flow.
-
-### Other landings this session
-
-- Earlier in the session: keyboard text input was bypassing our `insertText` override on real iPhones. iOS routes UITextField mutations through `UITextInput.replace(_:withText:)` (autocorrect, QuickType, ordinary typing) which the UIKeyInput override never sees. Switched `KeyboardSurface` to use `UITextFieldDelegate.shouldChangeCharactersIn` as the catch-all (`83d353a`). Unit tests follow the delegate path.
-- Locked the app to dark mode. The Light/Dark/System picker was a research artifact; the answer is dark, and `SceneDelegate` hardcodes `window.overrideUserInterfaceStyle = .dark`. Picker + enum + persisted preference all removed (`93d941a`).
-- Settings appearance section uses the iOS plain `.systemBackground` / `.secondarySystemBackground` palette with `.separator` hairlines (`53bd9f8`). The grouped palette was inverted in light mode (grey canvas, white cards) and read as "papers stuck onto grey paper". Plain palette puts canvas and cards in the same tonal family in both modes.
-- Simulator pair via `localhost` override. `PairingClient.resolvedHost` honours `AGENTDESK_DEV_HOST_OVERRIDE` (env or `UserDefaults`) under `#if targetEnvironment(simulator)`. `SceneDelegate` persists the env-var to defaults at launch so it survives Maestro relaunches that do not forward env. `pair-sim` recipe passes the override via `SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost` (`5fa72b3`, `53bd9f8`).
-- Justfile gained `client-sim-install`, `client-sim-reinstall`, `pair-sim`, `sim-fresh-install`, `ui-flow` recipes (`a787e4c`, `1db84ba`).
-- New `agent-learning/` notes:
-  - `ios-keyboard-oversized-from-missing-launch-screen.md`. Missing `UILaunchScreen` puts iOS in 320x480 compatibility scaling which upscales the system keyboard. Symptom looks like accessory-bar / text-field config bugs but the cause is one line of Info.plist (`7454efe`, `2cd275a`).
-  - `maestro-ios-ui-automation.md`. Maestro is the Playwright equivalent for iOS UI automation. Install path, JAVA_HOME gotcha, `--udid` flag, `tapOn` selectors.
-
-## How it was done (path the next agent should know)
-
-The diagnosis arc, written out so the next agent does not need to re-derive it:
-
-1. R12 keyboard slice landed first. Tests passed; the wire (NormalizedInput key events over the SCTP data channel) was correct. Cursor moves through the same channel felt smooth.
-2. User reported variable typing latency on physical iPhone. Traced the iPhone-to-Mac send path, confirmed it was synchronous-on-main and not async, but observed that nothing in our code would produce the bimodal "fast / slow" pattern. The signal pointed downstream.
-3. Researched industry patterns (NVIDIA GameStream, Moonlight, Steam Remote Play, Google Meet, RFC 8831, W3C webrtc-priority). Conclusion: shared transport at the OS-socket level is the root cause; the canonical fix is a separate transport for input.
-4. User rejected the cheap `RTCDataChannelConfiguration.priority` tweak per `universal-AGENTS.md` (iteration over compatibility); ADR-0005 captured the architectural decision.
-5. R19 implementation in one slice, rip-and-replace. Order: wire shape (R19.1) → host server side (R19.2) → client channel side (R19.3) → delete old SCTP path (R19.4) → tests (R19.5) → end-to-end verify (R19.6) → SPEC.md (R19.7). Pre-v0 affordance means no feature flag, no compat shim.
-6. R19.6 hit a stale `host-signing-key.dev` file with `com.apple.provenance` xattr that blocked the rebuilt host from writing. `AppDelegate.startPairing` silently swallowed the EPERM in its catch block; added a `signalingLogger.error` line so the error surfaces next time. Resolution: wipe `~/Library/Application Support/AgentDesk/` to clear xattrs.
-7. After R19 landed, user asked to fix the background/foreground loop. Same pattern: state machine had `.connected` → no foreground re-dial. Added the background observer + teardown.
-
-## What needs the human now (HITL)
-
-**R13.3 hardware timing measurement.** Background-to-teardown and foreground-to-pixels timings on the physical iPhone, three iterations each, captured here. Budgets per SPEC §Performance: background tear < 1s, foreground re-pair < 5s on Tailscale-over-LAN.
-
-Procedure:
-
-1. `just fresh-install` (host-run + client-reinstall + pair-iphone). Wait until the trackpad is visible on the phone with live screen-share.
-2. Tap home. Stopwatch start. Wait for the host log to show `session ended`. Stop. Note delta.
-3. Foreground the app. Stopwatch start when you tap the icon. Wait for live screen-share to return. Stop. Note delta.
-4. Type a paragraph. Subjective: characters should land at the same beat you type, not in bursts.
-5. Repeat steps 2-4 three iterations.
-6. Append numbers to this file under a new `### R13.3 measurements` section.
-7. If background > 1s or foreground > 5s, open a follow-up R-task; do not paper.
-
-If typing latency variance is still visible after the R19 transport split: open a follow-up R-task with the specific cadence pattern. Do not regress to the bundled-transport shape.
-
-## Open in v0
-
-| Task | Status | Notes |
-| --- | --- | --- |
-| R11.1-R11.4 | Open | Spaces enumeration + 3-finger swipe. AFK. Not started this session. |
-| R13.3 | Open | HITL hardware timing. Only the human can close. |
-| R14.1-R14.4 | Open | Distribution + 7-day self-test. Blocked by Developer cert + R11. |
-
-## Gotchas the next agent should know
-
-- The `~/Library/Application Support/AgentDesk/` directory accumulates xattrs (`com.apple.provenance`) that block writes from a freshly-resigned host build. If `startPairing failed: ... Operation not permitted`, wipe the dir and let the host regenerate.
-- Simulator `Connect Hardware Keyboard` defaults to on, which suppresses the on-screen QWERTY. The accessory-row keys (Esc, Tab, arrows, Cmd, Ctrl, Opt) are still visible and tappable via Maestro; QWERTY letter taps are not. The `type-tap-keys.yaml` flow uses the accessory row for this reason.
-- Simulator cannot reach the host's Tailscale hostname (no Tailscale daemon inside the simulator sandbox). The localhost override is mandatory for sim testing and is automatic via `pair-sim` (which `sim-fresh-install` chains). Physical iPhone uses real Tailscale.
-- SourceKit in Xcode warns about missing types in `SharedTypes.swift` and `PairingClient.swift` constantly; these are spurious because the indexer does not have the mirrored-file context. `xcodebuild` builds clean.
-- Maestro CLI requires `JAVA_HOME` pointing at brew openjdk; the `ui-flow` recipe sets it. Direct `maestro` invocations from a fresh shell hang with a "Java not found" message otherwise. See `agent-learning/maestro-ios-ui-automation.md`.
-
-## Cross-references
-
-- ADR-0005: `architecture-decisions/0005-input-channel-separation.md`
-- Maestro flows: `client/maestro/*.yaml`
-- Just recipes: `Justfile` (look for `client-sim-*`, `pair-sim`, `sim-fresh-install`, `ui-flow`)
-- TASKS.md: phases 4 through 8, plus R19 (now D19) for the input transport refactor
-- Recent commits: `git log --oneline -15`
+- `run` or `verify` to launch the host and confirm the live dictation flow (the unverified part above).
+- `code-review` on the dictation diff if you change the capture or typing path.
+- `diagnose` if mic capture or the transcription round-trip misbehaves.
