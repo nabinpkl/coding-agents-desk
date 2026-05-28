@@ -19,6 +19,12 @@ final class MicRecorder {
 
     static let sampleRate = 16_000
 
+    // Invoked from the realtime audio thread with the peak amplitude of the
+    // latest buffer, normalised to 0...1. Set once before start() so the tap
+    // never races a mid-recording reassignment; the consumer hops to the
+    // main actor to drive the meter.
+    var onLevel: ((Float) -> Void)?
+
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "mic")
     private let engine = AVAudioEngine()
     private let lock = NSLock()
@@ -117,10 +123,21 @@ final class MicRecorder {
             return buffer
         }
         guard status != .error, let channel = outBuffer.int16ChannelData, outBuffer.frameLength > 0 else { return }
-        let byteCount = Int(outBuffer.frameLength) * MemoryLayout<Int16>.size
-        let chunk = Data(bytes: channel[0], count: byteCount)
+        let frames = Int(outBuffer.frameLength)
+        let samples = channel[0]
+        let byteCount = frames * MemoryLayout<Int16>.size
+        let chunk = Data(bytes: samples, count: byteCount)
         lock.lock()
         pcm.append(chunk)
         lock.unlock()
+
+        if onLevel != nil {
+            var peak: Int32 = 0
+            for i in 0..<frames {
+                let magnitude = abs(Int32(samples[i]))
+                if magnitude > peak { peak = magnitude }
+            }
+            onLevel?(Float(peak) / Float(Int16.max))
+        }
     }
 }

@@ -31,6 +31,14 @@ final class DictationBarController: NSObject {
         self.userDefaults = userDefaults
         super.init()
         viewController.delegate = self
+        // Fires on the audio thread; hop to the main actor for the meter.
+        // Only meaningful while capturing (the meter is hidden otherwise).
+        recorder.onLevel = { [weak self] level in
+            Task { @MainActor in
+                guard let self, self.isCapturing else { return }
+                self.viewController.updateLevel(level)
+            }
+        }
     }
 
     func start() {
