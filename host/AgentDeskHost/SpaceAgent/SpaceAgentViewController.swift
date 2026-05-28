@@ -96,14 +96,17 @@ final class SpaceAgentViewController: NSViewController {
     }
 
     private func configure() {
-        // The overlay is a dark-glass HUD: captions are drawn white, tile
-        // backgrounds and borders are white-alpha tints, the handle is near
-        // black. The only appearance-sensitive piece is the backdrop's
-        // .hudWindow material, which renders light under the system light
-        // appearance and leaves the white captions on a white strip,
-        // unreadable. Pin the whole overlay to darkAqua so the material
-        // stays dark in both system modes and the design reads as intended.
-        rootView.appearance = NSAppearance(named: .darkAqua)
+        // The expanded tile strip is a dark-glass HUD: captions are drawn
+        // white over a .hudWindow backdrop, tile backgrounds and borders are
+        // white-alpha tints. The only appearance-sensitive piece is that
+        // backdrop material, which renders light under the system light
+        // appearance and strands the white captions on a white strip. Pin
+        // just the backdrop to darkAqua so the expanded strip stays dark in
+        // both system modes. The root view is intentionally left unpinned so
+        // the collapsed handle can follow the system appearance (a white pill
+        // in light mode, near-black in dark mode); the handle draws its own
+        // per-appearance colours in SpaceAgentHandleView.draw.
+        tileBackdrop.appearance = NSAppearance(named: .darkAqua)
 
         rootView.handleView = handleView
         rootView.tileBackdrop = tileBackdrop
@@ -297,16 +300,42 @@ private final class SpaceAgentHandleView: NSControl {
 
     override var isFlipped: Bool { true }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         NSColor.clear.setFill()
         dirtyRect.fill()
+
+        // The collapsed handle follows the system appearance: a white pill in
+        // light mode, a near-black pill in dark mode. The root view is left
+        // unpinned (only the expanded backdrop is pinned dark) so this view's
+        // effectiveAppearance tracks the system here.
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+
         let circle = bounds.insetBy(dx: 2, dy: 2)
-        NSColor(calibratedWhite: 0.06, alpha: 0.72).setFill()
+        (isDark
+            ? NSColor(calibratedWhite: 0.06, alpha: 0.72)
+            : NSColor(calibratedWhite: 1.0, alpha: 0.95)).setFill()
         NSBezierPath(roundedRect: circle, xRadius: 14, yRadius: 14).fill()
-        NSColor(calibratedWhite: 1.0, alpha: 0.16).setStroke()
+
+        (isDark
+            ? NSColor(calibratedWhite: 1.0, alpha: 0.16)
+            : NSColor.separatorColor).setStroke()
         let border = NSBezierPath(roundedRect: circle, xRadius: 14, yRadius: 14)
         border.lineWidth = 1
         border.stroke()
+
+        // The spaceship art has a white body that would vanish on the white
+        // pill. In light mode seat it on a dark chip so it still reads; in
+        // dark mode the pill is already dark, so the chip is unnecessary.
+        if !isDark {
+            let chip = bounds.insetBy(dx: 7, dy: 7)
+            NSColor(calibratedWhite: 0.12, alpha: 1.0).setFill()
+            NSBezierPath(roundedRect: chip, xRadius: 11, yRadius: 11).fill()
+        }
 
         if let image {
             image.draw(in: bounds.insetBy(dx: 7, dy: 7), from: .zero, operation: .sourceOver, fraction: 1)
