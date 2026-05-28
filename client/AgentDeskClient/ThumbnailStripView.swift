@@ -680,6 +680,11 @@ final class ThumbnailTileCell: UICollectionViewCell {
     private let imageView = UIImageView()
     private let primaryLabel = UILabel()
     private let secondaryLabel = UILabel()
+    // Material style shared by the tile's backing blur and the two
+    // vibrancy label wrappers; they must reference the same style for
+    // vibrancy to read correctly off the backing material.
+    private static let materialStyle: UIBlurEffect.Style = .systemThinMaterial
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: materialStyle))
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -689,56 +694,90 @@ final class ThumbnailTileCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
 
     private func configure() {
-        contentView.backgroundColor = .secondarySystemBackground.withAlphaComponent(0.6)
-        contentView.layer.cornerRadius = 8
-        contentView.layer.borderColor = UIColor.separator.withAlphaComponent(0.4).cgColor
-        contentView.layer.borderWidth = 0.5
-        contentView.clipsToBounds = true
+        // The strip floats over the live Mac mirror, whose brightness is
+        // arbitrary: a white editor washed out the old translucent
+        // .secondarySystemBackground tile and its bare white captions. A
+        // system material backing plus vibrancy labels is the platform-
+        // standard way to keep tile content legible over any backdrop,
+        // light or dark, instead of relying on a fixed translucent grey.
+        contentView.backgroundColor = .clear
+
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+        blurView.layer.cornerRadius = 8
+        blurView.layer.borderColor = UIColor.separator.withAlphaComponent(0.5).cgColor
+        blurView.layer.borderWidth = 0.5
+        blurView.clipsToBounds = true
+        contentView.addSubview(blurView)
+        let blurContent = blurView.contentView
 
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
         imageView.layer.cornerRadius = 4
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(imageView)
+        blurContent.addSubview(imageView)
 
-        // Spotify-style hierarchy: bold title at full opacity, dimmer
-        // regular-weight subtitle. Both left-aligned and single-line so
-        // each truncates independently with its own ellipsis. Subtitle
-        // is always populated (file name when in an editor with an
-        // open file, app name otherwise) so the row-2 baseline stays
-        // uniform across tiles.
+        // Vibrancy makes the captions track the backing material rather
+        // than sit as bare white over arbitrary video. Primary uses the
+        // .label vibrancy style (full strength), secondary the dimmer
+        // .secondaryLabel style, preserving the Spotify-style two-row
+        // hierarchy. Both left-aligned, single-line, independently
+        // truncating. Subtitle is always populated (file name in an
+        // editor, app name otherwise) so the row-2 baseline stays uniform.
+        let blurEffect = UIBlurEffect(style: Self.materialStyle)
+        let primaryVibrancy = UIVisualEffectView(
+            effect: UIVibrancyEffect(blurEffect: blurEffect, style: .label)
+        )
+        let secondaryVibrancy = UIVisualEffectView(
+            effect: UIVibrancyEffect(blurEffect: blurEffect, style: .secondaryLabel)
+        )
+        primaryVibrancy.translatesAutoresizingMaskIntoConstraints = false
+        secondaryVibrancy.translatesAutoresizingMaskIntoConstraints = false
+        blurContent.addSubview(primaryVibrancy)
+        blurContent.addSubview(secondaryVibrancy)
+
         primaryLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-        primaryLabel.textColor = .label
         primaryLabel.textAlignment = .left
         primaryLabel.numberOfLines = 1
         primaryLabel.lineBreakMode = .byTruncatingTail
-        primaryLabel.adjustsFontSizeToFitWidth = false
         primaryLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(primaryLabel)
+        primaryVibrancy.contentView.addSubview(primaryLabel)
 
         secondaryLabel.font = .systemFont(ofSize: 9, weight: .regular)
-        secondaryLabel.textColor = .secondaryLabel
         secondaryLabel.textAlignment = .left
         secondaryLabel.numberOfLines = 1
         secondaryLabel.lineBreakMode = .byTruncatingTail
-        secondaryLabel.adjustsFontSizeToFitWidth = false
         secondaryLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(secondaryLabel)
+        secondaryVibrancy.contentView.addSubview(secondaryLabel)
 
         NSLayoutConstraint.activate([
-            imageView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
-            imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
+            blurView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+
+            imageView.topAnchor.constraint(equalTo: blurContent.topAnchor, constant: 4),
+            imageView.leadingAnchor.constraint(equalTo: blurContent.leadingAnchor, constant: 4),
+            imageView.trailingAnchor.constraint(equalTo: blurContent.trailingAnchor, constant: -4),
             imageView.heightAnchor.constraint(equalToConstant: ThumbnailStripView.tileHeight - 8),
 
-            primaryLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 6),
-            primaryLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 6),
-            primaryLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -6),
+            primaryVibrancy.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 6),
+            primaryVibrancy.leadingAnchor.constraint(equalTo: blurContent.leadingAnchor, constant: 6),
+            primaryVibrancy.trailingAnchor.constraint(equalTo: blurContent.trailingAnchor, constant: -6),
 
-            secondaryLabel.topAnchor.constraint(equalTo: primaryLabel.bottomAnchor, constant: 1),
-            secondaryLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 6),
-            secondaryLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -6),
-            secondaryLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -4)
+            secondaryVibrancy.topAnchor.constraint(equalTo: primaryVibrancy.bottomAnchor, constant: 1),
+            secondaryVibrancy.leadingAnchor.constraint(equalTo: blurContent.leadingAnchor, constant: 6),
+            secondaryVibrancy.trailingAnchor.constraint(equalTo: blurContent.trailingAnchor, constant: -6),
+            secondaryVibrancy.bottomAnchor.constraint(lessThanOrEqualTo: blurContent.bottomAnchor, constant: -4),
+
+            primaryLabel.topAnchor.constraint(equalTo: primaryVibrancy.contentView.topAnchor),
+            primaryLabel.bottomAnchor.constraint(equalTo: primaryVibrancy.contentView.bottomAnchor),
+            primaryLabel.leadingAnchor.constraint(equalTo: primaryVibrancy.contentView.leadingAnchor),
+            primaryLabel.trailingAnchor.constraint(equalTo: primaryVibrancy.contentView.trailingAnchor),
+
+            secondaryLabel.topAnchor.constraint(equalTo: secondaryVibrancy.contentView.topAnchor),
+            secondaryLabel.bottomAnchor.constraint(equalTo: secondaryVibrancy.contentView.bottomAnchor),
+            secondaryLabel.leadingAnchor.constraint(equalTo: secondaryVibrancy.contentView.leadingAnchor),
+            secondaryLabel.trailingAnchor.constraint(equalTo: secondaryVibrancy.contentView.trailingAnchor)
         ])
     }
 
