@@ -31,18 +31,17 @@ final class DictationBarViewController: NSViewController {
         let root = NSView(frame: CGRect(origin: .zero, size: compactSize))
         view = root
 
-        // The bar is a fixed dark-glass pill (the container fills a hardcoded
-        // dark colour, not a system material), so unlike the SpaceAgent
-        // overlay it does not wash out in light mode. It does draw its tints
-        // with semantic system colours (mic, meter, message), which would
-        // otherwise resolve to their light-appearance variants over a surface
-        // that is always dark. Pin to darkAqua so those tints resolve for the
-        // dark surface and the bar looks identical in both system modes.
-        root.appearance = NSAppearance(named: .darkAqua)
+        // The bar is a fixed white pill. Pin it to the light (aqua) appearance
+        // so its semantic colours (label text and the system tints on the mic,
+        // meter, and messages) resolve for a light surface regardless of the
+        // Mac's system mode, rather than going white-on-white when it is dark.
+        root.appearance = NSAppearance(named: .aqua)
 
         container.wantsLayer = true
         container.layer?.cornerRadius = 16
-        container.layer?.backgroundColor = NSColor(calibratedWhite: 0.10, alpha: 0.92).cgColor
+        container.layer?.backgroundColor = NSColor(calibratedWhite: 1.0, alpha: 0.95).cgColor
+        container.layer?.borderColor = NSColor.separatorColor.cgColor
+        container.layer?.borderWidth = 0.5
         container.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(container)
 
@@ -58,7 +57,7 @@ final class DictationBarViewController: NSViewController {
         container.addSubview(micButton)
 
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.textColor = .white
+        statusLabel.textColor = .labelColor
         statusLabel.font = .systemFont(ofSize: 13, weight: .regular)
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.maximumNumberOfLines = 2
@@ -130,14 +129,14 @@ final class DictationBarViewController: NSViewController {
             levelMeter.level = 0
             statusLabel.isHidden = false
             micButton.tint = .systemGray
-            statusLabel.textColor = NSColor.white.withAlphaComponent(0.65)
+            statusLabel.textColor = .secondaryLabelColor
             statusLabel.stringValue = "Transcribing\u{2026}"
         case let .transcript(text):
             levelMeter.isHidden = true
             levelMeter.level = 0
             statusLabel.isHidden = false
             micButton.tint = .systemGray
-            statusLabel.textColor = .white
+            statusLabel.textColor = .labelColor
             statusLabel.stringValue = text
         case let .message(text):
             levelMeter.isHidden = true
@@ -232,7 +231,7 @@ final class LevelMeterView: NSView {
             if i < lit {
                 color(forFraction: fraction).setFill()
             } else {
-                NSColor.white.withAlphaComponent(0.12).setFill()
+                NSColor.black.withAlphaComponent(0.12).setFill()
             }
             path.fill()
         }
