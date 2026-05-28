@@ -25,6 +25,8 @@ final class DictationBarController: NSObject {
     private var transcribeTask: Task<Void, Never>?
     private var fnKeyMonitor: Any?
     private var fnDown = false
+    private var autoDismissTask: Task<Void, Never>?
+    private static let transcriptDismissDelay: UInt64 = 4_000_000_000
 
     init(
         transcriber: TranscriptionClient = TranscriptionClient(),
@@ -48,7 +50,7 @@ final class DictationBarController: NSObject {
 
     func start() {
         guard panel == nil else { return }
-        let size = viewController.preferredPanelSize
+        let size = viewController.compactSize
         let origin = restoredOrigin(size: size) ?? bottomCenterOrigin(size: size)
         let panel = NSPanel(
             contentRect: CGRect(origin: origin, size: size),
@@ -75,6 +77,8 @@ final class DictationBarController: NSObject {
 
     func stop() {
         uninstallFnKeyMonitor()
+        autoDismissTask?.cancel()
+        autoDismissTask = nil
         transcribeTask?.cancel()
         transcribeTask = nil
         if isCapturing {
@@ -118,6 +122,42 @@ final class DictationBarController: NSObject {
         }
     }
 
+    // Single entry point for state changes: resize the panel (compact when
+    // idle, widened otherwise), render, and auto-collapse back to compact a
+    // few seconds after a transcript or message is shown.
+    private func show(_ state: DictationBarViewController.State) {
+        autoDismissTask?.cancel()
+        autoDismissTask = nil
+        resizePanel(expanded: DictationBarViewController.isExpanded(state))
+        viewController.render(state)
+        switch state {
+        case .transcript, .message:
+            autoDismissTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: Self.transcriptDismissDelay)
+                guard !Task.isCancelled else { return }
+                self?.show(.idle)
+            }
+        default:
+            break
+        }
+    }
+
+    // Resize keeping the bar's horizontal centre and bottom edge fixed so it
+    // grows and shrinks in place, clamped to the visible screens.
+    private func resizePanel(expanded: Bool) {
+        guard let panel else { return }
+        let size = expanded ? viewController.expandedSize : viewController.compactSize
+        guard panel.frame.size != size else { return }
+        let old = panel.frame
+        let proposed = CGPoint(x: old.midX - size.width / 2, y: old.minY)
+        let clamped = SpaceAgentPanelPlacement.clampedOrigin(
+            proposed: proposed,
+            size: size,
+            visibleFrames: NSScreen.screens.map(\.visibleFrame)
+        )
+        panel.setFrame(CGRect(origin: clamped, size: size), display: true)
+    }
+
     private func bottomCenterOrigin(size: CGSize) -> CGPoint {
         let frame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
             ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
@@ -152,10 +192,10 @@ final class DictationBarController: NSObject {
         do {
             try recorder.start()
             isCapturing = true
-            viewController.render(.recording)
+            show(.recording)
         } catch {
             logger.error("recorder start failed: \(String(describing: error), privacy: .public)")
-            viewController.render(.message("Microphone unavailable"))
+            show(.message("Microphone unavailable"))
         }
     }
 
@@ -165,10 +205,10 @@ final class DictationBarController: NSObject {
         let wav = recorder.stop()
         // 44-byte header only means no audio frames were captured.
         guard wav.count > 44 else {
-            viewController.render(.idle)
+            show(.idle)
             return
         }
-        viewController.render(.transcribing)
+        show(.transcribing)
         let transcriber = self.transcriber
         transcribeTask = Task { [weak self] in
             do {
@@ -180,11 +220,11 @@ final class DictationBarController: NSObject {
                 // trailing space keeps back-to-back dictations from butting
                 // together.
                 self?.typeText(text + " ")
-                self?.viewController.render(.transcript(text))
+                self?.show(.transcript(text))
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.logger.error("transcription failed: \(String(describing: error), privacy: .public)")
-                self?.viewController.render(.message("Transcription failed"))
+                self?.show(.message("Transcription failed"))
             }
         }
     }
@@ -197,18 +237,18 @@ extension DictationBarController {
         case .authorized:
             beginCapture()
         case .notDetermined:
-            viewController.render(.message("Allow microphone access\u{2026}"))
+            show(.message("Allow microphone access\u{2026}"))
             Task { [weak self] in
                 let granted = await MicRecorder.requestAccess()
                 guard let self else { return }
                 if granted {
                     self.beginCapture()
                 } else {
-                    self.viewController.render(.message("Microphone access denied"))
+                    self.show(.message("Microphone access denied"))
                 }
             }
         default:
-            viewController.render(.message("Enable mic in System Settings"))
+            show(.message("Enable mic in System Settings"))
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
                 NSWorkspace.shared.open(url)
             }

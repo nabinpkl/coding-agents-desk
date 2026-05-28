@@ -18,7 +18,9 @@ final class DictationBarViewController: NSViewController {
 
     weak var delegate: DictationBarViewControllerDelegate?
 
-    let preferredPanelSize = CGSize(width: 520, height: 56)
+    // Resting state is a mic-only pill; it widens to show the meter or text.
+    let compactSize = CGSize(width: 60, height: 52)
+    let expandedSize = CGSize(width: 520, height: 52)
 
     private let container = NSView()
     private let micButton = PushToTalkButton()
@@ -26,7 +28,7 @@ final class DictationBarViewController: NSViewController {
     private let levelMeter = LevelMeterView()
 
     override func loadView() {
-        let root = NSView(frame: CGRect(origin: .zero, size: preferredPanelSize))
+        let root = NSView(frame: CGRect(origin: .zero, size: compactSize))
         view = root
 
         container.wantsLayer = true
@@ -58,6 +60,14 @@ final class DictationBarViewController: NSViewController {
         levelMeter.isHidden = true
         container.addSubview(levelMeter)
 
+        // Trailing edges only matter while expanded; drop their priority so
+        // the compact (mic-only) width does not break a required constraint
+        // against the hidden label and meter.
+        let labelTrailing = statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16)
+        labelTrailing.priority = .defaultHigh
+        let meterTrailing = levelMeter.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16)
+        meterTrailing.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
             container.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             container.trailingAnchor.constraint(equalTo: root.trailingAnchor),
@@ -70,11 +80,11 @@ final class DictationBarViewController: NSViewController {
             micButton.heightAnchor.constraint(equalToConstant: 36),
 
             statusLabel.leadingAnchor.constraint(equalTo: micButton.trailingAnchor, constant: 12),
-            statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            labelTrailing,
             statusLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
 
             levelMeter.leadingAnchor.constraint(equalTo: micButton.trailingAnchor, constant: 12),
-            levelMeter.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            meterTrailing,
             levelMeter.centerYAnchor.constraint(equalTo: container.centerYAnchor),
             levelMeter.heightAnchor.constraint(equalToConstant: 22),
         ])
@@ -88,29 +98,42 @@ final class DictationBarViewController: NSViewController {
         levelMeter.level = level
     }
 
-    func render(_ state: State) {
-        let recording: Bool
-        if case .recording = state { recording = true } else { recording = false }
-        levelMeter.isHidden = !recording
-        statusLabel.isHidden = recording
-        if !recording { levelMeter.level = 0 }
+    // Whether the bar needs its widened size for this state (meter or text).
+    // Idle is the compact, mic-only resting state.
+    static func isExpanded(_ state: State) -> Bool {
+        if case .idle = state { return false }
+        return true
+    }
 
+    func render(_ state: State) {
         switch state {
         case .idle:
+            levelMeter.isHidden = true
+            levelMeter.level = 0
+            statusLabel.isHidden = true
             micButton.tint = .systemGray
-            statusLabel.textColor = NSColor.white.withAlphaComponent(0.65)
-            statusLabel.stringValue = "Hold the mic to talk"
         case .recording:
+            levelMeter.isHidden = false
+            statusLabel.isHidden = true
             micButton.tint = .systemRed
         case .transcribing:
+            levelMeter.isHidden = true
+            levelMeter.level = 0
+            statusLabel.isHidden = false
             micButton.tint = .systemGray
             statusLabel.textColor = NSColor.white.withAlphaComponent(0.65)
             statusLabel.stringValue = "Transcribing\u{2026}"
         case let .transcript(text):
+            levelMeter.isHidden = true
+            levelMeter.level = 0
+            statusLabel.isHidden = false
             micButton.tint = .systemGray
             statusLabel.textColor = .white
             statusLabel.stringValue = text
         case let .message(text):
+            levelMeter.isHidden = true
+            levelMeter.level = 0
+            statusLabel.isHidden = false
             micButton.tint = .systemGray
             statusLabel.textColor = .systemOrange
             statusLabel.stringValue = text
