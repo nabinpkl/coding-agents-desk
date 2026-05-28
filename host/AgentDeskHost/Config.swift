@@ -3,15 +3,21 @@ import Foundation
 enum Config {
     static let signalingPort: UInt16 = 41888
     static let nonceTTL: TimeInterval = 90
-    // Host-local transcription service. The clip never touches disk; it is
-    // POSTed as multipart/form-data from an in-memory WAV buffer. Override
-    // for a non-default port or a remote tailnet transcriber.
+    // Host-local transcription service, OpenAI-compatible. The clip never
+    // touches disk; it is POSTed as multipart/form-data (fields "file" and
+    // "model") from an in-memory WAV buffer. Override the URL for a
+    // non-default port or a remote tailnet transcriber.
     static let transcriptionEndpoint: URL = {
         if let raw = ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_URL"],
            let url = URL(string: raw) {
             return url
         }
-        return URL(string: "http://localhost:8000/transcribe")!
+        return URL(string: "http://localhost:8000/v1/audio/transcriptions")!
+    }()
+    // Model name sent in the multipart body for OpenAI-compatible servers.
+    // Servers that ignore the field are unaffected.
+    static let transcriptionModel: String = {
+        ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_MODEL"] ?? "whisper-1"
     }()
     static let launchAgentLabel = "com.example.agentdesk.AgentDeskHost"
     static let applicationSupportDirectory = FileManager.default

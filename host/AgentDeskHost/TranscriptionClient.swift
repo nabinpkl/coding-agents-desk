@@ -12,10 +12,16 @@ struct TranscriptionClient {
     }
 
     private let endpoint: URL
+    private let model: String
     private let session: URLSession
 
-    init(endpoint: URL = Config.transcriptionEndpoint, session: URLSession = .shared) {
+    init(
+        endpoint: URL = Config.transcriptionEndpoint,
+        model: String = Config.transcriptionModel,
+        session: URLSession = .shared
+    ) {
         self.endpoint = endpoint
+        self.model = model
         self.session = session
     }
 
@@ -27,6 +33,9 @@ struct TranscriptionClient {
 
         var body = Data()
         body.appendUTF8("--\(boundary)\r\n")
+        body.appendUTF8("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
+        body.appendUTF8(model)
+        body.appendUTF8("\r\n--\(boundary)\r\n")
         body.appendUTF8("Content-Disposition: form-data; name=\"file\"; filename=\"clip.wav\"\r\n")
         body.appendUTF8("Content-Type: audio/wav\r\n\r\n")
         body.append(wav)

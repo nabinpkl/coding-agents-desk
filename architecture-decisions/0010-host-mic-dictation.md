@@ -7,7 +7,7 @@ date: 2026-05-28
 
 ## Context and Problem Statement
 
-The author wants to dictate text on the Mac host: hold a control, speak, release, and get the transcription back. `PRD.md` had listed "no audio" under v0 non-goals, scoped to the iPhone-to-Mac pixels/input pipeline. This decision reopens that line for a host-local utility only. It does not add audio to the WebRTC media plane, the input channel, or the pairing/session contracts. A transcription service runs on the same Mac at `http://localhost:8000/transcribe` and accepts a multipart file upload. The capture must stay entirely in memory, never touching the filesystem.
+The author wants to dictate text on the Mac host: hold a control, speak, release, and get the transcription back. `PRD.md` had listed "no audio" under v0 non-goals, scoped to the iPhone-to-Mac pixels/input pipeline. This decision reopens that line for a host-local utility only. It does not add audio to the WebRTC media plane, the input channel, or the pairing/session contracts. An OpenAI-compatible transcription service runs on the same Mac at `http://localhost:8000/v1/audio/transcriptions` and accepts a multipart upload (`file` plus `model`). The capture must stay entirely in memory, never touching the filesystem.
 
 Affected modules (all host-side, all new except the wiring and config): `host/AgentDeskHost/Config.swift`, `host/AgentDeskHost/WAVEncoder.swift`, `host/AgentDeskHost/MicRecorder.swift`, `host/AgentDeskHost/TranscriptionClient.swift`, `host/AgentDeskHost/DictationBar/`, `host/AgentDeskHost/AppDelegate.swift`, `host/AgentDeskHost/Info.plist`, `host/AgentDeskHost/AgentDeskHost.entitlements`.
 
@@ -30,7 +30,7 @@ Affected modules (all host-side, all new except the wiring and config): `host/Ag
 
 Chose **Option A**.
 
-`AVAudioRecorder` (Option B) is eliminated by the in-memory driver: it only writes to a file URL. ScreenCaptureKit (Option C) captures the wrong source. Raw PCM (Option D) trades a 44-byte header for a brittle out-of-band contract. `AVAudioEngine.inputNode` with an installed tap hands PCM buffers to an `AVAudioConverter` that downsamples to 16 kHz mono Int16; the bytes accumulate in a `Data` buffer guarded by a lock (the tap fires on a realtime audio thread), and `stop()` wraps them with `WAVEncoder` into a finished WAV in memory. `TranscriptionClient` POSTs that `Data` as `multipart/form-data` with field name `file`.
+`AVAudioRecorder` (Option B) is eliminated by the in-memory driver: it only writes to a file URL. ScreenCaptureKit (Option C) captures the wrong source. Raw PCM (Option D) trades a 44-byte header for a brittle out-of-band contract. `AVAudioEngine.inputNode` with an installed tap hands PCM buffers to an `AVAudioConverter` that downsamples to 16 kHz mono Int16; the bytes accumulate in a `Data` buffer guarded by a lock (the tap fires on a realtime audio thread), and `stop()` wraps them with `WAVEncoder` into a finished WAV in memory. `TranscriptionClient` POSTs that `Data` to the OpenAI-compatible endpoint as `multipart/form-data` with fields `file` (the WAV) and `model`.
 
 The trigger is a borderless non-activating `NSPanel` pinned to the bottom-centre of the main screen, joining all Spaces, mirroring the existing `SpaceAgent` overlay pattern. A push-to-talk control records on mouse-down and transcribes on mouse-up, then shows the returned text in the bar.
 
@@ -39,7 +39,7 @@ Two platform requirements are structural, not optional:
 - Hardened Runtime requires `com.apple.security.device.audio-input` in an entitlements file (`AgentDeskHost.entitlements`, wired via `CODE_SIGN_ENTITLEMENTS`). Without it the OS denies mic access before the TCC prompt is even useful. This is the host's first entitlements file; it was previously relying on TCC-only permissions (Screen Recording, Accessibility) that need no Hardened Runtime entitlement.
 - App Transport Security blocks cleartext HTTP by default. `NSAllowsLocalNetworking` in `Info.plist` exempts loopback (and `.local`) without disabling ATS globally, which is the minimal exception for `http://localhost`.
 
-The endpoint lives in `Config.transcriptionEndpoint`, overridable via `AGENTDESK_TRANSCRIBE_URL`.
+The endpoint lives in `Config.transcriptionEndpoint`, overridable via `AGENTDESK_TRANSCRIBE_URL`; the model name lives in `Config.transcriptionModel` (`AGENTDESK_TRANSCRIBE_MODEL`, default `whisper-1`).
 
 ### Consequences
 
