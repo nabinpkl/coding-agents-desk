@@ -151,7 +151,16 @@ extension PairingViewController {
             bottomConstraint,
             buttonRow.heightAnchor.constraint(equalToConstant: 44),
 
-            thumbnailStripView.heightAnchor.constraint(equalToConstant: 56),
+            // Strip must fit the full cell: tile thumbnail (tileHeight) +
+            // two-row caption (tileCaptionHeight). The old 56pt value was
+            // the original image-only tile height; with the Spotify-style
+            // two-row caption added, the strip needs the full cell height
+            // or the secondary label is clipped and the active-tile
+            // selection overlay (sized to cell, not strip) looks oversized
+            // relative to the visible tile content.
+            thumbnailStripView.heightAnchor.constraint(
+                equalToConstant: ThumbnailStripView.tileHeight + ThumbnailStripView.tileCaptionHeight
+            ),
 
             keyboardSurface.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
 
