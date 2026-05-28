@@ -382,7 +382,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startDictationBar() {
-        let controller = DictationBarController()
+        let controller = DictationBarController(
+            typeText: { [inputDispatcher] text in inputDispatcher.typeText(text) }
+        )
         dictationBarController = controller
         controller.start()
     }

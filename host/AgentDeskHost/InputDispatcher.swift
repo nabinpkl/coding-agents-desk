@@ -255,6 +255,53 @@ final class InputDispatcher: @unchecked Sendable {
         eventPoster(event)
     }
 
+    // Types arbitrary text at the focused cursor. Used by the host
+    // dictation bar to inject a transcript into whatever app is frontmost.
+    // Goes through the same serial queue and Accessibility gate as remote
+    // input so ordering and trust handling stay in one place.
+    func typeText(_ text: String) {
+        guard !text.isEmpty else { return }
+        queue.async { [self] in performTypeText(text) }
+    }
+
+    // Synchronous core, called only from `queue`. Internal so tests can
+    // drive it without the async hop.
+    func performTypeText(_ text: String) {
+        guard isTrusted() else {
+            if !loggedUntrusted {
+                logger.warning("Accessibility not granted; dropping typed text")
+                loggedUntrusted = true
+            }
+            return
+        }
+        loggedUntrusted = false
+        // keyboardSetUnicodeString injects the literal characters without a
+        // keycode lookup, so it is layout-independent and handles punctuation
+        // and non-ASCII. Chunk the UTF-16 units; a single event with a long
+        // string is unreliable, short runs post cleanly.
+        let units = Array(text.utf16)
+        let chunkSize = 16
+        var start = 0
+        while start < units.count {
+            let end = min(start + chunkSize, units.count)
+            postUnicodeChunk(Array(units[start..<end]))
+            start = end
+        }
+    }
+
+    private func postUnicodeChunk(_ utf16: [UniChar]) {
+        guard let down = CGEvent(keyboardEventSource: cursorEventSource, virtualKey: 0, keyDown: true),
+              let up = CGEvent(keyboardEventSource: cursorEventSource, virtualKey: 0, keyDown: false) else { return }
+        down.flags = []
+        up.flags = []
+        utf16.withUnsafeBufferPointer { buffer in
+            down.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress)
+            up.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress)
+        }
+        eventPoster(down)
+        eventPoster(up)
+    }
+
     private func postKey(code: String, modifiers: [NormalizedInput.Modifier]) {
         guard let virtualKey = KeyCodeMap.lookup(code) else {
             logger.warning("Unknown key code from client: \(code, privacy: .public)")

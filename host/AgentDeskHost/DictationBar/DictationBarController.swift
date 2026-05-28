@@ -19,16 +19,19 @@ final class DictationBarController: NSObject {
     private let recorder = MicRecorder()
     private let transcriber: TranscriptionClient
     private let userDefaults: UserDefaults
+    private let typeText: (String) -> Void
     private var panel: NSPanel?
     private var isCapturing = false
     private var transcribeTask: Task<Void, Never>?
 
     init(
         transcriber: TranscriptionClient = TranscriptionClient(),
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        typeText: @escaping (String) -> Void = { _ in }
     ) {
         self.transcriber = transcriber
         self.userDefaults = userDefaults
+        self.typeText = typeText
         super.init()
         viewController.delegate = self
         // Fires on the audio thread; hop to the main actor for the meter.
@@ -135,6 +138,9 @@ final class DictationBarController: NSObject {
                 let text = try await transcriber.transcribe(wav: wav)
                 guard !Task.isCancelled else { return }
                 self?.logger.notice("transcript received chars=\(text.count, privacy: .public)")
+                // Type into the frontmost app. The bar is a non-activating
+                // panel, so focus never left that app while recording.
+                self?.typeText(text)
                 self?.viewController.render(.transcript(text))
             } catch {
                 guard !Task.isCancelled else { return }
