@@ -9,16 +9,26 @@ import os
 // returned text in the bar. Independent of the iPhone remote pipeline.
 @MainActor
 final class DictationBarController: NSObject {
+    private enum DefaultsKey {
+        static let originX = "DictationBar.origin.x"
+        static let originY = "DictationBar.origin.y"
+    }
+
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "dictation")
     private let viewController = DictationBarViewController()
     private let recorder = MicRecorder()
     private let transcriber: TranscriptionClient
+    private let userDefaults: UserDefaults
     private var panel: NSPanel?
     private var isCapturing = false
     private var transcribeTask: Task<Void, Never>?
 
-    init(transcriber: TranscriptionClient = TranscriptionClient()) {
+    init(
+        transcriber: TranscriptionClient = TranscriptionClient(),
+        userDefaults: UserDefaults = .standard
+    ) {
         self.transcriber = transcriber
+        self.userDefaults = userDefaults
         super.init()
         viewController.delegate = self
     }
@@ -26,8 +36,9 @@ final class DictationBarController: NSObject {
     func start() {
         guard panel == nil else { return }
         let size = viewController.preferredPanelSize
+        let origin = restoredOrigin(size: size) ?? bottomCenterOrigin(size: size)
         let panel = NSPanel(
-            contentRect: CGRect(origin: bottomCenterOrigin(size: size), size: size),
+            contentRect: CGRect(origin: origin, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -39,7 +50,11 @@ final class DictationBarController: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
+        // Drag the bar anywhere except the push-to-talk control, which
+        // swallows its own mouse events for record start/stop.
+        panel.isMovableByWindowBackground = true
         panel.contentViewController = viewController
+        panel.delegate = self
         self.panel = panel
         panel.orderFrontRegardless()
     }
@@ -62,6 +77,25 @@ final class DictationBarController: NSObject {
             x: frame.midX - size.width / 2,
             y: frame.minY + 24
         )
+    }
+
+    private func restoredOrigin(size: CGSize) -> CGPoint? {
+        guard userDefaults.object(forKey: DefaultsKey.originX) != nil,
+              userDefaults.object(forKey: DefaultsKey.originY) != nil
+        else { return nil }
+        return SpaceAgentPanelPlacement.clampedOrigin(
+            proposed: CGPoint(
+                x: userDefaults.double(forKey: DefaultsKey.originX),
+                y: userDefaults.double(forKey: DefaultsKey.originY)
+            ),
+            size: size,
+            visibleFrames: NSScreen.screens.map(\.visibleFrame)
+        )
+    }
+
+    private func save(origin: CGPoint) {
+        userDefaults.set(Double(origin.x), forKey: DefaultsKey.originX)
+        userDefaults.set(Double(origin.y), forKey: DefaultsKey.originY)
     }
 
     private func beginCapture() {
@@ -129,5 +163,12 @@ extension DictationBarController: DictationBarViewControllerDelegate {
 
     func dictationBarDidReleaseTalk(_ controller: DictationBarViewController) {
         endCapture()
+    }
+}
+
+extension DictationBarController: NSWindowDelegate {
+    func windowDidMove(_ notification: Notification) {
+        guard let panel else { return }
+        save(origin: panel.frame.origin)
     }
 }
