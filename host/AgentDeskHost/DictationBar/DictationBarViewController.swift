@@ -31,6 +31,15 @@ final class DictationBarViewController: NSViewController {
         let root = NSView(frame: CGRect(origin: .zero, size: compactSize))
         view = root
 
+        // The bar is a fixed dark-glass pill (the container fills a hardcoded
+        // dark colour, not a system material), so unlike the SpaceAgent
+        // overlay it does not wash out in light mode. It does draw its tints
+        // with semantic system colours (mic, meter, message), which would
+        // otherwise resolve to their light-appearance variants over a surface
+        // that is always dark. Pin to darkAqua so those tints resolve for the
+        // dark surface and the bar looks identical in both system modes.
+        root.appearance = NSAppearance(named: .darkAqua)
+
         container.wantsLayer = true
         container.layer?.cornerRadius = 16
         container.layer?.backgroundColor = NSColor(calibratedWhite: 0.10, alpha: 0.92).cgColor
