@@ -328,17 +328,18 @@ private final class SpaceAgentHandleView: NSControl {
         border.lineWidth = 1
         border.stroke()
 
-        // The spaceship art has a white body that would vanish on the white
-        // pill. In light mode seat it on a dark chip so it still reads; in
-        // dark mode the pill is already dark, so the chip is unnecessary.
+        // In light mode the rocket sits in a gray disc on the white pill, to
+        // match the dictation bar's mic (white pill, gray circle, icon on
+        // top). In dark mode the pill is already dark, so the rocket draws on
+        // it directly.
         if !isDark {
-            let chip = bounds.insetBy(dx: 7, dy: 7)
-            NSColor(calibratedWhite: 0.12, alpha: 1.0).setFill()
-            NSBezierPath(roundedRect: chip, xRadius: 11, yRadius: 11).fill()
+            let disc = bounds.insetBy(dx: 7, dy: 7)
+            NSColor.systemGray.withAlphaComponent(0.25).setFill()
+            NSBezierPath(ovalIn: disc).fill()
         }
 
         if let image {
-            image.draw(in: bounds.insetBy(dx: 7, dy: 7), from: .zero, operation: .sourceOver, fraction: 1)
+            image.draw(in: bounds.insetBy(dx: 8, dy: 8), from: .zero, operation: .sourceOver, fraction: 1)
         } else {
             drawFallbackShip(in: bounds.insetBy(dx: 11, dy: 9))
         }
