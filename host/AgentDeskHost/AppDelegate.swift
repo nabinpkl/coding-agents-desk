@@ -92,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let spacesProvider = SpacesProvider()
     private let spaceThumbnailProvider = SpaceThumbnailProvider()
     private var spaceAgentController: SpaceAgentController?
+    private var dictationBarController: DictationBarController?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
     private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()
@@ -111,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installSpacesChangeObserver()
         installThumbnailsBroadcast()
         startSpaceAgent()
+        startDictationBar()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
         }
@@ -154,6 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         spaceAgentController?.stop()
+        dictationBarController?.stop()
         signalingServer?.stop()
     }
 
@@ -375,6 +378,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
         spaceAgentController = controller
+        controller.start()
+    }
+
+    private func startDictationBar() {
+        let controller = DictationBarController()
+        dictationBarController = controller
         controller.start()
     }
 

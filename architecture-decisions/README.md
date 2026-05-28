@@ -54,3 +54,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0007 | Host-side viewport crop for zoom sharpness | superseded by ADR-0008 | 2026-05-23 |
 | ADR-0008 | Native-pixel encoder density, local-only zoom | proposed | 2026-05-23 |
 | ADR-0009 | Cursor-driven viewport pan (edge follow) | proposed | 2026-05-23 |
+| ADR-0010 | Host-side push-to-talk dictation | proposed | 2026-05-28 |

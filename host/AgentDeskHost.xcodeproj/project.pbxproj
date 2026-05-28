@@ -70,6 +70,13 @@
 		A00000000000000000000241 /* SpaceThumbnailProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */; };
 		A00000000000000000000242 /* SpaceAgentLabelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012D /* SpaceAgentLabelResolver.swift */; };
 		A00000000000000000000243 /* SpaceAgentLabelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012D /* SpaceAgentLabelResolver.swift */; };
+		A00000000000000000000244 /* WAVEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012E /* WAVEncoder.swift */; };
+		A00000000000000000000245 /* MicRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012F /* MicRecorder.swift */; };
+		A00000000000000000000246 /* TranscriptionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000130 /* TranscriptionClient.swift */; };
+		A00000000000000000000247 /* DictationBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000131 /* DictationBarController.swift */; };
+		A00000000000000000000248 /* DictationBarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000132 /* DictationBarViewController.swift */; };
+		A00000000000000000000249 /* WAVEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012E /* WAVEncoder.swift */; };
+		A0000000000000000000024A /* WAVEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000133 /* WAVEncoderTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -118,6 +125,13 @@
 		A0000000000000000000012B /* SpaceAgentModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceAgentModelTests.swift; sourceTree = "<group>"; };
 		A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceThumbnailProviderTests.swift; sourceTree = "<group>"; };
 		A0000000000000000000012D /* SpaceAgentLabelResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceAgentLabelResolver.swift; sourceTree = "<group>"; };
+		A0000000000000000000012E /* WAVEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVEncoder.swift; sourceTree = "<group>"; };
+		A0000000000000000000012F /* MicRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicRecorder.swift; sourceTree = "<group>"; };
+		A00000000000000000000130 /* TranscriptionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionClient.swift; sourceTree = "<group>"; };
+		A00000000000000000000131 /* DictationBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationBarController.swift; sourceTree = "<group>"; };
+		A00000000000000000000132 /* DictationBarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationBarViewController.swift; sourceTree = "<group>"; };
+		A00000000000000000000133 /* WAVEncoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVEncoderTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000134 /* AgentDeskHost.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AgentDeskHost.entitlements; sourceTree = "<group>"; };
 		A00000000000000000000141 /* AgentDeskHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00000000000000000000142 /* AgentDeskHostTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskHostTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -163,9 +177,14 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000012 /* SpaceAgent */,
+				A00000000000000000000013 /* DictationBar */,
 				A00000000000000000000101 /* AppDelegate.swift */,
+				A00000000000000000000134 /* AgentDeskHost.entitlements */,
 				A00000000000000000000102 /* Base64URL.swift */,
 				A00000000000000000000103 /* Config.swift */,
+				A0000000000000000000012E /* WAVEncoder.swift */,
+				A0000000000000000000012F /* MicRecorder.swift */,
+				A00000000000000000000130 /* TranscriptionClient.swift */,
 				A00000000000000000000104 /* HostSigningKeyStore.swift */,
 				A00000000000000000000105 /* KeychainStore.swift */,
 				A0000000000000000000010D /* LaunchAgentInstaller.swift */,
@@ -211,10 +230,20 @@
 			path = SpaceAgent;
 			sourceTree = "<group>";
 		};
+		A00000000000000000000013 /* DictationBar */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000131 /* DictationBarController.swift */,
+				A00000000000000000000132 /* DictationBarViewController.swift */,
+			);
+			path = DictationBar;
+			sourceTree = "<group>";
+		};
 		A00000000000000000000011 /* AgentDeskHostTests */ = {
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000121 /* PairingTests.swift */,
+				A00000000000000000000133 /* WAVEncoderTests.swift */,
 				A00000000000000000000122 /* LaunchAgentInstallerTests.swift */,
 				A00000000000000000000123 /* SessionAuthenticatorTests.swift */,
 				A00000000000000000000124 /* SignalingFrameRoutingTests.swift */,
@@ -384,6 +413,11 @@
 				A0000000000000000000023A /* SpaceAgentViewController.swift in Sources */,
 				A0000000000000000000023B /* SpaceAgentController.swift in Sources */,
 				A00000000000000000000242 /* SpaceAgentLabelResolver.swift in Sources */,
+				A00000000000000000000244 /* WAVEncoder.swift in Sources */,
+				A00000000000000000000245 /* MicRecorder.swift in Sources */,
+				A00000000000000000000246 /* TranscriptionClient.swift in Sources */,
+				A00000000000000000000247 /* DictationBarController.swift in Sources */,
+				A00000000000000000000248 /* DictationBarViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -417,6 +451,8 @@
 				A00000000000000000000240 /* SpaceAgentModelTests.swift in Sources */,
 				A00000000000000000000241 /* SpaceThumbnailProviderTests.swift in Sources */,
 				A00000000000000000000243 /* SpaceAgentLabelResolver.swift in Sources */,
+				A00000000000000000000249 /* WAVEncoder.swift in Sources */,
+				A0000000000000000000024A /* WAVEncoderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -538,6 +574,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AgentDeskHost/AgentDeskHost.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = TEAMID0000;
@@ -559,6 +596,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AgentDeskHost/AgentDeskHost.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = TEAMID0000;

@@ -30,5 +30,12 @@
 	<string></string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>AgentDesk needs Screen Recording to stream this Mac's display to your iPhone.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>AgentDesk records short clips from this Mac's microphone to transcribe them to text.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>
