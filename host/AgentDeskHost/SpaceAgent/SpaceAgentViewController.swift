@@ -11,10 +11,10 @@ final class SpaceAgentViewController: NSViewController {
     weak var delegate: SpaceAgentViewControllerDelegate?
 
     private let handleSize = CGSize(width: 52, height: 52)
-    private let tileSize = CGSize(width: 168, height: 100)
-    private let tileSpacing: CGFloat = 12
+    private let tileSize = CGSize(width: 140, height: 84)
+    private let tileSpacing: CGFloat = 10
     private let stripInset: CGFloat = 10
-    private let tileStripHeight: CGFloat = 188
+    private let tileStripHeight: CGFloat = 164
     private let tailHeight: CGFloat = 0
     private let popoverToAnchorGap: CGFloat = 6
     private let popoverScreenMargin: CGFloat = 0
@@ -404,13 +404,15 @@ private final class SpaceAgentTileHostView: NSView {
 }
 
 private final class SpaceAgentTileView: NSControl {
-    // Caption laid out Spotify-style: 10pt gap from thumbnail, 17pt
-    // bold title, 4pt gap, 14pt regular dim subtitle, 12pt tail
-    // padding. Adds up to 57pt of caption + thumbnail height.
-    static let labelHeight: CGFloat = 57
+    // Caption laid out Spotify-style: 8pt gap from thumbnail, 17pt
+    // bold title, 4pt gap, 14pt regular dim subtitle, 6pt tail
+    // padding. Adds up to 49pt of caption. Font sizes are held while
+    // the tile shrinks so the labels stay legible at high desktop
+    // counts; only the surrounding insets give.
+    static let labelHeight: CGFloat = 49
     static let imageCornerRadius: CGFloat = 6
     static let captionLeadingInset: CGFloat = 10
-    static let captionTopInset: CGFloat = 10
+    static let captionTopInset: CGFloat = 8
     static let primaryRowHeight: CGFloat = 17
     static let primaryToSecondaryGap: CGFloat = 4
     static let secondaryRowHeight: CGFloat = 14
