@@ -17,7 +17,7 @@ enum Config {
     // Model name sent in the multipart body for OpenAI-compatible servers.
     // Servers that ignore the field are unaffected.
     static let transcriptionModel: String = {
-        ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_MODEL"] ?? "whisper-1"
+        ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_MODEL"] ?? "mlx-community/whisper-large-v3-turbo"
     }()
     static let launchAgentLabel = "com.example.agentdesk.AgentDeskHost"
     static let applicationSupportDirectory = FileManager.default
