@@ -23,6 +23,8 @@ final class DictationBarController: NSObject {
     private var panel: NSPanel?
     private var isCapturing = false
     private var transcribeTask: Task<Void, Never>?
+    private var fnKeyMonitor: Any?
+    private var fnDown = false
 
     init(
         transcriber: TranscriptionClient = TranscriptionClient(),
@@ -68,9 +70,11 @@ final class DictationBarController: NSObject {
         panel.delegate = self
         self.panel = panel
         panel.orderFrontRegardless()
+        installFnKeyMonitor()
     }
 
     func stop() {
+        uninstallFnKeyMonitor()
         transcribeTask?.cancel()
         transcribeTask = nil
         if isCapturing {
@@ -79,6 +83,39 @@ final class DictationBarController: NSObject {
         }
         panel?.close()
         panel = nil
+    }
+
+    // Hold-to-talk via the Fn / Globe key. It surfaces as the .function
+    // modifier on flagsChanged events; a global monitor catches it while
+    // another app is frontmost (the host is an accessory and the bar is a
+    // non-activating panel, so it is never the active app). Requires
+    // Accessibility, which the host already holds for input dispatch.
+    private func installFnKeyMonitor() {
+        guard fnKeyMonitor == nil else { return }
+        fnKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
+            let pressed = event.modifierFlags.contains(.function)
+            Task { @MainActor in
+                self?.handleFnState(pressed)
+            }
+        }
+    }
+
+    private func uninstallFnKeyMonitor() {
+        if let fnKeyMonitor {
+            NSEvent.removeMonitor(fnKeyMonitor)
+            self.fnKeyMonitor = nil
+        }
+        fnDown = false
+    }
+
+    private func handleFnState(_ pressed: Bool) {
+        guard pressed != fnDown else { return }
+        fnDown = pressed
+        if pressed {
+            handleTalkPressed()
+        } else {
+            handleTalkReleased()
+        }
     }
 
     private func bottomCenterOrigin(size: CGSize) -> CGPoint {
@@ -153,13 +190,14 @@ final class DictationBarController: NSObject {
     }
 }
 
-extension DictationBarController: DictationBarViewControllerDelegate {
-    func dictationBarDidPressTalk(_ controller: DictationBarViewController) {
+extension DictationBarController {
+    // Shared by the mic button and the Fn-key monitor.
+    private func handleTalkPressed() {
         switch MicRecorder.authorizationStatus() {
         case .authorized:
             beginCapture()
         case .notDetermined:
-            controller.render(.message("Allow microphone access\u{2026}"))
+            viewController.render(.message("Allow microphone access\u{2026}"))
             Task { [weak self] in
                 let granted = await MicRecorder.requestAccess()
                 guard let self else { return }
@@ -170,15 +208,25 @@ extension DictationBarController: DictationBarViewControllerDelegate {
                 }
             }
         default:
-            controller.render(.message("Enable mic in System Settings"))
+            viewController.render(.message("Enable mic in System Settings"))
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
                 NSWorkspace.shared.open(url)
             }
         }
     }
 
-    func dictationBarDidReleaseTalk(_ controller: DictationBarViewController) {
+    private func handleTalkReleased() {
         endCapture()
+    }
+}
+
+extension DictationBarController: DictationBarViewControllerDelegate {
+    func dictationBarDidPressTalk(_ controller: DictationBarViewController) {
+        handleTalkPressed()
+    }
+
+    func dictationBarDidReleaseTalk(_ controller: DictationBarViewController) {
+        handleTalkReleased()
     }
 }
 
