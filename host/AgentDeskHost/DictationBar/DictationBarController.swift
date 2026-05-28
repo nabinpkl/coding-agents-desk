@@ -139,8 +139,10 @@ final class DictationBarController: NSObject {
                 guard !Task.isCancelled else { return }
                 self?.logger.notice("transcript received chars=\(text.count, privacy: .public)")
                 // Type into the frontmost app. The bar is a non-activating
-                // panel, so focus never left that app while recording.
-                self?.typeText(text)
+                // panel, so focus never left that app while recording. The
+                // trailing space keeps back-to-back dictations from butting
+                // together.
+                self?.typeText(text + " ")
                 self?.viewController.render(.transcript(text))
             } catch {
                 guard !Task.isCancelled else { return }
