@@ -22,7 +22,9 @@ final class SpaceAgentViewController: NSViewController {
     private let handleView = SpaceAgentHandleView()
     private let tileBackdrop = SpaceAgentTileBackdropView()
     private let tileScrollView = NSScrollView()
+    private let tileClipView = SpaceAgentClipView()
     private let tileHost = SpaceAgentTileHostView()
+    private let overflowHintView = SpaceAgentOverflowHintView()
     private var tiles: [SpaceAgentTile] = []
 
     /// Hard cap on the popover's outer width. Set to a positive value to
@@ -71,6 +73,11 @@ final class SpaceAgentViewController: NSViewController {
         applyVisibility()
     }
 
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        updateOverflowHints()
+    }
+
     func render(tiles: [SpaceAgentTile]) {
         self.tiles = tiles
         tileHost.render(tiles: tiles)
@@ -80,6 +87,7 @@ final class SpaceAgentViewController: NSViewController {
         }
         rootView.needsLayout = true
         preferredContentSize = preferredPanelSize
+        updateOverflowHints()
     }
 
     func handleScreenOrigin() -> CGPoint? {
@@ -111,6 +119,7 @@ final class SpaceAgentViewController: NSViewController {
         rootView.handleView = handleView
         rootView.tileBackdrop = tileBackdrop
         rootView.tileHost = tileScrollView
+        rootView.overflowHintView = overflowHintView
         rootView.handleSize = handleSize
         rootView.tileStripHeight = tileStripHeight
         rootView.stripInset = stripInset
@@ -133,7 +142,11 @@ final class SpaceAgentViewController: NSViewController {
         tileScrollView.scrollerStyle = .overlay
         tileScrollView.horizontalScrollElasticity = .allowed
         tileScrollView.verticalScrollElasticity = .none
+        tileScrollView.contentView = tileClipView
         tileScrollView.documentView = tileHost
+        tileClipView.onBoundsChanged = { [weak self] in
+            self?.updateOverflowHints()
+        }
 
         tileHost.tileSize = tileSize
         tileHost.tileSpacing = tileSpacing
@@ -143,8 +156,30 @@ final class SpaceAgentViewController: NSViewController {
         rootView.isExpanded = isExpanded
         tileHost.isHidden = !isExpanded
         tileBackdrop.isHidden = !isExpanded
+        overflowHintView.isHidden = !isExpanded
         preferredContentSize = preferredPanelSize
         rootView.needsLayout = true
+        updateOverflowHints()
+    }
+
+    private func updateOverflowHints() {
+        guard isExpanded else {
+            overflowHintView.setShows(left: false, right: false)
+            return
+        }
+
+        let viewport = tileScrollView.contentView.bounds
+        let documentWidth = tileHost.frame.width
+        let maxOffsetX = max(0, documentWidth - viewport.width)
+        let currentX = viewport.minX
+        let left = currentX > 1
+        let right = currentX < maxOffsetX - 1
+        overflowHintView.setShows(left: left, right: right)
+    }
+
+    var overflowHintState: (left: Bool, right: Bool) {
+        updateOverflowHints()
+        return (overflowHintView.showsLeft, overflowHintView.showsRight)
     }
 }
 
@@ -169,6 +204,12 @@ private final class SpaceAgentRootView: NSView {
             if let tileHost { addSubview(tileHost) }
         }
     }
+    var overflowHintView: SpaceAgentOverflowHintView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let overflowHintView { addSubview(overflowHintView) }
+        }
+    }
     var isExpanded: Bool = false
     var handleSize = CGSize(width: 52, height: 52)
     var tileStripHeight: CGFloat = 116
@@ -186,6 +227,7 @@ private final class SpaceAgentRootView: NSView {
             handleView?.frame = CGRect(x: handleX, y: handleY, width: handleSize.width, height: handleSize.height)
             tileBackdrop?.frame = .zero
             tileHost?.frame = .zero
+            overflowHintView?.frame = .zero
             return
         }
 
@@ -201,6 +243,7 @@ private final class SpaceAgentRootView: NSView {
             height: max(0, tileStripHeight - stripInset * 2)
         )
         tileHost?.frame = bodyFrame
+        overflowHintView?.frame = bodyFrame
 
         let handleY = backdropHeight + popoverToAnchorGap
         handleView?.frame = CGRect(x: handleX, y: handleY, width: handleSize.width, height: handleSize.height)
@@ -288,6 +331,93 @@ private final class SpaceAgentTileBackdropView: NSVisualEffectView {
             path.closeSubpath()
         }
         return path
+    }
+}
+
+private final class SpaceAgentClipView: NSClipView {
+    var onBoundsChanged: (() -> Void)?
+
+    override var bounds: NSRect {
+        didSet {
+            guard oldValue.origin != bounds.origin || oldValue.size != bounds.size else { return }
+            onBoundsChanged?()
+        }
+    }
+}
+
+private final class SpaceAgentOverflowHintView: NSView {
+    private(set) var showsLeft = false
+    private(set) var showsRight = false
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func setShows(left: Bool, right: Bool) {
+        let changed = showsLeft != left || showsRight != right
+        showsLeft = left
+        showsRight = right
+        isHidden = !left && !right
+        if changed {
+            needsDisplay = true
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard showsLeft || showsRight else { return }
+        if showsLeft {
+            drawHint(edge: .left)
+        }
+        if showsRight {
+            drawHint(edge: .right)
+        }
+    }
+
+    private enum Edge {
+        case left
+        case right
+    }
+
+    private func drawHint(edge: Edge) {
+        let width: CGFloat = 34
+        let fadeRect: CGRect
+        let gradient: NSGradient?
+        switch edge {
+        case .left:
+            fadeRect = CGRect(x: bounds.minX, y: bounds.minY, width: width, height: bounds.height)
+            gradient = NSGradient(colors: [
+                NSColor.black.withAlphaComponent(0.42),
+                NSColor.black.withAlphaComponent(0)
+            ])
+        case .right:
+            fadeRect = CGRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height)
+            gradient = NSGradient(colors: [
+                NSColor.black.withAlphaComponent(0),
+                NSColor.black.withAlphaComponent(0.42)
+            ])
+        }
+        gradient?.draw(in: fadeRect, angle: 0)
+
+        let centerX = edge == .left ? fadeRect.minX + 15 : fadeRect.maxX - 15
+        let centerY = bounds.midY - SpaceAgentTileView.labelHeight / 2
+        let chevron = NSBezierPath()
+        chevron.lineWidth = 2.2
+        chevron.lineCapStyle = .round
+        chevron.lineJoinStyle = .round
+        switch edge {
+        case .left:
+            chevron.move(to: CGPoint(x: centerX + 4, y: centerY - 8))
+            chevron.line(to: CGPoint(x: centerX - 4, y: centerY))
+            chevron.line(to: CGPoint(x: centerX + 4, y: centerY + 8))
+        case .right:
+            chevron.move(to: CGPoint(x: centerX - 4, y: centerY - 8))
+            chevron.line(to: CGPoint(x: centerX + 4, y: centerY))
+            chevron.line(to: CGPoint(x: centerX - 4, y: centerY + 8))
+        }
+        NSColor.white.withAlphaComponent(0.48).setStroke()
+        chevron.stroke()
     }
 }
 
@@ -510,6 +640,7 @@ private final class SpaceAgentTileView: NSControl {
         path.lineWidth = tile.isActive ? 2 : 0.5
         path.stroke()
 
+        drawDesktopNumber(in: imageRect, tile: tile)
         drawCaption(in: bounds, imageRect: imageRect, tile: tile)
     }
 
@@ -562,6 +693,45 @@ private final class SpaceAgentTileView: NSControl {
             height: Self.secondaryRowHeight
         )
         NSAttributedString(string: tile.secondary, attributes: secondaryAttrs).draw(in: secondaryRect)
+    }
+
+    private func drawDesktopNumber(in imageRect: CGRect, tile: SpaceAgentTile) {
+        guard tile.desktopNumber > 0 else { return }
+
+        let string = "\(tile.desktopNumber)" as NSString
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let textAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .bold),
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: paragraph
+        ]
+        let textSize = string.size(withAttributes: textAttrs)
+        let badgeHeight: CGFloat = 22
+        let badgeWidth = max(22, ceil(textSize.width) + 12)
+        let inset: CGFloat = 7
+        let badgeRect = CGRect(
+            x: imageRect.maxX - badgeWidth - inset,
+            y: imageRect.maxY - badgeHeight - inset,
+            width: badgeWidth,
+            height: badgeHeight
+        )
+
+        let badgePath = NSBezierPath(
+            roundedRect: badgeRect,
+            xRadius: badgeHeight / 2,
+            yRadius: badgeHeight / 2
+        )
+        NSColor.black.withAlphaComponent(0.62).setFill()
+        badgePath.fill()
+
+        let textRect = CGRect(
+            x: badgeRect.minX,
+            y: badgeRect.minY + (badgeHeight - textSize.height) / 2 - 1,
+            width: badgeRect.width,
+            height: textSize.height
+        )
+        string.draw(in: textRect, withAttributes: textAttrs)
     }
 
     override func mouseUp(with event: NSEvent) {

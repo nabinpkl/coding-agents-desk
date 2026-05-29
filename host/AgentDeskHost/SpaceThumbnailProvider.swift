@@ -11,7 +11,9 @@ import os
 // thumbnail composited from the windows that live on that Space. Emits
 // the latest set as `[UInt64: Data]` on `thumbnails` whenever it
 // recomputes (3 s timer + NSWorkspace.activeSpaceDidChangeNotification
-// + explicit forceRefresh).
+// + explicit forceRefresh). Last-good results are retained while capture
+// demand is off so reopening a surface can render stale thumbnails
+// immediately, then replace them when the next capture completes.
 //
 // Toggleable via owner-scoped demand: when no owner needs thumbnails,
 // the timer and the observer stop and the stream stops emitting. The
@@ -53,11 +55,13 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
     var thumbnails: AsyncStream<[UInt64: Data]> {
         AsyncStream { continuation in
             let id = UUID()
-            let latest = state.withLock { s -> [UInt64: Data] in
+            let latest = state.withLock { s -> [UInt64: Data]? in
                 s.continuations[id] = continuation
                 return s.latest
             }
-            continuation.yield(latest)
+            if let latest {
+                continuation.yield(latest)
+            }
             continuation.onTermination = { [state] _ in
                 state.withLock { $0.continuations[id] = nil }
             }
@@ -73,7 +77,7 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
         var demandOwners: Set<SpaceThumbnailDemandOwner> = []
         var capturing: Bool = false
         var pendingForceRefreshSpaceId: UInt64?
-        var latest: [UInt64: Data] = [:]
+        var latest: [UInt64: Data]?
         var latestTopWindows: [UInt64: SpaceTopWindow] = [:]
         var continuations: [UUID: AsyncStream<[UInt64: Data]>.Continuation] = [:]
     }
@@ -90,9 +94,14 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
     private var refreshTask: Task<Void, Never>?
     private var spaceChangeObserver: NSObjectProtocol?
     private let sky: SkyLightThumbnailBinding?
+    private let captureOverride: (@Sendable () async -> CaptureResult)?
 
-    init(skylight: SkyLightThumbnailBinding? = SkyLightThumbnailBinding.shared) {
+    init(
+        skylight: SkyLightThumbnailBinding? = SkyLightThumbnailBinding.shared,
+        captureOverride: (@Sendable () async -> CaptureResult)? = nil
+    ) {
         self.sky = skylight
+        self.captureOverride = captureOverride
         if skylight == nil {
             logger.error("SLSCopySpacesForWindows not resolvable; thumbnails will be empty")
         }
@@ -150,9 +159,10 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             uninstallSpaceChangeObserver()
             refreshTask?.cancel()
             refreshTask = nil
-            // Emit empty so the client clears its strip without waiting
-            // on its own settings change to ack the disable.
-            emit(thumbnails: [:], topWindows: [:])
+            // Keep the last-good snapshot. Individual consumers clear
+            // themselves when they disable previews; retaining the cache
+            // lets the next consumer render immediately while a fresh
+            // capture runs in the background.
         }
     }
 
@@ -246,6 +256,9 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
     // the per-Space window cap. Awaits SCK directly rather than
     // bridging via a semaphore (which fights Swift 6 concurrency).
     private func captureAsync() async -> CaptureResult {
+        if let captureOverride {
+            return await captureOverride()
+        }
         guard let sky else { return CaptureResult(thumbnails: [:], topWindows: [:]) }
 
         // Enumerate windows including off-screen so Spaces other than

@@ -25,10 +25,12 @@ struct SpaceAgentModelTests {
 
         #expect(tiles.map(\.spaceId) == [10, 11])
         #expect(tiles[0].title == "Desktop 1")
+        #expect(tiles[0].desktopNumber == 1)
         #expect(tiles[0].isActive == false)
         #expect(tiles[0].stepDelta == -1)
         #expect(tiles[0].thumbnail == Data([1, 2, 3]))
         #expect(tiles[1].title == "Desktop 2")
+        #expect(tiles[1].desktopNumber == 2)
         #expect(tiles[1].isActive == true)
         #expect(tiles[1].stepDelta == 0)
     }
@@ -101,6 +103,40 @@ struct SpaceAgentModelTests {
 
         #expect(scrollView.frame.minY >= controller.view.bounds.minY)
         #expect(scrollView.frame.maxY <= controller.view.bounds.maxY)
+    }
+
+    @Test func expandedPanelHintsWhenTilesOverflow() throws {
+        let controller = SpaceAgentViewController()
+        _ = controller.view
+        controller.popoverMaxWidth = 400
+        controller.isExpanded = true
+        controller.render(tiles: (0..<8).map { index in
+            SpaceAgentTile(
+                spaceId: UInt64(index + 1),
+                title: "Desktop \(index + 1)",
+                isActive: index == 0,
+                stepDelta: index,
+                thumbnail: nil
+            )
+        })
+        controller.view.frame = CGRect(origin: .zero, size: controller.preferredPanelSize)
+        controller.view.layoutSubtreeIfNeeded()
+
+        var hints = controller.overflowHintState
+        #expect(!hints.left)
+        #expect(hints.right)
+
+        let scrollView = try #require(firstScrollView(in: controller.view))
+        let maxOffsetX = max(
+            0,
+            (scrollView.documentView?.frame.width ?? 0) - scrollView.contentView.bounds.width
+        )
+        scrollView.contentView.scroll(to: CGPoint(x: maxOffsetX, y: 0))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+
+        hints = controller.overflowHintState
+        #expect(hints.left)
+        #expect(!hints.right)
     }
 
     private func firstScrollView(in view: NSView) -> NSScrollView? {
@@ -244,8 +280,10 @@ struct SpaceAgentModelTests {
 
         #expect(tiles[0].title == "Inbox - dev@agent")
         #expect(tiles[0].secondary == "Google Chrome")
+        #expect(tiles[0].desktopNumber == 1)
         #expect(tiles[1].title == "Desktop 2")
         #expect(tiles[1].secondary == "")
+        #expect(tiles[1].desktopNumber == 2)
     }
 }
 

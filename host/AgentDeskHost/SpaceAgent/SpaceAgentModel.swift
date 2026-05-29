@@ -4,6 +4,7 @@ struct SpaceAgentTile: Equatable {
     let spaceId: UInt64
     let title: String
     let secondary: String
+    let desktopNumber: Int
     let isActive: Bool
     let stepDelta: Int
     let thumbnail: Data?
@@ -12,6 +13,7 @@ struct SpaceAgentTile: Equatable {
         spaceId: UInt64,
         title: String,
         secondary: String = "",
+        desktopNumber: Int = 0,
         isActive: Bool,
         stepDelta: Int,
         thumbnail: Data?
@@ -19,6 +21,7 @@ struct SpaceAgentTile: Equatable {
         self.spaceId = spaceId
         self.title = title
         self.secondary = secondary
+        self.desktopNumber = desktopNumber
         self.isActive = isActive
         self.stepDelta = stepDelta
         self.thumbnail = thumbnail
@@ -57,6 +60,7 @@ enum SpaceAgentModel {
                 spaceId: space.id,
                 title: resolved.primary,
                 secondary: resolved.secondary,
+                desktopNumber: displayIndex,
                 isActive: isActive,
                 stepDelta: delta,
                 thumbnail: thumbnails[space.id]
