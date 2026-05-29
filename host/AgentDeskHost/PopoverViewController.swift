@@ -17,6 +17,7 @@ final class PopoverViewController: NSViewController {
     var onRevoke: ((DeviceFingerprint) -> Void)?
     var onRequestScreenRecording: (() -> Void)?
     var onRequestAccessibility: (() -> Void)?
+    var onQuit: (() -> Void)?
 
     private let stack = NSStackView()
     private var connectedFingerprint: DeviceFingerprint?
@@ -91,6 +92,9 @@ final class PopoverViewController: NSViewController {
             label("AgentDesk needs Accessibility to forward iPhone gestures to the Mac cursor. Open System Settings, enable AgentDeskHost under Privacy & Security > Accessibility.", font: .systemFont(ofSize: 12))
             button(title: "Open System Settings", action: #selector(requestAccessibility))
         }
+
+        separator()
+        button(title: "Quit AgentDesk", action: #selector(quit))
     }
 
     @objc private func requestScreenRecording() {
@@ -110,6 +114,10 @@ final class PopoverViewController: NSViewController {
         onRevoke?(connectedFingerprint)
     }
 
+    @objc private func quit() {
+        onQuit?()
+    }
+
     private func label(_ text: String, font: NSFont, lineBreakMode: NSLineBreakMode = .byWordWrapping) {
         let label = NSTextField(labelWithString: text)
         label.font = font
@@ -125,5 +133,13 @@ final class PopoverViewController: NSViewController {
         let button = NSButton(title: title, target: self, action: action)
         button.bezelStyle = .rounded
         stack.addArrangedSubview(button)
+    }
+
+    private func separator() {
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(separator)
+        separator.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
     }
 }

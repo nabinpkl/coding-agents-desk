@@ -187,7 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configurePopover() {
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 300, height: 340)
+        popover.contentSize = NSSize(width: 300, height: 380)
         popover.contentViewController = popoverController
         popoverController.onStartPairing = { [weak self] in
             self?.startPairing()
@@ -206,6 +206,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                 NSWorkspace.shared.open(url)
             }
+        }
+        popoverController.onQuit = {
+            NSApp.terminate(nil)
         }
     }
 
