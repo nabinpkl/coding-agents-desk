@@ -1,11 +1,33 @@
 {
   "images" : [
     {
+      "filename" : "space_agent_spaceship_dark_48.png",
+      "idiom" : "mac",
+      "scale" : "1x"
+    },
+    {
+      "appearances" : [
+        {
+          "appearance" : "luminosity",
+          "value" : "dark"
+        }
+      ],
       "filename" : "space_agent_spaceship_48.png",
       "idiom" : "mac",
       "scale" : "1x"
     },
     {
+      "filename" : "space_agent_spaceship_dark_96.png",
+      "idiom" : "mac",
+      "scale" : "2x"
+    },
+    {
+      "appearances" : [
+        {
+          "appearance" : "luminosity",
+          "value" : "dark"
+        }
+      ],
       "filename" : "space_agent_spaceship_96.png",
       "idiom" : "mac",
       "scale" : "2x"
