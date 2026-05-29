@@ -208,15 +208,25 @@ final class PushToTalkButton: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        // Illustrated mic bitmap drawn directly on the pill (no disc), part of
-        // the same icon set as the SpaceAgent rocket. DictationMic carries
-        // light/dark appearance variants, so resolve it against this view's
-        // appearance explicitly: a plain draw does not reliably pick the
-        // variant here (same reason the template glyph mis-resolved earlier).
+        // Illustrated mic bitmap, part of the same icon set as the SpaceAgent
+        // rocket. DictationMic carries light/dark appearance variants, so
+        // resolve it against this view's appearance explicitly: a plain draw
+        // does not reliably pick the variant here (same reason the template
+        // glyph mis-resolved earlier).
         guard let image = NSImage(named: "DictationMic") else { return }
         let recording = style == .recording
         let fraction: CGFloat = (isPressed && !recording) ? 0.6 : 1.0
         let rect = bounds
+
+        // In light mode the mic sits in a gray disc on the white pill, mirroring
+        // the SpaceAgent handle (white pill, gray circle, icon on top) so the
+        // two floating overlays read as siblings. In dark mode the pill is
+        // already dark, so the mic draws on it directly.
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        if !isDark {
+            NSColor.systemGray.withAlphaComponent(0.25).setFill()
+            NSBezierPath(ovalIn: rect).fill()
+        }
 
         let render = {
             if recording {
