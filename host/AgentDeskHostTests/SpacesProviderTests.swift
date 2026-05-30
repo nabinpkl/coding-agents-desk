@@ -4,6 +4,14 @@ import Testing
 
 @MainActor
 struct SpacesProviderTests {
+    @Test func spaceSwitchModeDefaultsToDockSwipeAndAcceptsDirectSetAliases() {
+        #expect(Config.SpaceSwitchMode(rawEnvironmentValue: nil) == .dockSwipe)
+        #expect(Config.SpaceSwitchMode(rawEnvironmentValue: "dock-swipe") == .dockSwipe)
+        #expect(Config.SpaceSwitchMode(rawEnvironmentValue: "direct-set") == .directSet)
+        #expect(Config.SpaceSwitchMode(rawEnvironmentValue: "direct_set") == .directSet)
+        #expect(Config.SpaceSwitchMode(rawEnvironmentValue: "directset") == .directSet)
+    }
+
     // Smoke test against the live SkyLight framework. Regression guard
     // for the private-API surface across macOS minor versions: if Apple
     // renames or removes any of the enumeration symbols (SLS / CGS
@@ -161,6 +169,116 @@ struct SpacesProviderTests {
         #expect(recorder.events[0].getDoubleValueField(progressField) == 0)
         #expect(recorder.events[1].getDoubleValueField(progressField) < 0)
         #expect(recorder.events[2].getDoubleValueField(progressField) < 0)
+    }
+
+    @Test func directSetModeTargetsFinalUserSpaceWithoutDockSwipeEvents() {
+        let recorder = EventRecorder()
+        var activeSpaceId: UInt64 = 22
+        var directSetCalls: [(displayId: String, spaceId: UInt64)] = []
+        let provider = SpacesProvider(
+            eventPoster: { recorder.record($0) },
+            spaceSwitchMode: .directSet,
+            currentStateProvider: {
+                Self.desktopState(activeSpaceId: activeSpaceId)
+            },
+            directSpaceSetter: { displayId, spaceId in
+                directSetCalls.append((displayId, spaceId))
+                activeSpaceId = spaceId
+                return true
+            }
+        )
+
+        provider.commitStep(delta: 2)
+        provider._drainSwitchQueueForTests()
+
+        #expect(directSetCalls.count == 1)
+        #expect(directSetCalls.first?.displayId == "main-display")
+        #expect(directSetCalls.first?.spaceId == 44)
+        #expect(recorder.events.isEmpty)
+    }
+
+    @Test func directSetModeFallsBackToDockSwipeWhenSetterFails() {
+        let recorder = EventRecorder()
+        var directSetCalls: [(displayId: String, spaceId: UInt64)] = []
+        let provider = SpacesProvider(
+            eventPoster: { recorder.record($0) },
+            spaceSwitchMode: .directSet,
+            currentStateProvider: {
+                Self.desktopState(activeSpaceId: 22)
+            },
+            directSpaceSetter: { displayId, spaceId in
+                directSetCalls.append((displayId, spaceId))
+                return false
+            }
+        )
+
+        provider.commitStep(delta: 1)
+        provider._drainSwitchQueueForTests()
+
+        #expect(directSetCalls.count == 1)
+        #expect(directSetCalls.first?.spaceId == 33)
+        #expect(recorder.events.count == 3)
+    }
+
+    @Test func directSetModeFallsBackWhenActiveSpaceIsNotAUserDesktop() {
+        let recorder = EventRecorder()
+        var directSetCalls: [(displayId: String, spaceId: UInt64)] = []
+        let provider = SpacesProvider(
+            eventPoster: { recorder.record($0) },
+            spaceSwitchMode: .directSet,
+            currentStateProvider: {
+                Self.desktopState(activeSpaceId: 99)
+            },
+            directSpaceSetter: { displayId, spaceId in
+                directSetCalls.append((displayId, spaceId))
+                return true
+            }
+        )
+
+        provider.commitStep(delta: 1)
+        provider._drainSwitchQueueForTests()
+
+        #expect(directSetCalls.isEmpty)
+        #expect(recorder.events.count == 3)
+    }
+
+    @Test func directSetModeNoOpsWhenTargetOrdinalIsOutsideUserSpaces() {
+        let recorder = EventRecorder()
+        var directSetCalls: [(displayId: String, spaceId: UInt64)] = []
+        let provider = SpacesProvider(
+            eventPoster: { recorder.record($0) },
+            spaceSwitchMode: .directSet,
+            currentStateProvider: {
+                Self.desktopState(activeSpaceId: 44)
+            },
+            directSpaceSetter: { displayId, spaceId in
+                directSetCalls.append((displayId, spaceId))
+                return true
+            }
+        )
+
+        provider.commitStep(delta: 1)
+        provider._drainSwitchQueueForTests()
+
+        #expect(directSetCalls.isEmpty)
+        #expect(recorder.events.isEmpty)
+    }
+
+    private static func desktopState(activeSpaceId: UInt64) -> DesktopState {
+        DesktopState(
+            displays: [
+                DisplayMetadata(id: "main-display", widthPoints: 1512, heightPoints: 982)
+            ],
+            spaces: [
+                SpaceMetadata(id: 11, displayId: "main-display", index: 0, type: 0),
+                SpaceMetadata(id: 22, displayId: "main-display", index: 1, type: 0),
+                SpaceMetadata(id: 33, displayId: "main-display", index: 2, type: 0),
+                SpaceMetadata(id: 99, displayId: "main-display", index: nil, type: 4),
+                SpaceMetadata(id: 44, displayId: "main-display", index: 3, type: 0)
+            ],
+            activeDisplayId: "main-display",
+            activeSpaceId: activeSpaceId
+        )
     }
 }
 

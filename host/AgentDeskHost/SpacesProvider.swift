@@ -17,13 +17,11 @@ import os
 //     swipe produces; the iPhone is just driving the same event
 //     stream over the network.
 //
-// Why not the direct setter (CGSManagedDisplaySetCurrentSpace): it is
-// restricted to Dock.app, which is why yabai requires SIP partially
-// disabled to inject into Dock. The gesture-synthesis path is the
-// unprivileged pattern shipping in jurplel/InstantSpaceSwitcher 2.0,
-// joshuarli/iss, and theo-sardin/instant-switcher; works on stock
-// macOS with only the Accessibility permission we already use for
-// cursor and keyboard.
+// The direct setter (CGSManagedDisplaySetCurrentSpace) is also bound for
+// env-gated diagnostics. It is not the default because Dock owns the
+// full Spaces transition state; outside Dock context the setter can
+// report success while window visibility or focus only partially
+// converges. Use AGENTDESK_SPACE_SWITCH_MODE=direct-set to test it.
 //
 // Space `id64`: monotonic uint64 assigned at Space creation, never
 // reused. Not the "Desktop N" ordinal Mission Control shows. Carry
@@ -39,10 +37,12 @@ private struct SkyLight {
     typealias MainConnectionIDFn = @convention(c) () -> Int32
     typealias GetActiveSpaceFn = @convention(c) (Int32) -> UInt64
     typealias CopyManagedDisplaySpacesFn = @convention(c) (Int32) -> CFArray?
+    typealias ManagedDisplaySetCurrentSpaceFn = @convention(c) (Int32, CFString, UInt64) -> Void
 
     let mainConnectionID: MainConnectionIDFn
     let getActiveSpace: GetActiveSpaceFn
     let copyManagedDisplaySpaces: CopyManagedDisplaySpacesFn
+    let managedDisplaySetCurrentSpace: ManagedDisplaySetCurrentSpaceFn?
 
     static let shared: SkyLight? = {
         guard let handle = dlopen(skylightPath, RTLD_NOW) else { return nil }
@@ -54,10 +54,14 @@ private struct SkyLight {
             let m2 = resolve("SLSGetActiveSpace", "CGSGetActiveSpace"),
             let m3 = resolve("SLSCopyManagedDisplaySpaces", "CGSCopyManagedDisplaySpaces")
         else { return nil }
+        let setter = resolve("SLSManagedDisplaySetCurrentSpace", "CGSManagedDisplaySetCurrentSpace")
         return SkyLight(
             mainConnectionID: unsafeBitCast(m1, to: MainConnectionIDFn.self),
             getActiveSpace: unsafeBitCast(m2, to: GetActiveSpaceFn.self),
-            copyManagedDisplaySpaces: unsafeBitCast(m3, to: CopyManagedDisplaySpacesFn.self)
+            copyManagedDisplaySpaces: unsafeBitCast(m3, to: CopyManagedDisplaySpacesFn.self),
+            managedDisplaySetCurrentSpace: setter.map {
+                unsafeBitCast($0, to: ManagedDisplaySetCurrentSpaceFn.self)
+            }
         )
     }()
 }
@@ -97,29 +101,40 @@ private func cgsPhase(_ phase: NormalizedInput.SwipePhase) -> Int64 {
 
 final class SpacesProvider {
     typealias EventPoster = (CGEvent) -> Void
+    typealias DirectSpaceSetter = (_ displayId: String, _ spaceId: UInt64) -> Bool
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "spaces")
     private let eventPoster: EventPoster
+    private let spaceSwitchMode: Config.SpaceSwitchMode
+    private let currentStateOverride: (() -> DesktopState?)?
+    private let directSpaceSetter: DirectSpaceSetter
     // Dedicated serial queue for tap-to-jump chains. We can't run the
-    // chain on InputDispatcher's queue because we Thread.sleep between
-    // cycles (Dock needs a beat per commit) and that would backpressure
-    // cursor moves and clicks for the duration of the jump. Separate
-    // queue keeps the input stream flowing and still serializes
-    // multiple overlapping jumps (rare in practice).
+    // chain on InputDispatcher's queue because multi-step switching can
+    // do private-API verification or Dock event chains, and that would
+    // backpressure cursor moves and clicks for the duration of the jump.
+    // Separate queue keeps the input stream flowing and still serializes
+    // multiple overlapping jumps.
     private let switchQueue = DispatchQueue(
         label: "com.example.agentdesk.agentdesk.spaces-switch",
         qos: .userInteractive
     )
-    // Inter-cycle gap. Dock's space-switch animation runs ~250ms;
-    // posting the next .began before Dock has accepted the prior
-    // .ended either merges them into one transition or drops the
-    // second. 90ms is the smallest gap that empirically commits each
-    // step independently when the chain runs locally (no WSS round-
-    // trip between cycles). Bump if HITL reports merged commits.
-    private let interCycleGapMs: UInt32 = 90
+    // Inter-cycle gap. Live HITL testing showed Dock accepts immediate
+    // Began / Changed / Ended cycles for multi-desktop jumps, so keep
+    // this at zero for the fastest possible tap-to-jump path. Bump if
+    // a future macOS build starts merging or dropping commits.
+    private let interCycleGapMs: UInt32 = 0
+    private let directSetVerificationDelayUs: useconds_t = 100_000
 
-    init(eventPoster: @escaping EventPoster = { $0.post(tap: .cgSessionEventTap) }) {
+    init(
+        eventPoster: @escaping EventPoster = { $0.post(tap: .cgSessionEventTap) },
+        spaceSwitchMode: Config.SpaceSwitchMode = Config.spaceSwitchMode,
+        currentStateProvider: (() -> DesktopState?)? = nil,
+        directSpaceSetter: DirectSpaceSetter? = nil
+    ) {
         self.eventPoster = eventPoster
+        self.spaceSwitchMode = spaceSwitchMode
+        self.currentStateOverride = currentStateProvider
+        self.directSpaceSetter = directSpaceSetter ?? SpacesProvider.setCurrentSpaceDirectly
     }
 
     func current() -> DesktopState? {
@@ -209,30 +224,106 @@ final class SpacesProvider {
     // progress still commits; a low velocity at low progress snaps
     // back; the same heuristic the trackpad path uses.
     // Tap-to-jump entry point. Client sends a single .switchSpaceStep
-    // frame; we expand it into |delta| Began/Changed/Ended cycles
-    // locally so Dock commits each transition with the tightest pacing
-    // it can accept. Sign convention matches postDockSwipeFrame
-    // progress: positive delta = positive wire progress per step.
+    // frame. The default backend expands it into |delta|
+    // Began/Changed/Ended Dock-swipe cycles. The experimental direct-set
+    // backend resolves the target user Space and asks SkyLight to make
+    // that Space current in one call, falling back to Dock-swipe if the
+    // private path cannot prove the active Space changed.
     func commitStep(delta: Int) {
         guard delta != 0 else { return }
-        let steps = abs(delta)
-        let dir: Float = delta > 0 ? 1.0 : -1.0
-        let gapMs = interCycleGapMs
         switchQueue.async { [weak self] in
             guard let self else { return }
-            for i in 0..<steps {
-                self.postDockSwipeFrame(phase: .began, progress: 0, velocityX: 0)
-                self.postDockSwipeFrame(
-                    phase: .changed, progress: dir * 0.5, velocityX: dir * 1500
-                )
-                self.postDockSwipeFrame(
-                    phase: .ended, progress: dir, velocityX: dir * 2000
-                )
-                if i < steps - 1 {
-                    usleep(gapMs * 1000)
+            switch self.spaceSwitchMode {
+            case .dockSwipe:
+                self.commitStepViaDockSwipe(delta: delta)
+            case .directSet:
+                if !self.commitStepViaDirectSet(delta: delta) {
+                    self.logger.notice("direct-set space switch fell back to dock-swipe")
+                    self.commitStepViaDockSwipe(delta: delta)
                 }
             }
         }
+    }
+
+    private func commitStepViaDockSwipe(delta: Int) {
+        let steps = abs(delta)
+        let dir: Float = delta > 0 ? 1.0 : -1.0
+        let gapMs = interCycleGapMs
+        for i in 0..<steps {
+            postDockSwipeFrame(phase: .began, progress: 0, velocityX: 0)
+            postDockSwipeFrame(
+                phase: .changed, progress: dir * 0.5, velocityX: dir * 1500
+            )
+            postDockSwipeFrame(
+                phase: .ended, progress: dir, velocityX: dir * 2000
+            )
+            if gapMs > 0, i < steps - 1 {
+                usleep(gapMs * 1000)
+            }
+        }
+    }
+
+    @discardableResult
+    private func commitStepViaDirectSet(delta: Int) -> Bool {
+        guard let state = resolvedCurrentState() else {
+            logger.error("direct-set unavailable: DesktopState is nil")
+            return false
+        }
+        guard let activeDisplayId = state.activeDisplayId, let activeSpaceId = state.activeSpaceId else {
+            logger.error("direct-set unavailable: active display or active Space missing")
+            return false
+        }
+
+        let userSpaces = state.spaces
+            .filter { $0.displayId == activeDisplayId && $0.type == 0 && $0.index != nil }
+            .sorted { ($0.index ?? Int.max) < ($1.index ?? Int.max) }
+        guard let activeOrdinal = userSpaces.firstIndex(where: { $0.id == activeSpaceId }) else {
+            logger.error("direct-set unavailable: active Space is not a user desktop")
+            return false
+        }
+
+        let targetOrdinal = activeOrdinal + delta
+        guard userSpaces.indices.contains(targetOrdinal) else {
+            logger.notice(
+                "direct-set no-op: requested target ordinal \(targetOrdinal, privacy: .public) outside \(userSpaces.count, privacy: .public) user Spaces"
+            )
+            return true
+        }
+
+        let target = userSpaces[targetOrdinal]
+        logger.notice(
+            "direct-set attempt display=\(activeDisplayId, privacy: .public) activeSpace=\(activeSpaceId, privacy: .public) activeOrdinal=\(activeOrdinal, privacy: .public) delta=\(delta, privacy: .public) targetSpace=\(target.id, privacy: .public) targetOrdinal=\(targetOrdinal, privacy: .public)"
+        )
+
+        guard directSpaceSetter(activeDisplayId, target.id) else {
+            logger.error("direct-set private setter unavailable or rejected")
+            return false
+        }
+
+        if resolvedCurrentState()?.activeSpaceId == target.id {
+            logger.notice("direct-set verified immediately")
+            return true
+        }
+
+        usleep(directSetVerificationDelayUs)
+        guard resolvedCurrentState()?.activeSpaceId == target.id else {
+            logger.error("direct-set did not verify after delayed state read")
+            return false
+        }
+        logger.notice("direct-set verified after delayed state read")
+        return true
+    }
+
+    private func resolvedCurrentState() -> DesktopState? {
+        currentStateOverride?() ?? current()
+    }
+
+    private static func setCurrentSpaceDirectly(displayId: String, spaceId: UInt64) -> Bool {
+        guard let sl = SkyLight.shared, let setter = sl.managedDisplaySetCurrentSpace else {
+            return false
+        }
+        setter(sl.mainConnectionID(), displayId as CFString, spaceId)
+        return true
     }
 
     // Test-only barrier: blocks until any in-flight commitStep chain

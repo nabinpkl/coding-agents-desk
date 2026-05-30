@@ -104,18 +104,6 @@ final class SpaceAgentViewController: NSViewController {
     }
 
     private func configure() {
-        // The expanded tile strip is a dark-glass HUD: captions are drawn
-        // white over a .hudWindow backdrop, tile backgrounds and borders are
-        // white-alpha tints. The only appearance-sensitive piece is that
-        // backdrop material, which renders light under the system light
-        // appearance and strands the white captions on a white strip. Pin
-        // just the backdrop to darkAqua so the expanded strip stays dark in
-        // both system modes. The root view is intentionally left unpinned so
-        // the collapsed handle can follow the system appearance (a white pill
-        // in light mode, near-black in dark mode); the handle draws its own
-        // per-appearance colours in SpaceAgentHandleView.draw.
-        tileBackdrop.appearance = NSAppearance(named: .darkAqua)
-
         rootView.handleView = handleView
         rootView.tileBackdrop = tileBackdrop
         rootView.tileHost = tileScrollView
@@ -144,6 +132,7 @@ final class SpaceAgentViewController: NSViewController {
         tileScrollView.verticalScrollElasticity = .none
         tileScrollView.contentView = tileClipView
         tileScrollView.documentView = tileHost
+        tileClipView.drawsBackground = false
         tileClipView.onBoundsChanged = { [weak self] in
             self?.updateOverflowHints()
         }
@@ -253,7 +242,7 @@ private final class SpaceAgentRootView: NSView {
     }
 }
 
-private final class SpaceAgentTileBackdropView: NSVisualEffectView {
+private final class SpaceAgentTileBackdropView: NSView {
     var tailHeight: CGFloat = 0 { didSet { needsLayout = true } }
     var tailWidth: CGFloat = 18 { didSet { needsLayout = true } }
     var cornerRadius: CGFloat = 0 { didSet { needsLayout = true } }
@@ -263,8 +252,6 @@ private final class SpaceAgentTileBackdropView: NSVisualEffectView {
             needsLayout = true
         }
     }
-
-    private let maskLayer = CAShapeLayer()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -277,13 +264,14 @@ private final class SpaceAgentTileBackdropView: NSVisualEffectView {
     }
 
     private func commonInit() {
-        material = .hudWindow
-        blendingMode = .behindWindow
-        state = .active
         wantsLayer = true
         layer?.masksToBounds = false
-        maskLayer.fillRule = .nonZero
-        layer?.mask = maskLayer
+        layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 
     override func layout() {
@@ -292,13 +280,20 @@ private final class SpaceAgentTileBackdropView: NSVisualEffectView {
     }
 
     private func updatePaths() {
-        guard let layer else { return }
-        maskLayer.frame = layer.bounds
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
         guard bounds.width > 0, bounds.height > tailHeight else {
-            maskLayer.path = nil
             return
         }
-        maskLayer.path = makePath(in: bounds, tailCenterX: clampedTailCenter(in: bounds))
+        let path = NSBezierPath(cgPath: makePath(in: bounds, tailCenterX: clampedTailCenter(in: bounds)))
+        let palette = SpaceAgentPalette(appearance: effectiveAppearance)
+        palette.panelFill.setFill()
+        path.fill()
+        palette.panelStroke.setStroke()
+        path.lineWidth = 1
+        path.stroke()
     }
 
     private func clampedTailCenter(in rect: CGRect) -> CGFloat {
@@ -381,6 +376,7 @@ private final class SpaceAgentOverflowHintView: NSView {
     }
 
     private func drawHint(edge: Edge) {
+        let palette = SpaceAgentPalette(appearance: effectiveAppearance)
         let width: CGFloat = 34
         let fadeRect: CGRect
         let gradient: NSGradient?
@@ -388,14 +384,14 @@ private final class SpaceAgentOverflowHintView: NSView {
         case .left:
             fadeRect = CGRect(x: bounds.minX, y: bounds.minY, width: width, height: bounds.height)
             gradient = NSGradient(colors: [
-                NSColor.black.withAlphaComponent(0.42),
-                NSColor.black.withAlphaComponent(0)
+                palette.overflowFadeStrong,
+                palette.overflowFadeClear
             ])
         case .right:
             fadeRect = CGRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height)
             gradient = NSGradient(colors: [
-                NSColor.black.withAlphaComponent(0),
-                NSColor.black.withAlphaComponent(0.42)
+                palette.overflowFadeClear,
+                palette.overflowFadeStrong
             ])
         }
         gradient?.draw(in: fadeRect, angle: 0)
@@ -416,7 +412,7 @@ private final class SpaceAgentOverflowHintView: NSView {
             chevron.line(to: CGPoint(x: centerX + 4, y: centerY))
             chevron.line(to: CGPoint(x: centerX - 4, y: centerY + 8))
         }
-        NSColor.white.withAlphaComponent(0.48).setStroke()
+        palette.overflowChevron.setStroke()
         chevron.stroke()
     }
 }
@@ -523,6 +519,12 @@ private final class SpaceAgentTileHostView: NSView {
 
     override var isFlipped: Bool { true }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        tileViews.forEach { $0.needsDisplay = true }
+        needsDisplay = true
+    }
+
     func render(tiles: [SpaceAgentTile]) {
         let nextSpaceIds = tiles.map(\.spaceId)
         let nextActiveSpaceId = tiles.first(where: \.isActive)?.spaceId
@@ -607,9 +609,15 @@ private final class SpaceAgentTileView: NSControl {
 
     override var isFlipped: Bool { true }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let tile else { return }
-        drawTileBackground(in: bounds, active: tile.isActive)
+        let palette = SpaceAgentPalette(appearance: effectiveAppearance)
+        drawTileBackground(in: bounds, active: tile.isActive, palette: palette)
 
         let imageRect = CGRect(
             x: 0,
@@ -622,7 +630,7 @@ private final class SpaceAgentTileView: NSControl {
             xRadius: Self.imageCornerRadius,
             yRadius: Self.imageCornerRadius
         )
-        NSColor(calibratedWhite: 0.10, alpha: 1.0).setFill()
+        palette.thumbnailFill.setFill()
         path.fill()
 
         if let data = tile.thumbnail, let image = NSImage(data: data) {
@@ -632,19 +640,19 @@ private final class SpaceAgentTileView: NSControl {
             image.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1)
             NSGraphicsContext.restoreGraphicsState()
         } else {
-            drawPlaceholder(in: imageRect, active: tile.isActive)
+            drawPlaceholder(in: imageRect, active: tile.isActive, palette: palette)
         }
 
-        let borderColor: NSColor = tile.isActive ? .controlAccentColor : NSColor(calibratedWhite: 1, alpha: 0.10)
+        let borderColor: NSColor = tile.isActive ? .controlAccentColor : palette.thumbnailStroke
         borderColor.setStroke()
         path.lineWidth = tile.isActive ? 2 : 0.5
         path.stroke()
 
         drawDesktopNumber(in: imageRect, tile: tile)
-        drawCaption(in: bounds, imageRect: imageRect, tile: tile)
+        drawCaption(in: bounds, imageRect: imageRect, tile: tile, palette: palette)
     }
 
-    private func drawTileBackground(in bounds: CGRect, active: Bool) {
+    private func drawTileBackground(in bounds: CGRect, active: Bool, palette: SpaceAgentPalette) {
         // Subtle inset bg gives the caption a "card" feel without
         // competing with the thumbnail's own contrast. Active tile
         // gets a faint accent tint instead of just a thicker border.
@@ -652,12 +660,17 @@ private final class SpaceAgentTileView: NSControl {
         if active {
             NSColor.controlAccentColor.withAlphaComponent(0.10).setFill()
         } else {
-            NSColor(calibratedWhite: 1, alpha: 0.03).setFill()
+            palette.tileFill.setFill()
         }
         bg.fill()
     }
 
-    private func drawCaption(in bounds: CGRect, imageRect: CGRect, tile: SpaceAgentTile) {
+    private func drawCaption(
+        in bounds: CGRect,
+        imageRect: CGRect,
+        tile: SpaceAgentTile,
+        palette: SpaceAgentPalette
+    ) {
         let captionLeft = Self.captionLeadingInset
         let captionWidth = bounds.width - Self.captionLeadingInset * 2
 
@@ -667,13 +680,13 @@ private final class SpaceAgentTileView: NSControl {
 
         let primaryAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 13, weight: .bold),
-            .foregroundColor: NSColor.white.withAlphaComponent(tile.isActive ? 1.0 : 0.95),
+            .foregroundColor: palette.primaryText.withAlphaComponent(tile.isActive ? 1.0 : 0.95),
             .paragraphStyle: leftPara,
             .kern: -0.1
         ]
         let secondaryAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: NSColor.white.withAlphaComponent(tile.isActive ? 0.70 : 0.62),
+            .foregroundColor: palette.secondaryText.withAlphaComponent(tile.isActive ? 0.86 : 0.72),
             .paragraphStyle: leftPara
         ]
 
@@ -739,13 +752,13 @@ private final class SpaceAgentTileView: NSControl {
         onSelectDelta?(tile.stepDelta)
     }
 
-    private func drawPlaceholder(in rect: CGRect, active: Bool) {
+    private func drawPlaceholder(in rect: CGRect, active: Bool, palette: SpaceAgentPalette) {
         let gradient = NSGradient(colors: [
-            NSColor(calibratedRed: 0.12, green: 0.15, blue: 0.19, alpha: 1),
-            NSColor(calibratedRed: 0.19, green: 0.23, blue: 0.29, alpha: 1)
+            palette.placeholderTop,
+            palette.placeholderBottom
         ])
         gradient?.draw(in: NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8), angle: 90)
-        NSColor.white.withAlphaComponent(active ? 0.28 : 0.18).setStroke()
+        palette.placeholderMark.withAlphaComponent(active ? 0.34 : 0.22).setStroke()
         let inset = rect.insetBy(dx: 18, dy: 20)
         let line = NSBezierPath()
         line.move(to: CGPoint(x: inset.minX, y: inset.midY))
@@ -754,6 +767,86 @@ private final class SpaceAgentTileView: NSControl {
         line.line(to: CGPoint(x: inset.midX, y: inset.maxY))
         line.lineWidth = 1
         line.stroke()
+    }
+}
+
+private struct SpaceAgentPalette {
+    let isDark: Bool
+
+    init(appearance: NSAppearance) {
+        isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+
+    var panelFill: NSColor {
+        isDark
+            ? NSColor(calibratedWhite: 0.07, alpha: 0.86)
+            : NSColor(calibratedWhite: 1.0, alpha: 0.88)
+    }
+
+    var panelStroke: NSColor {
+        isDark
+            ? NSColor(calibratedWhite: 1.0, alpha: 0.10)
+            : NSColor(calibratedWhite: 0.0, alpha: 0.10)
+    }
+
+    var tileFill: NSColor {
+        isDark
+            ? NSColor(calibratedWhite: 1.0, alpha: 0.03)
+            : NSColor(calibratedWhite: 0.0, alpha: 0.035)
+    }
+
+    var thumbnailFill: NSColor {
+        isDark
+            ? NSColor(calibratedWhite: 0.10, alpha: 1.0)
+            : NSColor(calibratedWhite: 0.95, alpha: 1.0)
+    }
+
+    var thumbnailStroke: NSColor {
+        isDark
+            ? NSColor(calibratedWhite: 1.0, alpha: 0.10)
+            : NSColor(calibratedWhite: 0.0, alpha: 0.16)
+    }
+
+    var primaryText: NSColor {
+        isDark ? .white : NSColor(calibratedWhite: 0.08, alpha: 1)
+    }
+
+    var secondaryText: NSColor {
+        isDark ? .white : NSColor(calibratedWhite: 0.24, alpha: 1)
+    }
+
+    var placeholderTop: NSColor {
+        isDark
+            ? NSColor(calibratedRed: 0.12, green: 0.15, blue: 0.19, alpha: 1)
+            : NSColor(calibratedWhite: 0.89, alpha: 1)
+    }
+
+    var placeholderBottom: NSColor {
+        isDark
+            ? NSColor(calibratedRed: 0.19, green: 0.23, blue: 0.29, alpha: 1)
+            : NSColor(calibratedWhite: 0.97, alpha: 1)
+    }
+
+    var placeholderMark: NSColor {
+        isDark ? .white : NSColor(calibratedWhite: 0.22, alpha: 1)
+    }
+
+    var overflowFadeStrong: NSColor {
+        isDark
+            ? NSColor.black.withAlphaComponent(0.42)
+            : NSColor.white.withAlphaComponent(0.76)
+    }
+
+    var overflowFadeClear: NSColor {
+        isDark
+            ? NSColor.black.withAlphaComponent(0)
+            : NSColor.white.withAlphaComponent(0)
+    }
+
+    var overflowChevron: NSColor {
+        isDark
+            ? NSColor.white.withAlphaComponent(0.48)
+            : NSColor.black.withAlphaComponent(0.34)
     }
 }
 
