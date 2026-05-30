@@ -17,6 +17,9 @@ struct SpaceAgentTile: Equatable {
     // layer (not the model). Distinct from isActive, which is the desktop
     // you are currently on.
     var isSelected: Bool = false
+    // The portion of the title matched by a startsWith query, set by the
+    // view layer so the tile can highlight the prefix Discord-style.
+    var highlightPrefix: String = ""
 
     init(
         spaceId: UInt64,

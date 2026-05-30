@@ -117,6 +117,9 @@ final class SpaceAgentViewController: NSViewController {
         let displayed = filtered.map { tile -> SpaceAgentTile in
             var copy = tile
             copy.isSelected = tile.spaceId == selectedSpaceId
+            copy.highlightPrefix = (!filterText.isEmpty && tile.matchesNamePrefix(query: filterText))
+                ? filterText.trimmingCharacters(in: .whitespaces)
+                : ""
             return copy
         }
         tileHost.render(tiles: displayed)
@@ -1005,7 +1008,25 @@ private final class SpaceAgentTileView: NSControl {
             width: captionWidth,
             height: Self.primaryRowHeight
         )
-        NSAttributedString(string: tile.title, attributes: primaryAttrs).draw(in: primaryRect)
+        let primaryString: NSAttributedString
+        let prefix = tile.highlightPrefix
+        if !prefix.isEmpty, tile.title.lowercased().hasPrefix(prefix.lowercased()) {
+            let prefixLen = min(prefix.count, tile.title.count)
+            let matchedPart = String(tile.title.prefix(prefixLen))
+            let restPart = String(tile.title.dropFirst(prefixLen))
+            let highlightAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 14, weight: .bold),
+                .foregroundColor: NSColor.controlAccentColor,
+                .paragraphStyle: leftPara,
+                .kern: -0.1
+            ]
+            let attributed = NSMutableAttributedString(string: matchedPart, attributes: highlightAttrs)
+            attributed.append(NSAttributedString(string: restPart, attributes: primaryAttrs))
+            primaryString = attributed
+        } else {
+            primaryString = NSAttributedString(string: tile.title, attributes: primaryAttrs)
+        }
+        primaryString.draw(in: primaryRect)
 
         guard !tile.secondary.isEmpty else { return }
         let secondaryRect = CGRect(
