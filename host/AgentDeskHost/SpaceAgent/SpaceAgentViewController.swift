@@ -31,6 +31,7 @@ final class SpaceAgentViewController: NSViewController {
     private let tileHost = SpaceAgentTileHostView()
     private let overflowHintView = SpaceAgentOverflowHintView()
     private let searchField = NSSearchField()
+    private let searchTokenView = SpaceAgentSearchTokenView()
     private let searchFieldHeight: CGFloat = 28
     private let searchToStripGap: CGFloat = 8
     private var tiles: [SpaceAgentTile] = []
@@ -139,7 +140,8 @@ final class SpaceAgentViewController: NSViewController {
 
     // Open-with-text path (Hyper quick-switch with two or more matches): seed
     // the query, point the selection at the first match, and keep the field
-    // editor in sync if the field is already focused.
+    // editor in sync if the field is already focused. Shows the "startsWith"
+    // token so the user can see the search mode at a glance.
     func presetSearch(_ text: String) {
         filterText = text
         searchField.stringValue = text
@@ -147,6 +149,8 @@ final class SpaceAgentViewController: NSViewController {
             editor.string = text
             editor.selectedRange = NSRange(location: (text as NSString).length, length: 0)
         }
+        searchTokenView.isHidden = false
+        rootView.needsLayout = true
         selectedSpaceId = firstSelectableSpaceId(for: text)
         refreshDisplayedTiles()
         tileHost.scrollSelectedTileToVisible()
@@ -186,6 +190,8 @@ final class SpaceAgentViewController: NSViewController {
     func resetSearch() {
         filterText = ""
         searchField.stringValue = ""
+        searchTokenView.isHidden = true
+        rootView.needsLayout = true
         selectedSpaceId = tiles.first(where: \.isActive)?.spaceId
         refreshDisplayedTiles()
     }
@@ -247,7 +253,9 @@ final class SpaceAgentViewController: NSViewController {
         searchField.placeholderString = "Search desktops"
         searchField.focusRingType = .none
         searchField.delegate = self
+        searchTokenView.isHidden = true
         rootView.searchField = searchField
+        rootView.searchTokenView = searchTokenView
         rootView.searchFieldHeight = searchFieldHeight
         rootView.searchToStripGap = searchToStripGap
     }
@@ -287,6 +295,11 @@ final class SpaceAgentViewController: NSViewController {
 extension SpaceAgentViewController: NSSearchFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         filterText = searchField.stringValue
+        // Dismiss the startsWith token once the user edits freely.
+        if !searchTokenView.isHidden {
+            searchTokenView.isHidden = true
+            rootView.needsLayout = true
+        }
         // Each edit re-points the selection at the best match so Enter on a
         // narrowed result opens it without an arrow press.
         selectedSpaceId = firstSelectableSpaceId(for: filterText)
@@ -350,6 +363,12 @@ private final class SpaceAgentRootView: NSView {
             if let searchField { addSubview(searchField) }
         }
     }
+    var searchTokenView: SpaceAgentSearchTokenView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let searchTokenView { addSubview(searchTokenView) }
+        }
+    }
     var isExpanded: Bool = false
     var handleSize = CGSize(width: 52, height: 52)
     var tileStripHeight: CGFloat = 116
@@ -380,10 +399,16 @@ private final class SpaceAgentRootView: NSView {
         let backdropFrame = CGRect(x: 0, y: 0, width: popoverWidth, height: backdropHeight)
         tileBackdrop?.frame = backdropFrame
 
+        let tokenShown = searchTokenView.map { !$0.isHidden } ?? false
+        let tokenWidth = tokenShown ? (searchTokenView?.measuredWidth ?? 0) : 0
+        let tokenGap: CGFloat = tokenShown ? 4 : 0
+        searchTokenView?.frame = tokenShown
+            ? CGRect(x: stripInset, y: stripInset, width: tokenWidth, height: searchFieldHeight)
+            : .zero
         searchField?.frame = CGRect(
-            x: stripInset,
+            x: stripInset + tokenWidth + tokenGap,
             y: stripInset,
-            width: max(0, popoverWidth - stripInset * 2),
+            width: max(0, popoverWidth - stripInset - stripInset - tokenWidth - tokenGap),
             height: searchFieldHeight
         )
 
@@ -1205,6 +1230,52 @@ private struct SpaceAgentPalette {
         isDark
             ? NSColor.white.withAlphaComponent(0.48)
             : NSColor.black.withAlphaComponent(0.34)
+    }
+}
+
+// Pill token that appears in the search bar when the palette is opened via
+// the Hyper quick-switch (i.e. the search mode is "startsWith", not a
+// free-text word match). Non-interactive; the search field sits to its right.
+final class SpaceAgentSearchTokenView: NSView {
+    private let label = "startsWith"
+
+    // Intrinsic pill width for layout.
+    var measuredWidth: CGFloat {
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium)
+        ]
+        return ceil((label as NSString).size(withAttributes: attrs).width) + 14
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let pill = NSBezierPath(
+            roundedRect: bounds.insetBy(dx: 0, dy: 3),
+            xRadius: 4, yRadius: 4
+        )
+        NSColor.controlAccentColor.withAlphaComponent(0.85).setFill()
+        pill.fill()
+
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: NSColor.white
+        ]
+        let size = (label as NSString).size(withAttributes: attrs)
+        let textRect = CGRect(
+            x: (bounds.width - size.width) / 2,
+            y: bounds.minY + 3 + (bounds.height - 6 - size.height) / 2,
+            width: size.width,
+            height: size.height
+        )
+        (label as NSString).draw(in: textRect, withAttributes: attrs)
     }
 }
 
