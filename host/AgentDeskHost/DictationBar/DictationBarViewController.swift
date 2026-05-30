@@ -239,13 +239,21 @@ final class PushToTalkButton: NSView {
         circle.fill()
 
         let symbolConfig = NSImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
-        guard let image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Push to talk")?
+        guard let symbol = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Push to talk")?
             .withSymbolConfiguration(symbolConfig) else { return }
-        image.isTemplate = true
-        let imgSize = image.size
+        // Tint the glyph by compositing glyphColor over the symbol's alpha.
+        // Drawing a template image directly renders it black no matter what
+        // fill colour is set first, so an explicit composite is required to
+        // get a white glyph on the dark pill.
+        let glyph = NSImage(size: symbol.size, flipped: false) { rect in
+            symbol.draw(in: rect)
+            glyphColor.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        let imgSize = glyph.size
         let origin = NSPoint(x: bounds.midX - imgSize.width / 2, y: bounds.midY - imgSize.height / 2)
-        glyphColor.set()
-        image.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1.0)
+        glyph.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1.0)
     }
 }
 
