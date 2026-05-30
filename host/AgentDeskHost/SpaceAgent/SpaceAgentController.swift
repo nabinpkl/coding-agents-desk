@@ -1,5 +1,74 @@
 import AppKit
 
+// Non-activating floating panel that can still take key focus while the
+// desktop search palette is open, so its NSSearchField receives typing. The
+// app is never activated (nonactivatingPanel), so the menu bar stays with the
+// user's frontmost app; key returns to that app on collapse.
+private final class SpaceAgentPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
+// Detects a clean double-tap of a modifier key: two press/release cycles of
+// the modifier alone, within `window`, with no other key pressed in between.
+// Binds double-Command to the desktop palette. The "clean" rule is what keeps
+// Cmd+key combos (a key pressed while Command is held) from reading as a
+// Command tap. Plain class, only touched from the main thread via the monitors.
+private final class DoubleTapDetector {
+    private let modifier: NSEvent.ModifierFlags
+    private let window: TimeInterval
+    private var isDown = false
+    private var holdClean = false
+    private var lastCleanReleaseAt: TimeInterval = -.greatestFiniteMagnitude
+
+    init(modifier: NSEvent.ModifierFlags = .control, window: TimeInterval = 0.4) {
+        self.modifier = modifier
+        self.window = window
+    }
+
+    // Returns true exactly once, on the release that completes a double-tap.
+    func handle(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .keyDown:
+            // Any key press dirties the current hold and breaks the chain.
+            holdClean = false
+            lastCleanReleaseAt = -.greatestFiniteMagnitude
+            return false
+        case .flagsChanged:
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let down = flags.contains(modifier)
+            let modifierOnly = flags.subtracting(modifier).isEmpty
+            if down && !isDown {
+                isDown = true
+                holdClean = modifierOnly
+                return false
+            }
+            if !down && isDown {
+                isDown = false
+                guard holdClean else {
+                    lastCleanReleaseAt = -.greatestFiniteMagnitude
+                    return false
+                }
+                if event.timestamp - lastCleanReleaseAt <= window {
+                    lastCleanReleaseAt = -.greatestFiniteMagnitude
+                    return true
+                }
+                lastCleanReleaseAt = event.timestamp
+                return false
+            }
+            if down {
+                // Another modifier joined while held: no longer a clean tap.
+                if !modifierOnly { holdClean = false }
+            } else if !flags.isEmpty {
+                // A different modifier toggled between taps: break the chain.
+                lastCleanReleaseAt = -.greatestFiniteMagnitude
+            }
+            return false
+        default:
+            return false
+        }
+    }
+}
+
 @MainActor
 final class SpaceAgentController: NSObject {
     private enum DefaultsKey {
@@ -20,6 +89,8 @@ final class SpaceAgentController: NSObject {
     private var pendingHandleScreenOrigin: CGPoint?
     private var collapsedPanelOrigin: CGPoint?
     private var outsideClickMonitor: Any?
+    private var commandTapMonitors: [Any] = []
+    private let commandTapDetector = DoubleTapDetector(modifier: .command)
 
     // Fired whenever the handle's screen position changes (user drag, expand
     // or collapse resize) so a sibling overlay can keep clear of it.
@@ -53,6 +124,7 @@ final class SpaceAgentController: NSObject {
             self.spaceChangeObserver = nil
         }
         uninstallOutsideClickMonitor()
+        uninstallCommandTapMonitor()
         thumbnailProvider.setDemand(owner: .spaceAgent, enabled: false)
         panel?.close()
         panel = nil
@@ -65,7 +137,7 @@ final class SpaceAgentController: NSObject {
             size: size,
             visibleFrames: visibleFrames()
         )
-        let panel = NSPanel(
+        let panel = SpaceAgentPanel(
             contentRect: CGRect(origin: origin, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -83,9 +155,48 @@ final class SpaceAgentController: NSObject {
         self.panel = panel
 
         installSpaceObserver()
+        installCommandTapMonitor()
         refreshState()
         resizePanel()
         panel.orderFrontRegardless()
+    }
+
+    // Double-tap Command, from anywhere, toggles the palette. A global monitor
+    // catches the taps while another app is frontmost (the common open case);
+    // a local monitor catches them while our panel is key (so it also closes).
+    // Both feed one detector; events are non-consuming so other Command
+    // shortcuts are unaffected.
+    private func installCommandTapMonitor() {
+        guard commandTapMonitors.isEmpty else { return }
+        let process: (NSEvent) -> Void = { [weak self] event in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.commandTapDetector.handle(event) {
+                    self.setExpanded(!self.viewController.isExpanded)
+                }
+            }
+        }
+        if let global = NSEvent.addGlobalMonitorForEvents(
+            matching: [.flagsChanged, .keyDown],
+            handler: process
+        ) {
+            commandTapMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(
+            matching: [.flagsChanged, .keyDown]
+        ) { event in
+            process(event)
+            return event
+        } {
+            commandTapMonitors.append(local)
+        }
+    }
+
+    private func uninstallCommandTapMonitor() {
+        for monitor in commandTapMonitors {
+            NSEvent.removeMonitor(monitor)
+        }
+        commandTapMonitors.removeAll()
     }
 
     private func installSpaceObserver() {
@@ -145,9 +256,28 @@ final class SpaceAgentController: NSObject {
             uninstallOutsideClickMonitor()
         }
         render()
-        if !expanded {
+        if expanded {
+            // Become key (without activating the app) and focus the search
+            // field so typing filters desktops immediately.
+            viewController.resetSearch()
+            panel?.makeKeyAndOrderFront(nil)
+            viewController.focusSearchField()
+        } else {
             restoreCollapsedOrigin()
+            relinquishKey()
         }
+    }
+
+    // Returning keyboard focus to the app that was active before the palette
+    // opened: ordering the key panel out lets the window server promote that
+    // app's window, then we re-show the collapsed handle without taking key
+    // again. Skipped when the panel is no longer key (e.g. an outside click
+    // already moved key to another app), which avoids a needless flicker.
+    private func relinquishKey() {
+        guard let panel, panel.isKeyWindow else { return }
+        panel.makeFirstResponder(nil)
+        panel.orderOut(nil)
+        panel.orderFrontRegardless()
     }
 
     private func restoreCollapsedOrigin() {
@@ -281,6 +411,16 @@ extension SpaceAgentController: SpaceAgentViewControllerDelegate {
         guard delta != 0 else { return }
         commitStep(delta)
         controller.isExpanded = true
+    }
+
+    func spaceAgentViewController(_ controller: SpaceAgentViewController, didOpenStepDelta delta: Int) {
+        guard delta != 0 else { setExpanded(false); return }
+        commitStep(delta)
+        setExpanded(false)
+    }
+
+    func spaceAgentViewControllerDidRequestCollapse(_ controller: SpaceAgentViewController) {
+        setExpanded(false)
     }
 }
 

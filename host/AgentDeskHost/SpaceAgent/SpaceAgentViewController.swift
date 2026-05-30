@@ -3,7 +3,12 @@ import AppKit
 @MainActor
 protocol SpaceAgentViewControllerDelegate: AnyObject {
     func spaceAgentViewControllerDidToggle(_ controller: SpaceAgentViewController)
+    // A tile was clicked: switch desktops but keep the popover open.
     func spaceAgentViewController(_ controller: SpaceAgentViewController, didSelectStepDelta delta: Int)
+    // Enter in the search bar: switch to the selected desktop, then collapse.
+    func spaceAgentViewController(_ controller: SpaceAgentViewController, didOpenStepDelta delta: Int)
+    // Esc, or Enter on the desktop you are already on: just collapse.
+    func spaceAgentViewControllerDidRequestCollapse(_ controller: SpaceAgentViewController)
 }
 
 @MainActor
@@ -25,7 +30,14 @@ final class SpaceAgentViewController: NSViewController {
     private let tileClipView = SpaceAgentClipView()
     private let tileHost = SpaceAgentTileHostView()
     private let overflowHintView = SpaceAgentOverflowHintView()
+    private let searchField = NSSearchField()
+    private let searchFieldHeight: CGFloat = 28
+    private let searchToStripGap: CGFloat = 8
     private var tiles: [SpaceAgentTile] = []
+    // Live search/filter state for the desktop palette. filterText narrows
+    // the strip; selectedSpaceId is the keyboard highlight, opened on Enter.
+    private var filterText: String = ""
+    private var selectedSpaceId: UInt64?
 
     /// Hard cap on the popover's outer width. Set to a positive value to
     /// override the screen-derived default (used by tests).
@@ -49,7 +61,9 @@ final class SpaceAgentViewController: NSViewController {
         let idealWidth = tileWidth + stripInset * 2
         let maxWidth = resolvedPopoverMaxWidth
         let popoverWidth = min(max(handleSize.width, idealWidth), maxWidth)
-        let height = tileStripHeight + tailHeight + popoverToAnchorGap + handleSize.height
+        let searchZone = searchFieldHeight + searchToStripGap
+        let height = tileStripHeight + tailHeight + searchZone
+            + popoverToAnchorGap + handleSize.height
         return NSSize(width: popoverWidth, height: height)
     }
 
@@ -80,14 +94,83 @@ final class SpaceAgentViewController: NSViewController {
 
     func render(tiles: [SpaceAgentTile]) {
         self.tiles = tiles
-        tileHost.render(tiles: tiles)
-        tileHost.onSelectDelta = { [weak self] delta in
-            guard let self else { return }
-            delegate?.spaceAgentViewController(self, didSelectStepDelta: delta)
+        // Keep the keyboard selection if it still exists; otherwise fall back
+        // to the active desktop so something is always highlighted.
+        if selectedSpaceId == nil || !tiles.contains(where: { $0.spaceId == selectedSpaceId }) {
+            selectedSpaceId = tiles.first(where: \.isActive)?.spaceId
         }
+        refreshDisplayedTiles()
         rootView.needsLayout = true
         preferredContentSize = preferredPanelSize
         updateOverflowHints()
+    }
+
+    // Applies the live filter and selection highlight to the full tile set,
+    // then hands the visible subset to the strip. Panel width stays sized to
+    // the full set (preferredPanelSize), so filtering narrows the content
+    // without the panel jumping around on every keystroke.
+    private func refreshDisplayedTiles() {
+        let filtered = tiles.filter(matchesFilter)
+        if selectedSpaceId == nil || !filtered.contains(where: { $0.spaceId == selectedSpaceId }) {
+            selectedSpaceId = filtered.first?.spaceId
+        }
+        let displayed = filtered.map { tile -> SpaceAgentTile in
+            var copy = tile
+            copy.isSelected = tile.spaceId == selectedSpaceId
+            return copy
+        }
+        tileHost.render(tiles: displayed)
+    }
+
+    private func matchesFilter(_ tile: SpaceAgentTile) -> Bool {
+        let query = filterText.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !query.isEmpty else { return true }
+        // A purely numeric query also matches the desktop number, so "3" jumps
+        // to desktop 3 without the word "Desktop" living in every tile's text.
+        if let number = Int(query), tile.desktopNumber == number {
+            return true
+        }
+        // searchText is the full untruncated name (window title + app), so
+        // long names stay findable past the display ellipsis.
+        return tile.searchText.lowercased().contains(query)
+    }
+
+    private func moveSelection(by step: Int) {
+        let filtered = tiles.filter(matchesFilter)
+        guard !filtered.isEmpty else { return }
+        let current = filtered.firstIndex { $0.spaceId == selectedSpaceId } ?? 0
+        let next = min(max(current + step, 0), filtered.count - 1)
+        selectedSpaceId = filtered[next].spaceId
+        refreshDisplayedTiles()
+        tileHost.scrollSelectedTileToVisible()
+    }
+
+    private func openSelected() {
+        let filtered = tiles.filter(matchesFilter)
+        guard let id = selectedSpaceId,
+              let tile = filtered.first(where: { $0.spaceId == id })
+        else { return }
+        if tile.stepDelta != 0 {
+            delegate?.spaceAgentViewController(self, didOpenStepDelta: tile.stepDelta)
+        } else {
+            // Already on this desktop; opening it is just a dismiss.
+            delegate?.spaceAgentViewControllerDidRequestCollapse(self)
+        }
+    }
+
+    // Called by the controller once the panel is key, so the field can take
+    // first-responder and start receiving keystrokes.
+    func focusSearchField() {
+        view.window?.makeFirstResponder(searchField)
+    }
+
+    // Reset to a clean palette on each expand: empty query, selection on the
+    // active desktop.
+    func resetSearch() {
+        filterText = ""
+        searchField.stringValue = ""
+        selectedSpaceId = tiles.first(where: \.isActive)?.spaceId
+        refreshDisplayedTiles()
     }
 
     func handleScreenOrigin() -> CGPoint? {
@@ -139,6 +222,17 @@ final class SpaceAgentViewController: NSViewController {
 
         tileHost.tileSize = tileSize
         tileHost.tileSpacing = tileSpacing
+        tileHost.onSelectDelta = { [weak self] delta in
+            guard let self else { return }
+            delegate?.spaceAgentViewController(self, didSelectStepDelta: delta)
+        }
+
+        searchField.placeholderString = "Search desktops"
+        searchField.focusRingType = .none
+        searchField.delegate = self
+        rootView.searchField = searchField
+        rootView.searchFieldHeight = searchFieldHeight
+        rootView.searchToStripGap = searchToStripGap
     }
 
     private func applyVisibility() {
@@ -146,6 +240,7 @@ final class SpaceAgentViewController: NSViewController {
         tileHost.isHidden = !isExpanded
         tileBackdrop.isHidden = !isExpanded
         overflowHintView.isHidden = !isExpanded
+        searchField.isHidden = !isExpanded
         preferredContentSize = preferredPanelSize
         rootView.needsLayout = true
         updateOverflowHints()
@@ -169,6 +264,39 @@ final class SpaceAgentViewController: NSViewController {
     var overflowHintState: (left: Bool, right: Bool) {
         updateOverflowHints()
         return (overflowHintView.showsLeft, overflowHintView.showsRight)
+    }
+}
+
+extension SpaceAgentViewController: NSSearchFieldDelegate {
+    func controlTextDidChange(_ obj: Notification) {
+        filterText = searchField.stringValue
+        // Each edit re-points the selection at the first match so Enter on a
+        // narrowed-to-one result opens it without an arrow press.
+        selectedSpaceId = tiles.filter(matchesFilter).first?.spaceId
+        refreshDisplayedTiles()
+        tileHost.scrollSelectedTileToVisible()
+    }
+
+    // The strip is horizontal, so Left/Right move the selection; Up/Down are
+    // accepted as aliases. Intercepting them costs caret arrow-movement in the
+    // (short) query, which is an acceptable trade for keyboard desktop nav.
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.insertNewline(_:)):
+            openSelected()
+            return true
+        case #selector(NSResponder.moveLeft(_:)), #selector(NSResponder.moveUp(_:)):
+            moveSelection(by: -1)
+            return true
+        case #selector(NSResponder.moveRight(_:)), #selector(NSResponder.moveDown(_:)):
+            moveSelection(by: 1)
+            return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            delegate?.spaceAgentViewControllerDidRequestCollapse(self)
+            return true
+        default:
+            return false
+        }
     }
 }
 
@@ -199,12 +327,20 @@ private final class SpaceAgentRootView: NSView {
             if let overflowHintView { addSubview(overflowHintView) }
         }
     }
+    var searchField: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let searchField { addSubview(searchField) }
+        }
+    }
     var isExpanded: Bool = false
     var handleSize = CGSize(width: 52, height: 52)
     var tileStripHeight: CGFloat = 116
     var stripInset: CGFloat = 8
     var tailHeight: CGFloat = 8
     var popoverToAnchorGap: CGFloat = 2
+    var searchFieldHeight: CGFloat = 28
+    var searchToStripGap: CGFloat = 8
 
     override var isFlipped: Bool { true }
 
@@ -217,17 +353,26 @@ private final class SpaceAgentRootView: NSView {
             tileBackdrop?.frame = .zero
             tileHost?.frame = .zero
             overflowHintView?.frame = .zero
+            searchField?.frame = .zero
             return
         }
 
         let popoverWidth = bounds.width
-        let backdropHeight = tileStripHeight + tailHeight
+        let searchZone = searchFieldHeight + searchToStripGap
+        let backdropHeight = tileStripHeight + tailHeight + searchZone
         let backdropFrame = CGRect(x: 0, y: 0, width: popoverWidth, height: backdropHeight)
         tileBackdrop?.frame = backdropFrame
 
-        let bodyFrame = CGRect(
+        searchField?.frame = CGRect(
             x: stripInset,
             y: stripInset,
+            width: max(0, popoverWidth - stripInset * 2),
+            height: searchFieldHeight
+        )
+
+        let bodyFrame = CGRect(
+            x: stripInset,
+            y: stripInset + searchZone,
             width: max(0, popoverWidth - stripInset * 2),
             height: max(0, tileStripHeight - stripInset * 2)
         )
@@ -623,7 +768,7 @@ private final class SpaceAgentTileHostView: NSView {
         resizeDocument(for: tiles.count)
         needsLayout = true
         if shouldScrollActiveTile {
-            scrollActiveTileToVisible()
+            scrollSelectedTileToVisible()
         }
     }
 
@@ -648,10 +793,12 @@ private final class SpaceAgentTileHostView: NSView {
         frame = CGRect(origin: .zero, size: CGSize(width: max(0, width), height: height))
     }
 
-    private func scrollActiveTileToVisible() {
-        guard let activeIndex = tileViews.firstIndex(where: { $0.tile?.isActive == true }) else { return }
+    func scrollSelectedTileToVisible() {
+        let index = tileViews.firstIndex { $0.tile?.isSelected == true }
+            ?? tileViews.firstIndex { $0.tile?.isActive == true }
+        guard let index else { return }
         layoutSubtreeIfNeeded()
-        scrollToVisible(tileViews[activeIndex].frame)
+        scrollToVisible(tileViews[index].frame)
     }
 }
 
@@ -762,7 +909,7 @@ private final class SpaceAgentTileView: NSControl {
         let surface: NSColor
         if tile.isActive {
             surface = palette.activeTileFill
-        } else if isHovered {
+        } else if tile.isSelected || isHovered {
             surface = palette.tileFillHover
         } else {
             surface = palette.tileFill
@@ -793,15 +940,16 @@ private final class SpaceAgentTileView: NSControl {
         }
         NSGraphicsContext.restoreGraphicsState()
 
-        // Active desktop: ring the whole card in the accent, inset so the
-        // 1.5pt stroke sits fully inside the tile bounds.
-        if tile.isActive {
+        // Ring the whole card: accent for the active desktop, a neutral tone
+        // for the keyboard selection. Inset so the 1.5pt stroke sits fully
+        // inside the tile bounds.
+        if tile.isActive || tile.isSelected {
             let ring = NSBezierPath(
                 roundedRect: bounds.insetBy(dx: 0.75, dy: 0.75),
                 xRadius: Self.cardCornerRadius,
                 yRadius: Self.cardCornerRadius
             )
-            NSColor.controlAccentColor.setStroke()
+            (tile.isActive ? NSColor.controlAccentColor : palette.selectionRing).setStroke()
             ring.lineWidth = 1.5
             ring.stroke()
         }
@@ -966,6 +1114,14 @@ private struct SpaceAgentPalette {
         isDark
             ? NSColor.controlAccentColor.withAlphaComponent(0.16)
             : NSColor.controlAccentColor.withAlphaComponent(0.12)
+    }
+
+    // Keyboard-selection ring: a neutral tone so it reads as distinct from
+    // the accent ring on the active desktop.
+    var selectionRing: NSColor {
+        isDark
+            ? NSColor(calibratedWhite: 1.0, alpha: 0.7)
+            : NSColor(calibratedWhite: 0.0, alpha: 0.45)
     }
 
     var thumbnailFill: NSColor {
