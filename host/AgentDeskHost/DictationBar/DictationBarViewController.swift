@@ -212,17 +212,24 @@ final class PushToTalkButton: NSView {
         let glyphColor: NSColor
         switch style {
         case .idle:
-            // Filled neutral control disc with a high-contrast labelColor
-            // glyph. The earlier systemGray-on-systemGray treatment washed
-            // out on both the light and dark pill; a solid disc plus a label
-            // glyph reads in either mode, like a native control.
+            // Filled neutral control disc with a high-contrast glyph. The
+            // earlier systemGray-on-systemGray treatment washed out on both
+            // the light and dark pill; a solid disc plus a contrasting glyph
+            // reads in either mode, like a native control. Glyph colour is
+            // chosen explicitly from isDark rather than via labelColor: the
+            // template glyph is tinted by the fill colour set just before the
+            // draw, and a dynamic colour there resolves against the current
+            // drawing appearance, which is not reliably this view's dark
+            // appearance, so labelColor came out black on the dark pill.
             let base = isDark
                 ? NSColor(srgbRed: 0x48 / 255, green: 0x48 / 255, blue: 0x4A / 255, alpha: 1)
                 : NSColor(srgbRed: 0xE6 / 255, green: 0xE6 / 255, blue: 0xEB / 255, alpha: 1)
             discColor = isPressed
                 ? (base.blended(withFraction: 0.12, of: isDark ? .white : .black) ?? base)
                 : base
-            glyphColor = .labelColor
+            glyphColor = isDark
+                ? NSColor(calibratedWhite: 1.0, alpha: 0.92)
+                : NSColor(calibratedWhite: 0.0, alpha: 0.85)
         case .recording:
             discColor = NSColor.systemRed.withAlphaComponent(0.85)
             glyphColor = .systemRed
