@@ -253,6 +253,10 @@ private final class SpaceAgentTileBackdropView: NSView {
         }
     }
 
+    private let materialView = NSVisualEffectView()
+    private let tintView = SpaceAgentPanelTintView()
+    private let maskLayer = CAShapeLayer()
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         commonInit()
@@ -266,30 +270,102 @@ private final class SpaceAgentTileBackdropView: NSView {
     private func commonInit() {
         wantsLayer = true
         layer?.masksToBounds = false
-        layer?.backgroundColor = NSColor.clear.cgColor
+        maskLayer.fillRule = .nonZero
+        layer?.mask = maskLayer
+
+        materialView.blendingMode = .behindWindow
+        materialView.state = .active
+        materialView.wantsLayer = true
+        materialView.layer?.masksToBounds = false
+        addSubview(materialView)
+
+        tintView.wantsLayer = true
+        tintView.layer?.masksToBounds = false
+        addSubview(tintView)
+
+        updateMaterial()
     }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateMaterial()
+        tintView.needsDisplay = true
+    }
+
+    override func layout() {
+        super.layout()
+        materialView.frame = bounds
+        tintView.frame = bounds
+        updatePaths()
+    }
+
+    private func updatePaths() {
+        guard let layer else { return }
+        let path = makePath(in: layer.bounds, tailCenterX: clampedTailCenter(in: layer.bounds))
+        maskLayer.frame = layer.bounds
+        maskLayer.path = path
+        tintView.tailHeight = tailHeight
+        tintView.tailWidth = tailWidth
+        tintView.cornerRadius = cornerRadius
+        tintView.tailCenterX = tailCenterX
+    }
+
+    private func updateMaterial() {
+        let palette = SpaceAgentPalette(appearance: effectiveAppearance)
+        materialView.material = palette.panelMaterial
+    }
+
+    private func clampedTailCenter(in rect: CGRect) -> CGFloat {
+        let minX = rect.minX + cornerRadius + tailWidth / 2
+        let maxX = rect.maxX - cornerRadius - tailWidth / 2
+        guard minX <= maxX else { return rect.midX }
+        return min(max(tailCenterX, minX), maxX)
+    }
+
+    private func makePath(in rect: CGRect, tailCenterX cx: CGFloat) -> CGPath {
+        // Layer coordinates: y increases upward. When tailHeight > 0 a small
+        // triangle pokes out of the bottom (y = rect.minY); otherwise the
+        // mask is just the body rectangle (with optional corner radius).
+        let body = CGRect(
+            x: rect.minX,
+            y: rect.minY + tailHeight,
+            width: rect.width,
+            height: max(0, rect.height - tailHeight)
+        )
+        let path = CGMutablePath()
+        if cornerRadius > 0 {
+            path.addRoundedRect(in: body, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
+        } else {
+            path.addRect(body)
+        }
+        if tailHeight > 0 {
+            path.move(to: CGPoint(x: cx + tailWidth / 2, y: body.minY))
+            path.addLine(to: CGPoint(x: cx, y: rect.minY))
+            path.addLine(to: CGPoint(x: cx - tailWidth / 2, y: body.minY))
+            path.closeSubpath()
+        }
+        return path
+    }
+}
+
+private final class SpaceAgentPanelTintView: NSView {
+    var tailHeight: CGFloat = 0 { didSet { needsDisplay = true } }
+    var tailWidth: CGFloat = 18 { didSet { needsDisplay = true } }
+    var cornerRadius: CGFloat = 0 { didSet { needsDisplay = true } }
+    var tailCenterX: CGFloat = 0 { didSet { needsDisplay = true } }
+
+    override var isFlipped: Bool { true }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }
 
-    override func layout() {
-        super.layout()
-        updatePaths()
-    }
-
-    private func updatePaths() {
-        needsDisplay = true
-    }
-
     override func draw(_ dirtyRect: NSRect) {
-        guard bounds.width > 0, bounds.height > tailHeight else {
-            return
-        }
+        guard bounds.width > 0, bounds.height > tailHeight else { return }
         let path = NSBezierPath(cgPath: makePath(in: bounds, tailCenterX: clampedTailCenter(in: bounds)))
         let palette = SpaceAgentPalette(appearance: effectiveAppearance)
-        palette.panelFill.setFill()
+        palette.panelTint.setFill()
         path.fill()
         palette.panelStroke.setStroke()
         path.lineWidth = 1
@@ -304,9 +380,6 @@ private final class SpaceAgentTileBackdropView: NSView {
     }
 
     private func makePath(in rect: CGRect, tailCenterX cx: CGFloat) -> CGPath {
-        // Layer coordinates: y increases upward. When tailHeight > 0 a small
-        // triangle pokes out of the bottom (y = rect.minY); otherwise the
-        // mask is just the body rectangle (with optional corner radius).
         let body = CGRect(
             x: rect.minX,
             y: rect.minY + tailHeight,
@@ -583,18 +656,19 @@ private final class SpaceAgentTileHostView: NSView {
 }
 
 private final class SpaceAgentTileView: NSControl {
-    // Caption laid out Spotify-style: 8pt gap from thumbnail, 17pt
-    // bold title, 4pt gap, 14pt regular dim subtitle, 6pt tail
-    // padding. Adds up to 49pt of caption. Font sizes are held while
-    // the tile shrinks so the labels stay legible at high desktop
-    // counts; only the surrounding insets give.
+    // Card laid out Spotify-style: the thumbnail is cover art filling the
+    // card's top edge-to-edge (rounded top corners, square where it meets
+    // the caption), with a two-line caption (14pt bold title, 4pt gap,
+    // 12pt dim subtitle, tail padding) below on the card surface. Adds up
+    // to 49pt of caption. Font sizes hold while the tile shrinks so the
+    // labels stay legible at high desktop counts; only the insets give.
     static let labelHeight: CGFloat = 49
-    static let imageCornerRadius: CGFloat = 6
+    static let cardCornerRadius: CGFloat = 8
     static let captionLeadingInset: CGFloat = 10
     static let captionTopInset: CGFloat = 8
-    static let primaryRowHeight: CGFloat = 17
+    static let primaryRowHeight: CGFloat = 18
     static let primaryToSecondaryGap: CGFloat = 4
-    static let secondaryRowHeight: CGFloat = 14
+    static let secondaryRowHeight: CGFloat = 15
 
     var tile: SpaceAgentTile? {
         didSet {
@@ -606,63 +680,134 @@ private final class SpaceAgentTileView: NSControl {
         }
     }
     var onSelectDelta: ((Int) -> Void)?
+    private var isHovered = false
 
     override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // Layer-backed with masksToBounds off so the hover shadow can cast
+        // past the tile's own bounds into the inter-card gap.
+        wantsLayer = true
+        layer?.masksToBounds = false
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
     }
 
+    override func layout() {
+        super.layout()
+        updateElevation()
+    }
+
+    // Spotify-style hover lift: the cursor entering a card lightens its
+    // surface (in draw) and raises a soft drop shadow (here). Uses the
+    // visible rect so it keeps working as tiles scroll under the clip.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard !isHovered else { return }
+        isHovered = true
+        updateElevation()
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard isHovered else { return }
+        isHovered = false
+        updateElevation()
+        needsDisplay = true
+    }
+
+    private func updateElevation() {
+        guard let layer else { return }
+        layer.shadowColor = NSColor.black.cgColor
+        layer.shadowOffset = CGSize(width: 0, height: -2)
+        layer.shadowRadius = 7
+        layer.shadowOpacity = isHovered ? 0.34 : 0
+        layer.shadowPath = CGPath(
+            roundedRect: bounds,
+            cornerWidth: Self.cardCornerRadius,
+            cornerHeight: Self.cardCornerRadius,
+            transform: nil
+        )
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let tile else { return }
         let palette = SpaceAgentPalette(appearance: effectiveAppearance)
-        drawTileBackground(in: bounds, active: tile.isActive, palette: palette)
 
+        // Card surface. Lightens on hover (paired with the shadow lift in
+        // updateElevation); a faint accent wash marks the active desktop.
+        let card = NSBezierPath(
+            roundedRect: bounds,
+            xRadius: Self.cardCornerRadius,
+            yRadius: Self.cardCornerRadius
+        )
+        let surface: NSColor
+        if tile.isActive {
+            surface = palette.activeTileFill
+        } else if isHovered {
+            surface = palette.tileFillHover
+        } else {
+            surface = palette.tileFill
+        }
+        surface.setFill()
+        card.fill()
+
+        // Cover art fills the card's top edge-to-edge. Clipping to the card
+        // path borrows its rounded top corners while the bottom stays a
+        // straight cut where the caption begins, so the art reads as large
+        // as the card allows instead of sitting in a frame.
         let imageRect = CGRect(
             x: 0,
             y: 0,
             width: bounds.width,
             height: max(0, bounds.height - Self.labelHeight)
         )
-        let path = NSBezierPath(
-            roundedRect: imageRect,
-            xRadius: Self.imageCornerRadius,
-            yRadius: Self.imageCornerRadius
-        )
+        NSGraphicsContext.saveGraphicsState()
+        card.addClip()
+        NSBezierPath(rect: imageRect).addClip()
         palette.thumbnailFill.setFill()
-        path.fill()
-
+        NSBezierPath(rect: imageRect).fill()
         if let data = tile.thumbnail, let image = NSImage(data: data) {
-            NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current?.imageInterpolation = .high
-            path.addClip()
             image.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1)
-            NSGraphicsContext.restoreGraphicsState()
         } else {
             drawPlaceholder(in: imageRect, active: tile.isActive, palette: palette)
         }
+        NSGraphicsContext.restoreGraphicsState()
 
-        let borderColor: NSColor = tile.isActive ? .controlAccentColor : palette.thumbnailStroke
-        borderColor.setStroke()
-        path.lineWidth = tile.isActive ? 2 : 0.5
-        path.stroke()
+        // Active desktop: ring the whole card in the accent, inset so the
+        // 1.5pt stroke sits fully inside the tile bounds.
+        if tile.isActive {
+            let ring = NSBezierPath(
+                roundedRect: bounds.insetBy(dx: 0.75, dy: 0.75),
+                xRadius: Self.cardCornerRadius,
+                yRadius: Self.cardCornerRadius
+            )
+            NSColor.controlAccentColor.setStroke()
+            ring.lineWidth = 1.5
+            ring.stroke()
+        }
 
         drawDesktopNumber(in: imageRect, tile: tile)
         drawCaption(in: bounds, imageRect: imageRect, tile: tile, palette: palette)
-    }
-
-    private func drawTileBackground(in bounds: CGRect, active: Bool, palette: SpaceAgentPalette) {
-        // Subtle inset bg gives the caption a "card" feel without
-        // competing with the thumbnail's own contrast. Active tile
-        // gets a faint accent tint instead of just a thicker border.
-        let bg = NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8)
-        if active {
-            NSColor.controlAccentColor.withAlphaComponent(0.10).setFill()
-        } else {
-            palette.tileFill.setFill()
-        }
-        bg.fill()
     }
 
     private func drawCaption(
@@ -679,14 +824,16 @@ private final class SpaceAgentTileView: NSControl {
         leftPara.lineBreakMode = .byTruncatingTail
 
         let primaryAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13, weight: .bold),
-            .foregroundColor: palette.primaryText.withAlphaComponent(tile.isActive ? 1.0 : 0.95),
+            .font: NSFont.systemFont(ofSize: 14, weight: .bold),
+            .foregroundColor: tile.isActive
+                ? NSColor.controlAccentColor
+                : palette.primaryText.withAlphaComponent(0.96),
             .paragraphStyle: leftPara,
             .kern: -0.1
         ]
         let secondaryAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11, weight: .regular),
-            .foregroundColor: palette.secondaryText.withAlphaComponent(tile.isActive ? 0.86 : 0.72),
+            .font: NSFont.systemFont(ofSize: 12, weight: .regular),
+            .foregroundColor: palette.secondaryText.withAlphaComponent(tile.isActive ? 0.9 : 0.72),
             .paragraphStyle: leftPara
         ]
 
@@ -715,14 +862,14 @@ private final class SpaceAgentTileView: NSControl {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         let textAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 12, weight: .bold),
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
             .foregroundColor: NSColor.white,
             .paragraphStyle: paragraph
         ]
         let textSize = string.size(withAttributes: textAttrs)
-        let badgeHeight: CGFloat = 22
-        let badgeWidth = max(22, ceil(textSize.width) + 12)
-        let inset: CGFloat = 7
+        let badgeHeight: CGFloat = 18
+        let badgeWidth = max(18, ceil(textSize.width) + 10)
+        let inset: CGFloat = 6
         let badgeRect = CGRect(
             x: imageRect.maxX - badgeWidth - inset,
             y: imageRect.maxY - badgeHeight - inset,
@@ -735,7 +882,7 @@ private final class SpaceAgentTileView: NSControl {
             xRadius: badgeHeight / 2,
             yRadius: badgeHeight / 2
         )
-        NSColor.black.withAlphaComponent(0.62).setFill()
+        NSColor.black.withAlphaComponent(0.5).setFill()
         badgePath.fill()
 
         let textRect = CGRect(
@@ -777,34 +924,54 @@ private struct SpaceAgentPalette {
         isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
-    var panelFill: NSColor {
+    var panelMaterial: NSVisualEffectView.Material {
+        isDark ? .hudWindow : .popover
+    }
+
+    // Panel surface. Lifted off pure black and made more solid in dark
+    // mode so the strip separates from a dark wallpaper instead of reading
+    // black-on-black; the higher opacity also lets the window's own shadow
+    // cast a real edge. The stroke is a clearly visible hairline so the
+    // panel edge stays defined whatever the wallpaper behind it.
+    var panelTint: NSColor {
         isDark
-            ? NSColor(calibratedWhite: 0.07, alpha: 0.86)
-            : NSColor(calibratedWhite: 1.0, alpha: 0.88)
+            ? NSColor(calibratedWhite: 0.11, alpha: 0.80)
+            : NSColor(calibratedWhite: 1.0, alpha: 0.72)
     }
 
     var panelStroke: NSColor {
         isDark
-            ? NSColor(calibratedWhite: 1.0, alpha: 0.10)
-            : NSColor(calibratedWhite: 0.0, alpha: 0.10)
+            ? NSColor(calibratedWhite: 1.0, alpha: 0.24)
+            : NSColor(calibratedWhite: 0.0, alpha: 0.16)
     }
 
+    // Rest card surface. Sits a clear step above the lifted panel tint so
+    // an inactive card still reads as its own surface rather than blending
+    // into the strip behind it.
     var tileFill: NSColor {
         isDark
-            ? NSColor(calibratedWhite: 1.0, alpha: 0.03)
-            : NSColor(calibratedWhite: 0.0, alpha: 0.035)
+            ? NSColor(calibratedWhite: 1.0, alpha: 0.10)
+            : NSColor(calibratedWhite: 1.0, alpha: 0.26)
+    }
+
+    // Hover surface: a clear step up from the rest fill so the card reads
+    // as raised, the way Spotify lightens a card under the cursor.
+    var tileFillHover: NSColor {
+        isDark
+            ? NSColor(calibratedWhite: 1.0, alpha: 0.18)
+            : NSColor(calibratedWhite: 1.0, alpha: 0.5)
+    }
+
+    var activeTileFill: NSColor {
+        isDark
+            ? NSColor.controlAccentColor.withAlphaComponent(0.16)
+            : NSColor.controlAccentColor.withAlphaComponent(0.12)
     }
 
     var thumbnailFill: NSColor {
         isDark
             ? NSColor(calibratedWhite: 0.10, alpha: 1.0)
             : NSColor(calibratedWhite: 0.95, alpha: 1.0)
-    }
-
-    var thumbnailStroke: NSColor {
-        isDark
-            ? NSColor(calibratedWhite: 1.0, alpha: 0.10)
-            : NSColor(calibratedWhite: 0.0, alpha: 0.16)
     }
 
     var primaryText: NSColor {
