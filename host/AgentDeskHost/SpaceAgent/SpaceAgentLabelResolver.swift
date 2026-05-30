@@ -9,17 +9,14 @@ import Foundation
 //                Empty when the title was absent and the app name had
 //                to fill in as primary, or when no top window exists
 //                at all.
-// Both strings are independently truncated so the renderer can paint
-// each on its own line without one consuming the other's width.
+// Both strings are returned in full; the renderer truncates each to fit its
+// row at draw time, and search matches against the untruncated text.
 struct ResolvedLabel: Equatable {
     let primary: String
     let secondary: String
 }
 
 enum SpaceAgentLabelResolver {
-    static let primaryMaxLength: Int = 22
-    static let secondaryMaxLength: Int = 22
-
     // Editors render their window title as "<file>  <workspace>" with an
     // em-dash separator. For these apps the app name on row 2 is wasted
     // (dock icon already says "Code"), so we hand-parse the title:
@@ -47,18 +44,12 @@ enum SpaceAgentLabelResolver {
             return ResolvedLabel(primary: fallback, secondary: "")
         }
         if title.isEmpty {
-            return ResolvedLabel(
-                primary: truncate(appName, maxLength: primaryMaxLength),
-                secondary: ""
-            )
+            return ResolvedLabel(primary: appName, secondary: "")
         }
         if editorAppNames.contains(appName) {
             return splitEditorTitle(title, appName: appName)
         }
-        return ResolvedLabel(
-            primary: truncate(title, maxLength: primaryMaxLength),
-            secondary: truncate(appName, maxLength: secondaryMaxLength)
-        )
+        return ResolvedLabel(primary: title, secondary: appName)
     }
 
     static func splitEditorTitle(_ title: String, appName: String) -> ResolvedLabel {
@@ -67,23 +58,12 @@ enum SpaceAgentLabelResolver {
             .filter { !$0.isEmpty }
         if parts.count >= 2, let first = parts.first, let last = parts.last {
             // Last segment is the workspace, first segment is the file.
-            return ResolvedLabel(
-                primary: truncate(last, maxLength: primaryMaxLength),
-                secondary: truncate(first, maxLength: secondaryMaxLength)
-            )
+            return ResolvedLabel(primary: last, secondary: first)
         }
         // Single-segment editor title means no file is focused; the
         // segment is the workspace. Fall back to the app name on row 2
         // so the two-row caption stays uniform across the strip
         // (Spotify's "category descriptor" move).
-        return ResolvedLabel(
-            primary: truncate(title, maxLength: primaryMaxLength),
-            secondary: truncate(appName, maxLength: secondaryMaxLength)
-        )
-    }
-
-    static func truncate(_ value: String, maxLength: Int) -> String {
-        if value.count <= maxLength { return value }
-        return String(value.prefix(maxLength - 1)) + "\u{2026}"
+        return ResolvedLabel(primary: title, secondary: appName)
     }
 }

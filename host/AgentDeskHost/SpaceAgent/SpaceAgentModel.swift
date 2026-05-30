@@ -8,10 +8,10 @@ struct SpaceAgentTile: Equatable {
     let isActive: Bool
     let stepDelta: Int
     let thumbnail: Data?
-    // Full, untruncated text the palette filters against: the real window
-    // title and app name. title/secondary above are truncated for display, so
-    // searching must use this instead or long names stop matching past the
-    // ellipsis. The desktop number is matched separately, not folded in here.
+    // Untruncated text the palette prefix-matches against, leading with the
+    // real window title (the first-row name) so a query keys off the start of
+    // that name. title above is truncated for display; the desktop number is
+    // matched separately, not folded in here.
     let searchText: String
     // Keyboard-selection highlight in the search palette, set by the view
     // layer (not the model). Distinct from isActive, which is the desktop
@@ -36,6 +36,37 @@ struct SpaceAgentTile: Equatable {
         self.stepDelta = stepDelta
         self.thumbnail = thumbnail
         self.searchText = searchText
+    }
+}
+
+extension SpaceAgentTile {
+    // Search bar (Discord-style): matches when any word in the name starts with
+    // the query, so "desk" finds "agent-desk", "agent" finds the *-agent
+    // desktops, and "code" finds Code desktops. Empty matches all; a numeric
+    // query matches the desktop number.
+    func matchesSearch(query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !trimmed.isEmpty else { return true }
+        if let number = Int(trimmed), desktopNumber == number { return true }
+        return searchTokens.contains { $0.hasPrefix(trimmed) }
+    }
+
+    // Hyper quick-switch: strict, the whole first-row name starts with the
+    // query (searchText leads with the real window title), so a single letter
+    // lands only on the desktops whose name begins with it.
+    func matchesNamePrefix(query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !trimmed.isEmpty else { return true }
+        if let number = Int(trimmed), desktopNumber == number { return true }
+        return searchText.lowercased().hasPrefix(trimmed)
+    }
+
+    // Name split into lowercased word tokens on any non-alphanumeric boundary
+    // (spaces, hyphens, dots, slashes), so each word is independently prefixable.
+    private var searchTokens: [String] {
+        searchText.lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .map(String.init)
     }
 }
 
@@ -68,14 +99,16 @@ enum SpaceAgentModel {
             } else {
                 delta = 0
             }
-            // Search against the untruncated source: the real window title and
-            // app name only. The desktop number is matched separately (by the
-            // view layer), so the generic word "Desktop" does not get stapled
-            // onto every tile and make a query like "desk" match all of them.
+            // Search against the resolved rows (full, untruncated): the
+            // first-row name leads so a prefix match keys off the name the user
+            // actually sees, with the second row appended for word matches.
+            // Empty parts are dropped so searchText leads with the real
+            // identity, and the "Desktop N" fallback is never folded in (a
+            // window-less Space has no name to match, only its number).
             var searchParts: [String] = []
-            if let topWindow {
-                searchParts.append(topWindow.title)
-                if let appName = topWindow.appName { searchParts.append(appName) }
+            if topWindow != nil {
+                if !resolved.primary.isEmpty { searchParts.append(resolved.primary) }
+                if !resolved.secondary.isEmpty { searchParts.append(resolved.secondary) }
             }
             return SpaceAgentTile(
                 spaceId: space.id,

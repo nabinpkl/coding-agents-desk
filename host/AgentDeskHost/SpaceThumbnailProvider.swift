@@ -274,17 +274,7 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             return CaptureResult(thumbnails: [:], topWindows: [:])
         }
 
-        // Filter out wallpaper, dock, menu-bar, control center, and
-        // sub-50pt overlays. Keep windowLayer == 0 (regular app windows).
-        let candidates = content.windows.filter { win in
-            guard let app = win.owningApplication else { return false }
-            if app.bundleIdentifier == "com.apple.dock" { return false }
-            if app.bundleIdentifier == "com.apple.WindowManager" { return false }
-            if app.bundleIdentifier == "com.apple.controlcenter" { return false }
-            if win.windowLayer != 0 { return false }
-            if win.frame.width < 50 || win.frame.height < 50 { return false }
-            return true
-        }
+        let candidates = candidateWindows(content)
         if candidates.isEmpty { return CaptureResult(thumbnails: [:], topWindows: [:]) }
 
         // Map windowID -> spaceID via SkyLight. Per-window query is
@@ -331,6 +321,61 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             thumbnailsOut[spaceId] = jpeg
         }
         return CaptureResult(thumbnails: thumbnailsOut, topWindows: topWindowsOut)
+    }
+
+    // Shared window filter: drop wallpaper, dock, menu-bar, control center,
+    // and sub-50pt overlays; keep regular app windows (layer 0).
+    private func candidateWindows(_ content: SCShareableContent) -> [SCWindow] {
+        content.windows.filter { win in
+            guard let app = win.owningApplication else { return false }
+            if app.bundleIdentifier == "com.apple.dock" { return false }
+            if app.bundleIdentifier == "com.apple.WindowManager" { return false }
+            if app.bundleIdentifier == "com.apple.controlcenter" { return false }
+            if win.windowLayer != 0 { return false }
+            if win.frame.width < 50 || win.frame.height < 50 { return false }
+            return true
+        }
+    }
+
+    // Names-only refresh: enumerate windows and record each Space's dominant
+    // window title/app without capturing any thumbnails. Cheap enough to run
+    // proactively (app start, space changes) so consumers like the Hyper
+    // quick-switch can match desktop names even when no thumbnail demand is
+    // active and the panel has never been opened.
+    func refreshTopWindows() async {
+        if let captureOverride {
+            let result = await captureOverride()
+            state.withLock { $0.latestTopWindows = result.topWindows }
+            return
+        }
+        guard let sky else { return }
+        let content: SCShareableContent
+        do {
+            content = try await SCShareableContent.excludingDesktopWindows(
+                true,
+                onScreenWindowsOnly: false
+            )
+        } catch {
+            logger.error("refreshTopWindows SCShareableContent failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        var windowsBySpace: [UInt64: [SCWindow]] = [:]
+        for win in candidateWindows(content) {
+            guard let spaceId = sky.firstSpaceContaining(windowID: CGWindowID(win.windowID)) else { continue }
+            windowsBySpace[spaceId, default: []].append(win)
+        }
+        var topWindowsOut: [UInt64: SpaceTopWindow] = [:]
+        for (spaceId, windows) in windowsBySpace {
+            guard let top = windows.max(by: {
+                $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height
+            }) else { continue }
+            topWindowsOut[spaceId] = SpaceTopWindow(
+                title: top.title ?? "",
+                appName: top.owningApplication?.applicationName
+            )
+        }
+        let resolved = topWindowsOut
+        state.withLock { $0.latestTopWindows = resolved }
     }
 
     // Pick the display the captured windows live on so the thumbnail's

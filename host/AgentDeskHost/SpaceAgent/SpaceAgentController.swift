@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 // Non-activating floating panel that can still take key focus while the
 // desktop search palette is open, so its NSSearchField receives typing. The
@@ -69,6 +70,92 @@ private final class DoubleTapDetector {
     }
 }
 
+// Session keyboard tap that turns "Hyper (remapped Caps Lock) + a character"
+// into a desktop quick-switch. The tap runs on the main run loop, so its
+// callback is on the main thread and can hand the character straight to the
+// controller. onChar returns true when the keystroke drove a switch, in which
+// case the tap swallows it; a non-matching Hyper+letter is passed through so
+// other Hyper shortcuts still fire. Hyper here is Control+Option+Command held
+// together (a Shift on top is fine); adjust `hyper` if your remap differs.
+private final class HyperKeyCharTap {
+    private var tap: CFMachPort?
+    private var source: CFRunLoopSource?
+    private let hyper: CGEventFlags = [.maskControl, .maskAlternate, .maskCommand]
+    private let onChar: (Character) -> Bool
+    private let log = Logger(subsystem: "com.example.agentdesk.AgentDeskHost", category: "spaceagent-hyper")
+
+    init(onChar: @escaping (Character) -> Bool) {
+        self.onChar = onChar
+    }
+
+    func start() {
+        guard tap == nil else { return }
+        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+        let callback: CGEventTapCallBack = { _, type, event, info in
+            guard let info else { return Unmanaged.passUnretained(event) }
+            let tap = Unmanaged<HyperKeyCharTap>.fromOpaque(info).takeUnretainedValue()
+            return tap.handle(type: type, event: event)
+        }
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: mask,
+            callback: callback,
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else {
+            log.error("hyper tap: CGEvent.tapCreate returned nil (Accessibility not granted?)")
+            return
+        }
+        log.notice("hyper tap: installed")
+        self.tap = tap
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        self.source = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    func stop() {
+        if let source {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        }
+        if let tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
+        source = nil
+        tap = nil
+    }
+
+    // Main thread (main run loop). Returns nil to swallow, the event to pass.
+    private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            return Unmanaged.passUnretained(event)
+        }
+        guard type == .keyDown else { return Unmanaged.passUnretained(event) }
+        let flags = event.flags
+        // Diagnostic: log any modified keypress so we can see what the remapped
+        // Caps Lock actually sends and whether it matches the Hyper set.
+        if flags.contains(.maskControl) || flags.contains(.maskAlternate) || flags.contains(.maskCommand) {
+            let raw = NSEvent(cgEvent: event)?.charactersIgnoringModifiers ?? "?"
+            log.notice("""
+                hyper tap keyDown ctrl=\(flags.contains(.maskControl), privacy: .public) \
+                opt=\(flags.contains(.maskAlternate), privacy: .public) \
+                cmd=\(flags.contains(.maskCommand), privacy: .public) \
+                shift=\(flags.contains(.maskShift), privacy: .public) \
+                char=\(raw, privacy: .public) hyperMatch=\(flags.contains(self.hyper), privacy: .public)
+                """)
+        }
+        guard flags.contains(hyper),
+              let chars = NSEvent(cgEvent: event)?.charactersIgnoringModifiers,
+              let character = chars.lowercased().first,
+              character.isLetter || character.isNumber
+        else { return Unmanaged.passUnretained(event) }
+        return onChar(character) ? nil : Unmanaged.passUnretained(event)
+    }
+}
+
 @MainActor
 final class SpaceAgentController: NSObject {
     private enum DefaultsKey {
@@ -91,6 +178,8 @@ final class SpaceAgentController: NSObject {
     private var outsideClickMonitor: Any?
     private var commandTapMonitors: [Any] = []
     private let commandTapDetector = DoubleTapDetector(modifier: .command)
+    private var hyperTap: HyperKeyCharTap?
+    private var pendingSearchQuery: String?
 
     // Fired whenever the handle's screen position changes (user drag, expand
     // or collapse resize) so a sibling overlay can keep clear of it.
@@ -125,6 +214,8 @@ final class SpaceAgentController: NSObject {
         }
         uninstallOutsideClickMonitor()
         uninstallCommandTapMonitor()
+        hyperTap?.stop()
+        hyperTap = nil
         thumbnailProvider.setDemand(owner: .spaceAgent, enabled: false)
         panel?.close()
         panel = nil
@@ -156,7 +247,11 @@ final class SpaceAgentController: NSObject {
 
         installSpaceObserver()
         installCommandTapMonitor()
+        installHyperKeyTap()
         refreshState()
+        // Precompute desktop names up front so the Hyper quick-switch can match
+        // them before the panel is ever opened.
+        Task { await thumbnailProvider.refreshTopWindows() }
         resizePanel()
         panel.orderFrontRegardless()
     }
@@ -199,6 +294,52 @@ final class SpaceAgentController: NSObject {
         commandTapMonitors.removeAll()
     }
 
+    private func installHyperKeyTap() {
+        guard hyperTap == nil else { return }
+        let tap = HyperKeyCharTap(onChar: { [weak self] character in
+            // The tap callback is on the main run loop, so the main actor is
+            // already current here; assumeIsolated lets it ask synchronously
+            // whether the character drove a switch (and thus should be eaten).
+            guard let self else { return false }
+            return MainActor.assumeIsolated { self.handleHyperChar(character) }
+        })
+        tap.start()
+        hyperTap = tap
+    }
+
+    // Hyper + a character: a first-letter desktop jump. Exactly one match
+    // switches to that desktop directly; several open the palette pre-typed
+    // with the character; none returns false so the keystroke passes through to
+    // whatever other Hyper shortcut the user has bound. Returns true when the
+    // keystroke was consumed (the tap then swallows it).
+    private func handleHyperChar(_ character: Character) -> Bool {
+        let state = spacesProvider.current()
+        latestState = state
+        let tiles = SpaceAgentModel.tiles(
+            state: state,
+            thumbnails: latestThumbnails,
+            topWindows: thumbnailProvider.latestTopWindows
+        )
+        let query = String(character)
+        let matches = tiles.filter { $0.matchesNamePrefix(query: query) }
+        let names = tiles.map(\.searchText).joined(separator: "|")
+        let topCount = thumbnailProvider.latestTopWindows.count
+        Logger(subsystem: "com.example.agentdesk.AgentDeskHost", category: "spaceagent-hyper").notice(
+            "handleHyperChar '\(query, privacy: .public)' tiles=\(tiles.count, privacy: .public) topWindows=\(topCount, privacy: .public) matches=\(matches.count, privacy: .public) names=\(names, privacy: .public)"
+        )
+        guard !matches.isEmpty else { return false }
+        if matches.count == 1 {
+            if matches[0].stepDelta != 0 { commitStep(matches[0].stepDelta) }
+            if viewController.isExpanded { setExpanded(false) }
+        } else if viewController.isExpanded {
+            viewController.presetSearch(query)
+        } else {
+            pendingSearchQuery = query
+            setExpanded(true)
+        }
+        return true
+    }
+
     private func installSpaceObserver() {
         guard spaceChangeObserver == nil else { return }
         spaceChangeObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -207,7 +348,14 @@ final class SpaceAgentController: NSObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.refreshState()
+                guard let self else { return }
+                self.refreshState()
+                // While collapsed the thumbnail demand is off, so keep the
+                // desktop names current here for the Hyper quick-switch. When
+                // expanded the capture loop already refreshes them.
+                if !self.viewController.isExpanded {
+                    await self.thumbnailProvider.refreshTopWindows()
+                }
             }
         }
     }
@@ -258,8 +406,14 @@ final class SpaceAgentController: NSObject {
         render()
         if expanded {
             // Become key (without activating the app) and focus the search
-            // field so typing filters desktops immediately.
-            viewController.resetSearch()
+            // field so typing filters desktops immediately. A pending query
+            // (from a Hyper quick-switch with several matches) pre-fills it.
+            if let query = pendingSearchQuery {
+                pendingSearchQuery = nil
+                viewController.presetSearch(query)
+            } else {
+                viewController.resetSearch()
+            }
             panel?.makeKeyAndOrderFront(nil)
             viewController.focusSearchField()
         } else {

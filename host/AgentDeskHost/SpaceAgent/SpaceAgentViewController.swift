@@ -112,7 +112,7 @@ final class SpaceAgentViewController: NSViewController {
     private func refreshDisplayedTiles() {
         let filtered = tiles.filter(matchesFilter)
         if selectedSpaceId == nil || !filtered.contains(where: { $0.spaceId == selectedSpaceId }) {
-            selectedSpaceId = filtered.first?.spaceId
+            selectedSpaceId = firstSelectableSpaceId(for: filterText) ?? filtered.first?.spaceId
         }
         let displayed = filtered.map { tile -> SpaceAgentTile in
             var copy = tile
@@ -123,16 +123,30 @@ final class SpaceAgentViewController: NSViewController {
     }
 
     private func matchesFilter(_ tile: SpaceAgentTile) -> Bool {
-        let query = filterText.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !query.isEmpty else { return true }
-        // A purely numeric query also matches the desktop number, so "3" jumps
-        // to desktop 3 without the word "Desktop" living in every tile's text.
-        if let number = Int(query), tile.desktopNumber == number {
-            return true
+        tile.matchesSearch(query: filterText)
+    }
+
+    // The desktop to highlight for a query: prefer one whose name actually
+    // starts with it (so a seeded Hyper char lands on a starts-with desktop),
+    // falling back to the first word-prefix match.
+    private func firstSelectableSpaceId(for query: String) -> UInt64? {
+        (tiles.first { $0.matchesNamePrefix(query: query) }
+            ?? tiles.first { $0.matchesSearch(query: query) })?.spaceId
+    }
+
+    // Open-with-text path (Hyper quick-switch with two or more matches): seed
+    // the query, point the selection at the first match, and keep the field
+    // editor in sync if the field is already focused.
+    func presetSearch(_ text: String) {
+        filterText = text
+        searchField.stringValue = text
+        if let editor = searchField.currentEditor() {
+            editor.string = text
+            editor.selectedRange = NSRange(location: (text as NSString).length, length: 0)
         }
-        // searchText is the full untruncated name (window title + app), so
-        // long names stay findable past the display ellipsis.
-        return tile.searchText.lowercased().contains(query)
+        selectedSpaceId = firstSelectableSpaceId(for: text)
+        refreshDisplayedTiles()
+        tileHost.scrollSelectedTileToVisible()
     }
 
     private func moveSelection(by step: Int) {
@@ -270,9 +284,9 @@ final class SpaceAgentViewController: NSViewController {
 extension SpaceAgentViewController: NSSearchFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         filterText = searchField.stringValue
-        // Each edit re-points the selection at the first match so Enter on a
-        // narrowed-to-one result opens it without an arrow press.
-        selectedSpaceId = tiles.filter(matchesFilter).first?.spaceId
+        // Each edit re-points the selection at the best match so Enter on a
+        // narrowed result opens it without an arrow press.
+        selectedSpaceId = firstSelectableSpaceId(for: filterText)
         refreshDisplayedTiles()
         tileHost.scrollSelectedTileToVisible()
     }

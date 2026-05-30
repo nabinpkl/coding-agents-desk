@@ -161,17 +161,16 @@ struct SpaceAgentModelTests {
         #expect(resolved.secondary == "Google Chrome")
     }
 
-    @Test func resolveTruncatesEachRowIndependently() {
+    @Test func resolveReturnsFullUntruncatedRows() {
         let topWindow = SpaceTopWindow(
             title: "this is a very very long browser tab title",
             appName: "Visual Studio Code Insiders Build"
         )
         let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop X")
-        // primary truncates at 22, secondary truncates at 22, independent.
-        #expect(resolved.primary.count <= SpaceAgentLabelResolver.primaryMaxLength)
-        #expect(resolved.primary.hasSuffix("\u{2026}"))
-        #expect(resolved.secondary.count <= SpaceAgentLabelResolver.secondaryMaxLength)
-        #expect(resolved.secondary.hasSuffix("\u{2026}"))
+        // The resolver no longer truncates; the renderer fits each row at draw
+        // time and search matches against the full text.
+        #expect(resolved.primary == "this is a very very long browser tab title")
+        #expect(resolved.secondary == "Visual Studio Code Insiders Build")
     }
 
     @Test func resolvePromotesAppNameToPrimaryWhenTitleEmpty() {
@@ -193,9 +192,10 @@ struct SpaceAgentModelTests {
             appName: "Code"
         )
         let resolved = SpaceAgentLabelResolver.resolve(topWindow: topWindow, fallback: "Desktop 1")
-        // Workspace on top (stable identity), file below (transient).
+        // Workspace on top (stable identity), file below (transient). Full,
+        // untruncated; the renderer fits each row at draw time.
         #expect(resolved.primary == "agent-desk")
-        #expect(resolved.secondary == "SpaceAgentViewControl\u{2026}")
+        #expect(resolved.secondary == "SpaceAgentViewController.swift")
     }
 
     @Test func resolveSplitsXcodeTitleIntoProjectAndFile() {
