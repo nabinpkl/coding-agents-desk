@@ -1,3 +1,8 @@
+# Load the gitignored .env so recipes (notably host-run) can forward
+# config such as AGENTDESK_TRANSCRIBE_URL into the launched app without
+# the value being hardcoded here. .env.example documents every knob.
+set dotenv-load := true
+
 ios_test_destination := env_var_or_default("AGENTDESK_IOS_TEST_DESTINATION", "platform=iOS Simulator,name=iPhone 17,OS=latest")
 ios_device := env_var_or_default("AGENTDESK_IOS_DEVICE", "93DF5649-FC7B-5460-A6B4-74D2C1CEAB07")
 # UDID of the iPhone simulator used for Maestro UI flows. Override via env.
@@ -35,16 +40,27 @@ host-logs:
 # launchd-managed GUI launch inherits it. The unsetenv after launch
 # keeps the variable from polluting other apps started later in the
 # same login session.
+#
+# AGENTDESK_TRANSCRIBE_URL (and _MODEL) come from .env via dotenv-load
+# and are forwarded the same way so dictation has its now-required
+# endpoint without a hand-run `launchctl setenv` each launch. The app
+# captures its environment at launch, so the post-open unsetenv does not
+# disturb the running host. Each var is only unset if we set it, so a
+# value the user pinned into launchd out-of-band survives.
 host-run:
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug build >/dev/null
     -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
     sleep 1
     launchctl setenv AGENTDESK_AUTO_APPROVE 1
     launchctl setenv AGENTDESK_DEV_PERMISSIVE_KEYSTORE 1
+    [ -n "${AGENTDESK_TRANSCRIBE_URL:-}" ] && launchctl setenv AGENTDESK_TRANSCRIBE_URL "${AGENTDESK_TRANSCRIBE_URL}" || true
+    [ -n "${AGENTDESK_TRANSCRIBE_MODEL:-}" ] && launchctl setenv AGENTDESK_TRANSCRIBE_MODEL "${AGENTDESK_TRANSCRIBE_MODEL}" || true
     open "{{host_app}}"
     sleep 2
     launchctl unsetenv AGENTDESK_AUTO_APPROVE
     launchctl unsetenv AGENTDESK_DEV_PERMISSIVE_KEYSTORE
+    [ -n "${AGENTDESK_TRANSCRIBE_URL:-}" ] && launchctl unsetenv AGENTDESK_TRANSCRIBE_URL || true
+    [ -n "${AGENTDESK_TRANSCRIBE_MODEL:-}" ] && launchctl unsetenv AGENTDESK_TRANSCRIBE_MODEL || true
     pgrep -lf AgentDeskHost
 
 # Build client Debug for the iPhone and install (does not launch).
