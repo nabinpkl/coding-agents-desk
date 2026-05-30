@@ -155,8 +155,11 @@ final class DictationPillView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 16, yRadius: 16)
+        // Same surface as the SpaceAgent handle (SpaceAgentHandleView.draw) so
+        // the two floating overlays share one translucency. Keep these two in
+        // step if either changes.
         (isDark
-            ? NSColor(calibratedWhite: 0.10, alpha: 0.95)
+            ? NSColor(calibratedWhite: 0.06, alpha: 0.72)
             : NSColor(calibratedWhite: 1.0, alpha: 0.95)).setFill()
         path.fill()
         (isDark

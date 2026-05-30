@@ -316,6 +316,8 @@ private final class SpaceAgentHandleView: NSControl {
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
 
         let circle = bounds.insetBy(dx: 2, dy: 2)
+        // Same surface as the dictation bar (DictationPillView.draw) so the
+        // two floating overlays share one translucency. Keep these in step.
         (isDark
             ? NSColor(calibratedWhite: 0.06, alpha: 0.72)
             : NSColor(calibratedWhite: 1.0, alpha: 0.95)).setFill()
