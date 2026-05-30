@@ -6,17 +6,18 @@ import Foundation
 // Tailscale WebSocket plane.
 struct TranscriptionClient {
     enum TranscriptionError: Error {
+        case notConfigured
         case badStatus(Int)
         case malformedResponse
         case emptyTranscript
     }
 
-    private let endpoint: URL
+    private let endpoint: URL?
     private let model: String
     private let session: URLSession
 
     init(
-        endpoint: URL = Config.transcriptionEndpoint,
+        endpoint: URL? = Config.transcriptionEndpoint,
         model: String = Config.transcriptionModel,
         session: URLSession = .shared
     ) {
@@ -26,6 +27,9 @@ struct TranscriptionClient {
     }
 
     func transcribe(wav: Data) async throws -> String {
+        // No endpoint means AGENTDESK_TRANSCRIBE_URL was never set; fail here
+        // rather than fabricate a default that may point nowhere.
+        guard let endpoint else { throw TranscriptionError.notConfigured }
         let boundary = "AgentDesk-\(UUID().uuidString)"
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"

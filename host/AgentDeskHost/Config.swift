@@ -1,18 +1,42 @@
 import Foundation
 
 enum Config {
+    enum SpaceSwitchMode: String {
+        case dockSwipe = "dock-swipe"
+        case directSet = "direct-set"
+
+        init(rawEnvironmentValue: String?) {
+            switch rawEnvironmentValue?.lowercased() {
+            case "direct-set", "direct_set", "directset":
+                self = .directSet
+            default:
+                self = .dockSwipe
+            }
+        }
+    }
+
     static let signalingPort: UInt16 = 41888
     static let nonceTTL: TimeInterval = 90
+    // Experimental local-only switch backend. Default stays on the
+    // stock Dock-swipe path; direct-set is for HITL diagnostics around
+    // private SkyLight behavior.
+    static let spaceSwitchMode = SpaceSwitchMode(
+        rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_SPACE_SWITCH_MODE"]
+    )
     // Host-local transcription service, OpenAI-compatible. The clip never
     // touches disk; it is POSTed as multipart/form-data (fields "file" and
-    // "model") from an in-memory WAV buffer. Override the URL for a
-    // non-default port or a remote tailnet transcriber.
-    static let transcriptionEndpoint: URL = {
-        if let raw = ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_URL"],
-           let url = URL(string: raw) {
-            return url
+    // "model") from an in-memory WAV buffer. Required: set
+    // AGENTDESK_TRANSCRIBE_URL (see .env.example). There is no baked-in
+    // default, so an unset or malformed URL leaves this nil and dictation
+    // fails loudly rather than silently POSTing at a host that may not exist.
+    static let transcriptionEndpoint: URL? = {
+        guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_URL"],
+              let url = URL(string: raw),
+              url.scheme != nil
+        else {
+            return nil
         }
-        return URL(string: "http://localhost:8000/v1/audio/transcriptions")!
+        return url
     }()
     // Model name sent in the multipart body for OpenAI-compatible servers.
     // Servers that ignore the field are unaffected.

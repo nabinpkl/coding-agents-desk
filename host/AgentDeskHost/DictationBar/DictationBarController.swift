@@ -251,6 +251,10 @@ final class DictationBarController: NSObject {
                 // together.
                 self?.typeText(text + " ")
                 self?.show(.transcript(text))
+            } catch TranscriptionClient.TranscriptionError.notConfigured {
+                guard !Task.isCancelled else { return }
+                self?.logger.error("transcription endpoint not configured (set AGENTDESK_TRANSCRIBE_URL)")
+                self?.show(.message("Set AGENTDESK_TRANSCRIBE_URL"))
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.logger.error("transcription failed: \(String(describing: error), privacy: .public)")
