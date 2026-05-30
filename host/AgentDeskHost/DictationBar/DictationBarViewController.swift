@@ -115,30 +115,30 @@ final class DictationBarViewController: NSViewController {
             levelMeter.isHidden = true
             levelMeter.level = 0
             statusLabel.isHidden = true
-            micButton.tint = .systemGray
+            micButton.style = .idle
         case .recording:
             levelMeter.isHidden = false
             statusLabel.isHidden = true
-            micButton.tint = .systemRed
+            micButton.style = .recording
         case .transcribing:
             levelMeter.isHidden = true
             levelMeter.level = 0
             statusLabel.isHidden = false
-            micButton.tint = .systemGray
+            micButton.style = .idle
             statusLabel.textColor = .secondaryLabelColor
             statusLabel.stringValue = "Transcribing\u{2026}"
         case let .transcript(text):
             levelMeter.isHidden = true
             levelMeter.level = 0
             statusLabel.isHidden = false
-            micButton.tint = .systemGray
+            micButton.style = .idle
             statusLabel.textColor = .labelColor
             statusLabel.stringValue = text
         case let .message(text):
             levelMeter.isHidden = true
             levelMeter.level = 0
             statusLabel.isHidden = false
-            micButton.tint = .systemGray
+            micButton.style = .idle
             statusLabel.textColor = .systemOrange
             statusLabel.stringValue = text
         }
@@ -172,9 +172,11 @@ final class DictationPillView: NSView {
 // panel is not the key window (the common case for an always-on overlay).
 @MainActor
 final class PushToTalkButton: NSView {
+    enum Style { case idle, recording }
+
     var onPress: (() -> Void)?
     var onRelease: (() -> Void)?
-    var tint: NSColor = .systemGray {
+    var style: Style = .idle {
         didSet { needsDisplay = true }
     }
 
@@ -183,6 +185,11 @@ final class PushToTalkButton: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
 
     override func mouseDown(with event: NSEvent) {
         isPressed = true
@@ -198,19 +205,40 @@ final class PushToTalkButton: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let circle = NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1))
-        (isPressed ? tint.withAlphaComponent(0.85) : tint.withAlphaComponent(0.25)).setFill()
+
+        let discColor: NSColor
+        let glyphColor: NSColor
+        switch style {
+        case .idle:
+            // Filled neutral control disc with a high-contrast labelColor
+            // glyph. The earlier systemGray-on-systemGray treatment washed
+            // out on both the light and dark pill; a solid disc plus a label
+            // glyph reads in either mode, like a native control.
+            let base = isDark
+                ? NSColor(srgbRed: 0x48 / 255, green: 0x48 / 255, blue: 0x4A / 255, alpha: 1)
+                : NSColor(srgbRed: 0xE6 / 255, green: 0xE6 / 255, blue: 0xEB / 255, alpha: 1)
+            discColor = isPressed
+                ? (base.blended(withFraction: 0.12, of: isDark ? .white : .black) ?? base)
+                : base
+            glyphColor = .labelColor
+        case .recording:
+            discColor = NSColor.systemRed.withAlphaComponent(0.85)
+            glyphColor = .systemRed
+        }
+
+        discColor.setFill()
         circle.fill()
 
         let symbolConfig = NSImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
         guard let image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Push to talk")?
             .withSymbolConfiguration(symbolConfig) else { return }
-        let tinted = image
-        tinted.isTemplate = true
-        let imgSize = tinted.size
+        image.isTemplate = true
+        let imgSize = image.size
         let origin = NSPoint(x: bounds.midX - imgSize.width / 2, y: bounds.midY - imgSize.height / 2)
-        tint.set()
-        tinted.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1.0)
+        glyphColor.set()
+        image.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1.0)
     }
 }
 

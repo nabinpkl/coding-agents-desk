@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dictation mic treatments</title>
+<style>
+  :root {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 40px 32px 64px;
+    background: #f2f2f4;
+    color: #1c1c1e;
+  }
+  h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.2px; }
+  .sub { font-size: 13px; color: #6b6b70; margin: 0 0 32px; max-width: 760px; line-height: 1.5; }
+  .grid {
+    display: grid;
+    grid-template-columns: 200px 1fr 1fr;
+    gap: 14px 20px;
+    align-items: center;
+    max-width: 920px;
+  }
+  .colhead {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.6px; color: #8a8a8f; padding-bottom: 4px;
+  }
+  .rowlabel { }
+  .rowlabel .name { font-size: 14px; font-weight: 650; }
+  .rowlabel .recipe {
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 11px; color: #7a7a80; line-height: 1.5; margin-top: 4px; white-space: pre-line;
+  }
+
+  /* the desktop swatch each pill floats on */
+  .stage { border-radius: 16px; padding: 26px; display: flex; justify-content: center; }
+  .stage.light { background: linear-gradient(135deg,#dcdce1,#ececed); }
+  .stage.dark  { background: linear-gradient(135deg,#101012,#1d1d20); }
+
+  /* the bar pill, mirroring DictationPillView compact (mic-only) */
+  .pill {
+    width: 60px; height: 52px; border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+  }
+  .pill.light { background: rgba(255,255,255,0.97); border: 0.5px solid rgba(60,60,67,0.29); }
+  .pill.dark  { background: rgba(26,26,26,0.97);  border: 0.5px solid rgba(255,255,255,0.16); }
+
+  .disc { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .disc svg { width: 19px; height: 19px; display: block; }
+
+  /* ---- variant colour recipes (light / dark via parent .light/.dark) ---- */
+
+  /* 0 baseline current */
+  .light .v0 .disc { background: rgba(142,142,147,0.25); }
+  .light .v0 svg   { fill: rgb(142,142,147); }
+  .dark  .v0 .disc { background: rgba(152,152,157,0.25); }
+  .dark  .v0 svg   { fill: rgb(152,152,157); }
+
+  /* A: same disc, label-colour glyph */
+  .light .vA .disc { background: rgba(142,142,147,0.25); }
+  .light .vA svg   { fill: rgba(0,0,0,0.85); }
+  .dark  .vA .disc { background: rgba(152,152,157,0.25); }
+  .dark  .vA svg   { fill: rgba(255,255,255,0.92); }
+
+  /* B: stronger disc + label glyph */
+  .light .vB .disc { background: rgba(120,120,128,0.20); }
+  .light .vB svg   { fill: rgba(0,0,0,0.85); }
+  .dark  .vB .disc { background: rgba(235,235,245,0.16); }
+  .dark  .vB svg   { fill: rgba(255,255,255,0.95); }
+
+  /* C: filled neutral control disc + label glyph */
+  .light .vC .disc { background: #e6e6eb; }
+  .light .vC svg   { fill: rgba(0,0,0,0.85); }
+  .dark  .vC .disc { background: #48484a; }
+  .dark  .vC svg   { fill: rgba(255,255,255,0.95); }
+
+  /* D: faint disc + 1px ring + label glyph */
+  .light .vD .disc { background: rgba(120,120,128,0.10); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.14); }
+  .light .vD svg   { fill: rgba(0,0,0,0.85); }
+  .dark  .vD .disc { background: rgba(235,235,245,0.06); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18); }
+  .dark  .vD svg   { fill: rgba(255,255,255,0.95); }
+
+  /* recording reference (red) for context */
+  .v0 .disc.rec, .vA .disc.rec, .vB .disc.rec, .vC .disc.rec, .vD .disc.rec { background: rgba(255,59,48,0.22); }
+  .disc.rec svg { fill: #ff3b30; }
+</style>
+</head>
+<body>
+  <h1>Dictation mic, idle treatments</h1>
+  <p class="sub">Each row is one recipe for the idle (resting) push-to-talk button, shown on the light and dark pill. Baseline is the current code (systemGray disc + systemGray glyph), which is the faint one. Pill geometry matches DictationPillView compact (60x52, radius 16). Pick a row by its letter and I will port it to PushToTalkButton.draw. Recording (red) state is unchanged across rows.</p>
+
+  <div class="grid">
+    <div class="colhead"></div>
+    <div class="colhead">Light mode</div>
+    <div class="colhead">Dark mode</div>
+
+    <!-- baseline -->
+    <div class="rowlabel"><div class="name">Current (faint)</div><div class="recipe">disc: systemGray @ .25
+glyph: systemGray</div></div>
+    <div class="stage light"><div class="pill light v0"><div class="disc"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/><path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 0 0 2 0v-3.08A7 7 0 0 0 19 11z"/></svg></div></div></div>
+    <div class="stage dark"><div class="pill dark v0"><div class="disc"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/><path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 0 0 2 0v-3.08A7 7 0 0 0 19 11z"/></svg></div></div></div>
+
+    <!-- A -->
+    <div class="rowlabel"><div class="name">A. Label glyph</div><div class="recipe">disc: systemGray @ .25
+glyph: labelColor</div></div>
+    <div class="stage light"><div class="pill light vA"><div class="disc"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/><path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 0 0 2 0v-3.08A7 7 0 0 0 19 11z"/></svg></div></div></div>
+    <div class="stage dark"><div class="pill dark vA"><div class="disc"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/><path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 0 0 2 0v-3.08A7 7 0 0 0 19 11z"/></svg></div></div></div>
+
+    <!-- B -->
+    <div class="rowlabel"><div class="name">B. Stronger disc</div><div class="recipe">disc: gray @ .20 (l) / white @ .16 (d)
+glyph: labelColor</div></div>
+    <div class="stage light"><div class="pill light vB"><div class="disc"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/><path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 0 0 2 0v-3.08A7 7 0 0 0 19 11z"/></svg></div></div></div>
+    <div class="stage dark"><div class="pill dark vB"><div class="disc"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/><path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 0 0 2 0v-3.08A7 7 0 0 0 19 11z"/></svg></div></div></div>
+
+    <!-- C -->
+    <div class="rowlabel"><div class="name">C. Filled control disc</div><div class="recipe">disc: #E6E6EB (l) / #48484A (d) solid
+glyph: labelColor</div></div>
+    <div class="stage light"><div class="pill light vC"><div class="disc"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/><path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 0 0 2 0v-3.08A7 7 0 0 0 19 11z"/></svg></div></div></div>
+    <div class="stage dark"><div class="pill dark vC"><div class="disc"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/><path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 0 0 2 0v-3.08A7 7 0 0 0 19 11z"/></svg></div></div></div>
+
+    <!-- D -->
+    <div class="rowlabel"><div class="name">D. Ringed</div><div class="recipe">disc: faint fill + 1px label ring
+glyph: labelColor</div></div>
+    <div class="stage light"><div class="pill light vD"><div class="disc"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/><path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 0 0 2 0v-3.08A7 7 0 0 0 19 11z"/></svg></div></div></div>
+    <div class="stage dark"><div class="pill dark vD"><div class="disc"><svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/><path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 0 0 2 0v-3.08A7 7 0 0 0 19 11z"/></svg></div></div></div>
+  </div>
+</body>
+</html>
