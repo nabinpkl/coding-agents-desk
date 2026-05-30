@@ -22,7 +22,7 @@ final class DictationBarViewController: NSViewController {
     let compactSize = CGSize(width: 60, height: 52)
     let expandedSize = CGSize(width: 520, height: 52)
 
-    private let container = NSView()
+    private let container = DictationPillView()
     private let micButton = PushToTalkButton()
     private let statusLabel = NSTextField(labelWithString: "")
     private let levelMeter = LevelMeterView()
@@ -31,17 +31,13 @@ final class DictationBarViewController: NSViewController {
         let root = NSView(frame: CGRect(origin: .zero, size: compactSize))
         view = root
 
-        // The bar is a fixed white pill. Pin it to the light (aqua) appearance
-        // so its semantic colours (label text and the system tints on the mic,
-        // meter, and messages) resolve for a light surface regardless of the
-        // Mac's system mode, rather than going white-on-white when it is dark.
-        root.appearance = NSAppearance(named: .aqua)
-
-        container.wantsLayer = true
-        container.layer?.cornerRadius = 16
-        container.layer?.backgroundColor = NSColor(calibratedWhite: 1.0, alpha: 0.95).cgColor
-        container.layer?.borderColor = NSColor.separatorColor.cgColor
-        container.layer?.borderWidth = 0.5
+        // The bar follows the system appearance: a near-white pill in light
+        // mode, a dark pill in dark mode, matching the SpaceAgent handle. Its
+        // semantic colours (label text and the system tints on the mic, meter,
+        // and messages) resolve against whichever mode is active now that the
+        // view is no longer pinned. The pill surface and the meter's unlit
+        // bars are the only non-semantic pieces; they branch on the effective
+        // appearance where they are drawn (DictationPillView, LevelMeterView).
         container.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(container)
 
@@ -149,6 +145,28 @@ final class DictationBarViewController: NSViewController {
     }
 }
 
+// The bar's rounded surface. Painted in draw(_:) rather than via a static
+// layer cgColor so it re-resolves when the system mode flips: AppKit
+// redisplays the view on an effectiveAppearance change, whereas a cgColor set
+// once would stay frozen at the mode it was created under. Near-white in
+// light mode, a dark pill in dark mode, matching the SpaceAgent handle.
+@MainActor
+final class DictationPillView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 16, yRadius: 16)
+        (isDark
+            ? NSColor(calibratedWhite: 0.10, alpha: 0.95)
+            : NSColor(calibratedWhite: 1.0, alpha: 0.95)).setFill()
+        path.fill()
+        (isDark
+            ? NSColor(calibratedWhite: 1.0, alpha: 0.16)
+            : NSColor.separatorColor).setStroke()
+        path.lineWidth = 0.5
+        path.stroke()
+    }
+}
+
 // Push-to-talk control. mouseDown starts, mouseUp stops. acceptsFirstMouse
 // returns true so a press lands even when the borderless non-activating
 // panel is not the key window (the common case for an always-on overlay).
@@ -217,6 +235,10 @@ final class LevelMeterView: NSView {
         let barWidth = (bounds.width - CGFloat(count - 1) * gap) / CGFloat(count)
         guard barWidth > 0 else { return }
         let lit = Int((CGFloat(displayed) * CGFloat(count)).rounded())
+        // Unlit bars are a faint tint of the pill's foreground: dark on the
+        // light pill, light on the dark pill, so they read in either mode.
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let unlit = (isDark ? NSColor.white : NSColor.black).withAlphaComponent(0.12)
 
         for i in 0..<count {
             let fraction = count > 1 ? CGFloat(i) / CGFloat(count - 1) : 0
@@ -231,7 +253,7 @@ final class LevelMeterView: NSView {
             if i < lit {
                 color(forFraction: fraction).setFill()
             } else {
-                NSColor.black.withAlphaComponent(0.12).setFill()
+                unlit.setFill()
             }
             path.fill()
         }
