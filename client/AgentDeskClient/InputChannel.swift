@@ -2,8 +2,8 @@ import Foundation
 import OSLog
 
 // ADR-0005 input channel, client side. Opens a dedicated WebSocket
-// Secure connection to the host's signaling port, sends an
-// InputChannelHello first frame carrying the SessionToken, then ships
+// Secure connection to the host's signaling port, sends a
+// session-bound InputChannelHello first frame, then ships
 // one InputChannelEvent per NormalizedInput emitted by the trackpad,
 // keyboard, or accessory row.
 //
@@ -35,6 +35,8 @@ protocol InputChannel: AnyObject, Sendable {
     // ADR-0006: client -> host opt-in / force-refresh. Sent on channel
     // open and on settings change.
     func sendConfig(_ config: ClientConfig) async throws
+
+    var closed: AsyncStream<Void> { get }
 }
 
 enum InputChannelError: Error {
@@ -74,6 +76,8 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
     let thumbnailsUpdates: AsyncStream<[String: String]>
     private let topWindowsContinuation: AsyncStream<[String: SpaceTopWindow]>.Continuation
     let topWindowsUpdates: AsyncStream<[String: SpaceTopWindow]>
+    private let closedContinuation: AsyncStream<Void>.Continuation
+    let closed: AsyncStream<Void>
 
     init(task: URLSessionWebSocketTask) {
         self.task = task
@@ -86,6 +90,9 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
         var twCont: AsyncStream<[String: SpaceTopWindow]>.Continuation!
         self.topWindowsUpdates = AsyncStream { twCont = $0 }
         self.topWindowsContinuation = twCont
+        var closedCont: AsyncStream<Void>.Continuation!
+        self.closed = AsyncStream { closedCont = $0 }
+        self.closedContinuation = closedCont
         startReceiveLoop()
     }
 
@@ -120,11 +127,7 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
     }
 
     func close() {
-        let wasClosed = closedFlag.close()
-        guard !wasClosed else { return }
-        desktopStateContinuation.finish()
-        thumbnailsContinuation.finish()
-        topWindowsContinuation.finish()
+        guard finishStreamsIfNeeded() else { return }
         task.cancel(with: .normalClosure, reason: nil)
     }
 
@@ -141,13 +144,23 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
                     message = try await task.receive()
                 } catch {
                     inputLogger.notice("input channel receive ended: \(String(describing: error), privacy: .public)")
-                    self?.desktopStateContinuation.finish()
-                    self?.thumbnailsContinuation.finish()
+                    _ = self?.finishStreamsIfNeeded()
                     return
                 }
                 self?.handleIncoming(message)
             }
         }
+    }
+
+    private func finishStreamsIfNeeded() -> Bool {
+        let wasClosed = closedFlag.close()
+        guard !wasClosed else { return false }
+        desktopStateContinuation.finish()
+        thumbnailsContinuation.finish()
+        topWindowsContinuation.finish()
+        closedContinuation.yield(())
+        closedContinuation.finish()
+        return true
     }
 
     private func handleIncoming(_ message: URLSessionWebSocketTask.Message) {
@@ -200,7 +213,9 @@ enum InputChannelOpener {
     static func open(
         host: String,
         port: UInt16,
-        sessionToken: SessionToken,
+        deviceFingerprint: DeviceFingerprint,
+        sessionId: String,
+        inputCapability: String,
         urlSession: URLSession
     ) async throws -> InputChannel {
         guard let url = URL(string: "wss://\(host):\(port)/input") else {
@@ -208,7 +223,11 @@ enum InputChannelOpener {
         }
         let task = urlSession.webSocketTask(with: url)
         task.resume()
-        let hello = InputChannelHello(sessionToken: sessionToken)
+        let hello = InputChannelHello(
+            deviceFingerprint: deviceFingerprint,
+            sessionId: sessionId,
+            inputCapability: inputCapability
+        )
         let helloData = try JSONEncoder().encode(hello)
         guard let helloText = String(data: helloData, encoding: .utf8) else {
             task.cancel(with: .protocolError, reason: nil)

@@ -34,6 +34,7 @@ enum Config {
 
     static let signalingPort: UInt16 = 41888
     static let nonceTTL: TimeInterval = 90
+    static let inputCapabilityTTL: TimeInterval = 60
     static let spaceAgentLayout = SpaceAgentLayout(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_SPACE_AGENT_LAYOUT"]
     )

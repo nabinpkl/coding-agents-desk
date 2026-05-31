@@ -90,12 +90,24 @@ final class SessionAuthenticator {
             throw SessionRejected(reason: .badSignature)
         }
         try pairing.markSeen(deviceFingerprint: pending.deviceFingerprint)
+        let sessionId = try randomBytes(32).base64URLEncodedString()
+        let inputCapability = try randomBytes(32).base64URLEncodedString()
+        let establishedAt = now()
+        let inputCapabilityExpiresAt = Int(establishedAt.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
         let session = ActiveSession(
+            sessionId: sessionId,
             deviceFingerprint: pending.deviceFingerprint,
-            establishedAt: Int(now().timeIntervalSince1970)
+            establishedAt: Int(establishedAt.timeIntervalSince1970)
         )
         self.pending = nil
-        return (SessionReady(), session)
+        return (
+            SessionReady(
+                sessionId: sessionId,
+                inputCapability: inputCapability,
+                inputCapabilityExpiresAt: inputCapabilityExpiresAt
+            ),
+            session
+        )
     }
 
     static func systemRandomBytes(_ count: Int) throws -> Data {

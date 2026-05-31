@@ -8,18 +8,19 @@ import Testing
 
 struct InputChannelTests {
     @Test func helloFrameSerializesWithCompactKeysAndCorrectType() throws {
-        let token = SessionToken(
-            hostFingerprint: "host-fp-abc",
+        let hello = InputChannelHello(
             deviceFingerprint: DeviceFingerprint("device-fp-xyz"),
-            issuedAt: 1700000000,
-            signature: Data([0x01, 0x02, 0x03])
+            sessionId: "session-123",
+            inputCapability: "capability-abc"
         )
-        let hello = InputChannelHello(sessionToken: token)
         let data = try JSONEncoder().encode(hello)
         let json = String(data: data, encoding: .utf8) ?? ""
-        // Compact key for type, compact key for sessionToken.
+        // Compact keys for type, device fingerprint, session id, and capability.
         #expect(json.contains("\"t\":\"input-hello\""))
-        #expect(json.contains("\"tk\""))
+        #expect(json.contains("\"d\""))
+        #expect(json.contains("device-fp-xyz"))
+        #expect(json.contains("\"sid\":\"session-123\""))
+        #expect(json.contains("\"ic\":\"capability-abc\""))
     }
 
     @Test func eventFramePreservesNormalizedInput() throws {

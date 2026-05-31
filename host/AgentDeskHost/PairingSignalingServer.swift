@@ -17,9 +17,14 @@ struct PairingHandshakeResponse: Codable {
 final class PairingSignalingServer: @unchecked Sendable {
     typealias ApprovalHandler = (DeviceFingerprint, @escaping (Bool) -> Void) -> Void
     typealias SessionAttemptStartedHandler = (DeviceFingerprint) -> Void
-    typealias SessionReadyHandler = (ActiveSession, SignalingChannel) -> Void
-    typealias SessionEndedHandler = (DeviceFingerprint) -> Void
+    typealias SessionReadyHandler = (ActiveSession, SignalingChannel, SessionReady) -> Void
+    typealias SessionEndedHandler = (DeviceFingerprint, String?) -> Void
+    typealias InputChannelAuthorizeHandler = (InputChannelHello, @escaping (InputCapabilityValidationResult) -> Void) -> Void
     typealias InputChannelReadyHandler = (DeviceFingerprint, InputChannelServer) -> Void
+    typealias InputCapabilityRefreshHandler = (
+        InputCapabilityRefreshRequest,
+        @escaping (Result<InputCapabilityGrant, SessionRejectionReason>) -> Void
+    ) -> Void
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private let pairing: Pairing
@@ -27,7 +32,9 @@ final class PairingSignalingServer: @unchecked Sendable {
     private let sessionAttemptStartedHandler: SessionAttemptStartedHandler
     private let sessionReadyHandler: SessionReadyHandler
     private let sessionEndedHandler: SessionEndedHandler
+    private let inputChannelAuthorizeHandler: InputChannelAuthorizeHandler
     private let inputChannelReadyHandler: InputChannelReadyHandler
+    private let inputCapabilityRefreshHandler: InputCapabilityRefreshHandler
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: ConnectionContext] = [:]
 
@@ -35,16 +42,20 @@ final class PairingSignalingServer: @unchecked Sendable {
         pairing: Pairing,
         approvalHandler: @escaping ApprovalHandler,
         sessionAttemptStartedHandler: @escaping SessionAttemptStartedHandler = { _ in },
-        sessionReadyHandler: @escaping SessionReadyHandler = { _, _ in },
-        sessionEndedHandler: @escaping SessionEndedHandler = { _ in },
-        inputChannelReadyHandler: @escaping InputChannelReadyHandler = { _, _ in }
+        sessionReadyHandler: @escaping SessionReadyHandler = { _, _, _ in },
+        sessionEndedHandler: @escaping SessionEndedHandler = { _, _ in },
+        inputChannelAuthorizeHandler: @escaping InputChannelAuthorizeHandler = { _, completion in completion(.rejected(.unauthorized)) },
+        inputChannelReadyHandler: @escaping InputChannelReadyHandler = { _, _ in },
+        inputCapabilityRefreshHandler: @escaping InputCapabilityRefreshHandler = { _, completion in completion(.failure(.unauthorized)) }
     ) {
         self.pairing = pairing
         self.approvalHandler = approvalHandler
         self.sessionAttemptStartedHandler = sessionAttemptStartedHandler
         self.sessionReadyHandler = sessionReadyHandler
         self.sessionEndedHandler = sessionEndedHandler
+        self.inputChannelAuthorizeHandler = inputChannelAuthorizeHandler
         self.inputChannelReadyHandler = inputChannelReadyHandler
+        self.inputCapabilityRefreshHandler = inputCapabilityRefreshHandler
     }
 
     func start(port: UInt16 = Config.signalingPort) throws {
@@ -103,7 +114,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         context.activeSessionChannel?.close()
         context.activeSessionChannel = nil
         if let fingerprint = context.activeSessionFingerprint ?? context.attemptingFingerprint {
-            sessionEndedHandler(fingerprint)
+            sessionEndedHandler(fingerprint, context.activeSessionId)
         }
     }
 
@@ -130,7 +141,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         let context = connections[id]
 
         if let context, let channel = context.activeSessionChannel {
-            handleActiveSessionFrame(data: data, channel: channel, on: connection)
+            handleActiveSessionFrame(data: data, context: context, channel: channel, on: connection)
             return
         }
 
@@ -155,13 +166,10 @@ final class PairingSignalingServer: @unchecked Sendable {
         }
     }
 
-    // ADR-0005: input channel first-frame handler. Decodes
-    // InputChannelHello, validates the session token against `Pairing`,
-    // and hands the connection off to an InputChannelServer that owns
-    // its receive loop from here on. The connection is removed from
-    // PairingSignalingServer's tracking dictionary because input frames
-    // no longer route through `dispatch`; the connection lives under
-    // SessionRegistry until the session ends.
+    // ADR-0011: input channel first-frame handler. Decodes
+    // InputChannelHello, validates its session-bound capability through
+    // SessionRegistry, and hands the connection off to an InputChannelServer
+    // that owns its receive loop from here on.
     private func handleInputHello(data: Data, context: ConnectionContext?, on connection: NWConnection) {
         let hello: InputChannelHello
         do {
@@ -172,27 +180,31 @@ final class PairingSignalingServer: @unchecked Sendable {
             connection.cancel()
             return
         }
-        guard pairing.validate(token: hello.sessionToken) else {
-            logger.error("input-hello token rejected fp=\(hello.sessionToken.deviceFingerprint.rawValue, privacy: .public)")
-            sendSessionRejected(reason: .unauthorized, on: connection)
-            connection.cancel()
-            return
+        inputChannelAuthorizeHandler(hello) { [weak self, weak connection] result in
+            guard let self, let connection else { return }
+            switch result {
+            case .accepted(let fingerprint):
+                self.logger.notice("input-hello accepted fp=\(fingerprint.rawValue, privacy: .public)")
+                // Detach from PairingSignalingServer's connection tracking so
+                // its dispatch loop never sees subsequent frames on this
+                // connection. InputChannelServer owns the receive loop now.
+                if let context {
+                    context.connection.stateUpdateHandler = nil
+                    self.connections.removeValue(forKey: ObjectIdentifier(context.connection))
+                }
+                let server = InputChannelServer(connection: connection, fingerprint: fingerprint)
+                self.inputChannelReadyHandler(fingerprint, server)
+            case .rejected(let reason):
+                self.logger.error("input-hello rejected reason=\(reason.rawValue, privacy: .public) fp=\(hello.deviceFingerprint.rawValue, privacy: .public)")
+                self.sendSessionRejected(reason: reason, on: connection)
+                connection.cancel()
+            }
         }
-        let fingerprint = hello.sessionToken.deviceFingerprint
-        logger.notice("input-hello accepted fp=\(fingerprint.rawValue, privacy: .public)")
-        // Detach from PairingSignalingServer's connection tracking so
-        // its dispatch loop never sees subsequent frames on this
-        // connection. InputChannelServer owns the receive loop now.
-        if let context {
-            context.connection.stateUpdateHandler = nil
-            connections.removeValue(forKey: ObjectIdentifier(context.connection))
-        }
-        let server = InputChannelServer(connection: connection, fingerprint: fingerprint)
-        inputChannelReadyHandler(fingerprint, server)
     }
 
     private func handleActiveSessionFrame(
         data: Data,
+        context: ConnectionContext,
         channel: WebSocketSignalingChannel,
         on connection: NWConnection
     ) {
@@ -200,6 +212,25 @@ final class PairingSignalingServer: @unchecked Sendable {
         case .webrtc(let frame):
             channel.deliver(frame)
             receiveNextMessage(on: connection)
+        case .inputCapabilityRefresh(let request):
+            guard request.deviceFingerprint == context.activeSessionFingerprint,
+                  request.sessionId == context.activeSessionId
+            else {
+                sendSessionRejected(reason: .unauthorized, on: connection)
+                connection.cancel()
+                return
+            }
+            inputCapabilityRefreshHandler(request) { [weak self, weak connection] result in
+                guard let self, let connection else { return }
+                switch result {
+                case .success(let grant):
+                    self.send(sessionMessage: grant, on: connection)
+                    self.receiveNextMessage(on: connection)
+                case .failure(let reason):
+                    self.sendSessionRejected(reason: reason, on: connection)
+                    connection.cancel()
+                }
+            }
         case .malformed:
             logger.error("active-session frame malformed")
             sendSessionRejected(reason: .malformed, on: connection)
@@ -296,9 +327,10 @@ final class PairingSignalingServer: @unchecked Sendable {
             context.phase = nil
             context.attemptingFingerprint = nil
             context.activeSessionFingerprint = active.deviceFingerprint
+            context.activeSessionId = active.sessionId
             let channel = makeActiveSessionChannel(on: connection)
             context.activeSessionChannel = channel
-            sessionReadyHandler(active, channel)
+            sessionReadyHandler(active, channel, ready)
             receiveNextMessage(on: connection)
         } catch let rejection as SessionRejected {
             sendSessionRejected(reason: rejection.reason, on: connection)
@@ -389,6 +421,7 @@ private final class ConnectionContext {
     var phase: SessionPhase?
     var attemptingFingerprint: DeviceFingerprint?
     var activeSessionFingerprint: DeviceFingerprint?
+    var activeSessionId: String?
     var activeSessionChannel: WebSocketSignalingChannel?
 
     init(connection: NWConnection) {

@@ -196,8 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.startPairing()
         }
         popoverController.onRevoke = { [weak self] fingerprint in
-            try? self?.pairing.revoke(deviceFingerprint: fingerprint)
-            self?.refreshConnectedState()
+            self?.revokeDevice(fingerprint)
         }
         popoverController.onRequestScreenRecording = {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
@@ -226,19 +225,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.handleSessionAttemptStarted(fingerprint)
                 }
             },
-            sessionReadyHandler: { [weak self] active, channel in
+            sessionReadyHandler: { [weak self] active, channel, ready in
                 Task { @MainActor in
-                    self?.handleSessionReady(active, channel: channel)
+                    self?.handleSessionReady(active, channel: channel, ready: ready)
                 }
             },
-            sessionEndedHandler: { [weak self] fingerprint in
+            sessionEndedHandler: { [weak self] fingerprint, sessionId in
                 Task { @MainActor in
-                    self?.handleSessionEnded(fingerprint)
+                    self?.handleSessionEnded(fingerprint, sessionId: sessionId)
+                }
+            },
+            inputChannelAuthorizeHandler: { [weak self] hello, completion in
+                Task { @MainActor in
+                    guard let self else {
+                        completion(.rejected(.unauthorized))
+                        return
+                    }
+                    guard (try? self.pairing.lookup(deviceFingerprint: hello.deviceFingerprint)) != nil else {
+                        completion(.rejected(.unauthorized))
+                        return
+                    }
+                    completion(self.sessions.validateInputCapability(hello))
                 }
             },
             inputChannelReadyHandler: { [weak self] fingerprint, server in
                 Task { @MainActor in
                     self?.handleInputChannelReady(fingerprint, server: server)
+                }
+            },
+            inputCapabilityRefreshHandler: { [weak self] request, completion in
+                Task { @MainActor in
+                    guard let self else {
+                        completion(.failure(.unauthorized))
+                        return
+                    }
+                    guard (try? self.pairing.lookup(deviceFingerprint: request.deviceFingerprint)) != nil else {
+                        completion(.failure(.revoked))
+                        return
+                    }
+                    completion(self.sessions.refreshInputCapability(
+                        deviceFingerprint: request.deviceFingerprint,
+                        sessionId: request.sessionId
+                    ))
                 }
             }
         )
@@ -257,17 +285,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshConnectedState()
     }
 
-    private func handleSessionReady(_ active: ActiveSession, channel: SignalingChannel) {
-        sessions.noteReady(active, channel: channel)
-        signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public)")
+    private func handleSessionReady(_ active: ActiveSession, channel: SignalingChannel, ready: SessionReady) {
+        sessions.noteReady(
+            active,
+            channel: channel,
+            inputCapability: ready.inputCapability,
+            inputCapabilityExpiresAt: ready.inputCapabilityExpiresAt
+        )
+        signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public) session=\(active.sessionId, privacy: .public)")
         startMediaTransport(for: active, channel: channel)
         refreshConnectedState()
     }
 
-    private func handleSessionEnded(_ fingerprint: DeviceFingerprint) {
+    private func handleSessionEnded(_ fingerprint: DeviceFingerprint, sessionId: String? = nil) {
         thumbnailEnabledClients.remove(fingerprint)
         spaceThumbnailProvider.setDemand(owner: .client(fingerprint.rawValue), enabled: false)
-        sessions.endSession(fingerprint)
+        sessions.endSession(fingerprint, sessionId: sessionId)
         signalingLogger.notice("session ended fingerprint=\(fingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
     }
@@ -488,12 +521,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func terminateMediaSession(for fingerprint: DeviceFingerprint, reason: String) {
         signalingLogger.notice("terminating session reason=\(reason, privacy: .public) fingerprint=\(fingerprint.rawValue, privacy: .public)")
-        if let channel = sessions.signalingChannel(for: fingerprint) as? WebSocketSignalingChannel {
-            channel.close()
-        }
+        sessions.signalingChannel(for: fingerprint)?.close()
         // connectionDidClose on the NWConnection fires sessionEndedHandler
         // which calls sessions.endSession via handleSessionEnded, tearing
         // down transport / tasks / timers in one place.
+    }
+
+    private func revokeDevice(_ fingerprint: DeviceFingerprint) {
+        try? pairing.revoke(deviceFingerprint: fingerprint)
+        let channel = sessions.signalingChannel(for: fingerprint)
+        handleSessionEnded(fingerprint)
+        channel?.close()
+        refreshConnectedState()
     }
 
     private func startPairing() {

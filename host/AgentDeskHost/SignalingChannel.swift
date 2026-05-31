@@ -7,5 +7,6 @@ import Foundation
 
 protocol SignalingChannel: AnyObject, Sendable {
     func send(_ frame: WebRTCSignalingFrame) async throws
+    func close()
     var inbound: AsyncStream<WebRTCSignalingFrame> { get }
 }

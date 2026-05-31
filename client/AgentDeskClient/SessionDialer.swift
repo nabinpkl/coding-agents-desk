@@ -68,11 +68,23 @@ final class SessionDialer {
         let clientSignature = try deviceKey.signature(for: signingInput).rawRepresentation
         try await send(SessionProof(clientSignature: clientSignature), on: task)
 
-        _ = try await receive(SessionReady.self, expectedType: "session-ready", on: task)
+        let ready = try await receive(SessionReady.self, expectedType: "session-ready", on: task)
+        let inputCapability = InputCapabilityGrant(
+            sessionId: ready.sessionId,
+            inputCapability: ready.inputCapability,
+            inputCapabilityExpiresAt: ready.inputCapabilityExpiresAt
+        )
 
         let channel = WebSocketSignalingChannel(
             sender: { frame in
                 let data = try JSONEncoder().encode(frame)
+                guard let text = String(data: data, encoding: .utf8) else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                try await task.send(.string(text))
+            },
+            capabilityRequestSender: { request in
+                let data = try JSONEncoder().encode(request)
                 guard let text = String(data: data, encoding: .utf8) else {
                     throw SessionRejected(reason: .malformed)
                 }
@@ -100,6 +112,9 @@ final class SessionDialer {
                     }
                     if let frame = try? JSONDecoder().decode(WebRTCSignalingFrame.self, from: data) {
                         channel.deliver(frame)
+                    } else if let grant = try? JSONDecoder().decode(InputCapabilityGrant.self, from: data),
+                              grant.type == "input-capability-grant" {
+                        channel.deliver(grant)
                     } else {
                         channel.close()
                         return
@@ -114,10 +129,12 @@ final class SessionDialer {
         success = true
         return SessionHandshakeOutcome(
             active: ActiveSession(
+                sessionId: ready.sessionId,
                 deviceFingerprint: deviceFingerprint,
                 establishedAt: Int(now().timeIntervalSince1970)
             ),
-            signaling: channel
+            signaling: channel,
+            inputCapability: inputCapability
         )
     }
 

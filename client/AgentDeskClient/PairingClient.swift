@@ -165,8 +165,10 @@ final class PairingClient {
 
     func clearStoredCredentials() {
         try? tokenStore.clear()
-        (activeSignaling as? WebSocketSignalingChannel)?.close()
+        activeSignaling?.close()
         activeSignaling = nil
+        inputReconnectTask?.cancel()
+        inputReconnectTask = nil
         activeInputChannel?.close()
         activeInputChannel = nil
         state = .unpaired
@@ -176,14 +178,17 @@ final class PairingClient {
     // ADR-0005: dedicated input transport. PairingViewController.sendInput
     // routes through this instead of the deleted MediaTransport.send.
     private(set) var activeInputChannel: InputChannel?
+    private var inputReconnectTask: Task<Void, Never>?
 
     /// Called by PairingViewController when the WebRTC media plane reports
     /// .failed (or 5s of .disconnected). Tears down the signaling channel
     /// and transitions to .pairedDisconnected so the foreground auto-dial
     /// path can retry on next willEnterForeground.
     func handleMediaSessionFailed() {
-        (activeSignaling as? WebSocketSignalingChannel)?.close()
+        activeSignaling?.close()
         activeSignaling = nil
+        inputReconnectTask?.cancel()
+        inputReconnectTask = nil
         activeInputChannel?.close()
         activeInputChannel = nil
         if case .connected = state {
@@ -225,12 +230,20 @@ final class PairingClient {
             // URL path. Failure to open the input channel fails the
             // whole session attempt -- a session with no input is not
             // useful and we'd rather retry the dial than half-connect.
-            let inputChannel = try await InputChannelOpener.open(
-                host: host,
-                port: port,
-                sessionToken: record.token,
-                urlSession: urlSession
-            )
+            let inputChannel: InputChannel
+            do {
+                inputChannel = try await InputChannelOpener.open(
+                    host: host,
+                    port: port,
+                    deviceFingerprint: connection.active.deviceFingerprint,
+                    sessionId: connection.active.sessionId,
+                    inputCapability: connection.inputCapability.inputCapability,
+                    urlSession: urlSession
+                )
+            } catch {
+                connection.signaling.close()
+                throw error
+            }
             let session = SessionConnection(
                 active: connection.active,
                 signaling: connection.signaling,
@@ -238,6 +251,13 @@ final class PairingClient {
             )
             activeSignaling = session.signaling
             activeInputChannel = session.inputChannel
+            startInputReconnectMonitor(
+                host: host,
+                port: port,
+                active: session.active,
+                signaling: session.signaling,
+                channel: session.inputChannel
+            )
             state = .connected(session.active)
             return session
         } catch let rejection as SessionRejected {
@@ -254,7 +274,72 @@ final class PairingClient {
         case .revoked, .unknownDevice, .badSignature, .unauthorized:
             try? tokenStore.clear()
             state = .revoked
-        case .replay, .malformed:
+        case .replay, .malformed, .expiredInputCapability, .staleInputCapability:
+            state = .pairedDisconnected
+        }
+    }
+
+    private func startInputReconnectMonitor(
+        host: String,
+        port: UInt16,
+        active: ActiveSession,
+        signaling: SignalingChannel,
+        channel: InputChannel
+    ) {
+        inputReconnectTask?.cancel()
+        inputReconnectTask = Task { [weak self, channel, signaling] in
+            for await _ in channel.closed {
+                await self?.handleInputChannelClosed(
+                    host: host,
+                    port: port,
+                    active: active,
+                    signaling: signaling,
+                    closedChannel: channel
+                )
+                break
+            }
+        }
+    }
+
+    private func handleInputChannelClosed(
+        host: String,
+        port: UInt16,
+        active: ActiveSession,
+        signaling: SignalingChannel,
+        closedChannel: InputChannel
+    ) async {
+        guard activeInputChannel === closedChannel,
+              case .connected(let current) = state,
+              current == active,
+              let refresher = signaling as? InputCapabilityRefreshing
+        else {
+            return
+        }
+        do {
+            let grant = try await refresher.refreshInputCapability(
+                deviceFingerprint: active.deviceFingerprint,
+                sessionId: active.sessionId
+            )
+            let replacement = try await InputChannelOpener.open(
+                host: host,
+                port: port,
+                deviceFingerprint: active.deviceFingerprint,
+                sessionId: active.sessionId,
+                inputCapability: grant.inputCapability,
+                urlSession: urlSession
+            )
+            activeInputChannel = replacement
+            startInputReconnectMonitor(
+                host: host,
+                port: port,
+                active: active,
+                signaling: signaling,
+                channel: replacement
+            )
+        } catch {
+            activeSignaling?.close()
+            activeSignaling = nil
+            activeInputChannel = nil
             state = .pairedDisconnected
         }
     }

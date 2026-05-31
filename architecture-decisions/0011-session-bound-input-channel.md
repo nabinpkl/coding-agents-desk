@@ -47,9 +47,10 @@ Scope: `PairingSignalingServer`, `InputChannelServer`, `SessionRegistry`, `Sessi
 
 Chose **Option 3: session-bound input capability**.
 
-The client must complete ADR-0003 session proof before any input channel can open. On `SessionReady`, the host mints a random input capability for that active session and returns it to the client with the session-ready material. `InputChannelHello` changes from `sessionToken` to `{ deviceFingerprint, inputCapability }`. The host accepts the input channel only when all of the following hold:
+The client must complete ADR-0003 session proof before any input channel can open. On `SessionReady`, the host mints a random session id and random input capability for that active session and returns both to the client with the session-ready material. `InputChannelHello` changes from `sessionToken` to `{ deviceFingerprint, sessionId, inputCapability }`. The host accepts the input channel only when all of the following hold:
 
 - The device fingerprint has an active session in `SessionRegistry`.
+- The presented session id matches that active session.
 - The presented input capability matches the active session's current capability.
 - The capability is unexpired.
 - The paired device is still allowlisted.
@@ -60,7 +61,7 @@ The client must complete ADR-0003 session proof before any input channel can ope
 
 `SessionToken` keeps the ADR-0003 role: approval receipt and allowlist lookup hint. This ADR does not add token expiry. Token expiry would change the PRD's pair-once promise, and it is not needed to close the input-channel downgrade because `SessionToken` is no longer sufficient to open input.
 
-The input capability is per-session, short-lived, and stored only in memory. It expires when any of these happens:
+The input capability is per-session, short-lived, and stored only in memory. The session id is also an opaque random value, and exists to disambiguate reconnects and stale close events for the same paired device. The capability expires when any of these happens:
 
 - The session ends.
 - The host rotates the capability after accepting an input channel.
@@ -77,6 +78,7 @@ The session ready message gains input-channel capability material:
 
 ```
 SessionReady {
+  sessionId,
   inputCapability,
   inputCapabilityExpiresAt
 }
@@ -86,10 +88,12 @@ The authenticated session channel gains low-frequency capability refresh frames:
 
 ```
 InputCapabilityRefreshRequest {
-  deviceFingerprint
+  deviceFingerprint,
+  sessionId
 }
 
 InputCapabilityGrant {
+  sessionId,
   inputCapability,
   inputCapabilityExpiresAt
 }
@@ -102,6 +106,7 @@ The input hello changes to:
 ```
 InputChannelHello {
   deviceFingerprint,
+  sessionId,
   inputCapability
 }
 ```
@@ -141,8 +146,8 @@ The decision is being followed if all of the following are true:
 
 - No host path calls `InputDispatcher.dispatch(_:)` from a connection that has not been bound to an active ADR-0003 session.
 - `InputChannelHello` no longer contains `SessionToken`.
-- `SessionReady` returns an input capability and expiry for the active session.
-- The authenticated session channel accepts `InputCapabilityRefreshRequest` and returns `InputCapabilityGrant` only for the same active device fingerprint.
+- `SessionReady` returns a session id, input capability, and expiry for the active session.
+- The authenticated session channel accepts `InputCapabilityRefreshRequest` and returns `InputCapabilityGrant` only for the same active device fingerprint and session id.
 - Tests prove that a valid `SessionToken` without an active session cannot open an input channel.
 - Tests prove that a stale or expired input capability cannot replace an active input channel.
 - Tests prove that revocation closes any active signaling channel, input channel, media transport, and input task for the revoked device.

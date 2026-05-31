@@ -79,6 +79,11 @@
 		A00000000000000000000251 /* TerminalLauncherViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000151 /* TerminalLauncherViewController.swift */; };
 		A00000000000000000000249 /* WAVEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012E /* WAVEncoder.swift */; };
 		A0000000000000000000024A /* WAVEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000133 /* WAVEncoderTests.swift */; };
+		A00000000000000000000252 /* MediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000111 /* MediaTransport.swift */; };
+		A00000000000000000000253 /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000112 /* SignalingChannel.swift */; };
+		A00000000000000000000254 /* VideoFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000113 /* VideoFrameSource.swift */; };
+		A00000000000000000000255 /* SessionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011D /* SessionRegistry.swift */; };
+		A00000000000000000000256 /* InputChannelServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011F /* InputChannelServer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -453,6 +458,11 @@
 				A0000000000000000000022A /* LaunchAgentInstallerTests.swift in Sources */,
 				A0000000000000000000022B /* SessionAuthenticator.swift in Sources */,
 				A0000000000000000000022C /* SessionAuthenticatorTests.swift in Sources */,
+				A00000000000000000000252 /* MediaTransport.swift in Sources */,
+				A00000000000000000000253 /* SignalingChannel.swift in Sources */,
+				A00000000000000000000254 /* VideoFrameSource.swift in Sources */,
+				A00000000000000000000255 /* SessionRegistry.swift in Sources */,
+				A00000000000000000000256 /* InputChannelServer.swift in Sources */,
 				A0000000000000000000022D /* SignalingFrameRouting.swift in Sources */,
 				A0000000000000000000022E /* SignalingFrameRoutingTests.swift in Sources */,
 				A0000000000000000000022F /* InputDispatcher.swift in Sources */,

@@ -10,6 +10,10 @@ struct SessionAuthenticatorTests {
         let (ready, active) = try fixture.authenticator.processProof(proof)
 
         #expect(ready.type == "session-ready")
+        #expect(!ready.sessionId.isEmpty)
+        #expect(!ready.inputCapability.isEmpty)
+        #expect(ready.inputCapabilityExpiresAt == Int(fixture.clock.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970))
+        #expect(active.sessionId == ready.sessionId)
         #expect(active.deviceFingerprint == fixture.deviceFingerprint)
         #expect(active.establishedAt == Int(fixture.clock.timeIntervalSince1970))
     }
@@ -74,6 +78,161 @@ struct SessionAuthenticatorTests {
         #expect(throws: SessionRejected(reason: .badSignature)) {
             try fixture.authenticator.processProof(proof)
         }
+    }
+}
+
+@MainActor
+struct SessionRegistryTests {
+    @Test func inputCapabilityWithoutActiveSessionIsRejected() {
+        let registry = SessionRegistry()
+        let result = registry.validateInputCapability(InputChannelHello(
+            deviceFingerprint: DeviceFingerprint("device-fp"),
+            sessionId: "session-1",
+            inputCapability: "capability"
+        ))
+
+        #expect(result == .rejected(.unauthorized))
+    }
+
+    @Test func acceptedInputCapabilityRotatesAndRejectsReuse() throws {
+        let random = ByteSequence()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now }, randomBytes: random.bytes(count:))
+        let fingerprint = DeviceFingerprint("device-fp")
+        registry.noteReady(
+            ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970)),
+            channel: FakeSignalingChannel(),
+            inputCapability: "capability-1",
+            inputCapabilityExpiresAt: Int(now.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
+        )
+
+        let initialHello = InputChannelHello(
+            deviceFingerprint: fingerprint,
+            sessionId: "session-1",
+            inputCapability: "capability-1"
+        )
+        #expect(registry.validateInputCapability(initialHello) == .accepted(fingerprint))
+        #expect(registry.validateInputCapability(initialHello) == .rejected(.staleInputCapability))
+
+        let rotatedCapability = Data(repeating: 1, count: 32).base64URLEncodedString()
+        let rotatedHello = InputChannelHello(
+            deviceFingerprint: fingerprint,
+            sessionId: "session-1",
+            inputCapability: rotatedCapability
+        )
+        #expect(registry.validateInputCapability(rotatedHello) == .accepted(fingerprint))
+    }
+
+    @Test func expiredInputCapabilityIsRejected() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now })
+        let fingerprint = DeviceFingerprint("device-fp")
+        registry.noteReady(
+            ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970)),
+            channel: FakeSignalingChannel(),
+            inputCapability: "capability-1",
+            inputCapabilityExpiresAt: Int(now.timeIntervalSince1970) - 1
+        )
+
+        let result = registry.validateInputCapability(InputChannelHello(
+            deviceFingerprint: fingerprint,
+            sessionId: "session-1",
+            inputCapability: "capability-1"
+        ))
+
+        #expect(result == .rejected(.expiredInputCapability))
+    }
+
+    @Test func refreshRotatesCapabilityForActiveSessionOnly() throws {
+        let random = ByteSequence()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now }, randomBytes: random.bytes(count:))
+        let fingerprint = DeviceFingerprint("device-fp")
+        registry.noteReady(
+            ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970)),
+            channel: FakeSignalingChannel(),
+            inputCapability: "capability-1",
+            inputCapabilityExpiresAt: Int(now.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
+        )
+
+        let refresh = registry.refreshInputCapability(deviceFingerprint: fingerprint, sessionId: "session-1")
+        guard case .success(let grant) = refresh else {
+            #expect(Bool(false))
+            return
+        }
+        #expect(grant.sessionId == "session-1")
+        #expect(grant.inputCapability == Data(repeating: 1, count: 32).base64URLEncodedString())
+        #expect(grant.inputCapabilityExpiresAt == Int(now.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970))
+
+        let staleHello = InputChannelHello(
+            deviceFingerprint: fingerprint,
+            sessionId: "session-1",
+            inputCapability: "capability-1"
+        )
+        #expect(registry.validateInputCapability(staleHello) == .rejected(.staleInputCapability))
+
+        let wrongSessionRefresh = registry.refreshInputCapability(deviceFingerprint: fingerprint, sessionId: "session-2")
+        guard case .failure(let reason) = wrongSessionRefresh else {
+            #expect(Bool(false))
+            return
+        }
+        #expect(reason == .unauthorized)
+    }
+
+    @Test func staleSessionCloseDoesNotClearNewerSession() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now })
+        let fingerprint = DeviceFingerprint("device-fp")
+        let oldChannel = FakeSignalingChannel()
+        registry.noteReady(
+            ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970)),
+            channel: oldChannel,
+            inputCapability: "capability-1",
+            inputCapabilityExpiresAt: Int(now.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
+        )
+        registry.noteReady(
+            ActiveSession(sessionId: "session-2", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970)),
+            channel: FakeSignalingChannel(),
+            inputCapability: "capability-2",
+            inputCapabilityExpiresAt: Int(now.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
+        )
+
+        #expect(oldChannel.closed)
+        registry.endSession(fingerprint, sessionId: "session-1")
+
+        let refresh = registry.refreshInputCapability(deviceFingerprint: fingerprint, sessionId: "session-2")
+        guard case .success = refresh else {
+            #expect(Bool(false))
+            return
+        }
+    }
+}
+
+private final class ByteSequence {
+    private var next: UInt8 = 1
+
+    func bytes(count: Int) throws -> Data {
+        defer { next &+= 1 }
+        return Data(repeating: next, count: count)
+    }
+}
+
+private final class FakeSignalingChannel: SignalingChannel, @unchecked Sendable {
+    let inbound: AsyncStream<WebRTCSignalingFrame>
+    private let continuation: AsyncStream<WebRTCSignalingFrame>.Continuation
+    private(set) var closed = false
+
+    init() {
+        var continuation: AsyncStream<WebRTCSignalingFrame>.Continuation!
+        inbound = AsyncStream { continuation = $0 }
+        self.continuation = continuation
+    }
+
+    func send(_ frame: WebRTCSignalingFrame) async throws {}
+
+    func close() {
+        closed = true
+        continuation.finish()
     }
 }
 

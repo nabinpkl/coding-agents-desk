@@ -235,31 +235,89 @@ struct SessionProof: Codable, Equatable {
 
 struct SessionReady: Codable, Equatable {
     let type: String
+    let sessionId: String
+    let inputCapability: String
+    let inputCapabilityExpiresAt: Int
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
+        case sessionId = "sid"
+        case inputCapability = "ic"
+        case inputCapabilityExpiresAt = "ie"
     }
 
-    init() { self.type = "session-ready" }
+    init(sessionId: String, inputCapability: String, inputCapabilityExpiresAt: Int) {
+        self.type = "session-ready"
+        self.sessionId = sessionId
+        self.inputCapability = inputCapability
+        self.inputCapabilityExpiresAt = inputCapabilityExpiresAt
+    }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         type = try container.decode(String.self, forKey: .type)
+        sessionId = try container.decode(String.self, forKey: .sessionId)
+        inputCapability = try container.decode(String.self, forKey: .inputCapability)
+        inputCapabilityExpiresAt = try container.decode(Int.self, forKey: .inputCapabilityExpiresAt)
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(type, forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(inputCapability, forKey: .inputCapability)
+        try container.encode(inputCapabilityExpiresAt, forKey: .inputCapabilityExpiresAt)
     }
 }
 
-enum SessionRejectionReason: String, Codable, Equatable {
+struct InputCapabilityRefreshRequest: Codable, Equatable {
+    let type: String
+    let deviceFingerprint: DeviceFingerprint
+    let sessionId: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case deviceFingerprint = "d"
+        case sessionId = "sid"
+    }
+
+    init(deviceFingerprint: DeviceFingerprint, sessionId: String) {
+        self.type = "input-capability-refresh"
+        self.deviceFingerprint = deviceFingerprint
+        self.sessionId = sessionId
+    }
+}
+
+struct InputCapabilityGrant: Codable, Equatable {
+    let type: String
+    let sessionId: String
+    let inputCapability: String
+    let inputCapabilityExpiresAt: Int
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case sessionId = "sid"
+        case inputCapability = "ic"
+        case inputCapabilityExpiresAt = "ie"
+    }
+
+    init(sessionId: String, inputCapability: String, inputCapabilityExpiresAt: Int) {
+        self.type = "input-capability-grant"
+        self.sessionId = sessionId
+        self.inputCapability = inputCapability
+        self.inputCapabilityExpiresAt = inputCapabilityExpiresAt
+    }
+}
+
+enum SessionRejectionReason: String, Codable, Equatable, Error {
     case revoked
     case unknownDevice = "unknown-device"
     case replay
     case badSignature = "bad-signature"
     case malformed
     case unauthorized
+    case expiredInputCapability = "expired-input-capability"
+    case staleInputCapability = "stale-input-capability"
 }
 
 struct SessionRejected: Codable, Equatable, Error {
@@ -290,6 +348,7 @@ struct SessionRejected: Codable, Equatable, Error {
 }
 
 struct ActiveSession: Equatable {
+    let sessionId: String
     let deviceFingerprint: DeviceFingerprint
     let establishedAt: Int
 }
@@ -439,16 +498,22 @@ enum NormalizedInput: Codable, Equatable {
 
 struct InputChannelHello: Codable, Equatable {
     let type: String
-    let sessionToken: SessionToken
+    let deviceFingerprint: DeviceFingerprint
+    let sessionId: String
+    let inputCapability: String
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
-        case sessionToken = "tk"
+        case deviceFingerprint = "d"
+        case sessionId = "sid"
+        case inputCapability = "ic"
     }
 
-    init(sessionToken: SessionToken) {
+    init(deviceFingerprint: DeviceFingerprint, sessionId: String, inputCapability: String) {
         self.type = "input-hello"
-        self.sessionToken = sessionToken
+        self.deviceFingerprint = deviceFingerprint
+        self.sessionId = sessionId
+        self.inputCapability = inputCapability
     }
 }
 

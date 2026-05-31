@@ -49,6 +49,15 @@ struct SignalingFrameRoutingTests {
         #expect(SignalingFrameRouter.classifyActiveSessionFrame(data) == .webrtc(frame))
     }
 
+    @Test func classifyActiveSessionFrameInputCapabilityRefreshDecodes() {
+        let request = InputCapabilityRefreshRequest(
+            deviceFingerprint: DeviceFingerprint("device-fp"),
+            sessionId: "session-123"
+        )
+        let data = try! JSONEncoder().encode(request)
+        #expect(SignalingFrameRouter.classifyActiveSessionFrame(data) == .inputCapabilityRefresh(request))
+    }
+
     @Test func classifyActiveSessionFrameMalformedIsMalformed() {
         let data = Data(#"{"t":"unknown"}"#.utf8)
         #expect(SignalingFrameRouter.classifyActiveSessionFrame(data) == .malformed)
@@ -80,18 +89,33 @@ struct SignalingFrameRoutingTests {
     }
 
     @Test func inputHelloFrameRoundTripsThroughCodable() throws {
-        let token = SessionToken(
-            hostFingerprint: "host-fp",
+        let hello = InputChannelHello(
             deviceFingerprint: DeviceFingerprint("device-fp"),
-            issuedAt: 1234567890,
-            signature: Data([0xAA, 0xBB, 0xCC])
+            sessionId: "session-123",
+            inputCapability: "capability-abc"
         )
-        let hello = InputChannelHello(sessionToken: token)
         let data = try JSONEncoder().encode(hello)
         let decoded = try JSONDecoder().decode(InputChannelHello.self, from: data)
         #expect(decoded == hello)
         #expect(decoded.type == "input-hello")
-        #expect(decoded.sessionToken == token)
+        #expect(decoded.deviceFingerprint == DeviceFingerprint("device-fp"))
+        #expect(decoded.sessionId == "session-123")
+        #expect(decoded.inputCapability == "capability-abc")
+    }
+
+    @Test func inputCapabilityGrantRoundTripsThroughCodable() throws {
+        let grant = InputCapabilityGrant(
+            sessionId: "session-123",
+            inputCapability: "capability-def",
+            inputCapabilityExpiresAt: 1_800_000_060
+        )
+        let data = try JSONEncoder().encode(grant)
+        let decoded = try JSONDecoder().decode(InputCapabilityGrant.self, from: data)
+        #expect(decoded == grant)
+        #expect(decoded.type == "input-capability-grant")
+        #expect(decoded.sessionId == "session-123")
+        #expect(decoded.inputCapability == "capability-def")
+        #expect(decoded.inputCapabilityExpiresAt == 1_800_000_060)
     }
 
     @Test func inputEventFrameRoundTripsThroughCodable() throws {
