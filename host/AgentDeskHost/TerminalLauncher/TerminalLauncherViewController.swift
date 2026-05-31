@@ -89,6 +89,10 @@ private final class TerminalButton: NSButton {
         didSet { needsDisplay = true }
     }
     private let art = NSImage(named: "TerminalPrompt")
+    // Where the press began, in window coordinates, so a press that turns into
+    // a drag past a small threshold moves the panel instead of launching.
+    private var mouseDownLocation: NSPoint = .zero
+    private var dragging = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -125,13 +129,30 @@ private final class TerminalButton: NSButton {
 
     override func mouseDown(with event: NSEvent) {
         pressed = true
+        dragging = false
+        mouseDownLocation = event.locationInWindow
+    }
+
+    // Once the press moves past a small threshold, hand the gesture to the
+    // window so the pill drags like the SpaceAgent handle and dictation bar.
+    // performDrag runs its own loop until mouseUp, so no launch follows.
+    override func mouseDragged(with event: NSEvent) {
+        guard !dragging else { return }
+        let dx = event.locationInWindow.x - mouseDownLocation.x
+        let dy = event.locationInWindow.y - mouseDownLocation.y
+        if dx * dx + dy * dy > 9 {
+            dragging = true
+            pressed = false
+            window?.performDrag(with: event)
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
         let wasInside = bounds.contains(convert(event.locationInWindow, from: nil))
         pressed = false
-        if wasInside {
+        if !dragging && wasInside {
             sendAction(action, to: target)
         }
+        dragging = false
     }
 }
