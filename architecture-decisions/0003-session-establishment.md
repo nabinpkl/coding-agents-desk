@@ -1,7 +1,6 @@
 ---
-status: superseded by ADR-0011
+status: accepted
 date: 2026-05-20
-superseded-by: ADR-0011
 ---
 
 # Session establishment for v0

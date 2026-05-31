@@ -91,7 +91,7 @@ PairingPayload {
 SessionToken {
   hostFingerprint    // links token to a specific host identity
   deviceFingerprint  // SHA-256 over the iOS device's P-256 public key
-  issuedAt           // unix seconds, enforced lifetime per ADR-0011
+  issuedAt           // unix seconds, approval receipt timestamp
   signature          // ECDSA P-256 over (hostFingerprint || deviceFingerprint || issuedAt)
 }
 ```
@@ -105,10 +105,11 @@ SessionInit       { deviceFingerprint, sessionToken, clientNonce }
 SessionChallenge  { hostNonce, hostSignature }
 SessionProof      { clientSignature }
 SessionReady      { inputCapability, inputCapabilityExpiresAt }
+InputCapabilityRefreshRequest { deviceFingerprint }       // t: "input-capability-refresh"
+InputCapabilityGrant { inputCapability, inputCapabilityExpiresAt } // t: "input-capability-grant"
 SessionRejected   { reason }   // reason in { revoked, unknown-device,
                                //             replay, bad-signature,
                                //             malformed, unauthorized,
-                               //             expired-token,
                                //             expired-input-capability,
                                //             stale-input-capability }
 
@@ -140,7 +141,7 @@ successful Spaces switch; the client uses these to drive the
 `SpacesDotsView` render. The WSS was already bidirectional but R11 added
 the server-pushed direction.
 
-Both signatures are ECDSA-P256 over `"agentdesk-session" || clientNonce || hostNonce || hostFingerprint || deviceFingerprint`. `SessionToken` continues to be issued at pairing approval per ADR-0002 but is reframed as an approval-time receipt that identifies the device to the host's allowlist; it is not sufficient on its own to authenticate a session or open an input channel. The fresh `clientSignature` in `SessionProof` is the authentication. ADR-0011 adds enforced `SessionToken` lifetime and a per-session input capability returned by `SessionReady`. See ADR-0003 and ADR-0011 for canonical encoding, rejection-reason semantics, token expiry, and input capability rotation.
+Both signatures are ECDSA-P256 over `"agentdesk-session" || clientNonce || hostNonce || hostFingerprint || deviceFingerprint`. `SessionToken` continues to be issued at pairing approval per ADR-0002 but is reframed as an approval-time receipt that identifies the device to the host's allowlist; it is not sufficient on its own to authenticate a session or open an input channel. The fresh `clientSignature` in `SessionProof` is the authentication. ADR-0011 adds a per-session input capability returned by `SessionReady`; input reconnects refresh that capability through `InputCapabilityRefreshRequest` / `InputCapabilityGrant` on the authenticated session channel, not through the input WebSocket. See ADR-0003 and ADR-0011 for canonical encoding, rejection-reason semantics, and input capability rotation.
 
 ## Performance budgets
 
@@ -155,7 +156,7 @@ Both signatures are ECDSA-P256 over `"agentdesk-session" || clientNonce || hostN
 - Space Agent appears while the host runs. It is a small draggable spaceship overlay that joins all Spaces where AppKit permits. Clicking the spaceship expands or collapses an attached active-display Spaces panel. Thumbnail capture is enabled only while expanded and only through owner-scoped demand on the shared `SpaceThumbnailProvider`.
 - Client suspends on background; the WebRTC peer is torn down within 1 second; Keychain token and host pubkey persist.
 - On foreground, the client transitions to `paired-disconnected` and runs the session-establishment exchange per ADR-0003 using the stored `SessionToken` to identify itself and a fresh `clientSignature` to authenticate. Re-pairing only occurs after a `revoked`, `unknown-device`, `bad-signature`, or `unauthorized` rejection from the host.
-- The dedicated input channel (ADR-0005, ADR-0011) is opened immediately after session establishment with the per-session input capability returned by `SessionReady` and lives for the session. Its lifecycle is independent of the WebRTC video PeerConnection: a video failure does not tear down input, and vice versa. Reconnection uses the same exponential-backoff policy as `SessionDialer`, but input capability refresh happens only over the authenticated session channel.
+- The dedicated input channel (ADR-0005, ADR-0011) is opened immediately after session establishment with the per-session input capability returned by `SessionReady` and lives for the session. Its lifecycle is independent of the WebRTC video PeerConnection: a video failure does not tear down input, and vice versa. Reconnection uses the same exponential-backoff policy as `SessionDialer`, but input capability refresh happens only over the authenticated session channel. Host-side revocation deletes the allowlist row and tears down the active signaling channel, input channel, media transport, input task, and outstanding input capability for that device.
 
 ## Risks tracked outside this doc
 

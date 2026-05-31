@@ -1,14 +1,18 @@
 ---
 status: accepted
 date: 2026-05-31
-supersedes: ADR-0003
+amends:
+  - ADR-0003 SessionReady shape
+  - ADR-0005 input authentication posture
 ---
 
 # Session-bound input channel authentication
 
 ## Context and Problem Statement
 
-ADR-0003 established that `SessionToken` is an approval-time receipt, not a session authenticator. A live session requires a fresh challenge-response where the client proves possession of the paired device private key. This ADR supersedes ADR-0003's `SessionReady` and rejection-vocabulary decisions while preserving its mutual challenge-response decision. ADR-0005 later split input onto a dedicated WebSocket, but the implemented input path accepts `InputChannelHello { sessionToken }` directly and then feeds `InputChannelEvent` frames into `InputDispatcher`.
+ADR-0003 established that `SessionToken` is an approval-time receipt, not a session authenticator. A live session requires a fresh challenge-response where the client proves possession of the paired device private key. ADR-0005 later split input onto a dedicated WebSocket, but the implemented input path accepts `InputChannelHello { sessionToken }` directly and then feeds `InputChannelEvent` frames into `InputDispatcher`.
+
+This ADR amends only two prior decisions: ADR-0003's empty `SessionReady` shape, and ADR-0005's input-channel auth posture. ADR-0003 remains authoritative for the mutual challenge-response, canonical signing input, UI state machine, and media-plane signaling over the authenticated session WebSocket. ADR-0005 remains authoritative that input events travel on a dedicated WebSocket, separate from video and signaling.
 
 That creates an authentication downgrade on the most sensitive path in the host. The host holds Accessibility permission and can post cursor, keyboard, scroll, drag, and Spaces-switch events. A credential that can be copied from storage must not be enough to open a network input channel.
 
@@ -18,7 +22,6 @@ Scope: `PairingSignalingServer`, `InputChannelServer`, `SessionRegistry`, `Sessi
 
 - The session WebSocket uses the stronger ADR-0003 model: `SessionInit` plus `SessionChallenge` plus `SessionProof`, with the host verifying the paired device public key before returning `SessionReady`.
 - The input WebSocket currently accepts `InputChannelHello` after `Pairing.validate(token:)` succeeds. That validation checks the device is still allowlisted, the token is signed by the host key, and the host fingerprint matches, but it does not prove the caller still holds the paired device private key.
-- `SessionToken.issuedAt` is informational in the current `SPEC.md` and no expiry is enforced by `Pairing.validate(token:)`.
 - `SessionRegistry.attachInputChannelServer` replaces any existing input channel for the same fingerprint. With only token possession required, a copied token can disconnect the legitimate input channel and take over input dispatch.
 - The listener is intentionally network reachable for Tailscale operation. Network reachability is acceptable only if the control path requires fresh session proof.
 
@@ -28,15 +31,13 @@ Scope: `PairingSignalingServer`, `InputChannelServer`, `SessionRegistry`, `Sessi
 - The dedicated input WebSocket from ADR-0005 remains useful because it isolates input latency from video transport.
 - The protocol must keep one source of truth for live trust. A connection is live only after ADR-0003 session proof completes.
 - Reconnect must stay under the existing foreground reconnect budget, so the fix cannot require a new QR pairing ceremony for routine reconnects.
-- Revocation must keep working by deleting the host allowlist row. Any derived session or input capability must die when the session dies.
-- Tokens need bounded lifetime or rotation so copied credentials lose value over time.
+- Revocation must keep working by deleting the host allowlist row and tearing down every active session surface for that device. Any derived session or input capability must die when the session dies.
 
 ## Considered Options
 
 1. **Status quo bearer input**. Keep `InputChannelHello { sessionToken }` as sufficient proof for input.
 2. **Full challenge-response on every input channel**. Run the ADR-0003 proof exchange again on the input WebSocket.
 3. **Session-bound input capability**. Require a completed ADR-0003 session first, then have the host mint a random short-lived input capability bound to that active session. `InputChannelHello` presents the capability, not the long-lived `SessionToken`.
-4. **Collapse input onto the authenticated session WebSocket**. Remove the separate input socket and carry `InputChannelEvent` frames over the post-`SessionReady` signaling channel.
 
 ## Decision Outcome
 
@@ -51,18 +52,20 @@ The client must complete ADR-0003 session proof before any input channel can ope
 
 `SessionToken` remains an approval receipt and allowlist lookup hint. It is never sufficient by itself to open an input channel or dispatch input.
 
-### Expiry and Rotation
+### Capability Lifecycle and Rotation
 
-`SessionToken` gains an enforced lifetime. The v0 target is a short human-scale window, defaulting to 30 days from `issuedAt`, stored as a central config constant. When a token expires, the next `SessionInit` is rejected with a closed reason that causes the client to re-pair. This is intentionally not a silent refresh because ADR-0003 treats revocation and approval as explicit host-side trust state.
+`SessionToken` keeps the ADR-0003 role: approval receipt and allowlist lookup hint. This ADR does not add token expiry. Token expiry would change the PRD's pair-once promise, and it is not needed to close the input-channel downgrade because `SessionToken` is no longer sufficient to open input.
 
-The input capability is per-session and much shorter lived. It is minted after session proof, stored only in memory, and expires when any of these happens:
+The input capability is per-session, short-lived, and stored only in memory. It expires when any of these happens:
 
 - The session ends.
-- The input channel closes and reconnects beyond the allowed reconnect window.
 - The host rotates the capability after accepting an input channel.
 - The configured input capability TTL elapses.
+- The paired device is revoked.
 
-Routine input-channel reconnects may request a fresh input capability over the authenticated session channel. That refresh is allowed only while the ADR-0003 session is still active. A standalone input WebSocket cannot refresh itself.
+Routine input-channel reconnects request a fresh input capability over the authenticated session channel. That refresh is allowed only while the ADR-0003 session is still active. A standalone input WebSocket cannot refresh itself, and input events never move onto the session channel.
+
+On revocation, the host deletes the allowlist row and immediately terminates the active session in `SessionRegistry`: close the signaling channel, close the input channel server, stop media transport, cancel input tasks, and discard any outstanding capability for that device. Deleting the allowlist row without session teardown is not sufficient.
 
 ### Wire Shape
 
@@ -74,6 +77,21 @@ SessionReady {
   inputCapabilityExpiresAt
 }
 ```
+
+The authenticated session channel gains low-frequency capability refresh frames:
+
+```
+InputCapabilityRefreshRequest {
+  deviceFingerprint
+}
+
+InputCapabilityGrant {
+  inputCapability,
+  inputCapabilityExpiresAt
+}
+```
+
+These frames travel on the ADR-0003 session channel after `SessionReady`, alongside WebRTC signaling frames. They do not carry `NormalizedInput`; `InputChannelEvent` remains exclusive to the dedicated input WebSocket from ADR-0005.
 
 The input hello changes to:
 
@@ -98,7 +116,6 @@ The capability is a random opaque value. It is not derived from `SessionToken`, 
 
 The closed rejection vocabulary gains reasons for the new failure modes:
 
-- `expired-token`: the approval receipt is older than the enforced `SessionToken` lifetime.
 - `expired-input-capability`: the input capability matched a known session but is no longer valid.
 - `stale-input-capability`: the input capability was previously valid but has been rotated.
 
@@ -112,7 +129,7 @@ The closed rejection vocabulary gains reasons for the new failure modes:
 - Good, because input reconnect stays cheap while the authenticated session is alive.
 - Bad, because the session model now owns extra capability lifecycle state. `SessionRegistry` must track active input capability values, expiry, and rotation.
 - Bad, because older clients that send `InputChannelHello { sessionToken }` fail after this lands. This is acceptable before v0.
-- Neutral, because `SessionToken` still exists. Its role is narrowed to approval receipt and allowlist lookup, with an enforced lifetime.
+- Neutral, because `SessionToken` still exists. Its role remains approval receipt and allowlist lookup hint, not input authority.
 
 ### Confirmation
 
@@ -120,11 +137,12 @@ The decision is being followed if all of the following are true:
 
 - No host path calls `InputDispatcher.dispatch(_:)` from a connection that has not been bound to an active ADR-0003 session.
 - `InputChannelHello` no longer contains `SessionToken`.
-- `Pairing.validate(token:)` enforces `SessionToken` lifetime and returns a typed rejection reason for expiry.
+- `SessionReady` returns an input capability and expiry for the active session.
+- The authenticated session channel accepts `InputCapabilityRefreshRequest` and returns `InputCapabilityGrant` only for the same active device fingerprint.
 - Tests prove that a valid `SessionToken` without an active session cannot open an input channel.
-- Tests prove that an expired token is rejected during `SessionInit`.
 - Tests prove that a stale or expired input capability cannot replace an active input channel.
-- `SPEC.md` states that `SessionToken.issuedAt` is enforced, not informational.
+- Tests prove that revocation closes any active signaling channel, input channel, media transport, and input task for the revoked device.
+- `SPEC.md` states that `SessionToken.issuedAt` is not an input-channel authority or v0 expiry trigger.
 
 ## Pros and Cons of the Options
 
@@ -149,16 +167,9 @@ The decision is being followed if all of the following are true:
 - Good, because input reconnects remain fast while the session is alive.
 - Bad, because capability storage, expiry, and rotation add state to `SessionRegistry`.
 
-### Option 4: Collapse input onto the authenticated session WebSocket
-
-- Good, because the session WebSocket is already authenticated.
-- Good, because there is no second input-auth handshake.
-- Bad, because it partially reverses ADR-0005 by coupling input delivery to signaling traffic and one socket lifecycle.
-- Bad, because it makes future high-frequency input and host-push state share one ordered stream.
-
 ## Links
 
-- ADR-0003: session establishment for v0. Superseded here for `SessionReady`, rejection reasons, and input-channel binding. The mutual challenge-response decision remains adopted.
-- ADR-0005: input channel separation. This ADR keeps the dedicated input transport but replaces its auth posture.
+- ADR-0003: session establishment for v0. Amended here only for `SessionReady` capability material and post-ready capability refresh frames. The mutual challenge-response decision remains adopted.
+- ADR-0005: input channel separation. Amended here only for input-channel authentication. The dedicated input transport remains mandatory.
 - `SPEC.md`: module boundaries for `SessionAuthenticator`, `InputChannelServer`, `SessionRegistry`, and the wire shapes for `SessionReady` and `InputChannelHello`.
 - Code findings from 2026-05-31: `PairingSignalingServer.handleInputHello`, `Pairing.validate(token:)`, and `SessionRegistry.attachInputChannelServer`.

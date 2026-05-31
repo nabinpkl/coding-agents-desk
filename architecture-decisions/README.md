@@ -47,7 +47,7 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | --- | --- | --- | --- |
 | ADR-0001 | AgentDesk v0 stack and transport | accepted | 2026-05-20 |
 | ADR-0002 | Pairing crypto for v0 | accepted | 2026-05-20 |
-| ADR-0003 | Session establishment for v0 | superseded by ADR-0011 | 2026-05-20 |
+| ADR-0003 | Session establishment for v0 | accepted | 2026-05-20 |
 | ADR-0004 | Media transport seams for v0 | accepted | 2026-05-20 |
 | ADR-0005 | Input channel separation | accepted | 2026-05-22 |
 | ADR-0006 | Spaces thumbnail capture for the iPhone preview strip | proposed | 2026-05-23 |
