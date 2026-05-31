@@ -75,6 +75,8 @@
 		A00000000000000000000246 /* TranscriptionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000130 /* TranscriptionClient.swift */; };
 		A00000000000000000000247 /* DictationBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000131 /* DictationBarController.swift */; };
 		A00000000000000000000248 /* DictationBarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000132 /* DictationBarViewController.swift */; };
+		A00000000000000000000250 /* TerminalLauncherController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000150 /* TerminalLauncherController.swift */; };
+		A00000000000000000000251 /* TerminalLauncherViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000151 /* TerminalLauncherViewController.swift */; };
 		A00000000000000000000249 /* WAVEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012E /* WAVEncoder.swift */; };
 		A0000000000000000000024A /* WAVEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000133 /* WAVEncoderTests.swift */; };
 /* End PBXBuildFile section */
@@ -130,6 +132,8 @@
 		A00000000000000000000130 /* TranscriptionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionClient.swift; sourceTree = "<group>"; };
 		A00000000000000000000131 /* DictationBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationBarController.swift; sourceTree = "<group>"; };
 		A00000000000000000000132 /* DictationBarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationBarViewController.swift; sourceTree = "<group>"; };
+		A00000000000000000000150 /* TerminalLauncherController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLauncherController.swift; sourceTree = "<group>"; };
+		A00000000000000000000151 /* TerminalLauncherViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLauncherViewController.swift; sourceTree = "<group>"; };
 		A00000000000000000000133 /* WAVEncoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVEncoderTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000134 /* AgentDeskHost.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AgentDeskHost.entitlements; sourceTree = "<group>"; };
 		A00000000000000000000141 /* AgentDeskHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -178,6 +182,7 @@
 			children = (
 				A00000000000000000000012 /* SpaceAgent */,
 				A00000000000000000000013 /* DictationBar */,
+				A00000000000000000000050 /* TerminalLauncher */,
 				A00000000000000000000101 /* AppDelegate.swift */,
 				A00000000000000000000134 /* AgentDeskHost.entitlements */,
 				A00000000000000000000102 /* Base64URL.swift */,
@@ -228,6 +233,15 @@
 				A0000000000000000000012D /* SpaceAgentLabelResolver.swift */,
 			);
 			path = SpaceAgent;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000050 /* TerminalLauncher */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000150 /* TerminalLauncherController.swift */,
+				A00000000000000000000151 /* TerminalLauncherViewController.swift */,
+			);
+			path = TerminalLauncher;
 			sourceTree = "<group>";
 		};
 		A00000000000000000000013 /* DictationBar */ = {
@@ -418,6 +432,8 @@
 				A00000000000000000000246 /* TranscriptionClient.swift in Sources */,
 				A00000000000000000000247 /* DictationBarController.swift in Sources */,
 				A00000000000000000000248 /* DictationBarViewController.swift in Sources */,
+				A00000000000000000000250 /* TerminalLauncherController.swift in Sources */,
+				A00000000000000000000251 /* TerminalLauncherViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

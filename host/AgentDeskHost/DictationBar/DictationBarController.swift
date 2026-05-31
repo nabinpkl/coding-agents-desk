@@ -24,6 +24,9 @@ final class DictationBarController: NSObject {
     // it. Without this the two floating panels can overlap and a press meant
     // for the spaceship lands on the bar's mic button, starting a recording.
     var spaceAgentHandleFrame: (() -> CGRect?)?
+    // Fired whenever the bar's screen frame changes (user drag, state resize,
+    // dodge), so a sibling overlay can keep clear of it.
+    var onFrameDidChange: (() -> Void)?
     private var panel: NSPanel?
     private var isCapturing = false
     private var transcribeTask: Task<Void, Never>?
@@ -80,6 +83,12 @@ final class DictationBarController: NSObject {
         self.panel = panel
         panel.orderFrontRegardless()
         installFnKeyMonitor()
+    }
+
+    // This bar's current rect in screen coordinates, for a sibling overlay to
+    // avoid. Nil before the panel is on screen.
+    func currentScreenFrame() -> CGRect? {
+        panel?.frame
     }
 
     func stop() {
@@ -163,6 +172,7 @@ final class DictationBarController: NSObject {
             visibleFrames: NSScreen.screens.map(\.visibleFrame)
         )
         panel.setFrame(CGRect(origin: avoiding(origin: clamped, size: size), size: size), display: true)
+        onFrameDidChange?()
     }
 
     // Nudge a proposed origin out from under the SpaceAgent handle, if one is
@@ -186,6 +196,7 @@ final class DictationBarController: NSObject {
         let placed = avoiding(origin: panel.frame.origin, size: size)
         guard placed != panel.frame.origin else { return }
         panel.setFrame(CGRect(origin: placed, size: size), display: true)
+        onFrameDidChange?()
     }
 
     private func bottomCenterOrigin(size: CGSize) -> CGPoint {
@@ -308,5 +319,6 @@ extension DictationBarController: NSWindowDelegate {
     func windowDidMove(_ notification: Notification) {
         guard let panel else { return }
         save(origin: panel.frame.origin)
+        onFrameDidChange?()
     }
 }

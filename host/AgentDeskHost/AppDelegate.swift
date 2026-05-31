@@ -93,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let spaceThumbnailProvider = SpaceThumbnailProvider()
     private var spaceAgentController: SpaceAgentController?
     private var dictationBarController: DictationBarController?
+    private var terminalLauncherController: TerminalLauncherController?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
     private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()
@@ -113,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installThumbnailsBroadcast()
         startSpaceAgent()
         startDictationBar()
+        startTerminalLauncher()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
         }
@@ -157,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         spaceAgentController?.stop()
         dictationBarController?.stop()
+        terminalLauncherController?.stop()
         signalingServer?.stop()
     }
 
@@ -395,10 +398,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         dictationBarController = controller
         controller.start()
-        // And keep dodging as the handle is dragged or the popover resizes.
+        // And keep dodging as the handle is dragged or the popover resizes. A
+        // handle move re-dodges both sibling overlays.
         spaceAgentController?.onHandleFrameDidChange = { [weak self] in
             self?.dictationBarController?.keepClearOfSpaceAgentHandle()
+            self?.terminalLauncherController?.keepClearOfNeighbors()
         }
+        // A dictation-bar move re-dodges the terminal pill (its other neighbor).
+        controller.onFrameDidChange = { [weak self] in
+            self?.terminalLauncherController?.keepClearOfNeighbors()
+        }
+    }
+
+    private func startTerminalLauncher() {
+        let controller = TerminalLauncherController()
+        controller.spaceAgentHandleFrame = { [weak self] in
+            self?.spaceAgentController?.currentHandleScreenFrame()
+        }
+        controller.dictationBarFrame = { [weak self] in
+            self?.dictationBarController?.currentScreenFrame()
+        }
+        terminalLauncherController = controller
+        controller.start()
     }
 
     // R11: NSWorkspace publishes activeSpaceDidChangeNotification on

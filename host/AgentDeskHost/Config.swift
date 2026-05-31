@@ -43,6 +43,19 @@ enum Config {
     static let transcriptionModel: String = {
         ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_MODEL"] ?? "mlx-community/whisper-large-v3-turbo"
     }()
+    // App opened by the terminal-launcher pill. Override with AGENTDESK_TERMINAL_APP
+    // (a path to a .app, e.g. /Applications/iTerm.app) to use iTerm2, Ghostty,
+    // etc. Defaults to the system Terminal.
+    // App opened by the terminal-launcher pill. Override with
+    // AGENTDESK_TERMINAL_APP (a path to a .app, e.g. /Applications/iTerm.app)
+    // to use iTerm2, Ghostty, etc. Defaults to the system Terminal.
+    static let terminalAppURL: URL = {
+        if let raw = ProcessInfo.processInfo.environment["AGENTDESK_TERMINAL_APP"],
+           !raw.isEmpty {
+            return URL(fileURLWithPath: (raw as NSString).expandingTildeInPath)
+        }
+        return URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+    }()
     static let launchAgentLabel = "com.example.agentdesk.AgentDeskHost"
     static let applicationSupportDirectory = FileManager.default
         .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
