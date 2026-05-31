@@ -816,6 +816,12 @@ private final class SpaceAgentHandleView: NSControl {
 
     override var isFlipped: Bool { true }
 
+    // The handle lives in a borderless non-activating panel. Without this,
+    // the first click on the rocket is spent making the panel key and the
+    // toggle only fires on the second click. The sibling pills (dictation,
+    // terminal) override this for the same reason.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
