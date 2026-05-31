@@ -208,55 +208,37 @@ final class PushToTalkButton: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let circle = NSBezierPath(ovalIn: bounds.insetBy(dx: 1, dy: 1))
+        // Illustrated mic bitmap drawn directly on the pill (no disc), part of
+        // the same icon set as the SpaceAgent rocket. DictationMic carries
+        // light/dark appearance variants, so resolve it against this view's
+        // appearance explicitly: a plain draw does not reliably pick the
+        // variant here (same reason the template glyph mis-resolved earlier).
+        guard let image = NSImage(named: "DictationMic") else { return }
+        let recording = style == .recording
+        let fraction: CGFloat = (isPressed && !recording) ? 0.6 : 1.0
+        let rect = bounds
 
-        let discColor: NSColor
-        let glyphColor: NSColor
-        switch style {
-        case .idle:
-            // Filled neutral control disc with a high-contrast glyph. The
-            // earlier systemGray-on-systemGray treatment washed out on both
-            // the light and dark pill; a solid disc plus a contrasting glyph
-            // reads in either mode, like a native control. Glyph colour is
-            // chosen explicitly from isDark rather than via labelColor: the
-            // template glyph is tinted by the fill colour set just before the
-            // draw, and a dynamic colour there resolves against the current
-            // drawing appearance, which is not reliably this view's dark
-            // appearance, so labelColor came out black on the dark pill.
-            let base = isDark
-                ? NSColor(srgbRed: 0x48 / 255, green: 0x48 / 255, blue: 0x4A / 255, alpha: 1)
-                : NSColor(srgbRed: 0xE6 / 255, green: 0xE6 / 255, blue: 0xEB / 255, alpha: 1)
-            discColor = isPressed
-                ? (base.blended(withFraction: 0.12, of: isDark ? .white : .black) ?? base)
-                : base
-            glyphColor = isDark
-                ? NSColor(calibratedWhite: 1.0, alpha: 0.92)
-                : NSColor(calibratedWhite: 0.0, alpha: 0.85)
-        case .recording:
-            discColor = NSColor.systemRed.withAlphaComponent(0.85)
-            glyphColor = .systemRed
+        let render = {
+            if recording {
+                // Recording cue: tint the whole mic red, compositing red over
+                // the art's alpha so it works for either colourway.
+                let red = NSImage(size: image.size, flipped: false) { r in
+                    image.draw(in: r)
+                    NSColor.systemRed.set()
+                    r.fill(using: .sourceAtop)
+                    return true
+                }
+                red.draw(in: rect, from: .zero, operation: .sourceOver, fraction: fraction)
+            } else {
+                image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: fraction)
+            }
         }
 
-        discColor.setFill()
-        circle.fill()
-
-        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
-        guard let symbol = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Push to talk")?
-            .withSymbolConfiguration(symbolConfig) else { return }
-        // Tint the glyph by compositing glyphColor over the symbol's alpha.
-        // Drawing a template image directly renders it black no matter what
-        // fill colour is set first, so an explicit composite is required to
-        // get a white glyph on the dark pill.
-        let glyph = NSImage(size: symbol.size, flipped: false) { rect in
-            symbol.draw(in: rect)
-            glyphColor.set()
-            rect.fill(using: .sourceAtop)
-            return true
+        if #available(macOS 11.0, *) {
+            effectiveAppearance.performAsCurrentDrawingAppearance(render)
+        } else {
+            render()
         }
-        let imgSize = glyph.size
-        let origin = NSPoint(x: bounds.midX - imgSize.width / 2, y: bounds.midY - imgSize.height / 2)
-        glyph.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1.0)
     }
 }
 
