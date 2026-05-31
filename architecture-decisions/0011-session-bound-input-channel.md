@@ -39,6 +39,10 @@ Scope: `PairingSignalingServer`, `InputChannelServer`, `SessionRegistry`, `Sessi
 2. **Full challenge-response on every input channel**. Run the ADR-0003 proof exchange again on the input WebSocket.
 3. **Session-bound input capability**. Require a completed ADR-0003 session first, then have the host mint a random short-lived input capability bound to that active session. `InputChannelHello` presents the capability, not the long-lived `SessionToken`.
 
+### Rejected Boundary Option
+
+**Collapse input onto the authenticated session WebSocket** was rejected as outside this ADR's option set. ADR-0005 makes the dedicated input WebSocket load-bearing: input must remain isolated from WebRTC video and from session signaling so video bursts, SDP/ICE traffic, and host-push state cannot share one ordered stream with high-frequency keyboard, pointer, scroll, and Spaces input. This ADR changes only how the dedicated input WebSocket proves authority.
+
 ## Decision Outcome
 
 Chose **Option 3: session-bound input capability**.
