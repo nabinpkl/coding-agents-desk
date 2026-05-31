@@ -16,6 +16,12 @@ final class TerminalLauncherController: NSObject {
     private let viewController = TerminalLauncherViewController()
     private let userDefaults: UserDefaults
     private let terminalAppURL: URL
+    private let terminalBundleID: String
+    // grave/backtick key. The pill synthesizes Cmd-` to toggle Ghostty's quick
+    // terminal; the Ghostty config binds the non-global cmd+grave_accent so it
+    // needs no Accessibility of its own (the host already holds it).
+    private static let graveKeyCode: CGKeyCode = 0x32
+    private let eventSource = CGEventSource(stateID: .hidSystemState)
 
     // Screen rects of the two sibling overlays, so this pill can stay clear of
     // both. Nil before those panels are on screen, in which case the avoid is
@@ -32,10 +38,12 @@ final class TerminalLauncherController: NSObject {
 
     init(
         userDefaults: UserDefaults = .standard,
-        terminalAppURL: URL = Config.terminalAppURL
+        terminalAppURL: URL = Config.terminalAppURL,
+        terminalBundleID: String = Config.terminalBundleID
     ) {
         self.userDefaults = userDefaults
         self.terminalAppURL = terminalAppURL
+        self.terminalBundleID = terminalBundleID
         super.init()
         viewController.delegate = self
     }
@@ -91,11 +99,63 @@ final class TerminalLauncherController: NSObject {
         onFrameDidChange?()
     }
 
-    private func launchTerminal() {
-        let url = terminalAppURL
-        if !NSWorkspace.shared.open(url) {
-            logger.error("terminal launch failed for \(url.path, privacy: .public)")
+    // Toggle the terminal's quick window. The host already holds Accessibility,
+    // so it drives the keystroke: activate the terminal app, then synthesize the
+    // Cmd-` chord its (non-global) config binds to toggle_quick_terminal. A
+    // second click while the quick terminal is up sends the same chord, hiding
+    // it. On a cold start the app is launched first and the chord is deferred
+    // until it is running and frontmost.
+    private func toggleQuickTerminal() {
+        if let running = runningTerminal() {
+            running.activate()
+            // Activation is async; give it a beat so the chord lands on the now
+            // frontmost terminal rather than the previously active app.
+            postChord(after: 0.06)
+        } else {
+            launchThenToggle()
         }
+    }
+
+    private func runningTerminal() -> NSRunningApplication? {
+        NSRunningApplication
+            .runningApplications(withBundleIdentifier: terminalBundleID)
+            .first
+    }
+
+    private func launchThenToggle() {
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.openApplication(at: terminalAppURL, configuration: config) { [weak self] app, error in
+            guard let self else { return }
+            if let error {
+                self.logger.error("terminal launch failed: \(error.localizedDescription, privacy: .public)")
+                return
+            }
+            // The app object is back, but the window and keybind handler need a
+            // moment to come up on a cold start before the chord will register.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                app?.activate()
+                self.postChord(after: 0.1)
+            }
+        }
+    }
+
+    private func postChord(after delay: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.sendQuickTerminalChord()
+        }
+    }
+
+    private func sendQuickTerminalChord() {
+        guard let down = CGEvent(keyboardEventSource: eventSource, virtualKey: Self.graveKeyCode, keyDown: true),
+              let up = CGEvent(keyboardEventSource: eventSource, virtualKey: Self.graveKeyCode, keyDown: false) else {
+            logger.error("failed to build quick-terminal chord events")
+            return
+        }
+        down.flags = .maskCommand
+        up.flags = .maskCommand
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
     }
 
     // MARK: - Placement
@@ -159,7 +219,7 @@ final class TerminalLauncherController: NSObject {
 
 extension TerminalLauncherController: TerminalLauncherViewControllerDelegate {
     func terminalLauncherDidActivate(_ controller: TerminalLauncherViewController) {
-        launchTerminal()
+        toggleQuickTerminal()
     }
 }
 

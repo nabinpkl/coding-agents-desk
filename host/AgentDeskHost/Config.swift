@@ -43,18 +43,26 @@ enum Config {
     static let transcriptionModel: String = {
         ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_MODEL"] ?? "mlx-community/whisper-large-v3-turbo"
     }()
-    // App opened by the terminal-launcher pill. Override with AGENTDESK_TERMINAL_APP
-    // (a path to a .app, e.g. /Applications/iTerm.app) to use iTerm2, Ghostty,
-    // etc. Defaults to the system Terminal.
-    // App opened by the terminal-launcher pill. Override with
-    // AGENTDESK_TERMINAL_APP (a path to a .app, e.g. /Applications/iTerm.app)
-    // to use iTerm2, Ghostty, etc. Defaults to the system Terminal.
+    // App driven by the terminal-launcher pill. Defaults to Ghostty, whose
+    // quick terminal (quake-style drop-down) the pill toggles by activating the
+    // app and synthesizing its quick-terminal chord. Override the app with
+    // AGENTDESK_TERMINAL_APP (a path to a .app).
     static let terminalAppURL: URL = {
         if let raw = ProcessInfo.processInfo.environment["AGENTDESK_TERMINAL_APP"],
            !raw.isEmpty {
             return URL(fileURLWithPath: (raw as NSString).expandingTildeInPath)
         }
-        return URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+        return URL(fileURLWithPath: "/Applications/Ghostty.app")
+    }()
+    // Bundle identifier of the terminal app, used to find a running instance to
+    // activate before sending the toggle chord. Defaults to Ghostty; override
+    // with AGENTDESK_TERMINAL_BUNDLE_ID to match a custom AGENTDESK_TERMINAL_APP.
+    static let terminalBundleID: String = {
+        if let raw = ProcessInfo.processInfo.environment["AGENTDESK_TERMINAL_BUNDLE_ID"],
+           !raw.isEmpty {
+            return raw
+        }
+        return "com.mitchellh.ghostty"
     }()
     static let launchAgentLabel = "com.example.agentdesk.AgentDeskHost"
     static let applicationSupportDirectory = FileManager.default
