@@ -10,7 +10,7 @@
 | iOS client | Swift, UIKit, `AVSampleBufferDisplayLayer` for video | Native required for HEVC crispness and gesture fidelity. Browser path rejected (see PRD). |
 | Capture | `ScreenCaptureKit` (macOS 12.3+) | First-party, captures the active Space without composition tricks. |
 | Encode / decode | VideoToolbox via libwebrtc, codec preference list | Apple Silicon native. H.264 in v0 per ADR-0004; HEVC tracked as a follow-up through `MediaCodecPreferences`. |
-| Transport | libwebrtc via SPM (video) plus a dedicated TLS WebSocket (input), both behind protocol seams | Video on `MediaTransport` (ADR-0004), input on `InputChannel` / `InputChannelServer` (ADR-0005). Two transports per session so video bursts cannot delay input events at the OS-queue / WebRTC-pacer layer. v0 video impl is `stasel/WebRTC`; v0 input impl is `WebSocketInputChannel` over the same TLS port as signaling. |
+| Transport | libwebrtc via SPM (video) plus a dedicated TLS WebSocket (input), both behind protocol seams | Video on `MediaTransport` (ADR-0004), input on `InputChannel` / `InputChannelServer` (ADR-0005), with input auth bound to a proven session per ADR-0011. Two transports per session so video bursts cannot delay input events at the OS-queue / WebRTC-pacer layer. v0 video impl is `stasel/WebRTC`; v0 input impl is `WebSocketInputChannel` over the same TLS port as signaling. |
 | Network | Tailscale only | No STUN, TURN, VPS, relay. Both peers are on the tailnet. |
 | Pairing | QR code on Mac, scanned by iPhone | One-shot. Signed bearer token stored in Keychain on both sides. |
 | Spaces enumeration | Private SkyLight/CoreGraphics symbols bound with `dlopen` + `dlsym` | No public API exists. Risk is App Store distribution, which is not the v0 target (Developer ID DMG). |
@@ -33,7 +33,7 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 5. **Pairing.** Generates QR payload, validates incoming tokens, stores in Keychain. Interface: `mintPairingPayload() -> PairingPayload`, `validate(token) -> SessionToken?`.
 6. **SessionAuthenticator.** Runs the per-connection mutual challenge-response defined in ADR-0003 on the `/session` path of the existing TLS WebSocket. Interface: `authenticate(connection) -> ActiveSession`. Throws closed-set rejection reasons. Same test obligation as `Pairing`; the long-term key material is shared.
 7. **MediaTransport.** Protocol per ADR-0004. v0 concrete impl `LibWebRTCMediaTransport` wraps libwebrtc and carries the video track. After ADR-0005 the transport is video-only; the `RTCDataChannel` input path was removed. SDP and ICE travel only over an `ActiveSession` produced by `SessionAuthenticator`; the DTLS fingerprint binding is structural. AppDelegate holds a `MediaTransportFactory` by protocol so the library, codec, and capturer can swap behind a single composition root (`MediaStack`).
-8. **InputChannelServer.** Per ADR-0005. Owns the host side of the dedicated input WebSocket: validates `InputChannelHello.sessionToken` against `Pairing`, then drains `InputChannelEvent` frames into `events: AsyncStream<NormalizedInput>` for `InputDispatcher`. One instance per active session, owned by `SessionRegistry`. Independent lifecycle from the video PeerConnection.
+8. **InputChannelServer.** Per ADR-0005 and ADR-0011. Owns the host side of the dedicated input WebSocket: validates `InputChannelHello.inputCapability` against an active session in `SessionRegistry`, then drains `InputChannelEvent` frames into `events: AsyncStream<NormalizedInput>` for `InputDispatcher`. One instance per active session, owned by `SessionRegistry`. Independent lifecycle from the video PeerConnection.
 9. **SignalingChannel.** Protocol per ADR-0004. Wraps the authenticated WebSocket post-`SessionReady`. Carries the three `WebRTCSignalingFrame` cases (`.offer`, `.answer`, `.ice`). Concrete impl `WebSocketSignalingChannel`.
 10. **VideoFrameSource.** Protocol per ADR-0004. Concrete impl `ScreenCaptureKitFrameSource` captures the active Space's display at native cadence; a `ScreenCaptureKitVideoCapturer: RTCVideoCapturer` adapter bridges into libwebrtc's `RTCVideoSource`. `TestPatternFrameSource` exists as a diagnostic impl.
 11. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces. Uses `ScreenCaptureKit` plus an isolated SkyLight `SLSCopySpacesForWindows` binding to map windows to Spaces and composite 128x80 JPEG thumbnails. Surface: `setDemand(owner:enabled:)`, `forceRefresh(spaceId:)`, `thumbnails: AsyncStream<[UInt64: Data]>`. It is shared by the iPhone preview strip and the host Space Agent through owner-scoped demand; it captures only while at least one owner needs thumbnails.
@@ -91,7 +91,7 @@ PairingPayload {
 SessionToken {
   hostFingerprint    // links token to a specific host identity
   deviceFingerprint  // SHA-256 over the iOS device's P-256 public key
-  issuedAt           // unix seconds, informational only (no enforcement)
+  issuedAt           // unix seconds, enforced lifetime per ADR-0011
   signature          // ECDSA P-256 over (hostFingerprint || deviceFingerprint || issuedAt)
 }
 ```
@@ -104,39 +104,43 @@ Session-establishment wire shapes are locked by ADR-0003 and travel on `wss://<h
 SessionInit       { deviceFingerprint, sessionToken, clientNonce }
 SessionChallenge  { hostNonce, hostSignature }
 SessionProof      { clientSignature }
-SessionReady      { }
+SessionReady      { inputCapability, inputCapabilityExpiresAt }
 SessionRejected   { reason }   // reason in { revoked, unknown-device,
                                //             replay, bad-signature,
-                               //             malformed, unauthorized }
+                               //             malformed, unauthorized,
+                               //             expired-token,
+                               //             expired-input-capability,
+                               //             stale-input-capability }
 
 WebRTCOffer        { sdp }                                // t: "webrtc-offer"
 WebRTCAnswer       { sdp }                                // t: "webrtc-answer"
 WebRTCIceCandidate { sdp, sdpMid?, sdpMLineIndex }        // t: "webrtc-ice"
 ```
 
-Input-channel wire shapes are locked by ADR-0005 and travel on a
+Input-channel wire shapes are locked by ADR-0005 and ADR-0011 and travel on a
 dedicated WebSocket Secure connection at the same TLS port as
 signaling, classified by first-frame discriminator (no URL path
 routing; matches the existing `/pair` and `/session` pattern).
 
 ```
-InputChannelHello  { sessionToken }                       // t: "input-hello"     (client -> host)
+InputChannelHello  { deviceFingerprint, inputCapability } // t: "input-hello"     (client -> host)
 InputChannelEvent  { event: NormalizedInput }             // t: "input-event"     (client -> host)
 InputChannelClose  { reason }                             // t: "input-close"     (server -> client, optional)
 DesktopStatePush   { state: DesktopState }                // t: "desktop-state"   (server -> client, R11)
 ```
 
 First frame on a new connection MUST be `InputChannelHello`; the host
-validates the token via `Pairing.validate(token:)` and closes the
-connection with `SessionRejected(.unauthorized)` on mismatch. After the
-hello is accepted, subsequent frames are `InputChannelEvent`, one
-`NormalizedInput` per WebSocket text frame. The host pushes
-`DesktopStatePush` frames in the opposite direction (server -> client)
-on session attach and after every successful Spaces switch; the client
-uses these to drive the `SpacesDotsView` render. The WSS was already
-bidirectional but R11 added the server-pushed direction.
+validates the input capability against an active ADR-0003 session in
+`SessionRegistry` and closes the connection with `SessionRejected` on
+mismatch, expiry, or stale capability. After the hello is accepted,
+subsequent frames are `InputChannelEvent`, one `NormalizedInput` per
+WebSocket text frame. The host pushes `DesktopStatePush` frames in the
+opposite direction (server -> client) on session attach and after every
+successful Spaces switch; the client uses these to drive the
+`SpacesDotsView` render. The WSS was already bidirectional but R11 added
+the server-pushed direction.
 
-Both signatures are ECDSA-P256 over `"agentdesk-session" || clientNonce || hostNonce || hostFingerprint || deviceFingerprint`. `SessionToken` continues to be issued at pairing approval per ADR-0002 but is reframed as an approval-time receipt that identifies the device to the host's allowlist; it is not sufficient on its own to authenticate a session. The fresh `clientSignature` in `SessionProof` is the authentication. See ADR-0003 for the full canonical encoding, rejection-reason semantics, and the UI state machines.
+Both signatures are ECDSA-P256 over `"agentdesk-session" || clientNonce || hostNonce || hostFingerprint || deviceFingerprint`. `SessionToken` continues to be issued at pairing approval per ADR-0002 but is reframed as an approval-time receipt that identifies the device to the host's allowlist; it is not sufficient on its own to authenticate a session or open an input channel. The fresh `clientSignature` in `SessionProof` is the authentication. ADR-0011 adds enforced `SessionToken` lifetime and a per-session input capability returned by `SessionReady`. See ADR-0003 and ADR-0011 for canonical encoding, rejection-reason semantics, token expiry, and input capability rotation.
 
 ## Performance budgets
 
@@ -151,7 +155,7 @@ Both signatures are ECDSA-P256 over `"agentdesk-session" || clientNonce || hostN
 - Space Agent appears while the host runs. It is a small draggable spaceship overlay that joins all Spaces where AppKit permits. Clicking the spaceship expands or collapses an attached active-display Spaces panel. Thumbnail capture is enabled only while expanded and only through owner-scoped demand on the shared `SpaceThumbnailProvider`.
 - Client suspends on background; the WebRTC peer is torn down within 1 second; Keychain token and host pubkey persist.
 - On foreground, the client transitions to `paired-disconnected` and runs the session-establishment exchange per ADR-0003 using the stored `SessionToken` to identify itself and a fresh `clientSignature` to authenticate. Re-pairing only occurs after a `revoked`, `unknown-device`, `bad-signature`, or `unauthorized` rejection from the host.
-- The dedicated input channel (ADR-0005) is opened immediately after session establishment and lives for the session. Its lifecycle is independent of the WebRTC video PeerConnection: a video failure does not tear down input, and vice versa. Reconnection uses the same exponential-backoff policy as `SessionDialer`.
+- The dedicated input channel (ADR-0005, ADR-0011) is opened immediately after session establishment with the per-session input capability returned by `SessionReady` and lives for the session. Its lifecycle is independent of the WebRTC video PeerConnection: a video failure does not tear down input, and vice versa. Reconnection uses the same exponential-backoff policy as `SessionDialer`, but input capability refresh happens only over the authenticated session channel.
 
 ## Risks tracked outside this doc
 
