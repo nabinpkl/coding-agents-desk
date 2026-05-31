@@ -15,8 +15,28 @@ enum Config {
         }
     }
 
+    // Space Agent panel orientation. Vertical (default) stacks desktops in a
+    // column to the left of the rocket; horizontal keeps the original strip
+    // below it. Switch with AGENTDESK_SPACE_AGENT_LAYOUT = horizontal | vertical.
+    enum SpaceAgentLayout: String {
+        case horizontal
+        case vertical
+
+        init(rawEnvironmentValue: String?) {
+            switch rawEnvironmentValue?.lowercased() {
+            case "horizontal":
+                self = .horizontal
+            default:
+                self = .vertical
+            }
+        }
+    }
+
     static let signalingPort: UInt16 = 41888
     static let nonceTTL: TimeInterval = 90
+    static let spaceAgentLayout = SpaceAgentLayout(
+        rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_SPACE_AGENT_LAYOUT"]
+    )
     // Experimental local-only switch backend. Default stays on the
     // stock Dock-swipe path; direct-set is for HITL diagnostics around
     // private SkyLight behavior.

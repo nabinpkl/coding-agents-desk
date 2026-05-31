@@ -71,7 +71,7 @@ struct SpaceAgentModelTests {
     }
 
     @Test func expandedPanelCapsWidthForScrollableTiles() {
-        let controller = SpaceAgentViewController()
+        let controller = SpaceAgentViewController(layout: .horizontal)
         _ = controller.view
         controller.popoverMaxWidth = 400
         controller.isExpanded = true
@@ -89,7 +89,7 @@ struct SpaceAgentModelTests {
     }
 
     @Test func expandedPanelKeepsTileStripInsideBounds() throws {
-        let controller = SpaceAgentViewController()
+        let controller = SpaceAgentViewController(layout: .horizontal)
         _ = controller.view
         controller.isExpanded = true
         controller.render(tiles: [
@@ -106,7 +106,7 @@ struct SpaceAgentModelTests {
     }
 
     @Test func expandedPanelHintsWhenTilesOverflow() throws {
-        let controller = SpaceAgentViewController()
+        let controller = SpaceAgentViewController(layout: .horizontal)
         _ = controller.view
         controller.popoverMaxWidth = 400
         controller.isExpanded = true
@@ -123,8 +123,8 @@ struct SpaceAgentModelTests {
         controller.view.layoutSubtreeIfNeeded()
 
         var hints = controller.overflowHintState
-        #expect(!hints.left)
-        #expect(hints.right)
+        #expect(!hints.start)
+        #expect(hints.end)
 
         let scrollView = try #require(firstScrollView(in: controller.view))
         let maxOffsetX = max(
@@ -135,9 +135,73 @@ struct SpaceAgentModelTests {
         scrollView.reflectScrolledClipView(scrollView.contentView)
 
         hints = controller.overflowHintState
-        #expect(hints.left)
-        #expect(!hints.right)
+        #expect(hints.start)
+        #expect(!hints.end)
     }
+
+    @Test func verticalPanelCapsHeightForScrollableTiles() {
+        let controller = SpaceAgentViewController(layout: .vertical)
+        _ = controller.view
+        controller.popoverMaxHeight = 300
+        controller.isExpanded = true
+        controller.render(tiles: (0..<20).map { index in
+            SpaceAgentTile(
+                spaceId: UInt64(index + 1),
+                title: "Desktop \(index + 1)",
+                isActive: index == 0,
+                stepDelta: index,
+                thumbnail: nil
+            )
+        })
+
+        // Height caps at the override.
+        #expect(controller.preferredPanelSize.height == 300)
+
+        // Width is fixed: it does not grow with the row count (unlike the
+        // horizontal strip), so a small set yields the same width as the large.
+        let wideWidth = controller.preferredPanelSize.width
+        controller.render(tiles: [
+            SpaceAgentTile(spaceId: 99, title: "Desktop 1", isActive: true, stepDelta: 0, thumbnail: nil)
+        ])
+        #expect(controller.preferredPanelSize.width == wideWidth)
+    }
+    @Test func verticalPanelHintsWhenTilesOverflow() throws {
+        let controller = SpaceAgentViewController(layout: .vertical)
+        _ = controller.view
+        controller.popoverMaxHeight = 240
+        controller.isExpanded = true
+        controller.render(tiles: (0..<20).map { index in
+            SpaceAgentTile(
+                spaceId: UInt64(index + 1),
+                title: "Desktop \(index + 1)",
+                isActive: index == 0,
+                stepDelta: index,
+                thumbnail: nil
+            )
+        })
+        controller.view.frame = CGRect(origin: .zero, size: controller.preferredPanelSize)
+        controller.view.layoutSubtreeIfNeeded()
+
+        // At the top: only the bottom (end) hint shows.
+        var hints = controller.overflowHintState
+        #expect(!hints.start)
+        #expect(hints.end)
+
+        let scrollView = try #require(firstScrollView(in: controller.view))
+        let maxOffsetY = max(
+            0,
+            (scrollView.documentView?.frame.height ?? 0) - scrollView.contentView.bounds.height
+        )
+        scrollView.contentView.scroll(to: CGPoint(x: 0, y: maxOffsetY))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+
+        // At the bottom: only the top (start) hint shows.
+        hints = controller.overflowHintState
+        #expect(hints.start)
+        #expect(!hints.end)
+    }
+
+
 
     private func firstScrollView(in view: NSView) -> NSScrollView? {
         if let scrollView = view as? NSScrollView {

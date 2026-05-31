@@ -15,6 +15,11 @@ protocol SpaceAgentViewControllerDelegate: AnyObject {
 final class SpaceAgentViewController: NSViewController {
     weak var delegate: SpaceAgentViewControllerDelegate?
 
+    // Panel orientation. Horizontal is the original strip below the rocket;
+    // vertical stacks desktops in a column to the rocket's left. Both layouts
+    // are kept; the knob (Config.spaceAgentLayout) only selects which renders.
+    let layout: Config.SpaceAgentLayout
+
     private let handleSize = CGSize(width: 52, height: 52)
     private let tileSize = CGSize(width: 140, height: 84)
     private let tileSpacing: CGFloat = 10
@@ -23,6 +28,12 @@ final class SpaceAgentViewController: NSViewController {
     private let tailHeight: CGFloat = 0
     private let popoverToAnchorGap: CGFloat = 6
     private let popoverScreenMargin: CGFloat = 0
+    // Vertical-layout metrics: a fixed-width panel of list rows to the left of
+    // the rocket, with a small gap between the two.
+    private let panelWidth: CGFloat = 280
+    private let rowHeight: CGFloat = 52
+    private let rowSpacing: CGFloat = 6
+    private let clusterGap: CGFloat = 10
     private let rootView = SpaceAgentRootView()
     private let handleView = SpaceAgentHandleView()
     private let tileBackdrop = SpaceAgentTileBackdropView()
@@ -40,9 +51,25 @@ final class SpaceAgentViewController: NSViewController {
     private var filterText: String = ""
     private var selectedSpaceId: UInt64?
 
+    init(layout: Config.SpaceAgentLayout = Config.spaceAgentLayout) {
+        self.layout = layout
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        self.layout = Config.spaceAgentLayout
+        super.init(coder: coder)
+    }
+
     /// Hard cap on the popover's outer width. Set to a positive value to
     /// override the screen-derived default (used by tests).
     var popoverMaxWidth: CGFloat = 0 {
+        didSet { preferredContentSize = preferredPanelSize }
+    }
+
+    /// Hard cap on the panel's outer height (vertical layout). Set to a
+    /// positive value to override the screen-derived default (used by tests).
+    var popoverMaxHeight: CGFloat = 0 {
         didSet { preferredContentSize = preferredPanelSize }
     }
 
@@ -57,15 +84,29 @@ final class SpaceAgentViewController: NSViewController {
         if !isExpanded {
             return NSSize(width: handleSize.width, height: handleSize.height)
         }
-        let tileWidth = CGFloat(max(1, tiles.count)) * tileSize.width
-            + CGFloat(max(0, tiles.count - 1)) * tileSpacing
-        let idealWidth = tileWidth + stripInset * 2
-        let maxWidth = resolvedPopoverMaxWidth
-        let popoverWidth = min(max(handleSize.width, idealWidth), maxWidth)
         let searchZone = searchFieldHeight + searchToStripGap
-        let height = tileStripHeight + tailHeight + searchZone
-            + popoverToAnchorGap + handleSize.height
-        return NSSize(width: popoverWidth, height: height)
+        switch layout {
+        case .horizontal:
+            let tileWidth = CGFloat(max(1, tiles.count)) * tileSize.width
+                + CGFloat(max(0, tiles.count - 1)) * tileSpacing
+            let idealWidth = tileWidth + stripInset * 2
+            let maxWidth = resolvedPopoverMaxWidth
+            let popoverWidth = min(max(handleSize.width, idealWidth), maxWidth)
+            let height = tileStripHeight + tailHeight + searchZone
+                + popoverToAnchorGap + handleSize.height
+            return NSSize(width: popoverWidth, height: height)
+        case .vertical:
+            // Fixed-width panel to the left of the rocket; height grows with the
+            // row count, capped to the screen so the list scrolls when long.
+            let count = max(1, tiles.count)
+            let listHeight = CGFloat(count) * rowHeight
+                + CGFloat(count - 1) * rowSpacing
+            let idealPanelHeight = stripInset * 2 + searchZone + listHeight
+            let panelHeight = min(idealPanelHeight, resolvedPanelMaxHeight)
+            let height = max(panelHeight, handleSize.height)
+            let width = panelWidth + clusterGap + handleSize.width
+            return NSSize(width: width, height: height)
+        }
     }
 
     private var resolvedPopoverMaxWidth: CGFloat {
@@ -76,6 +117,16 @@ final class SpaceAgentViewController: NSViewController {
             ?? NSScreen.main?.visibleFrame
             ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         return max(handleSize.width, visible.width - popoverScreenMargin * 2)
+    }
+
+    private var resolvedPanelMaxHeight: CGFloat {
+        if popoverMaxHeight > 0 {
+            return popoverMaxHeight
+        }
+        let visible = view.window?.screen?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        return max(handleSize.height, visible.height - popoverScreenMargin * 2)
     }
 
     override func loadView() {
@@ -219,6 +270,9 @@ final class SpaceAgentViewController: NSViewController {
         rootView.stripInset = stripInset
         rootView.tailHeight = tailHeight
         rootView.popoverToAnchorGap = popoverToAnchorGap
+        rootView.panelLayout = layout
+        rootView.panelWidth = panelWidth
+        rootView.clusterGap = clusterGap
         rootView.translatesAutoresizingMaskIntoConstraints = false
 
         tileBackdrop.tailHeight = tailHeight
@@ -234,17 +288,28 @@ final class SpaceAgentViewController: NSViewController {
         tileScrollView.hasVerticalScroller = false
         tileScrollView.hasHorizontalScroller = false
         tileScrollView.scrollerStyle = .overlay
-        tileScrollView.horizontalScrollElasticity = .allowed
-        tileScrollView.verticalScrollElasticity = .none
+        switch layout {
+        case .horizontal:
+            tileScrollView.horizontalScrollElasticity = .allowed
+            tileScrollView.verticalScrollElasticity = .none
+        case .vertical:
+            tileScrollView.horizontalScrollElasticity = .none
+            tileScrollView.verticalScrollElasticity = .allowed
+        }
         tileScrollView.contentView = tileClipView
         tileScrollView.documentView = tileHost
         tileClipView.drawsBackground = false
         tileClipView.onBoundsChanged = { [weak self] in
+            self?.tileHost.clipBoundsChanged()
             self?.updateOverflowHints()
         }
 
+        tileHost.axis = layout
         tileHost.tileSize = tileSize
         tileHost.tileSpacing = tileSpacing
+        tileHost.rowHeight = rowHeight
+        tileHost.rowSpacing = rowSpacing
+        overflowHintView.axis = layout
         tileHost.onSelectDelta = { [weak self] delta in
             guard let self else { return }
             delegate?.spaceAgentViewController(self, didSelectStepDelta: delta)
@@ -273,22 +338,28 @@ final class SpaceAgentViewController: NSViewController {
 
     private func updateOverflowHints() {
         guard isExpanded else {
-            overflowHintView.setShows(left: false, right: false)
+            overflowHintView.setShows(start: false, end: false)
             return
         }
 
+        // start/end are along the scroll axis: left/right edges in the
+        // horizontal strip, top/bottom edges in the vertical column.
         let viewport = tileScrollView.contentView.bounds
-        let documentWidth = tileHost.frame.width
-        let maxOffsetX = max(0, documentWidth - viewport.width)
-        let currentX = viewport.minX
-        let left = currentX > 1
-        let right = currentX < maxOffsetX - 1
-        overflowHintView.setShows(left: left, right: right)
+        switch layout {
+        case .horizontal:
+            let maxOffset = max(0, tileHost.frame.width - viewport.width)
+            overflowHintView.setShows(start: viewport.minX > 1,
+                                      end: viewport.minX < maxOffset - 1)
+        case .vertical:
+            let maxOffset = max(0, tileHost.frame.height - viewport.height)
+            overflowHintView.setShows(start: viewport.minY > 1,
+                                      end: viewport.minY < maxOffset - 1)
+        }
     }
 
-    var overflowHintState: (left: Bool, right: Bool) {
+    var overflowHintState: (start: Bool, end: Bool) {
         updateOverflowHints()
-        return (overflowHintView.showsLeft, overflowHintView.showsRight)
+        return (overflowHintView.showsStart, overflowHintView.showsEnd)
     }
 }
 
@@ -307,9 +378,11 @@ extension SpaceAgentViewController: NSSearchFieldDelegate {
         tileHost.scrollSelectedTileToVisible()
     }
 
-    // The strip is horizontal, so Left/Right move the selection; Up/Down are
-    // accepted as aliases. Intercepting them costs caret arrow-movement in the
-    // (short) query, which is an acceptable trade for keyboard desktop nav.
+    // Both layouts share one mapping: Left/Up step the selection back, Right/Down
+    // step it forward, so the primary axis matches whichever orientation is
+    // active (Left/Right for the horizontal strip, Up/Down for the vertical
+    // column) without separate handling. Intercepting them costs caret
+    // arrow-movement in the (short) query, an acceptable trade for desktop nav.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
@@ -377,13 +450,17 @@ private final class SpaceAgentRootView: NSView {
     var popoverToAnchorGap: CGFloat = 2
     var searchFieldHeight: CGFloat = 28
     var searchToStripGap: CGFloat = 8
+    // Named panelLayout (not `layout`) to avoid clashing with NSView.layout().
+    var panelLayout: Config.SpaceAgentLayout = .horizontal
+    var panelWidth: CGFloat = 280
+    var clusterGap: CGFloat = 10
 
     override var isFlipped: Bool { true }
 
     override func layout() {
         super.layout()
-        let handleX = max(0, (bounds.width - handleSize.width) / 2)
         if !isExpanded {
+            let handleX = max(0, (bounds.width - handleSize.width) / 2)
             let handleY = max(0, (bounds.height - handleSize.height) / 2)
             handleView?.frame = CGRect(x: handleX, y: handleY, width: handleSize.width, height: handleSize.height)
             tileBackdrop?.frame = .zero
@@ -392,7 +469,18 @@ private final class SpaceAgentRootView: NSView {
             searchField?.frame = .zero
             return
         }
+        switch panelLayout {
+        case .horizontal:
+            layoutHorizontal()
+        case .vertical:
+            layoutVertical()
+        }
+    }
 
+    // Original strip: search + horizontal tile row in a backdrop, rocket
+    // centered below it.
+    private func layoutHorizontal() {
+        let handleX = max(0, (bounds.width - handleSize.width) / 2)
         let popoverWidth = bounds.width
         let searchZone = searchFieldHeight + searchToStripGap
         let backdropHeight = tileStripHeight + tailHeight + searchZone
@@ -426,6 +514,41 @@ private final class SpaceAgentRootView: NSView {
 
         let rocketCenter = handleX + handleSize.width / 2
         tileBackdrop?.tailCenterX = rocketCenter
+    }
+
+    // Vertical column: fixed-width panel (search on top, list below) on the
+    // left, rocket vertically centered to its right.
+    private func layoutVertical() {
+        let backdropFrame = CGRect(x: 0, y: 0, width: panelWidth, height: bounds.height)
+        tileBackdrop?.frame = backdropFrame
+        tileBackdrop?.tailCenterX = backdropFrame.midX
+
+        let searchZone = searchFieldHeight + searchToStripGap
+        let tokenShown = searchTokenView.map { !$0.isHidden } ?? false
+        let tokenWidth = tokenShown ? (searchTokenView?.measuredWidth ?? 0) : 0
+        let tokenGap: CGFloat = tokenShown ? 4 : 0
+        searchTokenView?.frame = tokenShown
+            ? CGRect(x: stripInset, y: stripInset, width: tokenWidth, height: searchFieldHeight)
+            : .zero
+        searchField?.frame = CGRect(
+            x: stripInset + tokenWidth + tokenGap,
+            y: stripInset,
+            width: max(0, panelWidth - stripInset - stripInset - tokenWidth - tokenGap),
+            height: searchFieldHeight
+        )
+
+        let bodyFrame = CGRect(
+            x: stripInset,
+            y: stripInset + searchZone,
+            width: max(0, panelWidth - stripInset * 2),
+            height: max(0, bounds.height - stripInset * 2 - searchZone)
+        )
+        tileHost?.frame = bodyFrame
+        overflowHintView?.frame = bodyFrame
+
+        let handleX = panelWidth + clusterGap
+        let handleY = max(0, (bounds.height - handleSize.height) / 2)
+        handleView?.frame = CGRect(x: handleX, y: handleY, width: handleSize.width, height: handleSize.height)
     }
 }
 
@@ -601,8 +724,11 @@ private final class SpaceAgentClipView: NSClipView {
 }
 
 private final class SpaceAgentOverflowHintView: NSView {
-    private(set) var showsLeft = false
-    private(set) var showsRight = false
+    // start/end run along the scroll axis: left/right edges in the horizontal
+    // strip, top/bottom edges in the vertical column.
+    private(set) var showsStart = false
+    private(set) var showsEnd = false
+    var axis: Config.SpaceAgentLayout = .horizontal
 
     override var isFlipped: Bool { true }
 
@@ -610,67 +736,71 @@ private final class SpaceAgentOverflowHintView: NSView {
         nil
     }
 
-    func setShows(left: Bool, right: Bool) {
-        let changed = showsLeft != left || showsRight != right
-        showsLeft = left
-        showsRight = right
-        isHidden = !left && !right
+    func setShows(start: Bool, end: Bool) {
+        let changed = showsStart != start || showsEnd != end
+        showsStart = start
+        showsEnd = end
+        isHidden = !start && !end
         if changed {
             needsDisplay = true
         }
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard showsLeft || showsRight else { return }
-        if showsLeft {
-            drawHint(edge: .left)
-        }
-        if showsRight {
-            drawHint(edge: .right)
-        }
+        guard showsStart || showsEnd else { return }
+        if showsStart { drawHint(atStart: true) }
+        if showsEnd { drawHint(atStart: false) }
     }
 
-    private enum Edge {
-        case left
-        case right
-    }
-
-    private func drawHint(edge: Edge) {
+    private func drawHint(atStart: Bool) {
         let palette = SpaceAgentPalette(appearance: effectiveAppearance)
-        let width: CGFloat = 34
+        let thickness: CGFloat = 34
         let fadeRect: CGRect
-        let gradient: NSGradient?
-        switch edge {
-        case .left:
-            fadeRect = CGRect(x: bounds.minX, y: bounds.minY, width: width, height: bounds.height)
-            gradient = NSGradient(colors: [
-                palette.overflowFadeStrong,
-                palette.overflowFadeClear
-            ])
-        case .right:
-            fadeRect = CGRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height)
-            gradient = NSGradient(colors: [
-                palette.overflowFadeClear,
-                palette.overflowFadeStrong
-            ])
+        let gradientAngle: CGFloat
+        switch axis {
+        case .horizontal:
+            fadeRect = atStart
+                ? CGRect(x: bounds.minX, y: bounds.minY, width: thickness, height: bounds.height)
+                : CGRect(x: bounds.maxX - thickness, y: bounds.minY, width: thickness, height: bounds.height)
+            gradientAngle = atStart ? 0 : 180
+        case .vertical:
+            // Flipped coords: minY is the top edge (start), maxY the bottom.
+            fadeRect = atStart
+                ? CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: thickness)
+                : CGRect(x: bounds.minX, y: bounds.maxY - thickness, width: bounds.width, height: thickness)
+            gradientAngle = atStart ? 90 : 270
         }
-        gradient?.draw(in: fadeRect, angle: 0)
+        NSGradient(colors: [palette.overflowFadeStrong, palette.overflowFadeClear])?
+            .draw(in: fadeRect, angle: gradientAngle)
 
-        let centerX = edge == .left ? fadeRect.minX + 15 : fadeRect.maxX - 15
-        let centerY = bounds.midY - SpaceAgentTileView.labelHeight / 2
+        // Chevron pointing toward the off-screen content.
         let chevron = NSBezierPath()
         chevron.lineWidth = 2.2
         chevron.lineCapStyle = .round
         chevron.lineJoinStyle = .round
-        switch edge {
-        case .left:
-            chevron.move(to: CGPoint(x: centerX + 4, y: centerY - 8))
-            chevron.line(to: CGPoint(x: centerX - 4, y: centerY))
-            chevron.line(to: CGPoint(x: centerX + 4, y: centerY + 8))
-        case .right:
-            chevron.move(to: CGPoint(x: centerX - 4, y: centerY - 8))
-            chevron.line(to: CGPoint(x: centerX + 4, y: centerY))
-            chevron.line(to: CGPoint(x: centerX - 4, y: centerY + 8))
+        let cx = fadeRect.midX
+        let cy = fadeRect.midY
+        switch axis {
+        case .horizontal:
+            if atStart {
+                chevron.move(to: CGPoint(x: cx + 4, y: cy - 8))
+                chevron.line(to: CGPoint(x: cx - 4, y: cy))
+                chevron.line(to: CGPoint(x: cx + 4, y: cy + 8))
+            } else {
+                chevron.move(to: CGPoint(x: cx - 4, y: cy - 8))
+                chevron.line(to: CGPoint(x: cx + 4, y: cy))
+                chevron.line(to: CGPoint(x: cx - 4, y: cy + 8))
+            }
+        case .vertical:
+            if atStart {
+                chevron.move(to: CGPoint(x: cx - 8, y: cy + 4))
+                chevron.line(to: CGPoint(x: cx, y: cy - 4))
+                chevron.line(to: CGPoint(x: cx + 8, y: cy + 4))
+            } else {
+                chevron.move(to: CGPoint(x: cx - 8, y: cy - 4))
+                chevron.line(to: CGPoint(x: cx, y: cy + 4))
+                chevron.line(to: CGPoint(x: cx + 8, y: cy - 4))
+            }
         }
         palette.overflowChevron.setStroke()
         chevron.stroke()
@@ -770,12 +900,23 @@ private final class SpaceAgentHandleView: NSControl {
 }
 
 private final class SpaceAgentTileHostView: NSView {
+    var axis: Config.SpaceAgentLayout = .horizontal {
+        didSet { tileViews.forEach { $0.style = tileStyle } }
+    }
+    // Horizontal-strip card metrics.
     var tileSize = CGSize(width: 128, height: 80)
     var tileSpacing: CGFloat = 8
+    // Vertical-list row metrics.
+    var rowHeight: CGFloat = 52
+    var rowSpacing: CGFloat = 6
     var onSelectDelta: ((Int) -> Void)?
     private var tileViews: [SpaceAgentTileView] = []
     private var renderedSpaceIds: [UInt64] = []
     private var renderedActiveSpaceId: UInt64?
+
+    private var tileStyle: SpaceAgentTileView.Style {
+        axis == .vertical ? .row : .card
+    }
 
     override var isFlipped: Bool { true }
 
@@ -783,6 +924,14 @@ private final class SpaceAgentTileHostView: NSView {
         super.viewDidChangeEffectiveAppearance()
         tileViews.forEach { $0.needsDisplay = true }
         needsDisplay = true
+    }
+
+    // The vertical list's rows span the clip width, so a clip-bounds change
+    // (panel resize) must re-flow them. The horizontal strip's cards are a
+    // fixed width and ignore this.
+    func clipBoundsChanged() {
+        guard axis == .vertical else { return }
+        needsLayout = true
     }
 
     func render(tiles: [SpaceAgentTile]) {
@@ -795,6 +944,7 @@ private final class SpaceAgentTileHostView: NSView {
 
         while tileViews.count < tiles.count {
             let view = SpaceAgentTileView()
+            view.style = tileStyle
             view.onSelectDelta = { [weak self] delta in
                 self?.onSelectDelta?(delta)
             }
@@ -816,23 +966,43 @@ private final class SpaceAgentTileHostView: NSView {
 
     override func layout() {
         super.layout()
-        var x: CGFloat = 0
-        for view in tileViews {
-            view.frame = CGRect(
-                x: x,
-                y: 0,
-                width: tileSize.width,
-                height: tileSize.height + SpaceAgentTileView.labelHeight
-            )
-            x += tileSize.width + tileSpacing
+        switch axis {
+        case .horizontal:
+            var x: CGFloat = 0
+            for view in tileViews {
+                view.frame = CGRect(
+                    x: x,
+                    y: 0,
+                    width: tileSize.width,
+                    height: tileSize.height + SpaceAgentTileView.labelHeight
+                )
+                x += tileSize.width + tileSpacing
+            }
+        case .vertical:
+            // Rows fill the clip width (document width follows the viewport so
+            // there is no horizontal scroll), stacked top to bottom.
+            let width = enclosingScrollView?.contentView.bounds.width ?? bounds.width
+            var y: CGFloat = 0
+            for view in tileViews {
+                view.frame = CGRect(x: 0, y: y, width: width, height: rowHeight)
+                y += rowHeight + rowSpacing
+            }
         }
     }
 
     private func resizeDocument(for tileCount: Int) {
-        let width = CGFloat(tileCount) * tileSize.width
-            + CGFloat(max(0, tileCount - 1)) * tileSpacing
-        let height = tileSize.height + SpaceAgentTileView.labelHeight
-        frame = CGRect(origin: .zero, size: CGSize(width: max(0, width), height: height))
+        switch axis {
+        case .horizontal:
+            let width = CGFloat(tileCount) * tileSize.width
+                + CGFloat(max(0, tileCount - 1)) * tileSpacing
+            let height = tileSize.height + SpaceAgentTileView.labelHeight
+            frame = CGRect(origin: .zero, size: CGSize(width: max(0, width), height: height))
+        case .vertical:
+            let width = enclosingScrollView?.contentView.bounds.width ?? bounds.width
+            let height = CGFloat(tileCount) * rowHeight
+                + CGFloat(max(0, tileCount - 1)) * rowSpacing
+            frame = CGRect(origin: .zero, size: CGSize(width: max(0, width), height: max(0, height)))
+        }
     }
 
     func scrollSelectedTileToVisible() {
@@ -858,6 +1028,23 @@ private final class SpaceAgentTileView: NSControl {
     static let primaryRowHeight: CGFloat = 18
     static let primaryToSecondaryGap: CGFloat = 4
     static let secondaryRowHeight: CGFloat = 15
+    // Vertical-list row metrics: a thumbnail on the left, caption to its right.
+    static let rowThumbnailSize = CGSize(width: 64, height: 40)
+    static let rowContentInset: CGFloat = 6
+    static let rowThumbnailToTextGap: CGFloat = 10
+
+    // .card is the horizontal Spotify-style cover-art tile; .row is the vertical
+    // list item (thumbnail left, name + subtitle right).
+    enum Style {
+        case card
+        case row
+    }
+    var style: Style = .card {
+        didSet {
+            guard oldValue != style else { return }
+            needsDisplay = true
+        }
+    }
 
     var tile: SpaceAgentTile? {
         didSet {
@@ -940,7 +1127,25 @@ private final class SpaceAgentTileView: NSControl {
     override func draw(_ dirtyRect: NSRect) {
         guard let tile else { return }
         let palette = SpaceAgentPalette(appearance: effectiveAppearance)
+        switch style {
+        case .card:
+            drawCard(tile: tile, palette: palette)
+        case .row:
+            drawRow(tile: tile, palette: palette)
+        }
+    }
 
+    private func surfaceColor(for tile: SpaceAgentTile, palette: SpaceAgentPalette) -> NSColor {
+        if tile.isActive {
+            return palette.activeTileFill
+        } else if tile.isSelected || isHovered {
+            return palette.tileFillHover
+        } else {
+            return palette.tileFill
+        }
+    }
+
+    private func drawCard(tile: SpaceAgentTile, palette: SpaceAgentPalette) {
         // Card surface. Lightens on hover (paired with the shadow lift in
         // updateElevation); a faint accent wash marks the active desktop.
         let card = NSBezierPath(
@@ -948,15 +1153,7 @@ private final class SpaceAgentTileView: NSControl {
             xRadius: Self.cardCornerRadius,
             yRadius: Self.cardCornerRadius
         )
-        let surface: NSColor
-        if tile.isActive {
-            surface = palette.activeTileFill
-        } else if tile.isSelected || isHovered {
-            surface = palette.tileFillHover
-        } else {
-            surface = palette.tileFill
-        }
-        surface.setFill()
+        surfaceColor(for: tile, palette: palette).setFill()
         card.fill()
 
         // Cover art fills the card's top edge-to-edge. Clipping to the card
@@ -1060,6 +1257,100 @@ private final class SpaceAgentTileView: NSControl {
             width: captionWidth,
             height: Self.secondaryRowHeight
         )
+        NSAttributedString(string: tile.secondary, attributes: secondaryAttrs).draw(in: secondaryRect)
+    }
+
+    // Vertical-list row: rounded surface, a thumbnail on the left (number badge
+    // in its corner), and the title + subtitle stacked to its right.
+    private func drawRow(tile: SpaceAgentTile, palette: SpaceAgentPalette) {
+        let row = NSBezierPath(
+            roundedRect: bounds,
+            xRadius: Self.cardCornerRadius,
+            yRadius: Self.cardCornerRadius
+        )
+        surfaceColor(for: tile, palette: palette).setFill()
+        row.fill()
+
+        if tile.isActive || tile.isSelected {
+            let ring = NSBezierPath(
+                roundedRect: bounds.insetBy(dx: 0.75, dy: 0.75),
+                xRadius: Self.cardCornerRadius,
+                yRadius: Self.cardCornerRadius
+            )
+            (tile.isActive ? NSColor.controlAccentColor : palette.selectionRing).setStroke()
+            ring.lineWidth = 1.5
+            ring.stroke()
+        }
+
+        let inset = Self.rowContentInset
+        let thumbSize = Self.rowThumbnailSize
+        let thumbRect = CGRect(
+            x: inset,
+            y: (bounds.height - thumbSize.height) / 2,
+            width: thumbSize.width,
+            height: thumbSize.height
+        )
+        let thumbPath = NSBezierPath(roundedRect: thumbRect, xRadius: 6, yRadius: 6)
+        NSGraphicsContext.saveGraphicsState()
+        thumbPath.addClip()
+        palette.thumbnailFill.setFill()
+        thumbRect.fill()
+        if let data = tile.thumbnail, let image = NSImage(data: data) {
+            NSGraphicsContext.current?.imageInterpolation = .high
+            image.draw(in: thumbRect, from: .zero, operation: .sourceOver, fraction: 1)
+        } else {
+            drawPlaceholder(in: thumbRect, active: tile.isActive, palette: palette)
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        drawDesktopNumber(in: thumbRect, tile: tile)
+
+        let textLeft = thumbRect.maxX + Self.rowThumbnailToTextGap
+        let textWidth = max(0, bounds.width - textLeft - inset)
+        guard textWidth > 0 else { return }
+
+        let para = NSMutableParagraphStyle()
+        para.alignment = .left
+        para.lineBreakMode = .byTruncatingTail
+        let primaryAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+            .foregroundColor: tile.isActive
+                ? NSColor.controlAccentColor
+                : palette.primaryText.withAlphaComponent(0.96),
+            .paragraphStyle: para,
+            .kern: -0.1
+        ]
+        let secondaryAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: palette.secondaryText.withAlphaComponent(tile.isActive ? 0.9 : 0.7),
+            .paragraphStyle: para
+        ]
+
+        // Center the one- or two-line caption block against the thumbnail.
+        let hasSecondary = !tile.secondary.isEmpty
+        let primaryH: CGFloat = 17
+        let secondaryH: CGFloat = 14
+        let gap: CGFloat = hasSecondary ? 2 : 0
+        let blockH = primaryH + (hasSecondary ? secondaryH + gap : 0)
+        var y = (bounds.height - blockH) / 2
+
+        let primaryRect = CGRect(x: textLeft, y: y, width: textWidth, height: primaryH)
+        let prefix = tile.highlightPrefix
+        if !prefix.isEmpty, tile.title.lowercased().hasPrefix(prefix.lowercased()) {
+            let prefixLen = min(prefix.count, tile.title.count)
+            let matched = String(tile.title.prefix(prefixLen))
+            let rest = String(tile.title.dropFirst(prefixLen))
+            var highlightAttrs = primaryAttrs
+            highlightAttrs[.foregroundColor] = NSColor.controlAccentColor
+            let attributed = NSMutableAttributedString(string: matched, attributes: highlightAttrs)
+            attributed.append(NSAttributedString(string: rest, attributes: primaryAttrs))
+            attributed.draw(in: primaryRect)
+        } else {
+            NSAttributedString(string: tile.title, attributes: primaryAttrs).draw(in: primaryRect)
+        }
+
+        guard hasSecondary else { return }
+        y += primaryH + gap
+        let secondaryRect = CGRect(x: textLeft, y: y, width: textWidth, height: secondaryH)
         NSAttributedString(string: tile.secondary, attributes: secondaryAttrs).draw(in: secondaryRect)
     }
 

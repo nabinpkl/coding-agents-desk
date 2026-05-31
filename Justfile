@@ -55,12 +55,14 @@ host-run:
     launchctl setenv AGENTDESK_DEV_PERMISSIVE_KEYSTORE 1
     [ -n "${AGENTDESK_TRANSCRIBE_URL:-}" ] && launchctl setenv AGENTDESK_TRANSCRIBE_URL "${AGENTDESK_TRANSCRIBE_URL}" || true
     [ -n "${AGENTDESK_TRANSCRIBE_MODEL:-}" ] && launchctl setenv AGENTDESK_TRANSCRIBE_MODEL "${AGENTDESK_TRANSCRIBE_MODEL}" || true
+    [ -n "${AGENTDESK_SPACE_AGENT_LAYOUT:-}" ] && launchctl setenv AGENTDESK_SPACE_AGENT_LAYOUT "${AGENTDESK_SPACE_AGENT_LAYOUT}" || true
     open "{{host_app}}"
     sleep 2
     launchctl unsetenv AGENTDESK_AUTO_APPROVE
     launchctl unsetenv AGENTDESK_DEV_PERMISSIVE_KEYSTORE
     [ -n "${AGENTDESK_TRANSCRIBE_URL:-}" ] && launchctl unsetenv AGENTDESK_TRANSCRIBE_URL || true
     [ -n "${AGENTDESK_TRANSCRIBE_MODEL:-}" ] && launchctl unsetenv AGENTDESK_TRANSCRIBE_MODEL || true
+    [ -n "${AGENTDESK_SPACE_AGENT_LAYOUT:-}" ] && launchctl unsetenv AGENTDESK_SPACE_AGENT_LAYOUT || true
     pgrep -lf AgentDeskHost
 
 # Build client Debug for the iPhone and install (does not launch).
