@@ -56,6 +56,8 @@ host-run:
     [ -n "${AGENTDESK_TRANSCRIBE_URL:-}" ] && launchctl setenv AGENTDESK_TRANSCRIBE_URL "${AGENTDESK_TRANSCRIBE_URL}" || true
     [ -n "${AGENTDESK_TRANSCRIBE_MODEL:-}" ] && launchctl setenv AGENTDESK_TRANSCRIBE_MODEL "${AGENTDESK_TRANSCRIBE_MODEL}" || true
     [ -n "${AGENTDESK_SPACE_AGENT_LAYOUT:-}" ] && launchctl setenv AGENTDESK_SPACE_AGENT_LAYOUT "${AGENTDESK_SPACE_AGENT_LAYOUT}" || true
+    [ -n "${AGENTDESK_GESTURE_CHILD_PATH:-}" ] && launchctl setenv AGENTDESK_GESTURE_CHILD_PATH "${AGENTDESK_GESTURE_CHILD_PATH}" || true
+    [ -n "${AGENTDESK_GESTURE_CHILD_ARGS:-}" ] && launchctl setenv AGENTDESK_GESTURE_CHILD_ARGS "${AGENTDESK_GESTURE_CHILD_ARGS}" || true
     open "{{host_app}}"
     sleep 2
     launchctl unsetenv AGENTDESK_AUTO_APPROVE
@@ -63,6 +65,8 @@ host-run:
     [ -n "${AGENTDESK_TRANSCRIBE_URL:-}" ] && launchctl unsetenv AGENTDESK_TRANSCRIBE_URL || true
     [ -n "${AGENTDESK_TRANSCRIBE_MODEL:-}" ] && launchctl unsetenv AGENTDESK_TRANSCRIBE_MODEL || true
     [ -n "${AGENTDESK_SPACE_AGENT_LAYOUT:-}" ] && launchctl unsetenv AGENTDESK_SPACE_AGENT_LAYOUT || true
+    [ -n "${AGENTDESK_GESTURE_CHILD_PATH:-}" ] && launchctl unsetenv AGENTDESK_GESTURE_CHILD_PATH || true
+    [ -n "${AGENTDESK_GESTURE_CHILD_ARGS:-}" ] && launchctl unsetenv AGENTDESK_GESTURE_CHILD_ARGS || true
     pgrep -lf AgentDeskHost
 
 # Build client Debug for the iPhone and install (does not launch).

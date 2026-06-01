@@ -35,6 +35,22 @@ enum Config {
     static let signalingPort: UInt16 = 41888
     static let nonceTTL: TimeInterval = 90
     static let inputCapabilityTTL: TimeInterval = 60
+    static let gestureChildExecutableURL: URL? = {
+        guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_GESTURE_CHILD_PATH"],
+              !raw.isEmpty
+        else {
+            return nil
+        }
+        return URL(fileURLWithPath: (raw as NSString).expandingTildeInPath)
+    }()
+    static let gestureChildArguments: [String] = {
+        guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_GESTURE_CHILD_ARGS"],
+              !raw.isEmpty
+        else {
+            return []
+        }
+        return raw.split(separator: " ").map(String.init)
+    }()
     static let spaceAgentLayout = SpaceAgentLayout(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_SPACE_AGENT_LAYOUT"]
     )

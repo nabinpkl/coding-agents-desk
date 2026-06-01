@@ -94,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var spaceAgentController: SpaceAgentController?
     private var dictationBarController: DictationBarController?
     private var terminalLauncherController: TerminalLauncherController?
+    private var gestureChildController: GestureChildController?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
     private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()
@@ -115,6 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startSpaceAgent()
         startDictationBar()
         startTerminalLauncher()
+        startGestureChildIfConfigured()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
         }
@@ -210,6 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         popoverController.onQuit = {
+            self.gestureChildController?.stop()
             NSApp.terminate(nil)
         }
     }
@@ -452,6 +455,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.dictationBarController?.currentScreenFrame()
         }
         terminalLauncherController = controller
+        controller.start()
+    }
+
+    private func startGestureChildIfConfigured() {
+        guard let executableURL = Config.gestureChildExecutableURL else { return }
+        let controller = GestureChildController(
+            executableURL: executableURL,
+            arguments: Config.gestureChildArguments,
+            commitStep: { [spacesProvider] delta in
+                spacesProvider.commitStep(delta: delta)
+            }
+        )
+        gestureChildController = controller
         controller.start()
     }
 
