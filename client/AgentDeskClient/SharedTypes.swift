@@ -517,6 +517,21 @@ struct InputChannelHello: Codable, Equatable {
     }
 }
 
+struct InputChannelReady: Codable, Equatable {
+    let type: String
+    let sessionId: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case sessionId = "sid"
+    }
+
+    init(sessionId: String) {
+        self.type = "input-ready"
+        self.sessionId = sessionId
+    }
+}
+
 struct InputChannelEvent: Codable, Equatable {
     let type: String
     let event: NormalizedInput

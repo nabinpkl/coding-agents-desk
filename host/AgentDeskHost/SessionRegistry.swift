@@ -18,6 +18,10 @@ private struct InputCapabilityKey: Hashable {
     let inputCapability: String
 }
 
+private struct StaleInputCapabilityRecord {
+    let expiresAt: Int
+}
+
 // Per-fingerprint state for in-flight and active host sessions. Lives
 // outside AppDelegate so the bookkeeping (which dictionary entries belong
 // to which lifecycle phase, what the teardown order is) sits in one
@@ -37,9 +41,9 @@ final class SessionRegistry {
     private var transports: [DeviceFingerprint: MediaTransport] = [:]
     private var iceGraceTimers: [DeviceFingerprint: Task<Void, Never>] = [:]
     private var inputTasks: [DeviceFingerprint: Task<Void, Never>] = [:]
-    private var inputChannelServers: [DeviceFingerprint: InputChannelServer] = [:]
+    private var inputChannelServers: [DeviceFingerprint: any InputChannelServing] = [:]
     private var inputCapabilities: [DeviceFingerprint: InputCapabilityRecord] = [:]
-    private var staleInputCapabilities: Set<InputCapabilityKey> = []
+    private var staleInputCapabilities: [InputCapabilityKey: StaleInputCapabilityRecord] = [:]
 
     init(
         now: @escaping () -> Date = Date.init,
@@ -80,20 +84,20 @@ final class SessionRegistry {
 
     // Tears down all per-fingerprint state in a defined order: cancel
     // timers and tasks first so their continuations stop touching state,
-    // then stop the media transport. The signaling channel is left for
-    // the caller to close because closing it fires connectionDidClose,
-    // which re-enters here via sessionEndedHandler; doing the close
-    // inside would loop.
-    func endSession(_ fingerprint: DeviceFingerprint, sessionId: String? = nil) {
+    // then stop the media transport. Normal connection-close paths leave
+    // the signaling channel for the caller, because closing it fires
+    // connectionDidClose and re-enters here. Revocation passes
+    // closeSignaling=true after the allowlist row is deleted.
+    func endSession(_ fingerprint: DeviceFingerprint, sessionId: String? = nil, closeSignaling: Bool = false) {
         if let sessionId,
            let currentSessionId = sessionIds[fingerprint],
            currentSessionId != sessionId {
             return
         }
+        let channel = channels.removeValue(forKey: fingerprint)
         attempting.remove(fingerprint)
         active.remove(fingerprint)
         sessionIds.removeValue(forKey: fingerprint)
-        channels.removeValue(forKey: fingerprint)
         iceGraceTimers[fingerprint]?.cancel()
         iceGraceTimers.removeValue(forKey: fingerprint)
         inputTasks[fingerprint]?.cancel()
@@ -104,16 +108,20 @@ final class SessionRegistry {
             transport.stop()
         }
         inputCapabilities.removeValue(forKey: fingerprint)
-        staleInputCapabilities = Set(staleInputCapabilities.filter { $0.deviceFingerprint != fingerprint })
+        staleInputCapabilities = staleInputCapabilities.filter { $0.key.deviceFingerprint != fingerprint }
+        if closeSignaling {
+            channel?.close()
+        }
     }
 
     func validateInputCapability(_ hello: InputChannelHello) -> InputCapabilityValidationResult {
+        pruneExpiredStaleInputCapabilities()
         let presented = InputCapabilityKey(
             deviceFingerprint: hello.deviceFingerprint,
             sessionId: hello.sessionId,
             inputCapability: hello.inputCapability
         )
-        if staleInputCapabilities.contains(presented) {
+        if staleInputCapabilities[presented] != nil {
             return .rejected(.staleInputCapability)
         }
         guard active.contains(hello.deviceFingerprint),
@@ -129,7 +137,7 @@ final class SessionRegistry {
         guard Int(now().timeIntervalSince1970) <= current.expiresAt else {
             return .rejected(.expiredInputCapability)
         }
-        staleInputCapabilities.insert(presented)
+        markStaleInputCapability(presented, originalExpiresAt: current.expiresAt)
         do {
             inputCapabilities[hello.deviceFingerprint] = try makeCapabilityRecord(sessionId: hello.sessionId)
         } catch {
@@ -142,17 +150,21 @@ final class SessionRegistry {
         deviceFingerprint: DeviceFingerprint,
         sessionId: String
     ) -> Result<InputCapabilityGrant, SessionRejectionReason> {
+        pruneExpiredStaleInputCapabilities()
         guard active.contains(deviceFingerprint),
               sessionIds[deviceFingerprint] == sessionId
         else {
             return .failure(.unauthorized)
         }
         if let current = inputCapabilities[deviceFingerprint] {
-            staleInputCapabilities.insert(InputCapabilityKey(
-                deviceFingerprint: deviceFingerprint,
-                sessionId: current.sessionId,
-                inputCapability: current.inputCapability
-            ))
+            markStaleInputCapability(
+                InputCapabilityKey(
+                    deviceFingerprint: deviceFingerprint,
+                    sessionId: current.sessionId,
+                    inputCapability: current.inputCapability
+                ),
+                originalExpiresAt: current.expiresAt
+            )
         }
         do {
             let record = try makeCapabilityRecord(sessionId: sessionId)
@@ -181,7 +193,7 @@ final class SessionRegistry {
     // of the WebRTC PeerConnection. Registry owns its close() so session
     // teardown reliably tears it down without each call site having to
     // remember.
-    func attachInputChannelServer(_ server: InputChannelServer, for fingerprint: DeviceFingerprint) {
+    func attachInputChannelServer(_ server: any InputChannelServing, for fingerprint: DeviceFingerprint) {
         inputChannelServers[fingerprint]?.close()
         inputChannelServers[fingerprint] = server
     }
@@ -214,11 +226,11 @@ final class SessionRegistry {
     // captures the registry weakly and walks every active input
     // channel server to push (v0 has at most one; v1 may grow to
     // multiple paired clients).
-    func allInputChannelServers() -> [InputChannelServer] {
+    func allInputChannelServers() -> [any InputChannelServing] {
         Array(inputChannelServers.values)
     }
 
-    func allInputChannelServersByFingerprint() -> [(DeviceFingerprint, InputChannelServer)] {
+    func allInputChannelServersByFingerprint() -> [(DeviceFingerprint, any InputChannelServing)] {
         inputChannelServers.map { ($0.key, $0.value) }
     }
 
@@ -229,6 +241,18 @@ final class SessionRegistry {
             inputCapability: try randomBytes(32).base64URLEncodedString(),
             expiresAt: Int(issuedAt.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
         )
+    }
+
+    private func markStaleInputCapability(_ key: InputCapabilityKey, originalExpiresAt: Int) {
+        let ttlExpiresAt = Int(now().addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
+        staleInputCapabilities[key] = StaleInputCapabilityRecord(
+            expiresAt: min(originalExpiresAt, ttlExpiresAt)
+        )
+    }
+
+    private func pruneExpiredStaleInputCapabilities() {
+        let currentTime = Int(now().timeIntervalSince1970)
+        staleInputCapabilities = staleInputCapabilities.filter { $0.value.expiresAt >= currentTime }
     }
 
     nonisolated private static func systemRandomBytes(_ count: Int) throws -> Data {

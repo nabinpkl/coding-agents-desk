@@ -300,10 +300,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshConnectedState()
     }
 
-    private func handleSessionEnded(_ fingerprint: DeviceFingerprint, sessionId: String? = nil) {
+    private func handleSessionEnded(
+        _ fingerprint: DeviceFingerprint,
+        sessionId: String? = nil,
+        closeSignaling: Bool = false
+    ) {
         thumbnailEnabledClients.remove(fingerprint)
         spaceThumbnailProvider.setDemand(owner: .client(fingerprint.rawValue), enabled: false)
-        sessions.endSession(fingerprint, sessionId: sessionId)
+        sessions.endSession(fingerprint, sessionId: sessionId, closeSignaling: closeSignaling)
         signalingLogger.notice("session ended fingerprint=\(fingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
     }
@@ -545,9 +549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func revokeDevice(_ fingerprint: DeviceFingerprint) {
         try? pairing.revoke(deviceFingerprint: fingerprint)
-        let channel = sessions.signalingChannel(for: fingerprint)
-        handleSessionEnded(fingerprint)
-        channel?.close()
+        handleSessionEnded(fingerprint, closeSignaling: true)
         refreshConnectedState()
     }
 

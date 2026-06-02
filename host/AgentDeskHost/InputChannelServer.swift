@@ -2,6 +2,15 @@ import Foundation
 import Network
 import os
 
+protocol InputChannelServing: AnyObject, Sendable {
+    var events: AsyncStream<NormalizedInput> { get }
+    var configHandler: ((ClientConfig) -> Void)? { get set }
+
+    func close()
+    func pushDesktopState(_ state: DesktopState)
+    func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow])
+}
+
 // R11 wire shape: a server-pushed DesktopStatePush frame travels over
 // the same input WSS as the client-initiated InputChannelEvent frames.
 // The WS is bidirectional already; only the client->host direction was
@@ -18,7 +27,7 @@ import os
 // on session end, `close()` is called which cancels the underlying
 // NWConnection; the inbound continuation finishes, the consuming Task
 // drops, the dispatcher stops receiving events for that session.
-final class InputChannelServer: @unchecked Sendable {
+final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "input-channel")
     private let connection: NWConnection
     private let fingerprint: DeviceFingerprint

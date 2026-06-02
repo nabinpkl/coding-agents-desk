@@ -505,9 +505,11 @@ enum NormalizedInput: Codable, Equatable {
 // Secure connection on the existing signaling port 41888, distinct
 // from the WebRTC PeerConnection that carries video. First frame on a
 // new connection MUST be `InputChannelHello`; anything else closes the
-// connection. Subsequent frames are `InputChannelEvent`, one
-// `NormalizedInput` per WebSocket text frame. `InputChannelClose` is
-// optional, server-initiated, for clean teardown with reason.
+// connection. The host replies with `InputChannelReady` after accepting
+// the hello and before it hands the socket to InputChannelServer.
+// Subsequent frames are `InputChannelEvent`, one `NormalizedInput` per
+// WebSocket text frame. `InputChannelClose` is optional, server-initiated,
+// for clean teardown with reason.
 
 struct InputChannelHello: Codable, Equatable {
     let type: String
@@ -527,6 +529,21 @@ struct InputChannelHello: Codable, Equatable {
         self.deviceFingerprint = deviceFingerprint
         self.sessionId = sessionId
         self.inputCapability = inputCapability
+    }
+}
+
+struct InputChannelReady: Codable, Equatable {
+    let type: String
+    let sessionId: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case sessionId = "sid"
+    }
+
+    init(sessionId: String) {
+        self.type = "input-ready"
+        self.sessionId = sessionId
     }
 }
 

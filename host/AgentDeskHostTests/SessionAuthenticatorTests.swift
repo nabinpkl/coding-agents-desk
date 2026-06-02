@@ -206,6 +206,99 @@ struct SessionRegistryTests {
             return
         }
     }
+
+    @Test func staleInputCapabilitiesArePrunedAfterOriginalExpiry() throws {
+        let random = ByteSequence()
+        var clock = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { clock }, randomBytes: random.bytes(count:))
+        let fingerprint = DeviceFingerprint("device-fp")
+        registry.noteReady(
+            ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(clock.timeIntervalSince1970)),
+            channel: FakeSignalingChannel(),
+            inputCapability: "capability-1",
+            inputCapabilityExpiresAt: Int(clock.addingTimeInterval(5).timeIntervalSince1970)
+        )
+        let hello = InputChannelHello(
+            deviceFingerprint: fingerprint,
+            sessionId: "session-1",
+            inputCapability: "capability-1"
+        )
+
+        #expect(registry.validateInputCapability(hello) == .accepted(fingerprint))
+        #expect(registry.validateInputCapability(hello) == .rejected(.staleInputCapability))
+
+        clock = clock.addingTimeInterval(6)
+        #expect(registry.validateInputCapability(hello) == .rejected(.unauthorized))
+    }
+
+    @Test func sessionEndClearsStaleInputCapabilitiesForFingerprint() throws {
+        let random = ByteSequence()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now }, randomBytes: random.bytes(count:))
+        let fingerprint = DeviceFingerprint("device-fp")
+        let active = ActiveSession(
+            sessionId: "session-1",
+            deviceFingerprint: fingerprint,
+            establishedAt: Int(now.timeIntervalSince1970)
+        )
+        registry.noteReady(
+            active,
+            channel: FakeSignalingChannel(),
+            inputCapability: "capability-1",
+            inputCapabilityExpiresAt: Int(now.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
+        )
+        let hello = InputChannelHello(
+            deviceFingerprint: fingerprint,
+            sessionId: "session-1",
+            inputCapability: "capability-1"
+        )
+        #expect(registry.validateInputCapability(hello) == .accepted(fingerprint))
+
+        registry.endSession(fingerprint)
+        registry.noteReady(
+            active,
+            channel: FakeSignalingChannel(),
+            inputCapability: "capability-1",
+            inputCapabilityExpiresAt: Int(now.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
+        )
+
+        #expect(registry.validateInputCapability(hello) == .accepted(fingerprint))
+    }
+
+    @Test func revocationSessionEndTearsDownActiveSurfacesAndBlocksRefresh() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now })
+        let fingerprint = DeviceFingerprint("device-fp")
+        let signaling = FakeSignalingChannel()
+        let inputServer = FakeInputChannelServer()
+        let mediaTransport = FakeMediaTransport()
+        let inputTask = Task<Void, Never> {
+            try? await Task.sleep(nanoseconds: 60_000_000_000)
+        }
+        registry.noteReady(
+            ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970)),
+            channel: signaling,
+            inputCapability: "capability-1",
+            inputCapabilityExpiresAt: Int(now.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
+        )
+        registry.attachInputChannelServer(inputServer, for: fingerprint)
+        registry.attachTransport(mediaTransport, for: fingerprint)
+        registry.attachInputTask(inputTask, for: fingerprint)
+
+        registry.endSession(fingerprint, closeSignaling: true)
+
+        #expect(signaling.closed)
+        #expect(inputServer.closed)
+        #expect(mediaTransport.stopped)
+        #expect(inputTask.isCancelled)
+        #expect(!registry.isActive(fingerprint))
+        let refresh = registry.refreshInputCapability(deviceFingerprint: fingerprint, sessionId: "session-1")
+        guard case .failure(let reason) = refresh else {
+            #expect(Bool(false))
+            return
+        }
+        #expect(reason == .unauthorized)
+    }
 }
 
 private final class ByteSequence {
@@ -233,6 +326,48 @@ private final class FakeSignalingChannel: SignalingChannel, @unchecked Sendable 
     func close() {
         closed = true
         continuation.finish()
+    }
+}
+
+private final class FakeInputChannelServer: InputChannelServing, @unchecked Sendable {
+    let events: AsyncStream<NormalizedInput>
+    private let continuation: AsyncStream<NormalizedInput>.Continuation
+    private(set) var closed = false
+    var configHandler: ((ClientConfig) -> Void)?
+
+    init() {
+        var continuation: AsyncStream<NormalizedInput>.Continuation!
+        events = AsyncStream { continuation = $0 }
+        self.continuation = continuation
+    }
+
+    func close() {
+        closed = true
+        continuation.finish()
+    }
+
+    func pushDesktopState(_ state: DesktopState) {}
+
+    func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow]) {}
+}
+
+private final class FakeMediaTransport: MediaTransport, @unchecked Sendable {
+    let connectionState: AsyncStream<MediaConnectionState>
+    private(set) var stopped = false
+
+    init() {
+        connectionState = AsyncStream { _ in }
+    }
+
+    func start(
+        role: MediaTransportRole,
+        signaling: SignalingChannel,
+        videoSource: VideoFrameSource?,
+        videoSink: VideoFrameSink?
+    ) async throws {}
+
+    func stop() {
+        stopped = true
     }
 }
 

@@ -115,6 +115,11 @@ final class SessionDialer {
                     } else if let grant = try? JSONDecoder().decode(InputCapabilityGrant.self, from: data),
                               grant.type == "input-capability-grant" {
                         channel.deliver(grant)
+                    } else if let rejected = try? JSONDecoder().decode(SessionRejected.self, from: data),
+                              rejected.type == "session-rejected" {
+                        channel.deliver(rejected)
+                        channel.close()
+                        return
                     } else {
                         channel.close()
                         return

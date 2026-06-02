@@ -185,15 +185,22 @@ final class PairingSignalingServer: @unchecked Sendable {
             switch result {
             case .accepted(let fingerprint):
                 self.logger.notice("input-hello accepted fp=\(fingerprint.rawValue, privacy: .public)")
-                // Detach from PairingSignalingServer's connection tracking so
-                // its dispatch loop never sees subsequent frames on this
-                // connection. InputChannelServer owns the receive loop now.
-                if let context {
-                    context.connection.stateUpdateHandler = nil
-                    self.connections.removeValue(forKey: ObjectIdentifier(context.connection))
+                let connectionId = ObjectIdentifier(connection)
+                self.sendInputChannelReady(sessionId: hello.sessionId, on: connection) { [weak self, weak connection] error in
+                    guard let self, let connection else { return }
+                    if let error {
+                        self.logger.error("input-ready send failed: \(String(describing: error), privacy: .public)")
+                        connection.cancel()
+                        return
+                    }
+                    // Detach from PairingSignalingServer's connection tracking so
+                    // its dispatch loop never sees subsequent frames on this
+                    // connection. InputChannelServer owns the receive loop now.
+                    connection.stateUpdateHandler = nil
+                    self.connections.removeValue(forKey: connectionId)
+                    let server = InputChannelServer(connection: connection, fingerprint: fingerprint)
+                    self.inputChannelReadyHandler(fingerprint, server)
                 }
-                let server = InputChannelServer(connection: connection, fingerprint: fingerprint)
-                self.inputChannelReadyHandler(fingerprint, server)
             case .rejected(let reason):
                 self.logger.error("input-hello rejected reason=\(reason.rawValue, privacy: .public) fp=\(hello.deviceFingerprint.rawValue, privacy: .public)")
                 self.sendSessionRejected(reason: reason, on: connection)
@@ -364,6 +371,27 @@ final class PairingSignalingServer: @unchecked Sendable {
 
     private func sendSessionRejected(reason: SessionRejectionReason, on connection: NWConnection) {
         send(sessionMessage: SessionRejected(reason: reason), on: connection)
+    }
+
+    private func sendInputChannelReady(
+        sessionId: String,
+        on connection: NWConnection,
+        completion: @escaping @Sendable (NWError?) -> Void
+    ) {
+        do {
+            let data = try JSONEncoder().encode(InputChannelReady(sessionId: sessionId))
+            let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
+            let context = NWConnection.ContentContext(identifier: "input-ready", metadata: [metadata])
+            connection.send(
+                content: data,
+                contentContext: context,
+                isComplete: true,
+                completion: .contentProcessed(completion)
+            )
+        } catch {
+            logger.error("input-ready encode failed: \(String(describing: error), privacy: .public)")
+            connection.cancel()
+        }
     }
 
     private func makeActiveSessionChannel(on connection: NWConnection) -> WebSocketSignalingChannel {

@@ -73,6 +73,68 @@ struct PairingClientTests {
         #expect(rejectingClient.state == .rejected("signature-mismatch"))
     }
 
+    @Test func postReadySessionRejectedSurfacesThroughCapabilityRefresh() async throws {
+        let channel = WebSocketSignalingChannel(
+            sender: { _ in },
+            capabilityRequestSender: { _ in },
+            closer: {}
+        )
+        let refresh = Task {
+            try await channel.refreshInputCapability(
+                deviceFingerprint: DeviceFingerprint("device-fp"),
+                sessionId: "session-123"
+            )
+        }
+
+        try await Task.sleep(nanoseconds: 10_000_000)
+        channel.deliver(SessionRejected(reason: .revoked))
+
+        do {
+            _ = try await refresh.value
+            Issue.record("capability refresh unexpectedly succeeded")
+        } catch let rejection as SessionRejected {
+            #expect(rejection.reason == .revoked)
+        }
+    }
+
+    @Test func revokedRefreshRejectionClearsStoredCredentials() throws {
+        let hostKey = P256.Signing.PrivateKey()
+        let token = try signedToken(hostKey: hostKey, deviceFingerprint: DeviceFingerprint("device"))
+        let store = InMemorySessionTokenStore()
+        try store.store(StoredPairingRecord(
+            token: token,
+            hostPublicKey: hostKey.publicKey.x963Representation,
+            tailnetFQDN: "mac.tailnet.ts.net",
+            tailnetIPv4: "100.64.0.10"
+        ))
+        let client = PairingClient(tokenStore: store, deviceKeyProvider: InMemoryDeviceSigningKeyProvider(), resolver: StaticResolver())
+
+        client.applyRejection(SessionRejected(reason: .revoked))
+
+        #expect(client.state == .revoked)
+        #expect(try store.load() == nil)
+    }
+
+    @Test func staleAndExpiredRefreshRejectionsStayPairedDisconnected() throws {
+        let hostKey = P256.Signing.PrivateKey()
+        let token = try signedToken(hostKey: hostKey, deviceFingerprint: DeviceFingerprint("device"))
+        for reason in [SessionRejectionReason.staleInputCapability, .expiredInputCapability] {
+            let store = InMemorySessionTokenStore()
+            try store.store(StoredPairingRecord(
+                token: token,
+                hostPublicKey: hostKey.publicKey.x963Representation,
+                tailnetFQDN: "mac.tailnet.ts.net",
+                tailnetIPv4: "100.64.0.10"
+            ))
+            let client = PairingClient(tokenStore: store, deviceKeyProvider: InMemoryDeviceSigningKeyProvider(), resolver: StaticResolver())
+
+            client.applyRejection(SessionRejected(reason: reason))
+
+            #expect(client.state == .pairedDisconnected)
+            #expect(try store.load()?.token == token)
+        }
+    }
+
     private func signedToken(hostKey: P256.Signing.PrivateKey, deviceFingerprint: DeviceFingerprint) throws -> SessionToken {
         let issuedAt = 1_800_000_000
         let hostFingerprint = hostKey.publicKey.agentDeskFingerprint

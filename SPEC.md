@@ -125,6 +125,7 @@ routing; matches the existing `/pair` and `/session` pattern).
 
 ```
 InputChannelHello  { deviceFingerprint, sessionId, inputCapability } // t: "input-hello" (client -> host)
+InputChannelReady  { sessionId }                          // t: "input-ready"     (host -> client)
 InputChannelEvent  { event: NormalizedInput }             // t: "input-event"     (client -> host)
 InputChannelClose  { reason }                             // t: "input-close"     (server -> client, optional)
 DesktopStatePush   { state: DesktopState }                // t: "desktop-state"   (server -> client, R11)
@@ -133,9 +134,10 @@ DesktopStatePush   { state: DesktopState }                // t: "desktop-state" 
 First frame on a new connection MUST be `InputChannelHello`; the host
 validates the input capability against an active ADR-0003 session in
 `SessionRegistry` and closes the connection with `SessionRejected` on
-mismatch, expiry, or stale capability. After the hello is accepted,
-subsequent frames are `InputChannelEvent`, one `NormalizedInput` per
-WebSocket text frame. The host pushes `DesktopStatePush` frames in the
+mismatch, expiry, or stale capability. After the hello is accepted, the
+host sends `InputChannelReady` for that session id, then subsequent client
+frames are `InputChannelEvent`, one `NormalizedInput` per WebSocket text
+frame. The host pushes `DesktopStatePush` frames in the
 opposite direction (server -> client) on session attach and after every
 successful Spaces switch; the client uses these to drive the
 `SpacesDotsView` render. The WSS was already bidirectional but R11 added

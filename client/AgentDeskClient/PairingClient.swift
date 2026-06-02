@@ -269,7 +269,7 @@ final class PairingClient {
         }
     }
 
-    private func applyRejection(_ rejection: SessionRejected) {
+    func applyRejection(_ rejection: SessionRejected) {
         switch rejection.reason {
         case .revoked, .unknownDevice, .badSignature, .unauthorized:
             try? tokenStore.clear()
@@ -336,10 +336,17 @@ final class PairingClient {
                 signaling: signaling,
                 channel: replacement
             )
+        } catch let rejection as SessionRejected {
+            activeSignaling?.close()
+            activeSignaling = nil
+            activeInputChannel = nil
+            inputReconnectTask = nil
+            applyRejection(rejection)
         } catch {
             activeSignaling?.close()
             activeSignaling = nil
             activeInputChannel = nil
+            inputReconnectTask = nil
             state = .pairedDisconnected
         }
     }

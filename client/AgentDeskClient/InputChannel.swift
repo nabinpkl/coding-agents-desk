@@ -45,6 +45,27 @@ enum InputChannelError: Error {
     case malformedURL
 }
 
+protocol InputWebSocketTask: AnyObject, Sendable {
+    func resume()
+    func send(_ message: URLSessionWebSocketTask.Message) async throws
+    func receive() async throws -> URLSessionWebSocketTask.Message
+    func cancel(with closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?)
+}
+
+extension URLSessionWebSocketTask: InputWebSocketTask {}
+
+protocol InputWebSocketTaskFactory: Sendable {
+    func makeTask(url: URL) -> InputWebSocketTask
+}
+
+struct URLSessionInputWebSocketTaskFactory: InputWebSocketTaskFactory {
+    let urlSession: URLSession
+
+    func makeTask(url: URL) -> InputWebSocketTask {
+        urlSession.webSocketTask(with: url)
+    }
+}
+
 private let inputLogger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "input-channel")
 
 // Closed-state holder. OSAllocatedUnfairLock is async-safe (no
@@ -61,7 +82,7 @@ private final class CloseFlag: @unchecked Sendable {
 }
 
 final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
-    private let task: URLSessionWebSocketTask
+    private let task: InputWebSocketTask
     private let encoder = JSONEncoder()
     private let closedFlag = CloseFlag()
     // R11: AsyncStream surfaces host-pushed DesktopState frames. The
@@ -79,7 +100,7 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
     private let closedContinuation: AsyncStream<Void>.Continuation
     let closed: AsyncStream<Void>
 
-    init(task: URLSessionWebSocketTask) {
+    init(task: InputWebSocketTask) {
         self.task = task
         var dsCont: AsyncStream<DesktopState>.Continuation!
         self.desktopStateUpdates = AsyncStream { dsCont = $0 }
@@ -218,10 +239,28 @@ enum InputChannelOpener {
         inputCapability: String,
         urlSession: URLSession
     ) async throws -> InputChannel {
+        try await open(
+            host: host,
+            port: port,
+            deviceFingerprint: deviceFingerprint,
+            sessionId: sessionId,
+            inputCapability: inputCapability,
+            taskFactory: URLSessionInputWebSocketTaskFactory(urlSession: urlSession)
+        )
+    }
+
+    static func open(
+        host: String,
+        port: UInt16,
+        deviceFingerprint: DeviceFingerprint,
+        sessionId: String,
+        inputCapability: String,
+        taskFactory: InputWebSocketTaskFactory
+    ) async throws -> InputChannel {
         guard let url = URL(string: "wss://\(host):\(port)/input") else {
             throw InputChannelError.malformedURL
         }
-        let task = urlSession.webSocketTask(with: url)
+        let task = taskFactory.makeTask(url: url)
         task.resume()
         let hello = InputChannelHello(
             deviceFingerprint: deviceFingerprint,
@@ -235,11 +274,47 @@ enum InputChannelOpener {
         }
         do {
             try await task.send(.string(helloText))
+            let ready = try await receiveReady(sessionId: sessionId, on: task)
+            guard ready.sessionId == sessionId else {
+                task.cancel(with: .protocolError, reason: nil)
+                throw SessionRejected(reason: .malformed)
+            }
         } catch {
             task.cancel(with: .protocolError, reason: nil)
             throw error
         }
         inputLogger.notice("input channel opened host=\(host, privacy: .public)")
         return WebSocketInputChannel(task: task)
+    }
+
+    private static func receiveReady(sessionId: String, on task: InputWebSocketTask) async throws -> InputChannelReady {
+        let message = try await task.receive()
+        let data: Data
+        switch message {
+        case .data(let bytes):
+            data = bytes
+        case .string(let text):
+            data = Data(text.utf8)
+        @unknown default:
+            throw SessionRejected(reason: .malformed)
+        }
+        guard let envelope = try? JSONDecoder().decode(InputFrameHeader.self, from: data) else {
+            throw SessionRejected(reason: .malformed)
+        }
+        switch envelope.type {
+        case "input-ready":
+            do {
+                return try JSONDecoder().decode(InputChannelReady.self, from: data)
+            } catch {
+                throw SessionRejected(reason: .malformed)
+            }
+        case "session-rejected":
+            if let rejected = try? JSONDecoder().decode(SessionRejected.self, from: data) {
+                throw rejected
+            }
+            throw SessionRejected(reason: .malformed)
+        default:
+            throw SessionRejected(reason: .malformed)
+        }
     }
 }
