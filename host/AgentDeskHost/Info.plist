@@ -32,6 +32,8 @@
 	<string>AgentDesk needs Screen Recording to stream this Mac's display to your iPhone.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>AgentDesk records short clips from this Mac's microphone to transcribe them to text.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>AgentDesk uses this Mac's camera to detect local hand gestures for desktop switching.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

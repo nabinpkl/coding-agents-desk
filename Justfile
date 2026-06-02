@@ -58,6 +58,7 @@ host-run:
     [ -n "${AGENTDESK_SPACE_AGENT_LAYOUT:-}" ] && launchctl setenv AGENTDESK_SPACE_AGENT_LAYOUT "${AGENTDESK_SPACE_AGENT_LAYOUT}" || true
     [ -n "${AGENTDESK_GESTURE_CHILD_PATH:-}" ] && launchctl setenv AGENTDESK_GESTURE_CHILD_PATH "${AGENTDESK_GESTURE_CHILD_PATH}" || true
     [ -n "${AGENTDESK_GESTURE_CHILD_ARGS:-}" ] && launchctl setenv AGENTDESK_GESTURE_CHILD_ARGS "${AGENTDESK_GESTURE_CHILD_ARGS}" || true
+    [ -n "${AGENTDESK_GESTURE_HEADLESS:-}" ] && launchctl setenv AGENTDESK_GESTURE_HEADLESS "${AGENTDESK_GESTURE_HEADLESS}" || true
     open "{{host_app}}"
     sleep 2
     launchctl unsetenv AGENTDESK_AUTO_APPROVE
@@ -67,6 +68,7 @@ host-run:
     [ -n "${AGENTDESK_SPACE_AGENT_LAYOUT:-}" ] && launchctl unsetenv AGENTDESK_SPACE_AGENT_LAYOUT || true
     [ -n "${AGENTDESK_GESTURE_CHILD_PATH:-}" ] && launchctl unsetenv AGENTDESK_GESTURE_CHILD_PATH || true
     [ -n "${AGENTDESK_GESTURE_CHILD_ARGS:-}" ] && launchctl unsetenv AGENTDESK_GESTURE_CHILD_ARGS || true
+    [ -n "${AGENTDESK_GESTURE_HEADLESS:-}" ] && launchctl unsetenv AGENTDESK_GESTURE_HEADLESS || true
     pgrep -lf AgentDeskHost
 
 # Build client Debug for the iPhone and install (does not launch).
