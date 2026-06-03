@@ -159,8 +159,11 @@ private final class HyperKeyCharTap {
 @MainActor
 final class SpaceAgentController: NSObject {
     private enum DefaultsKey {
-        static let originX = "SpaceAgent.origin.x"
-        static let originY = "SpaceAgent.origin.y"
+        // Keys are versioned so a default-placement change (right edge ->
+        // top center) drops the stale parked origin instead of pinning the
+        // panel to its old spot. Future drags persist under the new keys.
+        static let originX = "SpaceAgent.origin.v2.x"
+        static let originY = "SpaceAgent.origin.v2.y"
     }
 
     private let spacesProvider: SpacesProvider
@@ -577,9 +580,12 @@ extension SpaceAgentController: NSWindowDelegate {
 enum SpaceAgentPanelPlacement {
     static func defaultOrigin(size: CGSize, visibleFrames: [CGRect]) -> CGPoint {
         let frame = visibleFrames.first ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        // Top center of the primary screen. macOS coordinates are bottom-left
+        // origin, so the top edge is the high-y side: park the panel just below
+        // it and horizontally centered.
         return CGPoint(
-            x: frame.maxX - size.width - 24,
-            y: frame.minY + 96
+            x: frame.midX - size.width / 2,
+            y: frame.maxY - size.height - 24
         )
     }
 
