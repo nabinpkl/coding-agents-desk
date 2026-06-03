@@ -1066,6 +1066,12 @@ private final class SpaceAgentTileView: NSControl {
 
     override var isFlipped: Bool { true }
 
+    // The tiles live in the same borderless non-activating panel as the rocket.
+    // Now that the persistent sidebar stays non-key, the first click on a tile
+    // would otherwise be spent making the panel key, so switching desktops took
+    // two clicks. Accepting the first mouse makes a single click switch.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         // Layer-backed with masksToBounds off so the hover shadow can cast
