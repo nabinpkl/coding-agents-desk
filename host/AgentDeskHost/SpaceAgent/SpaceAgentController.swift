@@ -175,7 +175,6 @@ final class SpaceAgentController: NSObject {
     private var spaceChangeObserver: NSObjectProtocol?
     private var pendingHandleScreenOrigin: CGPoint?
     private var collapsedPanelOrigin: CGPoint?
-    private var outsideClickMonitor: Any?
     private var commandTapMonitors: [Any] = []
     private let commandTapDetector = DoubleTapDetector(modifier: .command)
     private var hyperTap: HyperKeyCharTap?
@@ -212,7 +211,6 @@ final class SpaceAgentController: NSObject {
             NSWorkspace.shared.notificationCenter.removeObserver(spaceChangeObserver)
             self.spaceChangeObserver = nil
         }
-        uninstallOutsideClickMonitor()
         uninstallCommandTapMonitor()
         hyperTap?.stop()
         hyperTap = nil
@@ -254,6 +252,11 @@ final class SpaceAgentController: NSObject {
         Task { await thumbnailProvider.refreshTopWindows() }
         resizePanel()
         panel.orderFrontRegardless()
+        // The panel is a persistent sidebar: open it at launch and leave it
+        // open. Only a rocket click (or the keyboard toggles) collapses it;
+        // outside clicks do not. It stays non-key so typing goes to the user's
+        // frontmost app until they click the search field.
+        setExpanded(true)
     }
 
     // Double-tap Command, from anywhere, toggles the palette. A global monitor
@@ -267,7 +270,10 @@ final class SpaceAgentController: NSObject {
             Task { @MainActor in
                 guard let self else { return }
                 if self.commandTapDetector.handle(event) {
-                    self.setExpanded(!self.viewController.isExpanded)
+                    // An explicit keyboard invocation: when it opens the
+                    // palette, focus the search field so the user can type.
+                    let willExpand = !self.viewController.isExpanded
+                    self.setExpanded(willExpand, takeKeyFocus: willExpand)
                 }
             }
         }
@@ -335,7 +341,7 @@ final class SpaceAgentController: NSObject {
             viewController.presetSearch(query)
         } else {
             pendingSearchQuery = query
-            setExpanded(true)
+            setExpanded(true, takeKeyFocus: true)
         }
         return true
     }
@@ -374,7 +380,7 @@ final class SpaceAgentController: NSObject {
         resizePanel()
     }
 
-    private func setExpanded(_ expanded: Bool) {
+    private func setExpanded(_ expanded: Bool, takeKeyFocus: Bool = false) {
         guard viewController.isExpanded != expanded else { return }
         if expanded {
             // Save the spaceship's resting (collapsed) panel origin so
@@ -396,12 +402,10 @@ final class SpaceAgentController: NSObject {
             latestState = spacesProvider.current()
             thumbnailProvider.setDemand(owner: .spaceAgent, enabled: true)
             startThumbnailTask()
-            installOutsideClickMonitor()
         } else {
             thumbnailsTask?.cancel()
             thumbnailsTask = nil
             thumbnailProvider.setDemand(owner: .spaceAgent, enabled: false)
-            uninstallOutsideClickMonitor()
         }
         render()
         if expanded {
@@ -414,8 +418,15 @@ final class SpaceAgentController: NSObject {
             } else {
                 viewController.resetSearch()
             }
-            panel?.makeKeyAndOrderFront(nil)
-            viewController.focusSearchField()
+            // Only take keyboard focus when the expand was an explicit
+            // type-to-search gesture (Hyper + letter with several matches).
+            // For the persistent sidebar and the plain toggles we stay
+            // non-key so the user's frontmost app keeps the keyboard; a click
+            // on the search field makes the panel key on demand.
+            if takeKeyFocus {
+                panel?.makeKeyAndOrderFront(nil)
+                viewController.focusSearchField()
+            }
         } else {
             restoreCollapsedOrigin()
             relinquishKey()
@@ -446,29 +457,6 @@ final class SpaceAgentController: NSObject {
         guard clamped != panel.frame.origin else { return }
         panel.setFrame(CGRect(origin: clamped, size: size), display: true)
         save(origin: clamped)
-    }
-
-    // Global monitors only fire for events outside the receiving process,
-    // so any click this picks up while the popover is expanded is by
-    // definition outside our panel. That makes it the right hook for a
-    // "tap-outside-to-dismiss" affordance without having to compute hit
-    // rects against the panel's frame ourselves.
-    private func installOutsideClickMonitor() {
-        guard outsideClickMonitor == nil else { return }
-        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.viewController.isExpanded else { return }
-                self.setExpanded(false)
-            }
-        }
-    }
-
-    private func uninstallOutsideClickMonitor() {
-        guard let monitor = outsideClickMonitor else { return }
-        NSEvent.removeMonitor(monitor)
-        outsideClickMonitor = nil
     }
 
     private func startThumbnailTask() {
