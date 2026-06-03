@@ -94,7 +94,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var spaceAgentController: SpaceAgentController?
     private var dictationBarController: DictationBarController?
     private var terminalLauncherController: TerminalLauncherController?
+    private var gesturePortalController: GesturePortalController?
     private var gestureChildController: GestureChildController?
+    private var voiceChildController: VoiceChildController?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
     private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()
@@ -114,8 +116,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installSpacesChangeObserver()
         installThumbnailsBroadcast()
         startSpaceAgent()
+        startVoiceChildIfConfigured()
         startDictationBar()
         startTerminalLauncher()
+        startGesturePortal()
         startGestureChildIfConfigured()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
@@ -162,6 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         spaceAgentController?.stop()
         dictationBarController?.stop()
         terminalLauncherController?.stop()
+        voiceChildController?.stop()
         signalingServer?.stop()
     }
 
@@ -213,6 +218,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         popoverController.onQuit = {
             self.gestureChildController?.stop()
+            self.gesturePortalController?.stop()
+            self.voiceChildController?.stop()
             NSApp.terminate(nil)
         }
     }
@@ -428,7 +435,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startDictationBar() {
+        let transcriber = TranscriptionClient(voiceChild: voiceChildController)
         let controller = DictationBarController(
+            transcriber: transcriber,
             typeText: { [inputDispatcher] text in inputDispatcher.typeText(text) }
         )
         // Set the handle-frame provider before start() so the bar's first
@@ -443,11 +452,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         spaceAgentController?.onHandleFrameDidChange = { [weak self] in
             self?.dictationBarController?.keepClearOfSpaceAgentHandle()
             self?.terminalLauncherController?.keepClearOfNeighbors()
+            self?.gesturePortalController?.keepClearOfNeighbors()
         }
         // A dictation-bar move re-dodges the terminal pill (its other neighbor).
         controller.onFrameDidChange = { [weak self] in
             self?.terminalLauncherController?.keepClearOfNeighbors()
+            self?.gesturePortalController?.keepClearOfNeighbors()
         }
+    }
+
+    private func startVoiceChildIfConfigured() {
+        guard let executableURL = Config.voiceChildExecutableURL else { return }
+        let controller = VoiceChildController(
+            executableURL: executableURL,
+            arguments: Config.voiceChildArguments,
+            model: Config.transcriptionModel
+        )
+        voiceChildController = controller
+        controller.start()
     }
 
     private func startTerminalLauncher() {
@@ -462,11 +484,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.start()
     }
 
+    private func startGesturePortal() {
+        let controller = GesturePortalController()
+        controller.spaceAgentHandleFrame = { [weak self] in
+            self?.spaceAgentController?.currentHandleScreenFrame()
+        }
+        controller.dictationBarFrame = { [weak self] in
+            self?.dictationBarController?.currentScreenFrame()
+        }
+        controller.terminalLauncherFrame = { [weak self] in
+            self?.terminalLauncherController?.currentScreenFrame()
+        }
+        gesturePortalController = controller
+        controller.start()
+    }
+
     private func startGestureChildIfConfigured() {
         guard let executableURL = Config.gestureChildExecutableURL else { return }
         let controller = GestureChildController(
             executableURL: executableURL,
             arguments: Config.gestureChildArguments,
+            onGestureState: { [weak self] state in
+                self?.gesturePortalController?.update(state)
+            },
             commitStep: { [spacesProvider] delta in
                 spacesProvider.commitStep(delta: delta)
             }

@@ -30,6 +30,32 @@ struct GestureChildControllerTests {
         #expect(status == nil)
     }
 
+    @Test func parsesGestureState() throws {
+        let state = try #require(try GestureChildController.gestureState(
+            from: #"{"type":"gestureState","phase":"READY","counts":{"left":3,"right":2},"anchor":{"center":[0.48,0.42],"radius":[0.07,0.18],"near":true},"hand":{"center":[0.5,0.43],"landmarks":[[0.1,0.2],[0.3,0.4]]},"createdAt":1780000000.12}"#
+        ))
+
+        #expect(state.phase == "READY")
+        #expect(state.counts.left == 3)
+        #expect(state.counts.right == 2)
+        #expect(state.anchor?.center == GesturePortalPoint(x: 0.48, y: 0.42))
+        #expect(state.anchor?.radius == GesturePortalPoint(x: 0.07, y: 0.18))
+        #expect(state.anchor?.near == true)
+        #expect(state.hand?.center == GesturePortalPoint(x: 0.5, y: 0.43))
+        #expect(state.hand?.landmarks.count == 2)
+        #expect(state.createdAt == 1780000000.12)
+    }
+
+    @Test func parsesGestureStateWithNullGeometry() throws {
+        let state = try #require(try GestureChildController.gestureState(
+            from: #"{"type":"gestureState","phase":"NO_ANCHOR","counts":{"left":0,"right":0},"anchor":null,"hand":null,"createdAt":1780000000.12}"#
+        ))
+
+        #expect(state.phase == "NO_ANCHOR")
+        #expect(state.anchor == nil)
+        #expect(state.hand == nil)
+    }
+
     @Test func rejectsInvalidDelta() {
         #expect(throws: GestureChildControllerError.invalidDelta(2)) {
             _ = try GestureChildController.spaceStepDelta(

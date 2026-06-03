@@ -87,6 +87,14 @@
 		A00000000000000000000257 /* GestureChildController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000152 /* GestureChildController.swift */; };
 		A00000000000000000000258 /* GestureChildController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000152 /* GestureChildController.swift */; };
 		A00000000000000000000259 /* GestureChildControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000153 /* GestureChildControllerTests.swift */; };
+		A0000000000000000000025A /* GesturePortalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000154 /* GesturePortalController.swift */; };
+		A0000000000000000000025B /* GesturePortalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000154 /* GesturePortalController.swift */; };
+		A0000000000000000000025C /* JsonlChildProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000155 /* JsonlChildProcess.swift */; };
+		A0000000000000000000025D /* JsonlChildProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000155 /* JsonlChildProcess.swift */; };
+		A0000000000000000000025E /* VoiceChildController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000156 /* VoiceChildController.swift */; };
+		A0000000000000000000025F /* VoiceChildController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000156 /* VoiceChildController.swift */; };
+		A00000000000000000000260 /* JsonlChildProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000157 /* JsonlChildProcessTests.swift */; };
+		A00000000000000000000261 /* VoiceChildControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000158 /* VoiceChildControllerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -144,6 +152,11 @@
 		A00000000000000000000151 /* TerminalLauncherViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLauncherViewController.swift; sourceTree = "<group>"; };
 		A00000000000000000000152 /* GestureChildController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureChildController.swift; sourceTree = "<group>"; };
 		A00000000000000000000153 /* GestureChildControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureChildControllerTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000154 /* GesturePortalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GesturePortalController.swift; sourceTree = "<group>"; };
+		A00000000000000000000155 /* JsonlChildProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JsonlChildProcess.swift; sourceTree = "<group>"; };
+		A00000000000000000000156 /* VoiceChildController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChildController.swift; sourceTree = "<group>"; };
+		A00000000000000000000157 /* JsonlChildProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JsonlChildProcessTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000158 /* VoiceChildControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChildControllerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000133 /* WAVEncoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVEncoderTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000134 /* AgentDeskHost.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AgentDeskHost.entitlements; sourceTree = "<group>"; };
 		A00000000000000000000141 /* AgentDeskHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -226,7 +239,10 @@
 				A0000000000000000000011D /* SessionRegistry.swift */,
 				A0000000000000000000011E /* KeyCodeMap.swift */,
 				A0000000000000000000011F /* InputChannelServer.swift */,
+				A00000000000000000000155 /* JsonlChildProcess.swift */,
 				A00000000000000000000152 /* GestureChildController.swift */,
+				A00000000000000000000154 /* GesturePortalController.swift */,
+				A00000000000000000000156 /* VoiceChildController.swift */,
 				A00000000000000000000120 /* SpacesProvider.swift */,
 				A00000000000000000000127 /* SpaceThumbnailProvider.swift */,
 				A0000000000000000000011B /* Assets.xcassets */,
@@ -274,6 +290,8 @@
 				A00000000000000000000124 /* SignalingFrameRoutingTests.swift */,
 				A00000000000000000000125 /* InputDispatcherTests.swift */,
 				A00000000000000000000153 /* GestureChildControllerTests.swift */,
+				A00000000000000000000157 /* JsonlChildProcessTests.swift */,
+				A00000000000000000000158 /* VoiceChildControllerTests.swift */,
 				A00000000000000000000126 /* SpacesProviderTests.swift */,
 				A0000000000000000000012B /* SpaceAgentModelTests.swift */,
 				A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */,
@@ -446,7 +464,10 @@
 				A00000000000000000000248 /* DictationBarViewController.swift in Sources */,
 				A00000000000000000000250 /* TerminalLauncherController.swift in Sources */,
 				A00000000000000000000251 /* TerminalLauncherViewController.swift in Sources */,
+				A0000000000000000000025C /* JsonlChildProcess.swift in Sources */,
 				A00000000000000000000257 /* GestureChildController.swift in Sources */,
+				A0000000000000000000025A /* GesturePortalController.swift in Sources */,
+				A0000000000000000000025E /* VoiceChildController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -471,12 +492,17 @@
 				A00000000000000000000254 /* VideoFrameSource.swift in Sources */,
 				A00000000000000000000255 /* SessionRegistry.swift in Sources */,
 				A00000000000000000000256 /* InputChannelServer.swift in Sources */,
+				A0000000000000000000025D /* JsonlChildProcess.swift in Sources */,
 				A00000000000000000000258 /* GestureChildController.swift in Sources */,
+				A0000000000000000000025B /* GesturePortalController.swift in Sources */,
+				A0000000000000000000025F /* VoiceChildController.swift in Sources */,
 				A0000000000000000000022D /* SignalingFrameRouting.swift in Sources */,
 				A0000000000000000000022E /* SignalingFrameRoutingTests.swift in Sources */,
 				A0000000000000000000022F /* InputDispatcher.swift in Sources */,
 				A00000000000000000000230 /* InputDispatcherTests.swift in Sources */,
 				A00000000000000000000259 /* GestureChildControllerTests.swift in Sources */,
+				A00000000000000000000260 /* JsonlChildProcessTests.swift in Sources */,
+				A00000000000000000000261 /* VoiceChildControllerTests.swift in Sources */,
 				A00000000000000000000233 /* KeyCodeMap.swift in Sources */,
 				A00000000000000000000236 /* SpacesProvider.swift in Sources */,
 				A00000000000000000000237 /* SpacesProviderTests.swift in Sources */,

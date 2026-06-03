@@ -15,18 +15,25 @@ struct TranscriptionClient {
     private let endpoint: URL?
     private let model: String
     private let session: URLSession
+    private let voiceChild: VoiceChildController?
 
     init(
         endpoint: URL? = Config.transcriptionEndpoint,
         model: String = Config.transcriptionModel,
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        voiceChild: VoiceChildController? = nil
     ) {
         self.endpoint = endpoint
         self.model = model
         self.session = session
+        self.voiceChild = voiceChild
     }
 
     func transcribe(wav: Data) async throws -> String {
+        if let voiceChild {
+            return try await voiceChild.transcribe(wav: wav)
+        }
+
         // No endpoint means AGENTDESK_TRANSCRIBE_URL was never set; fail here
         // rather than fabricate a default that may point nowhere.
         guard let endpoint else { throw TranscriptionError.notConfigured }

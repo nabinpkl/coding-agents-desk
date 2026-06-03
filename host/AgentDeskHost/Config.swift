@@ -51,6 +51,22 @@ enum Config {
         }
         return raw.split(separator: " ").map(String.init)
     }()
+    static let voiceChildExecutableURL: URL? = {
+        guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_VOICE_CHILD_PATH"],
+              !raw.isEmpty
+        else {
+            return nil
+        }
+        return URL(fileURLWithPath: (raw as NSString).expandingTildeInPath)
+    }()
+    static let voiceChildArguments: [String] = {
+        guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_VOICE_CHILD_ARGS"],
+              !raw.isEmpty
+        else {
+            return []
+        }
+        return raw.split(separator: " ").map(String.init)
+    }()
     static let spaceAgentLayout = SpaceAgentLayout(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_SPACE_AGENT_LAYOUT"]
     )
