@@ -96,15 +96,20 @@ final class SpaceAgentViewController: NSViewController {
                 + popoverToAnchorGap + handleSize.height
             return NSSize(width: popoverWidth, height: height)
         case .vertical:
-            // Fixed-width panel to the left of the rocket; height grows with the
-            // row count, capped to the screen so the list scrolls when long.
+            // Fixed-width column with the rocket centered on top of it; the
+            // column height grows with the row count, and the whole thing
+            // (rocket zone + column) is capped to the screen so the list
+            // scrolls when long.
             let count = max(1, tiles.count)
             let listHeight = CGFloat(count) * rowHeight
                 + CGFloat(count - 1) * rowSpacing
-            let idealPanelHeight = stripInset * 2 + searchZone + listHeight
-            let panelHeight = min(idealPanelHeight, resolvedPanelMaxHeight)
-            let height = max(panelHeight, handleSize.height)
-            let width = panelWidth + clusterGap + handleSize.width
+            let idealColumnHeight = stripInset * 2 + searchZone + listHeight
+            let rocketZone = handleSize.height + clusterGap
+            let idealTotalHeight = rocketZone + idealColumnHeight
+            let height = max(min(idealTotalHeight, resolvedPanelMaxHeight), handleSize.height)
+            // Rocket (52) is narrower than the column, so the column width is
+            // the container width; the rocket centers within it.
+            let width = max(panelWidth, handleSize.width)
             return NSSize(width: width, height: height)
         }
     }
@@ -516,10 +521,17 @@ private final class SpaceAgentRootView: NSView {
         tileBackdrop?.tailCenterX = rocketCenter
     }
 
-    // Vertical column: fixed-width panel (search on top, list below) on the
-    // left, rocket vertically centered to its right.
+    // Vertical column: rocket centered on top, fixed-width panel (search on
+    // top, list below) underneath it.
     private func layoutVertical() {
-        let backdropFrame = CGRect(x: 0, y: 0, width: panelWidth, height: bounds.height)
+        // Flipped coords (y down): rocket sits at the top, horizontally
+        // centered over the column; the column starts below the rocket zone.
+        let handleX = max(0, (bounds.width - handleSize.width) / 2)
+        handleView?.frame = CGRect(x: handleX, y: 0, width: handleSize.width, height: handleSize.height)
+        let columnTop = handleSize.height + clusterGap
+        let columnHeight = max(0, bounds.height - columnTop)
+
+        let backdropFrame = CGRect(x: 0, y: columnTop, width: bounds.width, height: columnHeight)
         tileBackdrop?.frame = backdropFrame
         tileBackdrop?.tailCenterX = backdropFrame.midX
 
@@ -528,27 +540,23 @@ private final class SpaceAgentRootView: NSView {
         let tokenWidth = tokenShown ? (searchTokenView?.measuredWidth ?? 0) : 0
         let tokenGap: CGFloat = tokenShown ? 4 : 0
         searchTokenView?.frame = tokenShown
-            ? CGRect(x: stripInset, y: stripInset, width: tokenWidth, height: searchFieldHeight)
+            ? CGRect(x: stripInset, y: columnTop + stripInset, width: tokenWidth, height: searchFieldHeight)
             : .zero
         searchField?.frame = CGRect(
             x: stripInset + tokenWidth + tokenGap,
-            y: stripInset,
-            width: max(0, panelWidth - stripInset - stripInset - tokenWidth - tokenGap),
+            y: columnTop + stripInset,
+            width: max(0, bounds.width - stripInset - stripInset - tokenWidth - tokenGap),
             height: searchFieldHeight
         )
 
         let bodyFrame = CGRect(
             x: stripInset,
-            y: stripInset + searchZone,
-            width: max(0, panelWidth - stripInset * 2),
-            height: max(0, bounds.height - stripInset * 2 - searchZone)
+            y: columnTop + stripInset + searchZone,
+            width: max(0, bounds.width - stripInset * 2),
+            height: max(0, columnHeight - stripInset * 2 - searchZone)
         )
         tileHost?.frame = bodyFrame
         overflowHintView?.frame = bodyFrame
-
-        let handleX = panelWidth + clusterGap
-        let handleY = max(0, (bounds.height - handleSize.height) / 2)
-        handleView?.frame = CGRect(x: handleX, y: handleY, width: handleSize.width, height: handleSize.height)
     }
 }
 
