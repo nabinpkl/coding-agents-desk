@@ -119,7 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startVoiceChildIfConfigured()
         startDictationBar()
         startTerminalLauncher()
-        startGesturePortal()
+        startGesturePortalIfConfigured()
         startGestureChildIfConfigured()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
@@ -484,7 +484,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.start()
     }
 
-    private func startGesturePortal() {
+    private func startGesturePortalIfConfigured() {
+        // The portal is the gesture child's on-screen surface; with no child
+        // configured there is nothing to drive it, so do not show the panel.
+        guard Config.gestureChildExecutableURL != nil else { return }
         let controller = GesturePortalController()
         controller.spaceAgentHandleFrame = { [weak self] in
             self?.spaceAgentController?.currentHandleScreenFrame()
