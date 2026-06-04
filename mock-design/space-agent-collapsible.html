@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Space Agent · collapsible rail (first-letter icons)</title>
+<style>
+  :root {
+    --panel: rgba(28,28,30,0.82);
+    --panel-stroke: rgba(255,255,255,0.10);
+    --tile: rgba(255,255,255,0.06);
+    --tile-hover: rgba(255,255,255,0.10);
+    --tile-active: rgba(10,132,255,0.16);
+    --ring: rgba(10,132,255,0.9);
+    --text: rgba(255,255,255,0.95);
+    --dim: rgba(255,255,255,0.5);
+    --thumb: linear-gradient(135deg,#2a2d34,#1a1c22);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font: 13px -apple-system, "SF Pro Text", system-ui, sans-serif;
+    background:
+      radial-gradient(1200px 600px at 70% -10%, #2b3350 0%, transparent 60%),
+      #0d1016;
+    color: var(--text);
+    padding: 40px;
+    display: flex;
+    gap: 56px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .col { display: flex; flex-direction: column; gap: 14px; }
+  .label { font-size: 12px; color: var(--dim); letter-spacing: .04em; text-transform: uppercase; }
+  .note { font-size: 11px; color: var(--dim); max-width: 300px; line-height: 1.55; }
+
+  /* ===== shared cluster: rocket centred on top, column below ===== */
+  .cluster { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .rocket {
+    width: 52px; height: 52px; border-radius: 50%;
+    background: var(--panel);
+    border: 1px solid var(--panel-stroke);
+    backdrop-filter: blur(30px);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-stroke);
+    border-radius: 16px;
+    backdrop-filter: blur(30px);
+    padding: 10px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* the collapse toggle that lives at the top of the panel */
+  .barTop {
+    display: flex; align-items: center; gap: 8px;
+    height: 30px;
+  }
+  .collapseBtn {
+    flex: 0 0 30px; width: 30px; height: 30px;
+    border-radius: 8px; background: rgba(255,255,255,0.07);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--dim); cursor: pointer;
+  }
+  .collapseBtn:hover { background: var(--tile-hover); color: var(--text); }
+  .collapseBtn svg { width: 16px; height: 16px; }
+
+  /* ---- EXPANDED panel ---- */
+  .panel.expanded { width: 280px; }
+  .search {
+    display: flex; align-items: center; gap: 8px;
+    flex: 1 1 auto; height: 30px; padding: 0 10px;
+    background: rgba(255,255,255,0.07);
+    border-radius: 9px;
+    color: var(--dim);
+  }
+  .search svg { width: 14px; height: 14px; opacity: .6; }
+  .list { display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow-y: auto; padding-right: 2px; }
+  .row { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 10px; background: var(--tile); border-radius: 10px; cursor: pointer; }
+  .row:hover { background: var(--tile-hover); }
+  .row.active { background: var(--tile-active); box-shadow: inset 0 0 0 1.5px var(--ring); }
+  .row .glyph { flex: 0 0 28px; height: 28px; border-radius: 7px; background: rgba(255,255,255,0.10); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: var(--text); text-transform: uppercase; }
+  .row.active .glyph { background: var(--ring); color: #fff; }
+  .row .meta { display: flex; flex-direction: column; min-width: 0; }
+  .row .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .sub { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.active .title { color: #4ea1ff; }
+
+  /* ---- COLLAPSED rail: just first-letter icons ---- */
+  .panel.collapsed { width: 56px; align-items: center; padding: 8px; gap: 6px; }
+  .panel.collapsed .barTop { justify-content: center; }
+  .railList { display: flex; flex-direction: column; gap: 8px; max-height: 380px; overflow-y: auto; align-items: center; }
+  .divider { width: 24px; height: 1px; background: var(--panel-stroke); margin: 2px 0; }
+  .glyphIcon {
+    width: 40px; height: 40px; border-radius: 11px;
+    background: var(--tile);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 700; color: var(--text);
+    text-transform: uppercase; cursor: pointer; position: relative;
+  }
+  .glyphIcon:hover { background: var(--tile-hover); }
+  .glyphIcon.active { background: var(--tile-active); box-shadow: inset 0 0 0 1.5px var(--ring); color: #4ea1ff; }
+  .glyphIcon .badge {
+    position: absolute; right: -3px; top: -3px;
+    min-width: 15px; height: 15px; padding: 0 3px; border-radius: 7px;
+    background: rgba(0,0,0,0.7); color: #fff; font-size: 9px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; text-transform: none;
+  }
+  .addBtn { width: 40px; height: 40px; border-radius: 11px; background: var(--tile); display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 22px; cursor: pointer; }
+  .addBtn:hover { background: var(--tile-hover); color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="col">
+  <div class="label">Reference · Arc sidebar (what you sent)</div>
+  <div class="note">Collapse chevron at top, a divider, then app icons. We mirror this: a collapse toggle on top of our column, and when collapsed each desktop becomes a first-letter glyph tile in a narrow rail. The number rides as a small corner badge so you keep the desktop index.</div>
+</div>
+
+<div class="col">
+  <div class="label">Expanded — collapse toggle on top</div>
+  <div class="cluster">
+    <div class="rocket">🚀</div>
+    <div class="panel expanded">
+      <div class="barTop">
+        <div class="collapseBtn" title="Collapse">
+          <!-- chevrons pointing left = collapse -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 7l-5 5 5 5"/><path d="M18 7l-5 5 5 5"/></svg>
+        </div>
+        <div class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+          Search desktops
+        </div>
+      </div>
+      <div class="list" id="listFull"></div>
+    </div>
+  </div>
+  <div class="note">Each row already carries a first-letter glyph in place of the bare number; the number sits inside the glyph when expanded. Clicking the chevron collapses to the rail on the right.</div>
+</div>
+
+<div class="col">
+  <div class="label">Collapsed — first-letter rail (rounded square)</div>
+  <div class="cluster">
+    <div class="rocket">🚀</div>
+    <div class="panel collapsed">
+      <div class="barTop">
+        <div class="collapseBtn" title="Expand">
+          <!-- chevrons pointing right = expand -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 7l5 5-5 5"/><path d="M6 7l5 5-5 5"/></svg>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="railList" id="railSquare"></div>
+      <div class="divider"></div>
+      <div class="addBtn" title="New desktop">+</div>
+    </div>
+  </div>
+  <div class="note">CHOSEN. Width drops to 56px. First letter of each desktop name (rounded-square glyph), active one ringed in accent, desktop number as a corner badge. Toggled by the top chevron only; the rocket still handles visible vs hidden.</div>
+</div>
+
+<script>
+  const desks = [
+    ["thought-organizer","cmux",1,false],
+    ["Agent-Desk","cmux",2,true],
+    ["atc-agent-traffic","overview",3,false],
+    ["knowledge-explorer","Welcome",4,false],
+    ["cloud-finops","Welcome",5,false],
+    ["package-gateway","Welcome",6,false],
+    ["gesture-agent","Code",7,false],
+    ["second-brain",".env",8,false],
+  ];
+  const first = (s) => (s.trim()[0] || "?");
+  const full = document.getElementById('listFull');
+  const square = document.getElementById('railSquare');
+  for (const [title, sub, num, active] of desks) {
+    full.insertAdjacentHTML('beforeend',
+      `<div class="row ${active?'active':''}"><div class="glyph">${first(title)}</div><div class="meta"><span class="title">${title}</span><span class="sub">${sub}</span></div></div>`);
+    square.insertAdjacentHTML('beforeend',
+      `<div class="glyphIcon ${active?'active':''}" title="${title}">${first(title)}<span class="badge">${num}</span></div>`);
+  }
+</script>
+</body>
+</html>
