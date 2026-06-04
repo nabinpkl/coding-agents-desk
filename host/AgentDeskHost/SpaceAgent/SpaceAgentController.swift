@@ -339,7 +339,9 @@ final class SpaceAgentController: NSObject {
         guard !matches.isEmpty else { return false }
         if matches.count == 1 {
             if matches[0].stepDelta != 0 { commitStep(matches[0].stepDelta) }
-            if viewController.isExpanded { setExpanded(false) }
+            // Persistent sidebar: switch and stay open, returning to rest
+            // instead of collapsing.
+            if viewController.isExpanded { returnToRest() }
         } else if viewController.isExpanded {
             viewController.presetSearch(query)
         } else {
@@ -434,6 +436,17 @@ final class SpaceAgentController: NSObject {
             restoreCollapsedOrigin()
             relinquishKey()
         }
+    }
+
+    // The panel stays visible (persistent sidebar), so "done interacting"
+    // means: clear the search back to a clean palette and hand the keyboard
+    // back to the user's frontmost app, without collapsing. Used by the search
+    // Enter/Esc paths and the Hyper single-match switch. Only a rocket click
+    // actually collapses to the bare handle.
+    private func returnToRest() {
+        guard viewController.isExpanded else { return }
+        viewController.resetSearch()
+        relinquishKey()
     }
 
     // Returning keyboard focus to the app that was active before the palette
@@ -559,13 +572,16 @@ extension SpaceAgentController: SpaceAgentViewControllerDelegate {
     }
 
     func spaceAgentViewController(_ controller: SpaceAgentViewController, didOpenStepDelta delta: Int) {
-        guard delta != 0 else { setExpanded(false); return }
-        commitStep(delta)
-        setExpanded(false)
+        // Enter in the search field: switch (when not already there) and return
+        // to rest. The persistent sidebar stays visible; only a rocket click
+        // collapses it.
+        if delta != 0 { commitStep(delta) }
+        returnToRest()
     }
 
     func spaceAgentViewControllerDidRequestCollapse(_ controller: SpaceAgentViewController) {
-        setExpanded(false)
+        // Esc: clear the search and hand the keyboard back, but stay visible.
+        returnToRest()
     }
 }
 
