@@ -9,6 +9,10 @@ protocol SpaceAgentViewControllerDelegate: AnyObject {
     func spaceAgentViewController(_ controller: SpaceAgentViewController, didOpenStepDelta delta: Int)
     // Esc, or Enter on the desktop you are already on: just collapse.
     func spaceAgentViewControllerDidRequestCollapse(_ controller: SpaceAgentViewController)
+    // The top chevron toggled the column between the full list and the narrow
+    // first-letter rail. The panel size changes, so the controller re-pins and
+    // resizes. Vertical layout only.
+    func spaceAgentViewControllerDidToggleRail(_ controller: SpaceAgentViewController)
 }
 
 @MainActor
@@ -34,6 +38,13 @@ final class SpaceAgentViewController: NSViewController {
     private let rowHeight: CGFloat = 52
     private let rowSpacing: CGFloat = 6
     private let clusterGap: CGFloat = 10
+    // Collapsed first-letter rail (vertical layout only): a narrow column of
+    // glyph icons. Rail width holds the icon plus its inset; the chevron bar
+    // and rail icons share these.
+    private let railWidth: CGFloat = 56
+    private let railIconSize: CGFloat = 40
+    private let railIconSpacing: CGFloat = 8
+    private let chevronBarHeight: CGFloat = 30
     private let rootView = SpaceAgentRootView()
     private let handleView = SpaceAgentHandleView()
     private let tileBackdrop = SpaceAgentTileBackdropView()
@@ -43,6 +54,7 @@ final class SpaceAgentViewController: NSViewController {
     private let overflowHintView = SpaceAgentOverflowHintView()
     private let searchField = NSSearchField()
     private let searchTokenView = SpaceAgentSearchTokenView()
+    private let collapseButton = SpaceAgentCollapseButton()
     private let searchFieldHeight: CGFloat = 28
     private let searchToStripGap: CGFloat = 8
     private var tiles: [SpaceAgentTile] = []
@@ -50,6 +62,14 @@ final class SpaceAgentViewController: NSViewController {
     // the strip; selectedSpaceId is the keyboard highlight, opened on Enter.
     private var filterText: String = ""
     private var selectedSpaceId: UInt64?
+    // Collapsed rail state (vertical layout only). When true the column is the
+    // narrow first-letter rail; when false it is the full search + list.
+    var isRailCollapsed: Bool = false {
+        didSet {
+            guard oldValue != isRailCollapsed else { return }
+            applyRailState()
+        }
+    }
 
     init(layout: Config.SpaceAgentLayout = Config.spaceAgentLayout) {
         self.layout = layout
@@ -95,11 +115,25 @@ final class SpaceAgentViewController: NSViewController {
             let height = tileStripHeight + tailHeight + searchZone
                 + popoverToAnchorGap + handleSize.height
             return NSSize(width: popoverWidth, height: height)
+        case .vertical where isRailCollapsed:
+            // Narrow first-letter rail: rocket on top, a chevron bar, then a
+            // column of glyph icons. Width is the rail width; height grows with
+            // the icon count, capped to the screen.
+            let count = max(1, tiles.count)
+            let railHeight = CGFloat(count) * railIconSize
+                + CGFloat(count - 1) * railIconSpacing
+            let chevronZone = chevronBarHeight + searchToStripGap
+            let idealColumnHeight = stripInset * 2 + chevronZone + railHeight
+            let rocketZone = handleSize.height + clusterGap
+            let idealTotalHeight = rocketZone + idealColumnHeight
+            let height = max(min(idealTotalHeight, resolvedPanelMaxHeight), handleSize.height)
+            let width = max(railWidth, handleSize.width)
+            return NSSize(width: width, height: height)
         case .vertical:
             // Fixed-width column with the rocket centered on top of it; the
             // column height grows with the row count, and the whole thing
             // (rocket zone + column) is capped to the screen so the list
-            // scrolls when long.
+            // scrolls when long. A chevron bar shares the search row.
             let count = max(1, tiles.count)
             let listHeight = CGFloat(count) * rowHeight
                 + CGFloat(count - 1) * rowSpacing
@@ -278,6 +312,8 @@ final class SpaceAgentViewController: NSViewController {
         rootView.panelLayout = layout
         rootView.panelWidth = panelWidth
         rootView.clusterGap = clusterGap
+        rootView.railWidth = railWidth
+        rootView.chevronBarHeight = chevronBarHeight
         rootView.translatesAutoresizingMaskIntoConstraints = false
 
         tileBackdrop.tailHeight = tailHeight
@@ -314,6 +350,8 @@ final class SpaceAgentViewController: NSViewController {
         tileHost.tileSpacing = tileSpacing
         tileHost.rowHeight = rowHeight
         tileHost.rowSpacing = rowSpacing
+        tileHost.railIconSize = railIconSize
+        tileHost.railIconSpacing = railIconSpacing
         overflowHintView.axis = layout
         tileHost.onSelectDelta = { [weak self] delta in
             guard let self else { return }
@@ -328,6 +366,18 @@ final class SpaceAgentViewController: NSViewController {
         rootView.searchTokenView = searchTokenView
         rootView.searchFieldHeight = searchFieldHeight
         rootView.searchToStripGap = searchToStripGap
+
+        // The collapse chevron only belongs to the vertical layout; the
+        // horizontal strip has no rail to collapse into.
+        if layout == .vertical {
+            collapseButton.onToggle = { [weak self] in
+                guard let self else { return }
+                isRailCollapsed.toggle()
+                delegate?.spaceAgentViewControllerDidToggleRail(self)
+            }
+            rootView.collapseButton = collapseButton
+        }
+        applyRailState()
     }
 
     private func applyVisibility() {
@@ -336,6 +386,27 @@ final class SpaceAgentViewController: NSViewController {
         tileBackdrop.isHidden = !isExpanded
         overflowHintView.isHidden = !isExpanded
         searchField.isHidden = !isExpanded
+        collapseButton.isHidden = !isExpanded || layout != .vertical
+        preferredContentSize = preferredPanelSize
+        rootView.needsLayout = true
+        updateOverflowHints()
+    }
+
+    // Reflect the collapsed/expanded rail state into the views: the search
+    // field hides in rail mode, the tile host switches between the row list and
+    // the glyph rail, and the chevron flips direction. Vertical layout only.
+    private func applyRailState() {
+        guard layout == .vertical else { return }
+        collapseButton.isCollapsed = isRailCollapsed
+        rootView.isRailCollapsed = isRailCollapsed
+        tileHost.railMode = isRailCollapsed
+        overflowHintView.axis = .vertical
+        // In rail mode the search field is gone; re-show it when expanding.
+        searchField.isHidden = !isExpanded || isRailCollapsed
+        if isRailCollapsed {
+            searchTokenView.isHidden = true
+            if !filterText.isEmpty { resetSearch() }
+        }
         preferredContentSize = preferredPanelSize
         rootView.needsLayout = true
         updateOverflowHints()
@@ -447,7 +518,14 @@ private final class SpaceAgentRootView: NSView {
             if let searchTokenView { addSubview(searchTokenView) }
         }
     }
+    var collapseButton: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            if let collapseButton { addSubview(collapseButton) }
+        }
+    }
     var isExpanded: Bool = false
+    var isRailCollapsed: Bool = false
     var handleSize = CGSize(width: 52, height: 52)
     var tileStripHeight: CGFloat = 116
     var stripInset: CGFloat = 8
@@ -459,6 +537,8 @@ private final class SpaceAgentRootView: NSView {
     var panelLayout: Config.SpaceAgentLayout = .horizontal
     var panelWidth: CGFloat = 280
     var clusterGap: CGFloat = 10
+    var railWidth: CGFloat = 56
+    var chevronBarHeight: CGFloat = 30
 
     override var isFlipped: Bool { true }
 
@@ -472,13 +552,19 @@ private final class SpaceAgentRootView: NSView {
             tileHost?.frame = .zero
             overflowHintView?.frame = .zero
             searchField?.frame = .zero
+            collapseButton?.frame = .zero
             return
         }
         switch panelLayout {
         case .horizontal:
+            collapseButton?.frame = .zero
             layoutHorizontal()
         case .vertical:
-            layoutVertical()
+            if isRailCollapsed {
+                layoutVerticalRail()
+            } else {
+                layoutVertical()
+            }
         }
     }
 
@@ -536,16 +622,26 @@ private final class SpaceAgentRootView: NSView {
         tileBackdrop?.tailCenterX = backdropFrame.midX
 
         let searchZone = searchFieldHeight + searchToStripGap
+        // The collapse chevron sits at the left of the search row; the search
+        // field fills the rest.
+        let chevronGap: CGFloat = 8
+        collapseButton?.frame = CGRect(
+            x: stripInset,
+            y: columnTop + stripInset,
+            width: chevronBarHeight,
+            height: searchFieldHeight
+        )
+        let searchLeft = stripInset + chevronBarHeight + chevronGap
         let tokenShown = searchTokenView.map { !$0.isHidden } ?? false
         let tokenWidth = tokenShown ? (searchTokenView?.measuredWidth ?? 0) : 0
         let tokenGap: CGFloat = tokenShown ? 4 : 0
         searchTokenView?.frame = tokenShown
-            ? CGRect(x: stripInset, y: columnTop + stripInset, width: tokenWidth, height: searchFieldHeight)
+            ? CGRect(x: searchLeft, y: columnTop + stripInset, width: tokenWidth, height: searchFieldHeight)
             : .zero
         searchField?.frame = CGRect(
-            x: stripInset + tokenWidth + tokenGap,
+            x: searchLeft + tokenWidth + tokenGap,
             y: columnTop + stripInset,
-            width: max(0, bounds.width - stripInset - stripInset - tokenWidth - tokenGap),
+            width: max(0, bounds.width - searchLeft - stripInset - tokenWidth - tokenGap),
             height: searchFieldHeight
         )
 
@@ -554,6 +650,41 @@ private final class SpaceAgentRootView: NSView {
             y: columnTop + stripInset + searchZone,
             width: max(0, bounds.width - stripInset * 2),
             height: max(0, columnHeight - stripInset * 2 - searchZone)
+        )
+        tileHost?.frame = bodyFrame
+        overflowHintView?.frame = bodyFrame
+    }
+
+    // Collapsed rail: rocket on top, a centered chevron bar, then a column of
+    // first-letter glyph icons. No search field.
+    private func layoutVerticalRail() {
+        let handleX = max(0, (bounds.width - handleSize.width) / 2)
+        handleView?.frame = CGRect(x: handleX, y: 0, width: handleSize.width, height: handleSize.height)
+        let columnTop = handleSize.height + clusterGap
+        let columnHeight = max(0, bounds.height - columnTop)
+
+        let backdropFrame = CGRect(x: 0, y: columnTop, width: bounds.width, height: columnHeight)
+        tileBackdrop?.frame = backdropFrame
+        tileBackdrop?.tailCenterX = backdropFrame.midX
+
+        searchField?.frame = .zero
+        searchTokenView?.frame = .zero
+
+        // Chevron centered in the narrow rail.
+        let chevronX = max(0, (bounds.width - chevronBarHeight) / 2)
+        collapseButton?.frame = CGRect(
+            x: chevronX,
+            y: columnTop + stripInset,
+            width: chevronBarHeight,
+            height: chevronBarHeight
+        )
+
+        let chevronZone = chevronBarHeight + searchToStripGap
+        let bodyFrame = CGRect(
+            x: stripInset,
+            y: columnTop + stripInset + chevronZone,
+            width: max(0, bounds.width - stripInset * 2),
+            height: max(0, columnHeight - stripInset * 2 - chevronZone)
         )
         tileHost?.frame = bodyFrame
         overflowHintView?.frame = bodyFrame
@@ -815,6 +946,86 @@ private final class SpaceAgentOverflowHintView: NSView {
     }
 }
 
+// Top-of-column chevron that toggles the vertical layout between the full list
+// and the collapsed first-letter rail. A double chevron pointing left means
+// "collapse", pointing right means "expand", mirroring the Arc sidebar.
+private final class SpaceAgentCollapseButton: NSControl {
+    var onToggle: (() -> Void)?
+    var isCollapsed: Bool = false {
+        didSet {
+            guard oldValue != isCollapsed else { return }
+            needsDisplay = true
+        }
+    }
+    private var isHovered = false
+
+    override var isFlipped: Bool { true }
+
+    // Same first-mouse reasoning as the rocket and tiles: the panel stays
+    // non-key, so accept the first click instead of spending it on focus.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) { isHovered = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { isHovered = false; needsDisplay = true }
+
+    override func mouseUp(with event: NSEvent) {
+        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        onToggle?()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let palette = SpaceAgentPalette(appearance: effectiveAppearance)
+        let bg = NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8)
+        (isHovered ? palette.tileFillHover : palette.tileFill).setFill()
+        bg.fill()
+
+        // Two chevrons. Collapsed -> point right (expand); expanded -> point
+        // left (collapse). Flipped coords: y increases downward.
+        let cx = bounds.midX
+        let cy = bounds.midY
+        let h: CGFloat = 5   // half-height of the chevron
+        let w: CGFloat = 4   // horizontal reach
+        let gap: CGFloat = 4 // between the two chevrons
+        let stroke = NSBezierPath()
+        stroke.lineWidth = 1.8
+        stroke.lineCapStyle = .round
+        stroke.lineJoinStyle = .round
+        for i in 0..<2 {
+            let offset = (CGFloat(i) - 0.5) * gap
+            let tipX = cx + offset
+            if isCollapsed {
+                // pointing right: tip is to the right
+                stroke.move(to: CGPoint(x: tipX - w / 2, y: cy - h))
+                stroke.line(to: CGPoint(x: tipX + w / 2, y: cy))
+                stroke.line(to: CGPoint(x: tipX - w / 2, y: cy + h))
+            } else {
+                // pointing left: tip is to the left
+                stroke.move(to: CGPoint(x: tipX + w / 2, y: cy - h))
+                stroke.line(to: CGPoint(x: tipX - w / 2, y: cy))
+                stroke.line(to: CGPoint(x: tipX + w / 2, y: cy + h))
+            }
+        }
+        palette.secondaryText.withAlphaComponent(isHovered ? 0.95 : 0.7).setStroke()
+        stroke.stroke()
+    }
+}
+
 private final class SpaceAgentHandleView: NSControl {
     var image: NSImage?
     var onToggle: (() -> Void)?
@@ -917,19 +1128,32 @@ private final class SpaceAgentTileHostView: NSView {
     var axis: Config.SpaceAgentLayout = .horizontal {
         didSet { tileViews.forEach { $0.style = tileStyle } }
     }
+    // Collapsed first-letter rail (vertical layout only). Swaps the row list
+    // for a centered column of glyph icons.
+    var railMode: Bool = false {
+        didSet {
+            guard oldValue != railMode else { return }
+            tileViews.forEach { $0.style = tileStyle }
+            needsLayout = true
+        }
+    }
     // Horizontal-strip card metrics.
     var tileSize = CGSize(width: 128, height: 80)
     var tileSpacing: CGFloat = 8
     // Vertical-list row metrics.
     var rowHeight: CGFloat = 52
     var rowSpacing: CGFloat = 6
+    // Collapsed-rail glyph metrics.
+    var railIconSize: CGFloat = 40
+    var railIconSpacing: CGFloat = 8
     var onSelectDelta: ((Int) -> Void)?
     private var tileViews: [SpaceAgentTileView] = []
     private var renderedSpaceIds: [UInt64] = []
     private var renderedActiveSpaceId: UInt64?
 
     private var tileStyle: SpaceAgentTileView.Style {
-        axis == .vertical ? .row : .card
+        if railMode { return .rail }
+        return axis == .vertical ? .row : .card
     }
 
     override var isFlipped: Bool { true }
@@ -947,6 +1171,10 @@ private final class SpaceAgentTileHostView: NSView {
         guard axis == .vertical else { return }
         needsLayout = true
     }
+
+    // The active/selected glyph centers itself in the rail, so a glyph is
+    // square; the rail content is centered within the clip width.
+    private var isRail: Bool { railMode && axis == .vertical }
 
     func render(tiles: [SpaceAgentTile]) {
         let nextSpaceIds = tiles.map(\.spaceId)
@@ -980,6 +1208,17 @@ private final class SpaceAgentTileHostView: NSView {
 
     override func layout() {
         super.layout()
+        if isRail {
+            // Centered column of square glyph icons.
+            let clipWidth = enclosingScrollView?.contentView.bounds.width ?? bounds.width
+            let iconX = max(0, (clipWidth - railIconSize) / 2)
+            var y: CGFloat = 0
+            for view in tileViews {
+                view.frame = CGRect(x: iconX, y: y, width: railIconSize, height: railIconSize)
+                y += railIconSize + railIconSpacing
+            }
+            return
+        }
         switch axis {
         case .horizontal:
             var x: CGFloat = 0
@@ -1005,6 +1244,13 @@ private final class SpaceAgentTileHostView: NSView {
     }
 
     private func resizeDocument(for tileCount: Int) {
+        if isRail {
+            let width = enclosingScrollView?.contentView.bounds.width ?? bounds.width
+            let height = CGFloat(tileCount) * railIconSize
+                + CGFloat(max(0, tileCount - 1)) * railIconSpacing
+            frame = CGRect(origin: .zero, size: CGSize(width: max(0, width), height: max(0, height)))
+            return
+        }
         switch axis {
         case .horizontal:
             let width = CGFloat(tileCount) * tileSize.width
@@ -1048,11 +1294,14 @@ private final class SpaceAgentTileView: NSControl {
     static let rowThumbnailToTextGap: CGFloat = 10
 
     // .card is the horizontal Spotify-style cover-art tile; .row is the vertical
-    // list item (thumbnail left, name + subtitle right).
+    // list item (thumbnail left, name + subtitle right); .rail is the collapsed
+    // first-letter glyph icon.
     enum Style {
         case card
         case row
+        case rail
     }
+    static let railCornerRadius: CGFloat = 11
     var style: Style = .card {
         didSet {
             guard oldValue != style else { return }
@@ -1152,7 +1401,80 @@ private final class SpaceAgentTileView: NSControl {
             drawCard(tile: tile, palette: palette)
         case .row:
             drawRow(tile: tile, palette: palette)
+        case .rail:
+            drawRail(tile: tile, palette: palette)
         }
+    }
+
+    // Collapsed-rail glyph: a rounded-square tile showing the desktop name's
+    // first letter, with the desktop number as a small corner badge. Active is
+    // accent-ringed and accent-lettered, like the row/card active states.
+    private func drawRail(tile: SpaceAgentTile, palette: SpaceAgentPalette) {
+        let glyphRect = NSBezierPath(
+            roundedRect: bounds,
+            xRadius: Self.railCornerRadius,
+            yRadius: Self.railCornerRadius
+        )
+        surfaceColor(for: tile, palette: palette).setFill()
+        glyphRect.fill()
+
+        if tile.isActive || tile.isSelected {
+            let ring = NSBezierPath(
+                roundedRect: bounds.insetBy(dx: 0.75, dy: 0.75),
+                xRadius: Self.railCornerRadius,
+                yRadius: Self.railCornerRadius
+            )
+            (tile.isActive ? NSColor.controlAccentColor : palette.selectionRing).setStroke()
+            ring.lineWidth = 1.5
+            ring.stroke()
+        }
+
+        let para = NSMutableParagraphStyle()
+        para.alignment = .center
+        let glyphAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 17, weight: .semibold),
+            .foregroundColor: tile.isActive
+                ? NSColor.controlAccentColor
+                : palette.primaryText.withAlphaComponent(0.96),
+            .paragraphStyle: para
+        ]
+        let glyph = tile.glyph as NSString
+        let glyphSize = glyph.size(withAttributes: glyphAttrs)
+        let glyphTextRect = CGRect(
+            x: bounds.minX,
+            y: bounds.midY - glyphSize.height / 2,
+            width: bounds.width,
+            height: glyphSize.height
+        )
+        glyph.draw(in: glyphTextRect, withAttributes: glyphAttrs)
+
+        // Number badge in the top-right corner (flipped coords: top is minY).
+        guard tile.desktopNumber > 0 else { return }
+        let number = "\(tile.desktopNumber)" as NSString
+        let numberAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: para
+        ]
+        let numberSize = number.size(withAttributes: numberAttrs)
+        let badgeHeight: CGFloat = 14
+        let badgeWidth = max(badgeHeight, ceil(numberSize.width) + 6)
+        let badgeRect = CGRect(
+            x: bounds.maxX - badgeWidth - 2,
+            y: bounds.minY + 2,
+            width: badgeWidth,
+            height: badgeHeight
+        )
+        let badge = NSBezierPath(roundedRect: badgeRect, xRadius: badgeHeight / 2, yRadius: badgeHeight / 2)
+        NSColor.black.withAlphaComponent(0.6).setFill()
+        badge.fill()
+        let numberRect = CGRect(
+            x: badgeRect.minX,
+            y: badgeRect.midY - numberSize.height / 2,
+            width: badgeRect.width,
+            height: numberSize.height
+        )
+        number.draw(in: numberRect, withAttributes: numberAttrs)
     }
 
     private func surfaceColor(for tile: SpaceAgentTile, palette: SpaceAgentPalette) -> NSColor {

@@ -165,6 +165,55 @@ struct SpaceAgentModelTests {
         ])
         #expect(controller.preferredPanelSize.width == wideWidth)
     }
+    @Test func tileGlyphIsFirstLetterUppercasedWithNumberFallback() {
+        let named = SpaceAgentTile(
+            spaceId: 1, title: "agent-desk", desktopNumber: 3,
+            isActive: false, stepDelta: 1, thumbnail: nil
+        )
+        #expect(named.glyph == "A")
+
+        let leadingPunct = SpaceAgentTile(
+            spaceId: 2, title: "  .env.example", desktopNumber: 4,
+            isActive: false, stepDelta: 1, thumbnail: nil
+        )
+        #expect(leadingPunct.glyph == "E")
+
+        // No name: fall back to the desktop number.
+        let nameless = SpaceAgentTile(
+            spaceId: 3, title: "", desktopNumber: 7,
+            isActive: false, stepDelta: 1, thumbnail: nil
+        )
+        #expect(nameless.glyph == "7")
+    }
+
+    @Test func collapsedRailUsesNarrowWidthRegardlessOfCount() {
+        let controller = SpaceAgentViewController(layout: .vertical)
+        _ = controller.view
+        controller.popoverMaxHeight = 300
+        controller.isExpanded = true
+        controller.isRailCollapsed = true
+        controller.render(tiles: (0..<20).map { index in
+            SpaceAgentTile(
+                spaceId: UInt64(index + 1),
+                title: "Desktop \(index + 1)",
+                isActive: index == 0,
+                stepDelta: index,
+                thumbnail: nil
+            )
+        })
+
+        let railWidth = controller.preferredPanelSize.width
+        // The rail is much narrower than the full column (which reserves 280pt).
+        #expect(railWidth < 100)
+        #expect(controller.preferredPanelSize.height == 300)
+
+        // Width is fixed: it does not grow or shrink with the icon count.
+        controller.render(tiles: [
+            SpaceAgentTile(spaceId: 99, title: "Desktop 1", isActive: true, stepDelta: 0, thumbnail: nil)
+        ])
+        #expect(controller.preferredPanelSize.width == railWidth)
+    }
+
     @Test func verticalPanelHintsWhenTilesOverflow() throws {
         let controller = SpaceAgentViewController(layout: .vertical)
         _ = controller.view

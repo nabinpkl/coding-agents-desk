@@ -43,6 +43,17 @@ struct SpaceAgentTile: Equatable {
 }
 
 extension SpaceAgentTile {
+    // Single-character glyph for the collapsed rail: the first letter or digit
+    // of the desktop name, uppercased. Falls back to the desktop number, then
+    // a placeholder, so a window-less Space still shows something.
+    var glyph: String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let first = trimmed.first(where: { $0.isLetter || $0.isNumber }) {
+            return String(first).uppercased()
+        }
+        return desktopNumber > 0 ? "\(desktopNumber)" : "?"
+    }
+
     // Search bar (Discord-style): matches when any word in the name starts with
     // the query, so "desk" finds "agent-desk", "agent" finds the *-agent
     // desktops, and "code" finds Code desktops. Empty matches all; a numeric

@@ -583,6 +583,13 @@ extension SpaceAgentController: SpaceAgentViewControllerDelegate {
         // Esc: clear the search and hand the keyboard back, but stay visible.
         returnToRest()
     }
+
+    func spaceAgentViewControllerDidToggleRail(_ controller: SpaceAgentViewController) {
+        // The column width/height changed; pin the rocket in place across the
+        // resize so it does not jump, then re-lay out.
+        pendingHandleScreenOrigin = viewController.handleScreenOrigin()
+        resizePanel()
+    }
 }
 
 extension SpaceAgentController: NSWindowDelegate {
