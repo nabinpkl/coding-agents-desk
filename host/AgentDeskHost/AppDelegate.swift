@@ -97,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var gesturePortalController: GesturePortalController?
     private var gestureChildController: GestureChildController?
     private var voiceChildController: VoiceChildController?
+    private var agentSayServer: AgentSayLocalServer?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
     private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()
@@ -115,6 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installSpacesSwitchHandler()
         installSpacesChangeObserver()
         installThumbnailsBroadcast()
+        startAgentSayServer()
         startSpaceAgent()
         startVoiceChildIfConfigured()
         startDictationBar()
@@ -167,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dictationBarController?.stop()
         terminalLauncherController?.stop()
         voiceChildController?.stop()
+        agentSayServer?.stop()
         signalingServer?.stop()
     }
 
@@ -174,6 +177,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyIcon(.idle)
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePopover)
+    }
+
+    private func startAgentSayServer() {
+        let server = AgentSayLocalServer { [weak self] push in
+            guard let self else { return false }
+            let inputServers = self.sessions.allInputChannelServers()
+            guard !inputServers.isEmpty else { return false }
+            for inputServer in inputServers {
+                inputServer.pushAgentSay(push)
+            }
+            return true
+        }
+        agentSayServer = server
+        server.start()
     }
 
     private func applyIcon(_ icon: HostStatusIcon) {

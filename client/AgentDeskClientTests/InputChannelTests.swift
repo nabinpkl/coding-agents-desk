@@ -50,6 +50,24 @@ struct InputChannelTests {
         #expect(decoded.event == event)
     }
 
+    @Test func agentSayFrameSerializesWithCompactKeysAndChannelYieldsIt() async throws {
+        let push = AgentSayPush(id: "utterance-1", phase: "chunk", sequence: 0, text: "hello")
+        let data = try JSONEncoder().encode(push)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        #expect(json.contains("\"t\":\"agent-say\""))
+        #expect(json.contains("\"p\":\"chunk\""))
+        #expect(json.contains("\"q\":0"))
+        #expect(json.contains("\"x\":\"hello\""))
+
+        let task = FakeInputWebSocketTask()
+        let channel = WebSocketInputChannel(task: task)
+        var iterator = channel.agentSayUpdates.makeAsyncIterator()
+        try task.enqueueReceive(.string(json))
+        let received = await iterator.next()
+        #expect(received == push)
+        channel.close()
+    }
+
     @Test func openerReturnsOnlyAfterInputReady() async throws {
         let task = FakeInputWebSocketTask()
         let completed = LockedBool(false)
@@ -66,7 +84,7 @@ struct InputChannelTests {
             return channel
         }
 
-        try await Task.sleep(nanoseconds: 10_000_000)
+        try await waitUntil { task.sentTexts.count == 1 }
         #expect(task.didResume)
         #expect(task.sentTexts.count == 1)
         #expect(task.receiveWaiterCount == 1)
@@ -225,5 +243,16 @@ private final class LockedBool: @unchecked Sendable {
 
     func set(_ value: Bool) {
         lock.withLock { stored = value }
+    }
+}
+
+private func waitUntil(
+    timeoutNanoseconds: UInt64 = 1_000_000_000,
+    _ predicate: @escaping @Sendable () -> Bool
+) async throws {
+    let deadline = ContinuousClock.now + .nanoseconds(Int(timeoutNanoseconds))
+    while !predicate() {
+        if ContinuousClock.now >= deadline { return }
+        try await Task.sleep(nanoseconds: 5_000_000)
     }
 }

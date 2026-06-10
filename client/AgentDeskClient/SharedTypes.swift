@@ -651,6 +651,30 @@ struct ThumbnailsPush: Codable, Equatable {
     }
 }
 
+struct AgentSayPush: Codable, Equatable {
+    let type: String
+    let id: String
+    let phase: String
+    let sequence: Int?
+    let text: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case id
+        case phase = "p"
+        case sequence = "q"
+        case text = "x"
+    }
+
+    init(id: String, phase: String, sequence: Int? = nil, text: String? = nil) {
+        self.type = "agent-say"
+        self.id = id
+        self.phase = phase
+        self.sequence = sequence
+        self.text = text
+    }
+}
+
 struct ClientConfig: Codable, Equatable {
     let type: String
     let thumbnailsEnabled: Bool

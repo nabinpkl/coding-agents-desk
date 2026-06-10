@@ -1,0 +1,194 @@
+#!/usr/bin/env swift
+import Darwin
+import Foundation
+
+enum ExitCode: Int32 {
+    case ok = 0
+    case usage = 64
+    case hostUnavailable = 69
+    case protocolError = 70
+    case noClient = 75
+    case auth = 77
+}
+
+struct CLIError: Error, CustomStringConvertible {
+    let code: ExitCode
+    let description: String
+}
+
+func fail(_ code: ExitCode, _ message: String) -> Never {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+    exit(code.rawValue)
+}
+
+func appSupportPath(_ name: String) -> String {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    return "\(home)/Library/Application Support/AgentDesk/\(name)"
+}
+
+func connectUnixSocket(path: String) throws -> Int32 {
+    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard fd >= 0 else {
+        throw CLIError(code: .hostUnavailable, description: "ad: failed to create socket")
+    }
+
+    var address = sockaddr_un()
+    address.sun_family = sa_family_t(AF_UNIX)
+    let maxPathLength = MemoryLayout.size(ofValue: address.sun_path)
+    try path.withCString { pointer in
+        guard strlen(pointer) < maxPathLength else {
+            throw CLIError(code: .protocolError, description: "ad: socket path is too long")
+        }
+        _ = withUnsafeMutablePointer(to: &address.sun_path) { tuplePointer in
+            tuplePointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { destination in
+                strncpy(destination, pointer, maxPathLength - 1)
+            }
+        }
+    }
+
+    let result = withUnsafePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+            Darwin.connect(
+                fd,
+                sockaddrPointer,
+                socklen_t(MemoryLayout<sa_family_t>.size + path.utf8.count + 1)
+            )
+        }
+    }
+    guard result == 0 else {
+        Darwin.close(fd)
+        throw CLIError(code: .hostUnavailable, description: "ad: AgentDeskHost is not running")
+    }
+    return fd
+}
+
+func jsonLine(_ object: [String: Any]) throws -> Data {
+    var data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    data.append(0x0A)
+    return data
+}
+
+func writeAll(_ data: Data, to fd: Int32) throws {
+    try data.withUnsafeBytes { rawBuffer in
+        guard let base = rawBuffer.baseAddress else { return }
+        var sent = 0
+        while sent < data.count {
+            let count = Darwin.write(fd, base.advanced(by: sent), data.count - sent)
+            guard count > 0 else {
+                throw CLIError(code: .hostUnavailable, description: "ad: socket write failed")
+            }
+            sent += count
+        }
+    }
+}
+
+func readLine(from fd: Int32) throws -> String? {
+    var data = Data()
+    while true {
+        var byte: UInt8 = 0
+        let count = Darwin.read(fd, &byte, 1)
+        if count == 0 {
+            return data.isEmpty ? nil : String(data: data, encoding: .utf8)
+        }
+        guard count > 0 else {
+            throw CLIError(code: .hostUnavailable, description: "ad: socket read failed")
+        }
+        if byte == 0x0A {
+            return String(data: data, encoding: .utf8)
+        }
+        data.append(byte)
+        guard data.count <= 8 * 1024 else {
+            throw CLIError(code: .protocolError, description: "ad: host response was too large")
+        }
+    }
+}
+
+func readResponse(from fd: Int32) throws -> [String: Any] {
+    guard let line = try readLine(from: fd),
+          let data = line.data(using: .utf8),
+          let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let type = object["t"] as? String
+    else {
+        throw CLIError(code: .protocolError, description: "ad: invalid host response")
+    }
+    if type == "error" {
+        let code = object["code"] as? String ?? "unknown"
+        switch code {
+        case "bad-auth", "auth-unavailable":
+            throw CLIError(code: .auth, description: "ad: AgentDesk local auth failed (\(code))")
+        case "no-client":
+            throw CLIError(code: .noClient, description: "ad: no foreground iPhone input channel is connected")
+        default:
+            throw CLIError(code: .protocolError, description: "ad: host rejected request (\(code))")
+        }
+    }
+    return object
+}
+
+func sendChunk(_ text: String, id: String, sequence: inout Int, fd: Int32) throws {
+    guard text.utf8.count <= 4 * 1024 else {
+        throw CLIError(code: .protocolError, description: "ad: text chunk is too large")
+    }
+    try writeAll(jsonLine(["t": "say-chunk", "id": id, "seq": sequence, "text": text]), to: fd)
+    sequence += 1
+}
+
+func runSay(arguments: [String]) throws {
+    let tokenPath = appSupportPath("ad-token")
+    let socketPath = appSupportPath("ad.sock")
+    guard FileManager.default.fileExists(atPath: tokenPath) else {
+        throw CLIError(code: .hostUnavailable, description: "ad: AgentDeskHost has not created \(tokenPath)")
+    }
+    let token = try String(contentsOfFile: tokenPath, encoding: .utf8)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !token.isEmpty else {
+        throw CLIError(code: .auth, description: "ad: empty local auth token")
+    }
+
+    let fd = try connectUnixSocket(path: socketPath)
+    defer { Darwin.close(fd) }
+
+    let id = UUID().uuidString
+    try writeAll(jsonLine(["t": "auth", "v": 1, "token": token]), to: fd)
+    let auth = try readResponse(from: fd)
+    guard auth["t"] as? String == "ok" else {
+        throw CLIError(code: .auth, description: "ad: local auth was not accepted")
+    }
+
+    try writeAll(jsonLine(["t": "say-start", "id": id]), to: fd)
+    let started = try readResponse(from: fd)
+    guard started["t"] as? String == "ok" else {
+        throw CLIError(code: .protocolError, description: "ad: host did not start utterance")
+    }
+    var sequence = 0
+    if arguments.isEmpty {
+        while true {
+            let data = FileHandle.standardInput.readData(ofLength: 1024)
+            if data.isEmpty { break }
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw CLIError(code: .protocolError, description: "ad: stdin must be valid UTF-8")
+            }
+            try sendChunk(text, id: id, sequence: &sequence, fd: fd)
+        }
+    } else {
+        try sendChunk(arguments.joined(separator: " "), id: id, sequence: &sequence, fd: fd)
+    }
+    try writeAll(jsonLine(["t": "say-end", "id": id]), to: fd)
+    let accepted = try readResponse(from: fd)
+    guard accepted["t"] as? String == "accepted" else {
+        throw CLIError(code: .protocolError, description: "ad: host did not accept utterance")
+    }
+}
+
+let args = Array(CommandLine.arguments.dropFirst())
+guard args.first == "say" else {
+    fail(.usage, "usage: ad say [text]\n       some-command | ad say")
+}
+
+do {
+    try runSay(arguments: Array(args.dropFirst()))
+} catch let error as CLIError {
+    fail(error.code, error.description)
+} catch {
+    fail(.protocolError, "ad: \(error)")
+}

@@ -27,6 +27,8 @@ final class SettingsStore: @unchecked Sendable {
         static let accessoryKeyHeight = "agentDesk.accessoryKeyHeight"
         static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
         static let showSpacePreviews = "agentDesk.showSpacePreviews"
+        static let agentSayVoiceLanguage = "agentDesk.agentSayVoiceLanguage"
+        static let agentSayVoiceIdentifier = "agentDesk.agentSayVoiceIdentifier"
     }
 
     // iOS HIG / QuickType bar standard is 44pt; key chiclets at 36pt
@@ -131,6 +133,30 @@ final class SettingsStore: @unchecked Sendable {
         get { defaults.object(forKey: Key.showSpacePreviews) as? Bool ?? true }
         set {
             defaults.set(newValue, forKey: Key.showSpacePreviews)
+            postChange()
+        }
+    }
+
+    var agentSayVoiceIdentifier: String? {
+        get { defaults.string(forKey: Key.agentSayVoiceIdentifier) }
+        set {
+            if let newValue {
+                defaults.set(newValue, forKey: Key.agentSayVoiceIdentifier)
+            } else {
+                defaults.removeObject(forKey: Key.agentSayVoiceIdentifier)
+            }
+            postChange()
+        }
+    }
+
+    var agentSayVoiceLanguage: String? {
+        get { defaults.string(forKey: Key.agentSayVoiceLanguage) }
+        set {
+            if let newValue {
+                defaults.set(newValue, forKey: Key.agentSayVoiceLanguage)
+            } else {
+                defaults.removeObject(forKey: Key.agentSayVoiceLanguage)
+            }
             postChange()
         }
     }

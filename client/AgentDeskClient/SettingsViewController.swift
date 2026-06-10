@@ -1,3 +1,4 @@
+import AVFoundation
 import UIKit
 
 // Modal settings screen presented from PairingViewController's gear icon.
@@ -21,6 +22,10 @@ final class SettingsViewController: UIViewController {
     private let accessoryKeyLabel = UILabel()
     private let accessoryGapSlider = UISlider()
     private let accessoryGapLabel = UILabel()
+    private let agentSayLanguageButton = UIButton(type: .system)
+    private let agentSayVoiceButton = UIButton(type: .system)
+    private var agentSayVoices: [AVSpeechSynthesisVoice] = []
+    private var agentSayLanguages: [String] = []
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -74,7 +79,14 @@ final class SettingsViewController: UIViewController {
             ]
         )
 
-        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, spacesSection, previewsSection, accessorySection])
+        let speechSection = makeSection(
+            title: "Speech",
+            rows: [],
+            customRows: [makeLanguageRow(), makeVoiceRow()],
+            footnote: "Used for AgentDesk spoken subtitles. Download higher-quality voices in Settings > Accessibility > Read & Speak > Voices."
+        )
+
+        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, spacesSection, previewsSection, speechSection, accessorySection])
         stack.axis = .vertical
         stack.spacing = 28
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -141,6 +153,8 @@ final class SettingsViewController: UIViewController {
         accessoryGapSlider.maximumValue = 16
         accessoryGapSlider.isContinuous = true
         accessoryGapSlider.addTarget(self, action: #selector(accessoryGapChanged), for: .valueChanged)
+
+        configureSpeechMenus()
     }
 
     private func loadFromStore() {
@@ -153,6 +167,8 @@ final class SettingsViewController: UIViewController {
         accessoryContainerSlider.value = Float(store.accessoryContainerHeight)
         accessoryKeySlider.value = Float(store.accessoryKeyHeight)
         accessoryGapSlider.value = Float(store.accessoryKeySpacing)
+        refreshLanguageButtonTitle()
+        refreshVoiceButtonTitle()
         refreshLabels()
     }
 
@@ -215,6 +231,182 @@ final class SettingsViewController: UIViewController {
         refreshLabels()
     }
 
+    private func configureSpeechMenus() {
+        configureSpeechOptions()
+        configureLanguageMenu()
+        configureVoiceMenu()
+    }
+
+    private func configureSpeechOptions() {
+        agentSayVoices = AVSpeechSynthesisVoice.speechVoices()
+            .sorted { lhs, rhs in
+                let leftRank = voiceQualityRank(lhs.quality)
+                let rightRank = voiceQualityRank(rhs.quality)
+                if leftRank != rightRank { return leftRank < rightRank }
+                if lhs.language != rhs.language { return lhs.language < rhs.language }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+        agentSayLanguages = Array(Set(agentSayVoices.map(\.language)))
+            .sorted { lhs, rhs in
+                languageDisplayName(lhs).localizedCaseInsensitiveCompare(languageDisplayName(rhs)) == .orderedAscending
+            }
+        normalizeSpeechSelection()
+    }
+
+    private func configureLanguageMenu() {
+        agentSayLanguageButton.contentHorizontalAlignment = .trailing
+        agentSayLanguageButton.showsMenuAsPrimaryAction = true
+
+        let selectedLanguage = selectedSpeechLanguage()
+        let actions = agentSayLanguages.map { language in
+            UIAction(
+                title: languageDisplayName(language),
+                subtitle: language,
+                state: language == selectedLanguage ? .on : .off
+            ) { [weak self] _ in
+                self?.store.agentSayVoiceLanguage = language
+                self?.store.agentSayVoiceIdentifier = nil
+                self?.configureSpeechMenus()
+            }
+        }
+
+        agentSayLanguageButton.menu = UIMenu(children: actions)
+        refreshLanguageButtonTitle()
+    }
+
+    private func configureVoiceMenu() {
+        agentSayVoiceButton.contentHorizontalAlignment = .trailing
+        agentSayVoiceButton.showsMenuAsPrimaryAction = true
+
+        let selectedLanguage = selectedSpeechLanguage()
+        let filteredVoices = voices(for: selectedLanguage)
+        let defaultTitle = if let selectedLanguage {
+            "Default for \(languageDisplayName(selectedLanguage))"
+        } else {
+            "System Default"
+        }
+
+        let defaultAction = UIAction(
+            title: defaultTitle,
+            state: store.agentSayVoiceIdentifier == nil ? .on : .off
+        ) { [weak self] _ in
+            self?.store.agentSayVoiceIdentifier = nil
+            self?.configureSpeechMenus()
+        }
+
+        let actions = filteredVoices.map { voice in
+            UIAction(
+                title: voiceMenuTitle(voice),
+                subtitle: voice.language,
+                state: voice.identifier == store.agentSayVoiceIdentifier ? .on : .off
+            ) { [weak self] _ in
+                self?.store.agentSayVoiceIdentifier = voice.identifier
+                self?.store.agentSayVoiceLanguage = voice.language
+                self?.configureSpeechMenus()
+            }
+        }
+
+        agentSayVoiceButton.menu = UIMenu(children: [defaultAction] + actions)
+        refreshVoiceButtonTitle()
+    }
+
+    private func normalizeSpeechSelection() {
+        if let identifier = store.agentSayVoiceIdentifier,
+           let selectedVoice = agentSayVoices.first(where: { $0.identifier == identifier }) {
+            if store.agentSayVoiceLanguage != selectedVoice.language {
+                store.agentSayVoiceLanguage = selectedVoice.language
+            }
+            return
+        }
+
+        if store.agentSayVoiceIdentifier != nil {
+            store.agentSayVoiceIdentifier = nil
+        }
+
+        if let language = store.agentSayVoiceLanguage,
+           agentSayLanguages.contains(language) {
+            return
+        }
+
+        let preferred = Locale.preferredLanguages.first { preferredLanguage in
+            agentSayLanguages.contains(preferredLanguage)
+        } ?? Locale.preferredLanguages.compactMap { preferredLanguage in
+            let preferredPrefix = Locale(identifier: preferredLanguage).language.languageCode?.identifier
+            return agentSayLanguages.first { candidate in
+                Locale(identifier: candidate).language.languageCode?.identifier == preferredPrefix
+            }
+        }.first
+
+        store.agentSayVoiceLanguage = preferred ?? agentSayLanguages.first
+    }
+
+    private func selectedSpeechLanguage() -> String? {
+        if let identifier = store.agentSayVoiceIdentifier,
+           let voice = agentSayVoices.first(where: { $0.identifier == identifier }) {
+            return voice.language
+        }
+        if let language = store.agentSayVoiceLanguage,
+           agentSayLanguages.contains(language) {
+            return language
+        }
+        return agentSayLanguages.first
+    }
+
+    private func voices(for language: String?) -> [AVSpeechSynthesisVoice] {
+        guard let language else { return agentSayVoices }
+        return agentSayVoices.filter { $0.language == language }
+    }
+
+    private func refreshLanguageButtonTitle() {
+        if let language = selectedSpeechLanguage() {
+            agentSayLanguageButton.setTitle(languageDisplayName(language), for: .normal)
+        } else {
+            agentSayLanguageButton.setTitle("System Default", for: .normal)
+        }
+    }
+
+    private func refreshVoiceButtonTitle() {
+        if let identifier = store.agentSayVoiceIdentifier,
+           let voice = agentSayVoices.first(where: { $0.identifier == identifier }) {
+            agentSayVoiceButton.setTitle(voiceMenuTitle(voice), for: .normal)
+        } else if let language = selectedSpeechLanguage() {
+            agentSayVoiceButton.setTitle("Default for \(languageDisplayName(language))", for: .normal)
+        } else {
+            agentSayVoiceButton.setTitle("System Default", for: .normal)
+        }
+    }
+
+    private func languageDisplayName(_ language: String) -> String {
+        Locale.current.localizedString(forIdentifier: language) ?? language
+    }
+
+    private func voiceMenuTitle(_ voice: AVSpeechSynthesisVoice) -> String {
+        let quality = voiceQualityLabel(voice.quality)
+        return quality.isEmpty ? voice.name : "\(voice.name) (\(quality))"
+    }
+
+    private func voiceQualityRank(_ quality: AVSpeechSynthesisVoiceQuality) -> Int {
+        switch quality {
+        case .premium:
+            0
+        case .enhanced:
+            1
+        default:
+            2
+        }
+    }
+
+    private func voiceQualityLabel(_ quality: AVSpeechSynthesisVoiceQuality) -> String {
+        switch quality {
+        case .premium:
+            "Premium"
+        case .enhanced:
+            "Enhanced"
+        default:
+            ""
+        }
+    }
+
     @objc private func dismissSelf() {
         dismiss(animated: true)
     }
@@ -226,6 +418,7 @@ final class SettingsViewController: UIViewController {
         title: String,
         rows: [(String, UILabel, UISlider)],
         switchRow: (String, UISwitch)? = nil,
+        customRows: [UIView] = [],
         footnote: String? = nil
     ) -> UIStackView {
         let header = UILabel()
@@ -243,6 +436,9 @@ final class SettingsViewController: UIViewController {
 
         if let (name, control) = switchRow {
             rowsStack.addArrangedSubview(makeSwitchRow(name: name, control: control))
+        }
+        for row in customRows {
+            rowsStack.addArrangedSubview(row)
         }
 
         let outer = UIStackView(arrangedSubviews: [header, rowsStack])
@@ -288,6 +484,30 @@ final class SettingsViewController: UIViewController {
         nameLabel.font = .preferredFont(forTextStyle: .body)
 
         let row = UIStackView(arrangedSubviews: [nameLabel, control])
+        row.axis = .horizontal
+        row.spacing = 8
+        row.alignment = .center
+        return row
+    }
+
+    private func makeLanguageRow() -> UIStackView {
+        makeMenuRow(name: "Language", button: agentSayLanguageButton)
+    }
+
+    private func makeVoiceRow() -> UIStackView {
+        makeMenuRow(name: "Voice", button: agentSayVoiceButton)
+    }
+
+    private func makeMenuRow(name: String, button: UIButton) -> UIStackView {
+        let nameLabel = UILabel()
+        nameLabel.text = name
+        nameLabel.font = .preferredFont(forTextStyle: .body)
+        nameLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        button.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        button.titleLabel?.lineBreakMode = .byTruncatingMiddle
+
+        let row = UIStackView(arrangedSubviews: [nameLabel, button])
         row.axis = .horizontal
         row.spacing = 8
         row.alignment = .center

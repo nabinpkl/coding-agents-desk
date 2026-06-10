@@ -123,6 +123,10 @@ enum Config {
         .appendingPathComponent("AgentDesk", isDirectory: true)
     static let pairedDevicesURL = applicationSupportDirectory
         .appendingPathComponent("paired-devices.json", isDirectory: false)
+    static let adSocketURL = applicationSupportDirectory
+        .appendingPathComponent("ad.sock", isDirectory: false)
+    static let adTokenURL = applicationSupportDirectory
+        .appendingPathComponent("ad-token", isDirectory: false)
     static let devLastPairURLPath = applicationSupportDirectory
         .appendingPathComponent(".last-pair-url", isDirectory: false)
     static let tlsCertURL = applicationSupportDirectory

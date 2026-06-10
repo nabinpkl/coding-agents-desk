@@ -1,3 +1,4 @@
+import AVFoundation
 import UIKit
 
 // Forwarding seam between the in-app gesture surfaces (trackpad,
@@ -67,6 +68,157 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
                 }
             }
         }
+    }
+
+    func startAgentSayObservation() {
+        agentSayTask?.cancel()
+        guard let channel = pairingClient.activeInputChannel else { return }
+        agentSayTask = Task { [weak self, channel] in
+            for await push in channel.agentSayUpdates {
+                await MainActor.run {
+                    self?.handleAgentSay(push)
+                }
+            }
+        }
+    }
+
+    func stopAgentSayForegroundPresentation() {
+        agentSayTask?.cancel()
+        agentSayTask = nil
+        agentSaySpeechTask?.cancel()
+        agentSaySpeechTask = nil
+        agentSayHideTask?.cancel()
+        agentSayHideTask = nil
+        agentSaySynthesizer.stopSpeaking(at: .immediate)
+        agentSayIncomingBuffer = ""
+        agentSaySpeechQueue.removeAll()
+        agentSayIsSpeaking = false
+        agentSayStreamEnded = false
+        agentSayBanner.text = nil
+        agentSayBanner.isHidden = true
+        agentSayBanner.alpha = 0
+    }
+
+    func handleAgentSay(_ push: AgentSayPush) {
+        guard UIApplication.shared.applicationState == .active else { return }
+        switch push.phase {
+        case "start":
+            agentSaySynthesizer.stopSpeaking(at: .immediate)
+            agentSayIncomingBuffer = ""
+            agentSaySpeechQueue.removeAll()
+            agentSayIsSpeaking = false
+            agentSayStreamEnded = false
+            agentSayBanner.text = nil
+            agentSayBanner.isHidden = true
+            agentSayBanner.alpha = 0
+        case "chunk":
+            guard let text = push.text, !text.isEmpty else { return }
+            agentSayIncomingBuffer += text
+            enqueueAgentSaySegments(final: false)
+            speakNextAgentSaySegmentIfNeeded()
+        case "end":
+            agentSayStreamEnded = true
+            enqueueAgentSaySegments(final: true)
+            speakNextAgentSaySegmentIfNeeded()
+            if !agentSayIsSpeaking && agentSaySpeechQueue.isEmpty {
+                scheduleAgentSayBannerHide()
+            }
+        default:
+            break
+        }
+    }
+
+    private func showAgentSayBanner(text: String) {
+        agentSayHideTask?.cancel()
+        agentSayBanner.text = text.isEmpty ? " " : text
+        agentSayBanner.isHidden = false
+        view.bringSubviewToFront(agentSayBanner)
+        UIView.animate(withDuration: 0.12) {
+            self.agentSayBanner.alpha = 1
+        }
+    }
+
+    private func scheduleAgentSayBannerHide() {
+        agentSayHideTask?.cancel()
+        agentSayHideTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                UIView.animate(withDuration: 0.18, animations: {
+                    self?.agentSayBanner.alpha = 0
+                }, completion: { _ in
+                    self?.agentSayBanner.isHidden = true
+                    self?.agentSayBanner.text = nil
+                })
+            }
+        }
+    }
+
+    private func enqueueAgentSaySegments(final: Bool) {
+        while let segment = nextAgentSaySegment(final: final) {
+            agentSaySpeechQueue.append(segment)
+        }
+    }
+
+    private func nextAgentSaySegment(final: Bool) -> String? {
+        let trimmed = agentSayIncomingBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+        if final {
+            agentSayIncomingBuffer = ""
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        if let end = agentSayIncomingBuffer.firstIndex(where: { ".!?\n".contains($0) }) {
+            let afterEnd = agentSayIncomingBuffer.index(after: end)
+            let segment = String(agentSayIncomingBuffer[..<afterEnd])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            agentSayIncomingBuffer.removeSubrange(..<afterEnd)
+            return segment.isEmpty ? nil : segment
+        }
+
+        let maxSubtitleLength = 96
+        guard agentSayIncomingBuffer.count > maxSubtitleLength else { return nil }
+        let limit = agentSayIncomingBuffer.index(agentSayIncomingBuffer.startIndex, offsetBy: maxSubtitleLength)
+        let prefix = agentSayIncomingBuffer[..<limit]
+        let split = prefix.lastIndex(where: { $0 == " " }) ?? limit
+        let segment = String(agentSayIncomingBuffer[..<split])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        agentSayIncomingBuffer.removeSubrange(..<split)
+        return segment.isEmpty ? nil : segment
+    }
+
+    func speakNextAgentSaySegmentIfNeeded() {
+        guard !agentSayIsSpeaking else { return }
+        guard !agentSaySpeechQueue.isEmpty else {
+            if agentSayStreamEnded {
+                scheduleAgentSayBannerHide()
+            }
+            return
+        }
+        let text = agentSaySpeechQueue.removeFirst()
+        agentSayIsSpeaking = true
+        showAgentSayBanner(text: text)
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try session.setActive(true)
+        } catch {
+            // Speech can still succeed with the default session; keep the
+            // foreground banner path alive if audio routing setup fails.
+        }
+        let utterance = AVSpeechUtterance(string: text)
+        let settings = SettingsStore.shared
+        if let identifier = settings.agentSayVoiceIdentifier,
+           let selectedVoice = AVSpeechSynthesisVoice(identifier: identifier) {
+            utterance.voice = selectedVoice
+        } else if let language = settings.agentSayVoiceLanguage,
+                  let languageVoice = AVSpeechSynthesisVoice(language: language) {
+            utterance.voice = languageVoice
+        } else {
+            utterance.voice = AVSpeechSynthesisVoice(language: Locale.current.identifier)
+                ?? AVSpeechSynthesisVoice(language: "en-US")
+        }
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        agentSaySynthesizer.speak(utterance)
     }
 
     // R25: the strip is the only Spaces UI now, so visibility depends
@@ -159,6 +311,21 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         guard let channel = pairingClient.activeInputChannel else { return }
         Task { [channel, input] in
             try? await channel.send(input)
+        }
+    }
+}
+
+extension PairingViewController: @preconcurrency AVSpeechSynthesizerDelegate {
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in
+            self?.agentSayIsSpeaking = false
+            self?.speakNextAgentSaySegmentIfNeeded()
+        }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in
+            self?.agentSayIsSpeaking = false
         }
     }
 }

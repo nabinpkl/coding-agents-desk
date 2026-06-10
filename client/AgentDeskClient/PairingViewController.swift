@@ -42,6 +42,15 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // sessionTask: cancelled on background, restarted on the next
     // attemptSession.
     var desktopStateTask: Task<Void, Never>?
+    var agentSayTask: Task<Void, Never>?
+    var agentSaySpeechTask: Task<Void, Never>?
+    var agentSayHideTask: Task<Void, Never>?
+    let agentSayBanner = UILabel()
+    let agentSaySynthesizer = AVSpeechSynthesizer()
+    var agentSayIncomingBuffer = ""
+    var agentSaySpeechQueue: [String] = []
+    var agentSayIsSpeaking = false
+    var agentSayStreamEnded = false
     // R9.2: trackpad surface in the bottom region. The translator owns
     // the recognizers and emits NormalizedInput; we forward to the
     // input channel. Hit-area extended 12pt past its left edge so thumb
@@ -123,6 +132,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // jump.
         view.backgroundColor = .systemBackground
         configureViews()
+        agentSaySynthesizer.delegate = self
         configureSettingsButton()
         configureKeyboardSurface()
         applySettingsToTranslator()
@@ -187,6 +197,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         mediaStateTask = nil
         desktopStateTask?.cancel()
         desktopStateTask = nil
+        stopAgentSayForegroundPresentation()
         teardownMediaTransport()
         // Closes activeSignaling + activeInputChannel and flips state
         // .connected -> .pairedDisconnected. Idempotent for other
@@ -215,6 +226,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         mediaStateTask?.cancel()
         iceGraceTask?.cancel()
         desktopStateTask?.cancel()
+        agentSayTask?.cancel()
+        agentSaySpeechTask?.cancel()
+        agentSayHideTask?.cancel()
         mediaTransport?.stop()
     }
 
@@ -339,9 +353,24 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         forgetButton.translatesAutoresizingMaskIntoConstraints = false
         forgetButton.isHidden = true
 
+        agentSayBanner.translatesAutoresizingMaskIntoConstraints = false
+        agentSayBanner.isHidden = true
+        agentSayBanner.alpha = 0
+        agentSayBanner.numberOfLines = 3
+        agentSayBanner.font = .preferredFont(forTextStyle: .subheadline)
+        agentSayBanner.textColor = .label
+        agentSayBanner.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.92)
+        agentSayBanner.layer.cornerRadius = 10
+        agentSayBanner.layer.borderWidth = 0.5
+        agentSayBanner.layer.borderColor = UIColor.separator.cgColor
+        agentSayBanner.layer.masksToBounds = true
+        agentSayBanner.textAlignment = .left
+        agentSayBanner.accessibilityIdentifier = "agent-say-banner"
+
         view.addSubview(statusLabel)
         view.addSubview(actionButton)
         view.addSubview(forgetButton)
+        view.addSubview(agentSayBanner)
 
         NSLayoutConstraint.activate([
             statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
@@ -350,7 +379,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             actionButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 18),
             actionButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             forgetButton.topAnchor.constraint(equalTo: actionButton.bottomAnchor, constant: 12),
-            forgetButton.centerXAnchor.constraint(equalTo: view.centerXAnchor)
+            forgetButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            agentSayBanner.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            agentSayBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            agentSayBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16)
         ])
     }
 

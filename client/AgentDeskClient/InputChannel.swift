@@ -32,6 +32,10 @@ protocol InputChannel: AnyObject, Sendable {
     // existing thumbnail subscribers don't need to change.
     var topWindowsUpdates: AsyncStream<[String: SpaceTopWindow]> { get }
 
+    // AgentDeskHost -> foreground iPhone text-to-speech push. This is
+    // display/speech only; it does not grant input-control authority.
+    var agentSayUpdates: AsyncStream<AgentSayPush> { get }
+
     // ADR-0006: client -> host opt-in / force-refresh. Sent on channel
     // open and on settings change.
     func sendConfig(_ config: ClientConfig) async throws
@@ -97,6 +101,8 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
     let thumbnailsUpdates: AsyncStream<[String: String]>
     private let topWindowsContinuation: AsyncStream<[String: SpaceTopWindow]>.Continuation
     let topWindowsUpdates: AsyncStream<[String: SpaceTopWindow]>
+    private let agentSayContinuation: AsyncStream<AgentSayPush>.Continuation
+    let agentSayUpdates: AsyncStream<AgentSayPush>
     private let closedContinuation: AsyncStream<Void>.Continuation
     let closed: AsyncStream<Void>
 
@@ -111,6 +117,9 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
         var twCont: AsyncStream<[String: SpaceTopWindow]>.Continuation!
         self.topWindowsUpdates = AsyncStream { twCont = $0 }
         self.topWindowsContinuation = twCont
+        var sayCont: AsyncStream<AgentSayPush>.Continuation!
+        self.agentSayUpdates = AsyncStream { sayCont = $0 }
+        self.agentSayContinuation = sayCont
         var closedCont: AsyncStream<Void>.Continuation!
         self.closed = AsyncStream { closedCont = $0 }
         self.closedContinuation = closedCont
@@ -179,6 +188,7 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
         desktopStateContinuation.finish()
         thumbnailsContinuation.finish()
         topWindowsContinuation.finish()
+        agentSayContinuation.finish()
         closedContinuation.yield(())
         closedContinuation.finish()
         return true
@@ -210,6 +220,10 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
             if let push = try? JSONDecoder().decode(ThumbnailsPush.self, from: data) {
                 thumbnailsContinuation.yield(push.thumbnails)
                 topWindowsContinuation.yield(push.topWindows ?? [:])
+            }
+        case "agent-say":
+            if let push = try? JSONDecoder().decode(AgentSayPush.self, from: data) {
+                agentSayContinuation.yield(push)
             }
         default:
             inputLogger.debug("input channel ignored frame type=\(header.type, privacy: .public)")

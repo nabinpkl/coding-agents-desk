@@ -9,6 +9,7 @@ protocol InputChannelServing: AnyObject, Sendable {
     func close()
     func pushDesktopState(_ state: DesktopState)
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow])
+    func pushAgentSay(_ push: AgentSayPush)
 }
 
 // R11 wire shape: a server-pushed DesktopStatePush frame travels over
@@ -71,6 +72,10 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
 
     func pushDesktopState(_ state: DesktopState) {
         sendCodableFrame(DesktopStatePush(state: state), identifier: "desktop-state")
+    }
+
+    func pushAgentSay(_ push: AgentSayPush) {
+        sendCodableFrame(push, identifier: "agent-say")
     }
 
     // ADR-0006: thumbnail bytes ride their own frame so the periodic
