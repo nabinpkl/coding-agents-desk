@@ -60,6 +60,7 @@ extension PairingViewController: UIScrollViewDelegate {
         if !isSameDisplay || cursorSourcePos == nil {
             cursorSourcePos = CGPoint(x: newRect.midX, y: newRect.midY)
         }
+        updateCursorDot()
     }
 
     // ADR-0009. The host's InputDispatcher already integrates these
@@ -76,6 +77,7 @@ extension PairingViewController: UIScrollViewDelegate {
         )
         cursorSourcePos = next
         applyEdgeFollow()
+        updateCursorDot()
     }
 
     func applyEdgeFollow() {
@@ -91,5 +93,46 @@ extension PairingViewController: UIScrollViewDelegate {
         if next != scroll.contentOffset {
             scroll.setContentOffset(next, animated: false)
         }
+    }
+
+    // Projects cursorSourcePos into the view coordinate space and
+    // positions cursorDotView there. Called on every cursor delta and
+    // on zoom transitions so the dot tracks both finger movement and
+    // pinch-zoom viewport shifts without waiting for a video round-trip.
+    func updateCursorDot() {
+        guard let dot = cursorDotView,
+              let scroll = sinkScrollView,
+              let pos = cursorSourcePos,
+              activeDisplayRect.width > 0,
+              activeDisplayRect.height > 0,
+              scroll.bounds.width > 0 else {
+            cursorDotView?.isHidden = true
+            return
+        }
+        let fitScale = min(
+            scroll.bounds.width / activeDisplayRect.width,
+            scroll.bounds.height / activeDisplayRect.height
+        )
+        let padX = (scroll.bounds.width - activeDisplayRect.width * fitScale) / 2
+        let padY = (scroll.bounds.height - activeDisplayRect.height * fitScale) / 2
+        // Position in sinkView coords (unaffected by zoom).
+        let sinkX = padX + pos.x * fitScale
+        let sinkY = padY + pos.y * fitScale
+        // Scale up by zoom and subtract the scroll offset to get viewport coords.
+        let vpX = sinkX * scroll.zoomScale - scroll.contentOffset.x
+        let vpY = sinkY * scroll.zoomScale - scroll.contentOffset.y
+        let size: CGFloat = 12
+        dot.frame = CGRect(
+            x: scroll.frame.minX + vpX - size / 2,
+            y: scroll.frame.minY + vpY - size / 2,
+            width: size,
+            height: size
+        )
+        dot.layer.cornerRadius = size / 2
+        dot.isHidden = false
+    }
+
+    public func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        updateCursorDot()
     }
 }

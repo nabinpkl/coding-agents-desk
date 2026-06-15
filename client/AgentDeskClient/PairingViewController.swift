@@ -35,6 +35,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var cursorSourcePos: CGPoint?
     var activeDisplayRect: CGRect = .zero
     var activeDisplayIdMirror: String?
+    // Local cursor overlay. Moves immediately from cursorSourcePos on
+    // every gesture delta so the user sees instant cursor response
+    // without waiting for the Mac → WebRTC → iOS video round-trip.
+    var cursorDotView: UIView?
     var mediaStateTask: Task<Void, Never>?
     var iceGraceTask: Task<Void, Never>?
     // R11: observes the input channel's desktopStateUpdates stream and
@@ -297,6 +301,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         videoSink = nil
         sinkScrollView?.removeFromSuperview()
         sinkScrollView = nil
+        cursorDotView?.removeFromSuperview()
+        cursorDotView = nil
         cursorSourcePos = nil
         activeDisplayRect = .zero
         activeDisplayIdMirror = nil
