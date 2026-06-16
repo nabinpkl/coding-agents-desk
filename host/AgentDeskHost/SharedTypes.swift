@@ -626,12 +626,39 @@ struct DesktopState: Codable, Equatable {
     let spaces: [SpaceMetadata]
     let activeDisplayId: String?
     let activeSpaceId: UInt64?
+    // ADR-0009: current Mac cursor position in logical display points at
+    // the moment the push was built. Nil when unavailable. The client
+    // uses this to seed cursorSourcePos on connect and display change,
+    // eliminating the systematic drift that occurs when the real cursor
+    // is not at display center.
+    let cursorX: Float?
+    let cursorY: Float?
 
     enum CodingKeys: String, CodingKey {
         case displays = "d"
         case spaces = "s"
         case activeDisplayId = "ad"
         case activeSpaceId = "as"
+        case cursorX = "cx"
+        case cursorY = "cy"
+    }
+
+    // Convenience init that keeps cursor fields optional so call sites
+    // that don't supply them (tests, older callers) don't need updating.
+    init(
+        displays: [DisplayMetadata],
+        spaces: [SpaceMetadata],
+        activeDisplayId: String?,
+        activeSpaceId: UInt64?,
+        cursorX: Float? = nil,
+        cursorY: Float? = nil
+    ) {
+        self.displays = displays
+        self.spaces = spaces
+        self.activeDisplayId = activeDisplayId
+        self.activeSpaceId = activeSpaceId
+        self.cursorX = cursorX
+        self.cursorY = cursorY
     }
 }
 

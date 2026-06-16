@@ -58,7 +58,11 @@ extension PairingViewController: UIScrollViewDelegate {
         activeDisplayRect = newRect
         activeDisplayIdMirror = display.id
         if !isSameDisplay || cursorSourcePos == nil {
-            cursorSourcePos = CGPoint(x: newRect.midX, y: newRect.midY)
+            if let cx = state.cursorX, let cy = state.cursorY {
+                cursorSourcePos = CGPoint(x: CGFloat(cx), y: CGFloat(cy))
+            } else {
+                cursorSourcePos = CGPoint(x: newRect.midX, y: newRect.midY)
+            }
         }
     }
 

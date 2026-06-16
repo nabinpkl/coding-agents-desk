@@ -199,11 +199,17 @@ final class SpacesProvider {
             }
         }
 
+        // ADR-0009: snapshot the current cursor position so the client
+        // can seed its dead-reckoning model from the real location
+        // instead of display center, eliminating the startup drift.
+        let cursorLoc = CGEvent(source: nil)?.location
         return DesktopState(
             displays: displays,
             spaces: spaces,
             activeDisplayId: activeDisplayId,
-            activeSpaceId: activeSpaceId
+            activeSpaceId: activeSpaceId,
+            cursorX: cursorLoc.map { Float($0.x) },
+            cursorY: cursorLoc.map { Float($0.y) }
         )
     }
 

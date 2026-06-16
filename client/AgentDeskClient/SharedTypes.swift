@@ -597,12 +597,33 @@ struct DesktopState: Codable, Equatable {
     let spaces: [SpaceMetadata]
     let activeDisplayId: String?
     let activeSpaceId: UInt64?
+    // ADR-0009: mirror of host field. See host SharedTypes.swift.
+    let cursorX: Float?
+    let cursorY: Float?
 
     enum CodingKeys: String, CodingKey {
         case displays = "d"
         case spaces = "s"
         case activeDisplayId = "ad"
         case activeSpaceId = "as"
+        case cursorX = "cx"
+        case cursorY = "cy"
+    }
+
+    init(
+        displays: [DisplayMetadata],
+        spaces: [SpaceMetadata],
+        activeDisplayId: String?,
+        activeSpaceId: UInt64?,
+        cursorX: Float? = nil,
+        cursorY: Float? = nil
+    ) {
+        self.displays = displays
+        self.spaces = spaces
+        self.activeDisplayId = activeDisplayId
+        self.activeSpaceId = activeSpaceId
+        self.cursorX = cursorX
+        self.cursorY = cursorY
     }
 }
 
