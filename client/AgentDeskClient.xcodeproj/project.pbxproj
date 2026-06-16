@@ -42,6 +42,7 @@
 		B0000000000000000000021B /* PairingViewController+Layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000012A /* PairingViewController+Layout.swift */; };
 		B0000000000000000000021C /* PairingViewController+Keyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000012B /* PairingViewController+Keyboard.swift */; };
 		B0000000000000000000021D /* PairingViewController+EdgeFollow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000012C /* PairingViewController+EdgeFollow.swift */; };
+		B000000000000000000009A1 /* CursorPointerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000009A2 /* CursorPointerView.swift */; };
 		B0000000000000000000021E /* PairingViewController+Gestures.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000012D /* PairingViewController+Gestures.swift */; };
 		B00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000102 /* Base64URL.swift */; };
 		B00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000103 /* Config.swift */; };
@@ -95,6 +96,7 @@
 		B0000000000000000000012A /* PairingViewController+Layout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+Layout.swift"; sourceTree = "<group>"; };
 		B0000000000000000000012B /* PairingViewController+Keyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+Keyboard.swift"; sourceTree = "<group>"; };
 		B0000000000000000000012C /* PairingViewController+EdgeFollow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+EdgeFollow.swift"; sourceTree = "<group>"; };
+		B000000000000000000009A2 /* CursorPointerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorPointerView.swift; sourceTree = "<group>"; };
 		B0000000000000000000012D /* PairingViewController+Gestures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+Gestures.swift"; sourceTree = "<group>"; };
 		B00000000000000000000121 /* PairingClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClientTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000122 /* GestureTranslatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureTranslatorTests.swift; sourceTree = "<group>"; };
@@ -173,6 +175,7 @@
 				B0000000000000000000012A /* PairingViewController+Layout.swift */,
 				B0000000000000000000012B /* PairingViewController+Keyboard.swift */,
 				B0000000000000000000012C /* PairingViewController+EdgeFollow.swift */,
+				B000000000000000000009A2 /* CursorPointerView.swift */,
 				B0000000000000000000012D /* PairingViewController+Gestures.swift */,
 				B0000000000000000000010A /* Info.plist */,
 			);
@@ -343,6 +346,7 @@
 				B0000000000000000000021B /* PairingViewController+Layout.swift in Sources */,
 				B0000000000000000000021C /* PairingViewController+Keyboard.swift in Sources */,
 				B0000000000000000000021D /* PairingViewController+EdgeFollow.swift in Sources */,
+				B000000000000000000009A1 /* CursorPointerView.swift in Sources */,
 				B0000000000000000000021E /* PairingViewController+Gestures.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

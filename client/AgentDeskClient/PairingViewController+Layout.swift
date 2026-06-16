@@ -70,15 +70,7 @@ extension PairingViewController {
 
         sinkScrollView = scroll
 
-        let dot = UIView()
-        dot.frame = CGRect(x: 0, y: 0, width: 12, height: 12)
-        dot.layer.cornerRadius = 6
-        dot.backgroundColor = UIColor.white.withAlphaComponent(0.9)
-        dot.layer.shadowColor = UIColor.black.cgColor
-        dot.layer.shadowOffset = .zero
-        dot.layer.shadowRadius = 2.5
-        dot.layer.shadowOpacity = 0.55
-        dot.isUserInteractionEnabled = false
+        let dot = CursorPointerView()
         dot.isHidden = true
         view.addSubview(dot)
         cursorDotView = dot

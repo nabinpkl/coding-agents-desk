@@ -124,14 +124,16 @@ extension PairingViewController: UIScrollViewDelegate {
         // Scale up by zoom and subtract the scroll offset to get viewport coords.
         let vpX = sinkX * scroll.zoomScale - scroll.contentOffset.x
         let vpY = sinkY * scroll.zoomScale - scroll.contentOffset.y
-        let size: CGFloat = 12
+        // The arrow tip is the hotspot, anchored at the view's (0, 0), so
+        // position the frame origin at the cursor point rather than
+        // centring on it.
+        let pointerSize = CursorPointerView.pointerSize
         dot.frame = CGRect(
-            x: scroll.frame.minX + vpX - size / 2,
-            y: scroll.frame.minY + vpY - size / 2,
-            width: size,
-            height: size
+            x: scroll.frame.minX + vpX,
+            y: scroll.frame.minY + vpY,
+            width: pointerSize.width,
+            height: pointerSize.height
         )
-        dot.layer.cornerRadius = size / 2
         dot.isHidden = false
     }
 
