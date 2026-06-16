@@ -82,6 +82,21 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         }
     }
 
+    // Drains host-pushed cursor-image frames so the overlay mirrors the
+    // real Mac cursor shape. Restarted alongside the other observations
+    // because activeInputChannel may be replaced by a reconnect.
+    func startCursorObservation() {
+        cursorTask?.cancel()
+        guard let channel = pairingClient.activeInputChannel else { return }
+        cursorTask = Task { [weak self, channel] in
+            for await push in channel.cursorUpdates {
+                await MainActor.run {
+                    self?.applyCursorImage(push)
+                }
+            }
+        }
+    }
+
     func stopAgentSayForegroundPresentation() {
         agentSayTask?.cancel()
         agentSayTask = nil

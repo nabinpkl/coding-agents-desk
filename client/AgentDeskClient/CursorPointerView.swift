@@ -1,18 +1,26 @@
 import UIKit
 
-// ADR-0009 local cursor overlay. Renders a macOS-style arrow pointer
-// instead of a plain dot so the predicted cursor reads as a cursor and
-// stays easy to spot against busy desktop video. The arrow tip is the
-// hotspot: it sits at the view's (0, 0), so the EdgeFollow projection
-// positions the view origin at the cursor point rather than centring a
-// circle on it.
+// Local cursor overlay. Two render modes:
+//
+//  - Drawn arrow (default, pre-first-push fallback): a macOS-style arrow
+//    whose tip is the hotspot at the view's (0, 0).
+//  - Mirrored image: the actual host cursor PNG, applied via apply(...).
+//    The host sends the hotspot as image fractions; the owning view
+//    controller positions the frame so the hotspot lands on the cursor
+//    point, so this view just renders centred in its own bounds.
+//
+// In both modes a blue glow sits behind the glyph so the predicted cursor
+// is easy to spot against busy desktop video.
 final class CursorPointerView: UIView {
-    // Logical pointer size in points. Larger than the old 12pt dot so it
-    // reads clearly when the video is downscaled or busy.
+    // Drawn-arrow fallback size in points. Small so it does not dominate.
     static let pointerSize = CGSize(width: 8, height: 12)
+    // Mirrored host cursors render at their host point size times this
+    // factor; raw host points render too large on the phone.
+    static let mirrorRenderScale: CGFloat = 0.7
 
     private let glowLayer = CAShapeLayer()
     private let arrowLayer = CAShapeLayer()
+    private let imageLayer = CALayer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -21,8 +29,7 @@ final class CursorPointerView: UIView {
 
         let path = Self.arrowPath(size: Self.pointerSize).cgPath
 
-        // Glow sits behind: bright, blurred halo with no crisp edge so the
-        // pointer is findable at a glance even over light content.
+        // Glow sits behind: bright, blurred halo with no crisp edge.
         glowLayer.path = path
         glowLayer.fillColor = UIColor.white.cgColor
         glowLayer.shadowColor = UIColor.systemBlue.cgColor
@@ -31,8 +38,7 @@ final class CursorPointerView: UIView {
         glowLayer.shadowOffset = .zero
         layer.addSublayer(glowLayer)
 
-        // Crisp white arrow with a dark outline so it holds contrast on any
-        // background. A tight black drop shadow grounds it on the video.
+        // Crisp white arrow with a dark outline for contrast on any video.
         arrowLayer.path = path
         arrowLayer.fillColor = UIColor.white.cgColor
         arrowLayer.strokeColor = UIColor.black.withAlphaComponent(0.85).cgColor
@@ -44,6 +50,16 @@ final class CursorPointerView: UIView {
         arrowLayer.shadowOffset = .zero
         layer.addSublayer(arrowLayer)
 
+        // Mirrored-image layer. Hidden until the first cursor frame; its
+        // own shadow forms a glow following the cursor's alpha silhouette.
+        imageLayer.isHidden = true
+        imageLayer.shadowColor = UIColor.systemBlue.cgColor
+        imageLayer.shadowRadius = 7
+        imageLayer.shadowOpacity = 0.9
+        imageLayer.shadowOffset = .zero
+        imageLayer.contentsGravity = .resize
+        layer.addSublayer(imageLayer)
+
         self.frame = CGRect(origin: .zero, size: Self.pointerSize)
     }
 
@@ -51,9 +67,23 @@ final class CursorPointerView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    // Switch to mirroring the host cursor image at the given on-screen
+    // size. The owning controller sets the view frame (and hotspot offset)
+    // separately; here we just fill the bounds and toggle the layers.
+    func apply(image: UIImage, renderSize: CGSize) {
+        imageLayer.contents = image.cgImage
+        imageLayer.shadowPath = nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        imageLayer.frame = CGRect(origin: .zero, size: renderSize)
+        CATransaction.commit()
+        imageLayer.isHidden = false
+        glowLayer.isHidden = true
+        arrowLayer.isHidden = true
+    }
+
     // Classic macOS arrow outline on an 11x18 reference grid, tip at the
-    // origin, scaled to `size`. The point order traces the tip, the left
-    // edge, the notch, the tail barb and back up to the right shoulder.
+    // origin, scaled to `size`.
     private static func arrowPath(size: CGSize) -> UIBezierPath {
         let sx = size.width / 11.0
         let sy = size.height / 18.0

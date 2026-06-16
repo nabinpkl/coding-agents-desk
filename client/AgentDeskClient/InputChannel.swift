@@ -36,6 +36,11 @@ protocol InputChannel: AnyObject, Sendable {
     // display/speech only; it does not grant input-control authority.
     var agentSayUpdates: AsyncStream<AgentSayPush> { get }
 
+    // Host -> client cursor-image mirror. One frame per cursor shape
+    // change (plus one on attach). PairingViewController caches the PNG
+    // and renders it on the local cursor overlay.
+    var cursorUpdates: AsyncStream<CursorImagePush> { get }
+
     // ADR-0006: client -> host opt-in / force-refresh. Sent on channel
     // open and on settings change.
     func sendConfig(_ config: ClientConfig) async throws
@@ -103,6 +108,8 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
     let topWindowsUpdates: AsyncStream<[String: SpaceTopWindow]>
     private let agentSayContinuation: AsyncStream<AgentSayPush>.Continuation
     let agentSayUpdates: AsyncStream<AgentSayPush>
+    private let cursorContinuation: AsyncStream<CursorImagePush>.Continuation
+    let cursorUpdates: AsyncStream<CursorImagePush>
     private let closedContinuation: AsyncStream<Void>.Continuation
     let closed: AsyncStream<Void>
 
@@ -120,6 +127,9 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
         var sayCont: AsyncStream<AgentSayPush>.Continuation!
         self.agentSayUpdates = AsyncStream { sayCont = $0 }
         self.agentSayContinuation = sayCont
+        var cursorCont: AsyncStream<CursorImagePush>.Continuation!
+        self.cursorUpdates = AsyncStream { cursorCont = $0 }
+        self.cursorContinuation = cursorCont
         var closedCont: AsyncStream<Void>.Continuation!
         self.closed = AsyncStream { closedCont = $0 }
         self.closedContinuation = closedCont
@@ -189,6 +199,7 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
         thumbnailsContinuation.finish()
         topWindowsContinuation.finish()
         agentSayContinuation.finish()
+        cursorContinuation.finish()
         closedContinuation.yield(())
         closedContinuation.finish()
         return true
@@ -224,6 +235,10 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
         case "agent-say":
             if let push = try? JSONDecoder().decode(AgentSayPush.self, from: data) {
                 agentSayContinuation.yield(push)
+            }
+        case "cursor":
+            if let push = try? JSONDecoder().decode(CursorImagePush.self, from: data) {
+                cursorContinuation.yield(push)
             }
         default:
             inputLogger.debug("input channel ignored frame type=\(header.type, privacy: .public)")

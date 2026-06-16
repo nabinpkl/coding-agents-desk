@@ -251,6 +251,7 @@ extension PairingViewController {
         startDesktopStateObservation()
         startThumbnailsObservation()
         startAgentSayObservation()
+        startCursorObservation()
         sendCurrentClientConfig()
     }
 
@@ -268,6 +269,8 @@ extension PairingViewController {
         thumbnailsTask = nil
         topWindowsTask?.cancel()
         topWindowsTask = nil
+        cursorTask?.cancel()
+        cursorTask = nil
         stopAgentSayForegroundPresentation()
         lastDesktopState = nil
         keyboardSurface.setVisible(false)

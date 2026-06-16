@@ -83,6 +83,29 @@ extension PairingViewController: UIScrollViewDelegate {
         updateCursorDot()
     }
 
+    // Applies a host cursor-image frame: resolve (cache) the PNG, record
+    // the on-screen render size and hotspot, swap the overlay glyph, and
+    // reposition. Position itself is locally predicted; only the glyph
+    // identity comes from the host, so this lags a shape change by ~RTT.
+    func applyCursorImage(_ push: CursorImagePush) {
+        cursorHidden = push.hidden
+        guard let dot = cursorDotView, let image = cursorImageStore.resolve(push) else {
+            updateCursorDot()
+            return
+        }
+        let scale = CursorPointerView.mirrorRenderScale
+        cursorRenderSize = CGSize(
+            width: CGFloat(push.widthPoints) * scale,
+            height: CGFloat(push.heightPoints) * scale
+        )
+        cursorHotspotFrac = CGPoint(
+            x: CGFloat(push.hotspotXFrac),
+            y: CGFloat(push.hotspotYFrac)
+        )
+        dot.apply(image: image, renderSize: cursorRenderSize)
+        updateCursorDot()
+    }
+
     func applyEdgeFollow() {
         guard let scroll = sinkScrollView, let pos = cursorSourcePos else { return }
         guard scroll.zoomScale > 1.0 else { return }
@@ -124,15 +147,22 @@ extension PairingViewController: UIScrollViewDelegate {
         // Scale up by zoom and subtract the scroll offset to get viewport coords.
         let vpX = sinkX * scroll.zoomScale - scroll.contentOffset.x
         let vpY = sinkY * scroll.zoomScale - scroll.contentOffset.y
-        // The arrow tip is the hotspot, anchored at the view's (0, 0), so
-        // position the frame origin at the cursor point rather than
-        // centring on it.
-        let pointerSize = CursorPointerView.pointerSize
+        // Mirror the Mac when it hides its cursor (e.g. fullscreen video).
+        if cursorHidden {
+            dot.isHidden = true
+            return
+        }
+        // Anchor the cursor hotspot on the predicted point. The drawn-arrow
+        // fallback has a tip hotspot at (0, 0); a mirrored image carries its
+        // hotspot as fractions of the render size, so subtract that offset.
+        let size = cursorRenderSize
+        let hotX = cursorHotspotFrac.x * size.width
+        let hotY = cursorHotspotFrac.y * size.height
         dot.frame = CGRect(
-            x: scroll.frame.minX + vpX,
-            y: scroll.frame.minY + vpY,
-            width: pointerSize.width,
-            height: pointerSize.height
+            x: scroll.frame.minX + vpX - hotX,
+            y: scroll.frame.minY + vpY - hotY,
+            width: size.width,
+            height: size.height
         )
         dot.isHidden = false
     }

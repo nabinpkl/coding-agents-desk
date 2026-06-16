@@ -38,7 +38,15 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // Local cursor overlay. Moves immediately from cursorSourcePos on
     // every gesture delta so the user sees instant cursor response
     // without waiting for the Mac → WebRTC → iOS video round-trip.
-    var cursorDotView: UIView?
+    var cursorDotView: CursorPointerView?
+    // Cursor-image mirror state. The host pushes the real cursor glyph on
+    // shape change; we cache it and stamp it at the predicted position.
+    // Defaults describe the drawn-arrow fallback (tip hotspot, small size).
+    let cursorImageStore = CursorImageStore()
+    var cursorTask: Task<Void, Never>?
+    var cursorHotspotFrac: CGPoint = .zero
+    var cursorRenderSize: CGSize = CursorPointerView.pointerSize
+    var cursorHidden = false
     var mediaStateTask: Task<Void, Never>?
     var iceGraceTask: Task<Void, Never>?
     // R11: observes the input channel's desktopStateUpdates stream and
@@ -201,6 +209,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         mediaStateTask = nil
         desktopStateTask?.cancel()
         desktopStateTask = nil
+        cursorTask?.cancel()
+        cursorTask = nil
         stopAgentSayForegroundPresentation()
         teardownMediaTransport()
         // Closes activeSignaling + activeInputChannel and flips state
@@ -230,6 +240,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         mediaStateTask?.cancel()
         iceGraceTask?.cancel()
         desktopStateTask?.cancel()
+        cursorTask?.cancel()
         agentSayTask?.cancel()
         agentSaySpeechTask?.cancel()
         agentSayHideTask?.cancel()

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UIKit
 
 // ADR-0005 input channel: schema and close-gating tests. The
 // WebSocket-transport happy path is exercised by the Maestro flow
@@ -66,6 +67,57 @@ struct InputChannelTests {
         let received = await iterator.next()
         #expect(received == push)
         channel.close()
+    }
+
+    @Test func cursorFrameDecodesAndChannelYieldsIt() async throws {
+        let push = CursorImagePush(
+            hash: "abc123",
+            png: "Zm9v",
+            hotspotXFrac: 0.5,
+            hotspotYFrac: 0.25,
+            widthPoints: 16,
+            heightPoints: 24,
+            hidden: false
+        )
+        let data = try JSONEncoder().encode(push)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        #expect(json.contains("\"t\":\"cursor\""))
+
+        let task = FakeInputWebSocketTask()
+        let channel = WebSocketInputChannel(task: task)
+        var iterator = channel.cursorUpdates.makeAsyncIterator()
+        try task.enqueueReceive(.string(json))
+        let received = await iterator.next()
+        #expect(received == push)
+        channel.close()
+    }
+
+    @Test func cursorImageStoreCachesByHashAndServesNilPayloadFromCache() {
+        // 1x1 PNG, enough for UIImage(data:) to succeed.
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC"
+        let store = CursorImageStore()
+        let withBytes = CursorImagePush(
+            hash: "h1", png: png,
+            hotspotXFrac: 0, hotspotYFrac: 0,
+            widthPoints: 1, heightPoints: 1, hidden: false
+        )
+        #expect(store.resolve(withBytes) != nil)
+
+        // Same hash, no bytes: served from cache.
+        let hashOnly = CursorImagePush(
+            hash: "h1", png: nil,
+            hotspotXFrac: 0, hotspotYFrac: 0,
+            widthPoints: 1, heightPoints: 1, hidden: false
+        )
+        #expect(store.resolve(hashOnly) != nil)
+
+        // Unknown hash, no bytes: nothing to render.
+        let unknown = CursorImagePush(
+            hash: "h2", png: nil,
+            hotspotXFrac: 0, hotspotYFrac: 0,
+            widthPoints: 1, heightPoints: 1, hidden: false
+        )
+        #expect(store.resolve(unknown) == nil)
     }
 
     @Test func openerReturnsOnlyAfterInputReady() async throws {
