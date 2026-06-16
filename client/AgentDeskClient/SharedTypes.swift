@@ -759,3 +759,24 @@ struct ClientConfig: Codable, Equatable {
         self.thumbnailRefresh = thumbnailRefresh
     }
 }
+
+// Client -> host interaction hint. Mirror of the host definition. Sent on
+// scroll-strip touch-down (before motion) and on settle so the host can
+// drop video quality for smooth scrolling and restore it afterward.
+struct InteractionHint: Codable, Equatable {
+    let type: String
+    let kind: String
+    let active: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case kind = "k"
+        case active = "a"
+    }
+
+    init(kind: String, active: Bool) {
+        self.type = "interaction-hint"
+        self.kind = kind
+        self.active = active
+    }
+}

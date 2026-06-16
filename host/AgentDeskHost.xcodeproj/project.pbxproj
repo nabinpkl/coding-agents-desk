@@ -60,6 +60,7 @@
 		A000000000000000000009A1 /* CursorMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009A0 /* CursorMonitor.swift */; };
 		A000000000000000000009A2 /* CursorMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009A0 /* CursorMonitor.swift */; };
 		A000000000000000000009B1 /* CursorMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009B0 /* CursorMonitorTests.swift */; };
+		A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009D0 /* ScrollQualityTests.swift */; };
 		A00000000000000000000237 /* SpacesProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000126 /* SpacesProviderTests.swift */; };
 		A00000000000000000000238 /* SpaceThumbnailProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000127 /* SpaceThumbnailProvider.swift */; };
 		A00000000000000000000239 /* SpaceAgentModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000128 /* SpaceAgentModel.swift */; };
@@ -139,6 +140,7 @@
 		A00000000000000000000126 /* SpacesProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacesProviderTests.swift; sourceTree = "<group>"; };
 		A000000000000000000009A0 /* CursorMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorMonitor.swift; sourceTree = "<group>"; };
 		A000000000000000000009B0 /* CursorMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorMonitorTests.swift; sourceTree = "<group>"; };
+		A000000000000000000009D0 /* ScrollQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollQualityTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000124 /* SignalingFrameRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingFrameRoutingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000125 /* InputDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcherTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
@@ -307,6 +309,7 @@
 				A0000000000000000000015A /* AgentSayLocalServerTests.swift */,
 				A00000000000000000000126 /* SpacesProviderTests.swift */,
 				A000000000000000000009B0 /* CursorMonitorTests.swift */,
+				A000000000000000000009D0 /* ScrollQualityTests.swift */,
 				A0000000000000000000012B /* SpaceAgentModelTests.swift */,
 				A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */,
 			);
@@ -526,6 +529,7 @@
 				A00000000000000000000237 /* SpacesProviderTests.swift in Sources */,
 				A000000000000000000009A2 /* CursorMonitor.swift in Sources */,
 				A000000000000000000009B1 /* CursorMonitorTests.swift in Sources */,
+				A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */,
 				A0000000000000000000023F /* SpaceThumbnailProvider.swift in Sources */,
 				A0000000000000000000023C /* SpaceAgentModel.swift in Sources */,
 				A0000000000000000000023D /* SpaceAgentViewController.swift in Sources */,

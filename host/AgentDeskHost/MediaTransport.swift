@@ -17,6 +17,11 @@ protocol MediaTransport: AnyObject, Sendable {
 
     // Single-consumer stream. Impls construct one continuation per instance.
     var connectionState: AsyncStream<MediaConnectionState> { get }
+
+    // Drop to the low-latency scroll profile (active=true) or restore the
+    // crisp profile (active=false). Driven by client interaction hints.
+    // Impls debounce the restore so rapid repeated strokes don't flicker.
+    func setVideoInteractive(_ active: Bool)
 }
 
 enum MediaTransportRole {
@@ -67,12 +72,44 @@ struct SenderTuning: Equatable {
     var bweMinKbps: Int
     var bweStartKbps: Int
     var bweMaxKbps: Int
+    // Scroll/interactive profile: while the client is scrolling, downscale
+    // resolution by this factor and raise the framerate ceiling, with a
+    // maintainFramerate degradation preference, so frames arrive sooner and
+    // motion stays smooth. Restored to the crisp values after scrollSettleMs
+    // of no interaction.
+    var scrollScaleDownBy: Double
+    var scrollMaxFramerate: Int
+    var scrollSettleMs: Int
 
     enum DegradationPreference: String, Equatable {
         case disabled
         case maintainFramerate
         case maintainResolution
         case balanced
+    }
+
+    // Encoding values applied to the sender for a given mode. Pure data so
+    // the derivation is testable without a live WebRTC sender.
+    struct EncodingProfile: Equatable {
+        var scaleResolutionDownBy: Double
+        var maxFramerate: Int
+        var degradation: DegradationPreference
+    }
+
+    var crispProfile: EncodingProfile {
+        EncodingProfile(
+            scaleResolutionDownBy: 1.0,
+            maxFramerate: maxFramerate,
+            degradation: degradationPreference
+        )
+    }
+
+    var scrollProfile: EncodingProfile {
+        EncodingProfile(
+            scaleResolutionDownBy: scrollScaleDownBy,
+            maxFramerate: scrollMaxFramerate,
+            degradation: .maintainFramerate
+        )
     }
 
     // The current shipping defaults (commit history shows how we arrived
@@ -89,7 +126,10 @@ struct SenderTuning: Equatable {
         maxFramerate: 30,
         bweMinKbps: 2_000,
         bweStartKbps: 6_000,
-        bweMaxKbps: 8_000
+        bweMaxKbps: 8_000,
+        scrollScaleDownBy: 2.0,
+        scrollMaxFramerate: 60,
+        scrollSettleMs: 300
     )
 
     // Reads AGENTDESK_TUNING_<FIELD> env vars over the default. Examples:
@@ -109,6 +149,9 @@ struct SenderTuning: Equatable {
         if let v = env["AGENTDESK_TUNING_BWE_MIN_KBPS"], let n = Int(v) { t.bweMinKbps = n }
         if let v = env["AGENTDESK_TUNING_BWE_START_KBPS"], let n = Int(v) { t.bweStartKbps = n }
         if let v = env["AGENTDESK_TUNING_BWE_MAX_KBPS"], let n = Int(v) { t.bweMaxKbps = n }
+        if let v = env["AGENTDESK_TUNING_SCROLL_SCALE_DOWN"], let n = Double(v) { t.scrollScaleDownBy = n }
+        if let v = env["AGENTDESK_TUNING_SCROLL_MAX_FPS"], let n = Int(v) { t.scrollMaxFramerate = n }
+        if let v = env["AGENTDESK_TUNING_SCROLL_SETTLE_MS"], let n = Int(v) { t.scrollSettleMs = n }
         return t
     }
 }

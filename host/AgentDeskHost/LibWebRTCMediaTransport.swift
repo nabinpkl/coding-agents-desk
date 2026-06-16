@@ -56,6 +56,10 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     private var signaling: SignalingChannel?
     private var inboundTask: Task<Void, Never>?
     private var role: MediaTransportRole = .offerer
+    // Serializes scroll-profile switches and owns the restore debounce so
+    // rapid repeated strokes don't churn the encoder between profiles.
+    private let interactiveQueue = DispatchQueue(label: "\(Config.launchAgentLabel).webrtc.interactive")
+    private var restoreTimer: DispatchSourceTimer?
 
     init(factory: RTCPeerConnectionFactory, codecs: MediaCodecPreferences, tuning: SenderTuning) {
         self.factory = factory
@@ -132,6 +136,8 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     func stop() {
         inboundTask?.cancel()
         inboundTask = nil
+        restoreTimer?.cancel()
+        restoreTimer = nil
         capturer?.stop()
         capturer = nil
         videoSender = nil
@@ -155,6 +161,43 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
             encoding.maxFramerate = NSNumber(value: tuning.maxFramerate)
         }
         sender.parameters = params
+    }
+
+    // ADR-0009 scroll quality: client interaction hints toggle between the
+    // crisp profile (default) and the low-latency scroll profile. Entering
+    // is immediate; leaving is debounced by scrollSettleMs so a burst of
+    // short strokes stays in scroll mode rather than flickering.
+    func setVideoInteractive(_ active: Bool) {
+        interactiveQueue.async { [weak self] in
+            guard let self else { return }
+            self.restoreTimer?.cancel()
+            self.restoreTimer = nil
+            if active {
+                self.applyProfile(self.tuning.scrollProfile)
+            } else {
+                let timer = DispatchSource.makeTimerSource(queue: self.interactiveQueue)
+                timer.schedule(deadline: .now() + .milliseconds(self.tuning.scrollSettleMs))
+                timer.setEventHandler { [weak self] in
+                    guard let self else { return }
+                    self.applyProfile(self.tuning.crispProfile)
+                    self.restoreTimer = nil
+                }
+                self.restoreTimer = timer
+                timer.resume()
+            }
+        }
+    }
+
+    private func applyProfile(_ profile: SenderTuning.EncodingProfile) {
+        guard let sender = videoSender else { return }
+        let params = sender.parameters
+        params.degradationPreference = NSNumber(value: degradationRaw(profile.degradation))
+        for encoding in params.encodings {
+            encoding.scaleResolutionDownBy = NSNumber(value: profile.scaleResolutionDownBy)
+            encoding.maxFramerate = NSNumber(value: profile.maxFramerate)
+        }
+        sender.parameters = params
+        logger.notice("video profile applied: scaleDown=\(profile.scaleResolutionDownBy, privacy: .public) fps=\(profile.maxFramerate, privacy: .public) degradation=\(profile.degradation.rawValue, privacy: .public)")
     }
 
     private func degradationRaw(_ pref: SenderTuning.DegradationPreference) -> Int {

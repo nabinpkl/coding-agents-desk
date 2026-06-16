@@ -812,3 +812,27 @@ struct ClientConfig: Codable, Equatable {
         self.thumbnailRefresh = thumbnailRefresh
     }
 }
+
+// Client -> host interaction hint. Sent the moment a finger lands on an
+// interaction surface (currently the scroll strip), before any motion, so
+// the host can pre-emptively drop video quality for smooth low-latency
+// scrolling and restore crisp quality on settle. `active=true` enters the
+// interaction, `active=false` means it has fully settled. `kind` leaves
+// room for "drag"/"typing" later.
+struct InteractionHint: Codable, Equatable {
+    let type: String
+    let kind: String
+    let active: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case kind = "k"
+        case active = "a"
+    }
+
+    init(kind: String, active: Bool) {
+        self.type = "interaction-hint"
+        self.kind = kind
+        self.active = active
+    }
+}

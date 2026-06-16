@@ -184,6 +184,10 @@ final class SessionRegistry {
         transports[fingerprint] = transport
     }
 
+    func transport(for fingerprint: DeviceFingerprint) -> MediaTransport? {
+        transports[fingerprint]
+    }
+
     func attachInputTask(_ task: Task<Void, Never>, for fingerprint: DeviceFingerprint) {
         inputTasks[fingerprint]?.cancel()
         inputTasks[fingerprint] = task

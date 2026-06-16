@@ -412,6 +412,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        // Scroll/interaction hints toggle the session's video quality. The
+        // hint arrives on the input channel; route it to the transport.
+        server.interactionHintHandler = { [weak self] hint in
+            guard hint.kind == "scroll" else { return }
+            Task { @MainActor [weak self] in
+                self?.sessions.transport(for: clientFingerprint)?.setVideoInteractive(hint.active)
+            }
+        }
         let dispatcher = inputDispatcher
         let logger = signalingLogger
         sessions.attachInputTask(

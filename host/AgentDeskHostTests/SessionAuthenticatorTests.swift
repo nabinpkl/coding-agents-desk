@@ -334,6 +334,7 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     private let continuation: AsyncStream<NormalizedInput>.Continuation
     private(set) var closed = false
     var configHandler: ((ClientConfig) -> Void)?
+    var interactionHintHandler: ((InteractionHint) -> Void)?
 
     init() {
         var continuation: AsyncStream<NormalizedInput>.Continuation!
@@ -373,6 +374,8 @@ private final class FakeMediaTransport: MediaTransport, @unchecked Sendable {
     func stop() {
         stopped = true
     }
+
+    func setVideoInteractive(_ active: Bool) {}
 }
 
 private final class Fixture {
