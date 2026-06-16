@@ -169,12 +169,48 @@ struct GestureTranslatorTests {
         #expect(recorder.events[0] == .dragStart)
         #expect(recorder.events[1] == .dragEnd)
     }
+
+    @Test func scrollTouchDownAndSettleEmitInteractionTransitions() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        // Touch-down primes immediately, before any motion.
+        translator.processScrollPan(state: .began, translation: .zero)
+        #expect(recorder.interactionStates == [true])
+
+        // Motion does not re-emit the transition.
+        translator.processScrollPan(state: .changed, translation: CGPoint(x: 0, y: 10))
+        translator.processScrollPan(state: .changed, translation: CGPoint(x: 0, y: 25))
+        #expect(recorder.interactionStates == [true])
+
+        // Lift with no flick settles the interaction.
+        translator.processScrollPan(state: .ended, translation: CGPoint(x: 0, y: 25))
+        #expect(recorder.interactionStates == [true, false])
+    }
+
+    @Test func scrollTapWithoutMotionStillSettles() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        // A rested finger / tap primes on touch-down then settles on lift,
+        // so the host doesn't get stuck in scroll quality.
+        translator.processScrollPan(state: .began, translation: .zero)
+        translator.processScrollPan(state: .ended, translation: .zero)
+
+        #expect(recorder.interactionStates == [true, false])
+    }
 }
 
 @MainActor
 private final class InputRecorder: GestureTranslatorDelegate {
     private(set) var events: [NormalizedInput] = []
+    private(set) var interactionStates: [Bool] = []
     func gestureTranslator(_ translator: GestureTranslator, didProduce input: NormalizedInput) {
         events.append(input)
+    }
+    func gestureTranslator(_ translator: GestureTranslator, scrollInteractionActive active: Bool) {
+        interactionStates.append(active)
     }
 }

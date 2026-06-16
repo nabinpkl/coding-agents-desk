@@ -265,6 +265,25 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         sendInput(input)
     }
 
+    // Touch-down on the scroll strip (active=true) primes the host to drop
+    // video quality before motion; settle (active=false) lets it restore.
+    // A light haptic on touch-down gives instant feedback during the prime
+    // window, before any pixels move.
+    func gestureTranslator(_ translator: GestureTranslator, scrollInteractionActive active: Bool) {
+        if active {
+            scrollHaptics.impactOccurred()
+            scrollHaptics.prepare()
+        }
+        sendInteractionHint(InteractionHint(kind: "scroll", active: active))
+    }
+
+    func sendInteractionHint(_ hint: InteractionHint) {
+        guard let channel = pairingClient.activeInputChannel else { return }
+        Task { [channel, hint] in
+            try? await channel.sendInteractionHint(hint)
+        }
+    }
+
     // MARK: - ThumbnailStripViewDelegate
 
     // R20: a tap on a non-active tile sends one .switchSpaceStep frame

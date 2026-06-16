@@ -45,6 +45,10 @@ protocol InputChannel: AnyObject, Sendable {
     // open and on settings change.
     func sendConfig(_ config: ClientConfig) async throws
 
+    // Client -> host interaction hint (scroll touch-down / settle) so the
+    // host can pre-emptively switch video quality.
+    func sendInteractionHint(_ hint: InteractionHint) async throws
+
     var closed: AsyncStream<Void> { get }
 }
 
@@ -157,6 +161,20 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
         let data: Data
         do {
             data = try encoder.encode(config)
+        } catch {
+            throw InputChannelError.encodeFailed
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw InputChannelError.encodeFailed
+        }
+        try await task.send(.string(text))
+    }
+
+    func sendInteractionHint(_ hint: InteractionHint) async throws {
+        guard !closedFlag.isClosed else { throw InputChannelError.notOpen }
+        let data: Data
+        do {
+            data = try encoder.encode(hint)
         } catch {
             throw InputChannelError.encodeFailed
         }

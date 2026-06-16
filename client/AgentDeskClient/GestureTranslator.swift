@@ -14,6 +14,15 @@ import UIKit
 
 protocol GestureTranslatorDelegate: AnyObject {
     @MainActor func gestureTranslator(_ translator: GestureTranslator, didProduce input: NormalizedInput)
+    // Scroll interaction begins on touch-down (before motion) and ends on
+    // full settle (lift with no flick, or after momentum decays). Drives
+    // the host's video quality switching. Default no-op so non-scroll
+    // delegates and tests need not implement it.
+    @MainActor func gestureTranslator(_ translator: GestureTranslator, scrollInteractionActive active: Bool)
+}
+
+extension GestureTranslatorDelegate {
+    @MainActor func gestureTranslator(_ translator: GestureTranslator, scrollInteractionActive active: Bool) {}
 }
 
 // MARK: - Recognizers
@@ -295,6 +304,10 @@ final class GestureTranslator: NSObject {
     private var didEmitScrollBegan = false
     // Same idea for the inertia tail.
     private var didEmitMomentumBegan = false
+    // Tracks whether we've told the delegate a scroll interaction is active,
+    // so transitions are emitted once each (touch-down -> true, settle ->
+    // false) without spamming.
+    private var scrollInteractionActive = false
     // Velocity threshold (points/sec) below which a finger-lift is treated
     // as a slow drag finishing, not a flick. No momentum below this.
     private static let momentumFlickThreshold: CGFloat = 200
@@ -416,6 +429,9 @@ final class GestureTranslator: NSObject {
             lastScrollTranslation = translation
             lastScrollVelocityY = 0
             didEmitScrollBegan = false
+            // Touch-down primes the host before any motion: this is the
+            // head-start window that hides the encoder reconfig cost.
+            setScrollInteractionActive(true)
         case .changed:
             let rawDy = translation.y - lastScrollTranslation.y
             lastScrollTranslation = translation
@@ -443,6 +459,10 @@ final class GestureTranslator: NSObject {
             let liftV = lastScrollVelocityY != 0 ? lastScrollVelocityY : velocity.y
             if abs(liftV) >= Self.momentumFlickThreshold {
                 startMomentum(initialVelocity: liftV)
+                // Momentum keeps the interaction active; it settles when the
+                // inertia tail decays (see tickMomentum).
+            } else {
+                setScrollInteractionActive(false)
             }
         case .cancelled, .failed:
             lastScrollTranslation = .zero
@@ -450,9 +470,17 @@ final class GestureTranslator: NSObject {
                 delegate?.gestureTranslator(self, didProduce: .scroll(dx: 0, dy: 0, phase: .ended))
             }
             didEmitScrollBegan = false
+            setScrollInteractionActive(false)
         default:
             break
         }
+    }
+
+    // Emits a scroll-interaction transition to the delegate only on change.
+    private func setScrollInteractionActive(_ active: Bool) {
+        guard active != scrollInteractionActive else { return }
+        scrollInteractionActive = active
+        delegate?.gestureTranslator(self, scrollInteractionActive: active)
     }
 
     private func startMomentum(initialVelocity: CGFloat) {
@@ -485,6 +513,8 @@ final class GestureTranslator: NSObject {
         momentumVelocity *= exp(-Self.momentumDecayK * dt)
         if abs(momentumVelocity) < Self.momentumStopThreshold {
             stopMomentum(emitEnd: true)
+            // Inertia has fully decayed: the interaction has settled.
+            setScrollInteractionActive(false)
             return
         }
         let rawDy = momentumVelocity * dt

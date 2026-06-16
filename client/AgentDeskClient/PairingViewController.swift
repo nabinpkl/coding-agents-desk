@@ -133,6 +133,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // standard UIPan slop intact for tremor filtering and uses a
     // steeper top end so flicks travel across the Mac display.
     let gestureTranslator = GestureTranslator(acceleration: .mac, scrollAcceleration: .scroll)
+    // Light haptic fired on scroll-strip touch-down for instant feedback
+    // during the quality-prime window, before the video catches up.
+    let scrollHaptics = UIImpactFeedbackGenerator(style: .light)
 
     override func viewDidLoad() {
         super.viewDidLoad()

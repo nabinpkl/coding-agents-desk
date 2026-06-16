@@ -120,6 +120,17 @@ struct InputChannelTests {
         #expect(store.resolve(unknown) == nil)
     }
 
+    @Test func interactionHintSerializesWithCompactKeys() throws {
+        let hint = InteractionHint(kind: "scroll", active: true)
+        let data = try JSONEncoder().encode(hint)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        #expect(json.contains("\"t\":\"interaction-hint\""))
+        #expect(json.contains("\"k\":\"scroll\""))
+        #expect(json.contains("\"a\":true"))
+        let decoded = try JSONDecoder().decode(InteractionHint.self, from: data)
+        #expect(decoded == hint)
+    }
+
     @Test func openerReturnsOnlyAfterInputReady() async throws {
         let task = FakeInputWebSocketTask()
         let completed = LockedBool(false)
