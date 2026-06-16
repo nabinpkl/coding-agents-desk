@@ -744,6 +744,57 @@ struct AgentSayPush: Codable, Equatable {
     }
 }
 
+// Host -> client cursor-image mirror. Pushed on the input WSS whenever
+// NSCursor.currentSystem changes shape (arrow, I-beam, pointing-hand,
+// resize, busy, custom app cursors), plus once on attach. The client
+// caches the PNG by `hash` and renders it at the locally predicted
+// position, so the glyph identity is host-driven while position stays
+// zero-latency. `png` is the base64 PNG; it may be nil in a later phase
+// once the client is known to already hold `hash`. `hotspotXFrac` /
+// `hotspotYFrac` are the cursor hotspot as a fraction of the image
+// (top-left origin) so the client can anchor any cursor, not just the
+// tip-at-origin arrow.
+struct CursorImagePush: Codable, Equatable {
+    let type: String
+    let hash: String
+    let png: String?
+    let hotspotXFrac: Float
+    let hotspotYFrac: Float
+    let widthPoints: Float
+    let heightPoints: Float
+    let hidden: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case hash = "h"
+        case png = "p"
+        case hotspotXFrac = "hx"
+        case hotspotYFrac = "hy"
+        case widthPoints = "iw"
+        case heightPoints = "ih"
+        case hidden = "hd"
+    }
+
+    init(
+        hash: String,
+        png: String?,
+        hotspotXFrac: Float,
+        hotspotYFrac: Float,
+        widthPoints: Float,
+        heightPoints: Float,
+        hidden: Bool
+    ) {
+        self.type = "cursor"
+        self.hash = hash
+        self.png = png
+        self.hotspotXFrac = hotspotXFrac
+        self.hotspotYFrac = hotspotYFrac
+        self.widthPoints = widthPoints
+        self.heightPoints = heightPoints
+        self.hidden = hidden
+    }
+}
+
 struct ClientConfig: Codable, Equatable {
     let type: String
     let thumbnailsEnabled: Bool

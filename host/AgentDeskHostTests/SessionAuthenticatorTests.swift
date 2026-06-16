@@ -351,6 +351,8 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow]) {}
 
     func pushAgentSay(_ push: AgentSayPush) {}
+
+    func pushCursor(_ push: CursorImagePush) {}
 }
 
 private final class FakeMediaTransport: MediaTransport, @unchecked Sendable {

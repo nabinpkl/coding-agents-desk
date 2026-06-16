@@ -9,7 +9,7 @@ import UIKit
 final class CursorPointerView: UIView {
     // Logical pointer size in points. Larger than the old 12pt dot so it
     // reads clearly when the video is downscaled or busy.
-    static let pointerSize = CGSize(width: 13, height: 20)
+    static let pointerSize = CGSize(width: 8, height: 12)
 
     private let glowLayer = CAShapeLayer()
     private let arrowLayer = CAShapeLayer()

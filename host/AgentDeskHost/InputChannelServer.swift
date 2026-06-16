@@ -10,6 +10,7 @@ protocol InputChannelServing: AnyObject, Sendable {
     func pushDesktopState(_ state: DesktopState)
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow])
     func pushAgentSay(_ push: AgentSayPush)
+    func pushCursor(_ push: CursorImagePush)
 }
 
 // R11 wire shape: a server-pushed DesktopStatePush frame travels over
@@ -76,6 +77,12 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
 
     func pushAgentSay(_ push: AgentSayPush) {
         sendCodableFrame(push, identifier: "agent-say")
+    }
+
+    // Cursor-image mirror rides its own frame, pushed on shape change and
+    // on attach. CursorMonitor produces the push; the server only routes.
+    func pushCursor(_ push: CursorImagePush) {
+        sendCodableFrame(push, identifier: "cursor")
     }
 
     // ADR-0006: thumbnail bytes ride their own frame so the periodic

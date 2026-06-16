@@ -91,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let inputDispatcher = InputDispatcher()
     private let spacesProvider = SpacesProvider()
     private let spaceThumbnailProvider = SpaceThumbnailProvider()
+    private let cursorMonitor = CursorMonitor()
     private var spaceAgentController: SpaceAgentController?
     private var dictationBarController: DictationBarController?
     private var terminalLauncherController: TerminalLauncherController?
@@ -116,6 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installSpacesSwitchHandler()
         installSpacesChangeObserver()
         installThumbnailsBroadcast()
+        installCursorMonitor()
         startAgentSayServer()
         startSpaceAgent()
         startVoiceChildIfConfigured()
@@ -381,6 +383,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let state = spacesProvider.current() {
             server.pushDesktopState(state)
         }
+        // Seed the cursor overlay with the current cursor image so the
+        // client renders the right glyph immediately, without waiting for
+        // the next shape change.
+        if let cursor = cursorMonitor.latest {
+            server.pushCursor(cursor)
+        }
         // ADR-0006 + D22: clients opt in to thumbnail capture via a
         // client-config frame. Demand is owner-scoped so the iPhone
         // strip and Space Agent cannot disable each other.
@@ -557,6 +565,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 server.pushDesktopState(state)
             }
         }
+    }
+
+    // Cursor mirror: CursorMonitor polls NSCursor.currentSystem and emits
+    // a CursorImagePush on every shape change. Broadcast each change to all
+    // attached clients. Runs for the process lifetime; a fresh client is
+    // separately seeded with `cursorMonitor.latest` on attach.
+    private func installCursorMonitor() {
+        let registry = sessions
+        cursorMonitor.onChange = { [weak registry] push in
+            guard let registry else { return }
+            for server in registry.allInputChannelServers() {
+                server.pushCursor(push)
+            }
+        }
+        cursorMonitor.start()
     }
 
     // R11: dispatcher streams each iPhone-side swipe phase

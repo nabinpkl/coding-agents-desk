@@ -57,6 +57,9 @@
 		A00000000000000000000234 /* InputChannelServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011F /* InputChannelServer.swift */; };
 		A00000000000000000000235 /* SpacesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000120 /* SpacesProvider.swift */; };
 		A00000000000000000000236 /* SpacesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000120 /* SpacesProvider.swift */; };
+		A000000000000000000009A1 /* CursorMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009A0 /* CursorMonitor.swift */; };
+		A000000000000000000009A2 /* CursorMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009A0 /* CursorMonitor.swift */; };
+		A000000000000000000009B1 /* CursorMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009B0 /* CursorMonitorTests.swift */; };
 		A00000000000000000000237 /* SpacesProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000126 /* SpacesProviderTests.swift */; };
 		A00000000000000000000238 /* SpaceThumbnailProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000127 /* SpaceThumbnailProvider.swift */; };
 		A00000000000000000000239 /* SpaceAgentModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000128 /* SpaceAgentModel.swift */; };
@@ -134,6 +137,8 @@
 		A0000000000000000000011F /* InputChannelServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannelServer.swift; sourceTree = "<group>"; };
 		A00000000000000000000120 /* SpacesProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacesProvider.swift; sourceTree = "<group>"; };
 		A00000000000000000000126 /* SpacesProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacesProviderTests.swift; sourceTree = "<group>"; };
+		A000000000000000000009A0 /* CursorMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorMonitor.swift; sourceTree = "<group>"; };
+		A000000000000000000009B0 /* CursorMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorMonitorTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000124 /* SignalingFrameRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingFrameRoutingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000125 /* InputDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcherTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
@@ -250,6 +255,7 @@
 				A00000000000000000000154 /* GesturePortalController.swift */,
 				A00000000000000000000156 /* VoiceChildController.swift */,
 				A00000000000000000000120 /* SpacesProvider.swift */,
+				A000000000000000000009A0 /* CursorMonitor.swift */,
 				A00000000000000000000127 /* SpaceThumbnailProvider.swift */,
 				A0000000000000000000011B /* Assets.xcassets */,
 				A0000000000000000000010C /* Info.plist */,
@@ -300,6 +306,7 @@
 				A00000000000000000000158 /* VoiceChildControllerTests.swift */,
 				A0000000000000000000015A /* AgentSayLocalServerTests.swift */,
 				A00000000000000000000126 /* SpacesProviderTests.swift */,
+				A000000000000000000009B0 /* CursorMonitorTests.swift */,
 				A0000000000000000000012B /* SpaceAgentModelTests.swift */,
 				A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */,
 			);
@@ -459,6 +466,7 @@
 				A00000000000000000000232 /* KeyCodeMap.swift in Sources */,
 				A00000000000000000000234 /* InputChannelServer.swift in Sources */,
 				A00000000000000000000235 /* SpacesProvider.swift in Sources */,
+				A000000000000000000009A1 /* CursorMonitor.swift in Sources */,
 				A00000000000000000000238 /* SpaceThumbnailProvider.swift in Sources */,
 				A00000000000000000000239 /* SpaceAgentModel.swift in Sources */,
 				A0000000000000000000023A /* SpaceAgentViewController.swift in Sources */,
@@ -516,6 +524,8 @@
 				A00000000000000000000233 /* KeyCodeMap.swift in Sources */,
 				A00000000000000000000236 /* SpacesProvider.swift in Sources */,
 				A00000000000000000000237 /* SpacesProviderTests.swift in Sources */,
+				A000000000000000000009A2 /* CursorMonitor.swift in Sources */,
+				A000000000000000000009B1 /* CursorMonitorTests.swift in Sources */,
 				A0000000000000000000023F /* SpaceThumbnailProvider.swift in Sources */,
 				A0000000000000000000023C /* SpaceAgentModel.swift in Sources */,
 				A0000000000000000000023D /* SpaceAgentViewController.swift in Sources */,
