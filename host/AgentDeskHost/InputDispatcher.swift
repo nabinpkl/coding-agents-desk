@@ -68,6 +68,22 @@ final class InputDispatcher: @unchecked Sendable {
     // same state. This is what makes tap-then-tap-and-hold-and-drag
     // extend selection word-by-word rather than character-by-character.
     private var dragClickState: Int64 = 1
+    // Authoritative cursor position the dispatcher integrates deltas into.
+    // CGEvent(source: nil).location lags rapid synthetic posts: the window
+    // server updates the queried position asynchronously, so re-reading it
+    // as the base for every move makes a fast drag progressively undershoot
+    // (each delta lands on a stale, behind position). The iPhone client
+    // dead-reckons into its own full-precision model and never undershoots,
+    // so the two drift apart proportional to drag speed and stay apart at
+    // rest. Holding our own position and integrating into it keeps the host
+    // cursor locked to the client's predicted dot.
+    private var cursorPosition: CGPoint?
+    private var lastCursorMoveTime: CFTimeInterval = 0
+    // Re-sync the held position from the OS when the move stream has been
+    // idle this long, so a physical mouse / trackpad move between remote
+    // strokes is picked up. During an active stream we trust our own
+    // integrated position over the lagging OS query.
+    private static let cursorResyncIdleInterval: CFTimeInterval = 0.2
     // Serial queue so dispatch() is callable from any context (network
     // Task, MainActor, tests) without racing on loggedUntrusted /
     // scrollRemainder. Previously the AppDelegate forced every input
@@ -153,10 +169,24 @@ final class InputDispatcher: @unchecked Sendable {
         locationProvider()
     }
 
+    // Base position to integrate the next event against. Returns the held
+    // authoritative position while the stream is active; falls back to the
+    // live OS location on first use and after an idle gap so external
+    // cursor moves are absorbed. See cursorPosition for why the held
+    // value, not a fresh OS query, is the integration base mid-stream.
+    private func cursorBase() -> CGPoint {
+        if let pos = cursorPosition, clock() - lastCursorMoveTime <= Self.cursorResyncIdleInterval {
+            return pos
+        }
+        return currentLocation()
+    }
+
     private func postCursorMove(dx: CGFloat, dy: CGFloat) {
-        let current = currentLocation()
-        let raw = CGPoint(x: current.x + dx, y: current.y + dy)
+        let base = cursorBase()
+        let raw = CGPoint(x: base.x + dx, y: base.y + dy)
         let next = clamp(raw, to: displayBoundsProvider())
+        cursorPosition = next
+        lastCursorMoveTime = clock()
         // Only mouseCursorPosition drives the visible cursor when set this
         // way; macOS pointer acceleration runs in the HID layer below
         // CGEvent and can't be invoked from userspace injection. Earlier
@@ -188,7 +218,7 @@ final class InputDispatcher: @unchecked Sendable {
     private func postDragStart() {
         if inDrag { return }
         inDrag = true
-        let location = currentLocation()
+        let location = cursorBase()
         // Tick the click tracker so a tap-then-tap-and-hold sequence
         // opens the drag at click state 2 (double-click-drag = extend
         // word selection), tap-tap-tap-hold opens at 3 (triple = line
@@ -200,7 +230,7 @@ final class InputDispatcher: @unchecked Sendable {
 
     private func postDragEnd() {
         if !inDrag { return }
-        let location = currentLocation()
+        let location = cursorBase()
         postClickEvent(.leftMouseUp, at: location, button: .left, clickState: dragClickState)
         inDrag = false
     }
@@ -216,7 +246,7 @@ final class InputDispatcher: @unchecked Sendable {
     }
 
     private func postClick(_ button: NormalizedInput.MouseButton) {
-        let location = currentLocation()
+        let location = cursorBase()
         switch button {
         case .left:
             let state = nextLeftClickState(at: location)
