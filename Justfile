@@ -47,12 +47,17 @@ host-logs:
 # captures its environment at launch, so the post-open unsetenv does not
 # disturb the running host. Each var is only unset if we set it, so a
 # value the user pinned into launchd out-of-band survives.
+#
+# AGENTDESK_CODEC is forwarded for device A/B runs. The default remains
+# the app's central MediaStack choice; setting AGENTDESK_CODEC=h264 forces
+# the hardware-decoder candidate path for feel testing.
 host-run:
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug build >/dev/null
     -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
     sleep 1
     launchctl setenv AGENTDESK_AUTO_APPROVE 1
     launchctl setenv AGENTDESK_DEV_PERMISSIVE_KEYSTORE 1
+    [ -n "${AGENTDESK_CODEC:-}" ] && launchctl setenv AGENTDESK_CODEC "${AGENTDESK_CODEC}" || true
     [ -n "${AGENTDESK_TRANSCRIBE_URL:-}" ] && launchctl setenv AGENTDESK_TRANSCRIBE_URL "${AGENTDESK_TRANSCRIBE_URL}" || true
     [ -n "${AGENTDESK_TRANSCRIBE_MODEL:-}" ] && launchctl setenv AGENTDESK_TRANSCRIBE_MODEL "${AGENTDESK_TRANSCRIBE_MODEL}" || true
     [ -n "${AGENTDESK_SPACE_AGENT_LAYOUT:-}" ] && launchctl setenv AGENTDESK_SPACE_AGENT_LAYOUT "${AGENTDESK_SPACE_AGENT_LAYOUT}" || true
@@ -64,6 +69,7 @@ host-run:
     sleep 2
     launchctl unsetenv AGENTDESK_AUTO_APPROVE
     launchctl unsetenv AGENTDESK_DEV_PERMISSIVE_KEYSTORE
+    [ -n "${AGENTDESK_CODEC:-}" ] && launchctl unsetenv AGENTDESK_CODEC || true
     [ -n "${AGENTDESK_TRANSCRIBE_URL:-}" ] && launchctl unsetenv AGENTDESK_TRANSCRIBE_URL || true
     [ -n "${AGENTDESK_TRANSCRIBE_MODEL:-}" ] && launchctl unsetenv AGENTDESK_TRANSCRIBE_MODEL || true
     [ -n "${AGENTDESK_SPACE_AGENT_LAYOUT:-}" ] && launchctl unsetenv AGENTDESK_SPACE_AGENT_LAYOUT || true

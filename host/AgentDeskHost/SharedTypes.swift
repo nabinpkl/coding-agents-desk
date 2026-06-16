@@ -442,6 +442,76 @@ enum SessionSigning {
     }
 }
 
+struct NegotiatedVideoCodec: Equatable {
+    let payloadType: String
+    let name: String
+    let fmtp: String?
+
+    var h264ProfileLevelId: String? {
+        guard name.uppercased() == "H264", let fmtp else { return nil }
+        return fmtp
+            .split(separator: ";")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { $0.lowercased().hasPrefix("profile-level-id=") }
+            .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }
+    }
+
+    var logSummary: String {
+        if let h264ProfileLevelId {
+            return "\(name) pt=\(payloadType) profile-level-id=\(h264ProfileLevelId)"
+        }
+        if let fmtp, !fmtp.isEmpty {
+            return "\(name) pt=\(payloadType) fmtp=\(fmtp)"
+        }
+        return "\(name) pt=\(payloadType)"
+    }
+}
+
+enum SdpVideoCodecInspector {
+    static func firstNegotiatedVideoCodec(in sdp: String) -> NegotiatedVideoCodec? {
+        let lines = sdp
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .split(separator: "\n")
+            .map(String.init)
+        guard let mediaLine = lines.first(where: { $0.hasPrefix("m=video ") }) else {
+            return nil
+        }
+        let payloadTypes = mediaLine.split(separator: " ").dropFirst(3).map(String.init)
+        guard !payloadTypes.isEmpty else { return nil }
+
+        var namesByPayload: [String: String] = [:]
+        var fmtpByPayload: [String: String] = [:]
+        for line in lines {
+            if line.hasPrefix("a=rtpmap:") {
+                let rest = String(line.dropFirst("a=rtpmap:".count))
+                let parts = rest.split(separator: " ", maxSplits: 1).map(String.init)
+                guard parts.count == 2 else { continue }
+                let codecName = parts[1].split(separator: "/", maxSplits: 1).first.map(String.init) ?? parts[1]
+                namesByPayload[parts[0]] = codecName.uppercased()
+            } else if line.hasPrefix("a=fmtp:") {
+                let rest = String(line.dropFirst("a=fmtp:".count))
+                let parts = rest.split(separator: " ", maxSplits: 1).map(String.init)
+                guard parts.count == 2 else { continue }
+                fmtpByPayload[parts[0]] = parts[1]
+            }
+        }
+
+        for payloadType in payloadTypes {
+            guard let name = namesByPayload[payloadType] else { continue }
+            if name == "RTX" || name == "RED" || name == "ULPFEC" {
+                continue
+            }
+            return NegotiatedVideoCodec(
+                payloadType: payloadType,
+                name: name,
+                fmtp: fmtpByPayload[payloadType]
+            )
+        }
+        return nil
+    }
+}
+
 enum NormalizedInput: Codable, Equatable {
     case cursorMove(dx: Float, dy: Float)
     case click(button: MouseButton)

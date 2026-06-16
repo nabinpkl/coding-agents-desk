@@ -274,6 +274,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         )
         let offer = try await pc.offer(for: offerConstraints)
         logger.notice("offer sdp:\n\(offer.sdp, privacy: .public)")
+        logNegotiatedCodec(from: offer.sdp, label: "local offer")
         try await pc.setLocalDescription(offer)
         try await signaling.send(.offer(sdp: offer.sdp))
         startStatsLogger()
@@ -292,14 +293,38 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     private func logStats() async {
         guard let pc = peerConnection else { return }
         let report = await pc.statistics()
+        let codecMimeTypes = codecMimeTypes(from: report.statistics)
         for (_, stats) in report.statistics {
             if stats.type == "outbound-rtp" {
                 let frames = stats.values["framesEncoded"].map { "\($0)" } ?? "?"
                 let bytes = stats.values["bytesSent"].map { "\($0)" } ?? "?"
                 let kbps = stats.values["targetBitrate"].map { "\($0)" } ?? "?"
-                logger.notice("outbound-rtp framesEncoded=\(frames, privacy: .public) bytesSent=\(bytes, privacy: .public) targetBitrate=\(kbps, privacy: .public)")
+                let codecId = stats.values["codecId"].map { "\($0)" } ?? "?"
+                let codecMimeType = codecMimeTypes[codecId] ?? "?"
+                let encoder = stats.values["encoderImplementation"].map { "\($0)" } ?? "?"
+                let fps = stats.values["framesPerSecond"].map { "\($0)" } ?? "?"
+                let qualityReason = stats.values["qualityLimitationReason"].map { "\($0)" } ?? "?"
+                logger.notice("outbound-rtp codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) encoder=\(encoder, privacy: .public) framesEncoded=\(frames, privacy: .public) fps=\(fps, privacy: .public) bytesSent=\(bytes, privacy: .public) targetBitrate=\(kbps, privacy: .public) qualityLimitation=\(qualityReason, privacy: .public)")
             }
         }
+    }
+
+    private func codecMimeTypes(from statistics: [String: RTCStatistics]) -> [String: String] {
+        var codecMimeTypes: [String: String] = [:]
+        for (id, stats) in statistics where stats.type == "codec" {
+            if let mimeType = stats.values["mimeType"].map({ "\($0)" }) {
+                codecMimeTypes[id] = mimeType
+            }
+        }
+        return codecMimeTypes
+    }
+
+    private func logNegotiatedCodec(from sdp: String, label: String) {
+        guard let codec = SdpVideoCodecInspector.firstNegotiatedVideoCodec(in: sdp) else {
+            logger.notice("\(label, privacy: .public) video codec unavailable")
+            return
+        }
+        logger.notice("\(label, privacy: .public) video codec: \(codec.logSummary, privacy: .public)")
     }
 
     private func handle(frame: WebRTCSignalingFrame) async {
@@ -307,6 +332,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         do {
             switch frame {
             case .offer(let sdp):
+                logNegotiatedCodec(from: sdp, label: "remote offer")
                 let offer = RTCSessionDescription(type: .offer, sdp: sdp)
                 try await pc.setRemoteDescription(offer)
                 let answerConstraints = RTCMediaConstraints(
@@ -317,9 +343,11 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                     optionalConstraints: nil
                 )
                 let answer = try await pc.answer(for: answerConstraints)
+                logNegotiatedCodec(from: answer.sdp, label: "local answer")
                 try await pc.setLocalDescription(answer)
                 try await signaling.send(.answer(sdp: answer.sdp))
             case .answer(let sdp):
+                logNegotiatedCodec(from: sdp, label: "remote answer")
                 let answer = RTCSessionDescription(type: .answer, sdp: sdp)
                 try await pc.setRemoteDescription(answer)
             case .ice(let sdp, let sdpMid, let sdpMLineIndex):

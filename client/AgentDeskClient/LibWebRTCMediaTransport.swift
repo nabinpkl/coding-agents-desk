@@ -110,6 +110,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         do {
             switch frame {
             case .offer(let sdp):
+                logNegotiatedCodec(from: sdp, label: "remote offer")
                 let offer = RTCSessionDescription(type: .offer, sdp: sdp)
                 try await pc.setRemoteDescription(offer)
                 // Unified-plan: transceivers exist after setRemoteDescription.
@@ -121,10 +122,12 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                     optionalConstraints: nil
                 )
                 let answer = try await pc.answer(for: answerConstraints)
+                logNegotiatedCodec(from: answer.sdp, label: "local answer")
                 try await pc.setLocalDescription(answer)
                 try await signaling.send(.answer(sdp: answer.sdp))
                 startStatsLogger()
             case .answer(let sdp):
+                logNegotiatedCodec(from: sdp, label: "remote answer")
                 let answer = RTCSessionDescription(type: .answer, sdp: sdp)
                 try await pc.setRemoteDescription(answer)
             case .ice(let sdp, let sdpMid, let sdpMLineIndex):
@@ -179,15 +182,41 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     private func logStats() async {
         guard let pc = peerConnection else { return }
         let report = await pc.statistics()
+        let codecMimeTypes = codecMimeTypes(from: report.statistics)
         for (_, stats) in report.statistics {
             if stats.type == "inbound-rtp" {
                 let frames = stats.values["framesReceived"].map { "\($0)" } ?? "?"
                 let decoded = stats.values["framesDecoded"].map { "\($0)" } ?? "?"
                 let bytes = stats.values["bytesReceived"].map { "\($0)" } ?? "?"
                 let packetsLost = stats.values["packetsLost"].map { "\($0)" } ?? "?"
-                logger.notice("inbound-rtp framesReceived=\(frames, privacy: .public) framesDecoded=\(decoded, privacy: .public) bytesReceived=\(bytes, privacy: .public) packetsLost=\(packetsLost, privacy: .public)")
+                let codecId = stats.values["codecId"].map { "\($0)" } ?? "?"
+                let codecMimeType = codecMimeTypes[codecId] ?? "?"
+                let decoder = stats.values["decoderImplementation"].map { "\($0)" } ?? "?"
+                let dropped = stats.values["framesDropped"].map { "\($0)" } ?? "?"
+                let decodeTime = stats.values["totalDecodeTime"].map { "\($0)" } ?? "?"
+                let jitterDelay = stats.values["jitterBufferDelay"].map { "\($0)" } ?? "?"
+                let jitterFrames = stats.values["jitterBufferEmittedCount"].map { "\($0)" } ?? "?"
+                logger.notice("inbound-rtp codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) decoder=\(decoder, privacy: .public) framesReceived=\(frames, privacy: .public) framesDecoded=\(decoded, privacy: .public) framesDropped=\(dropped, privacy: .public) bytesReceived=\(bytes, privacy: .public) packetsLost=\(packetsLost, privacy: .public) totalDecodeTime=\(decodeTime, privacy: .public) jitterDelay=\(jitterDelay, privacy: .public) jitterFrames=\(jitterFrames, privacy: .public)")
             }
         }
+    }
+
+    private func codecMimeTypes(from statistics: [String: RTCStatistics]) -> [String: String] {
+        var codecMimeTypes: [String: String] = [:]
+        for (id, stats) in statistics where stats.type == "codec" {
+            if let mimeType = stats.values["mimeType"].map({ "\($0)" }) {
+                codecMimeTypes[id] = mimeType
+            }
+        }
+        return codecMimeTypes
+    }
+
+    private func logNegotiatedCodec(from sdp: String, label: String) {
+        guard let codec = SdpVideoCodecInspector.firstNegotiatedVideoCodec(in: sdp) else {
+            logger.notice("\(label, privacy: .public) video codec unavailable")
+            return
+        }
+        logger.notice("\(label, privacy: .public) video codec: \(codec.logSummary, privacy: .public)")
     }
 
     // MARK: - RTCVideoViewDelegate

@@ -81,6 +81,46 @@ struct SignalingFrameRoutingTests {
         #expect(decoded == frame)
     }
 
+    @Test func sdpCodecInspectorReportsFirstVideoCodecAndH264Profile() {
+        let sdp = """
+        v=0
+        m=video 9 UDP/TLS/RTP/SAVPF 96 97 98
+        a=rtpmap:96 H264/90000
+        a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640c34
+        a=rtpmap:97 rtx/90000
+        a=fmtp:97 apt=96
+        a=rtpmap:98 VP9/90000
+        """
+        let codec = SdpVideoCodecInspector.firstNegotiatedVideoCodec(in: sdp)
+        #expect(codec?.name == "H264")
+        #expect(codec?.payloadType == "96")
+        #expect(codec?.h264ProfileLevelId == "640c34")
+        #expect(codec?.logSummary == "H264 pt=96 profile-level-id=640c34")
+    }
+
+    @Test func sdpCodecInspectorSkipsRepairPayloads() {
+        let sdp = """
+        v=0
+        m=video 9 UDP/TLS/RTP/SAVPF 97 96
+        a=rtpmap:97 rtx/90000
+        a=fmtp:97 apt=96
+        a=rtpmap:96 H264/90000
+        a=fmtp:96 profile-level-id=42e034
+        """
+        let codec = SdpVideoCodecInspector.firstNegotiatedVideoCodec(in: sdp)
+        #expect(codec?.name == "H264")
+        #expect(codec?.payloadType == "96")
+    }
+
+    @Test func sdpCodecInspectorReturnsNilWithoutVideoMedia() {
+        let sdp = """
+        v=0
+        m=audio 9 UDP/TLS/RTP/SAVPF 111
+        a=rtpmap:111 opus/48000/2
+        """
+        #expect(SdpVideoCodecInspector.firstNegotiatedVideoCodec(in: sdp) == nil)
+    }
+
     // ADR-0005 input channel first-frame discriminator.
 
     @Test func classifyFirstFrameInputHelloRoutesToInputHello() {
