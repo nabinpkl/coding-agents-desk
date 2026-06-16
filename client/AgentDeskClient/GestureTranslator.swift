@@ -217,13 +217,16 @@ struct GestureAcceleration: Sendable {
 
     // Vertical scroll curve. Floor sits at 1.0 so a glacial finger drag is
     // near 1:1 with the Mac scroll position (the precision range), and
-    // velocity carries the multiplier up for normal reading and flicks.
-    // Previous 3.0 floor amplified every move and killed precision.
+    // velocity carries the multiplier up steeply so normal reading drags
+    // and flicks cover real ground instead of crawling. The previous slope
+    // (0.0025, cap 5) felt slow on device: a normal swipe only doubled.
     //   0     -> 1.0  (true precision)
-    //   500   -> 2.25 (typical drag)
-    //   2000+ -> 6.0  (flick, capped)
+    //   300   -> 2.35
+    //   800   -> 4.6  (typical drag)
+    //   1500  -> 7.75
+    //   2667+ -> 12.0 (flick, capped)
     static let scroll = GestureAcceleration { velocity in
-        1.0 + min(velocity * 0.0025, 5.0)
+        1.0 + min(velocity * 0.0045, 11.0)
     }
 }
 
@@ -314,9 +317,10 @@ final class GestureTranslator: NSObject {
     // Velocity threshold (points/sec) below which momentum stops on its
     // own. ~30 px/sec is about one pixel every two frames; visually static.
     private static let momentumStopThreshold: CGFloat = 30
-    // Exponential decay k. With k=4: half-life ~173ms, ~13% at 500ms,
-    // fully spent by ~700ms. Close to Mac trackpad inertia feel.
-    private static let momentumDecayK: CGFloat = 4
+    // Exponential decay k. With k=2.8: half-life ~248ms, ~25% at 500ms,
+    // spent by ~1.1s. Slower than Mac trackpad so a single flick coasts a
+    // long page, cutting the repeated-swipe fatigue that read as "slow".
+    private static let momentumDecayK: CGFloat = 2.8
 
     init(
         acceleration: GestureAcceleration = .identity,
