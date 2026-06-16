@@ -58,7 +58,11 @@ final class WebRTCVideoCapturer: RTCVideoCapturer, @unchecked Sendable {
             delegate.capturer(self, didCapture: rtcFrame)
             deliveredCount += 1
             if deliveredCount % 30 == 1 {
-                logger.notice("delivered frame #\(self.deliveredCount, privacy: .public) size=\(CVPixelBufferGetWidth(frame.pixelBuffer), privacy: .public)x\(CVPixelBufferGetHeight(frame.pixelBuffer), privacy: .public)")
+                let nowNs = DispatchTime.now().uptimeNanoseconds
+                let captureToDeliverMs = MediaTimingMath.formatMilliseconds(
+                    MediaTimingMath.millisecondsBetween(currentNs: nowNs, previousNs: frame.capturedAtUptimeNs)
+                )
+                logger.notice("capture-to-capturer frame=\(self.deliveredCount, privacy: .public) ageMs=\(captureToDeliverMs, privacy: .public) size=\(CVPixelBufferGetWidth(frame.pixelBuffer), privacy: .public)x\(CVPixelBufferGetHeight(frame.pixelBuffer), privacy: .public)")
             }
         } else {
             logger.error("capturer delegate is nil; frame dropped")

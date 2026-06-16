@@ -25,6 +25,7 @@ final class TestPatternFrameSource: VideoFrameSource, @unchecked Sendable {
                     let frame = CapturedVideoFrame(
                         pixelBuffer: buffer,
                         presentationTimeNs: Int64(nowNs),
+                        capturedAtUptimeNs: DispatchTime.now().uptimeNanoseconds,
                         rotation: ._0
                     )
                     onFrame(frame)

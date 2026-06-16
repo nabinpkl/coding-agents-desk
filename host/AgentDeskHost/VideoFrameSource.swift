@@ -24,6 +24,7 @@ protocol VideoFrameSource: AnyObject, Sendable {
 struct CapturedVideoFrame: @unchecked Sendable {
     let pixelBuffer: CVPixelBuffer
     let presentationTimeNs: Int64
+    let capturedAtUptimeNs: UInt64
     let rotation: VideoRotation
 }
 

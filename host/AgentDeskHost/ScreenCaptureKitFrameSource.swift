@@ -133,6 +133,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
         let frame = CapturedVideoFrame(
             pixelBuffer: imageBuffer,
             presentationTimeNs: timeNs,
+            capturedAtUptimeNs: DispatchTime.now().uptimeNanoseconds,
             rotation: ._0
         )
         onFrame?(frame)

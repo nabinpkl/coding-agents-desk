@@ -51,6 +51,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     // first-frame delivery, and renderFrame: is never invoked. Mirrors the
     // host-side rtcVideoSource retention.
     private var remoteVideoTrack: RTCVideoTrack?
+    private var previousInboundStats: [String: InboundRtpSnapshot] = [:]
     // ADR-0005: input no longer rides this transport. The video-only PC
     // doesn't allocate a data channel; the dedicated InputChannel owns
     // its own WebSocket lifecycle.
@@ -183,8 +184,11 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         guard let pc = peerConnection else { return }
         let report = await pc.statistics()
         let codecMimeTypes = codecMimeTypes(from: report.statistics)
-        for (_, stats) in report.statistics {
+        for (id, stats) in report.statistics {
             if stats.type == "inbound-rtp" {
+                let snapshot = InboundRtpSnapshot(stats: stats)
+                let previous = previousInboundStats[id]
+                previousInboundStats[id] = snapshot
                 let frames = stats.values["framesReceived"].map { "\($0)" } ?? "?"
                 let decoded = stats.values["framesDecoded"].map { "\($0)" } ?? "?"
                 let bytes = stats.values["bytesReceived"].map { "\($0)" } ?? "?"
@@ -196,9 +200,32 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                 let decodeTime = stats.values["totalDecodeTime"].map { "\($0)" } ?? "?"
                 let jitterDelay = stats.values["jitterBufferDelay"].map { "\($0)" } ?? "?"
                 let jitterFrames = stats.values["jitterBufferEmittedCount"].map { "\($0)" } ?? "?"
-                logger.notice("inbound-rtp codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) decoder=\(decoder, privacy: .public) framesReceived=\(frames, privacy: .public) framesDecoded=\(decoded, privacy: .public) framesDropped=\(dropped, privacy: .public) bytesReceived=\(bytes, privacy: .public) packetsLost=\(packetsLost, privacy: .public) totalDecodeTime=\(decodeTime, privacy: .public) jitterDelay=\(jitterDelay, privacy: .public) jitterFrames=\(jitterFrames, privacy: .public)")
+                let framesDelta = formatDelta(current: snapshot.framesDecoded, previous: previous?.framesDecoded)
+                let decodeMs = MediaTimingMath.formatMilliseconds(
+                    MediaTimingMath.millisecondsPerUnit(
+                        currentCount: snapshot.framesDecoded,
+                        previousCount: previous?.framesDecoded,
+                        currentTotalSeconds: snapshot.totalDecodeTime,
+                        previousTotalSeconds: previous?.totalDecodeTime
+                    )
+                )
+                let jitterMs = MediaTimingMath.formatMilliseconds(
+                    MediaTimingMath.millisecondsPerUnit(
+                        currentCount: snapshot.jitterBufferEmittedCount,
+                        previousCount: previous?.jitterBufferEmittedCount,
+                        currentTotalSeconds: snapshot.jitterBufferDelay,
+                        previousTotalSeconds: previous?.jitterBufferDelay
+                    )
+                )
+                let playoutTimestamp = stats.values["estimatedPlayoutTimestamp"].map { "\($0)" } ?? "?"
+                logger.notice("inbound-rtp codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) decoder=\(decoder, privacy: .public) framesReceived=\(frames, privacy: .public) framesDecoded=\(decoded, privacy: .public) windowDecoded=\(framesDelta, privacy: .public) decodeMsPerFrame=\(decodeMs, privacy: .public) jitterMsPerFrame=\(jitterMs, privacy: .public) framesDropped=\(dropped, privacy: .public) bytesReceived=\(bytes, privacy: .public) packetsLost=\(packetsLost, privacy: .public) totalDecodeTime=\(decodeTime, privacy: .public) jitterDelay=\(jitterDelay, privacy: .public) jitterFrames=\(jitterFrames, privacy: .public) estimatedPlayoutTimestamp=\(playoutTimestamp, privacy: .public)")
             }
         }
+    }
+
+    private func formatDelta(current: Double?, previous: Double?) -> String {
+        guard let current, let previous else { return "?" }
+        return String(format: "%.0f", current - previous)
     }
 
     private func codecMimeTypes(from statistics: [String: RTCStatistics]) -> [String: String] {
@@ -288,6 +315,8 @@ final class DebugFrameProbeRenderer: NSObject, RTCVideoRenderer, @unchecked Send
     private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "webrtc")
     private var count = 0
     private var lastSize: CGSize = .zero
+    private var lastRenderUptimeNs: UInt64?
+    private var lastFrameTimestampNs: Int64?
 
     func setSize(_ size: CGSize) {
         lastSize = size
@@ -297,9 +326,48 @@ final class DebugFrameProbeRenderer: NSObject, RTCVideoRenderer, @unchecked Send
     func renderFrame(_ frame: RTCVideoFrame?) {
         count += 1
         if count % 30 == 1 {
+            let nowNs = DispatchTime.now().uptimeNanoseconds
+            let callbackWindowMs = MediaTimingMath.formatMilliseconds(
+                MediaTimingMath.millisecondsBetween(currentNs: nowNs, previousNs: lastRenderUptimeNs)
+            )
+            let mediaWindowMs: String
+            if let frame, let lastFrameTimestampNs, frame.timeStampNs >= lastFrameTimestampNs {
+                mediaWindowMs = MediaTimingMath.formatMilliseconds(
+                    Double(frame.timeStampNs - lastFrameTimestampNs) / 1_000_000.0
+                )
+            } else {
+                mediaWindowMs = "?"
+            }
             let w = frame?.width ?? 0
             let h = frame?.height ?? 0
-            logger.notice("probe renderFrame #\(self.count, privacy: .public) size=\(w, privacy: .public)x\(h, privacy: .public)")
+            logger.notice("render-callback frame=\(self.count, privacy: .public) callbackWindowMs=\(callbackWindowMs, privacy: .public) mediaWindowMs=\(mediaWindowMs, privacy: .public) size=\(w, privacy: .public)x\(h, privacy: .public)")
+            lastRenderUptimeNs = nowNs
+            lastFrameTimestampNs = frame?.timeStampNs
         }
+    }
+}
+
+private struct InboundRtpSnapshot {
+    let framesDecoded: Double?
+    let totalDecodeTime: Double?
+    let jitterBufferDelay: Double?
+    let jitterBufferEmittedCount: Double?
+
+    init(stats: RTCStatistics) {
+        framesDecoded = Self.doubleValue(stats.values["framesDecoded"])
+        totalDecodeTime = Self.doubleValue(stats.values["totalDecodeTime"])
+        jitterBufferDelay = Self.doubleValue(stats.values["jitterBufferDelay"])
+        jitterBufferEmittedCount = Self.doubleValue(stats.values["jitterBufferEmittedCount"])
+    }
+
+    private static func doubleValue(_ value: NSObject?) -> Double? {
+        if let number = value as? NSNumber {
+            return number.doubleValue
+        }
+        if let string = value as? String {
+            return Double(string)
+        }
+        guard let value else { return nil }
+        return Double("\(value)")
     }
 }

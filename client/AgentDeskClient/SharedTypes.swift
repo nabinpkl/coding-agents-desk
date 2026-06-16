@@ -510,6 +510,34 @@ enum SdpVideoCodecInspector {
     }
 }
 
+enum MediaTimingMath {
+    static func millisecondsBetween(currentNs: UInt64, previousNs: UInt64?) -> Double? {
+        guard let previousNs, currentNs >= previousNs else { return nil }
+        return Double(currentNs - previousNs) / 1_000_000.0
+    }
+
+    static func millisecondsPerUnit(
+        currentCount: Double?,
+        previousCount: Double?,
+        currentTotalSeconds: Double?,
+        previousTotalSeconds: Double?
+    ) -> Double? {
+        guard let currentCount,
+              let previousCount,
+              let currentTotalSeconds,
+              let previousTotalSeconds else { return nil }
+        let countDelta = currentCount - previousCount
+        let secondsDelta = currentTotalSeconds - previousTotalSeconds
+        guard countDelta > 0, secondsDelta >= 0 else { return nil }
+        return secondsDelta * 1_000.0 / countDelta
+    }
+
+    static func formatMilliseconds(_ value: Double?) -> String {
+        guard let value, value.isFinite else { return "?" }
+        return String(format: "%.2f", value)
+    }
+}
+
 enum NormalizedInput: Codable, Equatable {
     case cursorMove(dx: Float, dy: Float)
     case click(button: MouseButton)

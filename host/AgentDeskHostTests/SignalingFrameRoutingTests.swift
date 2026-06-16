@@ -121,6 +121,32 @@ struct SignalingFrameRoutingTests {
         #expect(SdpVideoCodecInspector.firstNegotiatedVideoCodec(in: sdp) == nil)
     }
 
+    @Test func mediaTimingMathReportsMillisecondsPerAdvancedUnit() {
+        let value = MediaTimingMath.millisecondsPerUnit(
+            currentCount: 130,
+            previousCount: 100,
+            currentTotalSeconds: 2.2,
+            previousTotalSeconds: 2.0
+        )
+        #expect(abs((value ?? 0) - 6.666) < 0.01)
+    }
+
+    @Test func mediaTimingMathReturnsNilWithoutUnitProgress() {
+        let value = MediaTimingMath.millisecondsPerUnit(
+            currentCount: 100,
+            previousCount: 100,
+            currentTotalSeconds: 2.2,
+            previousTotalSeconds: 2.0
+        )
+        #expect(value == nil)
+    }
+
+    @Test func mediaTimingMathFormatsMillisecondsForLogs() {
+        #expect(MediaTimingMath.millisecondsBetween(currentNs: 1_250_000, previousNs: 1_000_000) == 0.25)
+        #expect(MediaTimingMath.formatMilliseconds(1.234) == "1.23")
+        #expect(MediaTimingMath.formatMilliseconds(nil) == "?")
+    }
+
     // ADR-0005 input channel first-frame discriminator.
 
     @Test func classifyFirstFrameInputHelloRoutesToInputHello() {

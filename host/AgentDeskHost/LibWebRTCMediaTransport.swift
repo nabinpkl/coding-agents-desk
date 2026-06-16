@@ -60,6 +60,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     // rapid repeated strokes don't churn the encoder between profiles.
     private let interactiveQueue = DispatchQueue(label: "\(Config.launchAgentLabel).webrtc.interactive")
     private var restoreTimer: DispatchSourceTimer?
+    private var previousOutboundStats: [String: OutboundRtpSnapshot] = [:]
 
     init(factory: RTCPeerConnectionFactory, codecs: MediaCodecPreferences, tuning: SenderTuning) {
         self.factory = factory
@@ -294,8 +295,11 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         guard let pc = peerConnection else { return }
         let report = await pc.statistics()
         let codecMimeTypes = codecMimeTypes(from: report.statistics)
-        for (_, stats) in report.statistics {
+        for (id, stats) in report.statistics {
             if stats.type == "outbound-rtp" {
+                let snapshot = OutboundRtpSnapshot(stats: stats)
+                let previous = previousOutboundStats[id]
+                previousOutboundStats[id] = snapshot
                 let frames = stats.values["framesEncoded"].map { "\($0)" } ?? "?"
                 let bytes = stats.values["bytesSent"].map { "\($0)" } ?? "?"
                 let kbps = stats.values["targetBitrate"].map { "\($0)" } ?? "?"
@@ -304,9 +308,31 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                 let encoder = stats.values["encoderImplementation"].map { "\($0)" } ?? "?"
                 let fps = stats.values["framesPerSecond"].map { "\($0)" } ?? "?"
                 let qualityReason = stats.values["qualityLimitationReason"].map { "\($0)" } ?? "?"
-                logger.notice("outbound-rtp codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) encoder=\(encoder, privacy: .public) framesEncoded=\(frames, privacy: .public) fps=\(fps, privacy: .public) bytesSent=\(bytes, privacy: .public) targetBitrate=\(kbps, privacy: .public) qualityLimitation=\(qualityReason, privacy: .public)")
+                let framesDelta = formatDelta(current: snapshot.framesEncoded, previous: previous?.framesEncoded)
+                let encodeMs = MediaTimingMath.formatMilliseconds(
+                    MediaTimingMath.millisecondsPerUnit(
+                        currentCount: snapshot.framesEncoded,
+                        previousCount: previous?.framesEncoded,
+                        currentTotalSeconds: snapshot.totalEncodeTime,
+                        previousTotalSeconds: previous?.totalEncodeTime
+                    )
+                )
+                let packetSendDelayMs = MediaTimingMath.formatMilliseconds(
+                    MediaTimingMath.millisecondsPerUnit(
+                        currentCount: snapshot.packetsSent,
+                        previousCount: previous?.packetsSent,
+                        currentTotalSeconds: snapshot.totalPacketSendDelay,
+                        previousTotalSeconds: previous?.totalPacketSendDelay
+                    )
+                )
+                logger.notice("outbound-rtp codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) encoder=\(encoder, privacy: .public) framesEncoded=\(frames, privacy: .public) windowFrames=\(framesDelta, privacy: .public) encodeMsPerFrame=\(encodeMs, privacy: .public) packetSendDelayMsPerPacket=\(packetSendDelayMs, privacy: .public) fps=\(fps, privacy: .public) bytesSent=\(bytes, privacy: .public) targetBitrate=\(kbps, privacy: .public) qualityLimitation=\(qualityReason, privacy: .public)")
             }
         }
+    }
+
+    private func formatDelta(current: Double?, previous: Double?) -> String {
+        guard let current, let previous else { return "?" }
+        return String(format: "%.0f", current - previous)
     }
 
     private func codecMimeTypes(from statistics: [String: RTCStatistics]) -> [String: String] {
@@ -399,5 +425,30 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
         // ADR-0005: video-only PC; any incoming data channel is unexpected.
         logger.notice("ignoring unexpected data channel label=\(dataChannel.label, privacy: .public)")
+    }
+}
+
+private struct OutboundRtpSnapshot {
+    let framesEncoded: Double?
+    let packetsSent: Double?
+    let totalEncodeTime: Double?
+    let totalPacketSendDelay: Double?
+
+    init(stats: RTCStatistics) {
+        framesEncoded = Self.doubleValue(stats.values["framesEncoded"])
+        packetsSent = Self.doubleValue(stats.values["packetsSent"])
+        totalEncodeTime = Self.doubleValue(stats.values["totalEncodeTime"])
+        totalPacketSendDelay = Self.doubleValue(stats.values["totalPacketSendDelay"])
+    }
+
+    private static func doubleValue(_ value: NSObject?) -> Double? {
+        if let number = value as? NSNumber {
+            return number.doubleValue
+        }
+        if let string = value as? String {
+            return Double(string)
+        }
+        guard let value else { return nil }
+        return Double("\(value)")
     }
 }
