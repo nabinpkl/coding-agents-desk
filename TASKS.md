@@ -167,11 +167,44 @@ D22 sub-tasks:
 - Always showing the expanded Spaces grid. Rejected because the core affordance is a small draggable spaceship that can stay out of the way.
 - Building a second thumbnail provider. Rejected because `SpaceThumbnailProvider` is the neutral primitive. The correct isolation boundary is owner-scoped demand, not duplicated capture logic.
 
+## v0 Phase 12 (R24): daily-driver cursor and scroll media friction. Active.
+
+Phase goal: keep the input feel native while making the video output keep up during scroll and cursor-heavy use. This phase is empirical. It does not bless more WebRTC tuning as the final architecture until the latency budget is measured.
+
+What is already on `main`: the cursor path now has local prediction, host cursor-position seeding, host held-position integration, and host-driven cursor glyph mirroring. The scroll path now sends an interaction hint on scroll-strip touch-down, switches the sender into a low-latency scroll profile, uses a steeper client scroll curve, and tries VP9 temporal layers so bitrate pressure can shed enhancement layers without a keyframe.
+
+Ordering is load-bearing:
+
+- First verify the actual negotiated codec and run a codec A/B. The current host default is VP9-first, but the iOS client factory still advertises H.264-only. If the session negotiates H.264, VP9 temporal-layer tuning is inert.
+- Then instrument capture, encode, send, receive, decode, and render latency. Without stage timing, a transport rewrite can easily fix the wrong layer.
+- Only after measurements point at decode or receiver buffering should the WebRTC build be upgraded for hardware HEVC / AV1 exposure and lower playout-buffer control.
+- Only after measurements point at WebRTC pacing, congestion control, or receiver buffering that the build cannot expose should a non-WebRTC transport prototype start.
+
+R24 sub-tasks:
+
+- [x] D24.1. Client cursor prediction. `client/AgentDeskClient/PairingViewController+EdgeFollow.swift` projects `cursorSourcePos` into the video view with local dead-reckoning so drag feedback is immediate instead of waiting for the captured Mac cursor to round-trip through video.
+- [x] D24.2. Cursor convergence. `host/AgentDeskHost/SharedTypes.swift`, `client/AgentDeskClient/SharedTypes.swift`, `host/AgentDeskHost/SpacesProvider.swift`, and `host/AgentDeskHost/InputDispatcher.swift` seed the client model from host cursor position and integrate host cursor deltas against a held authoritative position rather than repeatedly reading the lagging WindowServer cursor query.
+- [x] D24.3. Cursor glyph mirroring. `host/AgentDeskHost/CursorMonitor.swift`, `host/AgentDeskHost/InputChannelServer.swift`, `client/AgentDeskClient/InputChannel.swift`, `client/AgentDeskClient/CursorImageStore.swift`, and `client/AgentDeskClient/CursorPointerView.swift` push cursor image changes from `NSCursor.currentSystem` and render the client overlay with the host-provided image and hotspot.
+- [x] D24.4. Scroll interaction hint. `client/AgentDeskClient/GestureTranslator.swift`, `client/AgentDeskClient/PairingViewController+Gestures.swift`, `host/AgentDeskHost/InputChannelServer.swift`, `host/AgentDeskHost/AppDelegate.swift`, and `host/AgentDeskHost/LibWebRTCMediaTransport.swift` send `interaction-hint` on scroll touch-down, switch to the low-latency sender profile while active, and restore the crisp profile after settle debounce.
+- [x] D24.5. Scroll tuning. `client/AgentDeskClient/GestureTranslator.swift` steepens the scroll acceleration curve and lengthens flick coast; `host/AgentDeskHost/MediaTransport.swift` drops scroll profile resolution harder, caps scroll bitrate at 3500 kbps by default, and sets temporal layers to 3 when the negotiated codec supports that path.
+- [ ] R24.6. Codec reality check. Add a log or test hook in `host/AgentDeskHost/LibWebRTCMediaTransport.swift` / `client/AgentDeskClient/LibWebRTCMediaTransport.swift` that records the actually negotiated video codec from the offer / answer or transceiver state, then run H.264-only versus VP9-first on device and record scroll-output latency and text-crispness observations. Update `SPEC.md` if the shipping v0 codec is no longer H.264 per ADR-0004.
+- [ ] R24.7. Stage-latency probes. Add timestamped diagnostics across `ScreenCaptureKitFrameSource`, `LibWebRTCMediaTransport`, `WebRTCVideoCapturer`, and the client sink path so one scroll session reports capture-to-encode, encode-to-send, send-to-receive, receive-to-decode, decode-to-render, and rendered-frame freshness. The output must distinguish decode cost from WebRTC jitter / playout buffering and sender pacing.
+- [ ] R24.8. WebRTC build decision. If R24.6 or R24.7 shows decode or hidden receiver buffering as the dominant cost, write an ADR deciding whether to upgrade / replace the `stasel/WebRTC` artifact for hardware HEVC or AV1, `jitterBufferTarget` / playout-delay controls if exposed, and current iOS device hardware-decoder support. Land only the build change needed for the measured bottleneck.
+- [ ] R24.9. Transport overhaul gate. If R24.7 shows WebRTC pacing, congestion control, SDP / ICE ceremony, or unexposed receiver buffering is the dominant cost after R24.8, write an ADR and branch prototype for `ScreenCaptureKit -> VideoToolbox -> QUIC/WebTransport/MoQ` carrying video plus input on one owned connection. The prototype must beat tuned WebRTC on the same scroll trace before any production replacement work starts.
+
+### Alternative arc (rejected for R24 until measured)
+
+| Option | Source | What it catches | Failure shape |
+| ------ | ------ | --------------- | ------------- |
+| Keep tuned WebRTC and sender profiles | Current `LibWebRTCMediaTransport` seam from ADR-0004 | Encoder / pacer pressure during scroll, without replacing the media stack | More knobs can hide a decode or playout-buffer bottleneck and leave output lag unchanged |
+| Upgrade the WebRTC build | Current protocol seam plus newer libwebrtc capability surface | Hardware codec exposure, lower receiver-buffer controls, codec preference reality | Build churn without stage timing may swap binaries while preserving the same latency source |
+| Custom VideoToolbox plus QUIC/WebTransport/MoQ | Tailnet-only product constraint and media/input ownership goal | Full ownership of jitter buffer, pacing, migration, and codec path | Reimplements loss recovery and pacing before proving WebRTC transport is the bottleneck |
+
 ---
 
 ## v1 scope (captured, not started until v0 acceptance passes)
 
-R15 onwards reserves the v1 block.
+R15 through R23 currently reserve the v1 block. R24 is reopened v0 friction work from daily-driver testing.
 
 - [ ] R15. Per-agent carousel and reasoning ticker. Mirrors the visual target in `mock-design/`. Adds the agent-identity model to the host (one agent equals one Space in v1).
 - [ ] R16. Multi-display picker on the iOS client. Protocol already carries `displays[]` and `activeDisplayId`; UI-only slice.
@@ -259,4 +292,13 @@ D22.4     2026-05-26  committed   static transparent bitmap spaceship asset
 D22.5     2026-05-26  committed   owner-scoped SpaceThumbnailProvider demand
 D22.6     2026-05-26  committed   AppDelegate launch wiring without menu-bar popover changes
 D22.7     2026-05-26  committed   model, thumbnail-demand, and clamp/persistence tests
+D24.1     2026-06-16  committed   client cursor prediction overlay for zero-latency pointer feedback
+D24.2     2026-06-16  committed   host cursor seed plus held-position integration fixed at-rest drift
+D24.3     2026-06-16  committed   host cursor glyph push and client mirrored cursor overlay
+D24.4     2026-06-16  committed   scroll interaction hint toggles low-latency sender profile
+D24.5     2026-06-16  committed   scroll acceleration, bitrate cap, and temporal-layer tuning landed
+R24.6     pending     pending     verify actual negotiated codec and run H.264 versus VP9 scroll A/B
+R24.7     pending     pending     add stage-latency probes across capture, encode, transport, decode, render
+R24.8     pending     pending     decide WebRTC build upgrade only if measurements point there
+R24.9     pending     pending     gate custom VideoToolbox plus QUIC/WebTransport/MoQ prototype on measured WebRTC bottleneck
 ```
