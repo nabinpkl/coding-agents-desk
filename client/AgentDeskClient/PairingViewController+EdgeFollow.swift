@@ -60,7 +60,6 @@ extension PairingViewController: UIScrollViewDelegate {
         if !isSameDisplay || cursorSourcePos == nil {
             cursorSourcePos = CGPoint(x: newRect.midX, y: newRect.midY)
         }
-        updateCursorDot()
     }
 
     // ADR-0009. The host's InputDispatcher already integrates these
