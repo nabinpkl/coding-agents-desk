@@ -197,6 +197,24 @@ struct InputChannelTests {
         #expect(MediaTimingMath.formatMilliseconds(nil) == "?")
     }
 
+    @Test func h264OnlyCodecPolicyDropsSoftwareCodecFallbacks() {
+        let allowed = CodecPreferencePolicy.orderedAllowedIndexes(
+            capabilities: [
+                CodecCapabilityDescriptor(index: 0, name: "H264", preferredPayloadType: "96", aptPayloadType: nil),
+                CodecCapabilityDescriptor(index: 1, name: "rtx", preferredPayloadType: "97", aptPayloadType: "96"),
+                CodecCapabilityDescriptor(index: 2, name: "VP9", preferredPayloadType: "98", aptPayloadType: nil),
+                CodecCapabilityDescriptor(index: 3, name: "rtx", preferredPayloadType: "99", aptPayloadType: "98"),
+                CodecCapabilityDescriptor(index: 4, name: "VP8", preferredPayloadType: "100", aptPayloadType: nil),
+                CodecCapabilityDescriptor(index: 5, name: "red", preferredPayloadType: "101", aptPayloadType: nil)
+            ],
+            preferences: .h264Only
+        )
+
+        #expect(allowed == [0, 1, 5])
+        #expect(MediaCodecPreferences.h264Only.allows(statsMimeType: "video/H264"))
+        #expect(!MediaCodecPreferences.h264Only.allows(statsMimeType: "video/VP8"))
+    }
+
     @Test func openerReturnsOnlyAfterInputReady() async throws {
         let task = FakeInputWebSocketTask()
         let completed = LockedBool(false)

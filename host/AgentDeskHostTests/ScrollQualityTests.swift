@@ -49,4 +49,40 @@ struct ScrollQualityTests {
         let decoded = try JSONDecoder().decode(InteractionHint.self, from: data)
         #expect(decoded == hint)
     }
+
+    @Test func h264OnlyCodecPolicyDropsVp8AndVp9Fallbacks() {
+        let allowed = CodecPreferencePolicy.orderedAllowedIndexes(
+            capabilities: [
+                CodecCapabilityDescriptor(index: 0, name: "H264", preferredPayloadType: "96", aptPayloadType: nil),
+                CodecCapabilityDescriptor(index: 1, name: "rtx", preferredPayloadType: "97", aptPayloadType: "96"),
+                CodecCapabilityDescriptor(index: 2, name: "VP9", preferredPayloadType: "98", aptPayloadType: nil),
+                CodecCapabilityDescriptor(index: 3, name: "rtx", preferredPayloadType: "99", aptPayloadType: "98"),
+                CodecCapabilityDescriptor(index: 4, name: "VP8", preferredPayloadType: "100", aptPayloadType: nil),
+                CodecCapabilityDescriptor(index: 5, name: "red", preferredPayloadType: "101", aptPayloadType: nil)
+            ],
+            preferences: .h264Only
+        )
+
+        #expect(allowed == [0, 1, 5])
+        #expect(MediaCodecPreferences.h264Only.allows(statsMimeType: "video/H264"))
+        #expect(!MediaCodecPreferences.h264Only.allows(statsMimeType: "video/VP8"))
+    }
+
+    @Test func vp9FirstCodecPolicyKeepsOnlyConfiguredPrimaryCodecs() {
+        let allowed = CodecPreferencePolicy.orderedAllowedIndexes(
+            capabilities: [
+                CodecCapabilityDescriptor(index: 0, name: "H264", preferredPayloadType: "96", aptPayloadType: nil),
+                CodecCapabilityDescriptor(index: 1, name: "rtx", preferredPayloadType: "97", aptPayloadType: "96"),
+                CodecCapabilityDescriptor(index: 2, name: "VP8", preferredPayloadType: "100", aptPayloadType: nil),
+                CodecCapabilityDescriptor(index: 3, name: "VP9", preferredPayloadType: "98", aptPayloadType: nil),
+                CodecCapabilityDescriptor(index: 4, name: "rtx", preferredPayloadType: "99", aptPayloadType: "98")
+            ],
+            preferences: .vp9First
+        )
+
+        #expect(allowed == [3, 4, 0, 1])
+        #expect(MediaCodecPreferences.vp9First.allows(statsMimeType: "video/VP9"))
+        #expect(MediaCodecPreferences.vp9First.allows(statsMimeType: "video/H264"))
+        #expect(!MediaCodecPreferences.vp9First.allows(statsMimeType: "video/VP8"))
+    }
 }

@@ -8,7 +8,7 @@ import Foundation
 enum MediaStack {
     // Codec selection is one-line swap here OR via env var so you can
     // A/B without rebuild. Recognized values for AGENTDESK_CODEC:
-    //   h264 (default) | vp9 | av1
+    //   h264 | vp9 (default) | av1
     // Sender tuning (degradationPreference, bitrate ceilings, BWE seed,
     // screencast flag) is read from AGENTDESK_TUNING_* env vars; see
     // SenderTuning.fromEnvironment() for the field list.

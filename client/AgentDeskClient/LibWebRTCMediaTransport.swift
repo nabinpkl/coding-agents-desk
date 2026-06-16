@@ -118,6 +118,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                 // The legacy `didAdd stream` callback often doesn't fire in
                 // newer libwebrtc builds, so enumerate directly.
                 attachRemoteTracksFromTransceivers(pc: pc)
+                try applyCodecPreferences(on: pc)
                 let answerConstraints = RTCMediaConstraints(
                     mandatoryConstraints: nil,
                     optionalConstraints: nil
@@ -170,6 +171,38 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         logger.notice("renderer subscribed to track id=\(track.trackId, privacy: .public) isEnabled=\(track.isEnabled, privacy: .public)")
     }
 
+    // Restrict the answer's video codec list to the configured primary codecs
+    // plus matching RTX payloads. The client is the decoder side, so this is
+    // where a hardware-decode A/B run rejects software-codec fallbacks.
+    private func applyCodecPreferences(on pc: RTCPeerConnection) throws {
+        let capabilities = factory.rtpReceiverCapabilities(forKind: kRTCMediaStreamTrackKindVideo)
+        let descriptors = capabilities.codecs.enumerated().map { index, codec in
+            CodecCapabilityDescriptor(
+                index: index,
+                name: codec.name,
+                preferredPayloadType: codec.preferredPayloadType?.stringValue,
+                aptPayloadType: codec.parameters["apt"]
+            )
+        }
+        let allowedIndexes = CodecPreferencePolicy.orderedAllowedIndexes(
+            capabilities: descriptors,
+            preferences: codecs
+        )
+        guard !allowedIndexes.isEmpty else {
+            let wanted = codecs.preferredCodecNames.joined(separator: ",")
+            logger.error("applyCodecPreferences: no compatible video codecs found for \(wanted, privacy: .public)")
+            throw MediaTransportError.unsupportedCodecPreference(wanted)
+        }
+        let ordered = allowedIndexes.map { capabilities.codecs[$0] }
+        guard let transceiver = pc.transceivers.first(where: { $0.mediaType == .video }) else {
+            logger.error("applyCodecPreferences: no video transceiver found")
+            return
+        }
+        transceiver.setCodecPreferences(ordered)
+        let pickedNames = ordered.map(\.name).joined(separator: ",")
+        logger.notice("codec preferences set: \(pickedNames, privacy: .public)")
+    }
+
     private func startStatsLogger() {
         Task { [weak self] in
             while !Task.isCancelled {
@@ -195,6 +228,9 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                 let packetsLost = stats.values["packetsLost"].map { "\($0)" } ?? "?"
                 let codecId = stats.values["codecId"].map { "\($0)" } ?? "?"
                 let codecMimeType = codecMimeTypes[codecId] ?? "?"
+                if codecMimeType != "?", !codecs.allows(statsMimeType: codecMimeType) {
+                    logger.error("inbound codec mismatch configured=\(self.codecs.preferredCodecNames.joined(separator: ","), privacy: .public) actual=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public)")
+                }
                 let decoder = stats.values["decoderImplementation"].map { "\($0)" } ?? "?"
                 let dropped = stats.values["framesDropped"].map { "\($0)" } ?? "?"
                 let decodeTime = stats.values["totalDecodeTime"].map { "\($0)" } ?? "?"

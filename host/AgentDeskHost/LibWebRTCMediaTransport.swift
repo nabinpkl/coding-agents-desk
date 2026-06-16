@@ -109,7 +109,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                 self.videoSender = sender
                 configureSenderForScreenShare(sender)
             }
-            applyCodecPreferences(on: pc)
+            try applyCodecPreferences(on: pc)
             // Seed libwebrtc's Google Congestion Control bandwidth estimator
             // with our tuning values. Default GCC starts at ~600 kbps and
             // ramps slowly; on a wire we own (loopback or Tailnet) the encoder
@@ -223,45 +223,37 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         }
     }
 
-    // Reorder the video transceiver's codec list so libwebrtc negotiates our
-    // preferred codecs first. Without this call the offer SDP lists codecs in
-    // libwebrtc's default order (typically H.264 first) and our preference
-    // value is theatre. With it, MediaStack flipping codecs=.vp9First in one
-    // line is enough to actually negotiate VP9.
-    private func applyCodecPreferences(on pc: RTCPeerConnection) {
-        let wantedNames = codecs.preferred.map { codec -> String in
-            switch codec {
-            case .h264: return "H264"
-            case .h265: return "H265"
-            case .vp8:  return "VP8"
-            case .vp9:  return "VP9"
-            case .av1:  return "AV1"
-            }
-        }
+    // Restrict the video transceiver's codec list to the configured primary
+    // codecs plus their matching RTX payloads. Preference-only ordering is
+    // not enough for latency A/B runs: libwebrtc can still send a fallback
+    // codec that remains in the list.
+    private func applyCodecPreferences(on pc: RTCPeerConnection) throws {
         let capabilities = factory.rtpSenderCapabilities(forKind: kRTCMediaStreamTrackKindVideo)
-        let availableByName = Dictionary(grouping: capabilities.codecs, by: { $0.name.uppercased() })
-        var ordered: [RTCRtpCodecCapability] = []
-        for name in wantedNames {
-            if let bucket = availableByName[name.uppercased()] {
-                ordered.append(contentsOf: bucket)
-            }
+        let descriptors = capabilities.codecs.enumerated().map { index, codec in
+            CodecCapabilityDescriptor(
+                index: index,
+                name: codec.name,
+                preferredPayloadType: codec.preferredPayloadType?.stringValue,
+                aptPayloadType: codec.parameters["apt"]
+            )
         }
-        // Append any remaining codecs (RTX, FEC, fallbacks) so libwebrtc still
-        // has its plumbing payloads available.
-        for codec in capabilities.codecs where !ordered.contains(where: { $0 === codec }) {
-            ordered.append(codec)
+        let allowedIndexes = CodecPreferencePolicy.orderedAllowedIndexes(
+            capabilities: descriptors,
+            preferences: codecs
+        )
+        guard !allowedIndexes.isEmpty else {
+            let wanted = codecs.preferredCodecNames.joined(separator: ",")
+            logger.error("applyCodecPreferences: no compatible video codecs found for \(wanted, privacy: .public)")
+            throw MediaTransportError.unsupportedCodecPreference(wanted)
         }
+        let ordered = allowedIndexes.map { capabilities.codecs[$0] }
         guard let transceiver = pc.transceivers.first(where: { $0.mediaType == .video }) else {
             logger.error("applyCodecPreferences: no video transceiver found")
             return
         }
-        do {
-            try transceiver.setCodecPreferences(ordered)
-            let pickedNames = ordered.prefix(wantedNames.count).map(\.name).joined(separator: ",")
-            logger.notice("codec preferences set: \(pickedNames, privacy: .public)")
-        } catch {
-            logger.error("setCodecPreferences failed: \(String(describing: error), privacy: .public)")
-        }
+        transceiver.setCodecPreferences(ordered)
+        let pickedNames = ordered.map(\.name).joined(separator: ",")
+        logger.notice("codec preferences set: \(pickedNames, privacy: .public)")
     }
 
     private func sendOffer() async throws {
@@ -305,6 +297,9 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                 let kbps = stats.values["targetBitrate"].map { "\($0)" } ?? "?"
                 let codecId = stats.values["codecId"].map { "\($0)" } ?? "?"
                 let codecMimeType = codecMimeTypes[codecId] ?? "?"
+                if codecMimeType != "?", !codecs.allows(statsMimeType: codecMimeType) {
+                    logger.error("outbound codec mismatch configured=\(self.codecs.preferredCodecNames.joined(separator: ","), privacy: .public) actual=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public)")
+                }
                 let encoder = stats.values["encoderImplementation"].map { "\($0)" } ?? "?"
                 let fps = stats.values["framesPerSecond"].map { "\($0)" } ?? "?"
                 let qualityReason = stats.values["qualityLimitationReason"].map { "\($0)" } ?? "?"

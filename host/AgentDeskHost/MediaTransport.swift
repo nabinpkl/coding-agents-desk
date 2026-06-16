@@ -58,6 +58,84 @@ struct MediaCodecPreferences: Equatable {
     static let h264Only = MediaCodecPreferences(preferred: [.h264])
     static let vp9First = MediaCodecPreferences(preferred: [.vp9, .h264])
     static let av1First = MediaCodecPreferences(preferred: [.av1, .vp9, .h264])
+
+    var preferredCodecNames: [String] {
+        preferred.map { codec in
+            switch codec {
+            case .h264: return "H264"
+            case .h265: return "H265"
+            case .vp8: return "VP8"
+            case .vp9: return "VP9"
+            case .av1: return "AV1"
+            }
+        }
+    }
+
+    func allows(statsMimeType: String) -> Bool {
+        guard let subtype = statsMimeType.split(separator: "/").last else { return false }
+        return preferredCodecNames.contains(String(subtype).uppercased())
+    }
+}
+
+struct CodecCapabilityDescriptor: Equatable {
+    let index: Int
+    let name: String
+    let preferredPayloadType: String?
+    let aptPayloadType: String?
+}
+
+enum CodecPreferencePolicy {
+    private static let primaryNames: Set<String> = ["H264", "H265", "VP8", "VP9", "AV1"]
+    private static let protectionNames: Set<String> = ["RED", "ULPFEC", "FLEXFEC-03"]
+
+    static func orderedAllowedIndexes(
+        capabilities: [CodecCapabilityDescriptor],
+        preferences: MediaCodecPreferences
+    ) -> [Int] {
+        var selectedMedia: [CodecCapabilityDescriptor] = []
+        for name in preferences.preferredCodecNames {
+            selectedMedia.append(
+                contentsOf: capabilities.filter {
+                    normalize($0.name) == name && isPrimary($0)
+                }
+            )
+        }
+
+        let mediaAndRepairIndexes = selectedMedia.flatMap { media -> [Int] in
+            let repairIndexes = media.preferredPayloadType.map { payloadType in
+                capabilities
+                    .filter { isRtx($0) && $0.aptPayloadType == payloadType }
+                    .map(\.index)
+            } ?? []
+            return [media.index] + repairIndexes
+        }
+        let protectionIndexes = capabilities
+            .filter(isProtection)
+            .map(\.index)
+        return unique(mediaAndRepairIndexes + protectionIndexes)
+    }
+
+    private static func isPrimary(_ descriptor: CodecCapabilityDescriptor) -> Bool {
+        primaryNames.contains(normalize(descriptor.name))
+    }
+
+    private static func isRtx(_ descriptor: CodecCapabilityDescriptor) -> Bool {
+        normalize(descriptor.name) == "RTX"
+    }
+
+    private static func isProtection(_ descriptor: CodecCapabilityDescriptor) -> Bool {
+        protectionNames.contains(normalize(descriptor.name))
+    }
+
+    private static func normalize(_ name: String) -> String {
+        name.uppercased()
+    }
+
+    private static func unique(_ indexes: [Int]) -> [Int] {
+        indexes.reduce([]) { ordered, index in
+            ordered.contains(index) ? ordered : ordered + [index]
+        }
+    }
 }
 
 // Sender-side tuning knobs. All previously hardcoded inside
@@ -182,6 +260,7 @@ struct SenderTuning: Equatable {
 
 enum MediaTransportError: Error {
     case notYetImplemented
+    case unsupportedCodecPreference(String)
 }
 
 // Marker protocol so MediaTransport.start carries one signature on both

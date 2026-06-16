@@ -56,6 +56,8 @@
 		B00000000000000000000228 /* SessionDialer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010B /* SessionDialer.swift */; };
 		B00000000000000000000229 /* WebSocketSignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* WebSocketSignalingChannel.swift */; };
 		B0000000000000000000022A /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010D /* SignalingChannel.swift */; };
+		B0000000000000000000022A1 /* MediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010C /* MediaTransport.swift */; };
+		B0000000000000000000022A2 /* VideoFrameSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010E /* VideoFrameSink.swift */; };
 		B0000000000000000000022B /* GestureTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000113 /* GestureTranslator.swift */; };
 		B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000122 /* GestureTranslatorTests.swift */; };
 		B0000000000000000000022D /* KeyboardSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000116 /* KeyboardSurface.swift */; };
@@ -371,6 +373,8 @@
 				B00000000000000000000228 /* SessionDialer.swift in Sources */,
 				B00000000000000000000229 /* WebSocketSignalingChannel.swift in Sources */,
 				B0000000000000000000022A /* SignalingChannel.swift in Sources */,
+				B0000000000000000000022A1 /* MediaTransport.swift in Sources */,
+				B0000000000000000000022A2 /* VideoFrameSink.swift in Sources */,
 				B0000000000000000000022B /* GestureTranslator.swift in Sources */,
 				B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */,
 				B0000000000000000000022D /* KeyboardSurface.swift in Sources */,
