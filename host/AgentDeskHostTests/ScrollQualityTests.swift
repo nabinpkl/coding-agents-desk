@@ -8,12 +8,16 @@ import Testing
 // surface is the pure profile derivation on SenderTuning and the
 // InteractionHint frame the client sends.
 struct ScrollQualityTests {
-    @Test func scrollProfileDropsResolutionAndPrioritizesFramerate() {
+    @Test func scrollProfileDropsResolutionAndBitrateAndPrioritizesFramerate() {
         let tuning = SenderTuning.default
         let scroll = tuning.scrollProfile
         #expect(scroll.scaleResolutionDownBy == tuning.scrollScaleDownBy)
         #expect(scroll.scaleResolutionDownBy > 1.0)
         #expect(scroll.maxFramerate == tuning.scrollMaxFramerate)
+        #expect(scroll.maxBitrateKbps == tuning.scrollMaxBitrateKbps)
+        // Smaller frames are the latency lever: the scroll cap must be well
+        // below the crisp ceiling.
+        #expect(scroll.maxBitrateKbps < tuning.maxBitrateKbps)
         #expect(scroll.degradation == .maintainFramerate)
     }
 
@@ -22,6 +26,7 @@ struct ScrollQualityTests {
         let crisp = tuning.crispProfile
         #expect(crisp.scaleResolutionDownBy == 1.0)
         #expect(crisp.maxFramerate == tuning.maxFramerate)
+        #expect(crisp.maxBitrateKbps == tuning.maxBitrateKbps)
         #expect(crisp.degradation == tuning.degradationPreference)
     }
 

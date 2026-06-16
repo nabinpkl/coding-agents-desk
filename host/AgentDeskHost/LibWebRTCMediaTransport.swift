@@ -195,9 +195,11 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         for encoding in params.encodings {
             encoding.scaleResolutionDownBy = NSNumber(value: profile.scaleResolutionDownBy)
             encoding.maxFramerate = NSNumber(value: profile.maxFramerate)
+            encoding.maxBitrateBps = NSNumber(value: profile.maxBitrateKbps * 1000)
+            encoding.minBitrateBps = NSNumber(value: profile.minBitrateKbps * 1000)
         }
         sender.parameters = params
-        logger.notice("video profile applied: scaleDown=\(profile.scaleResolutionDownBy, privacy: .public) fps=\(profile.maxFramerate, privacy: .public) degradation=\(profile.degradation.rawValue, privacy: .public)")
+        logger.notice("video profile applied: scaleDown=\(profile.scaleResolutionDownBy, privacy: .public) fps=\(profile.maxFramerate, privacy: .public) maxKbps=\(profile.maxBitrateKbps, privacy: .public) degradation=\(profile.degradation.rawValue, privacy: .public)")
     }
 
     private func degradationRaw(_ pref: SenderTuning.DegradationPreference) -> Int {

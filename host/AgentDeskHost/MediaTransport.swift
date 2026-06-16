@@ -73,12 +73,15 @@ struct SenderTuning: Equatable {
     var bweStartKbps: Int
     var bweMaxKbps: Int
     // Scroll/interactive profile: while the client is scrolling, downscale
-    // resolution by this factor and raise the framerate ceiling, with a
-    // maintainFramerate degradation preference, so frames arrive sooner and
-    // motion stays smooth. Restored to the crisp values after scrollSettleMs
-    // of no interaction.
+    // resolution and cap bitrate hard so the full-frame motion encodes into
+    // small frames that clear the encoder + pacer + network fast (this is
+    // the latency lever, not just smoothness), raise the framerate ceiling,
+    // and use a maintainFramerate degradation preference. Restored to the
+    // crisp values after scrollSettleMs of no interaction.
     var scrollScaleDownBy: Double
     var scrollMaxFramerate: Int
+    var scrollMaxBitrateKbps: Int
+    var scrollMinBitrateKbps: Int
     var scrollSettleMs: Int
 
     enum DegradationPreference: String, Equatable {
@@ -93,6 +96,8 @@ struct SenderTuning: Equatable {
     struct EncodingProfile: Equatable {
         var scaleResolutionDownBy: Double
         var maxFramerate: Int
+        var maxBitrateKbps: Int
+        var minBitrateKbps: Int
         var degradation: DegradationPreference
     }
 
@@ -100,6 +105,8 @@ struct SenderTuning: Equatable {
         EncodingProfile(
             scaleResolutionDownBy: 1.0,
             maxFramerate: maxFramerate,
+            maxBitrateKbps: maxBitrateKbps,
+            minBitrateKbps: minBitrateKbps,
             degradation: degradationPreference
         )
     }
@@ -108,6 +115,8 @@ struct SenderTuning: Equatable {
         EncodingProfile(
             scaleResolutionDownBy: scrollScaleDownBy,
             maxFramerate: scrollMaxFramerate,
+            maxBitrateKbps: scrollMaxBitrateKbps,
+            minBitrateKbps: scrollMinBitrateKbps,
             degradation: .maintainFramerate
         )
     }
@@ -127,8 +136,10 @@ struct SenderTuning: Equatable {
         bweMinKbps: 2_000,
         bweStartKbps: 6_000,
         bweMaxKbps: 8_000,
-        scrollScaleDownBy: 2.0,
+        scrollScaleDownBy: 3.0,
         scrollMaxFramerate: 60,
+        scrollMaxBitrateKbps: 3_500,
+        scrollMinBitrateKbps: 1_000,
         scrollSettleMs: 300
     )
 
@@ -151,6 +162,8 @@ struct SenderTuning: Equatable {
         if let v = env["AGENTDESK_TUNING_BWE_MAX_KBPS"], let n = Int(v) { t.bweMaxKbps = n }
         if let v = env["AGENTDESK_TUNING_SCROLL_SCALE_DOWN"], let n = Double(v) { t.scrollScaleDownBy = n }
         if let v = env["AGENTDESK_TUNING_SCROLL_MAX_FPS"], let n = Int(v) { t.scrollMaxFramerate = n }
+        if let v = env["AGENTDESK_TUNING_SCROLL_MAX_BITRATE_KBPS"], let n = Int(v) { t.scrollMaxBitrateKbps = n }
+        if let v = env["AGENTDESK_TUNING_SCROLL_MIN_BITRATE_KBPS"], let n = Int(v) { t.scrollMinBitrateKbps = n }
         if let v = env["AGENTDESK_TUNING_SCROLL_SETTLE_MS"], let n = Int(v) { t.scrollSettleMs = n }
         return t
     }
