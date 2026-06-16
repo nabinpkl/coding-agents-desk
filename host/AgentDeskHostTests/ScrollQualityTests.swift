@@ -30,6 +30,15 @@ struct ScrollQualityTests {
         #expect(crisp.degradation == tuning.degradationPreference)
     }
 
+    @Test func temporalLayersAreConstantAcrossProfilesSoSwitchesAvoidReconfig() {
+        let tuning = SenderTuning.default
+        // Layers > 1 enables temporal SVC; the scroll bitrate squeeze then
+        // sheds layers instead of reconfiguring. The count must match across
+        // profiles or the switch would force an encoder reinit + keyframe.
+        #expect(tuning.temporalLayers > 1)
+        #expect(tuning.crispProfile.temporalLayers == tuning.scrollProfile.temporalLayers)
+    }
+
     @Test func interactionHintRoundTripsWithCompactKeys() throws {
         let hint = InteractionHint(kind: "scroll", active: true)
         let data = try JSONEncoder().encode(hint)

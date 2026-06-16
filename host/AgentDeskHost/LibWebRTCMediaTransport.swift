@@ -159,6 +159,11 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
             encoding.maxBitrateBps = NSNumber(value: tuning.maxBitrateKbps * 1000)
             encoding.minBitrateBps = NSNumber(value: tuning.minBitrateKbps * 1000)
             encoding.maxFramerate = NSNumber(value: tuning.maxFramerate)
+            // Temporal SVC so the scroll profile's bitrate squeeze sheds the
+            // top layers instantly instead of forcing a resolution reconfig.
+            if tuning.temporalLayers > 1 {
+                encoding.numTemporalLayers = NSNumber(value: tuning.temporalLayers)
+            }
         }
         sender.parameters = params
     }
@@ -197,6 +202,12 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
             encoding.maxFramerate = NSNumber(value: profile.maxFramerate)
             encoding.maxBitrateBps = NSNumber(value: profile.maxBitrateKbps * 1000)
             encoding.minBitrateBps = NSNumber(value: profile.minBitrateKbps * 1000)
+            // Same layer count in both profiles, so the switch only changes
+            // bitrate/resolution and the temporal structure stays put (no
+            // reconfig, no keyframe from the layer side).
+            if profile.temporalLayers > 1 {
+                encoding.numTemporalLayers = NSNumber(value: profile.temporalLayers)
+            }
         }
         sender.parameters = params
         logger.notice("video profile applied: scaleDown=\(profile.scaleResolutionDownBy, privacy: .public) fps=\(profile.maxFramerate, privacy: .public) maxKbps=\(profile.maxBitrateKbps, privacy: .public) degradation=\(profile.degradation.rawValue, privacy: .public)")

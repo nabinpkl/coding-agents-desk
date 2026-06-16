@@ -83,6 +83,12 @@ struct SenderTuning: Equatable {
     var scrollMaxBitrateKbps: Int
     var scrollMinBitrateKbps: Int
     var scrollSettleMs: Int
+    // VP9 temporal SVC. With layers > 1 the stream carries a base layer
+    // plus enhancement layers; squeezing bitrate (the scroll profile) makes
+    // the encoder shed the top layers instantly, dropping framerate with no
+    // resolution reconfig and no keyframe. Kept constant across profiles so
+    // the layer structure never changes (changing it would force a reinit).
+    var temporalLayers: Int
 
     enum DegradationPreference: String, Equatable {
         case disabled
@@ -98,6 +104,7 @@ struct SenderTuning: Equatable {
         var maxFramerate: Int
         var maxBitrateKbps: Int
         var minBitrateKbps: Int
+        var temporalLayers: Int
         var degradation: DegradationPreference
     }
 
@@ -107,6 +114,7 @@ struct SenderTuning: Equatable {
             maxFramerate: maxFramerate,
             maxBitrateKbps: maxBitrateKbps,
             minBitrateKbps: minBitrateKbps,
+            temporalLayers: temporalLayers,
             degradation: degradationPreference
         )
     }
@@ -117,6 +125,7 @@ struct SenderTuning: Equatable {
             maxFramerate: scrollMaxFramerate,
             maxBitrateKbps: scrollMaxBitrateKbps,
             minBitrateKbps: scrollMinBitrateKbps,
+            temporalLayers: temporalLayers,
             degradation: .maintainFramerate
         )
     }
@@ -140,7 +149,8 @@ struct SenderTuning: Equatable {
         scrollMaxFramerate: 60,
         scrollMaxBitrateKbps: 3_500,
         scrollMinBitrateKbps: 1_000,
-        scrollSettleMs: 300
+        scrollSettleMs: 300,
+        temporalLayers: 3
     )
 
     // Reads AGENTDESK_TUNING_<FIELD> env vars over the default. Examples:
@@ -165,6 +175,7 @@ struct SenderTuning: Equatable {
         if let v = env["AGENTDESK_TUNING_SCROLL_MAX_BITRATE_KBPS"], let n = Int(v) { t.scrollMaxBitrateKbps = n }
         if let v = env["AGENTDESK_TUNING_SCROLL_MIN_BITRATE_KBPS"], let n = Int(v) { t.scrollMinBitrateKbps = n }
         if let v = env["AGENTDESK_TUNING_SCROLL_SETTLE_MS"], let n = Int(v) { t.scrollSettleMs = n }
+        if let v = env["AGENTDESK_TUNING_TEMPORAL_LAYERS"], let n = Int(v) { t.temporalLayers = n }
         return t
     }
 }
