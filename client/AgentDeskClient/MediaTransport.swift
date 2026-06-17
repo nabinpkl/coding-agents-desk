@@ -8,8 +8,8 @@ protocol MediaTransport: AnyObject, Sendable {
     func start(
         role: MediaTransportRole,
         signaling: SignalingChannel,
-        videoSource: VideoFrameSource?,
-        videoSink: VideoFrameSink?
+        videoSources: VideoPlaneSources?,
+        videoSinks: VideoPlaneSinks?
     ) async throws
 
     func stop()
@@ -34,6 +34,56 @@ protocol MediaTransportFactory {
     func make() -> MediaTransport
 }
 
+enum MediaPlane: String, CaseIterable, Equatable, Hashable, Codable {
+    case detail
+    case motion
+
+    var trackId: String {
+        switch self {
+        case .detail: "detail-video"
+        case .motion: "motion-video"
+        }
+    }
+
+    var streamId: String {
+        switch self {
+        case .detail: "detail"
+        case .motion: "motion"
+        }
+    }
+
+    init?(trackId: String) {
+        guard let plane = Self.allCases.first(where: { $0.trackId == trackId }) else {
+            return nil
+        }
+        self = plane
+    }
+}
+
+struct VideoPlaneSources: Sendable {
+    private let sources: [MediaPlane: VideoFrameSource]
+
+    init(_ sources: [MediaPlane: VideoFrameSource]) {
+        self.sources = sources
+    }
+
+    subscript(_ plane: MediaPlane) -> VideoFrameSource? {
+        sources[plane]
+    }
+}
+
+struct VideoPlaneSinks: Sendable {
+    private let sinks: [MediaPlane: VideoFrameSink]
+
+    init(_ sinks: [MediaPlane: VideoFrameSink]) {
+        self.sinks = sinks
+    }
+
+    subscript(_ plane: MediaPlane) -> VideoFrameSink? {
+        sinks[plane]
+    }
+}
+
 struct MediaCodecPreferences: Equatable {
     var preferred: [VideoCodec]
 
@@ -46,6 +96,12 @@ struct MediaCodecPreferences: Equatable {
     }
 
     static let h264Only = MediaCodecPreferences(preferred: [.h264])
+    static let vp9Only = MediaCodecPreferences(preferred: [.vp9])
+
+    static let defaultPlanes: [MediaPlane: MediaCodecPreferences] = [
+        .detail: .vp9Only,
+        .motion: .h264Only
+    ]
 
     var preferredCodecNames: [String] {
         preferred.map { codec in

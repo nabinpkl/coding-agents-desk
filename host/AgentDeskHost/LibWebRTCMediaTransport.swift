@@ -8,13 +8,11 @@ import os
 // WebRTC library replaces this file and no others.
 
 final class LibWebRTCTransportFactory: MediaTransportFactory {
-    let codecs: MediaCodecPreferences
-    let tuning: SenderTuning
+    let planeConfigurations: [MediaPlane: MediaPlaneConfiguration]
     private let factory: RTCPeerConnectionFactory
 
-    init(codecs: MediaCodecPreferences, tuning: SenderTuning) {
-        self.codecs = codecs
-        self.tuning = tuning
+    init(planeConfigurations: [MediaPlane: MediaPlaneConfiguration]) {
+        self.planeConfigurations = planeConfigurations
         self.factory = Self.sharedFactory
     }
 
@@ -32,7 +30,7 @@ final class LibWebRTCTransportFactory: MediaTransportFactory {
     }()
 
     func make() -> MediaTransport {
-        LibWebRTCMediaTransport(factory: factory, codecs: codecs, tuning: tuning)
+        LibWebRTCMediaTransport(factory: factory, planeConfigurations: planeConfigurations)
     }
 }
 
@@ -42,30 +40,24 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "webrtc")
     private let factory: RTCPeerConnectionFactory
-    private let codecs: MediaCodecPreferences
-    private let tuning: SenderTuning
+    private let planeConfigurations: [MediaPlane: MediaPlaneConfiguration]
     private var peerConnection: RTCPeerConnection?
-    private var capturer: WebRTCVideoCapturer?
+    private var capturers: [MediaPlane: WebRTCVideoCapturer] = [:]
     // RTCVideoCapturer.delegate is weak in libwebrtc, so this video source
     // must be retained on self even though the RTCVideoTrack also holds it.
     // Without this strong reference the capturer's delegate goes nil between
     // start() returning and the first frame being delivered.
-    private var rtcVideoSource: RTCVideoSource?
-    private var videoTrack: RTCVideoTrack?
-    private var videoSender: RTCRtpSender?
+    private var rtcVideoSources: [MediaPlane: RTCVideoSource] = [:]
+    private var videoTracks: [MediaPlane: RTCVideoTrack] = [:]
+    private var videoSenders: [MediaPlane: RTCRtpSender] = [:]
     private var signaling: SignalingChannel?
     private var inboundTask: Task<Void, Never>?
     private var role: MediaTransportRole = .offerer
-    // Serializes scroll-profile switches and owns the restore debounce so
-    // rapid repeated strokes don't churn the encoder between profiles.
-    private let interactiveQueue = DispatchQueue(label: "\(Config.launchAgentLabel).webrtc.interactive")
-    private var restoreTimer: DispatchSourceTimer?
     private var previousOutboundStats: [String: OutboundRtpSnapshot] = [:]
 
-    init(factory: RTCPeerConnectionFactory, codecs: MediaCodecPreferences, tuning: SenderTuning) {
+    init(factory: RTCPeerConnectionFactory, planeConfigurations: [MediaPlane: MediaPlaneConfiguration]) {
         self.factory = factory
-        self.codecs = codecs
-        self.tuning = tuning
+        self.planeConfigurations = planeConfigurations
         var stateCont: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { stateCont = $0 }
         self.stateContinuation = stateCont
@@ -75,8 +67,8 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     func start(
         role: MediaTransportRole,
         signaling: SignalingChannel,
-        videoSource: VideoFrameSource?,
-        videoSink: VideoFrameSink?
+        videoSources: VideoPlaneSources?,
+        videoSinks: VideoPlaneSinks?
     ) async throws {
         self.role = role
         self.signaling = signaling
@@ -98,29 +90,35 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         // ADR-0005: input now flows over a dedicated WSS (InputChannelServer);
         // the WebRTC PC carries only video.
 
-        if let videoSource {
-            let rtcSource = factory.videoSource(forScreenCast: tuning.screencast)
-            self.rtcVideoSource = rtcSource
-            let capturer = WebRTCVideoCapturer(rtcSource: rtcSource, frameSource: videoSource)
-            self.capturer = capturer
-            let track = factory.videoTrack(with: rtcSource, trackId: "video0")
-            self.videoTrack = track
-            if let sender = pc.add(track, streamIds: ["stream0"]) {
-                self.videoSender = sender
-                configureSenderForScreenShare(sender)
+        if let videoSources {
+            for plane in MediaPlane.allCases {
+                guard let videoSource = videoSources[plane],
+                      let planeConfiguration = planeConfigurations[plane] else { continue }
+                let rtcSource = factory.videoSource(forScreenCast: planeConfiguration.tuning.screencast)
+                rtcVideoSources[plane] = rtcSource
+                let capturer = WebRTCVideoCapturer(rtcSource: rtcSource, frameSource: videoSource, plane: plane)
+                capturers[plane] = capturer
+                let track = factory.videoTrack(with: rtcSource, trackId: plane.trackId)
+                videoTracks[plane] = track
+                if let sender = pc.add(track, streamIds: [plane.streamId]) {
+                    videoSenders[plane] = sender
+                    configureSenderForScreenShare(sender, configuration: planeConfiguration)
+                    try applyCodecPreferences(on: pc, plane: plane, preferences: planeConfiguration.codecs)
+                }
             }
-            try applyCodecPreferences(on: pc)
             // Seed libwebrtc's Google Congestion Control bandwidth estimator
             // with our tuning values. Default GCC starts at ~600 kbps and
             // ramps slowly; on a wire we own (loopback or Tailnet) the encoder
             // shouldn't start in compromise mode.
+            let bweTuning = planeConfigurations[.detail]?.tuning ?? SenderTuning.default
             pc.setBweMinBitrateBps(
-                NSNumber(value: tuning.bweMinKbps * 1000),
-                currentBitrateBps: NSNumber(value: tuning.bweStartKbps * 1000),
-                maxBitrateBps: NSNumber(value: tuning.bweMaxKbps * 1000)
+                NSNumber(value: bweTuning.bweMinKbps * 1000),
+                currentBitrateBps: NSNumber(value: bweTuning.bweStartKbps * 1000),
+                maxBitrateBps: NSNumber(value: bweTuning.bweMaxKbps * 1000)
             )
-            logger.notice("tuning applied: codecs=\(self.codecs.preferred.map(\.rawValue).joined(separator: ","), privacy: .public) screencast=\(self.tuning.screencast, privacy: .public) scaleDown=\(self.tuning.crispProfile.scaleResolutionDownBy, privacy: .public) temporalLayers=\(self.tuning.temporalLayers, privacy: .public) degradation=\(self.tuning.degradationPreference.rawValue, privacy: .public) bwe=\(self.tuning.bweStartKbps, privacy: .public)kbps maxBitrate=\(self.tuning.maxBitrateKbps, privacy: .public)kbps")
-            try await capturer.start()
+            for plane in MediaPlane.allCases {
+                try await capturers[plane]?.start()
+            }
         }
 
         inboundTask = Task { [weak self, signaling] in
@@ -137,13 +135,11 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     func stop() {
         inboundTask?.cancel()
         inboundTask = nil
-        restoreTimer?.cancel()
-        restoreTimer = nil
-        capturer?.stop()
-        capturer = nil
-        videoSender = nil
-        videoTrack = nil
-        rtcVideoSource = nil
+        capturers.values.forEach { $0.stop() }
+        capturers.removeAll()
+        videoSenders.removeAll()
+        videoTracks.removeAll()
+        rtcVideoSources.removeAll()
         peerConnection?.close()
         peerConnection = nil
         stateContinuation.yield(.closed)
@@ -153,9 +149,11 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     // Tune the outgoing video sender from the SenderTuning value. Every knob
     // here is configurable; see SenderTuning.fromEnvironment() for the env
     // vars that override individual fields.
-    private func configureSenderForScreenShare(_ sender: RTCRtpSender) {
+    private func configureSenderForScreenShare(_ sender: RTCRtpSender, configuration: MediaPlaneConfiguration) {
         let params = sender.parameters
-        let profile = tuning.crispProfile
+        let profile = configuration.plane == .motion
+            ? configuration.tuning.scrollProfile
+            : configuration.tuning.crispProfile
         params.degradationPreference = NSNumber(value: degradationRaw(profile.degradation))
         for encoding in params.encodings {
             encoding.scaleResolutionDownBy = NSNumber(value: profile.scaleResolutionDownBy)
@@ -169,51 +167,13 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
             }
         }
         sender.parameters = params
+        logger.notice("tuning applied: plane=\(configuration.plane.rawValue, privacy: .public) codecs=\(configuration.codecs.preferred.map(\.rawValue).joined(separator: ","), privacy: .public) screencast=\(configuration.tuning.screencast, privacy: .public) scaleDown=\(profile.scaleResolutionDownBy, privacy: .public) temporalLayers=\(profile.temporalLayers, privacy: .public) degradation=\(profile.degradation.rawValue, privacy: .public) maxBitrate=\(profile.maxBitrateKbps, privacy: .public)kbps")
     }
 
-    // ADR-0009 scroll quality: client interaction hints toggle between the
-    // crisp profile (default) and the low-latency scroll profile. Entering
-    // is immediate; leaving is debounced by scrollSettleMs so a burst of
-    // short strokes stays in scroll mode rather than flickering.
+    // Dual-plane mode keeps both encoders warm. Interaction hints no longer
+    // mutate sender parameters; the client compositor switches visible planes.
     func setVideoInteractive(_ active: Bool) {
-        interactiveQueue.async { [weak self] in
-            guard let self else { return }
-            self.restoreTimer?.cancel()
-            self.restoreTimer = nil
-            if active {
-                self.applyProfile(self.tuning.scrollProfile)
-            } else {
-                let timer = DispatchSource.makeTimerSource(queue: self.interactiveQueue)
-                timer.schedule(deadline: .now() + .milliseconds(self.tuning.scrollSettleMs))
-                timer.setEventHandler { [weak self] in
-                    guard let self else { return }
-                    self.applyProfile(self.tuning.crispProfile)
-                    self.restoreTimer = nil
-                }
-                self.restoreTimer = timer
-                timer.resume()
-            }
-        }
-    }
-
-    private func applyProfile(_ profile: SenderTuning.EncodingProfile) {
-        guard let sender = videoSender else { return }
-        let params = sender.parameters
-        params.degradationPreference = NSNumber(value: degradationRaw(profile.degradation))
-        for encoding in params.encodings {
-            encoding.scaleResolutionDownBy = NSNumber(value: profile.scaleResolutionDownBy)
-            encoding.maxFramerate = NSNumber(value: profile.maxFramerate)
-            encoding.maxBitrateBps = NSNumber(value: profile.maxBitrateKbps * 1000)
-            encoding.minBitrateBps = NSNumber(value: profile.minBitrateKbps * 1000)
-            // Same layer count in both profiles, so the switch only changes
-            // bitrate/resolution and the temporal structure stays put (no
-            // reconfig, no keyframe from the layer side).
-            if profile.temporalLayers > 1 {
-                encoding.numTemporalLayers = NSNumber(value: profile.temporalLayers)
-            }
-        }
-        sender.parameters = params
-        logger.notice("video profile applied: scaleDown=\(profile.scaleResolutionDownBy, privacy: .public) fps=\(profile.maxFramerate, privacy: .public) maxKbps=\(profile.maxBitrateKbps, privacy: .public) degradation=\(profile.degradation.rawValue, privacy: .public)")
+        logger.notice("video interaction hint ignored by host dual-plane sender active=\(active, privacy: .public)")
     }
 
     private func degradationRaw(_ pref: SenderTuning.DegradationPreference) -> Int {
@@ -229,7 +189,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     // codecs plus their matching RTX payloads. Preference-only ordering is
     // not enough for latency A/B runs: libwebrtc can still send a fallback
     // codec that remains in the list.
-    private func applyCodecPreferences(on pc: RTCPeerConnection) throws {
+    private func applyCodecPreferences(on pc: RTCPeerConnection, plane: MediaPlane, preferences: MediaCodecPreferences) throws {
         let capabilities = factory.rtpSenderCapabilities(forKind: kRTCMediaStreamTrackKindVideo)
         let descriptors = capabilities.codecs.enumerated().map { index, codec in
             CodecCapabilityDescriptor(
@@ -241,21 +201,23 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         }
         let allowedIndexes = CodecPreferencePolicy.orderedAllowedIndexes(
             capabilities: descriptors,
-            preferences: codecs
+            preferences: preferences
         )
         guard !allowedIndexes.isEmpty else {
-            let wanted = codecs.preferredCodecNames.joined(separator: ",")
-            logger.error("applyCodecPreferences: no compatible video codecs found for \(wanted, privacy: .public)")
+            let wanted = preferences.preferredCodecNames.joined(separator: ",")
+            logger.error("applyCodecPreferences: no compatible video codecs found plane=\(plane.rawValue, privacy: .public) codecs=\(wanted, privacy: .public)")
             throw MediaTransportError.unsupportedCodecPreference(wanted)
         }
         let ordered = allowedIndexes.map { capabilities.codecs[$0] }
-        guard let transceiver = pc.transceivers.first(where: { $0.mediaType == .video }) else {
-            logger.error("applyCodecPreferences: no video transceiver found")
+        guard let transceiver = pc.transceivers.last(where: {
+            $0.mediaType == .video && $0.sender.track?.trackId == plane.trackId
+        }) else {
+            logger.error("applyCodecPreferences: no video transceiver found plane=\(plane.rawValue, privacy: .public)")
             return
         }
         transceiver.setCodecPreferences(ordered)
         let pickedNames = ordered.map(\.name).joined(separator: ",")
-        logger.notice("codec preferences set: \(pickedNames, privacy: .public)")
+        logger.notice("codec preferences set plane=\(plane.rawValue, privacy: .public): \(pickedNames, privacy: .public)")
     }
 
     private func sendOffer() async throws {
@@ -299,8 +261,12 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                 let kbps = stats.values["targetBitrate"].map { "\($0)" } ?? "?"
                 let codecId = stats.values["codecId"].map { "\($0)" } ?? "?"
                 let codecMimeType = codecMimeTypes[codecId] ?? "?"
-                if codecMimeType != "?", !codecs.allows(statsMimeType: codecMimeType) {
-                    logger.error("outbound codec mismatch configured=\(self.codecs.preferredCodecNames.joined(separator: ","), privacy: .public) actual=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public)")
+                let plane = planeName(fromOutboundStats: stats)
+                if let mediaPlane = MediaPlane(rawValue: plane),
+                   let preferences = planeConfigurations[mediaPlane]?.codecs,
+                   codecMimeType != "?",
+                   !preferences.allows(statsMimeType: codecMimeType) {
+                    logger.error("outbound codec mismatch plane=\(plane, privacy: .public) configured=\(preferences.preferredCodecNames.joined(separator: ","), privacy: .public) actual=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public)")
                 }
                 let encoder = stats.values["encoderImplementation"].map { "\($0)" } ?? "?"
                 let fps = stats.values["framesPerSecond"].map { "\($0)" } ?? "?"
@@ -322,9 +288,17 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                         previousTotalSeconds: previous?.totalPacketSendDelay
                     )
                 )
-                logger.notice("outbound-rtp codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) encoder=\(encoder, privacy: .public) framesEncoded=\(frames, privacy: .public) windowFrames=\(framesDelta, privacy: .public) encodeMsPerFrame=\(encodeMs, privacy: .public) packetSendDelayMsPerPacket=\(packetSendDelayMs, privacy: .public) fps=\(fps, privacy: .public) bytesSent=\(bytes, privacy: .public) targetBitrate=\(kbps, privacy: .public) qualityLimitation=\(qualityReason, privacy: .public)")
+                logger.notice("outbound-rtp plane=\(plane, privacy: .public) codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) encoder=\(encoder, privacy: .public) framesEncoded=\(frames, privacy: .public) windowFrames=\(framesDelta, privacy: .public) encodeMsPerFrame=\(encodeMs, privacy: .public) packetSendDelayMsPerPacket=\(packetSendDelayMs, privacy: .public) fps=\(fps, privacy: .public) bytesSent=\(bytes, privacy: .public) targetBitrate=\(kbps, privacy: .public) qualityLimitation=\(qualityReason, privacy: .public)")
             }
         }
+    }
+
+    private func planeName(fromOutboundStats stats: RTCStatistics) -> String {
+        let trackId = stats.values["trackIdentifier"].map { "\($0)" } ?? ""
+        if let plane = MediaPlane(trackId: trackId) {
+            return plane.rawValue
+        }
+        return "unknown"
     }
 
     private func formatDelta(current: Double?, previous: Double?) -> String {

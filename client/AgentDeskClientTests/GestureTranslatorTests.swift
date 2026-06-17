@@ -4,6 +4,22 @@ import UIKit
 
 @MainActor
 struct GestureTranslatorTests {
+    @Test func dualPlaneCompositorWaitsForFreshDetailFrameBeforeRestoring() {
+        let compositor = DualPlaneVideoCompositor(initialPlane: .detail)
+
+        compositor.setMotionActive(true)
+        #expect(compositor.visiblePlane == .motion)
+
+        compositor.setMotionActive(false)
+        #expect(compositor.visiblePlane == .motion)
+
+        compositor.noteFrameRendered(on: .motion)
+        #expect(compositor.visiblePlane == .motion)
+
+        compositor.noteFrameRendered(on: .detail)
+        #expect(compositor.visiblePlane == .detail)
+    }
+
     @Test func panEmitsCursorMoveDeltasSinceLastChangedCallback() {
         let recorder = InputRecorder()
         let translator = GestureTranslator()

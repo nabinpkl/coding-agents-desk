@@ -9,8 +9,8 @@ protocol MediaTransport: AnyObject, Sendable {
     func start(
         role: MediaTransportRole,
         signaling: SignalingChannel,
-        videoSource: VideoFrameSource?,
-        videoSink: VideoFrameSink?
+        videoSources: VideoPlaneSources?,
+        videoSinks: VideoPlaneSinks?
     ) async throws
 
     func stop()
@@ -18,9 +18,9 @@ protocol MediaTransport: AnyObject, Sendable {
     // Single-consumer stream. Impls construct one continuation per instance.
     var connectionState: AsyncStream<MediaConnectionState> { get }
 
-    // Drop to the low-latency scroll profile (active=true) or restore the
-    // crisp profile (active=false). Driven by client interaction hints.
-    // Impls debounce the restore so rapid repeated strokes don't flicker.
+    // Compatibility hook for client interaction hints. The dual-plane
+    // renderer keeps both senders warm; the client compositor owns visible
+    // plane switching.
     func setVideoInteractive(_ active: Bool)
 }
 
@@ -41,9 +41,59 @@ protocol MediaTransportFactory {
     func make() -> MediaTransport
 }
 
-// Codec choice is data, not code. v0 ships [.h264]; HEVC flip is one line in
-// MediaStack. Order is preference; the underlying impl negotiates the first
-// supported case.
+enum MediaPlane: String, CaseIterable, Equatable, Hashable, Codable {
+    case detail
+    case motion
+
+    var trackId: String {
+        switch self {
+        case .detail: "detail-video"
+        case .motion: "motion-video"
+        }
+    }
+
+    var streamId: String {
+        switch self {
+        case .detail: "detail"
+        case .motion: "motion"
+        }
+    }
+
+    init?(trackId: String) {
+        guard let plane = Self.allCases.first(where: { $0.trackId == trackId }) else {
+            return nil
+        }
+        self = plane
+    }
+}
+
+struct VideoPlaneSources: Sendable {
+    private let sources: [MediaPlane: VideoFrameSource]
+
+    init(_ sources: [MediaPlane: VideoFrameSource]) {
+        self.sources = sources
+    }
+
+    subscript(_ plane: MediaPlane) -> VideoFrameSource? {
+        sources[plane]
+    }
+}
+
+struct VideoPlaneSinks: Sendable {
+    private let sinks: [MediaPlane: VideoFrameSink]
+
+    init(_ sinks: [MediaPlane: VideoFrameSink]) {
+        self.sinks = sinks
+    }
+
+    subscript(_ plane: MediaPlane) -> VideoFrameSink? {
+        sinks[plane]
+    }
+}
+
+// Codec choice is data, not code. v0 configures codecs per media plane.
+// Order is preference; the underlying impl negotiates the first supported
+// case for each plane.
 struct MediaCodecPreferences: Equatable {
     var preferred: [VideoCodec]
 
@@ -56,6 +106,7 @@ struct MediaCodecPreferences: Equatable {
     }
 
     static let h264Only = MediaCodecPreferences(preferred: [.h264])
+    static let vp9Only = MediaCodecPreferences(preferred: [.vp9])
     static let vp9First = MediaCodecPreferences(preferred: [.vp9, .h264])
     static let av1First = MediaCodecPreferences(preferred: [.av1, .vp9, .h264])
 
@@ -135,6 +186,34 @@ enum CodecPreferencePolicy {
         indexes.reduce([]) { ordered, index in
             ordered.contains(index) ? ordered : ordered + [index]
         }
+    }
+}
+
+struct MediaPlaneConfiguration: Equatable {
+    let plane: MediaPlane
+    let codecs: MediaCodecPreferences
+    let tuning: SenderTuning
+    let captureScaleDownBy: Double
+
+    static var defaultPlanes: [MediaPlane: MediaPlaneConfiguration] {
+        let base = SenderTuning.fromEnvironment()
+        let detail = MediaPlaneConfiguration(
+            plane: .detail,
+            codecs: .vp9Only,
+            tuning: base,
+            captureScaleDownBy: 1.0
+        )
+        let motionTuning = base.applyingCodecGuardrails(for: .h264Only)
+        let motion = MediaPlaneConfiguration(
+            plane: .motion,
+            codecs: .h264Only,
+            tuning: motionTuning,
+            captureScaleDownBy: SenderTuning.h264HardwareEncoderScaleDownBy
+        )
+        return [
+            .detail: detail,
+            .motion: motion
+        ]
     }
 }
 
@@ -292,4 +371,4 @@ enum MediaTransportError: Error {
 // Marker protocol so MediaTransport.start carries one signature on both
 // sides. The concrete view type is platform-specific and accessed via the
 // impl, not the protocol; the host never instantiates a sink.
-protocol VideoFrameSink: AnyObject {}
+protocol VideoFrameSink: AnyObject, Sendable {}

@@ -367,8 +367,8 @@ private final class FakeMediaTransport: MediaTransport, @unchecked Sendable {
     func start(
         role: MediaTransportRole,
         signaling: SignalingChannel,
-        videoSource: VideoFrameSource?,
-        videoSink: VideoFrameSink?
+        videoSources: VideoPlaneSources?,
+        videoSinks: VideoPlaneSinks?
     ) async throws {}
 
     func stop() {

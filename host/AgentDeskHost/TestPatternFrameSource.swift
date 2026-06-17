@@ -4,7 +4,7 @@ import Foundation
 // Diagnostic VideoFrameSource that emits a moving color band at 30 Hz.
 // Used by R8.6.3 to verify the host-to-client pipeline without granting
 // Screen Recording permission. ScreenCaptureKitFrameSource replaces it
-// in R8.6.5 by way of MediaStack.makeFrameSource().
+// in R8.6.5 by way of MediaStack.makeFrameSources().
 
 final class TestPatternFrameSource: VideoFrameSource, @unchecked Sendable {
     private var timerTask: Task<Void, Never>?

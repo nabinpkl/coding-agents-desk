@@ -10,6 +10,7 @@ import os
 
 final class WebRTCVideoCapturer: RTCVideoCapturer, @unchecked Sendable {
     private let frameSource: VideoFrameSource
+    private let plane: MediaPlane
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "webrtc")
     private var deliveredCount = 0
     // Serial queue we dispatch deliver() onto from the frameSource callback.
@@ -22,8 +23,9 @@ final class WebRTCVideoCapturer: RTCVideoCapturer, @unchecked Sendable {
     // just a thread handoff in microseconds).
     private let deliverQueue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.webrtc.deliver", qos: .userInteractive)
 
-    init(rtcSource: RTCVideoSource, frameSource: VideoFrameSource) {
+    init(rtcSource: RTCVideoSource, frameSource: VideoFrameSource, plane: MediaPlane = .detail) {
         self.frameSource = frameSource
+        self.plane = plane
         super.init(delegate: rtcSource)
     }
 
@@ -33,7 +35,7 @@ final class WebRTCVideoCapturer: RTCVideoCapturer, @unchecked Sendable {
                 self?.deliver(frame)
             }
         }
-        logger.notice("frameSource started; push callback installed")
+        logger.notice("frameSource started plane=\(self.plane.rawValue, privacy: .public); push callback installed")
     }
 
     func stop() {
@@ -62,7 +64,7 @@ final class WebRTCVideoCapturer: RTCVideoCapturer, @unchecked Sendable {
                 let captureToDeliverMs = MediaTimingMath.formatMilliseconds(
                     MediaTimingMath.millisecondsBetween(currentNs: nowNs, previousNs: frame.capturedAtUptimeNs)
                 )
-                logger.notice("capture-to-capturer frame=\(self.deliveredCount, privacy: .public) ageMs=\(captureToDeliverMs, privacy: .public) size=\(CVPixelBufferGetWidth(frame.pixelBuffer), privacy: .public)x\(CVPixelBufferGetHeight(frame.pixelBuffer), privacy: .public)")
+                logger.notice("capture-to-capturer plane=\(self.plane.rawValue, privacy: .public) frame=\(self.deliveredCount, privacy: .public) ageMs=\(captureToDeliverMs, privacy: .public) size=\(CVPixelBufferGetWidth(frame.pixelBuffer), privacy: .public)x\(CVPixelBufferGetHeight(frame.pixelBuffer), privacy: .public)")
             }
         } else {
             logger.error("capturer delegate is nil; frame dropped")

@@ -101,7 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var agentSayServer: AgentSayLocalServer?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
-    private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()
+    private let frameSources: VideoPlaneSources = MediaStack.makeFrameSources()
     private var pairingSignalSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -341,7 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startMediaTransport(for active: ActiveSession, channel: SignalingChannel) {
         let transport = mediaFactory.make()
         sessions.attachTransport(transport, for: active.deviceFingerprint)
-        let frameSource = self.frameSource
+        let frameSources = self.frameSources
         let fingerprint = active.deviceFingerprint
 
         Task { [weak self, transport] in
@@ -355,13 +355,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the client opens its dedicated WSS. Media transport here is
         // video-only.
 
-        Task { [signalingLogger, transport, channel, frameSource] in
+        Task { [signalingLogger, transport, channel, frameSources] in
             do {
                 try await transport.start(
                     role: .offerer,
                     signaling: channel,
-                    videoSource: frameSource,
-                    videoSink: nil
+                    videoSources: frameSources,
+                    videoSinks: nil
                 )
                 signalingLogger.notice("media transport started")
             } catch {
@@ -412,8 +412,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        // Scroll/interaction hints toggle the session's video quality. The
-        // hint arrives on the input channel; route it to the transport.
+        // Scroll/interaction hints are still routed for transport
+        // compatibility. The dual-plane client compositor owns visible
+        // quality switching.
         server.interactionHintHandler = { [weak self] hint in
             guard hint.kind == "scroll" else { return }
             Task { @MainActor [weak self] in

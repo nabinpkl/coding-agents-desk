@@ -8,12 +8,13 @@ Archived history: `tasks/archive/2026-06-16-v0-space-agent-host-overlay.md` carr
 
 The active v0 problem is no longer "can input reach the Mac." Input is smooth. The friction is that the iPhone video output trails during scroll and other high-motion desktop changes.
 
-The next direction is measurement-first. More sender knobs may help, but they are not the architecture until we know where the latency sits. The working order is:
+The next direction is dual-plane WebRTC with measurement kept in place. More sender knobs did not preserve both constraints at once. The working order is:
 
-- Verify the actual RTP codec before trusting codec-specific tuning. SDP can report one codec while libwebrtc still sends another if fallback codecs remain enabled.
-- Add stage-latency probes before any media-stack replacement. The trace must separate capture, encode, sender pacing, network, receiver buffering, decode, and render.
-- Upgrade the WebRTC build only if the trace points to decode, receiver buffering, or missing codec controls.
-- Prototype a non-WebRTC transport only if the trace shows WebRTC pacing, congestion control, SDP / ICE ceremony, or unexposed receiver buffering is the remaining cost.
+- Keep two warm video planes in one PeerConnection: a full-resolution VP9 detail plane for rest-state text and a capture-downscaled H.264 motion plane for scroll.
+- Switch the client compositor to motion immediately on scroll touch-down.
+- Restore the detail plane only after a fresh detail frame renders, so at-rest text returns crisp instead of showing the stale or downscaled motion plane.
+- Upgrade the WebRTC build only if the dual-plane trace points to decode, receiver buffering, or missing codec controls.
+- Prototype a non-WebRTC transport only if the dual-plane trace shows WebRTC pacing, congestion control, SDP / ICE ceremony, or unexposed receiver buffering is the remaining cost.
 
 This file is now the active R24 ledger. Closed v0 feature history stays in the archive unless a past decision needs to be referenced.
 
@@ -21,7 +22,7 @@ This file is now the active R24 ledger. Closed v0 feature history stays in the a
 
 Phase goal: preserve the native-feeling input path while making video output keep up during scroll and cursor-heavy daily-driver use.
 
-What is already on `main`: the cursor path has local prediction, host cursor-position seeding, host held-position integration, and host-driven cursor glyph mirroring. The scroll path sends an interaction hint on scroll-strip touch-down, switches the sender into a low-latency scroll profile, uses a steeper client scroll curve, caps scroll bitrate, and attempts temporal-layer tuning when the negotiated codec supports it.
+What is already on `main`: the cursor path has local prediction, host cursor-position seeding, host held-position integration, and host-driven cursor glyph mirroring. The scroll path sends an interaction hint on scroll-strip touch-down, uses a steeper client scroll curve, and now drives a client compositor that switches between hot detail and motion video planes.
 
 R24 sub-tasks:
 
@@ -35,17 +36,19 @@ R24 sub-tasks:
 - [x] D24.11. Strict codec enforcement. `host/AgentDeskHost/MediaTransport.swift`, `client/AgentDeskClient/MediaTransport.swift`, `host/AgentDeskHost/LibWebRTCMediaTransport.swift`, and `client/AgentDeskClient/LibWebRTCMediaTransport.swift` now filter transceiver codec preferences to the configured primary codecs plus matching RTX and protection codecs. H.264-only runs exclude VP8 and VP9 fallbacks, and host / client stats log a mismatch if the RTP codec escapes the configured set.
 - [x] D24.12. H.264 hardware encoder guardrail. The first strict H.264 run connected and selected `video/H264` with `encoder=VideoToolbox`, but outbound RTP stayed black because `framesEncoded=0` and `bytesSent=0` while capture frames kept arriving at 3600x2338. `host/AgentDeskHost/MediaTransport.swift` now derives H.264-only sender guardrails that disable VP9-style temporal layering and use `maintainFramerate`. `host/AgentDeskHost/ScreenCaptureKitFrameSource.swift`, `host/AgentDeskHost/VideoFrameSource.swift`, and `host/AgentDeskHost/MediaStack.swift` downscale the ScreenCaptureKit output before frames enter WebRTC, because sender `scaleResolutionDownBy` alone did not keep VideoToolbox from seeing the native-size frame. Startup logs include capture output size, sender scale, and temporal-layer count.
 - [x] D24.13. H.264 post-scroll restore. The first non-black H.264 run restored from scroll to the same sender `scaleDown=3.5` used during scroll, so quality stayed in the low-resolution profile after the interaction ended. `host/AgentDeskHost/MediaTransport.swift` now keeps H.264 crisp sender scale at the base profile while leaving the hardware-safety downscale in the ScreenCaptureKit source, and `host/AgentDeskHost/LibWebRTCMediaTransport.swift` applies the crisp profile at sender startup so startup and post-scroll restore match.
+- [x] D24.14. Hot dual-plane renderer. `MediaTransport.start` now carries `VideoPlaneSources` / `VideoPlaneSinks`. The host creates two warm WebRTC video tracks in one PeerConnection: `detail-video` uses VP9 at full ScreenCaptureKit resolution for rest-state text, and `motion-video` uses H.264 with capture-level downscale for low-latency scroll. The client receives both tracks into `DualPlaneVideoSink`, switches visible output to motion on scroll start, and switches back to detail only after a fresh detail frame render callback. The old host-side interaction hint no longer mutates one sender profile; it remains as a logged compatibility signal while the client compositor owns the visible plane.
 - [ ] R24.8. WebRTC build decision. If R24.7 or R24.10 shows decode or hidden receiver buffering as the dominant cost, write an ADR deciding whether to upgrade / replace the `stasel/WebRTC` artifact for hardware HEVC or AV1, `jitterBufferTarget` / playout-delay controls if exposed, and current iOS device hardware-decoder support. Land only the build change needed for the measured bottleneck.
 - [ ] R24.9. Transport overhaul gate. If R24.7 shows WebRTC pacing, congestion control, SDP / ICE ceremony, or unexposed receiver buffering is the dominant cost after R24.8, write an ADR and branch prototype for `ScreenCaptureKit -> VideoToolbox -> QUIC/WebTransport/MoQ` carrying video plus input on one owned connection. The prototype must beat tuned WebRTC on the same scroll trace before any production replacement work starts.
-- [ ] R24.10. Device codec A/B feel pass. The first claimed H.264 device try was invalid as a codec result: offer / answer SDP reported H.264, but outbound RTP stats showed `video/VP8` with `libvpx`. Run VP9-first and H.264-only again after D24.11, capture RTP codec and inbound decoder stats from logs, and record scroll-output latency plus text-crispness observations. Update `SPEC.md` if the shipping v0 codec changes from the current SPEC / ADR-0004 direction.
+- [ ] R24.10. Device dual-plane feel pass. Run the hot dual-plane build on the physical iPhone, capture per-plane RTP codec and inbound decoder stats from logs, and record scroll-output latency plus rest-state text crispness. Update `SPEC.md` if the shipping v0 plane codecs change from D24.14.
 
 ## Alternatives and Direction
 
 | Option | Direction | What it catches | Failure shape | Gate |
 | ------ | --------- | --------------- | ------------- | ---- |
-| Keep tuned WebRTC and sender profiles | Default until measurements disprove it | Encoder / pacer pressure during scroll, without replacing the media stack | More knobs can hide a decode or playout-buffer bottleneck and leave output lag unchanged | R24.7 and R24.10 show the remaining cost is small enough |
-| H.264 on both ends | First A/B baseline | Hardware decode on iPhone and simpler negotiation | Text may flicker or blur more than VP9, and sender-side VP9 temporal tuning is unavailable | R24.10 shows output latency improves enough to justify visual tradeoff |
-| VP9 with temporal layers | Current experimental path | Screen-content compression and bitrate-layer shedding during scroll | iPhone decode may be software-bound, and codec fallback can make the configured preference inert | R24.10 proves VP9 is used on RTP and R24.7 shows decode is not the bottleneck |
+| Hot dual-plane WebRTC | Active direction | Rest text stays on the full-resolution detail plane while scroll uses a downscaled motion plane | Continuous dual encode can cost CPU, bandwidth, or receiver decode headroom | R24.10 shows crisp rest text and smoother scroll on device |
+| Keep tuned WebRTC and sender profiles | Superseded by D24.14 | Encoder / pacer pressure during scroll, without replacing the media stack | One plane could not keep scroll smooth and rest text crisp after H.264 downscale | Revisit only if dual-plane continuous cost is worse than switching cost |
+| H.264 on both ends | Superseded as sole stream | Hardware decode on iPhone and simpler negotiation | At-rest text was unreadable after the quality reductions required for scroll | Keep as the motion plane while detail uses VP9 |
+| VP9 with temporal layers | Superseded as sole stream | Screen-content compression and bitrate-layer shedding during scroll | Scroll remained visibly laggy despite rest-state crispness | Keep as the detail plane unless device stats prove decode is the bottleneck |
 | Upgrade the WebRTC build | Second step, only after traces | Hardware codec exposure, lower receiver-buffer controls, codec preference reality | Build churn without stage timing may swap binaries while preserving the same latency source | R24.7 points to decode or receiver buffering and the newer build exposes the needed control |
 | VideoToolbox plus QUIC/WebTransport/MoQ | Prototype only after WebRTC is measured as the problem | Full ownership of jitter buffer, pacing, migration, and codec path | Reimplements loss recovery and pacing before proving WebRTC transport is the bottleneck | R24.9 ADR plus prototype beats tuned WebRTC on the same trace |
 | Code-aware crisp-text overlay | Captured, not active | Separates text legibility from video codec quality | Adds a second rendering model and risks drifting from the real desktop | Revisit only if text crispness remains a steady-state v0 friction after media latency is acceptable |
@@ -54,7 +57,7 @@ R24 sub-tasks:
 
 - A direct transport overhaul before instrumentation. Rejected because the observed symptom can come from software decode, receiver buffering, or render scheduling. Revisit after R24.7.
 - More aggressive scroll-profile tuning without codec verification. Rejected because the latest VP9 temporal-layer work may be inert if the client negotiates H.264. Revisit after R24.10.
-- A second parallel low-quality video stream kept warm. Rejected because it pays continuous encode / bandwidth cost and complicates sync. Revisit only if single-stream profile switching cannot react fast enough after measurement.
+- A cold second stream or negotiated stream replacement on scroll. Rejected because scroll needs an already-hot plane. D24.14 keeps both planes warm and pays the continuous cost deliberately.
 
 ## Promotion log
 
@@ -71,5 +74,6 @@ R24.8     pending     pending     decide WebRTC build upgrade only if measuremen
 R24.9     pending     pending     gate custom VideoToolbox plus QUIC/WebTransport/MoQ prototype on measured WebRTC bottleneck
 D24.12    2026-06-16  committed   H.264-only capture and sender profiles now start inside the VideoToolbox encode path instead of producing black RTP
 D24.13    2026-06-16  committed   H.264 restore keeps crisp sender scale separate from low-resolution scroll scale
-R24.10    pending     pending     rerun physical-device VP9-first versus H.264-only after strict RTP codec enforcement and H.264 guardrail
+D24.14    2026-06-17  committed   hot dual-plane renderer keeps VP9 detail and H.264 motion planes warm in one PeerConnection
+R24.10    pending     pending     rerun physical-device feel pass with per-plane RTP and decoder stats
 ```

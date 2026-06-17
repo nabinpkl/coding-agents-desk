@@ -3,16 +3,16 @@ import WebRTC
 import os
 
 // ADR-0004 concrete MediaTransport impl, client side. Mirror of the host
-// impl with role typically .answerer: the client doesn't add a local
-// video track and instead attaches the remote track from the peer
-// connection to the supplied VideoFrameSink.
+// impl with role typically .answerer: the client doesn't add local
+// video tracks and instead attaches remote tracks from the peer
+// connection to the supplied VideoPlaneSinks.
 
 final class LibWebRTCTransportFactory: MediaTransportFactory {
-    let codecs: MediaCodecPreferences
+    let planeCodecs: [MediaPlane: MediaCodecPreferences]
     private let factory: RTCPeerConnectionFactory
 
-    init(codecs: MediaCodecPreferences) {
-        self.codecs = codecs
+    init(planeCodecs: [MediaPlane: MediaCodecPreferences]) {
+        self.planeCodecs = planeCodecs
         self.factory = Self.sharedFactory
     }
 
@@ -30,7 +30,7 @@ final class LibWebRTCTransportFactory: MediaTransportFactory {
     }()
 
     func make() -> MediaTransport {
-        LibWebRTCMediaTransport(factory: factory, codecs: codecs)
+        LibWebRTCMediaTransport(factory: factory, planeCodecs: planeCodecs)
     }
 }
 
@@ -40,25 +40,25 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
 
     private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "webrtc")
     private let factory: RTCPeerConnectionFactory
-    private let codecs: MediaCodecPreferences
+    private let planeCodecs: [MediaPlane: MediaCodecPreferences]
     private var peerConnection: RTCPeerConnection?
     private var signaling: SignalingChannel?
-    private var videoSink: VideoFrameSink?
+    private var videoSinks: VideoPlaneSinks?
     private var inboundTask: Task<Void, Never>?
     private var role: MediaTransportRole = .answerer
     // libwebrtc keeps weak refs from the receiver into renderers; without a
     // strong Swift-side ref the track is deallocated between attach-time and
     // first-frame delivery, and renderFrame: is never invoked. Mirrors the
     // host-side rtcVideoSource retention.
-    private var remoteVideoTrack: RTCVideoTrack?
+    private var remoteVideoTracks: [MediaPlane: RTCVideoTrack] = [:]
     private var previousInboundStats: [String: InboundRtpSnapshot] = [:]
     // ADR-0005: input no longer rides this transport. The video-only PC
     // doesn't allocate a data channel; the dedicated InputChannel owns
     // its own WebSocket lifecycle.
 
-    init(factory: RTCPeerConnectionFactory, codecs: MediaCodecPreferences) {
+    init(factory: RTCPeerConnectionFactory, planeCodecs: [MediaPlane: MediaCodecPreferences]) {
         self.factory = factory
-        self.codecs = codecs
+        self.planeCodecs = planeCodecs
         var continuation: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { continuation = $0 }
         self.stateContinuation = continuation
@@ -68,12 +68,12 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     func start(
         role: MediaTransportRole,
         signaling: SignalingChannel,
-        videoSource: VideoFrameSource?,
-        videoSink: VideoFrameSink?
+        videoSources: VideoPlaneSources?,
+        videoSinks: VideoPlaneSinks?
     ) async throws {
         self.role = role
         self.signaling = signaling
-        self.videoSink = videoSink
+        self.videoSinks = videoSinks
 
         let config = RTCConfiguration()
         config.iceServers = []
@@ -99,7 +99,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     func stop() {
         inboundTask?.cancel()
         inboundTask = nil
-        remoteVideoTrack = nil
+        remoteVideoTracks.removeAll()
         peerConnection?.close()
         peerConnection = nil
         stateContinuation.yield(.closed)
@@ -142,33 +142,55 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     }
 
     private func attachRemoteTracksFromTransceivers(pc: RTCPeerConnection) {
+        var attached = false
         for transceiver in pc.transceivers {
             if transceiver.mediaType == .video,
                let track = transceiver.receiver.track as? RTCVideoTrack {
                 logger.notice("attaching remote video track id=\(track.trackId, privacy: .public)")
                 attachRemote(track: track)
-                return
+                attached = true
             }
         }
-        logger.error("no remote video transceiver found after setRemoteDescription")
+        if !attached {
+            logger.error("no remote video transceiver found after setRemoteDescription")
+        }
     }
 
-    private let debugProbeRenderer = DebugFrameProbeRenderer()
+    private var debugProbeRenderers: [MediaPlane: DebugFrameProbeRenderer] = [:]
 
     private func attachRemote(track: RTCVideoTrack) {
-        if remoteVideoTrack === track {
+        let uncheckedTrack = UncheckedRTCVideoTrack(track)
+        Task { @MainActor [weak self, uncheckedTrack] in
+            self?.attachRemoteOnMain(track: uncheckedTrack.track)
+        }
+    }
+
+    @MainActor
+    private func attachRemoteOnMain(track: RTCVideoTrack) {
+        guard let plane = MediaPlane(trackId: track.trackId) else {
+            logger.error("unknown remote video track id=\(track.trackId, privacy: .public)")
             return
         }
-        guard let sink = videoSink as? RTCMTLVideoSink else {
-            logger.error("videoSink is not an RTCMTLVideoSink; cannot attach remote track")
+        if remoteVideoTracks[plane] === track {
             return
         }
+        guard let sink = videoSinks?[plane] as? DualPlaneVideoSink else {
+            logger.error("videoSink is not a DualPlaneVideoSink; cannot attach remote track plane=\(plane.rawValue, privacy: .public)")
+            return
+        }
+        let planeSink = sink.sink(for: plane)
         track.isEnabled = true
-        remoteVideoTrack = track
-        sink.renderer.delegate = self
-        track.add(sink.renderer)
-        track.add(debugProbeRenderer)
-        logger.notice("renderer subscribed to track id=\(track.trackId, privacy: .public) isEnabled=\(track.isEnabled, privacy: .public)")
+        remoteVideoTracks[plane] = track
+        planeSink.renderer.delegate = self
+        track.add(planeSink.renderer)
+        let probe = DebugFrameProbeRenderer(plane: plane) { [weak sink] plane in
+            Task { @MainActor in
+                sink?.noteFrameRendered(on: plane)
+            }
+        }
+        debugProbeRenderers[plane] = probe
+        track.add(probe)
+        logger.notice("renderer subscribed to track id=\(track.trackId, privacy: .public) plane=\(plane.rawValue, privacy: .public) isEnabled=\(track.isEnabled, privacy: .public)")
     }
 
     // Restrict the answer's video codec list to the configured primary codecs
@@ -184,23 +206,24 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                 aptPayloadType: codec.parameters["apt"]
             )
         }
-        let allowedIndexes = CodecPreferencePolicy.orderedAllowedIndexes(
-            capabilities: descriptors,
-            preferences: codecs
-        )
-        guard !allowedIndexes.isEmpty else {
-            let wanted = codecs.preferredCodecNames.joined(separator: ",")
-            logger.error("applyCodecPreferences: no compatible video codecs found for \(wanted, privacy: .public)")
-            throw MediaTransportError.unsupportedCodecPreference(wanted)
+        for transceiver in pc.transceivers where transceiver.mediaType == .video {
+            guard let track = transceiver.receiver.track as? RTCVideoTrack,
+                  let plane = MediaPlane(trackId: track.trackId),
+                  let preferences = planeCodecs[plane] else { continue }
+            let allowedIndexes = CodecPreferencePolicy.orderedAllowedIndexes(
+                capabilities: descriptors,
+                preferences: preferences
+            )
+            guard !allowedIndexes.isEmpty else {
+                let wanted = preferences.preferredCodecNames.joined(separator: ",")
+                logger.error("applyCodecPreferences: no compatible video codecs found plane=\(plane.rawValue, privacy: .public) codecs=\(wanted, privacy: .public)")
+                throw MediaTransportError.unsupportedCodecPreference(wanted)
+            }
+            let ordered = allowedIndexes.map { capabilities.codecs[$0] }
+            transceiver.setCodecPreferences(ordered)
+            let pickedNames = ordered.map(\.name).joined(separator: ",")
+            logger.notice("codec preferences set plane=\(plane.rawValue, privacy: .public): \(pickedNames, privacy: .public)")
         }
-        let ordered = allowedIndexes.map { capabilities.codecs[$0] }
-        guard let transceiver = pc.transceivers.first(where: { $0.mediaType == .video }) else {
-            logger.error("applyCodecPreferences: no video transceiver found")
-            return
-        }
-        transceiver.setCodecPreferences(ordered)
-        let pickedNames = ordered.map(\.name).joined(separator: ",")
-        logger.notice("codec preferences set: \(pickedNames, privacy: .public)")
     }
 
     private func startStatsLogger() {
@@ -228,8 +251,12 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                 let packetsLost = stats.values["packetsLost"].map { "\($0)" } ?? "?"
                 let codecId = stats.values["codecId"].map { "\($0)" } ?? "?"
                 let codecMimeType = codecMimeTypes[codecId] ?? "?"
-                if codecMimeType != "?", !codecs.allows(statsMimeType: codecMimeType) {
-                    logger.error("inbound codec mismatch configured=\(self.codecs.preferredCodecNames.joined(separator: ","), privacy: .public) actual=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public)")
+                let plane = planeName(fromInboundStats: stats)
+                if let mediaPlane = MediaPlane(rawValue: plane),
+                   let preferences = planeCodecs[mediaPlane],
+                   codecMimeType != "?",
+                   !preferences.allows(statsMimeType: codecMimeType) {
+                    logger.error("inbound codec mismatch plane=\(plane, privacy: .public) configured=\(preferences.preferredCodecNames.joined(separator: ","), privacy: .public) actual=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public)")
                 }
                 let decoder = stats.values["decoderImplementation"].map { "\($0)" } ?? "?"
                 let dropped = stats.values["framesDropped"].map { "\($0)" } ?? "?"
@@ -254,9 +281,17 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                     )
                 )
                 let playoutTimestamp = stats.values["estimatedPlayoutTimestamp"].map { "\($0)" } ?? "?"
-                logger.notice("inbound-rtp codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) decoder=\(decoder, privacy: .public) framesReceived=\(frames, privacy: .public) framesDecoded=\(decoded, privacy: .public) windowDecoded=\(framesDelta, privacy: .public) decodeMsPerFrame=\(decodeMs, privacy: .public) jitterMsPerFrame=\(jitterMs, privacy: .public) framesDropped=\(dropped, privacy: .public) bytesReceived=\(bytes, privacy: .public) packetsLost=\(packetsLost, privacy: .public) totalDecodeTime=\(decodeTime, privacy: .public) jitterDelay=\(jitterDelay, privacy: .public) jitterFrames=\(jitterFrames, privacy: .public) estimatedPlayoutTimestamp=\(playoutTimestamp, privacy: .public)")
+                logger.notice("inbound-rtp plane=\(plane, privacy: .public) codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) decoder=\(decoder, privacy: .public) framesReceived=\(frames, privacy: .public) framesDecoded=\(decoded, privacy: .public) windowDecoded=\(framesDelta, privacy: .public) decodeMsPerFrame=\(decodeMs, privacy: .public) jitterMsPerFrame=\(jitterMs, privacy: .public) framesDropped=\(dropped, privacy: .public) bytesReceived=\(bytes, privacy: .public) packetsLost=\(packetsLost, privacy: .public) totalDecodeTime=\(decodeTime, privacy: .public) jitterDelay=\(jitterDelay, privacy: .public) jitterFrames=\(jitterFrames, privacy: .public) estimatedPlayoutTimestamp=\(playoutTimestamp, privacy: .public)")
             }
         }
+    }
+
+    private func planeName(fromInboundStats stats: RTCStatistics) -> String {
+        let trackId = stats.values["trackIdentifier"].map { "\($0)" } ?? ""
+        if let plane = MediaPlane(trackId: trackId) {
+            return plane.rawValue
+        }
+        return "unknown"
     }
 
     private func formatDelta(current: Double?, previous: Double?) -> String {
@@ -295,13 +330,15 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
         // Legacy callback kept as a fallback; primary path is
         // attachRemoteTracksFromTransceivers in handle(.offer).
-        guard let track = stream.videoTracks.first else { return }
-        attachRemote(track: track)
+        for track in stream.videoTracks {
+            attachRemote(track: track)
+        }
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didStartReceivingOn transceiver: RTCRtpTransceiver) {
         if let track = transceiver.receiver.track as? RTCVideoTrack {
-            logger.notice("didStartReceivingOn fired for video")
+            let plane = MediaPlane(trackId: track.trackId)?.rawValue ?? "unknown"
+            logger.notice("didStartReceivingOn fired for video plane=\(plane, privacy: .public)")
             attachRemote(track: track)
         }
     }
@@ -347,20 +384,39 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     }
 }
 
+private struct UncheckedRTCVideoTrack: @unchecked Sendable {
+    let track: RTCVideoTrack
+
+    init(_ track: RTCVideoTrack) {
+        self.track = track
+    }
+}
+
 final class DebugFrameProbeRenderer: NSObject, RTCVideoRenderer, @unchecked Sendable {
     private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "webrtc")
+    private let plane: MediaPlane
+    private let onFrame: @Sendable (MediaPlane) -> Void
     private var count = 0
     private var lastSize: CGSize = .zero
     private var lastRenderUptimeNs: UInt64?
     private var lastFrameTimestampNs: Int64?
 
+    init(plane: MediaPlane, onFrame: @escaping @Sendable (MediaPlane) -> Void = { _ in }) {
+        self.plane = plane
+        self.onFrame = onFrame
+        super.init()
+    }
+
     func setSize(_ size: CGSize) {
         lastSize = size
-        logger.notice("probe setSize \(Int(size.width), privacy: .public)x\(Int(size.height), privacy: .public)")
+        logger.notice("probe setSize plane=\(self.plane.rawValue, privacy: .public) \(Int(size.width), privacy: .public)x\(Int(size.height), privacy: .public)")
     }
 
     func renderFrame(_ frame: RTCVideoFrame?) {
         count += 1
+        if frame != nil {
+            onFrame(plane)
+        }
         if count % 30 == 1 {
             let nowNs = DispatchTime.now().uptimeNanoseconds
             let callbackWindowMs = MediaTimingMath.formatMilliseconds(
@@ -376,7 +432,7 @@ final class DebugFrameProbeRenderer: NSObject, RTCVideoRenderer, @unchecked Send
             }
             let w = frame?.width ?? 0
             let h = frame?.height ?? 0
-            logger.notice("render-callback frame=\(self.count, privacy: .public) callbackWindowMs=\(callbackWindowMs, privacy: .public) mediaWindowMs=\(mediaWindowMs, privacy: .public) size=\(w, privacy: .public)x\(h, privacy: .public)")
+            logger.notice("render-callback plane=\(self.plane.rawValue, privacy: .public) frame=\(self.count, privacy: .public) callbackWindowMs=\(callbackWindowMs, privacy: .public) mediaWindowMs=\(mediaWindowMs, privacy: .public) size=\(w, privacy: .public)x\(h, privacy: .public)")
             lastRenderUptimeNs = nowNs
             lastFrameTimestampNs = frame?.timeStampNs
         }

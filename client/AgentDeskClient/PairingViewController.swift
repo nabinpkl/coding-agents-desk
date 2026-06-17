@@ -273,8 +273,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             try? await transport.start(
                 role: .answerer,
                 signaling: signaling,
-                videoSource: nil,
-                videoSink: sink
+                videoSources: nil,
+                videoSinks: VideoPlaneSinks([
+                    .detail: sink,
+                    .motion: sink
+                ])
             )
         }
     }

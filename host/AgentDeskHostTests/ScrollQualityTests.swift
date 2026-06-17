@@ -8,6 +8,19 @@ import Testing
 // surface is the pure profile derivation on SenderTuning and the
 // InteractionHint frame the client sends.
 struct ScrollQualityTests {
+    @Test func dualPlaneDefaultsUseReadableDetailAndLowLatencyMotion() {
+        let planes = MediaPlaneConfiguration.defaultPlanes
+        let detail = planes[.detail]
+        let motion = planes[.motion]
+
+        #expect(detail?.codecs == .vp9Only)
+        #expect(detail?.captureScaleDownBy == 1.0)
+        #expect(detail?.tuning.crispProfile.scaleResolutionDownBy == 1.0)
+        #expect(motion?.codecs == .h264Only)
+        #expect(motion?.captureScaleDownBy == SenderTuning.h264HardwareEncoderScaleDownBy)
+        #expect((motion?.tuning.scrollProfile.scaleResolutionDownBy ?? 0.0) >= SenderTuning.h264HardwareEncoderScaleDownBy)
+    }
+
     @Test func scrollProfileDropsResolutionAndBitrateAndPrioritizesFramerate() {
         let tuning = SenderTuning.default
         let scroll = tuning.scrollProfile

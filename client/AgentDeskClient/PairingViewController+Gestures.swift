@@ -274,6 +274,9 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             scrollHaptics.impactOccurred()
             scrollHaptics.prepare()
         }
+        if let dualSink = videoSink as? DualPlaneVideoSink {
+            dualSink.setMotionActive(active)
+        }
         sendInteractionHint(InteractionHint(kind: "scroll", active: active))
     }
 

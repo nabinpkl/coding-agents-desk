@@ -6,42 +6,27 @@ import Foundation
 // R8.6.3+.
 
 enum MediaStack {
-    // Codec selection is one-line swap here OR via env var so you can
-    // A/B without rebuild. Recognized values for AGENTDESK_CODEC:
-    //   h264 | vp9 (default) | av1
-    // Sender tuning (degradationPreference, bitrate ceilings, BWE seed,
-    // screencast flag) is read from AGENTDESK_TUNING_* env vars; see
-    // SenderTuning.fromEnvironment() for the field list.
+    // Dual-plane media: full-resolution detail for readable rest text,
+    // downscaled H.264 motion for scroll.
     static func makeFactory() -> MediaTransportFactory {
-        let codecs: MediaCodecPreferences
-        switch ProcessInfo.processInfo.environment["AGENTDESK_CODEC"]?.lowercased() {
-        case "h264": codecs = .h264Only
-        case "av1":  codecs = .av1First
-        default:     codecs = .vp9First
-        }
-        let tuning = SenderTuning
-            .fromEnvironment()
-            .applyingCodecGuardrails(for: codecs)
-        return LibWebRTCTransportFactory(codecs: codecs, tuning: tuning)
+        LibWebRTCTransportFactory(planeConfigurations: MediaPlaneConfiguration.defaultPlanes)
     }
 
     // R8.6.5 swaps the default from TestPatternFrameSource to
     // ScreenCaptureKitFrameSource. TestPattern is still reachable via
     // direct instantiation for diagnostics, and the env-var override
     // below lets a developer flip back without recompiling.
-    static func makeFrameSource() -> VideoFrameSource {
+    static func makeFrameSources() -> VideoPlaneSources {
         if ProcessInfo.processInfo.environment["AGENTDESK_USE_TEST_PATTERN"] == "1" {
-            return TestPatternFrameSource()
+            return VideoPlaneSources([
+                .detail: TestPatternFrameSource(),
+                .motion: TestPatternFrameSource()
+            ])
         }
-        return ScreenCaptureKitFrameSource(scaleDownBy: captureScaleDownBy())
-    }
-
-    private static func captureScaleDownBy() -> Double {
-        let env = ProcessInfo.processInfo.environment
-        let requested = env["AGENTDESK_CAPTURE_SCALE_DOWN"].flatMap(Double.init) ?? 1.0
-        let codecMinimum = env["AGENTDESK_CODEC"]?.lowercased() == "h264"
-            ? SenderTuning.h264HardwareEncoderScaleDownBy
-            : 1.0
-        return max(requested, codecMinimum)
+        let planes = MediaPlaneConfiguration.defaultPlanes
+        return VideoPlaneSources([
+            .detail: ScreenCaptureKitFrameSource(scaleDownBy: planes[.detail]?.captureScaleDownBy ?? 1.0),
+            .motion: ScreenCaptureKitFrameSource(scaleDownBy: planes[.motion]?.captureScaleDownBy ?? SenderTuning.h264HardwareEncoderScaleDownBy)
+        ])
     }
 }

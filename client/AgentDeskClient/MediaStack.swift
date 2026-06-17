@@ -8,11 +8,11 @@ import UIKit
 
 enum MediaStack {
     static func makeFactory() -> MediaTransportFactory {
-        LibWebRTCTransportFactory(codecs: .h264Only)
+        LibWebRTCTransportFactory(planeCodecs: MediaCodecPreferences.defaultPlanes)
     }
 
     @MainActor
     static func makeVideoSink() -> VideoFrameSink {
-        RTCMTLVideoSink()
+        DualPlaneVideoSink()
     }
 }
