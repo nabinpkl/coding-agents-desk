@@ -155,15 +155,17 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     // vars that override individual fields.
     private func configureSenderForScreenShare(_ sender: RTCRtpSender) {
         let params = sender.parameters
-        params.degradationPreference = NSNumber(value: degradationRaw(tuning.degradationPreference))
+        let profile = tuning.crispProfile
+        params.degradationPreference = NSNumber(value: degradationRaw(profile.degradation))
         for encoding in params.encodings {
-            encoding.maxBitrateBps = NSNumber(value: tuning.maxBitrateKbps * 1000)
-            encoding.minBitrateBps = NSNumber(value: tuning.minBitrateKbps * 1000)
-            encoding.maxFramerate = NSNumber(value: tuning.maxFramerate)
+            encoding.scaleResolutionDownBy = NSNumber(value: profile.scaleResolutionDownBy)
+            encoding.maxBitrateBps = NSNumber(value: profile.maxBitrateKbps * 1000)
+            encoding.minBitrateBps = NSNumber(value: profile.minBitrateKbps * 1000)
+            encoding.maxFramerate = NSNumber(value: profile.maxFramerate)
             // Temporal SVC so the scroll profile's bitrate squeeze sheds the
             // top layers instantly instead of forcing a resolution reconfig.
-            if tuning.temporalLayers > 1 {
-                encoding.numTemporalLayers = NSNumber(value: tuning.temporalLayers)
+            if profile.temporalLayers > 1 {
+                encoding.numTemporalLayers = NSNumber(value: profile.temporalLayers)
             }
         }
         sender.parameters = params

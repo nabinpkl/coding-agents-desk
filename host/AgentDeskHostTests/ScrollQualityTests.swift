@@ -39,11 +39,12 @@ struct ScrollQualityTests {
         #expect(tuning.crispProfile.temporalLayers == tuning.scrollProfile.temporalLayers)
     }
 
-    @Test func h264OnlyAppliesHardwareEncoderGuardrailsBeforeFirstFrame() {
+    @Test func h264OnlyKeepsCrispSenderScaleForPostScrollRestore() {
         let tuning = SenderTuning.default.applyingCodecGuardrails(for: .h264Only)
 
-        #expect(tuning.crispProfile.scaleResolutionDownBy >= SenderTuning.h264HardwareEncoderScaleDownBy)
+        #expect(tuning.crispProfile.scaleResolutionDownBy == SenderTuning.default.crispProfile.scaleResolutionDownBy)
         #expect(tuning.scrollProfile.scaleResolutionDownBy >= SenderTuning.h264HardwareEncoderScaleDownBy)
+        #expect(tuning.scrollProfile.scaleResolutionDownBy > tuning.crispProfile.scaleResolutionDownBy)
         #expect(tuning.crispProfile.temporalLayers == 1)
         #expect(tuning.scrollProfile.temporalLayers == 1)
         #expect(tuning.crispProfile.degradation == .maintainFramerate)

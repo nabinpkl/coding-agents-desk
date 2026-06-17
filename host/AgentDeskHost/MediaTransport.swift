@@ -270,7 +270,7 @@ struct SenderTuning: Equatable {
             maxBitrateKbps: maxBitrateKbps,
             minBitrateKbps: minBitrateKbps,
             maxFramerate: maxFramerate,
-            baseScaleDownBy: max(baseScaleDownBy, Self.h264HardwareEncoderScaleDownBy),
+            baseScaleDownBy: baseScaleDownBy,
             bweMinKbps: bweMinKbps,
             bweStartKbps: bweStartKbps,
             bweMaxKbps: bweMaxKbps,
