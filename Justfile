@@ -13,6 +13,7 @@ client_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/Derived
 client_sim_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskClient-asnebogtvhgngpdusosdqtlwsphl/Build/Products/Debug-iphonesimulator/AgentDeskClient.app"
 
 check:
+    sh tools/launch-env-tests.sh
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost build test
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
 
@@ -36,10 +37,10 @@ host-logs:
 # and prompts for THAT app, which is the bug surfaced during R8.6.5
 # bring-up.
 #
-# AGENTDESK_AUTO_APPROVE is pushed through `launchctl setenv` so the
-# launchd-managed GUI launch inherits it. The unsetenv after launch
-# keeps the variable from polluting other apps started later in the
-# same login session.
+# Selected AGENTDESK_* env vars are pushed through `launchctl setenv` so
+# the launchd-managed GUI launch inherits them. The unsetenv after launch
+# keeps the variable from polluting other apps started later in the same
+# login session.
 #
 # AGENTDESK_TRANSCRIBE_URL (and _MODEL) come from .env via dotenv-load
 # and are forwarded the same way so dictation has its now-required
@@ -51,32 +52,17 @@ host-logs:
 # AGENTDESK_CODEC is forwarded for device A/B runs. The default remains
 # the app's central MediaStack choice; setting AGENTDESK_CODEC=h264 forces
 # the hardware-decoder candidate path for feel testing.
+#
+# AGENTDESK_TUNING_* is forwarded as a prefix so media feel runs can use
+# one-shot shell overrides with `just fresh-install`.
 host-run:
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug build >/dev/null
     -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
     sleep 1
-    launchctl setenv AGENTDESK_AUTO_APPROVE 1
-    launchctl setenv AGENTDESK_DEV_PERMISSIVE_KEYSTORE 1
-    [ -n "${AGENTDESK_CODEC:-}" ] && launchctl setenv AGENTDESK_CODEC "${AGENTDESK_CODEC}" || true
-    [ -n "${AGENTDESK_TRANSCRIBE_URL:-}" ] && launchctl setenv AGENTDESK_TRANSCRIBE_URL "${AGENTDESK_TRANSCRIBE_URL}" || true
-    [ -n "${AGENTDESK_TRANSCRIBE_MODEL:-}" ] && launchctl setenv AGENTDESK_TRANSCRIBE_MODEL "${AGENTDESK_TRANSCRIBE_MODEL}" || true
-    [ -n "${AGENTDESK_SPACE_AGENT_LAYOUT:-}" ] && launchctl setenv AGENTDESK_SPACE_AGENT_LAYOUT "${AGENTDESK_SPACE_AGENT_LAYOUT}" || true
-    [ -n "${AGENTDESK_GESTURE_CHILD_PATH:-}" ] && launchctl setenv AGENTDESK_GESTURE_CHILD_PATH "${AGENTDESK_GESTURE_CHILD_PATH}" || true
-    [ -n "${AGENTDESK_GESTURE_CHILD_ARGS:-}" ] && launchctl setenv AGENTDESK_GESTURE_CHILD_ARGS "${AGENTDESK_GESTURE_CHILD_ARGS}" || true
-    [ -n "${AGENTDESK_VOICE_CHILD_PATH:-}" ] && launchctl setenv AGENTDESK_VOICE_CHILD_PATH "${AGENTDESK_VOICE_CHILD_PATH}" || true
-    [ -n "${AGENTDESK_VOICE_CHILD_ARGS:-}" ] && launchctl setenv AGENTDESK_VOICE_CHILD_ARGS "${AGENTDESK_VOICE_CHILD_ARGS}" || true
+    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
     open "{{host_app}}"
     sleep 2
-    launchctl unsetenv AGENTDESK_AUTO_APPROVE
-    launchctl unsetenv AGENTDESK_DEV_PERMISSIVE_KEYSTORE
-    [ -n "${AGENTDESK_CODEC:-}" ] && launchctl unsetenv AGENTDESK_CODEC || true
-    [ -n "${AGENTDESK_TRANSCRIBE_URL:-}" ] && launchctl unsetenv AGENTDESK_TRANSCRIBE_URL || true
-    [ -n "${AGENTDESK_TRANSCRIBE_MODEL:-}" ] && launchctl unsetenv AGENTDESK_TRANSCRIBE_MODEL || true
-    [ -n "${AGENTDESK_SPACE_AGENT_LAYOUT:-}" ] && launchctl unsetenv AGENTDESK_SPACE_AGENT_LAYOUT || true
-    [ -n "${AGENTDESK_GESTURE_CHILD_PATH:-}" ] && launchctl unsetenv AGENTDESK_GESTURE_CHILD_PATH || true
-    [ -n "${AGENTDESK_GESTURE_CHILD_ARGS:-}" ] && launchctl unsetenv AGENTDESK_GESTURE_CHILD_ARGS || true
-    [ -n "${AGENTDESK_VOICE_CHILD_PATH:-}" ] && launchctl unsetenv AGENTDESK_VOICE_CHILD_PATH || true
-    [ -n "${AGENTDESK_VOICE_CHILD_ARGS:-}" ] && launchctl unsetenv AGENTDESK_VOICE_CHILD_ARGS || true
+    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh unset
     pgrep -lf AgentDeskHost
 
 # Build client Debug for the iPhone and install (does not launch).
