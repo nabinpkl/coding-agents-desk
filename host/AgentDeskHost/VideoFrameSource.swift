@@ -28,6 +28,31 @@ struct CapturedVideoFrame: @unchecked Sendable {
     let rotation: VideoRotation
 }
 
+struct CapturePixelSize: Equatable {
+    let width: Int
+    let height: Int
+}
+
+enum CaptureSizing {
+    static func pixelSize(
+        displayWidthPoints: Int,
+        displayHeightPoints: Int,
+        backingScale: Double,
+        scaleDownBy: Double
+    ) -> CapturePixelSize {
+        let effectiveScale = max(backingScale / max(scaleDownBy, 1.0), 0.001)
+        return CapturePixelSize(
+            width: evenDimension(from: Double(displayWidthPoints) * effectiveScale),
+            height: evenDimension(from: Double(displayHeightPoints) * effectiveScale)
+        )
+    }
+
+    private static func evenDimension(from value: Double) -> Int {
+        let rounded = max(2, Int(value.rounded(.down)))
+        return rounded.isMultiple(of: 2) ? rounded : rounded - 1
+    }
+}
+
 enum VideoRotation: Int {
     case _0 = 0
     case _90 = 90

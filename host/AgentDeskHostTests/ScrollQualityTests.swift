@@ -39,6 +39,36 @@ struct ScrollQualityTests {
         #expect(tuning.crispProfile.temporalLayers == tuning.scrollProfile.temporalLayers)
     }
 
+    @Test func h264OnlyAppliesHardwareEncoderGuardrailsBeforeFirstFrame() {
+        let tuning = SenderTuning.default.applyingCodecGuardrails(for: .h264Only)
+
+        #expect(tuning.crispProfile.scaleResolutionDownBy >= SenderTuning.h264HardwareEncoderScaleDownBy)
+        #expect(tuning.scrollProfile.scaleResolutionDownBy >= SenderTuning.h264HardwareEncoderScaleDownBy)
+        #expect(tuning.crispProfile.temporalLayers == 1)
+        #expect(tuning.scrollProfile.temporalLayers == 1)
+        #expect(tuning.crispProfile.degradation == .maintainFramerate)
+    }
+
+    @Test func vp9FirstKeepsVp9SenderProfile() {
+        let tuning = SenderTuning.default.applyingCodecGuardrails(for: .vp9First)
+
+        #expect(tuning == .default)
+    }
+
+    @Test func h264CaptureSizeIsDownscaledBeforeWebRTC() {
+        let size = CaptureSizing.pixelSize(
+            displayWidthPoints: 1800,
+            displayHeightPoints: 1169,
+            backingScale: 2.0,
+            scaleDownBy: SenderTuning.h264HardwareEncoderScaleDownBy
+        )
+
+        #expect(size.width == 1028)
+        #expect(size.height == 668)
+        #expect(size.width.isMultiple(of: 2))
+        #expect(size.height.isMultiple(of: 2))
+    }
+
     @Test func interactionHintRoundTripsWithCompactKeys() throws {
         let hint = InteractionHint(kind: "scroll", active: true)
         let data = try JSONEncoder().encode(hint)

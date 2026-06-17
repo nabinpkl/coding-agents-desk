@@ -15,13 +15,15 @@ import os
 final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "capture")
     private let sampleQueue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.scstream", qos: .userInteractive)
+    private let scaleDownBy: Double
     private var stream: SCStream?
     // Set in start() and cleared in stop(). Read from the SCStream sample
     // queue, written from the start/stop caller — those don't overlap, so
     // the lack of synchronization is intentional.
     private var onFrame: (@Sendable (CapturedVideoFrame) -> Void)?
 
-    override init() {
+    init(scaleDownBy: Double = 1.0) {
+        self.scaleDownBy = max(scaleDownBy, 1.0)
         super.init()
     }
 
@@ -61,10 +63,14 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
         // before encode, leaving text consistently soft on the phone.
         // The backing scale comes from NSScreen matched by displayID.
         let scale = Self.backingScale(for: display.displayID)
-        let pixelW = Int((CGFloat(display.width) * scale).rounded())
-        let pixelH = Int((CGFloat(display.height) * scale).rounded())
-        config.width = pixelW
-        config.height = pixelH
+        let pixelSize = CaptureSizing.pixelSize(
+            displayWidthPoints: display.width,
+            displayHeightPoints: display.height,
+            backingScale: Double(scale),
+            scaleDownBy: scaleDownBy
+        )
+        config.width = pixelSize.width
+        config.height = pixelSize.height
         // queueDepth=3 minimizes capture-side buffering while staying within
         // SCStreamConfiguration's valid range (3..8). queueDepth=1 silently
         // makes the stream stop delivering frames altogether. Default 5
@@ -83,7 +89,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         try await stream.startCapture()
         self.stream = stream
-        logger.notice("screen capture started \(pixelW, privacy: .public)x\(pixelH, privacy: .public) scale=\(scale, privacy: .public)")
+        logger.notice("screen capture started \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) backingScale=\(scale, privacy: .public) captureScaleDown=\(self.scaleDownBy, privacy: .public)")
     }
 
     // Pull the backing scale factor for a CGDirectDisplayID off NSScreen.

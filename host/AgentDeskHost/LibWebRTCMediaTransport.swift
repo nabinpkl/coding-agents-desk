@@ -119,7 +119,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                 currentBitrateBps: NSNumber(value: tuning.bweStartKbps * 1000),
                 maxBitrateBps: NSNumber(value: tuning.bweMaxKbps * 1000)
             )
-            logger.notice("tuning applied: codecs=\(self.codecs.preferred.map(\.rawValue).joined(separator: ","), privacy: .public) screencast=\(self.tuning.screencast, privacy: .public) degradation=\(self.tuning.degradationPreference.rawValue, privacy: .public) bwe=\(self.tuning.bweStartKbps, privacy: .public)kbps maxBitrate=\(self.tuning.maxBitrateKbps, privacy: .public)kbps")
+            logger.notice("tuning applied: codecs=\(self.codecs.preferred.map(\.rawValue).joined(separator: ","), privacy: .public) screencast=\(self.tuning.screencast, privacy: .public) scaleDown=\(self.tuning.crispProfile.scaleResolutionDownBy, privacy: .public) temporalLayers=\(self.tuning.temporalLayers, privacy: .public) degradation=\(self.tuning.degradationPreference.rawValue, privacy: .public) bwe=\(self.tuning.bweStartKbps, privacy: .public)kbps maxBitrate=\(self.tuning.maxBitrateKbps, privacy: .public)kbps")
             try await capturer.start()
         }
 

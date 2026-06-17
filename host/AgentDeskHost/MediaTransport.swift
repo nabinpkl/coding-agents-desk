@@ -147,6 +147,7 @@ struct SenderTuning: Equatable {
     var maxBitrateKbps: Int
     var minBitrateKbps: Int
     var maxFramerate: Int
+    var baseScaleDownBy: Double
     var bweMinKbps: Int
     var bweStartKbps: Int
     var bweMaxKbps: Int
@@ -188,7 +189,7 @@ struct SenderTuning: Equatable {
 
     var crispProfile: EncodingProfile {
         EncodingProfile(
-            scaleResolutionDownBy: 1.0,
+            scaleResolutionDownBy: baseScaleDownBy,
             maxFramerate: maxFramerate,
             maxBitrateKbps: maxBitrateKbps,
             minBitrateKbps: minBitrateKbps,
@@ -208,6 +209,8 @@ struct SenderTuning: Equatable {
         )
     }
 
+    static let h264HardwareEncoderScaleDownBy = 3.5
+
     // The current shipping defaults (commit history shows how we arrived
     // here). Paired with codecs=.vp9First in MediaStack: VP9's screen-content
     // mode handles block-skip on static text, so maintainResolution can drop
@@ -220,6 +223,7 @@ struct SenderTuning: Equatable {
         maxBitrateKbps: 8_000,
         minBitrateKbps: 2_000,
         maxFramerate: 30,
+        baseScaleDownBy: 1.0,
         bweMinKbps: 2_000,
         bweStartKbps: 6_000,
         bweMaxKbps: 8_000,
@@ -237,24 +241,46 @@ struct SenderTuning: Equatable {
     //   AGENTDESK_TUNING_SCREENCAST=0
     // Leaves fields untouched when the env var is absent.
     static func fromEnvironment() -> SenderTuning {
-        var t = SenderTuning.default
         let env = ProcessInfo.processInfo.environment
-        if let v = env["AGENTDESK_TUNING_SCREENCAST"] { t.screencast = (v == "1") }
-        if let v = env["AGENTDESK_TUNING_DEGRADATION"],
-           let dp = DegradationPreference(rawValue: v) { t.degradationPreference = dp }
-        if let v = env["AGENTDESK_TUNING_MAX_BITRATE_KBPS"], let n = Int(v) { t.maxBitrateKbps = n }
-        if let v = env["AGENTDESK_TUNING_MIN_BITRATE_KBPS"], let n = Int(v) { t.minBitrateKbps = n }
-        if let v = env["AGENTDESK_TUNING_MAX_FPS"], let n = Int(v) { t.maxFramerate = n }
-        if let v = env["AGENTDESK_TUNING_BWE_MIN_KBPS"], let n = Int(v) { t.bweMinKbps = n }
-        if let v = env["AGENTDESK_TUNING_BWE_START_KBPS"], let n = Int(v) { t.bweStartKbps = n }
-        if let v = env["AGENTDESK_TUNING_BWE_MAX_KBPS"], let n = Int(v) { t.bweMaxKbps = n }
-        if let v = env["AGENTDESK_TUNING_SCROLL_SCALE_DOWN"], let n = Double(v) { t.scrollScaleDownBy = n }
-        if let v = env["AGENTDESK_TUNING_SCROLL_MAX_FPS"], let n = Int(v) { t.scrollMaxFramerate = n }
-        if let v = env["AGENTDESK_TUNING_SCROLL_MAX_BITRATE_KBPS"], let n = Int(v) { t.scrollMaxBitrateKbps = n }
-        if let v = env["AGENTDESK_TUNING_SCROLL_MIN_BITRATE_KBPS"], let n = Int(v) { t.scrollMinBitrateKbps = n }
-        if let v = env["AGENTDESK_TUNING_SCROLL_SETTLE_MS"], let n = Int(v) { t.scrollSettleMs = n }
-        if let v = env["AGENTDESK_TUNING_TEMPORAL_LAYERS"], let n = Int(v) { t.temporalLayers = n }
-        return t
+        let defaults = SenderTuning.default
+        return SenderTuning(
+            screencast: env["AGENTDESK_TUNING_SCREENCAST"].map { $0 == "1" } ?? defaults.screencast,
+            degradationPreference: env["AGENTDESK_TUNING_DEGRADATION"].flatMap(DegradationPreference.init(rawValue:)) ?? defaults.degradationPreference,
+            maxBitrateKbps: env["AGENTDESK_TUNING_MAX_BITRATE_KBPS"].flatMap(Int.init) ?? defaults.maxBitrateKbps,
+            minBitrateKbps: env["AGENTDESK_TUNING_MIN_BITRATE_KBPS"].flatMap(Int.init) ?? defaults.minBitrateKbps,
+            maxFramerate: env["AGENTDESK_TUNING_MAX_FPS"].flatMap(Int.init) ?? defaults.maxFramerate,
+            baseScaleDownBy: env["AGENTDESK_TUNING_SCALE_DOWN"].flatMap(Double.init) ?? defaults.baseScaleDownBy,
+            bweMinKbps: env["AGENTDESK_TUNING_BWE_MIN_KBPS"].flatMap(Int.init) ?? defaults.bweMinKbps,
+            bweStartKbps: env["AGENTDESK_TUNING_BWE_START_KBPS"].flatMap(Int.init) ?? defaults.bweStartKbps,
+            bweMaxKbps: env["AGENTDESK_TUNING_BWE_MAX_KBPS"].flatMap(Int.init) ?? defaults.bweMaxKbps,
+            scrollScaleDownBy: env["AGENTDESK_TUNING_SCROLL_SCALE_DOWN"].flatMap(Double.init) ?? defaults.scrollScaleDownBy,
+            scrollMaxFramerate: env["AGENTDESK_TUNING_SCROLL_MAX_FPS"].flatMap(Int.init) ?? defaults.scrollMaxFramerate,
+            scrollMaxBitrateKbps: env["AGENTDESK_TUNING_SCROLL_MAX_BITRATE_KBPS"].flatMap(Int.init) ?? defaults.scrollMaxBitrateKbps,
+            scrollMinBitrateKbps: env["AGENTDESK_TUNING_SCROLL_MIN_BITRATE_KBPS"].flatMap(Int.init) ?? defaults.scrollMinBitrateKbps,
+            scrollSettleMs: env["AGENTDESK_TUNING_SCROLL_SETTLE_MS"].flatMap(Int.init) ?? defaults.scrollSettleMs,
+            temporalLayers: env["AGENTDESK_TUNING_TEMPORAL_LAYERS"].flatMap(Int.init) ?? defaults.temporalLayers
+        )
+    }
+
+    func applyingCodecGuardrails(for codecs: MediaCodecPreferences) -> SenderTuning {
+        guard codecs.preferred == [.h264] else { return self }
+        return SenderTuning(
+            screencast: screencast,
+            degradationPreference: .maintainFramerate,
+            maxBitrateKbps: maxBitrateKbps,
+            minBitrateKbps: minBitrateKbps,
+            maxFramerate: maxFramerate,
+            baseScaleDownBy: max(baseScaleDownBy, Self.h264HardwareEncoderScaleDownBy),
+            bweMinKbps: bweMinKbps,
+            bweStartKbps: bweStartKbps,
+            bweMaxKbps: bweMaxKbps,
+            scrollScaleDownBy: max(scrollScaleDownBy, Self.h264HardwareEncoderScaleDownBy),
+            scrollMaxFramerate: scrollMaxFramerate,
+            scrollMaxBitrateKbps: scrollMaxBitrateKbps,
+            scrollMinBitrateKbps: scrollMinBitrateKbps,
+            scrollSettleMs: scrollSettleMs,
+            temporalLayers: 1
+        )
     }
 }
 

@@ -19,7 +19,9 @@ enum MediaStack {
         case "av1":  codecs = .av1First
         default:     codecs = .vp9First
         }
-        let tuning = SenderTuning.fromEnvironment()
+        let tuning = SenderTuning
+            .fromEnvironment()
+            .applyingCodecGuardrails(for: codecs)
         return LibWebRTCTransportFactory(codecs: codecs, tuning: tuning)
     }
 
@@ -31,6 +33,15 @@ enum MediaStack {
         if ProcessInfo.processInfo.environment["AGENTDESK_USE_TEST_PATTERN"] == "1" {
             return TestPatternFrameSource()
         }
-        return ScreenCaptureKitFrameSource()
+        return ScreenCaptureKitFrameSource(scaleDownBy: captureScaleDownBy())
+    }
+
+    private static func captureScaleDownBy() -> Double {
+        let env = ProcessInfo.processInfo.environment
+        let requested = env["AGENTDESK_CAPTURE_SCALE_DOWN"].flatMap(Double.init) ?? 1.0
+        let codecMinimum = env["AGENTDESK_CODEC"]?.lowercased() == "h264"
+            ? SenderTuning.h264HardwareEncoderScaleDownBy
+            : 1.0
+        return max(requested, codecMinimum)
     }
 }
