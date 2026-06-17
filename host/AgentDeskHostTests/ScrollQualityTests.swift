@@ -18,7 +18,7 @@ struct ScrollQualityTests {
         #expect(detail?.tuning.crispProfile.scaleResolutionDownBy == 1.0)
         #expect(motion?.codecs == .h264Only)
         #expect(motion?.captureScaleDownBy == SenderTuning.h264HardwareEncoderScaleDownBy)
-        #expect((motion?.tuning.scrollProfile.scaleResolutionDownBy ?? 0.0) >= SenderTuning.h264HardwareEncoderScaleDownBy)
+        #expect(motion?.tuning.scrollProfile.scaleResolutionDownBy == 1.0)
     }
 
     @Test func scrollProfileDropsResolutionAndBitrateAndPrioritizesFramerate() {

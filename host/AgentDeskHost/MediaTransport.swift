@@ -203,7 +203,7 @@ struct MediaPlaneConfiguration: Equatable {
             tuning: base,
             captureScaleDownBy: 1.0
         )
-        let motionTuning = base.applyingCodecGuardrails(for: .h264Only)
+        let motionTuning = base.applyingMotionPlaneGuardrails()
         let motion = MediaPlaneConfiguration(
             plane: .motion,
             codecs: .h264Only,
@@ -359,6 +359,27 @@ struct SenderTuning: Equatable {
             scrollMinBitrateKbps: scrollMinBitrateKbps,
             scrollSettleMs: scrollSettleMs,
             temporalLayers: 1
+        )
+    }
+
+    func applyingMotionPlaneGuardrails() -> SenderTuning {
+        let h264 = applyingCodecGuardrails(for: .h264Only)
+        return SenderTuning(
+            screencast: h264.screencast,
+            degradationPreference: h264.degradationPreference,
+            maxBitrateKbps: h264.maxBitrateKbps,
+            minBitrateKbps: h264.minBitrateKbps,
+            maxFramerate: h264.maxFramerate,
+            baseScaleDownBy: h264.baseScaleDownBy,
+            bweMinKbps: h264.bweMinKbps,
+            bweStartKbps: h264.bweStartKbps,
+            bweMaxKbps: h264.bweMaxKbps,
+            scrollScaleDownBy: 1.0,
+            scrollMaxFramerate: h264.scrollMaxFramerate,
+            scrollMaxBitrateKbps: h264.scrollMaxBitrateKbps,
+            scrollMinBitrateKbps: h264.scrollMinBitrateKbps,
+            scrollSettleMs: h264.scrollSettleMs,
+            temporalLayers: h264.temporalLayers
         )
     }
 }
