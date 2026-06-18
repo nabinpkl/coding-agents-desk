@@ -74,6 +74,11 @@ final class SessionDialer {
             inputCapability: ready.inputCapability,
             inputCapabilityExpiresAt: ready.inputCapabilityExpiresAt
         )
+        let mediaCapability = MediaCapabilityGrant(
+            sessionId: ready.sessionId,
+            mediaCapability: ready.mediaCapability,
+            mediaCapabilityExpiresAt: ready.mediaCapabilityExpiresAt
+        )
 
         let channel = WebSocketSignalingChannel(
             sender: { frame in
@@ -139,7 +144,10 @@ final class SessionDialer {
                 establishedAt: Int(now().timeIntervalSince1970)
             ),
             signaling: channel,
-            inputCapability: inputCapability
+            inputCapability: inputCapability,
+            mediaMode: ready.mediaMode,
+            mediaCapability: mediaCapability,
+            mediaPlanes: ready.mediaPlanes
         )
     }
 

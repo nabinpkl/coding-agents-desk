@@ -21,6 +21,8 @@ final class PairingSignalingServer: @unchecked Sendable {
     typealias SessionEndedHandler = (DeviceFingerprint, String?) -> Void
     typealias InputChannelAuthorizeHandler = (InputChannelHello, @escaping (InputCapabilityValidationResult) -> Void) -> Void
     typealias InputChannelReadyHandler = (DeviceFingerprint, InputChannelServer) -> Void
+    typealias MediaChannelAuthorizeHandler = (MediaChannelHello, @escaping (MediaCapabilityValidationResult) -> Void) -> Void
+    typealias MediaChannelReadyHandler = (DeviceFingerprint, OwnedMediaChannelServer) -> Void
     typealias InputCapabilityRefreshHandler = (
         InputCapabilityRefreshRequest,
         @escaping (Result<InputCapabilityGrant, SessionRejectionReason>) -> Void
@@ -34,6 +36,8 @@ final class PairingSignalingServer: @unchecked Sendable {
     private let sessionEndedHandler: SessionEndedHandler
     private let inputChannelAuthorizeHandler: InputChannelAuthorizeHandler
     private let inputChannelReadyHandler: InputChannelReadyHandler
+    private let mediaChannelAuthorizeHandler: MediaChannelAuthorizeHandler
+    private let mediaChannelReadyHandler: MediaChannelReadyHandler
     private let inputCapabilityRefreshHandler: InputCapabilityRefreshHandler
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: ConnectionContext] = [:]
@@ -46,6 +50,8 @@ final class PairingSignalingServer: @unchecked Sendable {
         sessionEndedHandler: @escaping SessionEndedHandler = { _, _ in },
         inputChannelAuthorizeHandler: @escaping InputChannelAuthorizeHandler = { _, completion in completion(.rejected(.unauthorized)) },
         inputChannelReadyHandler: @escaping InputChannelReadyHandler = { _, _ in },
+        mediaChannelAuthorizeHandler: @escaping MediaChannelAuthorizeHandler = { _, completion in completion(.rejected(.unauthorized)) },
+        mediaChannelReadyHandler: @escaping MediaChannelReadyHandler = { _, _ in },
         inputCapabilityRefreshHandler: @escaping InputCapabilityRefreshHandler = { _, completion in completion(.failure(.unauthorized)) }
     ) {
         self.pairing = pairing
@@ -55,6 +61,8 @@ final class PairingSignalingServer: @unchecked Sendable {
         self.sessionEndedHandler = sessionEndedHandler
         self.inputChannelAuthorizeHandler = inputChannelAuthorizeHandler
         self.inputChannelReadyHandler = inputChannelReadyHandler
+        self.mediaChannelAuthorizeHandler = mediaChannelAuthorizeHandler
+        self.mediaChannelReadyHandler = mediaChannelReadyHandler
         self.inputCapabilityRefreshHandler = inputCapabilityRefreshHandler
     }
 
@@ -160,6 +168,8 @@ final class PairingSignalingServer: @unchecked Sendable {
             handleSessionInit(data: data, context: context, on: connection)
         case .inputHello:
             handleInputHello(data: data, context: context, on: connection)
+        case .mediaHello:
+            handleMediaHello(data: data, context: context, on: connection)
         case .malformed:
             sendSessionRejected(reason: .malformed, on: connection)
             connection.cancel()
@@ -203,6 +213,42 @@ final class PairingSignalingServer: @unchecked Sendable {
                 }
             case .rejected(let reason):
                 self.logger.error("input-hello rejected reason=\(reason.rawValue, privacy: .public) fp=\(hello.deviceFingerprint.rawValue, privacy: .public)")
+                self.sendSessionRejected(reason: reason, on: connection)
+                connection.cancel()
+            }
+        }
+    }
+
+    private func handleMediaHello(data: Data, context: ConnectionContext?, on connection: NWConnection) {
+        let hello: MediaChannelHello
+        do {
+            hello = try JSONDecoder().decode(MediaChannelHello.self, from: data)
+        } catch {
+            logger.error("media-hello decode failed: \(String(describing: error), privacy: .public)")
+            sendSessionRejected(reason: .malformed, on: connection)
+            connection.cancel()
+            return
+        }
+        mediaChannelAuthorizeHandler(hello) { [weak self, weak connection] result in
+            guard let self, let connection else { return }
+            switch result {
+            case .accepted(let fingerprint):
+                self.logger.notice("media-hello accepted fp=\(fingerprint.rawValue, privacy: .public)")
+                let connectionId = ObjectIdentifier(connection)
+                self.sendMediaChannelReady(sessionId: hello.sessionId, on: connection) { [weak self, weak connection] error in
+                    guard let self, let connection else { return }
+                    if let error {
+                        self.logger.error("media-ready send failed: \(String(describing: error), privacy: .public)")
+                        connection.cancel()
+                        return
+                    }
+                    connection.stateUpdateHandler = nil
+                    self.connections.removeValue(forKey: connectionId)
+                    let server = OwnedMediaChannelServer(connection: connection, fingerprint: fingerprint)
+                    self.mediaChannelReadyHandler(fingerprint, server)
+                }
+            case .rejected(let reason):
+                self.logger.error("media-hello rejected reason=\(reason.rawValue, privacy: .public) fp=\(hello.deviceFingerprint.rawValue, privacy: .public)")
                 self.sendSessionRejected(reason: reason, on: connection)
                 connection.cancel()
             }
@@ -390,6 +436,27 @@ final class PairingSignalingServer: @unchecked Sendable {
             )
         } catch {
             logger.error("input-ready encode failed: \(String(describing: error), privacy: .public)")
+            connection.cancel()
+        }
+    }
+
+    private func sendMediaChannelReady(
+        sessionId: String,
+        on connection: NWConnection,
+        completion: @escaping @Sendable (NWError?) -> Void
+    ) {
+        do {
+            let data = try JSONEncoder().encode(MediaChannelReady(sessionId: sessionId))
+            let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
+            let context = NWConnection.ContentContext(identifier: "media-ready", metadata: [metadata])
+            connection.send(
+                content: data,
+                contentContext: context,
+                isComplete: true,
+                completion: .contentProcessed(completion)
+            )
+        } catch {
+            logger.error("media-ready encode failed: \(String(describing: error), privacy: .public)")
             connection.cancel()
         }
     }

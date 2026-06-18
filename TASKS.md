@@ -8,13 +8,15 @@ Archived history: `tasks/archive/2026-06-16-v0-space-agent-host-overlay.md` carr
 
 The active v0 problem is no longer "can input reach the Mac." Input is smooth. The friction is that the iPhone video output trails during scroll and other high-motion desktop changes.
 
-The next direction is dual-plane WebRTC with measurement kept in place. More sender knobs did not preserve both constraints at once. The working order is:
+The next direction is to keep dual-plane WebRTC as the measured baseline while testing the owned media path from ADR-0012. More sender knobs did not preserve both constraints at once, and the HEVC-through-`stasel/WebRTC` path exposed package and platform-wrapper risk rather than a clean codec upgrade. The working order is:
 
 - Keep two warm video planes in one PeerConnection: a full-resolution VP9 detail plane for rest-state text and a capture-downscaled H.264 motion plane for scroll.
 - Switch the client compositor to motion immediately on scroll touch-down.
 - Restore the detail plane only after a fresh detail frame renders, so at-rest text returns crisp instead of showing the stale or downscaled motion plane.
-- Upgrade the WebRTC build only if the dual-plane trace points to decode, receiver buffering, or missing codec controls.
-- Prototype a non-WebRTC transport only if the dual-plane trace shows WebRTC pacing, congestion control, SDP / ICE ceremony, or unexposed receiver buffering is the remaining cost.
+- Treat WebRTC as the baseline to beat, not the strategic media primitive.
+- Test the owned encoded-video prototype only across the contested surface: ScreenCaptureKit frame scheduling, VideoToolbox encode/decode, media pacing, receiver buffering, and client render timing.
+- Reuse pairing, session authentication, Tailscale-only networking, the dedicated input WebSocket, Keychain credentials, existing config, and the `VideoFrameSink` / `MediaTransport` seams.
+- Escalate to RDP-style mixed graphics only after owned full-frame hardware video proves which text and scroll problems remain.
 
 This file is now the active R24 ledger. Closed v0 feature history stays in the archive unless a past decision needs to be referenced.
 
@@ -40,9 +42,10 @@ R24 sub-tasks:
 - [x] D24.15. Motion-plane quality floor. The first dual-plane device feel pass showed scroll was smoother but motion output was too blurred to read. The cause was double downscale: ScreenCaptureKit capture downscale `3.5x` plus WebRTC sender scale `3.5x`, for roughly `12.25x` linear reduction. `host/AgentDeskHost/MediaTransport.swift` now derives motion-plane H.264 guardrails with sender `scaleResolutionDownBy=1.0` while keeping the capture-level H.264 hardware guardrail. `host/AgentDeskHostTests/ScrollQualityTests.swift` pins this so the double-downscale cannot return.
 - [x] D24.16. Launch-env tuning pass-through. The first one-shot H.264 bitrate test used `AGENTDESK_TUNING_* just fresh-install`, but `Justfile` only forwarded a fixed whitelist through `launchctl`, so GUI-launched `AgentDeskHost` could ignore those shell overrides. `tools/launch-env.sh` now forwards the existing fixed launch vars plus every non-empty `AGENTDESK_TUNING_*` var for `host-run`; `tools/launch-env-tests.sh` pins the prefix behavior and `just check` runs it before Xcode tests.
 - [x] D24.17. Motion capture downscale tuning. The post-pass-through H.264 quality tests showed bitrate / FPS tuning still did not match the earlier VP9-like readable motion quality. `host/AgentDeskHost/MediaTransport.swift` now exposes `AGENTDESK_TUNING_MOTION_CAPTURE_SCALE_DOWN` for the H.264 motion plane capture scale while leaving the VP9 detail plane at full resolution and the motion sender scale at `1.0`. `host/AgentDeskHostTests/ScrollQualityTests.swift`, `.env.example`, and `SPEC.md` pin the new tuning surface.
-- [ ] R24.8. WebRTC build decision. If R24.7 or R24.10 shows decode or hidden receiver buffering as the dominant cost, write an ADR deciding whether to upgrade / replace the `stasel/WebRTC` artifact for hardware HEVC or AV1, `jitterBufferTarget` / playout-delay controls if exposed, and current iOS device hardware-decoder support. Land only the build change needed for the measured bottleneck.
-- [ ] R24.9. Transport overhaul gate. If R24.7 shows WebRTC pacing, congestion control, SDP / ICE ceremony, or unexposed receiver buffering is the dominant cost after R24.8, write an ADR and branch prototype for `ScreenCaptureKit -> VideoToolbox -> QUIC/WebTransport/MoQ` carrying video plus input on one owned connection. The prototype must beat tuned WebRTC on the same scroll trace before any production replacement work starts.
-- [ ] R24.10. Device dual-plane feel pass. Run the hot dual-plane build on the physical iPhone, capture per-plane RTP codec and inbound decoder stats from logs, and record scroll-output latency plus rest-state text crispness. Update `SPEC.md` if the shipping v0 plane codecs change from D24.14.
+- [x] D24.18. Control versus reuse map. ADR-0012 records the current decision boundary: WebRTC stays as the measured baseline, but the next strategic media prototype owns encoded-frame transport, pacing, receiver buffering, VideoToolbox encode/decode lifecycle, and detail restore timing. It explicitly reuses ScreenCaptureKit, VideoToolbox, pairing, session authentication, Tailscale-only networking, the dedicated input channel, and existing protocol seams.
+- [x] D24.8. WebRTC build decision. Settled for current exploration by ADR-0012: `stasel/WebRTC` remains pinned to `130.0.0` as the known-good baseline. H265-advertised M146 through M148 expose broken macOS framework header packaging locally, and M149 fails SwiftPM checksum validation. Reopen only if a different WebRTC build imports cleanly on macOS, advertises `H265` at runtime, and exposes the needed receiver-buffer controls.
+- [x] D24.9. Owned media prototype gate. `AGENTDESK_MEDIA_STACK=owned` now selects an owned media path that reuses pairing, session auth, Tailscale, the dedicated input WebSocket, `VideoPlaneSources`, and the `MediaTransport` / `VideoFrameSink` seams. `SessionReady` now carries `mediaMode`, `mediaCapability`, `mediaCapabilityExpiresAt`, and `mediaPlanes`; the client opens a separate authenticated media WebSocket with `MediaChannelHello`; the host validates it through `SessionRegistry` and hands the connection to `OwnedMediaChannelServer`; the host encodes active planes with hardware-required VideoToolbox HEVC by default or H.264 via `AGENTDESK_OWNED_MEDIA_CODEC=h264`; the client renders binary `ADMF` encoded-frame envelopes through `OwnedMediaVideoSink` and `AVSampleBufferDisplayLayer`. Setting `AGENTDESK_OWNED_MEDIA_MOTION_ACTIVE=0` now advertises a single detail plane and the iOS sink stays on that plane during scroll. `just check` is green. This does not replace WebRTC until the physical-device trace beats the tuned baseline.
+- [ ] R24.10. Device owned-media feel pass. Run the WebRTC baseline and the owned media prototype on the same physical iPhone scroll trace, capture codec, encode, decode, render cadence, visual scroll smoothness, and rest-state text crispness. Start with the single-plane command `AGENTDESK_MEDIA_STACK=owned AGENTDESK_OWNED_MEDIA_CODEC=hevc AGENTDESK_OWNED_MEDIA_MOTION_ACTIVE=0 just fresh-install`; use the dual-plane owned path or `AGENTDESK_OWNED_MEDIA_CODEC=h264` only as fallback comparisons. Update `SPEC.md` only if the shipping v0 media stack changes.
 
 ## Alternatives and Direction
 
@@ -52,15 +55,17 @@ R24 sub-tasks:
 | Keep tuned WebRTC and sender profiles | Superseded by D24.14 | Encoder / pacer pressure during scroll, without replacing the media stack | One plane could not keep scroll smooth and rest text crisp after H.264 downscale | Revisit only if dual-plane continuous cost is worse than switching cost |
 | H.264 on both ends | Superseded as sole stream | Hardware decode on iPhone and simpler negotiation | At-rest text was unreadable after the quality reductions required for scroll | Keep as the motion plane while detail uses VP9 |
 | VP9 with temporal layers | Superseded as sole stream | Screen-content compression and bitrate-layer shedding during scroll | Scroll remained visibly laggy despite rest-state crispness | Keep as the detail plane unless device stats prove decode is the bottleneck |
-| Upgrade the WebRTC build | Second step, only after traces | Hardware codec exposure, lower receiver-buffer controls, codec preference reality | Build churn without stage timing may swap binaries while preserving the same latency source | R24.7 points to decode or receiver buffering and the newer build exposes the needed control |
-| VideoToolbox plus QUIC/WebTransport/MoQ | Prototype only after WebRTC is measured as the problem | Full ownership of jitter buffer, pacing, migration, and codec path | Reimplements loss recovery and pacing before proving WebRTC transport is the bottleneck | R24.9 ADR plus prototype beats tuned WebRTC on the same trace |
-| Code-aware crisp-text overlay | Captured, not active | Separates text legibility from video codec quality | Adds a second rendering model and risks drifting from the real desktop | Revisit only if text crispness remains a steady-state v0 friction after media latency is acceptable |
+| Upgrade the WebRTC build | Rejected for current HEVC path | Hardware codec exposure, lower receiver-buffer controls, codec preference reality | `stasel/WebRTC` H265-era packages are not a clean macOS host dependency; a private WebRTC build would add build ownership without enough media control | Reopen only with a cleanly importing macOS+iOS WebRTC artifact that advertises `H265` at runtime |
+| Owned VideoToolbox media transport | Implemented prototype gate, single-plane candidate | Full ownership of frame pacing, receiver buffering, late-frame drop, codec lifecycle, and detail restore | Reimplements enough media flow control to survive real Wi-Fi | R24.10 single-plane owned-media trace beats tuned WebRTC on the same device |
+| RDP-style mixed graphics | Captured as later escalation | Separates text/detail refresh, scroll-copy, dirty regions, and motion video | Larger protocol surface and correctness burden | Revisit after owned full-frame hardware video proves which text and scroll gaps remain |
+| Code-aware crisp-text overlay | Captured, not active | Separates text legibility from video codec quality | Adds a second rendering model and risks drifting from the real desktop | Revisit only after tile/detail refresh still fails steady-state text |
 
 ### Rejected For Now
 
 - A direct transport overhaul before instrumentation. Rejected because the observed symptom can come from software decode, receiver buffering, or render scheduling. Revisit after R24.7.
 - More aggressive scroll-profile tuning without codec verification. Rejected because the latest VP9 temporal-layer work may be inert if the client negotiates H.264. Revisit after R24.10.
 - A cold second stream or negotiated stream replacement on scroll. Rejected because scroll needs an already-hot plane. D24.14 keeps both planes warm and pays the continuous cost deliberately.
+- Full protocol replacement. Rejected because pairing, session auth, input, Keychain state, and Tailscale-only networking are not the failing pieces. ADR-0012 keeps those surfaces and owns only media timing and encoded-frame movement.
 
 ## Promotion log
 
@@ -73,13 +78,14 @@ D24.5     2026-06-16  committed   scroll acceleration, bitrate cap, and temporal
 D24.6     2026-06-16  committed   negotiated-codec logging, RTP implementation stats, and AGENTDESK_CODEC launcher forwarding landed
 D24.7     2026-06-16  committed   capture, outbound RTP, inbound RTP, jitter, decode, and render-cadence probes landed
 D24.11    2026-06-16  committed   strict codec preferences prevent H.264-only runs from falling back to VP8 or VP9
-R24.8     pending     pending     decide WebRTC build upgrade only if measurements point there
-R24.9     pending     pending     gate custom VideoToolbox plus QUIC/WebTransport/MoQ prototype on measured WebRTC bottleneck
+D24.8     2026-06-18  drafted     ADR-0012 keeps stasel/WebRTC 130 as baseline and rejects the current H265 package-upgrade path
+D24.9     2026-06-18  committed   owned VideoToolbox media prototype supports dual-plane and single-plane detail-only runs
 D24.12    2026-06-16  committed   H.264-only capture and sender profiles now start inside the VideoToolbox encode path instead of producing black RTP
 D24.13    2026-06-16  committed   H.264 restore keeps crisp sender scale separate from low-resolution scroll scale
 D24.14    2026-06-17  committed   hot dual-plane renderer keeps VP9 detail and H.264 motion planes warm in one PeerConnection
 D24.15    2026-06-17  committed   motion plane removes sender-side double-downscale and keeps only capture-level H.264 downscale
 D24.16    2026-06-17  committed   host-run forwards one-shot AGENTDESK_TUNING_* overrides through launchctl
 D24.17    2026-06-17  committed   motion capture downscale is now tunable with AGENTDESK_TUNING_MOTION_CAPTURE_SCALE_DOWN
-R24.10    pending     pending     rerun physical-device feel pass with per-plane RTP and decoder stats
+D24.18    2026-06-18  drafted     ADR-0012 maps the owned media transport path and reuse boundary
+R24.10    pending     pending     compare WebRTC baseline and single-plane owned HEVC prototype on the same physical-device scroll trace
 ```

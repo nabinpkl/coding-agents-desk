@@ -154,6 +154,11 @@ struct SignalingFrameRoutingTests {
         #expect(SignalingFrameRouter.classifyFirstFrame(data) == .inputHello)
     }
 
+    @Test func classifyFirstFrameMediaHelloRoutesToMediaHello() {
+        let data = Data(#"{"t":"media-hello"}"#.utf8)
+        #expect(SignalingFrameRouter.classifyFirstFrame(data) == .mediaHello)
+    }
+
     @Test func inputHelloFrameRoundTripsThroughCodable() throws {
         let hello = InputChannelHello(
             deviceFingerprint: DeviceFingerprint("device-fp"),
@@ -167,6 +172,55 @@ struct SignalingFrameRoutingTests {
         #expect(decoded.deviceFingerprint == DeviceFingerprint("device-fp"))
         #expect(decoded.sessionId == "session-123")
         #expect(decoded.inputCapability == "capability-abc")
+    }
+
+    @Test func mediaHelloFrameRoundTripsThroughCodable() throws {
+        let hello = MediaChannelHello(
+            deviceFingerprint: DeviceFingerprint("device-fp"),
+            sessionId: "session-123",
+            mediaCapability: "media-capability-abc"
+        )
+        let data = try JSONEncoder().encode(hello)
+        let decoded = try JSONDecoder().decode(MediaChannelHello.self, from: data)
+        #expect(decoded == hello)
+        #expect(decoded.type == "media-hello")
+        #expect(decoded.deviceFingerprint == DeviceFingerprint("device-fp"))
+        #expect(decoded.sessionId == "session-123")
+        #expect(decoded.mediaCapability == "media-capability-abc")
+    }
+
+    @Test func sessionReadyDefaultsOldFixturesToWebRTC() throws {
+        let data = Data(#"{"t":"session-ready","sid":"session-123","ic":"capability","ie":1800000060}"#.utf8)
+        let decoded = try JSONDecoder().decode(SessionReady.self, from: data)
+
+        #expect(decoded.mediaMode == .webrtc)
+        #expect(decoded.mediaCapability == "")
+        #expect(decoded.mediaCapabilityExpiresAt == 0)
+        #expect(decoded.mediaPlanes == MediaPlane.allCases)
+    }
+
+    @Test func ownedMediaEnvelopeRoundTripsHeaderAndPayload() throws {
+        let header = OwnedMediaFrameHeader(
+            frameId: 42,
+            plane: .motion,
+            codec: .hevc,
+            width: 1920,
+            height: 1080,
+            capturedAtUptimeNs: 100,
+            presentationTimeNs: 120,
+            isKeyframe: true,
+            parameterSets: OwnedMediaParameterSets(
+                vps: Data([0x01]),
+                sps: Data([0x02, 0x03]),
+                pps: Data([0x04])
+            )
+        )
+        let envelope = OwnedMediaFrameEnvelope(header: header, payload: Data([0xaa, 0xbb, 0xcc]))
+        let encoded = try envelope.encode()
+        let decoded = try OwnedMediaFrameEnvelope.decode(encoded)
+
+        #expect(Array(encoded.prefix(4)) == OwnedMediaFrameEnvelope.magic)
+        #expect(decoded == envelope)
     }
 
     @Test func inputCapabilityGrantRoundTripsThroughCodable() throws {

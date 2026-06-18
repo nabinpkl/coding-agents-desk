@@ -18,7 +18,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var previewLayer: AVCaptureVideoPreviewLayer?
     var handshakeTask: Task<Void, Never>?
     var sessionTask: Task<Void, Never>?
-    let mediaFactory: MediaTransportFactory = MediaStack.makeFactory()
     var mediaTransport: MediaTransport?
     var videoSink: VideoFrameSink?
     // R21: pinch-zoom container around the WebRTC sink. Local-only zoom
@@ -133,9 +132,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // standard UIPan slop intact for tremor filtering and uses a
     // steeper top end so flicks travel across the Mac display.
     let gestureTranslator = GestureTranslator(acceleration: .mac, scrollAcceleration: .scroll)
-    // Light haptic fired on scroll-strip touch-down for instant feedback
-    // during the quality-prime window, before the video catches up.
-    let scrollHaptics = UIImpactFeedbackGenerator(style: .light)
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -253,7 +249,17 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     func startMediaTransportIfNeeded() {
         guard mediaTransport == nil,
               let signaling = pairingClient.activeSignaling else { return }
-        let sink = MediaStack.makeVideoSink()
+        let mode = pairingClient.activeMediaMode
+        let activePlanes = pairingClient.activeMediaPlanes
+        let sink = MediaStack.makeVideoSink(mode: mode, activePlanes: activePlanes)
+        let mediaFactory = MediaStack.makeFactory(
+            mode: mode,
+            host: pairingClient.activeHost,
+            port: pairingClient.activePort,
+            active: activeSessionForMedia(),
+            mediaCapability: pairingClient.activeMediaCapability,
+            urlSession: pairingClient.mediaURLSession
+        )
         let transport = mediaFactory.make()
         videoSink = sink
         mediaTransport = transport
@@ -280,6 +286,13 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 ])
             )
         }
+    }
+
+    private func activeSessionForMedia() -> ActiveSession? {
+        if case .connected(let active) = pairingClient.state {
+            return active
+        }
+        return nil
     }
 
     func handleMediaConnectionState(_ state: MediaConnectionState) {

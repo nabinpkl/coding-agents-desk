@@ -183,9 +183,9 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
         remoteVideoTracks[plane] = track
         planeSink.renderer.delegate = self
         track.add(planeSink.renderer)
-        let probe = DebugFrameProbeRenderer(plane: plane) { [weak sink] plane in
+        let probe = DebugFrameProbeRenderer(plane: plane) { [weak sink] sample in
             Task { @MainActor in
-                sink?.noteFrameRendered(on: plane)
+                sink?.noteFrameRendered(sample)
             }
         }
         debugProbeRenderers[plane] = probe
@@ -231,12 +231,12 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 guard let self else { return }
-                await self.logStats()
+                await self.logStats(reason: "periodic")
             }
         }
     }
 
-    private func logStats() async {
+    private func logStats(reason: String) async {
         guard let pc = peerConnection else { return }
         let report = await pc.statistics()
         let codecMimeTypes = codecMimeTypes(from: report.statistics)
@@ -281,7 +281,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                     )
                 )
                 let playoutTimestamp = stats.values["estimatedPlayoutTimestamp"].map { "\($0)" } ?? "?"
-                logger.notice("inbound-rtp plane=\(plane, privacy: .public) codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) decoder=\(decoder, privacy: .public) framesReceived=\(frames, privacy: .public) framesDecoded=\(decoded, privacy: .public) windowDecoded=\(framesDelta, privacy: .public) decodeMsPerFrame=\(decodeMs, privacy: .public) jitterMsPerFrame=\(jitterMs, privacy: .public) framesDropped=\(dropped, privacy: .public) bytesReceived=\(bytes, privacy: .public) packetsLost=\(packetsLost, privacy: .public) totalDecodeTime=\(decodeTime, privacy: .public) jitterDelay=\(jitterDelay, privacy: .public) jitterFrames=\(jitterFrames, privacy: .public) estimatedPlayoutTimestamp=\(playoutTimestamp, privacy: .public)")
+                logger.notice("inbound-rtp reason=\(reason, privacy: .public) plane=\(plane, privacy: .public) codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) decoder=\(decoder, privacy: .public) framesReceived=\(frames, privacy: .public) framesDecoded=\(decoded, privacy: .public) windowDecoded=\(framesDelta, privacy: .public) decodeMsPerFrame=\(decodeMs, privacy: .public) jitterMsPerFrame=\(jitterMs, privacy: .public) framesDropped=\(dropped, privacy: .public) bytesReceived=\(bytes, privacy: .public) packetsLost=\(packetsLost, privacy: .public) totalDecodeTime=\(decodeTime, privacy: .public) jitterDelay=\(jitterDelay, privacy: .public) jitterFrames=\(jitterFrames, privacy: .public) estimatedPlayoutTimestamp=\(playoutTimestamp, privacy: .public)")
             }
         }
     }
@@ -395,13 +395,10 @@ private struct UncheckedRTCVideoTrack: @unchecked Sendable {
 final class DebugFrameProbeRenderer: NSObject, RTCVideoRenderer, @unchecked Sendable {
     private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "webrtc")
     private let plane: MediaPlane
-    private let onFrame: @Sendable (MediaPlane) -> Void
-    private var count = 0
+    private let onFrame: @Sendable (VideoRenderCadenceSample) -> Void
     private var lastSize: CGSize = .zero
-    private var lastRenderUptimeNs: UInt64?
-    private var lastFrameTimestampNs: Int64?
 
-    init(plane: MediaPlane, onFrame: @escaping @Sendable (MediaPlane) -> Void = { _ in }) {
+    init(plane: MediaPlane, onFrame: @escaping @Sendable (VideoRenderCadenceSample) -> Void = { _ in }) {
         self.plane = plane
         self.onFrame = onFrame
         super.init()
@@ -413,29 +410,14 @@ final class DebugFrameProbeRenderer: NSObject, RTCVideoRenderer, @unchecked Send
     }
 
     func renderFrame(_ frame: RTCVideoFrame?) {
-        count += 1
-        if frame != nil {
-            onFrame(plane)
-        }
-        if count % 30 == 1 {
-            let nowNs = DispatchTime.now().uptimeNanoseconds
-            let callbackWindowMs = MediaTimingMath.formatMilliseconds(
-                MediaTimingMath.millisecondsBetween(currentNs: nowNs, previousNs: lastRenderUptimeNs)
-            )
-            let mediaWindowMs: String
-            if let frame, let lastFrameTimestampNs, frame.timeStampNs >= lastFrameTimestampNs {
-                mediaWindowMs = MediaTimingMath.formatMilliseconds(
-                    Double(frame.timeStampNs - lastFrameTimestampNs) / 1_000_000.0
-                )
-            } else {
-                mediaWindowMs = "?"
-            }
-            let w = frame?.width ?? 0
-            let h = frame?.height ?? 0
-            logger.notice("render-callback plane=\(self.plane.rawValue, privacy: .public) frame=\(self.count, privacy: .public) callbackWindowMs=\(callbackWindowMs, privacy: .public) mediaWindowMs=\(mediaWindowMs, privacy: .public) size=\(w, privacy: .public)x\(h, privacy: .public)")
-            lastRenderUptimeNs = nowNs
-            lastFrameTimestampNs = frame?.timeStampNs
-        }
+        guard let frame else { return }
+        onFrame(VideoRenderCadenceSample(
+            plane: plane,
+            callbackUptimeNs: DispatchTime.now().uptimeNanoseconds,
+            mediaTimestampNs: frame.timeStampNs,
+            width: frame.width,
+            height: frame.height
+        ))
     }
 }
 

@@ -135,6 +135,9 @@ struct SessionHandshakeOutcome {
     let active: ActiveSession
     let signaling: SignalingChannel
     let inputCapability: InputCapabilityGrant
+    let mediaMode: MediaMode
+    let mediaCapability: MediaCapabilityGrant
+    let mediaPlanes: [MediaPlane]
 }
 
 // PairingClient.attemptSession's output: the handshake outcome plus
@@ -143,4 +146,9 @@ struct SessionConnection {
     let active: ActiveSession
     let signaling: SignalingChannel
     let inputChannel: InputChannel
+    let mediaMode: MediaMode
+    let mediaCapability: MediaCapabilityGrant
+    let mediaPlanes: [MediaPlane]
+    let host: String
+    let port: UInt16
 }

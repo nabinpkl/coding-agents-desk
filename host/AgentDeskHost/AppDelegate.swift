@@ -282,6 +282,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.handleInputChannelReady(fingerprint, server: server)
                 }
             },
+            mediaChannelAuthorizeHandler: { [weak self] hello, completion in
+                Task { @MainActor in
+                    guard let self else {
+                        completion(.rejected(.unauthorized))
+                        return
+                    }
+                    guard (try? self.pairing.lookup(deviceFingerprint: hello.deviceFingerprint)) != nil else {
+                        completion(.rejected(.unauthorized))
+                        return
+                    }
+                    completion(self.sessions.validateMediaCapability(hello))
+                }
+            },
+            mediaChannelReadyHandler: { [weak self] fingerprint, server in
+                Task { @MainActor in
+                    self?.handleMediaChannelReady(fingerprint, server: server)
+                }
+            },
             inputCapabilityRefreshHandler: { [weak self] request, completion in
                 Task { @MainActor in
                     guard let self else {
@@ -319,7 +337,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             active,
             channel: channel,
             inputCapability: ready.inputCapability,
-            inputCapabilityExpiresAt: ready.inputCapabilityExpiresAt
+            inputCapabilityExpiresAt: ready.inputCapabilityExpiresAt,
+            mediaCapability: ready.mediaCapability,
+            mediaCapabilityExpiresAt: ready.mediaCapabilityExpiresAt
         )
         signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public) session=\(active.sessionId, privacy: .public)")
         startMediaTransport(for: active, channel: channel)
@@ -432,6 +452,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             for: fingerprint
         )
+    }
+
+    private func handleMediaChannelReady(_ fingerprint: DeviceFingerprint, server: OwnedMediaChannelServer) {
+        signalingLogger.notice("owned media channel ready fp=\(fingerprint.rawValue, privacy: .public)")
+        sessions.attachMediaChannelServer(server, for: fingerprint)
     }
 
     // ADR-0006: drains the SpaceThumbnailProvider's emit stream and

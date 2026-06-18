@@ -92,8 +92,10 @@ final class SessionAuthenticator {
         try pairing.markSeen(deviceFingerprint: pending.deviceFingerprint)
         let sessionId = try randomBytes(32).base64URLEncodedString()
         let inputCapability = try randomBytes(32).base64URLEncodedString()
+        let mediaCapability = try randomBytes(32).base64URLEncodedString()
         let establishedAt = now()
         let inputCapabilityExpiresAt = Int(establishedAt.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
+        let mediaCapabilityExpiresAt = Int(establishedAt.addingTimeInterval(Config.mediaCapabilityTTL).timeIntervalSince1970)
         let session = ActiveSession(
             sessionId: sessionId,
             deviceFingerprint: pending.deviceFingerprint,
@@ -104,7 +106,11 @@ final class SessionAuthenticator {
             SessionReady(
                 sessionId: sessionId,
                 inputCapability: inputCapability,
-                inputCapabilityExpiresAt: inputCapabilityExpiresAt
+                inputCapabilityExpiresAt: inputCapabilityExpiresAt,
+                mediaMode: Config.mediaStackMode.mediaMode,
+                mediaCapability: mediaCapability,
+                mediaCapabilityExpiresAt: mediaCapabilityExpiresAt,
+                mediaPlanes: Config.mediaStackMode == .owned ? Config.ownedMediaActivePlanes : MediaPlane.allCases
             ),
             session
         )

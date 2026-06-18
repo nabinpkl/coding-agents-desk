@@ -22,6 +22,20 @@ protocol MediaTransport: AnyObject, Sendable {
     // renderer keeps both senders warm; the client compositor owns visible
     // plane switching.
     func setVideoInteractive(_ active: Bool)
+
+    // Owned-media stack hook. WebRTC transports ignore this; owned
+    // transports begin sending encoded ADMF frames when the authenticated
+    // media WebSocket arrives.
+    func attachOwnedMediaChannel(_ channel: any OwnedMediaChannelServing)
+}
+
+extension MediaTransport {
+    func attachOwnedMediaChannel(_ channel: any OwnedMediaChannelServing) {}
+}
+
+protocol OwnedMediaChannelServing: AnyObject, Sendable {
+    func send(_ envelope: OwnedMediaFrameEnvelope) async throws
+    func close()
 }
 
 enum MediaTransportRole {
@@ -207,10 +221,11 @@ struct MediaPlaneConfiguration: Equatable {
             tuning: base,
             captureScaleDownBy: 1.0
         )
-        let motionTuning = base.applyingMotionPlaneGuardrails()
+        let motionCodecs = motionCodecPreferences(environment: environment)
+        let motionTuning = base.applyingMotionPlaneGuardrails(for: motionCodecs)
         let motion = MediaPlaneConfiguration(
             plane: .motion,
-            codecs: .h264Only,
+            codecs: motionCodecs,
             tuning: motionTuning,
             captureScaleDownBy: motionCaptureScaleDownBy(environment: environment)
         )
@@ -218,6 +233,15 @@ struct MediaPlaneConfiguration: Equatable {
             .detail: detail,
             .motion: motion
         ]
+    }
+
+    private static func motionCodecPreferences(environment: [String: String]) -> MediaCodecPreferences {
+        switch environment["AGENTDESK_TUNING_MOTION_CODEC"]?.lowercased() {
+        case "vp9":
+            return .vp9Only
+        default:
+            return .h264Only
+        }
     }
 
     private static func motionCaptureScaleDownBy(environment: [String: String]) -> Double {
@@ -255,6 +279,14 @@ struct SenderTuning: Equatable {
     var scrollMaxBitrateKbps: Int
     var scrollMinBitrateKbps: Int
     var scrollSettleMs: Int
+    // Detail plane suppression while the motion plane is visible. The detail
+    // track stays alive so post-scroll restoration has a warm track, but it
+    // stops competing with the motion plane for encoder and pacer budget.
+    var detailScrollScaleDownBy: Double
+    var detailScrollMaxFramerate: Int
+    var detailScrollMaxBitrateKbps: Int
+    var detailScrollMinBitrateKbps: Int
+    var detailScrollActive: Bool
     // VP9 temporal SVC. With layers > 1 the stream carries a base layer
     // plus enhancement layers; squeezing bitrate (the scroll profile) makes
     // the encoder shed the top layers instantly, dropping framerate with no
@@ -278,6 +310,7 @@ struct SenderTuning: Equatable {
         var minBitrateKbps: Int
         var temporalLayers: Int
         var degradation: DegradationPreference
+        var active: Bool
     }
 
     var crispProfile: EncodingProfile {
@@ -287,7 +320,8 @@ struct SenderTuning: Equatable {
             maxBitrateKbps: maxBitrateKbps,
             minBitrateKbps: minBitrateKbps,
             temporalLayers: temporalLayers,
-            degradation: degradationPreference
+            degradation: degradationPreference,
+            active: true
         )
     }
 
@@ -298,7 +332,20 @@ struct SenderTuning: Equatable {
             maxBitrateKbps: scrollMaxBitrateKbps,
             minBitrateKbps: scrollMinBitrateKbps,
             temporalLayers: temporalLayers,
-            degradation: .maintainFramerate
+            degradation: .maintainFramerate,
+            active: true
+        )
+    }
+
+    var detailScrollSuppressedProfile: EncodingProfile {
+        EncodingProfile(
+            scaleResolutionDownBy: detailScrollScaleDownBy,
+            maxFramerate: detailScrollMaxFramerate,
+            maxBitrateKbps: detailScrollMaxBitrateKbps,
+            minBitrateKbps: detailScrollMinBitrateKbps,
+            temporalLayers: temporalLayers,
+            degradation: .maintainFramerate,
+            active: detailScrollActive
         )
     }
 
@@ -325,6 +372,11 @@ struct SenderTuning: Equatable {
         scrollMaxBitrateKbps: 3_500,
         scrollMinBitrateKbps: 1_000,
         scrollSettleMs: 300,
+        detailScrollScaleDownBy: 4.0,
+        detailScrollMaxFramerate: 1,
+        detailScrollMaxBitrateKbps: 150,
+        detailScrollMinBitrateKbps: 50,
+        detailScrollActive: true,
         temporalLayers: 3
     )
 
@@ -350,6 +402,11 @@ struct SenderTuning: Equatable {
             scrollMaxBitrateKbps: env["AGENTDESK_TUNING_SCROLL_MAX_BITRATE_KBPS"].flatMap(Int.init) ?? defaults.scrollMaxBitrateKbps,
             scrollMinBitrateKbps: env["AGENTDESK_TUNING_SCROLL_MIN_BITRATE_KBPS"].flatMap(Int.init) ?? defaults.scrollMinBitrateKbps,
             scrollSettleMs: env["AGENTDESK_TUNING_SCROLL_SETTLE_MS"].flatMap(Int.init) ?? defaults.scrollSettleMs,
+            detailScrollScaleDownBy: env["AGENTDESK_TUNING_DETAIL_SCROLL_SCALE_DOWN"].flatMap(Double.init) ?? defaults.detailScrollScaleDownBy,
+            detailScrollMaxFramerate: env["AGENTDESK_TUNING_DETAIL_SCROLL_MAX_FPS"].flatMap(Int.init) ?? defaults.detailScrollMaxFramerate,
+            detailScrollMaxBitrateKbps: env["AGENTDESK_TUNING_DETAIL_SCROLL_MAX_BITRATE_KBPS"].flatMap(Int.init) ?? defaults.detailScrollMaxBitrateKbps,
+            detailScrollMinBitrateKbps: env["AGENTDESK_TUNING_DETAIL_SCROLL_MIN_BITRATE_KBPS"].flatMap(Int.init) ?? defaults.detailScrollMinBitrateKbps,
+            detailScrollActive: env["AGENTDESK_TUNING_DETAIL_SCROLL_ACTIVE"].map { $0 != "0" } ?? defaults.detailScrollActive,
             temporalLayers: env["AGENTDESK_TUNING_TEMPORAL_LAYERS"].flatMap(Int.init) ?? defaults.temporalLayers
         )
     }
@@ -371,11 +428,40 @@ struct SenderTuning: Equatable {
             scrollMaxBitrateKbps: scrollMaxBitrateKbps,
             scrollMinBitrateKbps: scrollMinBitrateKbps,
             scrollSettleMs: scrollSettleMs,
+            detailScrollScaleDownBy: detailScrollScaleDownBy,
+            detailScrollMaxFramerate: detailScrollMaxFramerate,
+            detailScrollMaxBitrateKbps: detailScrollMaxBitrateKbps,
+            detailScrollMinBitrateKbps: detailScrollMinBitrateKbps,
+            detailScrollActive: detailScrollActive,
             temporalLayers: 1
         )
     }
 
-    func applyingMotionPlaneGuardrails() -> SenderTuning {
+    func applyingMotionPlaneGuardrails(for codecs: MediaCodecPreferences) -> SenderTuning {
+        guard codecs == .h264Only else {
+            return SenderTuning(
+                screencast: screencast,
+                degradationPreference: degradationPreference,
+                maxBitrateKbps: maxBitrateKbps,
+                minBitrateKbps: minBitrateKbps,
+                maxFramerate: maxFramerate,
+                baseScaleDownBy: baseScaleDownBy,
+                bweMinKbps: bweMinKbps,
+                bweStartKbps: bweStartKbps,
+                bweMaxKbps: bweMaxKbps,
+                scrollScaleDownBy: 1.0,
+                scrollMaxFramerate: scrollMaxFramerate,
+                scrollMaxBitrateKbps: scrollMaxBitrateKbps,
+                scrollMinBitrateKbps: scrollMinBitrateKbps,
+                scrollSettleMs: scrollSettleMs,
+                detailScrollScaleDownBy: detailScrollScaleDownBy,
+                detailScrollMaxFramerate: detailScrollMaxFramerate,
+                detailScrollMaxBitrateKbps: detailScrollMaxBitrateKbps,
+                detailScrollMinBitrateKbps: detailScrollMinBitrateKbps,
+                detailScrollActive: detailScrollActive,
+                temporalLayers: temporalLayers
+            )
+        }
         let h264 = applyingCodecGuardrails(for: .h264Only)
         return SenderTuning(
             screencast: h264.screencast,
@@ -392,8 +478,29 @@ struct SenderTuning: Equatable {
             scrollMaxBitrateKbps: h264.scrollMaxBitrateKbps,
             scrollMinBitrateKbps: h264.scrollMinBitrateKbps,
             scrollSettleMs: h264.scrollSettleMs,
+            detailScrollScaleDownBy: h264.detailScrollScaleDownBy,
+            detailScrollMaxFramerate: h264.detailScrollMaxFramerate,
+            detailScrollMaxBitrateKbps: h264.detailScrollMaxBitrateKbps,
+            detailScrollMinBitrateKbps: h264.detailScrollMinBitrateKbps,
+            detailScrollActive: h264.detailScrollActive,
             temporalLayers: h264.temporalLayers
         )
+    }
+}
+
+enum OutboundRtpPlaneResolver {
+    static func planeName(
+        trackIdentifier: String?,
+        mid: String?,
+        midPlanes: [String: MediaPlane]
+    ) -> String {
+        if let trackIdentifier, let plane = MediaPlane(trackId: trackIdentifier) {
+            return plane.rawValue
+        }
+        if let mid, let plane = midPlanes[mid] {
+            return plane.rawValue
+        }
+        return "unknown"
     }
 }
 

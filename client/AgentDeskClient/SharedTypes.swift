@@ -233,24 +233,49 @@ struct SessionProof: Codable, Equatable {
     }
 }
 
+enum MediaMode: String, Codable, Equatable {
+    case webrtc
+    case owned
+}
+
 struct SessionReady: Codable, Equatable {
     let type: String
     let sessionId: String
     let inputCapability: String
     let inputCapabilityExpiresAt: Int
+    let mediaMode: MediaMode
+    let mediaCapability: String
+    let mediaCapabilityExpiresAt: Int
+    let mediaPlanes: [MediaPlane]
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case sessionId = "sid"
         case inputCapability = "ic"
         case inputCapabilityExpiresAt = "ie"
+        case mediaMode = "mm"
+        case mediaCapability = "mc"
+        case mediaCapabilityExpiresAt = "me"
+        case mediaPlanes = "mp"
     }
 
-    init(sessionId: String, inputCapability: String, inputCapabilityExpiresAt: Int) {
+    init(
+        sessionId: String,
+        inputCapability: String,
+        inputCapabilityExpiresAt: Int,
+        mediaMode: MediaMode = .webrtc,
+        mediaCapability: String = "",
+        mediaCapabilityExpiresAt: Int = 0,
+        mediaPlanes: [MediaPlane] = MediaPlane.allCases
+    ) {
         self.type = "session-ready"
         self.sessionId = sessionId
         self.inputCapability = inputCapability
         self.inputCapabilityExpiresAt = inputCapabilityExpiresAt
+        self.mediaMode = mediaMode
+        self.mediaCapability = mediaCapability
+        self.mediaCapabilityExpiresAt = mediaCapabilityExpiresAt
+        self.mediaPlanes = mediaPlanes
     }
 
     init(from decoder: Decoder) throws {
@@ -259,6 +284,10 @@ struct SessionReady: Codable, Equatable {
         sessionId = try container.decode(String.self, forKey: .sessionId)
         inputCapability = try container.decode(String.self, forKey: .inputCapability)
         inputCapabilityExpiresAt = try container.decode(Int.self, forKey: .inputCapabilityExpiresAt)
+        mediaMode = try container.decodeIfPresent(MediaMode.self, forKey: .mediaMode) ?? .webrtc
+        mediaCapability = try container.decodeIfPresent(String.self, forKey: .mediaCapability) ?? ""
+        mediaCapabilityExpiresAt = try container.decodeIfPresent(Int.self, forKey: .mediaCapabilityExpiresAt) ?? 0
+        mediaPlanes = try container.decodeIfPresent([MediaPlane].self, forKey: .mediaPlanes) ?? MediaPlane.allCases
     }
 
     func encode(to encoder: Encoder) throws {
@@ -267,6 +296,31 @@ struct SessionReady: Codable, Equatable {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(inputCapability, forKey: .inputCapability)
         try container.encode(inputCapabilityExpiresAt, forKey: .inputCapabilityExpiresAt)
+        try container.encode(mediaMode, forKey: .mediaMode)
+        try container.encode(mediaCapability, forKey: .mediaCapability)
+        try container.encode(mediaCapabilityExpiresAt, forKey: .mediaCapabilityExpiresAt)
+        try container.encode(mediaPlanes, forKey: .mediaPlanes)
+    }
+}
+
+struct MediaCapabilityGrant: Codable, Equatable {
+    let type: String
+    let sessionId: String
+    let mediaCapability: String
+    let mediaCapabilityExpiresAt: Int
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case sessionId = "sid"
+        case mediaCapability = "mc"
+        case mediaCapabilityExpiresAt = "me"
+    }
+
+    init(sessionId: String, mediaCapability: String, mediaCapabilityExpiresAt: Int) {
+        self.type = "media-capability-grant"
+        self.sessionId = sessionId
+        self.mediaCapability = mediaCapability
+        self.mediaCapabilityExpiresAt = mediaCapabilityExpiresAt
     }
 }
 
@@ -318,6 +372,8 @@ enum SessionRejectionReason: String, Codable, Equatable, Error {
     case unauthorized
     case expiredInputCapability = "expired-input-capability"
     case staleInputCapability = "stale-input-capability"
+    case expiredMediaCapability = "expired-media-capability"
+    case staleMediaCapability = "stale-media-capability"
 }
 
 struct SessionRejected: Codable, Equatable, Error {
@@ -351,6 +407,125 @@ struct ActiveSession: Equatable {
     let sessionId: String
     let deviceFingerprint: DeviceFingerprint
     let establishedAt: Int
+}
+
+enum OwnedMediaCodec: String, Codable, Equatable {
+    case hevc
+    case h264
+}
+
+enum OwnedMediaPayloadFormat: String, Codable, Equatable {
+    case lengthPrefixedNal = "length-prefixed-nal"
+}
+
+struct OwnedMediaParameterSets: Codable, Equatable {
+    let vps: Data?
+    let sps: Data
+    let pps: Data
+
+    init(vps: Data? = nil, sps: Data, pps: Data) {
+        self.vps = vps
+        self.sps = sps
+        self.pps = pps
+    }
+}
+
+struct OwnedMediaFrameHeader: Codable, Equatable {
+    let frameId: UInt64
+    let plane: MediaPlane
+    let codec: OwnedMediaCodec
+    let width: Int
+    let height: Int
+    let capturedAtUptimeNs: UInt64
+    let presentationTimeNs: UInt64
+    let isKeyframe: Bool
+    let parameterSets: OwnedMediaParameterSets?
+    let payloadFormat: OwnedMediaPayloadFormat
+
+    enum CodingKeys: String, CodingKey {
+        case frameId = "id"
+        case plane = "pl"
+        case codec = "c"
+        case width = "w"
+        case height = "h"
+        case capturedAtUptimeNs = "cu"
+        case presentationTimeNs = "pt"
+        case isKeyframe = "k"
+        case parameterSets = "ps"
+        case payloadFormat = "pf"
+    }
+
+    init(
+        frameId: UInt64,
+        plane: MediaPlane,
+        codec: OwnedMediaCodec,
+        width: Int,
+        height: Int,
+        capturedAtUptimeNs: UInt64,
+        presentationTimeNs: UInt64,
+        isKeyframe: Bool,
+        parameterSets: OwnedMediaParameterSets?,
+        payloadFormat: OwnedMediaPayloadFormat = .lengthPrefixedNal
+    ) {
+        self.frameId = frameId
+        self.plane = plane
+        self.codec = codec
+        self.width = width
+        self.height = height
+        self.capturedAtUptimeNs = capturedAtUptimeNs
+        self.presentationTimeNs = presentationTimeNs
+        self.isKeyframe = isKeyframe
+        self.parameterSets = parameterSets
+        self.payloadFormat = payloadFormat
+    }
+}
+
+struct OwnedMediaFrameEnvelope: Equatable {
+    static let magic = [UInt8]("ADMF".utf8)
+    static let version: UInt8 = 1
+    static let fixedHeaderByteCount = 9
+
+    let header: OwnedMediaFrameHeader
+    let payload: Data
+
+    init(header: OwnedMediaFrameHeader, payload: Data) {
+        self.header = header
+        self.payload = payload
+    }
+
+    func encode() throws -> Data {
+        let headerData = try JSONEncoder().encode(header)
+        guard headerData.count <= Int(UInt32.max) else {
+            throw SessionRejected(reason: .malformed)
+        }
+        var encoded = Data(Self.magic)
+        encoded.append(Self.version)
+        var headerLength = UInt32(headerData.count).bigEndian
+        withUnsafeBytes(of: &headerLength) { encoded.append(contentsOf: $0) }
+        encoded.append(headerData)
+        encoded.append(payload)
+        return encoded
+    }
+
+    static func decode(_ data: Data) throws -> OwnedMediaFrameEnvelope {
+        guard data.count >= fixedHeaderByteCount else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let bytes = [UInt8](data.prefix(fixedHeaderByteCount))
+        guard Array(bytes[0..<4]) == magic, bytes[4] == version else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let headerLength = bytes[5..<9].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        let headerStart = fixedHeaderByteCount
+        let headerEnd = headerStart + Int(headerLength)
+        guard data.count >= headerEnd else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let headerData = data[headerStart..<headerEnd]
+        let header = try JSONDecoder().decode(OwnedMediaFrameHeader.self, from: headerData)
+        let payload = data[headerEnd..<data.count]
+        return OwnedMediaFrameEnvelope(header: header, payload: payload)
+    }
 }
 
 // ADR-0004 post-SessionReady signaling frames. Mirror of host's definition.
@@ -626,6 +801,42 @@ struct InputChannelReady: Codable, Equatable {
 
     init(sessionId: String) {
         self.type = "input-ready"
+        self.sessionId = sessionId
+    }
+}
+
+struct MediaChannelHello: Codable, Equatable {
+    let type: String
+    let deviceFingerprint: DeviceFingerprint
+    let sessionId: String
+    let mediaCapability: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case deviceFingerprint = "d"
+        case sessionId = "sid"
+        case mediaCapability = "mc"
+    }
+
+    init(deviceFingerprint: DeviceFingerprint, sessionId: String, mediaCapability: String) {
+        self.type = "media-hello"
+        self.deviceFingerprint = deviceFingerprint
+        self.sessionId = sessionId
+        self.mediaCapability = mediaCapability
+    }
+}
+
+struct MediaChannelReady: Codable, Equatable {
+    let type: String
+    let sessionId: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case sessionId = "sid"
+    }
+
+    init(sessionId: String) {
+        self.type = "media-ready"
         self.sessionId = sessionId
     }
 }

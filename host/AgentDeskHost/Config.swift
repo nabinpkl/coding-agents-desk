@@ -1,6 +1,48 @@
 import Foundation
 
 enum Config {
+    enum MediaStackMode: String {
+        case webrtc
+        case owned
+
+        init(rawEnvironmentValue: String?) {
+            switch rawEnvironmentValue?.lowercased() {
+            case "owned":
+                self = .owned
+            default:
+                self = .webrtc
+            }
+        }
+
+        var mediaMode: MediaMode {
+            switch self {
+            case .webrtc: .webrtc
+            case .owned: .owned
+            }
+        }
+    }
+
+    enum OwnedMediaCodecChoice: String {
+        case hevc
+        case h264
+
+        init(rawEnvironmentValue: String?) {
+            switch rawEnvironmentValue?.lowercased() {
+            case "h264":
+                self = .h264
+            default:
+                self = .hevc
+            }
+        }
+
+        var wireCodec: OwnedMediaCodec {
+            switch self {
+            case .hevc: .hevc
+            case .h264: .h264
+            }
+        }
+    }
+
     enum SpaceSwitchMode: String {
         case dockSwipe = "dock-swipe"
         case directSet = "direct-set"
@@ -35,6 +77,29 @@ enum Config {
     static let signalingPort: UInt16 = 41888
     static let nonceTTL: TimeInterval = 90
     static let inputCapabilityTTL: TimeInterval = 60
+    static let mediaCapabilityTTL: TimeInterval = 60
+    static let mediaStackMode = MediaStackMode(
+        rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_MEDIA_STACK"]
+    )
+    static let ownedMediaCodec = OwnedMediaCodecChoice(
+        rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_CODEC"]
+    )
+    static let ownedMediaDetailActive: Bool = {
+        ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_DETAIL_ACTIVE"] != "0"
+    }()
+    static let ownedMediaMotionActive: Bool = {
+        ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_MOTION_ACTIVE"] != "0"
+    }()
+    static var ownedMediaActivePlanes: [MediaPlane] {
+        var planes: [MediaPlane] = []
+        if ownedMediaDetailActive {
+            planes.append(.detail)
+        }
+        if ownedMediaMotionActive {
+            planes.append(.motion)
+        }
+        return planes.isEmpty ? [.detail] : planes
+    }
     static let gestureChildExecutableURL: URL? = {
         guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_GESTURE_CHILD_PATH"],
               !raw.isEmpty

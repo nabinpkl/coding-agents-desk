@@ -24,6 +24,8 @@
 		B0000000000000000000020F /* WebSocketSignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* WebSocketSignalingChannel.swift */; };
 		B00000000000000000000210 /* LibWebRTCMediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000111 /* LibWebRTCMediaTransport.swift */; };
 		B00000000000000000000211 /* RTCMTLVideoSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000112 /* RTCMTLVideoSink.swift */; };
+		B00000000000000000000A01 /* OwnedMediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000A00 /* OwnedMediaTransport.swift */; };
+		B00000000000000000000A03 /* OwnedMediaVideoSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000A02 /* OwnedMediaVideoSink.swift */; };
 		B00000000000000000000212 /* GestureTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000113 /* GestureTranslator.swift */; };
 		B00000000000000000000213 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000114 /* SettingsStore.swift */; };
 		B00000000000000000000214 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000115 /* SettingsViewController.swift */; };
@@ -86,6 +88,8 @@
 		B00000000000000000000110 /* WebSocketSignalingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketSignalingChannel.swift; sourceTree = "<group>"; };
 		B00000000000000000000111 /* LibWebRTCMediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibWebRTCMediaTransport.swift; sourceTree = "<group>"; };
 		B00000000000000000000112 /* RTCMTLVideoSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RTCMTLVideoSink.swift; sourceTree = "<group>"; };
+		B00000000000000000000A00 /* OwnedMediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaTransport.swift; sourceTree = "<group>"; };
+		B00000000000000000000A02 /* OwnedMediaVideoSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaVideoSink.swift; sourceTree = "<group>"; };
 		B00000000000000000000113 /* GestureTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureTranslator.swift; sourceTree = "<group>"; };
 		B00000000000000000000114 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		B00000000000000000000115 /* SettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
@@ -168,6 +172,8 @@
 				B00000000000000000000110 /* WebSocketSignalingChannel.swift */,
 				B00000000000000000000111 /* LibWebRTCMediaTransport.swift */,
 				B00000000000000000000112 /* RTCMTLVideoSink.swift */,
+				B00000000000000000000A00 /* OwnedMediaTransport.swift */,
+				B00000000000000000000A02 /* OwnedMediaVideoSink.swift */,
 				B00000000000000000000113 /* GestureTranslator.swift */,
 				B00000000000000000000114 /* SettingsStore.swift */,
 				B00000000000000000000115 /* SettingsViewController.swift */,
@@ -340,6 +346,8 @@
 				B0000000000000000000020F /* WebSocketSignalingChannel.swift in Sources */,
 				B00000000000000000000210 /* LibWebRTCMediaTransport.swift in Sources */,
 				B00000000000000000000211 /* RTCMTLVideoSink.swift in Sources */,
+				B00000000000000000000A01 /* OwnedMediaTransport.swift in Sources */,
+				B00000000000000000000A03 /* OwnedMediaVideoSink.swift in Sources */,
 				B00000000000000000000212 /* GestureTranslator.swift in Sources */,
 				B00000000000000000000213 /* SettingsStore.swift in Sources */,
 				B00000000000000000000214 /* SettingsViewController.swift in Sources */,

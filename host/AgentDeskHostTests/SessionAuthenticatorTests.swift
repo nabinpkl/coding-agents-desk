@@ -13,6 +13,10 @@ struct SessionAuthenticatorTests {
         #expect(!ready.sessionId.isEmpty)
         #expect(!ready.inputCapability.isEmpty)
         #expect(ready.inputCapabilityExpiresAt == Int(fixture.clock.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970))
+        #expect(ready.mediaMode == .webrtc)
+        #expect(!ready.mediaCapability.isEmpty)
+        #expect(ready.mediaCapabilityExpiresAt == Int(fixture.clock.addingTimeInterval(Config.mediaCapabilityTTL).timeIntervalSince1970))
+        #expect(ready.mediaPlanes == MediaPlane.allCases)
         #expect(active.sessionId == ready.sessionId)
         #expect(active.deviceFingerprint == fixture.deviceFingerprint)
         #expect(active.establishedAt == Int(fixture.clock.timeIntervalSince1970))
@@ -94,6 +98,17 @@ struct SessionRegistryTests {
         #expect(result == .rejected(.unauthorized))
     }
 
+    @Test func mediaCapabilityWithoutActiveSessionIsRejected() {
+        let registry = SessionRegistry()
+        let result = registry.validateMediaCapability(MediaChannelHello(
+            deviceFingerprint: DeviceFingerprint("device-fp"),
+            sessionId: "session-1",
+            mediaCapability: "capability"
+        ))
+
+        #expect(result == .rejected(.unauthorized))
+    }
+
     @Test func acceptedInputCapabilityRotatesAndRejectsReuse() throws {
         let random = ByteSequence()
         let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -141,6 +156,50 @@ struct SessionRegistryTests {
         ))
 
         #expect(result == .rejected(.expiredInputCapability))
+    }
+
+    @Test func acceptedMediaCapabilityRejectsReuse() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now })
+        let fingerprint = DeviceFingerprint("device-fp")
+        registry.noteReady(
+            ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970)),
+            channel: FakeSignalingChannel(),
+            inputCapability: "input-capability-1",
+            inputCapabilityExpiresAt: Int(now.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970),
+            mediaCapability: "media-capability-1",
+            mediaCapabilityExpiresAt: Int(now.addingTimeInterval(Config.mediaCapabilityTTL).timeIntervalSince1970)
+        )
+
+        let hello = MediaChannelHello(
+            deviceFingerprint: fingerprint,
+            sessionId: "session-1",
+            mediaCapability: "media-capability-1"
+        )
+        #expect(registry.validateMediaCapability(hello) == .accepted(fingerprint))
+        #expect(registry.validateMediaCapability(hello) == .rejected(.staleMediaCapability))
+    }
+
+    @Test func expiredMediaCapabilityIsRejected() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now })
+        let fingerprint = DeviceFingerprint("device-fp")
+        registry.noteReady(
+            ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970)),
+            channel: FakeSignalingChannel(),
+            inputCapability: "input-capability-1",
+            inputCapabilityExpiresAt: Int(now.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970),
+            mediaCapability: "media-capability-1",
+            mediaCapabilityExpiresAt: Int(now.timeIntervalSince1970) - 1
+        )
+
+        let result = registry.validateMediaCapability(MediaChannelHello(
+            deviceFingerprint: fingerprint,
+            sessionId: "session-1",
+            mediaCapability: "media-capability-1"
+        ))
+
+        #expect(result == .rejected(.expiredMediaCapability))
     }
 
     @Test func refreshRotatesCapabilityForActiveSessionOnly() throws {

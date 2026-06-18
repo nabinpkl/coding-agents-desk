@@ -54,6 +54,8 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     private var inboundTask: Task<Void, Never>?
     private var role: MediaTransportRole = .offerer
     private var previousOutboundStats: [String: OutboundRtpSnapshot] = [:]
+    private var scrollHintSequence = 0
+    private var detailSenderSuppressed = false
 
     init(factory: RTCPeerConnectionFactory, planeConfigurations: [MediaPlane: MediaPlaneConfiguration]) {
         self.factory = factory
@@ -150,12 +152,27 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
     // here is configurable; see SenderTuning.fromEnvironment() for the env
     // vars that override individual fields.
     private func configureSenderForScreenShare(_ sender: RTCRtpSender, configuration: MediaPlaneConfiguration) {
-        let params = sender.parameters
-        let profile = configuration.plane == .motion
+        let profile = initialProfile(for: configuration)
+        applyEncodingProfile(profile, to: sender, plane: configuration.plane, reason: "startup")
+        logger.notice("tuning applied: plane=\(configuration.plane.rawValue, privacy: .public) codecs=\(configuration.codecs.preferred.map(\.rawValue).joined(separator: ","), privacy: .public) screencast=\(configuration.tuning.screencast, privacy: .public) scaleDown=\(profile.scaleResolutionDownBy, privacy: .public) temporalLayers=\(profile.temporalLayers, privacy: .public) degradation=\(profile.degradation.rawValue, privacy: .public) maxBitrate=\(profile.maxBitrateKbps, privacy: .public)kbps")
+    }
+
+    private func initialProfile(for configuration: MediaPlaneConfiguration) -> SenderTuning.EncodingProfile {
+        configuration.plane == .motion
             ? configuration.tuning.scrollProfile
             : configuration.tuning.crispProfile
+    }
+
+    private func applyEncodingProfile(
+        _ profile: SenderTuning.EncodingProfile,
+        to sender: RTCRtpSender,
+        plane: MediaPlane,
+        reason: String
+    ) {
+        let params = sender.parameters
         params.degradationPreference = NSNumber(value: degradationRaw(profile.degradation))
         for encoding in params.encodings {
+            encoding.isActive = profile.active
             encoding.scaleResolutionDownBy = NSNumber(value: profile.scaleResolutionDownBy)
             encoding.maxBitrateBps = NSNumber(value: profile.maxBitrateKbps * 1000)
             encoding.minBitrateBps = NSNumber(value: profile.minBitrateKbps * 1000)
@@ -167,13 +184,37 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
             }
         }
         sender.parameters = params
-        logger.notice("tuning applied: plane=\(configuration.plane.rawValue, privacy: .public) codecs=\(configuration.codecs.preferred.map(\.rawValue).joined(separator: ","), privacy: .public) screencast=\(configuration.tuning.screencast, privacy: .public) scaleDown=\(profile.scaleResolutionDownBy, privacy: .public) temporalLayers=\(profile.temporalLayers, privacy: .public) degradation=\(profile.degradation.rawValue, privacy: .public) maxBitrate=\(profile.maxBitrateKbps, privacy: .public)kbps")
+        logger.notice("sender profile applied reason=\(reason, privacy: .public) plane=\(plane.rawValue, privacy: .public) active=\(profile.active, privacy: .public) scaleDown=\(profile.scaleResolutionDownBy, privacy: .public) fps=\(profile.maxFramerate, privacy: .public) maxBitrate=\(profile.maxBitrateKbps, privacy: .public)kbps minBitrate=\(profile.minBitrateKbps, privacy: .public)kbps temporalLayers=\(profile.temporalLayers, privacy: .public) degradation=\(profile.degradation.rawValue, privacy: .public)")
     }
 
-    // Dual-plane mode keeps both encoders warm. Interaction hints no longer
-    // mutate sender parameters; the client compositor switches visible planes.
+    // Dual-plane mode keeps both tracks warm, but scroll hides the detail
+    // plane. Throttle the invisible detail sender so the motion sender does
+    // not compete with full-resolution VP9 in libwebrtc's pacer.
     func setVideoInteractive(_ active: Bool) {
-        logger.notice("video interaction hint ignored by host dual-plane sender active=\(active, privacy: .public)")
+        scrollHintSequence += 1
+        let phase = active ? "start" : "end"
+        let sequence = scrollHintSequence
+        applyDetailSuppression(active)
+        let detailSender = detailSenderSuppressed ? "throttled" : "crisp"
+        logger.notice("scroll-hint phase=\(phase, privacy: .public) sequence=\(sequence, privacy: .public) detailSender=\(detailSender, privacy: .public)")
+        Task { [weak self] in
+            await self?.logStats(reason: "scroll-\(phase)-\(sequence)")
+        }
+    }
+
+    private func applyDetailSuppression(_ suppressed: Bool) {
+        guard suppressed != detailSenderSuppressed else { return }
+        guard let sender = videoSenders[.detail],
+              let configuration = planeConfigurations[.detail] else {
+            logger.error("detail sender missing; cannot apply scroll suppression=\(suppressed, privacy: .public)")
+            return
+        }
+        let profile = suppressed
+            ? configuration.tuning.detailScrollSuppressedProfile
+            : configuration.tuning.crispProfile
+        let reason = suppressed ? "scroll-detail-suppress" : "scroll-detail-restore"
+        applyEncodingProfile(profile, to: sender, plane: .detail, reason: reason)
+        detailSenderSuppressed = suppressed
     }
 
     private func degradationRaw(_ pref: SenderTuning.DegradationPreference) -> Int {
@@ -242,15 +283,16 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 guard let self else { return }
-                await self.logStats()
+                await self.logStats(reason: "periodic")
             }
         }
     }
 
-    private func logStats() async {
+    private func logStats(reason: String) async {
         guard let pc = peerConnection else { return }
         let report = await pc.statistics()
         let codecMimeTypes = codecMimeTypes(from: report.statistics)
+        let midPlanes = transceiverMidPlanes(on: pc)
         for (id, stats) in report.statistics {
             if stats.type == "outbound-rtp" {
                 let snapshot = OutboundRtpSnapshot(stats: stats)
@@ -261,7 +303,7 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                 let kbps = stats.values["targetBitrate"].map { "\($0)" } ?? "?"
                 let codecId = stats.values["codecId"].map { "\($0)" } ?? "?"
                 let codecMimeType = codecMimeTypes[codecId] ?? "?"
-                let plane = planeName(fromOutboundStats: stats)
+                let plane = planeName(fromOutboundStats: stats, midPlanes: midPlanes)
                 if let mediaPlane = MediaPlane(rawValue: plane),
                    let preferences = planeConfigurations[mediaPlane]?.codecs,
                    codecMimeType != "?",
@@ -288,17 +330,33 @@ final class LibWebRTCMediaTransport: NSObject, MediaTransport, RTCPeerConnection
                         previousTotalSeconds: previous?.totalPacketSendDelay
                     )
                 )
-                logger.notice("outbound-rtp plane=\(plane, privacy: .public) codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) encoder=\(encoder, privacy: .public) framesEncoded=\(frames, privacy: .public) windowFrames=\(framesDelta, privacy: .public) encodeMsPerFrame=\(encodeMs, privacy: .public) packetSendDelayMsPerPacket=\(packetSendDelayMs, privacy: .public) fps=\(fps, privacy: .public) bytesSent=\(bytes, privacy: .public) targetBitrate=\(kbps, privacy: .public) qualityLimitation=\(qualityReason, privacy: .public)")
+                logger.notice("outbound-rtp reason=\(reason, privacy: .public) plane=\(plane, privacy: .public) codec=\(codecMimeType, privacy: .public) codecId=\(codecId, privacy: .public) encoder=\(encoder, privacy: .public) framesEncoded=\(frames, privacy: .public) windowFrames=\(framesDelta, privacy: .public) encodeMsPerFrame=\(encodeMs, privacy: .public) packetSendDelayMsPerPacket=\(packetSendDelayMs, privacy: .public) fps=\(fps, privacy: .public) bytesSent=\(bytes, privacy: .public) targetBitrate=\(kbps, privacy: .public) qualityLimitation=\(qualityReason, privacy: .public)")
             }
         }
     }
 
-    private func planeName(fromOutboundStats stats: RTCStatistics) -> String {
-        let trackId = stats.values["trackIdentifier"].map { "\($0)" } ?? ""
-        if let plane = MediaPlane(trackId: trackId) {
-            return plane.rawValue
+    private func planeName(fromOutboundStats stats: RTCStatistics, midPlanes: [String: MediaPlane]) -> String {
+        let trackId = stats.values["trackIdentifier"].map { "\($0)" }
+        let mid = stats.values["mid"].map { "\($0)" }
+        return OutboundRtpPlaneResolver.planeName(
+            trackIdentifier: trackId,
+            mid: mid,
+            midPlanes: midPlanes
+        )
+    }
+
+    private func transceiverMidPlanes(on pc: RTCPeerConnection) -> [String: MediaPlane] {
+        var planes: [String: MediaPlane] = [:]
+        for transceiver in pc.transceivers {
+            let mid = transceiver.mid
+            guard !mid.isEmpty,
+                  let trackId = transceiver.sender.track?.trackId,
+                  let plane = MediaPlane(trackId: trackId) else {
+                continue
+            }
+            planes[mid] = plane
         }
-        return "unknown"
+        return planes
     }
 
     private func formatDelta(current: Double?, previous: Double?) -> String {

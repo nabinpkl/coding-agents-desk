@@ -7,10 +7,10 @@
 | Layer | Choice | Why |
 | --- | --- | --- |
 | macOS host | Swift, AppKit menu-bar app via `NSStatusItem` plus a floating `NSPanel` Space Agent | Fresh implementation, owned end-to-end. The menu-bar host remains the server/status process; Space Agent is a local desktop navigator. Python sister project's pyobjc learnings reused, code is not. |
-| iOS client | Swift, UIKit, `RTCMTLVideoView` compositor for video | Native required for text crispness and gesture fidelity. Browser path rejected (see PRD). `AVSampleBufferDisplayLayer` remains a future sink option behind `VideoFrameSink`. |
+| iOS client | Swift, UIKit, `RTCMTLVideoView` for WebRTC video, `AVSampleBufferDisplayLayer` for the owned media prototype | Native required for text crispness and gesture fidelity. Browser path rejected (see PRD). Both renderers sit behind `VideoFrameSink` so media transport can change without changing the touch UI. |
 | Capture | `ScreenCaptureKit` (macOS 12.3+) | First-party, captures the active Space without composition tricks. |
-| Encode / decode | libwebrtc codec preferences per video plane | The detail plane uses VP9 at full capture resolution for rest-state text. The motion plane uses H.264 with env-tunable capture-level downscale for scroll, and no additional sender-side downscale. HEVC remains a follow-up through `MediaCodecPreferences`. |
-| Transport | libwebrtc via SPM (two video tracks) plus a dedicated TLS WebSocket (input), both behind protocol seams | Video on `MediaTransport` (ADR-0004), input on `InputChannel` / `InputChannelServer` (ADR-0005), with input auth bound to a proven session per ADR-0011. Two transports per session so video bursts cannot delay input events at the OS-queue / WebRTC-pacer layer. The video PeerConnection carries two warm tracks, `detail-video` and `motion-video`, so client-side composition can switch planes without renegotiation. v0 video impl is `stasel/WebRTC`; v0 input impl is `WebSocketInputChannel` over the same TLS port as signaling. |
+| Encode / decode | WebRTC codec preferences by default, hardware-required VideoToolbox for `AGENTDESK_MEDIA_STACK=owned` | The default WebRTC path keeps VP9 detail at full capture resolution and H.264 motion with env-tunable capture-level downscale. The owned prototype uses VideoToolbox HEVC by default, H.264 when `AGENTDESK_OWNED_MEDIA_CODEC=h264`, and fails the media path if the required hardware encoder cannot start. |
+| Transport | libwebrtc via SPM by default, owned authenticated media WebSocket behind `AGENTDESK_MEDIA_STACK=owned`, dedicated TLS WebSocket for input | Video is behind `MediaTransport` (ADR-0004), input is behind `InputChannel` / `InputChannelServer` (ADR-0005), with auth bound to a proven session per ADR-0011. The default video PeerConnection carries two warm tracks, `detail-video` and `motion-video`. The owned prototype reuses pairing, session auth, Tailscale, and the input channel, then carries `ADMF` encoded-frame envelopes over a separate authenticated WebSocket. |
 | Network | Tailscale only | No STUN, TURN, VPS, relay. Both peers are on the tailnet. |
 | Pairing | QR code on Mac, scanned by iPhone | One-shot. Signed bearer token stored in Keychain on both sides. |
 | Spaces enumeration | Private SkyLight/CoreGraphics symbols bound with `dlopen` + `dlsym` | No public API exists. Risk is App Store distribution, which is not the v0 target (Developer ID DMG). |
@@ -32,9 +32,9 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 4. **InputDispatcher.** Consumes `NormalizedInput`, emits `CGEvent`. Interface: `dispatch(NormalizedInput)`. Hides the modifier-arm state machine. `.switchSpaceGesture` streams through an injected `switchSpaceGestureHandler` closure that `AppDelegate` wires to `SpacesProvider.postDockSwipeFrame`; the dispatcher's serial queue preserves the Began -> Changed* -> Ended order the Dock expects. `AppDelegate` subscribes to `NSWorkspace.activeSpaceDidChangeNotification` (on `NSWorkspace.shared.notificationCenter`, not `default`) so every committed switch (iPhone-initiated, F3, four-finger swipe, Mission Control click, full-screen) triggers a fresh `DesktopState` broadcast to all active `InputChannelServer`s.
 5. **Pairing.** Generates QR payload, validates incoming tokens, stores in Keychain. Interface: `mintPairingPayload() -> PairingPayload`, `validate(token) -> SessionToken?`.
 6. **SessionAuthenticator.** Runs the per-connection mutual challenge-response defined in ADR-0003 on the `/session` path of the existing TLS WebSocket. Interface: `authenticate(connection) -> ActiveSession`. Throws closed-set rejection reasons. Same test obligation as `Pairing`; the long-term key material is shared.
-7. **MediaTransport.** Protocol per ADR-0004. v0 concrete impl `LibWebRTCMediaTransport` wraps libwebrtc and carries two video tracks in one PeerConnection: `detail-video` and `motion-video`. After ADR-0005 the transport is video-only; the `RTCDataChannel` input path was removed. SDP and ICE travel only over an `ActiveSession` produced by `SessionAuthenticator`; the DTLS fingerprint binding is structural. AppDelegate holds a `MediaTransportFactory` by protocol so the library, codec, and capturer can swap behind a single composition root (`MediaStack`). `MediaPlaneConfiguration.defaultPlanes` sets full-resolution VP9 for detail and capture-downscaled H.264 for motion; `AGENTDESK_TUNING_MOTION_CAPTURE_SCALE_DOWN` tunes the motion capture scale and the motion sender scale remains `1.0` so quality is not downscaled twice.
+7. **MediaTransport.** Protocol per ADR-0004. Default concrete impl `LibWebRTCMediaTransport` wraps libwebrtc and carries two video tracks in one PeerConnection: `detail-video` and `motion-video`. `AGENTDESK_MEDIA_STACK=owned` selects `OwnedMediaTransport`, which takes the same `VideoPlaneSources`, encodes each active plane with a hardware-required VideoToolbox compression session, and writes timestamped `OwnedMediaFrameEnvelope` binary frames through `OwnedMediaChannelServer`. After ADR-0005 the transport is video-only; the `RTCDataChannel` input path was removed. SDP and ICE travel only over an `ActiveSession` produced by `SessionAuthenticator`; the DTLS fingerprint binding is structural for WebRTC. The owned media channel validates a separate per-session media capability before accepting binary frames. AppDelegate holds a `MediaTransportFactory` by protocol so the library, codec, and capturer can swap behind a single composition root (`MediaStack`). `MediaPlaneConfiguration.defaultPlanes` sets full-resolution VP9 for detail and capture-downscaled H.264 for motion in the WebRTC path; `AGENTDESK_TUNING_MOTION_CAPTURE_SCALE_DOWN` tunes the WebRTC motion capture scale and the motion sender scale remains `1.0` so quality is not downscaled twice.
 8. **InputChannelServer.** Per ADR-0005 and ADR-0011. Owns the host side of the dedicated input WebSocket: validates `InputChannelHello.sessionId` and `InputChannelHello.inputCapability` against an active session in `SessionRegistry`, then drains `InputChannelEvent` frames into `events: AsyncStream<NormalizedInput>` for `InputDispatcher`. One instance per active session, owned by `SessionRegistry`. Independent lifecycle from the video PeerConnection.
-9. **SignalingChannel.** Protocol per ADR-0004 and ADR-0011. Wraps the authenticated WebSocket post-`SessionReady`. Carries WebRTC signaling frames (`.offer`, `.answer`, `.ice`) plus low-frequency `InputCapabilityRefreshRequest` / `InputCapabilityGrant` frames. Concrete impl `WebSocketSignalingChannel`.
+9. **SignalingChannel.** Protocol per ADR-0004 and ADR-0011. Wraps the authenticated WebSocket post-`SessionReady`. Carries WebRTC signaling frames (`.offer`, `.answer`, `.ice`) plus low-frequency `InputCapabilityRefreshRequest` / `InputCapabilityGrant` frames. The owned media path does not put binary media on this socket; it uses `MediaChannelHello` as the first frame of a new connection and then takes ownership of that WebSocket after `MediaChannelReady`. Concrete impl `WebSocketSignalingChannel`.
 10. **VideoFrameSource.** Protocol per ADR-0004. Concrete impl `ScreenCaptureKitFrameSource` captures the active Space's display at native cadence and can apply capture-level downscale before frames enter WebRTC. The host runs one source for the detail plane at native capture size and one for the motion plane at the configured H.264 capture scale. `WebRTCVideoCapturer` bridges each source into libwebrtc's `RTCVideoSource`; `TestPatternFrameSource` exists as a diagnostic impl.
 11. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces. Uses `ScreenCaptureKit` plus an isolated SkyLight `SLSCopySpacesForWindows` binding to map windows to Spaces and composite 128x80 JPEG thumbnails. Surface: `setDemand(owner:enabled:)`, `forceRefresh(spaceId:)`, `thumbnails: AsyncStream<[UInt64: Data]>`. It is shared by the iPhone preview strip and the host Space Agent through owner-scoped demand; it captures only while at least one owner needs thumbnails.
 12. **SpaceAgent.** Host-local overlay under `host/AgentDeskHost/SpaceAgent/`. `SpaceAgentController` owns a floating non-activating `NSPanel`, persisted screen position, expanded/collapsed state, `NSWorkspace.activeSpaceDidChangeNotification` observation, and thumbnail-demand ownership. `SpaceAgentViewController` renders the small draggable bitmap spaceship and the attached horizontal active-display Spaces strip. `SpaceAgentModel` derives view models from `DesktopState` and thumbnail bytes, with placeholder tiles when thumbnails are unavailable. Tile selection calls `SpacesProvider.commitStep(delta:)` and leaves the panel expanded. The current menu-bar popover remains pairing/status UI; Space Agent is independent and starts visible with the host app.
@@ -42,13 +42,13 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 
 ### Client (iOS)
 
-1. **VideoFrameSink.** Protocol per ADR-0004. v0 concrete impl `DualPlaneVideoSink` owns two `RTCMTLVideoSink` renderers, one per media plane, and exposes one container view to the UI. The compositor shows the detail plane by default, switches to motion immediately on scroll touch-down, and restores detail only after a fresh detail-plane render callback. `RTCMTLVideoSink` wraps `RTCMTLVideoView` and renders at native DPR. An `AVSampleBufferVideoSink` is a future drop-in via the same protocol; AVSampleBufferDisplayLayer was the original v0 target per ADR-0001 but deferred to v1 in ADR-0004 because the AVSBDL path requires recovering encoded `CMSampleBuffer`s from libwebrtc's decode pipeline.
+1. **VideoFrameSink.** Protocol per ADR-0004. Default concrete impl `DualPlaneVideoSink` owns two `RTCMTLVideoSink` renderers, one per media plane, and exposes one container view to the UI. The compositor shows the detail plane by default, switches to motion immediately on scroll touch-down, and restores detail only after a fresh detail-plane render callback. `RTCMTLVideoSink` wraps `RTCMTLVideoView` and renders at native DPR. `AGENTDESK_MEDIA_STACK=owned` uses `OwnedMediaVideoSink`, which owns the active `AVSampleBufferDisplayLayer` instances advertised by `SessionReady.mediaPlanes` and renders encoded HEVC or H.264 samples from `OwnedMediaFrameEnvelope` payloads. If the host advertises only `detail`, scroll interaction does not switch to a missing motion layer.
 2. **GestureTranslator.** Converts UIKit gesture recognizers on the trackpad / scroll-strip surface to `NormalizedInput`. Owns cursor pan, scroll, tap, and bare-hold-drag. Multi-touch recognizers stay off the trackpad because the v0 target is one-handed.
 3. **SpacesDotsView.** R11 one-handed Spaces switch surface. 32pt horizontal band mounted between the screen-share video sink and the trackpad cluster. Renders one dot per user (`type=0`) Space on the active display; the active dot is filled. State is host-pushed via `DesktopStatePush` over the input WSS; the band hides itself when `count <= 1`. A single-finger horizontal pan streams `NormalizedInput.switchSpaceGesture(phase:progress:velocityX:)` frames continuously (Began -> Changed* -> Ended/Cancelled) so the host can drive the Dock's Space-transition animation in real time. Progress is normalised to band width and clamped to ±1; velocity passes through pts/s.
 4. **KeyboardSurface.** Compact keyboard plus accessory row. Emits `NormalizedInput { kind: "key" }` and `modifierArm`.
 5. **PairingClient.** Camera, QR decode, Keychain write.
 6. **SessionDialer.** Mirror of host `SessionAuthenticator`. Drives the four-message handshake from the client side, owns the four-state UI machine (`unpaired | paired-disconnected | connecting | connected`, plus terminal `revoked`), and clears stored credentials on `revoked` / `unknown-device` / `bad-signature` per ADR-0003.
-7. **MediaTransport.** Mirror of host. Video-only after ADR-0005; same protocol surface as host, same composition-root pattern via `MediaStack`. The client applies per-plane codec preferences in the answer and attaches `detail-video` / `motion-video` to the matching renderers inside `DualPlaneVideoSink`. PairingClient holds the factory by protocol.
+7. **MediaTransport.** Mirror of host. Video-only after ADR-0005; same protocol surface as host, same composition-root pattern via `MediaStack`. In the default WebRTC path the client applies per-plane codec preferences in the answer and attaches `detail-video` / `motion-video` to the matching renderers inside `DualPlaneVideoSink`. In the owned path `OwnedMediaTransport` opens the media WebSocket with `MediaChannelHello`, waits for `MediaChannelReady`, decodes `ADMF` binary envelopes, and sends frames to `OwnedMediaVideoSink`. PairingClient holds the active media mode, media capability, media planes, host, and port after session establishment so the view controller can create the correct transport and sink.
 8. **InputChannel.** Per ADR-0005 and ADR-0011. Owns the client side of the dedicated input WebSocket. Protocol surface: `send(_ input:) async throws`, `close()`, host-push streams, and `closed`. v0 impl `WebSocketInputChannel` wraps one `URLSessionWebSocketTask`. `InputChannelOpener` performs the handshake by sending `InputChannelHello { deviceFingerprint, sessionId, inputCapability }` as the first frame and returns the ready channel. `PairingClient.attemptSession` opens it alongside the WebRTC session and exposes it via `activeInputChannel`; `PairingViewController.sendInput` routes through it.
 
 Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView.** These five are where regressions are most expensive and where the contracts are most stable. `SpacesProvider`'s smoke test is the canary for private-SkyLight surface drift across macOS versions.
@@ -98,25 +98,61 @@ SessionToken {
 
 QR encoding: `PairingPayload` is serialized to compact JSON, base64url-encoded, and embedded in a `agentdesk://pair?p=<base64url>` URL.
 
-Session-establishment wire shapes are locked by ADR-0003 and travel on `wss://<host>:<port>/session`, distinct from the `/pair` path used by `PairingPayload`. Post-`SessionReady` media-plane signaling frames are locked by ADR-0004 and travel on the same authenticated socket.
+Session-establishment wire shapes are locked by ADR-0003 and travel on `wss://<host>:<port>/session`, distinct from the `/pair` path used by `PairingPayload`. Post-`SessionReady` WebRTC media-plane signaling frames are locked by ADR-0004 and travel on the same authenticated socket. The owned media prototype adds a separate per-session media capability, scoped to the same active session.
 
 ```
 SessionInit       { deviceFingerprint, sessionToken, clientNonce }
 SessionChallenge  { hostNonce, hostSignature }
 SessionProof      { clientSignature }
-SessionReady      { sessionId, inputCapability, inputCapabilityExpiresAt }
+SessionReady      { sessionId, inputCapability, inputCapabilityExpiresAt,
+                    mediaMode, mediaCapability, mediaCapabilityExpiresAt,
+                    mediaPlanes }
 InputCapabilityRefreshRequest { deviceFingerprint, sessionId }       // t: "input-capability-refresh"
 InputCapabilityGrant { sessionId, inputCapability, inputCapabilityExpiresAt } // t: "input-capability-grant"
 SessionRejected   { reason }   // reason in { revoked, unknown-device,
                                //             replay, bad-signature,
                                //             malformed, unauthorized,
                                //             expired-input-capability,
-                               //             stale-input-capability }
+                               //             stale-input-capability,
+                               //             expired-media-capability,
+                               //             stale-media-capability }
 
 WebRTCOffer        { sdp }                                // t: "webrtc-offer"
 WebRTCAnswer       { sdp }                                // t: "webrtc-answer"
 WebRTCIceCandidate { sdp, sdpMid?, sdpMLineIndex }        // t: "webrtc-ice"
 ```
+
+Owned-media channel wire shapes are part of the R24.9 prototype and travel on a
+new WebSocket connection after `SessionReady`. First-frame classification routes
+`MediaChannelHello` to the media path. The host validates
+`mediaCapability` against `SessionRegistry`, sends `MediaChannelReady`, removes
+the connection from normal signaling tracking, and then sends binary media
+frames only.
+
+```
+MediaChannelHello { deviceFingerprint, sessionId, mediaCapability } // t: "media-hello" (client -> host)
+MediaChannelReady { sessionId }                                     // t: "media-ready" (host -> client)
+
+OwnedMediaFrameEnvelope =
+  "ADMF" || version=1 || headerLength: UInt32BE || headerJSON || payload
+
+OwnedMediaFrameHeader {
+  frameId,
+  plane: "detail" | "motion",
+  codec: "hevc" | "h264",
+  width, height,
+  capturedAtUptimeNs,
+  presentationTimeNs,
+  isKeyframe,
+  parameterSets?,
+  payloadFormat: "length-prefixed-nal"
+}
+```
+
+The payload is the VideoToolbox access-unit sample data with length-prefixed NAL
+units. Keyframes carry codec parameter sets in the JSON header so the iOS
+receiver can create or refresh its `CMVideoFormatDescription` before enqueueing
+the sample buffer.
 
 Input-channel wire shapes are locked by ADR-0005 and ADR-0011 and travel on a
 dedicated WebSocket Secure connection at the same TLS port as
@@ -158,7 +194,7 @@ Both signatures are ECDSA-P256 over `"agentdesk-session" || clientNonce || hostN
 - Space Agent appears while the host runs. It is a small draggable spaceship overlay that joins all Spaces where AppKit permits. Clicking the spaceship expands or collapses an attached active-display Spaces panel. Thumbnail capture is enabled only while expanded and only through owner-scoped demand on the shared `SpaceThumbnailProvider`.
 - Client suspends on background; the WebRTC peer is torn down within 1 second; Keychain token and host pubkey persist.
 - On foreground, the client transitions to `paired-disconnected` and runs the session-establishment exchange per ADR-0003 using the stored `SessionToken` to identify itself and a fresh `clientSignature` to authenticate. Re-pairing only occurs after a `revoked`, `unknown-device`, `bad-signature`, or `unauthorized` rejection from the host.
-- The dedicated input channel (ADR-0005, ADR-0011) is opened immediately after session establishment with the per-session input capability returned by `SessionReady` and lives for the session. Its lifecycle is independent of the WebRTC video PeerConnection: a video failure does not tear down input, and vice versa. Reconnection uses the same exponential-backoff policy as `SessionDialer`, but input capability refresh happens only over the authenticated session channel. Host-side revocation deletes the allowlist row and tears down the active signaling channel, input channel, media transport, input task, and outstanding input capability for that device.
+- The dedicated input channel (ADR-0005, ADR-0011) is opened immediately after session establishment with the per-session input capability returned by `SessionReady` and lives for the session. Its lifecycle is independent of the video transport: a video failure does not tear down input, and vice versa. Reconnection uses the same exponential-backoff policy as `SessionDialer`, but input capability refresh happens only over the authenticated session channel. In the owned media path the media channel is opened with the per-session media capability returned by `SessionReady`; there is no unauthenticated media socket. Host-side revocation deletes the allowlist row and tears down the active signaling channel, input channel, media transport, input task, owned media channel, outstanding input capability, and outstanding media capability for that device.
 
 ## Risks tracked outside this doc
 

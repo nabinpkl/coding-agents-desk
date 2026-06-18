@@ -118,7 +118,12 @@ struct PairingClientTests {
     @Test func staleAndExpiredRefreshRejectionsStayPairedDisconnected() throws {
         let hostKey = P256.Signing.PrivateKey()
         let token = try signedToken(hostKey: hostKey, deviceFingerprint: DeviceFingerprint("device"))
-        for reason in [SessionRejectionReason.staleInputCapability, .expiredInputCapability] {
+        for reason in [
+            SessionRejectionReason.staleInputCapability,
+            .expiredInputCapability,
+            .staleMediaCapability,
+            .expiredMediaCapability
+        ] {
             let store = InMemorySessionTokenStore()
             try store.store(StoredPairingRecord(
                 token: token,

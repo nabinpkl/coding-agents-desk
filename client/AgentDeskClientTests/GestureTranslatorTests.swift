@@ -20,6 +20,108 @@ struct GestureTranslatorTests {
         #expect(compositor.visiblePlane == .detail)
     }
 
+    @Test func dualPlaneCompositorReportsFirstMotionFrameDelay() {
+        let compositor = DualPlaneVideoCompositor(initialPlane: .detail)
+
+        let start = compositor.setMotionActive(true, nowNs: 1_000_000)
+        let firstMotion = compositor.noteFrameRendered(on: .motion, nowNs: 4_500_000)
+        let duplicateMotion = compositor.noteFrameRendered(on: .motion, nowNs: 6_000_000)
+
+        #expect(start.phase == .motionStarted)
+        #expect(firstMotion?.phase == .firstMotionFrame)
+        #expect(firstMotion?.delayMs == 3.5)
+        #expect(duplicateMotion == nil)
+    }
+
+    @Test func dualPlaneCompositorReportsDetailRestoreDelay() {
+        let compositor = DualPlaneVideoCompositor(initialPlane: .detail)
+
+        _ = compositor.setMotionActive(true, nowNs: 1_000_000)
+        _ = compositor.setMotionActive(false, nowNs: 2_000_000)
+        let lateFirstMotion = compositor.noteFrameRendered(on: .motion, nowNs: 3_000_000)
+        let restoredDetail = compositor.noteFrameRendered(on: .detail, nowNs: 7_000_000)
+
+        #expect(lateFirstMotion?.phase == .firstMotionFrame)
+        #expect(lateFirstMotion?.delayMs == 2.0)
+        #expect(restoredDetail?.phase == .detailRestored)
+        #expect(restoredDetail?.delayMs == 5.0)
+        #expect(compositor.visiblePlane == .detail)
+    }
+
+    @Test func videoRenderCadenceTrackerReportsPeriodicFrameWindows() {
+        let tracker = VideoRenderCadenceTracker(
+            plane: .motion,
+            reportEveryFrames: 3,
+            lateCallbackGapMs: 20
+        )
+
+        #expect(tracker.note(VideoRenderCadenceSample(
+            plane: .motion,
+            callbackUptimeNs: 1_000_000,
+            mediaTimestampNs: 10_000_000,
+            width: 1800,
+            height: 1168
+        )) == nil)
+        #expect(tracker.note(VideoRenderCadenceSample(
+            plane: .motion,
+            callbackUptimeNs: 17_000_000,
+            mediaTimestampNs: 26_000_000,
+            width: 1800,
+            height: 1168
+        )) == nil)
+        let report = tracker.note(VideoRenderCadenceSample(
+            plane: .motion,
+            callbackUptimeNs: 67_000_000,
+            mediaTimestampNs: 76_000_000,
+            width: 1800,
+            height: 1168
+        ))
+
+        #expect(report?.plane == .motion)
+        #expect(report?.reason == "periodic")
+        #expect(report?.scrollActive == false)
+        #expect(report?.frames == 3)
+        #expect(report?.callbackWindowMs == 66)
+        #expect(report?.avgCallbackGapMs == 33)
+        #expect(report?.maxCallbackGapMs == 50)
+        #expect(report?.mediaWindowMs == 66)
+        #expect(report?.avgMediaGapMs == 33)
+        #expect(report?.maxMediaGapMs == 50)
+        #expect(report?.lateCallbackGaps == 1)
+        #expect(report?.width == 1800)
+        #expect(report?.height == 1168)
+    }
+
+    @Test func videoRenderCadenceTrackerFlushesAtScrollTransitions() {
+        let tracker = VideoRenderCadenceTracker(plane: .detail, reportEveryFrames: 30)
+
+        _ = tracker.note(VideoRenderCadenceSample(
+            plane: .detail,
+            callbackUptimeNs: 1_000_000,
+            mediaTimestampNs: 2_000_000,
+            width: 3600,
+            height: 2338
+        ))
+        let scrollStart = tracker.setScrollActive(true, nowNs: 5_000_000)
+
+        #expect(scrollStart?.reason == "scroll-start")
+        #expect(scrollStart?.scrollActive == false)
+        #expect(scrollStart?.frames == 1)
+
+        _ = tracker.note(VideoRenderCadenceSample(
+            plane: .detail,
+            callbackUptimeNs: 9_000_000,
+            mediaTimestampNs: 10_000_000,
+            width: 3600,
+            height: 2338
+        ))
+        let scrollEnd = tracker.setScrollActive(false, nowNs: 12_000_000)
+
+        #expect(scrollEnd?.reason == "scroll-end")
+        #expect(scrollEnd?.scrollActive == true)
+        #expect(scrollEnd?.frames == 1)
+    }
+
     @Test func panEmitsCursorMoveDeltasSinceLastChangedCallback() {
         let recorder = InputRecorder()
         let translator = GestureTranslator()

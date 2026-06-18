@@ -9,7 +9,15 @@ enum MediaStack {
     // Dual-plane media: full-resolution detail for readable rest text,
     // downscaled H.264 motion for scroll.
     static func makeFactory() -> MediaTransportFactory {
-        LibWebRTCTransportFactory(planeConfigurations: MediaPlaneConfiguration.defaultPlanes)
+        switch Config.mediaStackMode {
+        case .webrtc:
+            return LibWebRTCTransportFactory(planeConfigurations: MediaPlaneConfiguration.defaultPlanes)
+        case .owned:
+            return OwnedMediaTransportFactory(
+                codec: Config.ownedMediaCodec.wireCodec,
+                activePlanes: Set(Config.ownedMediaActivePlanes)
+            )
+        }
     }
 
     // R8.6.5 swaps the default from TestPatternFrameSource to

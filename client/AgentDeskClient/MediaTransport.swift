@@ -97,10 +97,11 @@ struct MediaCodecPreferences: Equatable {
 
     static let h264Only = MediaCodecPreferences(preferred: [.h264])
     static let vp9Only = MediaCodecPreferences(preferred: [.vp9])
+    static let vp9First = MediaCodecPreferences(preferred: [.vp9, .h264])
 
     static let defaultPlanes: [MediaPlane: MediaCodecPreferences] = [
         .detail: .vp9Only,
-        .motion: .h264Only
+        .motion: .vp9First
     ]
 
     var preferredCodecNames: [String] {

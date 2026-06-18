@@ -82,6 +82,10 @@ final class PairingClient {
         try? tokenStore.load()
     }
 
+    var mediaURLSession: URLSession {
+        urlSession
+    }
+
     private static func makeDefaultSession() -> URLSession {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 15
@@ -171,6 +175,7 @@ final class PairingClient {
         inputReconnectTask = nil
         activeInputChannel?.close()
         activeInputChannel = nil
+        resetActiveMediaSession()
         state = .unpaired
     }
 
@@ -178,6 +183,11 @@ final class PairingClient {
     // ADR-0005: dedicated input transport. PairingViewController.sendInput
     // routes through this instead of the deleted MediaTransport.send.
     private(set) var activeInputChannel: InputChannel?
+    private(set) var activeMediaMode: MediaMode = .webrtc
+    private(set) var activeMediaCapability: MediaCapabilityGrant?
+    private(set) var activeMediaPlanes: [MediaPlane] = MediaPlane.allCases
+    private(set) var activeHost: String?
+    private(set) var activePort: UInt16 = Config.signalingPort
     private var inputReconnectTask: Task<Void, Never>?
 
     /// Called by PairingViewController when the WebRTC media plane reports
@@ -191,6 +201,7 @@ final class PairingClient {
         inputReconnectTask = nil
         activeInputChannel?.close()
         activeInputChannel = nil
+        resetActiveMediaSession()
         if case .connected = state {
             state = .pairedDisconnected
         }
@@ -247,10 +258,20 @@ final class PairingClient {
             let session = SessionConnection(
                 active: connection.active,
                 signaling: connection.signaling,
-                inputChannel: inputChannel
+                inputChannel: inputChannel,
+                mediaMode: connection.mediaMode,
+                mediaCapability: connection.mediaCapability,
+                mediaPlanes: connection.mediaPlanes,
+                host: host,
+                port: port
             )
             activeSignaling = session.signaling
             activeInputChannel = session.inputChannel
+            activeMediaMode = session.mediaMode
+            activeMediaCapability = session.mediaCapability
+            activeMediaPlanes = session.mediaPlanes
+            activeHost = session.host
+            activePort = session.port
             startInputReconnectMonitor(
                 host: host,
                 port: port,
@@ -261,9 +282,11 @@ final class PairingClient {
             state = .connected(session.active)
             return session
         } catch let rejection as SessionRejected {
+            resetActiveMediaSession()
             applyRejection(rejection)
             throw rejection
         } catch {
+            resetActiveMediaSession()
             state = .pairedDisconnected
             throw error
         }
@@ -274,7 +297,8 @@ final class PairingClient {
         case .revoked, .unknownDevice, .badSignature, .unauthorized:
             try? tokenStore.clear()
             state = .revoked
-        case .replay, .malformed, .expiredInputCapability, .staleInputCapability:
+        case .replay, .malformed, .expiredInputCapability, .staleInputCapability,
+             .expiredMediaCapability, .staleMediaCapability:
             state = .pairedDisconnected
         }
     }
@@ -341,14 +365,24 @@ final class PairingClient {
             activeSignaling = nil
             activeInputChannel = nil
             inputReconnectTask = nil
+            resetActiveMediaSession()
             applyRejection(rejection)
         } catch {
             activeSignaling?.close()
             activeSignaling = nil
             activeInputChannel = nil
             inputReconnectTask = nil
+            resetActiveMediaSession()
             state = .pairedDisconnected
         }
+    }
+
+    private func resetActiveMediaSession() {
+        activeMediaMode = .webrtc
+        activeMediaCapability = nil
+        activeMediaPlanes = MediaPlane.allCases
+        activeHost = nil
+        activePort = Config.signalingPort
     }
 
     func performHandshake(for payload: PairingPayload) async throws {

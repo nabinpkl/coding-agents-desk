@@ -35,6 +35,70 @@ struct InputChannelTests {
         #expect(decoded == ready)
     }
 
+    @Test func sessionReadyCarriesOwnedMediaCapability() throws {
+        let ready = SessionReady(
+            sessionId: "session-123",
+            inputCapability: "input-capability",
+            inputCapabilityExpiresAt: 1_800_000_060,
+            mediaMode: .owned,
+            mediaCapability: "media-capability",
+            mediaCapabilityExpiresAt: 1_800_000_060,
+            mediaPlanes: [.detail]
+        )
+        let data = try JSONEncoder().encode(ready)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        #expect(json.contains("\"mm\":\"owned\""))
+        #expect(json.contains("\"mc\":\"media-capability\""))
+        #expect(json.contains("\"me\":1800000060"))
+        #expect(json.contains("\"mp\":[\"detail\"]"))
+
+        let decoded = try JSONDecoder().decode(SessionReady.self, from: data)
+        #expect(decoded == ready)
+    }
+
+    @Test func oldSessionReadyFixturesDefaultToWebRTC() throws {
+        let data = Data(#"{"t":"session-ready","sid":"session-123","ic":"capability","ie":1800000060}"#.utf8)
+        let decoded = try JSONDecoder().decode(SessionReady.self, from: data)
+
+        #expect(decoded.mediaMode == .webrtc)
+        #expect(decoded.mediaCapability == "")
+        #expect(decoded.mediaCapabilityExpiresAt == 0)
+        #expect(decoded.mediaPlanes == MediaPlane.allCases)
+    }
+
+    @Test func mediaHelloFrameSerializesWithCompactKeys() throws {
+        let hello = MediaChannelHello(
+            deviceFingerprint: DeviceFingerprint("device-fp-xyz"),
+            sessionId: "session-123",
+            mediaCapability: "media-capability"
+        )
+        let data = try JSONEncoder().encode(hello)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        #expect(json.contains("\"t\":\"media-hello\""))
+        #expect(json.contains("\"d\""))
+        #expect(json.contains("device-fp-xyz"))
+        #expect(json.contains("\"sid\":\"session-123\""))
+        #expect(json.contains("\"mc\":\"media-capability\""))
+    }
+
+    @Test func ownedMediaEnvelopeRoundTripsHeaderAndPayload() throws {
+        let header = OwnedMediaFrameHeader(
+            frameId: 1,
+            plane: .detail,
+            codec: .h264,
+            width: 1280,
+            height: 720,
+            capturedAtUptimeNs: 10,
+            presentationTimeNs: 20,
+            isKeyframe: false,
+            parameterSets: nil
+        )
+        let envelope = OwnedMediaFrameEnvelope(header: header, payload: Data([0x10, 0x20]))
+        let decoded = try OwnedMediaFrameEnvelope.decode(envelope.encode())
+
+        #expect(decoded == envelope)
+    }
+
     @Test func eventFramePreservesNormalizedInput() throws {
         let event = NormalizedInput.cursorMove(dx: 1.5, dy: -2.25)
         let frame = InputChannelEvent(event: event)
@@ -213,6 +277,15 @@ struct InputChannelTests {
         #expect(allowed == [0, 1, 5])
         #expect(MediaCodecPreferences.h264Only.allows(statsMimeType: "video/H264"))
         #expect(!MediaCodecPreferences.h264Only.allows(statsMimeType: "video/VP8"))
+    }
+
+    @Test func motionPlaneAcceptsVp9AndH264ForCodecExploration() {
+        let motion = MediaCodecPreferences.defaultPlanes[.motion]
+
+        #expect(motion == MediaCodecPreferences.vp9First)
+        #expect(motion?.allows(statsMimeType: "video/VP9") == true)
+        #expect(motion?.allows(statsMimeType: "video/H264") == true)
+        #expect(motion?.allows(statsMimeType: "video/VP8") == false)
     }
 
     @Test func openerReturnsOnlyAfterInputReady() async throws {

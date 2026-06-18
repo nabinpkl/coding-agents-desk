@@ -41,6 +41,19 @@ struct ScrollQualityTests {
         #expect(planes[.motion]?.captureScaleDownBy == SenderTuning.h264HardwareEncoderScaleDownBy)
     }
 
+    @Test func motionCodecCanBeTunedToDownscaledVp9() {
+        let planes = MediaPlaneConfiguration.defaultPlanes(environment: [
+            "AGENTDESK_TUNING_MOTION_CODEC": "vp9",
+            "AGENTDESK_TUNING_MOTION_CAPTURE_SCALE_DOWN": "2.5"
+        ])
+        let motion = planes[.motion]
+
+        #expect(motion?.codecs == .vp9Only)
+        #expect(motion?.captureScaleDownBy == 2.5)
+        #expect(motion?.tuning.scrollProfile.scaleResolutionDownBy == 1.0)
+        #expect(motion?.tuning.scrollProfile.temporalLayers == SenderTuning.default.temporalLayers)
+    }
+
     @Test func scrollProfileDropsResolutionAndBitrateAndPrioritizesFramerate() {
         let tuning = SenderTuning.default
         let scroll = tuning.scrollProfile
@@ -61,6 +74,31 @@ struct ScrollQualityTests {
         #expect(crisp.maxFramerate == tuning.maxFramerate)
         #expect(crisp.maxBitrateKbps == tuning.maxBitrateKbps)
         #expect(crisp.degradation == tuning.degradationPreference)
+    }
+
+    @Test func detailSuppressedProfileBacksOffInvisibleDetailPlaneDuringScroll() {
+        let tuning = SenderTuning.default
+        let suppressed = tuning.detailScrollSuppressedProfile
+
+        #expect(suppressed.active)
+        #expect(suppressed.scaleResolutionDownBy == tuning.detailScrollScaleDownBy)
+        #expect(suppressed.scaleResolutionDownBy > tuning.crispProfile.scaleResolutionDownBy)
+        #expect(suppressed.maxFramerate == 1)
+        #expect(suppressed.maxBitrateKbps < tuning.crispProfile.maxBitrateKbps)
+        #expect(suppressed.minBitrateKbps < tuning.crispProfile.minBitrateKbps)
+        #expect(suppressed.degradation == .maintainFramerate)
+        #expect(suppressed.temporalLayers == tuning.temporalLayers)
+    }
+
+    @Test func detailSuppressedProfileCanDisableDetailSenderDuringScroll() {
+        let tuning = SenderTuning.fromEnvironment([
+            "AGENTDESK_TUNING_DETAIL_SCROLL_ACTIVE": "0"
+        ])
+        let suppressed = tuning.detailScrollSuppressedProfile
+
+        #expect(!suppressed.active)
+        #expect(tuning.crispProfile.active)
+        #expect(tuning.scrollProfile.active)
     }
 
     @Test func temporalLayersAreConstantAcrossProfilesSoSwitchesAvoidReconfig() {
@@ -148,5 +186,25 @@ struct ScrollQualityTests {
         #expect(MediaCodecPreferences.vp9First.allows(statsMimeType: "video/VP9"))
         #expect(MediaCodecPreferences.vp9First.allows(statsMimeType: "video/H264"))
         #expect(!MediaCodecPreferences.vp9First.allows(statsMimeType: "video/VP8"))
+    }
+
+    @Test func outboundPlaneResolverUsesTrackIdentifierBeforeMid() {
+        let plane = OutboundRtpPlaneResolver.planeName(
+            trackIdentifier: "motion-video",
+            mid: "0",
+            midPlanes: ["0": .detail]
+        )
+
+        #expect(plane == "motion")
+    }
+
+    @Test func outboundPlaneResolverFallsBackToTransceiverMid() {
+        let plane = OutboundRtpPlaneResolver.planeName(
+            trackIdentifier: nil,
+            mid: "1",
+            midPlanes: ["0": .detail, "1": .motion]
+        )
+
+        #expect(plane == "motion")
     }
 }

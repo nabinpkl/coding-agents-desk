@@ -53,6 +53,9 @@ host-logs:
 # the app's central MediaStack choice; setting AGENTDESK_CODEC=h264 forces
 # the hardware-decoder candidate path for feel testing.
 #
+# AGENTDESK_MEDIA_STACK and AGENTDESK_OWNED_MEDIA_* are forwarded for the
+# owned VideoToolbox media prototype gate.
+#
 # AGENTDESK_TUNING_* is forwarded as a prefix so media feel runs can use
 # one-shot shell overrides with `just fresh-install`.
 host-run:
