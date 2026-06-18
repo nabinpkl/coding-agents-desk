@@ -41,6 +41,17 @@ struct ScrollQualityTests {
         #expect(planes[.motion]?.captureScaleDownBy == SenderTuning.h264HardwareEncoderScaleDownBy)
     }
 
+    @Test func ownedMediaCeilingConfigParsesStrictChromaProfileAndMaxQP() {
+        #expect(Config.OwnedMediaChroma(rawEnvironmentValue: "444") == .yuv444)
+        #expect(Config.OwnedMediaChroma(rawEnvironmentValue: "bgra") == .bgra)
+        #expect(Config.OwnedMediaChroma(rawEnvironmentValue: "unknown") == .yuv420)
+        #expect(Config.OwnedMediaHEVCProfile(rawEnvironmentValue: "main444") == .main444)
+        #expect(Config.OwnedMediaHEVCProfile(rawEnvironmentValue: "44410") == .main44410)
+        #expect(Config.OwnedMediaHEVCProfile(rawEnvironmentValue: "unknown") == nil)
+        #expect(Config.ownedMediaMaxQP(environment: ["AGENTDESK_OWNED_MEDIA_MAX_QP": "24"]) == 24)
+        #expect(Config.ownedMediaMaxQP(environment: ["AGENTDESK_OWNED_MEDIA_MAX_QP": "0"]) == nil)
+    }
+
     @Test func motionCodecCanBeTunedToDownscaledVp9() {
         let planes = MediaPlaneConfiguration.defaultPlanes(environment: [
             "AGENTDESK_TUNING_MOTION_CODEC": "vp9",

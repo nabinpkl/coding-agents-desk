@@ -7,14 +7,36 @@ import os
 final class OwnedMediaTransportFactory: MediaTransportFactory {
     private let codec: OwnedMediaCodec
     private let activePlanes: Set<MediaPlane>
+    private let configuration: OwnedMediaEncodingConfiguration
 
-    init(codec: OwnedMediaCodec, activePlanes: Set<MediaPlane>) {
+    init(codec: OwnedMediaCodec, activePlanes: Set<MediaPlane>, configuration: OwnedMediaEncodingConfiguration = .default) {
         self.codec = codec
         self.activePlanes = activePlanes
+        self.configuration = configuration
     }
 
     func make() -> MediaTransport {
-        OwnedMediaTransport(codec: codec, activePlanes: activePlanes)
+        OwnedMediaTransport(codec: codec, activePlanes: activePlanes, configuration: configuration)
+    }
+}
+
+struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
+    let expectedPixelFormat: OSType?
+    let hevcProfileLevel: String?
+    let maxAllowedFrameQP: Int?
+
+    static let `default` = OwnedMediaEncodingConfiguration(
+        expectedPixelFormat: nil,
+        hevcProfileLevel: nil,
+        maxAllowedFrameQP: nil
+    )
+
+    static func fromConfig() -> OwnedMediaEncodingConfiguration {
+        OwnedMediaEncodingConfiguration(
+            expectedPixelFormat: Config.ownedMediaChroma.expectedPixelFormat,
+            hevcProfileLevel: Config.ownedMediaHEVCProfile?.profileLevel,
+            maxAllowedFrameQP: Config.ownedMediaMaxQP
+        )
     }
 }
 
@@ -24,15 +46,17 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
     private let codec: OwnedMediaCodec
     private let activePlanes: Set<MediaPlane>
+    private let configuration: OwnedMediaEncodingConfiguration
     private let lock = NSLock()
     private var channel: (any OwnedMediaChannelServing)?
     private var videoSources: VideoPlaneSources?
     private var encoders: [MediaPlane: VideoToolboxOwnedMediaEncoder] = [:]
     private var started = false
 
-    init(codec: OwnedMediaCodec, activePlanes: Set<MediaPlane>) {
+    init(codec: OwnedMediaCodec, activePlanes: Set<MediaPlane>, configuration: OwnedMediaEncodingConfiguration = .default) {
         self.codec = codec
         self.activePlanes = activePlanes
+        self.configuration = configuration
         var continuation: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { continuation = $0 }
         self.stateContinuation = continuation
@@ -91,6 +115,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 codec: codec,
                 targetBitrateKbps: targetBitrateKbps(for: plane),
                 expectedFrameRate: plane == .motion ? SenderTuning.fromEnvironment(ProcessInfo.processInfo.environment).scrollProfile.maxFramerate : 30,
+                configuration: configuration,
                 onEncoded: { [weak self, weak channel] envelope in
                     guard let channel else { return }
                     Task {
@@ -140,6 +165,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private let codec: OwnedMediaCodec
     private let targetBitrateKbps: Int
     private let expectedFrameRate: Int
+    private let configuration: OwnedMediaEncodingConfiguration
     private let onEncoded: @Sendable (OwnedMediaFrameEnvelope) -> Void
     private let lock = NSLock()
     private var session: VTCompressionSession?
@@ -152,12 +178,14 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         codec: OwnedMediaCodec,
         targetBitrateKbps: Int,
         expectedFrameRate: Int,
+        configuration: OwnedMediaEncodingConfiguration = .default,
         onEncoded: @escaping @Sendable (OwnedMediaFrameEnvelope) -> Void
     ) {
         self.plane = plane
         self.codec = codec
         self.targetBitrateKbps = targetBitrateKbps
         self.expectedFrameRate = expectedFrameRate
+        self.configuration = configuration
         self.onEncoded = onEncoded
     }
 
@@ -207,6 +235,12 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private func ensureSession(for pixelBuffer: CVPixelBuffer) throws {
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
+        let actualPixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
+        if let expectedPixelFormat = configuration.expectedPixelFormat,
+           actualPixelFormat != expectedPixelFormat {
+            logger.error("owned capture pixel format mismatch plane=\(self.plane.rawValue, privacy: .public) expected=\(Self.fourCC(expectedPixelFormat), privacy: .public) actual=\(Self.fourCC(actualPixelFormat), privacy: .public)")
+            throw SessionRejected(reason: .malformed)
+        }
         if let size, size.width == width, size.height == height, session != nil {
             return
         }
@@ -237,10 +271,16 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         try setProperty(kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse, on: newSession)
         try setProperty(kVTCompressionPropertyKey_ExpectedFrameRate, value: NSNumber(value: expectedFrameRate), on: newSession)
         try setProperty(kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: targetBitrateKbps * 1000), on: newSession)
+        if codec == .hevc, let hevcProfileLevel = configuration.hevcProfileLevel {
+            try setRequiredProperty(kVTCompressionPropertyKey_ProfileLevel, value: hevcProfileLevel as CFString, on: newSession)
+        }
+        if let maxAllowedFrameQP = configuration.maxAllowedFrameQP {
+            try setRequiredProperty(kVTCompressionPropertyKey_MaxAllowedFrameQP, value: NSNumber(value: maxAllowedFrameQP), on: newSession)
+        }
         VTCompressionSessionPrepareToEncodeFrames(newSession)
         session = newSession
         size = (width, height)
-        logger.notice("owned encoder session plane=\(self.plane.rawValue, privacy: .public) codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) bitrate=\(self.targetBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public)")
+        logger.notice("owned encoder session plane=\(self.plane.rawValue, privacy: .public) codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) pixelFormat=\(Self.fourCC(actualPixelFormat), privacy: .public) profile=\(String(describing: self.configuration.hevcProfileLevel), privacy: .public) maxQP=\(String(describing: self.configuration.maxAllowedFrameQP), privacy: .public) bitrate=\(self.targetBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public)")
     }
 
     private func setProperty(_ key: CFString, value: CFTypeRef, on session: VTCompressionSession) throws {
@@ -248,6 +288,24 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         guard status == noErr || status == kVTPropertyNotSupportedErr else {
             throw SessionRejected(reason: .malformed)
         }
+    }
+
+    private func setRequiredProperty(_ key: CFString, value: CFTypeRef, on session: VTCompressionSession) throws {
+        let status = VTSessionSetProperty(session, key: key, value: value)
+        guard status == noErr else {
+            logger.error("owned required encoder property failed plane=\(self.plane.rawValue, privacy: .public) key=\(key, privacy: .public) status=\(status, privacy: .public)")
+            throw SessionRejected(reason: .malformed)
+        }
+    }
+
+    private static func fourCC(_ value: OSType) -> String {
+        let bytes: [UInt8] = [
+            UInt8((value >> 24) & 0xff),
+            UInt8((value >> 16) & 0xff),
+            UInt8((value >> 8) & 0xff),
+            UInt8(value & 0xff)
+        ]
+        return String(bytes: bytes, encoding: .macOSRoman) ?? "????"
     }
 
     private static let outputCallback: VTCompressionOutputCallback = { refcon, sourceFrameRefcon, status, _, sampleBuffer in
@@ -390,6 +448,36 @@ private extension OwnedMediaCodec {
         switch self {
         case .hevc: return kCMVideoCodecType_HEVC
         case .h264: return kCMVideoCodecType_H264
+        }
+    }
+}
+
+private extension Config.OwnedMediaChroma {
+    var expectedPixelFormat: OSType {
+        switch self {
+        case .yuv420:
+            return kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+        case .yuv444:
+            return kCVPixelFormatType_444YpCbCr8BiPlanarFullRange
+        case .bgra:
+            return kCVPixelFormatType_32BGRA
+        }
+    }
+}
+
+private extension Config.OwnedMediaHEVCProfile {
+    var profileLevel: String {
+        switch self {
+        case .main:
+            return kVTProfileLevel_HEVC_Main_AutoLevel as String
+        case .main10:
+            return kVTProfileLevel_HEVC_Main10_AutoLevel as String
+        case .main42210:
+            return kVTProfileLevel_HEVC_Main42210_AutoLevel as String
+        case .main444:
+            return "HEVC_Main444_AutoLevel"
+        case .main44410:
+            return "HEVC_Main44410_AutoLevel"
         }
     }
 }

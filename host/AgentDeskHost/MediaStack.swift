@@ -1,3 +1,4 @@
+import CoreVideo
 import Foundation
 
 // ADR-0004 composition root. The only file that names concrete impls.
@@ -15,7 +16,8 @@ enum MediaStack {
         case .owned:
             return OwnedMediaTransportFactory(
                 codec: Config.ownedMediaCodec.wireCodec,
-                activePlanes: Set(Config.ownedMediaActivePlanes)
+                activePlanes: Set(Config.ownedMediaActivePlanes),
+                configuration: .fromConfig()
             )
         }
     }
@@ -32,9 +34,29 @@ enum MediaStack {
             ])
         }
         let planes = MediaPlaneConfiguration.defaultPlanes
+        let ownedPixelFormat = Config.ownedMediaChroma.capturePixelFormat
         return VideoPlaneSources([
-            .detail: ScreenCaptureKitFrameSource(scaleDownBy: planes[.detail]?.captureScaleDownBy ?? 1.0),
-            .motion: ScreenCaptureKitFrameSource(scaleDownBy: planes[.motion]?.captureScaleDownBy ?? SenderTuning.h264HardwareEncoderScaleDownBy)
+            .detail: ScreenCaptureKitFrameSource(
+                scaleDownBy: planes[.detail]?.captureScaleDownBy ?? 1.0,
+                pixelFormat: Config.mediaStackMode == .owned ? ownedPixelFormat : kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            ),
+            .motion: ScreenCaptureKitFrameSource(
+                scaleDownBy: planes[.motion]?.captureScaleDownBy ?? SenderTuning.h264HardwareEncoderScaleDownBy,
+                pixelFormat: Config.mediaStackMode == .owned ? ownedPixelFormat : kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            )
         ])
+    }
+}
+
+private extension Config.OwnedMediaChroma {
+    var capturePixelFormat: OSType {
+        switch self {
+        case .yuv420:
+            return kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+        case .yuv444:
+            return kCVPixelFormatType_444YpCbCr8BiPlanarFullRange
+        case .bgra:
+            return kCVPixelFormatType_32BGRA
+        }
     }
 }

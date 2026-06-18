@@ -43,6 +43,48 @@ enum Config {
         }
     }
 
+    enum OwnedMediaChroma: String {
+        case yuv420
+        case yuv444
+        case bgra
+
+        init(rawEnvironmentValue: String?) {
+            switch rawEnvironmentValue?.lowercased() {
+            case "444", "yuv444", "4:4:4":
+                self = .yuv444
+            case "bgra":
+                self = .bgra
+            default:
+                self = .yuv420
+            }
+        }
+    }
+
+    enum OwnedMediaHEVCProfile: String {
+        case main
+        case main10
+        case main42210
+        case main444
+        case main44410
+
+        init?(rawEnvironmentValue: String?) {
+            switch rawEnvironmentValue?.lowercased() {
+            case "main":
+                self = .main
+            case "main10":
+                self = .main10
+            case "main42210", "42210":
+                self = .main42210
+            case "main444", "444":
+                self = .main444
+            case "main44410", "44410":
+                self = .main44410
+            default:
+                return nil
+            }
+        }
+    }
+
     enum SpaceSwitchMode: String {
         case dockSwipe = "dock-swipe"
         case directSet = "direct-set"
@@ -84,6 +126,25 @@ enum Config {
     static let ownedMediaCodec = OwnedMediaCodecChoice(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_CODEC"]
     )
+    static let ownedMediaChroma = OwnedMediaChroma(
+        rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_CHROMA"]
+    )
+    static let ownedMediaHEVCProfile: OwnedMediaHEVCProfile? = {
+        if let configured = OwnedMediaHEVCProfile(
+            rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_HEVC_PROFILE"]
+        ) {
+            return configured
+        }
+        switch ownedMediaChroma {
+        case .yuv444, .bgra:
+            return .main444
+        case .yuv420:
+            return nil
+        }
+    }()
+    static let ownedMediaMaxQP = ownedMediaMaxQP(
+        environment: ProcessInfo.processInfo.environment
+    )
     static let ownedMediaDetailActive: Bool = {
         ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_DETAIL_ACTIVE"] != "0"
     }()
@@ -99,6 +160,15 @@ enum Config {
             planes.append(.motion)
         }
         return planes.isEmpty ? [.detail] : planes
+    }
+    static func ownedMediaMaxQP(environment: [String: String]) -> Int? {
+        guard let raw = environment["AGENTDESK_OWNED_MEDIA_MAX_QP"],
+              let value = Int(raw),
+              value > 0
+        else {
+            return nil
+        }
+        return value
     }
     static let gestureChildExecutableURL: URL? = {
         guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_GESTURE_CHILD_PATH"],

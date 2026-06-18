@@ -8,7 +8,8 @@ import os
 
 // ADR-0004 production VideoFrameSource impl, host side. Captures the
 // first available display via ScreenCaptureKit at native pixel size and
-// 30 Hz, in BGRA. The display picker for multi-monitor selection is a
+// 60 Hz, using the configured capture pixel format. The display picker for
+// multi-monitor selection is a
 // v1 follow-up; v0 captures `displays.first` which is the main display
 // in single-display setups.
 
@@ -16,14 +17,16 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "capture")
     private let sampleQueue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.scstream", qos: .userInteractive)
     private let scaleDownBy: Double
+    private let pixelFormat: OSType
     private var stream: SCStream?
     // Set in start() and cleared in stop(). Read from the SCStream sample
-    // queue, written from the start/stop caller — those don't overlap, so
+    // queue, written from the start/stop caller. Those don't overlap, so
     // the lack of synchronization is intentional.
     private var onFrame: (@Sendable (CapturedVideoFrame) -> Void)?
 
-    init(scaleDownBy: Double = 1.0) {
+    init(scaleDownBy: Double = 1.0, pixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
         self.scaleDownBy = max(scaleDownBy, 1.0)
+        self.pixelFormat = pixelFormat
         super.init()
     }
 
@@ -41,15 +44,14 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
         }
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
-        // YUV full-range NV12 instead of BGRA. libwebrtc otherwise does its
-        // own BGRA -> I420 conversion via libyuv, and that conversion plus
-        // the encoder's range signaling plus the iPhone-side renderer's
-        // offset together drift the black point by 16/255 (~6 percent grey).
-        // Capturing as NV12 full-range hands YUV straight to the encoder
-        // with no intermediate conversion, and colorMatrix tags the data
-        // so the iPhone shader picks the matching coefficients.
-        config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-        config.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
+        // The WebRTC path captures YUV full-range NV12 so libwebrtc does not
+        // do its own BGRA -> I420 conversion. The owned path can request
+        // alternate pixel formats for ceiling probes; YUV formats keep an
+        // explicit matrix tag so the receiver uses matching coefficients.
+        config.pixelFormat = pixelFormat
+        if pixelFormat != kCVPixelFormatType_32BGRA {
+            config.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
+        }
         // 60 fps cap so cursor motion has headroom. ScreenCaptureKit only
         // delivers when the framebuffer actually changes, so this doesn't
         // cost CPU when the screen is static; it just shortens the worst-case
@@ -89,7 +91,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         try await stream.startCapture()
         self.stream = stream
-        logger.notice("screen capture started \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) backingScale=\(scale, privacy: .public) captureScaleDown=\(self.scaleDownBy, privacy: .public)")
+        logger.notice("screen capture started \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) backingScale=\(scale, privacy: .public) captureScaleDown=\(self.scaleDownBy, privacy: .public) pixelFormat=\(Self.fourCC(self.pixelFormat), privacy: .public)")
     }
 
     // Pull the backing scale factor for a CGDirectDisplayID off NSScreen.
@@ -104,6 +106,16 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
             }
         }
         return 2.0
+    }
+
+    private static func fourCC(_ value: OSType) -> String {
+        let bytes: [UInt8] = [
+            UInt8((value >> 24) & 0xff),
+            UInt8((value >> 16) & 0xff),
+            UInt8((value >> 8) & 0xff),
+            UInt8(value & 0xff)
+        ]
+        return String(bytes: bytes, encoding: .macOSRoman) ?? "????"
     }
 
     func stop() {
