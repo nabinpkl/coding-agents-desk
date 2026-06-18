@@ -48,6 +48,7 @@ R24 sub-tasks:
 - [x] D24.19. Screen-trackpad feel toggle. Landed as an experiment, then removed by D24.21 after device use showed relative mouse on the video surface crowds out direct viewport pan.
 - [x] D24.20. Video scroll rail. Landed as an experiment, then removed by D24.21 with the screen-trackpad mode it depended on.
 - [x] D24.21. Remove screen-relative mouse experiment. `SettingsStore.swift`, `SettingsViewController.swift`, `PairingViewController.swift`, `PairingViewController+Layout.swift`, `PairingViewController+Gestures.swift`, and `PairingViewController+Keyboard.swift` remove the "Screen acts as trackpad" setting, the video hit overlay, and the right-edge video scroll rail. The video returns to being a viewport surface for zoom, pan, and cursor-edge follow; cursor and scroll input stay on the dedicated trackpad and scroll strip.
+- [x] D24.22. Owned HEVC native-resolution proof. `host/AgentDeskHost/OwnedMediaTransport.swift` logs the owned VideoToolbox encoder session size and first encoded frame per plane; `client/AgentDeskClient/OwnedMediaVideoSink.swift` logs the first rendered owned frame size and view bounds per plane. This confirms whether the single-plane HEVC detail path is receiving native Retina capture before comparing subtle text degradation against VP9.
 - [ ] R24.10. Device owned-media feel pass. Run the WebRTC baseline and the owned media prototype on the same physical iPhone scroll trace, capture codec, encode, decode, render cadence, visual scroll smoothness, and rest-state text crispness. Start with the single-plane command `AGENTDESK_MEDIA_STACK=owned AGENTDESK_OWNED_MEDIA_CODEC=hevc AGENTDESK_OWNED_MEDIA_MOTION_ACTIVE=0 just fresh-install`; use the dual-plane owned path or `AGENTDESK_OWNED_MEDIA_CODEC=h264` only as fallback comparisons. Update `SPEC.md` only if the shipping v0 media stack changes.
 
 ## Alternatives and Direction
@@ -93,5 +94,6 @@ D24.18    2026-06-18  drafted     ADR-0012 maps the owned media transport path a
 D24.19    2026-06-18  committed   screen-trackpad overlay setting lets the video act as a relative trackpad without removing the dedicated pad
 D24.20    2026-06-18  committed   right-edge video rail scrolls in screen-trackpad mode using the existing scroll-strip path
 D24.21    2026-06-18  committed   screen-relative mouse and video scroll rail removed after viewport pan conflict
+D24.22    2026-06-18  committed   owned HEVC path logs encoder and first-render dimensions for native-resolution proof
 R24.10    pending     pending     compare WebRTC baseline and single-plane owned HEVC prototype on the same physical-device scroll trace
 ```

@@ -135,6 +135,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 }
 
 final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
+    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
     private let plane: MediaPlane
     private let codec: OwnedMediaCodec
     private let targetBitrateKbps: Int
@@ -144,6 +145,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private var session: VTCompressionSession?
     private var size: (width: Int, height: Int)?
     private var frameId: UInt64 = 0
+    private var loggedFirstEncodedFrame = false
 
     init(
         plane: MediaPlane,
@@ -238,6 +240,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         VTCompressionSessionPrepareToEncodeFrames(newSession)
         session = newSession
         size = (width, height)
+        logger.notice("owned encoder session plane=\(self.plane.rawValue, privacy: .public) codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) bitrate=\(self.targetBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public)")
     }
 
     private func setProperty(_ key: CFString, value: CFTypeRef, on session: VTCompressionSession) throws {
@@ -283,6 +286,10 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             isKeyframe: isKeyframe,
             parameterSets: parameterSets
         )
+        if !loggedFirstEncodedFrame {
+            loggedFirstEncodedFrame = true
+            logger.notice("owned first encoded frame plane=\(self.plane.rawValue, privacy: .public) codec=\(self.codec.rawValue, privacy: .public) size=\(size.width, privacy: .public)x\(size.height, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(payload.count, privacy: .public)")
+        }
         onEncoded(OwnedMediaFrameEnvelope(header: header, payload: payload))
     }
 

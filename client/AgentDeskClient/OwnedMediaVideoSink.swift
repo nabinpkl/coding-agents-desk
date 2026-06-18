@@ -17,6 +17,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     private let motionLayer = AVSampleBufferDisplayLayer()
     private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "owned-media")
     private var formatDescriptions: [MediaPlane: CMVideoFormatDescription] = [:]
+    private var loggedFirstRenderedFrame: Set<MediaPlane> = []
 
     init(activePlanes: Set<MediaPlane> = Set(MediaPlane.allCases), compositor: DualPlaneVideoCompositor = DualPlaneVideoCompositor()) {
         self.activePlanes = activePlanes.isEmpty ? [.detail] : activePlanes
@@ -58,6 +59,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 formatDescription: formatDescription
             )
             displayLayer(for: envelope.header.plane).enqueue(sampleBuffer)
+            if !loggedFirstRenderedFrame.contains(envelope.header.plane) {
+                loggedFirstRenderedFrame.insert(envelope.header.plane)
+                logger.notice("owned first rendered frame plane=\(envelope.header.plane.rawValue, privacy: .public) codec=\(envelope.header.codec.rawValue, privacy: .public) size=\(envelope.header.width, privacy: .public)x\(envelope.header.height, privacy: .public) view=\(Int(self.view.bounds.width), privacy: .public)x\(Int(self.view.bounds.height), privacy: .public) bytes=\(envelope.payload.count, privacy: .public)")
+            }
             _ = compositor.noteFrameRendered(on: envelope.header.plane)
             applyVisiblePlane()
         } catch {
