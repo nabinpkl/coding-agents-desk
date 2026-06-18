@@ -36,6 +36,10 @@ extension PairingViewController {
 
         sinkView.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(sinkView)
+        screenTrackpadOverlay.translatesAutoresizingMaskIntoConstraints = false
+        screenTrackpadOverlay.backgroundColor = .clear
+        screenTrackpadOverlay.accessibilityIdentifier = "screen-trackpad-overlay"
+        scroll.addSubview(screenTrackpadOverlay)
         view.insertSubview(scroll, at: 0)
 
         // Inner constraints (sink view inside the scroll) are
@@ -46,7 +50,12 @@ extension PairingViewController {
             sinkView.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             sinkView.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             sinkView.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
-            sinkView.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor)
+            sinkView.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
+
+            screenTrackpadOverlay.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor),
+            screenTrackpadOverlay.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor),
+            screenTrackpadOverlay.topAnchor.constraint(equalTo: scroll.frameLayoutGuide.topAnchor),
+            screenTrackpadOverlay.bottomAnchor.constraint(equalTo: scroll.frameLayoutGuide.bottomAnchor)
         ])
 
         // R23: outer scroll constraints (position + extent in the
@@ -66,7 +75,12 @@ extension PairingViewController {
         // tap point. See PairingViewController+EdgeFollow for the handler.
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleSinkDoubleTap(_:)))
         doubleTap.numberOfTapsRequired = 2
+        sinkDoubleTapRecognizer = doubleTap
         scroll.addGestureRecognizer(doubleTap)
+
+        screenTrackpadOverlay.gestureRecognizers?.forEach { screenTrackpadOverlay.removeGestureRecognizer($0) }
+        gestureTranslator.attach(to: screenTrackpadOverlay)
+        refreshInputSurfaceMode()
 
         sinkScrollView = scroll
 
@@ -245,8 +259,11 @@ extension PairingViewController {
         view.bringSubviewToFront(settingsButton)
 
         gestureTranslator.delegate = self
+        trackpadView.gestureRecognizers?.forEach { trackpadView.removeGestureRecognizer($0) }
+        scrollStripView.gestureRecognizers?.forEach { scrollStripView.removeGestureRecognizer($0) }
         gestureTranslator.attach(to: trackpadView)
         gestureTranslator.attachScrollStrip(to: scrollStripView)
+        refreshInputSurfaceMode()
 
         startDesktopStateObservation()
         startThumbnailsObservation()
@@ -274,6 +291,8 @@ extension PairingViewController {
         stopAgentSayForegroundPresentation()
         lastDesktopState = nil
         keyboardSurface.setVisible(false)
+        screenTrackpadOverlay.removeFromSuperview()
+        sinkDoubleTapRecognizer = nil
         buttonRowBottomConstraint = nil
         // R23: drop the orientation-variant constraints; the next
         // mountSinkView/showTrackpad will repopulate fresh arrays.

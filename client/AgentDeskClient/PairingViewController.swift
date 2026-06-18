@@ -24,6 +24,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // via UIScrollView transform; ADR-0008 dropped the host-side
     // sourceRect crop path in favour of native-pixel encoder density.
     var sinkScrollView: UIScrollView?
+    var sinkDoubleTapRecognizer: UITapGestureRecognizer?
     static let sinkMaxZoomScale: CGFloat = 4.0
     static let sinkDoubleTapZoomScale: CGFloat = 2.0
     // ADR-0009 cursor-driven viewport pan. The client mirrors the host
@@ -48,6 +49,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var cursorHidden = false
     var mediaStateTask: Task<Void, Never>?
     var iceGraceTask: Task<Void, Never>?
+    // Transparent hit layer above the video sink. When enabled in
+    // settings, it lets the live screen act as a relative trackpad
+    // without removing the dedicated trackpad surface.
+    let screenTrackpadOverlay = UIView()
     // R11: observes the input channel's desktopStateUpdates stream and
     // pushes each DesktopState into the strip. Lifecycle matches
     // sessionTask: cancelled on background, restarted on the next

@@ -14,6 +14,7 @@ final class SettingsViewController: UIViewController {
     private let scrollSpeedSlider = UISlider()
     private let scrollSpeedLabel = UILabel()
     private let scrollDirectionSwitch = UISwitch()
+    private let screenTrackpadSwitch = UISwitch()
     private let spacesDirectionSwitch = UISwitch()
     private let showSpacePreviewsSwitch = UISwitch()
     private let accessoryContainerSlider = UISlider()
@@ -54,6 +55,13 @@ final class SettingsViewController: UIViewController {
             switchRow: ("Invert direction", scrollDirectionSwitch)
         )
 
+        let inputSurfaceSection = makeSection(
+            title: "Input surface",
+            rows: [],
+            switchRow: ("Screen acts as trackpad", screenTrackpadSwitch),
+            footnote: "Uses the live video area as a relative cursor and tap surface. The dedicated trackpad stays available while this is tuned."
+        )
+
         let spacesSection = makeSection(
             title: "Spaces",
             rows: [],
@@ -86,7 +94,7 @@ final class SettingsViewController: UIViewController {
             footnote: "Used for AgentDesk spoken subtitles. Download higher-quality voices in Settings > Accessibility > Read & Speak > Voices."
         )
 
-        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, spacesSection, previewsSection, speechSection, accessorySection])
+        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, inputSurfaceSection, spacesSection, previewsSection, speechSection, accessorySection])
         stack.axis = .vertical
         stack.spacing = 28
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -133,6 +141,7 @@ final class SettingsViewController: UIViewController {
         cursorAccelSlider.addTarget(self, action: #selector(cursorAccelChanged), for: .valueChanged)
         scrollSpeedSlider.addTarget(self, action: #selector(scrollSpeedChanged), for: .valueChanged)
         scrollDirectionSwitch.addTarget(self, action: #selector(scrollDirectionChanged), for: .valueChanged)
+        screenTrackpadSwitch.addTarget(self, action: #selector(screenTrackpadChanged), for: .valueChanged)
         spacesDirectionSwitch.addTarget(self, action: #selector(spacesDirectionChanged), for: .valueChanged)
         showSpacePreviewsSwitch.addTarget(self, action: #selector(showSpacePreviewsChanged), for: .valueChanged)
 
@@ -162,6 +171,7 @@ final class SettingsViewController: UIViewController {
         cursorAccelSlider.value = Float(store.cursorAcceleration)
         scrollSpeedSlider.value = Float(store.scrollSpeed)
         scrollDirectionSwitch.isOn = store.scrollInverted
+        screenTrackpadSwitch.isOn = store.inputSurfaceMode == .screenTrackpad
         spacesDirectionSwitch.isOn = store.useMacOSSpacesDirection
         showSpacePreviewsSwitch.isOn = store.showSpacePreviews
         accessoryContainerSlider.value = Float(store.accessoryContainerHeight)
@@ -206,6 +216,10 @@ final class SettingsViewController: UIViewController {
 
     @objc private func scrollDirectionChanged() {
         store.scrollInverted = scrollDirectionSwitch.isOn
+    }
+
+    @objc private func screenTrackpadChanged() {
+        store.inputSurfaceMode = screenTrackpadSwitch.isOn ? .screenTrackpad : .dedicatedTrackpad
     }
 
     @objc private func spacesDirectionChanged() {

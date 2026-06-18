@@ -1,15 +1,19 @@
 import CoreGraphics
 import Foundation
 
+enum InputSurfaceMode: String {
+    case dedicatedTrackpad
+    case screenTrackpad
+}
+
 // UserDefaults-backed store for trackpad / scroll feel preferences. The
 // raw values are unitless multipliers (1.0 = default) so the UI can show
 // them as "1.0x", "1.5x" sliders without translation. SettingsViewController
 // writes here; GestureTranslator and PairingViewController read.
 //
 // Changes post a single notification so observers can refresh without
-// having to wire individual KVO on each property. Observers re-read all
-// fields on the notification — there are only four, so it's cheaper than
-// tracking which one changed.
+// having to wire individual KVO on each property. Observers re-read the
+// small settings payload instead of tracking which one changed.
 final class SettingsStore: @unchecked Sendable {
     static let shared = SettingsStore()
 
@@ -27,6 +31,7 @@ final class SettingsStore: @unchecked Sendable {
         static let accessoryKeyHeight = "agentDesk.accessoryKeyHeight"
         static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
         static let showSpacePreviews = "agentDesk.showSpacePreviews"
+        static let inputSurfaceMode = "agentDesk.inputSurfaceMode"
         static let agentSayVoiceLanguage = "agentDesk.agentSayVoiceLanguage"
         static let agentSayVoiceIdentifier = "agentDesk.agentSayVoiceIdentifier"
     }
@@ -133,6 +138,20 @@ final class SettingsStore: @unchecked Sendable {
         get { defaults.object(forKey: Key.showSpacePreviews) as? Bool ?? true }
         set {
             defaults.set(newValue, forKey: Key.showSpacePreviews)
+            postChange()
+        }
+    }
+
+    var inputSurfaceMode: InputSurfaceMode {
+        get {
+            guard let raw = defaults.string(forKey: Key.inputSurfaceMode),
+                  let mode = InputSurfaceMode(rawValue: raw) else {
+                return .dedicatedTrackpad
+            }
+            return mode
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Key.inputSurfaceMode)
             postChange()
         }
     }

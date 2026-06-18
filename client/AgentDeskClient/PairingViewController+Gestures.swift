@@ -23,6 +23,15 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     func applySettingsToTranslator() {
         gestureTranslator.tuning = SettingsStore.shared.tuning
         thumbnailStripView.useMacOSDirection = SettingsStore.shared.useMacOSSpacesDirection
+        refreshInputSurfaceMode()
+    }
+
+    func refreshInputSurfaceMode() {
+        let screenActive = SettingsStore.shared.inputSurfaceMode == .screenTrackpad
+        let blockedByKeyboard = keyboardSurface.isFirstResponder
+        screenTrackpadOverlay.isHidden = !screenActive || blockedByKeyboard
+        screenTrackpadOverlay.isUserInteractionEnabled = screenActive && !blockedByKeyboard
+        sinkDoubleTapRecognizer?.isEnabled = !screenActive
     }
 
     // R11: drains the InputChannel's host-pushed DesktopState frames
