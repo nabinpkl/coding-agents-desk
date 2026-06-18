@@ -53,6 +53,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // settings, it lets the live screen act as a relative trackpad
     // without removing the dedicated trackpad surface.
     let screenTrackpadOverlay = UIView()
+    let screenScrollRailView = UIView()
+    static let screenScrollRailWidth: CGFloat = 60
+    static let screenScrollRailRestAlpha: CGFloat = 0.18
+    static let screenScrollRailActiveAlpha: CGFloat = 0.34
     // R11: observes the input channel's desktopStateUpdates stream and
     // pushes each DesktopState into the strip. Lifecycle matches
     // sessionTask: cancelled on background, restarted on the next

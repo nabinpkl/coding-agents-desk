@@ -40,6 +40,10 @@ extension PairingViewController {
         screenTrackpadOverlay.backgroundColor = .clear
         screenTrackpadOverlay.accessibilityIdentifier = "screen-trackpad-overlay"
         scroll.addSubview(screenTrackpadOverlay)
+        screenScrollRailView.translatesAutoresizingMaskIntoConstraints = false
+        screenScrollRailView.backgroundColor = UIColor.systemFill.withAlphaComponent(Self.screenScrollRailRestAlpha)
+        screenScrollRailView.accessibilityIdentifier = "screen-scroll-rail"
+        scroll.addSubview(screenScrollRailView)
         view.insertSubview(scroll, at: 0)
 
         // Inner constraints (sink view inside the scroll) are
@@ -55,7 +59,12 @@ extension PairingViewController {
             screenTrackpadOverlay.leadingAnchor.constraint(equalTo: scroll.frameLayoutGuide.leadingAnchor),
             screenTrackpadOverlay.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor),
             screenTrackpadOverlay.topAnchor.constraint(equalTo: scroll.frameLayoutGuide.topAnchor),
-            screenTrackpadOverlay.bottomAnchor.constraint(equalTo: scroll.frameLayoutGuide.bottomAnchor)
+            screenTrackpadOverlay.bottomAnchor.constraint(equalTo: scroll.frameLayoutGuide.bottomAnchor),
+
+            screenScrollRailView.trailingAnchor.constraint(equalTo: scroll.frameLayoutGuide.trailingAnchor),
+            screenScrollRailView.topAnchor.constraint(equalTo: scroll.frameLayoutGuide.topAnchor),
+            screenScrollRailView.bottomAnchor.constraint(equalTo: scroll.frameLayoutGuide.bottomAnchor),
+            screenScrollRailView.widthAnchor.constraint(equalToConstant: Self.screenScrollRailWidth)
         ])
 
         // R23: outer scroll constraints (position + extent in the
@@ -79,7 +88,9 @@ extension PairingViewController {
         scroll.addGestureRecognizer(doubleTap)
 
         screenTrackpadOverlay.gestureRecognizers?.forEach { screenTrackpadOverlay.removeGestureRecognizer($0) }
+        screenScrollRailView.gestureRecognizers?.forEach { screenScrollRailView.removeGestureRecognizer($0) }
         gestureTranslator.attach(to: screenTrackpadOverlay)
+        gestureTranslator.attachScrollStrip(to: screenScrollRailView)
         refreshInputSurfaceMode()
 
         sinkScrollView = scroll
@@ -292,6 +303,7 @@ extension PairingViewController {
         lastDesktopState = nil
         keyboardSurface.setVisible(false)
         screenTrackpadOverlay.removeFromSuperview()
+        screenScrollRailView.removeFromSuperview()
         sinkDoubleTapRecognizer = nil
         buttonRowBottomConstraint = nil
         // R23: drop the orientation-variant constraints; the next

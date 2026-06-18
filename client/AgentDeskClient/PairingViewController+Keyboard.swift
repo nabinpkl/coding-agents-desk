@@ -83,6 +83,8 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
         scrollStripView.isHidden = hidden
         screenTrackpadOverlay.isHidden = hidden || SettingsStore.shared.inputSurfaceMode != .screenTrackpad
         screenTrackpadOverlay.isUserInteractionEnabled = !screenTrackpadOverlay.isHidden
+        screenScrollRailView.isHidden = screenTrackpadOverlay.isHidden
+        screenScrollRailView.isUserInteractionEnabled = screenTrackpadOverlay.isUserInteractionEnabled
         if hidden {
             thumbnailStripView.isHidden = true
         } else {
