@@ -21,6 +21,26 @@ struct ScrollQualityTests {
         #expect(motion?.tuning.scrollProfile.scaleResolutionDownBy == 1.0)
     }
 
+    @Test func motionCaptureDownscaleCanBeTunedFromEnvironment() {
+        let planes = MediaPlaneConfiguration.defaultPlanes(environment: [
+            "AGENTDESK_TUNING_MOTION_CAPTURE_SCALE_DOWN": "2.5"
+        ])
+        let detail = planes[.detail]
+        let motion = planes[.motion]
+
+        #expect(detail?.captureScaleDownBy == 1.0)
+        #expect(motion?.captureScaleDownBy == 2.5)
+        #expect(motion?.tuning.scrollProfile.scaleResolutionDownBy == 1.0)
+    }
+
+    @Test func invalidMotionCaptureDownscaleFallsBackToHardwareGuardrail() {
+        let planes = MediaPlaneConfiguration.defaultPlanes(environment: [
+            "AGENTDESK_TUNING_MOTION_CAPTURE_SCALE_DOWN": "0"
+        ])
+
+        #expect(planes[.motion]?.captureScaleDownBy == SenderTuning.h264HardwareEncoderScaleDownBy)
+    }
+
     @Test func scrollProfileDropsResolutionAndBitrateAndPrioritizesFramerate() {
         let tuning = SenderTuning.default
         let scroll = tuning.scrollProfile

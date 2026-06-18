@@ -196,7 +196,11 @@ struct MediaPlaneConfiguration: Equatable {
     let captureScaleDownBy: Double
 
     static var defaultPlanes: [MediaPlane: MediaPlaneConfiguration] {
-        let base = SenderTuning.fromEnvironment()
+        defaultPlanes(environment: ProcessInfo.processInfo.environment)
+    }
+
+    static func defaultPlanes(environment: [String: String]) -> [MediaPlane: MediaPlaneConfiguration] {
+        let base = SenderTuning.fromEnvironment(environment)
         let detail = MediaPlaneConfiguration(
             plane: .detail,
             codecs: .vp9Only,
@@ -208,12 +212,22 @@ struct MediaPlaneConfiguration: Equatable {
             plane: .motion,
             codecs: .h264Only,
             tuning: motionTuning,
-            captureScaleDownBy: SenderTuning.h264HardwareEncoderScaleDownBy
+            captureScaleDownBy: motionCaptureScaleDownBy(environment: environment)
         )
         return [
             .detail: detail,
             .motion: motion
         ]
+    }
+
+    private static func motionCaptureScaleDownBy(environment: [String: String]) -> Double {
+        guard let raw = environment["AGENTDESK_TUNING_MOTION_CAPTURE_SCALE_DOWN"],
+              let value = Double(raw),
+              value > 0
+        else {
+            return SenderTuning.h264HardwareEncoderScaleDownBy
+        }
+        return value
     }
 }
 
@@ -319,8 +333,7 @@ struct SenderTuning: Equatable {
     //   AGENTDESK_TUNING_MAX_BITRATE_KBPS=12000
     //   AGENTDESK_TUNING_SCREENCAST=0
     // Leaves fields untouched when the env var is absent.
-    static func fromEnvironment() -> SenderTuning {
-        let env = ProcessInfo.processInfo.environment
+    static func fromEnvironment(_ env: [String: String] = ProcessInfo.processInfo.environment) -> SenderTuning {
         let defaults = SenderTuning.default
         return SenderTuning(
             screencast: env["AGENTDESK_TUNING_SCREENCAST"].map { $0 == "1" } ?? defaults.screencast,
