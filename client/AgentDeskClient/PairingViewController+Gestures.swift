@@ -23,23 +23,6 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     func applySettingsToTranslator() {
         gestureTranslator.tuning = SettingsStore.shared.tuning
         thumbnailStripView.useMacOSDirection = SettingsStore.shared.useMacOSSpacesDirection
-        refreshInputSurfaceMode()
-    }
-
-    func refreshInputSurfaceMode() {
-        let screenActive = SettingsStore.shared.inputSurfaceMode == .screenTrackpad
-        let blockedByKeyboard = keyboardSurface.isFirstResponder
-        screenTrackpadOverlay.isHidden = !screenActive || blockedByKeyboard
-        screenTrackpadOverlay.isUserInteractionEnabled = screenActive && !blockedByKeyboard
-        screenScrollRailView.isHidden = screenTrackpadOverlay.isHidden
-        screenScrollRailView.isUserInteractionEnabled = screenTrackpadOverlay.isUserInteractionEnabled
-        updateScreenScrollRailAppearance(active: false)
-        sinkDoubleTapRecognizer?.isEnabled = !screenActive
-    }
-
-    func updateScreenScrollRailAppearance(active: Bool) {
-        let alpha = active ? Self.screenScrollRailActiveAlpha : Self.screenScrollRailRestAlpha
-        screenScrollRailView.backgroundColor = UIColor.systemFill.withAlphaComponent(alpha)
     }
 
     // R11: drains the InputChannel's host-pushed DesktopState frames
@@ -289,9 +272,6 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             dualSink.setMotionActive(active)
         } else if let ownedSink = videoSink as? any OwnedMediaFrameSink {
             ownedSink.setMotionActive(active)
-        }
-        if SettingsStore.shared.inputSurfaceMode == .screenTrackpad {
-            updateScreenScrollRailAppearance(active: active)
         }
         sendInteractionHint(InteractionHint(kind: "scroll", active: active))
     }

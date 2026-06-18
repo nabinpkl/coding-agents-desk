@@ -63,13 +63,11 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
             keyboardSurface.isHidden = true
             keyboardSurface.text = ""
             setTrackpadHidden(false)
-            refreshInputSurfaceMode()
             showKeyboardButton.setTitle("Show keyboard", for: .normal)
         } else {
             keyboardSurface.isHidden = false
             setTrackpadHidden(true)
             keyboardSurface.setVisible(true)
-            refreshInputSurfaceMode()
             showKeyboardButton.setTitle("Hide keyboard", for: .normal)
         }
     }
@@ -81,10 +79,6 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
     func setTrackpadHidden(_ hidden: Bool) {
         trackpadView.isHidden = hidden
         scrollStripView.isHidden = hidden
-        screenTrackpadOverlay.isHidden = hidden || SettingsStore.shared.inputSurfaceMode != .screenTrackpad
-        screenTrackpadOverlay.isUserInteractionEnabled = !screenTrackpadOverlay.isHidden
-        screenScrollRailView.isHidden = screenTrackpadOverlay.isHidden
-        screenScrollRailView.isUserInteractionEnabled = screenTrackpadOverlay.isUserInteractionEnabled
         if hidden {
             thumbnailStripView.isHidden = true
         } else {

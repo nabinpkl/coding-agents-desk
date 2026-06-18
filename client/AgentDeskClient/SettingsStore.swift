@@ -1,11 +1,6 @@
 import CoreGraphics
 import Foundation
 
-enum InputSurfaceMode: String {
-    case dedicatedTrackpad
-    case screenTrackpad
-}
-
 // UserDefaults-backed store for trackpad / scroll feel preferences. The
 // raw values are unitless multipliers (1.0 = default) so the UI can show
 // them as "1.0x", "1.5x" sliders without translation. SettingsViewController
@@ -31,7 +26,6 @@ final class SettingsStore: @unchecked Sendable {
         static let accessoryKeyHeight = "agentDesk.accessoryKeyHeight"
         static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
         static let showSpacePreviews = "agentDesk.showSpacePreviews"
-        static let inputSurfaceMode = "agentDesk.inputSurfaceMode"
         static let agentSayVoiceLanguage = "agentDesk.agentSayVoiceLanguage"
         static let agentSayVoiceIdentifier = "agentDesk.agentSayVoiceIdentifier"
     }
@@ -138,20 +132,6 @@ final class SettingsStore: @unchecked Sendable {
         get { defaults.object(forKey: Key.showSpacePreviews) as? Bool ?? true }
         set {
             defaults.set(newValue, forKey: Key.showSpacePreviews)
-            postChange()
-        }
-    }
-
-    var inputSurfaceMode: InputSurfaceMode {
-        get {
-            guard let raw = defaults.string(forKey: Key.inputSurfaceMode),
-                  let mode = InputSurfaceMode(rawValue: raw) else {
-                return .dedicatedTrackpad
-            }
-            return mode
-        }
-        set {
-            defaults.set(newValue.rawValue, forKey: Key.inputSurfaceMode)
             postChange()
         }
     }
