@@ -11,6 +11,9 @@ last_pair_url_path := env_var_or_default("HOME", "") + "/Library/Application Sup
 host_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskHost-gmjyarrzlrjgctfcursfnnulwzfg/Build/Products/Debug/AgentDeskHost.app"
 client_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskClient-asnebogtvhgngpdusosdqtlwsphl/Build/Products/Debug-iphoneos/AgentDeskClient.app"
 client_sim_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskClient-asnebogtvhgngpdusosdqtlwsphl/Build/Products/Debug-iphonesimulator/AgentDeskClient.app"
+client_archive_path := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_PATH", "/tmp/AgentDeskClient.xcarchive")
+client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.0")
+client_build_number := env_var_or_default("AGENTDESK_CLIENT_BUILD", "1")
 
 check:
     sh tools/launch-env-tests.sh
@@ -168,3 +171,22 @@ ui-flow flow:
     cd client/maestro/screenshots && \
         JAVA_HOME="$(brew --prefix openjdk)/libexec/openjdk.jdk/Contents/Home" \
         maestro --udid {{ios_sim_udid}} test ../{{flow}}.yaml
+
+# Build a signed iOS Release archive for Xcode Organizer upload to TestFlight.
+client-archive:
+    # Override per upload: AGENTDESK_CLIENT_VERSION=1.0 AGENTDESK_CLIENT_BUILD=2 just client-archive
+    xcodebuild -project client/AgentDeskClient.xcodeproj \
+        -scheme AgentDeskClient \
+        -configuration Release \
+        -destination 'generic/platform=iOS' \
+        -archivePath '{{client_archive_path}}' \
+        DEVELOPMENT_TEAM=TEAMID0000 \
+        MARKETING_VERSION='{{client_marketing_version}}' \
+        CURRENT_PROJECT_VERSION='{{client_build_number}}' \
+        -allowProvisioningUpdates \
+        clean archive
+
+# Open the generated archive in Xcode so Organizer can distribute it.
+client-open-archive:
+    just client-archive
+    open -a Xcode '{{client_archive_path}}'
