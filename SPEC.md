@@ -166,6 +166,8 @@ DesktopStatePush   { state: DesktopState }                            // t: "des
 - Packet repair is first resort. The client sends one missing-index request per frame repair window.
 - The host resend ring keeps exact authenticated datagrams and resends only requested indexes still in the ring.
 - Capture freshness is enforced before VideoToolbox. The host keeps one latest raw capture frame, coalesces stale pending captures while transport is busy or the client is behind, and only encodes frames it intends to send.
+- Frame ACKs are the host-side admission fence. Normal cadence allows two unacknowledged frames, behind cadence allows one, and draining cadence allows none until ACKs clear or the drain timeout permits one recovery keyframe.
+- Explicit keyframe requests are deferred while draining. Periodic keyframes are suppressed while behind or draining, and a second keyframe is blocked while a prior keyframe is unacknowledged.
 - Once a frame is encoded, the host sends the whole frame. Backpressure adjusts encode cadence and datagram pacing; it does not drop encoded delta frames.
 - A frame repaired before the deadline renders in order.
 - An expired delta frame is skipped as stale output.

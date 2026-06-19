@@ -193,6 +193,22 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_SEVERE_ENCODE_INTERVAL_MS",
         defaultValue: 200
     )
+    static let ownedMediaDrainTimeoutMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DRAIN_TIMEOUT_MS",
+        defaultValue: 700
+    )
+    static let ownedMediaKeyframeCooldownMs = nonNegativeInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_COOLDOWN_MS",
+        defaultValue: 1_000
+    )
+    static let ownedMediaNormalMaxUnackedFrames = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_NORMAL_MAX_UNACKED_FRAMES",
+        defaultValue: 2
+    )
+    static let ownedMediaBehindMaxUnackedFrames = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BEHIND_MAX_UNACKED_FRAMES",
+        defaultValue: 1
+    )
     static func ownedMediaMaxQP(environment: [String: String]) -> Int? {
         guard let raw = environment["AGENTDESK_OWNED_MEDIA_MAX_QP"],
               let value = Int(raw),

@@ -842,6 +842,10 @@ struct OwnedMediaBackpressureConfig: Equatable {
     let expectedFrameRate: Int
     let behindEncodeIntervalMs: Int
     let severeEncodeIntervalMs: Int
+    let drainTimeoutMs: Int
+    let keyframeCooldownMs: Int
+    let normalMaxUnackedFrames: Int
+    let behindMaxUnackedFrames: Int
 
     init(
         frameAgeMs: Double,
@@ -850,7 +854,11 @@ struct OwnedMediaBackpressureConfig: Equatable {
         maxInflightBytes: Int,
         expectedFrameRate: Int,
         behindEncodeIntervalMs: Int,
-        severeEncodeIntervalMs: Int
+        severeEncodeIntervalMs: Int,
+        drainTimeoutMs: Int,
+        keyframeCooldownMs: Int,
+        normalMaxUnackedFrames: Int,
+        behindMaxUnackedFrames: Int
     ) {
         self.frameAgeMs = frameAgeMs
         self.severeFrameAgeMs = severeFrameAgeMs
@@ -859,6 +867,10 @@ struct OwnedMediaBackpressureConfig: Equatable {
         self.expectedFrameRate = expectedFrameRate
         self.behindEncodeIntervalMs = behindEncodeIntervalMs
         self.severeEncodeIntervalMs = severeEncodeIntervalMs
+        self.drainTimeoutMs = drainTimeoutMs
+        self.keyframeCooldownMs = keyframeCooldownMs
+        self.normalMaxUnackedFrames = normalMaxUnackedFrames
+        self.behindMaxUnackedFrames = behindMaxUnackedFrames
     }
 
     var normalEncodeIntervalMs: Int {
@@ -869,7 +881,21 @@ struct OwnedMediaBackpressureConfig: Equatable {
 enum OwnedMediaCadenceMode: Equatable {
     case normal
     case behind
-    case severe
+    case draining
+}
+
+struct OwnedMediaAdmissionDecision: Equatable {
+    let shouldEncode: Bool
+    let forceKeyframe: Bool
+    let allowPeriodicKeyframe: Bool
+    let mode: OwnedMediaCadenceMode
+    let holdReason: String?
+}
+
+struct OwnedMediaAdmissionAckEvents: Equatable {
+    let enteredDrain: Bool
+    let exitedDrain: Bool
+    let mode: OwnedMediaCadenceMode
 }
 
 struct OwnedMediaEncodeAdmission: Equatable {
@@ -878,7 +904,40 @@ struct OwnedMediaEncodeAdmission: Equatable {
     private(set) var latestClientRenderGapMs: Double = 0
     private(set) var latestClientBacklogFrames: Int = 0
     private(set) var latestClientBacklogBytes: Int = 0
-    private var lastMode: OwnedMediaCadenceMode = .normal
+    private(set) var unacknowledgedFrames: [UInt64: OwnedMediaSentFrame] = [:]
+    private(set) var pendingKeyframeRequest = false
+    private(set) var keyframeInFlightFrameId: UInt64?
+    private(set) var lastKeyframeSentAtUptimeNs: UInt64?
+    private(set) var drainEnteredAtUptimeNs: UInt64?
+    private(set) var mode: OwnedMediaCadenceMode = .normal
+
+    var unacknowledgedFrameCount: Int {
+        unacknowledgedFrames.count
+    }
+
+    var unacknowledgedBytes: Int {
+        unacknowledgedFrames.values.reduce(0) { $0 + $1.bytes }
+    }
+
+    mutating func noteSent(
+        frameId: UInt64,
+        bytes: Int,
+        capturedAtUptimeNs: UInt64,
+        isKeyframe: Bool,
+        nowUptimeNs: UInt64,
+        config: OwnedMediaBackpressureConfig
+    ) {
+        unacknowledgedFrames[frameId] = OwnedMediaSentFrame(
+            bytes: bytes,
+            capturedAtUptimeNs: capturedAtUptimeNs
+        )
+        if isKeyframe {
+            pendingKeyframeRequest = false
+            keyframeInFlightFrameId = frameId
+            lastKeyframeSentAtUptimeNs = nowUptimeNs
+        }
+        refreshMode(config: config, nowUptimeNs: nowUptimeNs)
+    }
 
     mutating func noteAck(
         frameId: UInt64,
@@ -886,39 +945,174 @@ struct OwnedMediaEncodeAdmission: Equatable {
         frameAgeMs: Double?,
         clientBacklogFrames: Int?,
         clientBacklogBytes: Int?,
+        nowUptimeNs: UInt64,
         config: OwnedMediaBackpressureConfig
-    ) -> Bool {
+    ) -> OwnedMediaAdmissionAckEvents {
+        let previousMode = mode
         latestAckedFrameId = max(latestAckedFrameId, frameId)
         latestClientRenderGapMs = max(0, renderGapMs ?? 0)
         latestClientFrameAgeMs = max(0, frameAgeMs ?? 0)
         latestClientBacklogFrames = max(0, clientBacklogFrames ?? 0)
         latestClientBacklogBytes = max(0, clientBacklogBytes ?? 0)
+        unacknowledgedFrames = unacknowledgedFrames.filter { $0.key > latestAckedFrameId }
+        if let keyframeInFlightFrameId,
+           keyframeInFlightFrameId <= latestAckedFrameId {
+            self.keyframeInFlightFrameId = nil
+        }
 
-        let newMode = mode(config: config)
-        defer { lastMode = newMode }
-        return newMode == .severe && lastMode != .severe
+        refreshMode(config: config, nowUptimeNs: nowUptimeNs)
+        return OwnedMediaAdmissionAckEvents(
+            enteredDrain: previousMode != .draining && mode == .draining,
+            exitedDrain: previousMode == .draining && mode != .draining,
+            mode: mode
+        )
     }
 
-    func mode(config: OwnedMediaBackpressureConfig) -> OwnedMediaCadenceMode {
-        guard latestAckedFrameId > 0 else { return .normal }
-        if latestClientFrameAgeMs > config.severeFrameAgeMs {
-            return .severe
+    mutating func noteKeyframeRequested() {
+        pendingKeyframeRequest = true
+    }
+
+    mutating func decision(
+        nowUptimeNs: UInt64,
+        config: OwnedMediaBackpressureConfig
+    ) -> OwnedMediaAdmissionDecision {
+        refreshMode(config: config, nowUptimeNs: nowUptimeNs)
+        let forceKeyframe = pendingKeyframeRequest && canSendKeyframe(nowUptimeNs: nowUptimeNs, config: config)
+        let allowPeriodic = mode == .normal
+
+        switch mode {
+        case .normal:
+            if pendingKeyframeRequest && !forceKeyframe {
+                return OwnedMediaAdmissionDecision(
+                    shouldEncode: false,
+                    forceKeyframe: false,
+                    allowPeriodicKeyframe: false,
+                    mode: mode,
+                    holdReason: keyframeInFlightFrameId == nil ? "keyframe-cooldown" : "keyframe-inflight"
+                )
+            }
+            if unacknowledgedFrameCount >= config.normalMaxUnackedFrames {
+                return OwnedMediaAdmissionDecision(
+                    shouldEncode: false,
+                    forceKeyframe: false,
+                    allowPeriodicKeyframe: false,
+                    mode: mode,
+                    holdReason: "unacked-normal"
+                )
+            }
+            return OwnedMediaAdmissionDecision(
+                shouldEncode: true,
+                forceKeyframe: forceKeyframe,
+                allowPeriodicKeyframe: allowPeriodic,
+                mode: mode,
+                holdReason: nil
+            )
+        case .behind:
+            if unacknowledgedFrameCount >= config.behindMaxUnackedFrames {
+                return OwnedMediaAdmissionDecision(
+                    shouldEncode: false,
+                    forceKeyframe: false,
+                    allowPeriodicKeyframe: false,
+                    mode: mode,
+                    holdReason: "unacked-behind"
+                )
+            }
+            if pendingKeyframeRequest && !forceKeyframe {
+                return OwnedMediaAdmissionDecision(
+                    shouldEncode: false,
+                    forceKeyframe: false,
+                    allowPeriodicKeyframe: false,
+                    mode: mode,
+                    holdReason: keyframeInFlightFrameId == nil ? "keyframe-cooldown" : "keyframe-inflight"
+                )
+            }
+            return OwnedMediaAdmissionDecision(
+                shouldEncode: true,
+                forceKeyframe: forceKeyframe,
+                allowPeriodicKeyframe: allowPeriodic,
+                mode: mode,
+                holdReason: nil
+            )
+        case .draining:
+            guard drainTimedOut(nowUptimeNs: nowUptimeNs, config: config) else {
+                return OwnedMediaAdmissionDecision(
+                    shouldEncode: false,
+                    forceKeyframe: false,
+                    allowPeriodicKeyframe: false,
+                    mode: mode,
+                    holdReason: "draining"
+                )
+            }
+            if canSendKeyframe(nowUptimeNs: nowUptimeNs, config: config) {
+                pendingKeyframeRequest = true
+                return OwnedMediaAdmissionDecision(
+                    shouldEncode: true,
+                    forceKeyframe: true,
+                    allowPeriodicKeyframe: false,
+                    mode: mode,
+                    holdReason: nil
+                )
+            }
+            return OwnedMediaAdmissionDecision(
+                shouldEncode: false,
+                forceKeyframe: false,
+                allowPeriodicKeyframe: false,
+                mode: mode,
+                holdReason: keyframeInFlightFrameId == nil ? "drain-keyframe-cooldown" : "keyframe-inflight"
+            )
         }
-        if latestClientFrameAgeMs > config.frameAgeMs || latestClientBacklogFrames > 0 {
-            return .behind
-        }
-        return .normal
     }
 
     func encodeIntervalMs(config: OwnedMediaBackpressureConfig) -> Int {
-        switch mode(config: config) {
+        switch mode {
         case .normal:
             return config.normalEncodeIntervalMs
         case .behind:
             return max(config.behindEncodeIntervalMs, config.normalEncodeIntervalMs)
-        case .severe:
+        case .draining:
             return max(config.severeEncodeIntervalMs, config.behindEncodeIntervalMs)
         }
+    }
+
+    private mutating func refreshMode(config: OwnedMediaBackpressureConfig, nowUptimeNs: UInt64) {
+        let previousMode = mode
+        if shouldDrain(config: config) {
+            mode = .draining
+            if previousMode != .draining {
+                drainEnteredAtUptimeNs = nowUptimeNs
+            }
+            return
+        }
+        if mode == .draining {
+            drainEnteredAtUptimeNs = nil
+        }
+        if latestAckedFrameId > 0 &&
+            (latestClientFrameAgeMs > config.frameAgeMs || latestClientBacklogFrames > 0) {
+            mode = .behind
+        } else {
+            mode = .normal
+        }
+    }
+
+    private func shouldDrain(config: OwnedMediaBackpressureConfig) -> Bool {
+        (latestAckedFrameId > 0 && latestClientFrameAgeMs >= config.severeFrameAgeMs) ||
+            unacknowledgedFrameCount > max(config.normalMaxUnackedFrames, config.maxInflightFrames) ||
+            unacknowledgedBytes > config.maxInflightBytes
+    }
+
+    private func drainTimedOut(nowUptimeNs: UInt64, config: OwnedMediaBackpressureConfig) -> Bool {
+        guard let drainEnteredAtUptimeNs else { return false }
+        let timeoutNs = UInt64(config.drainTimeoutMs) * 1_000_000
+        return nowUptimeNs >= drainEnteredAtUptimeNs &&
+            nowUptimeNs - drainEnteredAtUptimeNs >= timeoutNs
+    }
+
+    private func canSendKeyframe(nowUptimeNs: UInt64, config: OwnedMediaBackpressureConfig) -> Bool {
+        guard keyframeInFlightFrameId == nil else { return false }
+        guard let lastKeyframeSentAtUptimeNs else { return true }
+        let cooldownNs = UInt64(config.keyframeCooldownMs) * 1_000_000
+        return nowUptimeNs >= lastKeyframeSentAtUptimeNs &&
+            nowUptimeNs - lastKeyframeSentAtUptimeNs >= cooldownNs
     }
 }
 

@@ -75,7 +75,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var frameMailbox: LatestCapturedFrameMailbox?
     private var encodePumpTask: Task<Void, Never>?
     private var admission = OwnedMediaEncodeAdmission()
-    private var forceKeyframeFromAdmission = false
     private var started = false
 
     init(
@@ -298,13 +297,24 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 }
             }
 
-            if consumeAdmissionKeyframeRequest() {
-                encoder.requestKeyframe()
+            let decision = admissionDecision()
+            if !decision.shouldEncode {
+                logger.notice("owned media admission-hold mode=\(String(describing: decision.mode), privacy: .public) reason=\(decision.holdReason ?? "unknown", privacy: .public)")
+                if decision.holdReason == "keyframe-inflight" {
+                    logger.notice("owned media keyframe-suppressed-inflight mode=\(String(describing: decision.mode), privacy: .public)")
+                }
+                try? await Task.sleep(nanoseconds: intervalNs)
+                continue
             }
 
-            guard let envelope = await encoder.encode(frame) else { continue }
+            guard let envelope = await encoder.encode(
+                frame,
+                forceKeyframe: decision.forceKeyframe,
+                allowPeriodicKeyframe: decision.allowPeriodicKeyframe
+            ) else { continue }
             do {
                 try await channel.send(envelope)
+                noteAdmissionSent(envelope, decision: decision)
                 lastAdmissionNs = DispatchTime.now().uptimeNanoseconds
             } catch {
                 logger.error("owned media frame send failed: \(String(describing: error), privacy: .public)")
@@ -319,11 +329,38 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         return UInt64(intervalMs) * 1_000_000
     }
 
-    private func consumeAdmissionKeyframeRequest() -> Bool {
-        lock.withLock {
-            guard forceKeyframeFromAdmission else { return false }
-            forceKeyframeFromAdmission = false
-            return true
+    private func admissionDecision() -> OwnedMediaAdmissionDecision {
+        let now = DispatchTime.now().uptimeNanoseconds
+        return lock.withLock {
+            admission.decision(nowUptimeNs: now, config: makeBackpressureConfig())
+        }
+    }
+
+    private func noteAdmissionSent(_ envelope: OwnedMediaFrameEnvelope, decision: OwnedMediaAdmissionDecision) {
+        let now = DispatchTime.now().uptimeNanoseconds
+        let snapshot = lock.withLock {
+            let previousMode = admission.mode
+            admission.noteSent(
+                frameId: envelope.header.frameId,
+                bytes: envelope.payload.count,
+                capturedAtUptimeNs: envelope.header.capturedAtUptimeNs,
+                isKeyframe: envelope.header.isKeyframe,
+                nowUptimeNs: now,
+                config: makeBackpressureConfig()
+            )
+            return (
+                mode: admission.mode,
+                previousMode: previousMode,
+                unacked: admission.unacknowledgedFrameCount,
+                bytes: admission.unacknowledgedBytes
+            )
+        }
+        logger.notice("owned media admission-state mode=\(String(describing: snapshot.mode), privacy: .public) sent=\(envelope.header.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) unacked=\(snapshot.unacked, privacy: .public) bytes=\(snapshot.bytes, privacy: .public)")
+        if snapshot.previousMode != .draining && snapshot.mode == .draining {
+            logger.notice("owned media drain-enter afterSend=\(envelope.header.frameId, privacy: .public)")
+        }
+        if decision.mode == .draining && decision.forceKeyframe && envelope.header.isKeyframe {
+            logger.notice("owned media keyframe-sent-after-drain frame=\(envelope.header.frameId, privacy: .public)")
         }
     }
 
@@ -353,21 +390,22 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     private func noteFrameAck(_ message: OwnedMediaControlMessage) {
-        let shouldForceKeyframe = lock.withLock {
+        let events = lock.withLock {
             admission.noteAck(
                 frameId: message.frameId,
                 renderGapMs: message.renderGapMs,
                 frameAgeMs: message.frameAgeMs,
                 clientBacklogFrames: message.clientBacklogFrames,
                 clientBacklogBytes: message.clientBacklogBytes,
+                nowUptimeNs: DispatchTime.now().uptimeNanoseconds,
                 config: makeBackpressureConfig()
             )
         }
-        if shouldForceKeyframe {
-            lock.withLock {
-                forceKeyframeFromAdmission = true
-            }
-            logger.notice("owned media admission severe frameAgeMs=\(message.frameAgeMs ?? 0, privacy: .public) afterAck=\(message.frameId, privacy: .public) forceNextKeyframe=true")
+        if events.enteredDrain {
+            logger.notice("owned media drain-enter frameAgeMs=\(message.frameAgeMs ?? 0, privacy: .public) afterAck=\(message.frameId, privacy: .public)")
+        }
+        if events.exitedDrain {
+            logger.notice("owned media drain-exit afterAck=\(message.frameId, privacy: .public)")
         }
     }
 
@@ -379,15 +417,22 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             maxInflightBytes: Config.ownedMediaBackpressureMaxInflightBytes,
             expectedFrameRate: configuration.expectedFrameRate,
             behindEncodeIntervalMs: Config.ownedMediaBackpressureEncodeIntervalMs,
-            severeEncodeIntervalMs: Config.ownedMediaBackpressureSevereEncodeIntervalMs
+            severeEncodeIntervalMs: Config.ownedMediaBackpressureSevereEncodeIntervalMs,
+            drainTimeoutMs: Config.ownedMediaDrainTimeoutMs,
+            keyframeCooldownMs: Config.ownedMediaKeyframeCooldownMs,
+            normalMaxUnackedFrames: Config.ownedMediaNormalMaxUnackedFrames,
+            behindMaxUnackedFrames: Config.ownedMediaBehindMaxUnackedFrames
         )
     }
 
     private func requestKeyframe() {
-        lock.lock()
-        let encoder = self.encoder
-        lock.unlock()
-        encoder?.requestKeyframe()
+        let mode = lock.withLock {
+            admission.noteKeyframeRequested()
+            return admission.mode
+        }
+        if mode == .draining {
+            logger.notice("owned media keyframe-deferred reason=draining")
+        }
     }
 
 }
@@ -455,9 +500,17 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         self.configuration = configuration
     }
 
-    func encode(_ frame: CapturedVideoFrame) async -> OwnedMediaFrameEnvelope? {
+    func encode(
+        _ frame: CapturedVideoFrame,
+        forceKeyframe: Bool = false,
+        allowPeriodicKeyframe: Bool = true
+    ) async -> OwnedMediaFrameEnvelope? {
         await withCheckedContinuation { continuation in
-            encode(frame) { envelope in
+            encode(
+                frame,
+                forceKeyframe: forceKeyframe,
+                allowPeriodicKeyframe: allowPeriodicKeyframe
+            ) { envelope in
                 continuation.resume(returning: envelope)
             }
         }
@@ -465,6 +518,8 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
 
     private func encode(
         _ frame: CapturedVideoFrame,
+        forceKeyframe requestedAdmissionKeyframe: Bool,
+        allowPeriodicKeyframe: Bool,
         completion: @escaping @Sendable (OwnedMediaFrameEnvelope?) -> Void
     ) {
         lock.lock()
@@ -481,9 +536,11 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             sessionToEncode = session
             frameId &+= 1
             encodedFrameId = frameId
-            let requestedKeyframe = forceNextKeyframe
+            let requestedKeyframe = forceNextKeyframe || requestedAdmissionKeyframe
             forceNextKeyframe = false
-            let forceKeyframe = requestedKeyframe || encodedFrameId == 1 || encodedFrameId.isMultiple(of: UInt64(configuration.keyframeIntervalFrames))
+            let periodicKeyframe = allowPeriodicKeyframe &&
+                encodedFrameId.isMultiple(of: UInt64(configuration.keyframeIntervalFrames))
+            let forceKeyframe = requestedKeyframe || encodedFrameId == 1 || periodicKeyframe
             frameProperties = forceKeyframe
                 ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary
                 : nil

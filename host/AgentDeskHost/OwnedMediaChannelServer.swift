@@ -38,7 +38,11 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
             maxInflightBytes: Config.ownedMediaBackpressureMaxInflightBytes,
             expectedFrameRate: Config.ownedMediaExpectedFrameRate,
             behindEncodeIntervalMs: Config.ownedMediaBackpressureEncodeIntervalMs,
-            severeEncodeIntervalMs: Config.ownedMediaBackpressureSevereEncodeIntervalMs
+            severeEncodeIntervalMs: Config.ownedMediaBackpressureSevereEncodeIntervalMs,
+            drainTimeoutMs: Config.ownedMediaDrainTimeoutMs,
+            keyframeCooldownMs: Config.ownedMediaKeyframeCooldownMs,
+            normalMaxUnackedFrames: Config.ownedMediaNormalMaxUnackedFrames,
+            behindMaxUnackedFrames: Config.ownedMediaBehindMaxUnackedFrames
         ),
         resendRingFrames: Int = Config.ownedMediaResendRingFrames,
         maxResendPackets: Int = Config.ownedMediaMaxResendPackets
