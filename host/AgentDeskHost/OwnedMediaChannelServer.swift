@@ -11,9 +11,11 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
     private let onControlMessage: @Sendable (OwnedMediaControlMessage) -> Void
     private let burstPacketCount: Int
     private let burstPauseUs: Int
+    private let maxResendPackets: Int
     private let stateQueue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic-state")
     private let sendGate = DatagramSendGate()
     private var freshness = OwnedMediaSendFreshness()
+    private var resendRing: OwnedMediaResendRing
     private var closed = false
     private var sentFrameCount: UInt64 = 0
 
@@ -23,7 +25,9 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         key: SymmetricKey,
         onControlMessage: @escaping @Sendable (OwnedMediaControlMessage) -> Void = { _ in },
         burstPacketCount: Int = Config.ownedMediaDatagramBurstPacketCount,
-        burstPauseUs: Int = Config.ownedMediaDatagramBurstPauseUs
+        burstPauseUs: Int = Config.ownedMediaDatagramBurstPauseUs,
+        resendRingFrames: Int = Config.ownedMediaResendRingFrames,
+        maxResendPackets: Int = Config.ownedMediaMaxResendPackets
     ) {
         self.connection = connection
         self.fingerprint = fingerprint
@@ -31,6 +35,8 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         self.onControlMessage = onControlMessage
         self.burstPacketCount = burstPacketCount
         self.burstPauseUs = burstPauseUs
+        self.maxResendPackets = maxResendPackets
+        self.resendRing = OwnedMediaResendRing(capacityFrames: resendRingFrames)
         connection.stateUpdateHandler = { [weak self] state in
             self?.logger.notice("owned media quic state=\(String(describing: state), privacy: .public) fp=\(fingerprint.rawValue, privacy: .public)")
             switch state {
@@ -63,6 +69,7 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                 payload: data,
                 key: key
             )
+            rememberFrame(frameId: frameId, packets: packets)
             let ordinal = noteSentFrame()
             if isKeyframe || ordinal == 1 || ordinal.isMultiple(of: 120) {
                 logger.notice("owned media quic send frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) burst=\(self.burstPacketCount, privacy: .public) pauseUs=\(self.burstPauseUs, privacy: .public)")
@@ -117,6 +124,12 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         stateQueue.sync { freshness.shouldSend(frameId: frameId, isKeyframe: isKeyframe) }
     }
 
+    private func rememberFrame(frameId: UInt64, packets: [Data]) {
+        stateQueue.sync {
+            resendRing.remember(frameId: frameId, packets: packets)
+        }
+    }
+
     @discardableResult
     private func markClosed() -> Bool {
         stateQueue.sync {
@@ -154,12 +167,50 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                 do {
                     let message = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
                     self.logger.notice("owned media quic control kind=\(message.kind.rawValue, privacy: .public) frame=\(message.frameId, privacy: .public)")
-                    self.onControlMessage(message)
+                    self.handleControlMessage(message)
                 } catch {
                     self.logger.error("owned media quic control malformed bytes=\(data.count, privacy: .public): \(String(describing: error), privacy: .public)")
                 }
             }
             self.receiveControlMessage()
+        }
+    }
+
+    private func handleControlMessage(_ message: OwnedMediaControlMessage) {
+        switch message.kind {
+        case .keyframeRequest:
+            onControlMessage(message)
+        case .packetResendRequest:
+            resendRequestedPackets(message)
+        }
+    }
+
+    private func resendRequestedPackets(_ message: OwnedMediaControlMessage) {
+        let result = stateQueue.sync {
+            resendRing.packets(
+                frameId: message.frameId,
+                indexes: message.packetIndexes,
+                maxCount: maxResendPackets
+            )
+        }
+        logger.notice("owned media quic resend-request frame=\(message.frameId, privacy: .public) requested=\(message.packetIndexes.count, privacy: .public) found=\(result.packets.count, privacy: .public) miss=\(result.misses.count, privacy: .public)")
+        if !result.misses.isEmpty {
+            logger.notice("owned media quic resend-miss frame=\(message.frameId, privacy: .public) packets=\(result.misses.count, privacy: .public)")
+        }
+        guard !result.packets.isEmpty else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            var sent = 0
+            do {
+                for (_, packet) in result.packets {
+                    guard !self.isClosed else { return }
+                    try await self.sendDatagram(packet)
+                    sent += 1
+                }
+                self.logger.notice("owned media quic resend-sent frame=\(message.frameId, privacy: .public) packets=\(sent, privacy: .public)")
+            } catch {
+                self.logger.error("owned media quic resend failed frame=\(message.frameId, privacy: .public) sent=\(sent, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
         }
     }
 }

@@ -296,6 +296,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         case .keyframeRequest:
             logger.notice("owned media keyframe requested after client frame=\(message.frameId, privacy: .public)")
             requestKeyframe()
+        case .packetResendRequest:
+            break
         }
     }
 

@@ -200,6 +200,23 @@ struct SignalingFrameRoutingTests {
         #expect(decoded.type == "owned-media-control")
         #expect(decoded.kind == .keyframeRequest)
         #expect(decoded.frameId == 42)
+        #expect(decoded.packetIndexes.isEmpty)
+    }
+
+    @Test func ownedMediaPacketResendControlMessageRoundTripsThroughCodable() throws {
+        let message = OwnedMediaControlMessage(
+            kind: .packetResendRequest,
+            frameId: 42,
+            packetIndexes: [1, 3]
+        )
+        let data = try JSONEncoder().encode(message)
+        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
+
+        #expect(decoded == message)
+        #expect(decoded.type == "owned-media-control")
+        #expect(decoded.kind == .packetResendRequest)
+        #expect(decoded.frameId == 42)
+        #expect(decoded.packetIndexes == [1, 3])
     }
 
     @Test func sessionReadyDefaultsOldFixturesToWebRTC() throws {

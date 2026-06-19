@@ -173,6 +173,18 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES",
         defaultValue: 120
     )
+    static let ownedMediaRepairDeadlineMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_REPAIR_DEADLINE_MS",
+        defaultValue: 50
+    )
+    static let ownedMediaResendRingFrames = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_RESEND_RING_FRAMES",
+        defaultValue: 8
+    )
+    static let ownedMediaMaxResendPackets = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
+        defaultValue: 256
+    )
     static func ownedMediaMaxQP(environment: [String: String]) -> Int? {
         guard let raw = environment["AGENTDESK_OWNED_MEDIA_MAX_QP"],
               let value = Int(raw),

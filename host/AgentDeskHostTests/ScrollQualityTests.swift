@@ -116,6 +116,35 @@ struct ScrollQualityTests {
         #expect(freshness.shouldSend(frameId: 22, isKeyframe: true))
     }
 
+    @Test func ownedMediaResendRingReturnsExactStoredDatagrams() {
+        var ring = OwnedMediaResendRing(capacityFrames: 8)
+        let packet0 = Data([0x41, 0x44, 0x4d, 0x44, 0x00])
+        let packet1 = Data([0x41, 0x44, 0x4d, 0x44, 0x01])
+        let packet2 = Data([0x41, 0x44, 0x4d, 0x44, 0x02])
+
+        ring.remember(frameId: 10, packets: [packet0, packet1, packet2])
+        let result = ring.packets(frameId: 10, indexes: [2, 0], maxCount: 256)
+
+        #expect(result.packets.map(\.0) == [0, 2])
+        #expect(result.packets.map(\.1) == [packet0, packet2])
+        #expect(result.misses.isEmpty)
+    }
+
+    @Test func ownedMediaResendRingEvictsOlderFrames() {
+        var ring = OwnedMediaResendRing(capacityFrames: 2)
+
+        ring.remember(frameId: 1, packets: [Data([1])])
+        ring.remember(frameId: 2, packets: [Data([2])])
+        ring.remember(frameId: 3, packets: [Data([3])])
+
+        let evicted = ring.packets(frameId: 1, indexes: [0], maxCount: 256)
+        let retained = ring.packets(frameId: 3, indexes: [0], maxCount: 256)
+
+        #expect(evicted.packets.isEmpty)
+        #expect(evicted.misses == [0])
+        #expect(retained.packets.map(\.1) == [Data([3])])
+    }
+
     @Test func motionCodecCanBeTunedToDownscaledVp9() {
         let planes = MediaPlaneConfiguration.defaultPlanes(environment: [
             "AGENTDESK_TUNING_MOTION_CODEC": "vp9",

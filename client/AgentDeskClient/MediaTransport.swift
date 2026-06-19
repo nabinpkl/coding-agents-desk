@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // ADR-0004 protocol seam. Mirror of host/AgentDeskHost/MediaTransport.swift.
@@ -186,6 +187,310 @@ enum CodecPreferencePolicy {
 enum MediaTransportError: Error {
     case notYetImplemented
     case unsupportedCodecPreference(String)
+}
+
+final class MediaDatagramFrameRepairBuffer {
+    private struct PendingFrame {
+        let frameId: UInt64
+        let packetCount: UInt16
+        var packets: [UInt16: Data]
+        var repairDeadlineNs: UInt64?
+
+        var isComplete: Bool {
+            packets.count == Int(packetCount)
+        }
+
+        var missingIndexes: [UInt16] {
+            (UInt16(0)..<packetCount).filter { packets[$0] == nil }
+        }
+
+        var incompleteFrame: IncompleteFrame {
+            IncompleteFrame(
+                frameId: frameId,
+                received: packets.count,
+                expected: Int(packetCount),
+                missingIndexes: missingIndexes
+            )
+        }
+
+        var completedFrame: MediaDatagramCompletedFrame? {
+            guard isComplete else { return nil }
+            var frame = Data()
+            for index in UInt16(0)..<packetCount {
+                guard let packet = packets[index] else { return nil }
+                frame.append(packet)
+            }
+            return MediaDatagramCompletedFrame(
+                frameId: frameId,
+                packetCount: packetCount,
+                data: frame,
+                wasRepaired: repairDeadlineNs != nil
+            )
+        }
+    }
+
+    private let repairDeadlineNs: UInt64
+    private let trackedFrameLimit: Int
+    private let maxResendPackets: Int
+    private var newestFrameId: UInt64 = 0
+    private var deliveredFrameId: UInt64 = 0
+    private var frames: [UInt64: PendingFrame] = [:]
+
+    init(repairDeadlineNs: UInt64, trackedFrameLimit: Int, maxResendPackets: Int) {
+        self.repairDeadlineNs = repairDeadlineNs
+        self.trackedFrameLimit = max(1, trackedFrameLimit)
+        self.maxResendPackets = max(1, maxResendPackets)
+    }
+
+    func accept(_ packet: MediaDatagramFramePacket, now: UInt64) -> MediaDatagramRepairResult {
+        guard packet.packetIndex < packet.packetCount,
+              packet.frameId > deliveredFrameId else {
+            return .empty
+        }
+        newestFrameId = max(newestFrameId, packet.frameId)
+        if var pending = frames[packet.frameId] {
+            guard pending.packetCount == packet.packetCount else {
+                return expire(frameId: packet.frameId)
+            }
+            pending.packets[packet.packetIndex] = packet.payload
+            frames[packet.frameId] = pending
+        } else {
+            frames[packet.frameId] = PendingFrame(
+                frameId: packet.frameId,
+                packetCount: packet.packetCount,
+                packets: [packet.packetIndex: packet.payload],
+                repairDeadlineNs: nil
+            )
+        }
+
+        var result = MediaDatagramRepairResult.empty
+        result.resendRequests.append(contentsOf: requestMissingPackets(now: now))
+        result.expiredFrames.append(contentsOf: expirePastDeadline(now: now))
+        result.expiredFrames.append(contentsOf: enforceTrackedFrameLimit())
+        let completed = drainCompletedFrames()
+        result.repairedFrameCount += completed.filter(\.wasRepaired).count
+        result.completedFrames.append(contentsOf: completed)
+        return result
+    }
+
+    private func requestMissingPackets(now: UInt64) -> [MediaDatagramRepairRequest] {
+        var requests: [MediaDatagramRepairRequest] = []
+        for frameId in frames.keys.sorted() {
+            guard frameId < newestFrameId,
+                  var pending = frames[frameId],
+                  !pending.isComplete,
+                  pending.repairDeadlineNs == nil
+            else {
+                continue
+            }
+            let missing = Array(pending.missingIndexes.prefix(maxResendPackets))
+            guard !missing.isEmpty else { continue }
+            pending.repairDeadlineNs = now + repairDeadlineNs
+            frames[frameId] = pending
+            requests.append(MediaDatagramRepairRequest(frameId: frameId, packetIndexes: missing))
+        }
+        return requests
+    }
+
+    private func expirePastDeadline(now: UInt64) -> [IncompleteFrame] {
+        let expiredIds = frames.keys.sorted().filter { frameId in
+            guard let frame = frames[frameId],
+                  !frame.isComplete,
+                  let deadline = frame.repairDeadlineNs else {
+                return false
+            }
+            return now >= deadline
+        }
+        return expiredIds.compactMap { frameId in
+            guard let frame = frames.removeValue(forKey: frameId) else { return nil }
+            deliveredFrameId = max(deliveredFrameId, frameId)
+            return frame.incompleteFrame
+        }
+    }
+
+    private func enforceTrackedFrameLimit() -> [IncompleteFrame] {
+        var expired: [IncompleteFrame] = []
+        while frames.count > trackedFrameLimit, let oldest = frames.keys.sorted().first {
+            guard let frame = frames.removeValue(forKey: oldest) else { continue }
+            deliveredFrameId = max(deliveredFrameId, oldest)
+            if !frame.isComplete {
+                expired.append(frame.incompleteFrame)
+            }
+        }
+        return expired
+    }
+
+    private func drainCompletedFrames() -> [MediaDatagramCompletedFrame] {
+        var completed: [MediaDatagramCompletedFrame] = []
+        while let nextId = frames.keys.sorted().first,
+              let frame = frames[nextId] {
+            guard frame.isComplete, let completedFrame = frame.completedFrame else {
+                break
+            }
+            frames.removeValue(forKey: nextId)
+            deliveredFrameId = max(deliveredFrameId, nextId)
+            completed.append(completedFrame)
+        }
+        return completed
+    }
+
+    private func expire(frameId: UInt64) -> MediaDatagramRepairResult {
+        guard let frame = frames.removeValue(forKey: frameId) else {
+            return .empty
+        }
+        deliveredFrameId = max(deliveredFrameId, frameId)
+        return MediaDatagramRepairResult(
+            resendRequests: [],
+            completedFrames: [],
+            expiredFrames: [frame.incompleteFrame],
+            repairedFrameCount: 0
+        )
+    }
+}
+
+struct MediaDatagramRepairRequest: Equatable {
+    let frameId: UInt64
+    let packetIndexes: [UInt16]
+}
+
+struct MediaDatagramCompletedFrame: Equatable {
+    let frameId: UInt64
+    let packetCount: UInt16
+    let data: Data
+    let wasRepaired: Bool
+}
+
+struct MediaDatagramRepairResult: Equatable {
+    var resendRequests: [MediaDatagramRepairRequest]
+    var completedFrames: [MediaDatagramCompletedFrame]
+    var expiredFrames: [IncompleteFrame]
+    var repairedFrameCount: Int
+
+    static let empty = MediaDatagramRepairResult(
+        resendRequests: [],
+        completedFrames: [],
+        expiredFrames: [],
+        repairedFrameCount: 0
+    )
+}
+
+struct IncompleteFrame: Equatable {
+    let frameId: UInt64
+    let received: Int
+    let expected: Int
+    let missingIndexes: [UInt16]
+}
+
+enum MediaDatagramPacketError: Error {
+    case tooShort(length: Int, prefix: String)
+    case badHeader(length: Int, prefix: String)
+    case badLength(length: Int, expected: Int, payloadLength: Int)
+    case badPacketCount
+    case authenticationFailed(frameId: UInt64, packetIndex: UInt16, packetCount: UInt16)
+
+    var debugSummary: String {
+        switch self {
+        case .tooShort(let length, let prefix):
+            return "quic non-admd short len=\(length) prefix=\(prefix)"
+        case .badHeader(let length, let prefix):
+            return "quic non-admd header len=\(length) prefix=\(prefix)"
+        case .badLength(let length, let expected, let payloadLength):
+            return "quic bad length len=\(length) expected=\(expected) payload=\(payloadLength)"
+        case .badPacketCount:
+            return "quic bad packet count"
+        case .authenticationFailed(let frameId, let packetIndex, let packetCount):
+            return "quic auth failed frame=\(frameId) index=\(packetIndex)/\(packetCount)"
+        }
+    }
+}
+
+struct MediaDatagramFramePacket: Equatable {
+    private static let magic = Data([0x41, 0x44, 0x4d, 0x44])
+    private static let version: UInt8 = 1
+    private static let frameKind: UInt8 = 3
+    private static let headerPrefixLength = 32
+    private static let macLength = 32
+
+    let frameId: UInt64
+    let packetIndex: UInt16
+    let packetCount: UInt16
+    let sentAtUptimeNs: UInt64
+    let payload: Data
+
+    static func decode(_ data: Data, key: SymmetricKey) throws -> MediaDatagramFramePacket {
+        guard data.count >= headerPrefixLength + macLength else {
+            throw MediaDatagramPacketError.tooShort(length: data.count, prefix: data.hexPrefix())
+        }
+        guard data.prefix(4) == magic,
+              data[4] == version,
+              data[5] == frameKind
+        else {
+            throw MediaDatagramPacketError.badHeader(length: data.count, prefix: data.hexPrefix())
+        }
+        let payloadLength = Int(try data.readUInt16BE(at: 30))
+        let expectedLength = headerPrefixLength + macLength + payloadLength
+        guard data.count == expectedLength else {
+            throw MediaDatagramPacketError.badLength(length: data.count, expected: expectedLength, payloadLength: payloadLength)
+        }
+        let payload = data.suffix(payloadLength)
+        var authenticated = Data(data.prefix(headerPrefixLength))
+        authenticated.append(payload)
+        let expectedMac = HMAC<SHA256>.authenticationCode(for: authenticated, using: key)
+        let actualMac = data.subdata(in: headerPrefixLength..<(headerPrefixLength + macLength))
+        let packetCount = try data.readUInt16BE(at: 20)
+        let packetIndex = try data.readUInt16BE(at: 18)
+        let frameId = try data.readUInt64BE(at: 10)
+        guard Data(expectedMac) == actualMac else {
+            throw MediaDatagramPacketError.authenticationFailed(
+                frameId: frameId,
+                packetIndex: packetIndex,
+                packetCount: packetCount
+            )
+        }
+        guard packetCount > 0 else { throw MediaDatagramPacketError.badPacketCount }
+        return MediaDatagramFramePacket(
+            frameId: frameId,
+            packetIndex: packetIndex,
+            packetCount: packetCount,
+            sentAtUptimeNs: try data.readUInt64BE(at: 22),
+            payload: Data(payload)
+        )
+    }
+}
+
+struct MediaDatagramCrypto {
+    static func key(mediaCapability: String, clientNonce: Data, serverNonce: Data) -> SymmetricKey {
+        var seed = Data("agentdesk-owned-media-datagram-v1".utf8)
+        seed.append(Data(mediaCapability.utf8))
+        seed.append(clientNonce)
+        seed.append(serverNonce)
+        let digest = SHA256.hash(data: seed)
+        return SymmetricKey(data: Data(digest))
+    }
+}
+
+extension Data {
+    func readUInt16BE(at offset: Int) throws -> UInt16 {
+        guard count >= offset + 2 else {
+            throw MediaDatagramPacketError.tooShort(length: count, prefix: hexPrefix())
+        }
+        return (UInt16(self[offset]) << 8) | UInt16(self[offset + 1])
+    }
+
+    func readUInt64BE(at offset: Int) throws -> UInt64 {
+        guard count >= offset + 8 else {
+            throw MediaDatagramPacketError.tooShort(length: count, prefix: hexPrefix())
+        }
+        var value: UInt64 = 0
+        for index in offset..<(offset + 8) {
+            value = (value << 8) | UInt64(self[index])
+        }
+        return value
+    }
+
+    func hexPrefix(byteCount: Int = 12) -> String {
+        prefix(byteCount).map { String(format: "%02x", $0) }.joined()
+    }
 }
 
 // VideoFrameSource is the host-side capture seam. The client mirror exists

@@ -864,23 +864,45 @@ struct MediaChannelReady: Codable, Equatable {
 
 enum OwnedMediaControlKind: String, Codable, Equatable {
     case keyframeRequest = "keyframe-request"
+    case packetResendRequest = "packet-resend-request"
 }
 
 struct OwnedMediaControlMessage: Codable, Equatable {
     let type: String
     let kind: OwnedMediaControlKind
     let frameId: UInt64
+    let packetIndexes: [UInt16]
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case kind = "k"
         case frameId = "id"
+        case packetIndexes = "px"
     }
 
-    init(kind: OwnedMediaControlKind, frameId: UInt64) {
+    init(kind: OwnedMediaControlKind, frameId: UInt64, packetIndexes: [UInt16] = []) {
         self.type = "owned-media-control"
         self.kind = kind
         self.frameId = frameId
+        self.packetIndexes = packetIndexes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        kind = try container.decode(OwnedMediaControlKind.self, forKey: .kind)
+        frameId = try container.decode(UInt64.self, forKey: .frameId)
+        packetIndexes = try container.decodeIfPresent([UInt16].self, forKey: .packetIndexes) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(frameId, forKey: .frameId)
+        if !packetIndexes.isEmpty {
+            try container.encode(packetIndexes, forKey: .packetIndexes)
+        }
     }
 }
 

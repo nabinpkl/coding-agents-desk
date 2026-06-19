@@ -93,6 +93,22 @@ struct InputChannelTests {
         #expect(json.contains("\"t\":\"owned-media-control\""))
         #expect(json.contains("\"k\":\"keyframe-request\""))
         #expect(json.contains("\"id\":42"))
+        #expect(!json.contains("\"px\""))
+    }
+
+    @Test func ownedMediaPacketResendControlSerializesWithCompactIndexes() throws {
+        let message = OwnedMediaControlMessage(
+            kind: .packetResendRequest,
+            frameId: 42,
+            packetIndexes: [1, 3]
+        )
+        let data = try JSONEncoder().encode(message)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
+
+        #expect(decoded == message)
+        #expect(json.contains("\"k\":\"packet-resend-request\""))
+        #expect(json.contains("\"px\":[1,3]"))
     }
 
     @Test func ownedMediaEnvelopeRoundTripsHeaderAndPayload() throws {
@@ -131,6 +147,72 @@ struct InputChannelTests {
         #expect(!throttle.isAwaitingKeyframe)
         let postKeyframeRequest = throttle.noteIncompleteFrame(now: 2_000_000_000)
         #expect(postKeyframeRequest)
+    }
+
+    @Test func repairBufferRequestsMissingIndexesWhenNewerFrameExposesGap() {
+        let buffer = MediaDatagramFrameRepairBuffer(
+            repairDeadlineNs: 50,
+            trackedFrameLimit: 8,
+            maxResendPackets: 256
+        )
+
+        _ = buffer.accept(packet(frameId: 1, index: 0, count: 3), now: 1)
+        let result = buffer.accept(packet(frameId: 2, index: 0, count: 1), now: 2)
+
+        #expect(result.resendRequests == [
+            MediaDatagramRepairRequest(frameId: 1, packetIndexes: [1, 2])
+        ])
+        #expect(result.completedFrames.isEmpty)
+        #expect(result.expiredFrames.isEmpty)
+    }
+
+    @Test func repairBufferSuppressesDuplicateRequestsDuringRepairWindow() {
+        let buffer = MediaDatagramFrameRepairBuffer(
+            repairDeadlineNs: 50,
+            trackedFrameLimit: 8,
+            maxResendPackets: 256
+        )
+
+        _ = buffer.accept(packet(frameId: 1, index: 0, count: 3), now: 1)
+        _ = buffer.accept(packet(frameId: 2, index: 0, count: 2), now: 2)
+        let duplicate = buffer.accept(packet(frameId: 2, index: 1, count: 2), now: 3)
+
+        #expect(duplicate.resendRequests.isEmpty)
+    }
+
+    @Test func repairBufferCompletesFrameAfterResendBeforeDeadline() {
+        let buffer = MediaDatagramFrameRepairBuffer(
+            repairDeadlineNs: 50,
+            trackedFrameLimit: 8,
+            maxResendPackets: 256
+        )
+
+        _ = buffer.accept(packet(frameId: 1, index: 0, count: 3, payload: [0x10]), now: 1)
+        _ = buffer.accept(packet(frameId: 2, index: 0, count: 1, payload: [0x20]), now: 2)
+        _ = buffer.accept(packet(frameId: 1, index: 1, count: 3, payload: [0x11]), now: 10)
+        let repaired = buffer.accept(packet(frameId: 1, index: 2, count: 3, payload: [0x12]), now: 20)
+
+        #expect(repaired.expiredFrames.isEmpty)
+        #expect(repaired.repairedFrameCount == 1)
+        #expect(repaired.completedFrames.map(\.frameId) == [1, 2])
+        #expect(repaired.completedFrames.first?.data == Data([0x10, 0x11, 0x12]))
+        #expect(repaired.completedFrames.first?.wasRepaired == true)
+    }
+
+    @Test func repairBufferFallsBackAfterRepairDeadline() {
+        let buffer = MediaDatagramFrameRepairBuffer(
+            repairDeadlineNs: 50,
+            trackedFrameLimit: 8,
+            maxResendPackets: 256
+        )
+
+        _ = buffer.accept(packet(frameId: 1, index: 0, count: 3), now: 1)
+        _ = buffer.accept(packet(frameId: 2, index: 0, count: 1), now: 2)
+        let expired = buffer.accept(packet(frameId: 3, index: 0, count: 1), now: 52)
+
+        #expect(expired.expiredFrames == [
+            IncompleteFrame(frameId: 1, received: 1, expected: 3, missingIndexes: [1, 2])
+        ])
     }
 
     @Test func eventFramePreservesNormalizedInput() throws {
@@ -388,6 +470,21 @@ struct InputChannelTests {
             #expect(rejection.reason == .malformed)
         }
         #expect(task.cancelCode == .protocolError)
+    }
+
+    private func packet(
+        frameId: UInt64,
+        index: UInt16,
+        count: UInt16,
+        payload: [UInt8] = [0xff]
+    ) -> MediaDatagramFramePacket {
+        MediaDatagramFramePacket(
+            frameId: frameId,
+            packetIndex: index,
+            packetCount: count,
+            sentAtUptimeNs: 0,
+            payload: Data(payload)
+        )
     }
 }
 
