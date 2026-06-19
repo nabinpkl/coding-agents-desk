@@ -130,6 +130,13 @@ fresh-install:
     just client-reinstall
     just pair-iphone
 
+# Rebuild and relaunch the host, reinstall the physical iPhone app, then
+# launch the client with stdout/stderr attached for owned-media diagnostics.
+fresh-consoled-run:
+    just host-run
+    just client-reinstall
+    just iphone-console-run
+
 # Build client Debug for the iPhone simulator and install (does not launch).
 # Mirrors `client-install` but targets the simulator instead of the
 # physical device.
