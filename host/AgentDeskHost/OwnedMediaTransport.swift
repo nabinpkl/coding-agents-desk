@@ -501,6 +501,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             }
 
             let decision = admissionDecision()
+            logStaleUnackedAbandonment(decision)
             if !decision.shouldEncode {
                 diagnostics.noteAdmissionHold(reason: decision.holdReason, mode: decision.mode)
                 logger.notice("owned media admission-hold mode=\(String(describing: decision.mode), privacy: .public) reason=\(decision.holdReason ?? "unknown", privacy: .public)")
@@ -602,6 +603,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         if decision.mode == .draining && decision.forceKeyframe && envelope.header.isKeyframe {
             logger.notice("owned media keyframe-sent-after-drain frame=\(envelope.header.frameId, privacy: .public)")
         }
+        if decision.keyframeReason == .staleUnackedRecovery && envelope.header.isKeyframe {
+            logger.notice("owned media recovery-keyframe-admitted reason=stale-unacked frame=\(envelope.header.frameId, privacy: .public)")
+        }
     }
 
     private func claimStartIfReady() -> ((any OwnedMediaChannelServing), VideoFrameSource)? {
@@ -674,8 +678,14 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             drainTimeoutMs: Config.ownedMediaDrainTimeoutMs,
             keyframeCooldownMs: Config.ownedMediaKeyframeCooldownMs,
             normalMaxUnackedFrames: Config.ownedMediaNormalMaxUnackedFrames,
-            behindMaxUnackedFrames: Config.ownedMediaBehindMaxUnackedFrames
+            behindMaxUnackedFrames: Config.ownedMediaBehindMaxUnackedFrames,
+            staleUnackedMs: Config.ownedMediaStaleUnackedMs
         )
+    }
+
+    private func logStaleUnackedAbandonment(_ decision: OwnedMediaAdmissionDecision) {
+        guard decision.abandonedStaleUnackedCount > 0 else { return }
+        logger.notice("owned media stale-unacked-abandoned oldest=\(decision.abandonedStaleUnackedOldestFrameId ?? 0, privacy: .public) count=\(decision.abandonedStaleUnackedCount, privacy: .public) bytes=\(decision.abandonedStaleUnackedBytes, privacy: .public)")
     }
 
     private func requestKeyframe() {

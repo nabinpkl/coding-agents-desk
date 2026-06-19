@@ -12,7 +12,8 @@ Ordering:
 
 - First remove the old media runtime branch, stale wire fields, and scroll-driven quality hints. They hide current behavior behind removed alternatives.
 - Then keep packet repair as the first recovery action and skip stale delta frames when they miss the repair deadline.
-- Then run the physical iPhone feel pass against the single path only. The logs should explain repair, stale-delta skip, keyframe fallback, and render gaps without any old path vocabulary.
+- Then run the physical iPhone feel pass against the single path only. The logs should explain repair, stale-delta skip, keyframe fallback, render gaps, and admission lifecycle without any old path vocabulary.
+- Then prevent one stale unacknowledged frame from closing host admission indefinitely. Decoder continuity still requires a forced recovery keyframe after abandoning a reference frame.
 - Escalate to mixed graphics only after this owned full-frame path proves which text and motion gaps remain.
 
 ## v0 Phase 14 (R26): owned single-surface media cleanup
@@ -27,7 +28,8 @@ Phase goal: make the current source tree, tests, and docs expose one owned media
 - [x] D26.6. Update host and client tests so they assert the owned-only session shape, `ADMD` v2 keyframe flags, exact resend replay, repair-before-deadline completion, stale delta skip, keyframe expiry fallback, and close-only session signaling.
 - [x] D26.7. Update `PRD.md`, `SPEC.md`, `README.md`, `.env.example`, `Justfile`, and launcher tests so current docs and run commands describe the owned path only.
 - [x] D26.8. Run `just check`, fix fallout, and keep the green cleanup ready for commit.
-- [ ] R26.9. Physical iPhone feel pass with `AGENTDESK_OWNED_MEDIA_CODEC=hevc AGENTDESK_OWNED_MEDIA_CHROMA=420 just fresh-install`, capture host and client logs, and judge whether packet repair plus stale delta skip removes the scroll freeze.
+- [x] D26.9. Physical iPhone feel pass with `AGENTDESK_OWNED_MEDIA_CODEC=hevc AGENTDESK_OWNED_MEDIA_CHROMA=420 just fresh-consoled-run`, capture host and client logs, and show the freeze is host admission closing on stale unacknowledged frames rather than client decode or display enqueue.
+- [x] D26.10. Change `client/AgentDeskClient/SharedTypes.swift`, `client/AgentDeskClient/OwnedMediaVideoSink.swift`, `host/AgentDeskHost/SharedTypes.swift`, and `host/AgentDeskHost/OwnedMediaTransport.swift` so healthy keyframes do not flush the display layer and stale unacknowledged host frames are abandoned before forcing one recovery keyframe.
 
 ---
 
@@ -58,5 +60,6 @@ D26.5     2026-06-19  committed   removed transport files and package references
 D26.6     2026-06-19  committed   owned-only tests replace removed media-mode coverage
 D26.7     2026-06-19  committed   current docs and run commands describe owned media only
 D26.8     2026-06-19  committed   full check is green
-R26.9     pending     pending     physical iPhone feel pass on owned HEVC 4:2:0
+D26.9     2026-06-19  committed   physical iPhone feel pass found host admission freeze on stale unacked frames
+D26.10    2026-06-19  committed   healthy keyframes stop flushing and stale unacked frames force recovery keyframes
 ```

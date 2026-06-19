@@ -853,18 +853,12 @@ enum OwnedMediaDisplayQueuePolicy {
         displayStatus: String,
         requiresFlushToResumeDecoding: Bool,
         isKeyframe: Bool,
-        renderGapMs: Double?,
-        staleKeyframeFlushMs: Double
+        renderGapMs: Double?
     ) -> OwnedMediaDisplayQueueAction {
         if displayStatus == "failed" || requiresFlushToResumeDecoding {
             return .flushAndRemoveImage
         }
-        guard isKeyframe,
-              let renderGapMs,
-              renderGapMs >= staleKeyframeFlushMs else {
-            return .none
-        }
-        return .flushAndRemoveImage
+        return .none
     }
 }
 

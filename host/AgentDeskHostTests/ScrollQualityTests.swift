@@ -252,6 +252,99 @@ struct ScrollQualityTests {
         #expect(held.holdReason == "unacked-behind")
     }
 
+    @Test func ownedMediaAdmissionBehindModeKeepsYoungUnackedFrameHeld() {
+        var admission = OwnedMediaEncodeAdmission()
+        let backpressure = Self.backpressureConfig()
+
+        _ = admission.noteAck(
+            frameId: 10,
+            renderGapMs: 90,
+            frameAgeMs: 120,
+            clientBacklogFrames: 1,
+            clientBacklogBytes: 10_000,
+            nowUptimeNs: 1_000_000_000,
+            config: backpressure
+        )
+        admission.noteSent(
+            frameId: 11,
+            bytes: 10_000,
+            capturedAtUptimeNs: 1_010_000_000,
+            isKeyframe: false,
+            nowUptimeNs: 1_020_000_000,
+            config: backpressure
+        )
+
+        let held = admission.decision(nowUptimeNs: 1_250_000_000, config: backpressure)
+
+        #expect(!held.shouldEncode)
+        #expect(held.holdReason == "unacked-behind")
+        #expect(admission.unacknowledgedFrameCount == 1)
+    }
+
+    @Test func ownedMediaAdmissionAbandonsStaleUnackedAndForcesRecoveryKeyframe() {
+        var admission = OwnedMediaEncodeAdmission()
+        let backpressure = Self.backpressureConfig()
+
+        _ = admission.noteAck(
+            frameId: 10,
+            renderGapMs: 90,
+            frameAgeMs: 120,
+            clientBacklogFrames: 1,
+            clientBacklogBytes: 10_000,
+            nowUptimeNs: 1_000_000_000,
+            config: backpressure
+        )
+        admission.noteSent(
+            frameId: 11,
+            bytes: 10_000,
+            capturedAtUptimeNs: 1_010_000_000,
+            isKeyframe: false,
+            nowUptimeNs: 1_020_000_000,
+            config: backpressure
+        )
+
+        let decision = admission.decision(nowUptimeNs: 1_370_000_000, config: backpressure)
+
+        #expect(decision.shouldEncode)
+        #expect(decision.forceKeyframe)
+        #expect(!decision.allowPeriodicKeyframe)
+        #expect(decision.keyframeReason == .staleUnackedRecovery)
+        #expect(admission.unacknowledgedFrameCount == 0)
+    }
+
+    @Test func ownedMediaAdmissionAbandoningStaleKeyframeClearsInflightKeyframe() {
+        var admission = OwnedMediaEncodeAdmission()
+        let backpressure = Self.backpressureConfig()
+
+        admission.noteKeyframeRequested()
+        let keyframe = admission.decision(nowUptimeNs: 1_000_000_000, config: backpressure)
+        #expect(keyframe.forceKeyframe)
+        admission.noteSent(
+            frameId: 11,
+            bytes: 220_000,
+            capturedAtUptimeNs: 1_000_000_000,
+            isKeyframe: true,
+            nowUptimeNs: 1_010_000_000,
+            config: backpressure
+        )
+        _ = admission.noteAck(
+            frameId: 10,
+            renderGapMs: 90,
+            frameAgeMs: 120,
+            clientBacklogFrames: 1,
+            clientBacklogBytes: 10_000,
+            nowUptimeNs: 1_020_000_000,
+            config: backpressure
+        )
+
+        let recovery = admission.decision(nowUptimeNs: 1_360_000_000, config: backpressure)
+
+        #expect(recovery.shouldEncode)
+        #expect(recovery.forceKeyframe)
+        #expect(recovery.keyframeReason == .staleUnackedRecovery)
+        #expect(admission.keyframeInFlightFrameId == nil)
+    }
+
     @Test func ownedMediaAdmissionAckClearsUnackedFramesAndExitsDrain() {
         var admission = OwnedMediaEncodeAdmission()
         let backpressure = Self.backpressureConfig()
@@ -501,7 +594,8 @@ struct ScrollQualityTests {
             drainTimeoutMs: 700,
             keyframeCooldownMs: 1_000,
             normalMaxUnackedFrames: 2,
-            behindMaxUnackedFrames: 1
+            behindMaxUnackedFrames: 1,
+            staleUnackedMs: 350
         )
     }
 }

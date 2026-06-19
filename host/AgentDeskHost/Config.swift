@@ -209,6 +209,10 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_BEHIND_MAX_UNACKED_FRAMES",
         defaultValue: 1
     )
+    static let ownedMediaStaleUnackedMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_STALE_UNACKED_MS",
+        defaultValue: 350
+    )
     static func ownedMediaMaxQP(environment: [String: String]) -> Int? {
         guard let raw = environment["AGENTDESK_OWNED_MEDIA_MAX_QP"],
               let value = Int(raw),

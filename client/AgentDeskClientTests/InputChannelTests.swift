@@ -141,20 +141,24 @@ struct InputChannelTests {
         #expect(!json.contains("\"px\""))
     }
 
-    @Test func ownedMediaFlushPolicyDoesNotFlushOrdinaryKeyframes() {
+    @Test func ownedMediaFlushPolicyDoesNotFlushHealthyKeyframesEvenAfterLongGap() {
         #expect(OwnedMediaDisplayQueuePolicy.action(
             displayStatus: "rendering",
             requiresFlushToResumeDecoding: false,
             isKeyframe: true,
-            renderGapMs: 40,
-            staleKeyframeFlushMs: 150
+            renderGapMs: 40
         ) == .none)
         #expect(OwnedMediaDisplayQueuePolicy.action(
             displayStatus: "unknown",
             requiresFlushToResumeDecoding: false,
             isKeyframe: false,
-            renderGapMs: 300,
-            staleKeyframeFlushMs: 150
+            renderGapMs: 300
+        ) == .none)
+        #expect(OwnedMediaDisplayQueuePolicy.action(
+            displayStatus: "rendering",
+            requiresFlushToResumeDecoding: false,
+            isKeyframe: true,
+            renderGapMs: 1_000
         ) == .none)
     }
 
@@ -163,39 +167,13 @@ struct InputChannelTests {
             displayStatus: "failed",
             requiresFlushToResumeDecoding: false,
             isKeyframe: false,
-            renderGapMs: 40,
-            staleKeyframeFlushMs: 150
+            renderGapMs: 40
         ) == .flushAndRemoveImage)
         #expect(OwnedMediaDisplayQueuePolicy.action(
             displayStatus: "rendering",
             requiresFlushToResumeDecoding: true,
             isKeyframe: false,
-            renderGapMs: 40,
-            staleKeyframeFlushMs: 150
-        ) == .flushAndRemoveImage)
-    }
-
-    @Test func ownedMediaFlushPolicyFlushesOnlyStaleKeyframeForQueueDiscipline() {
-        #expect(OwnedMediaDisplayQueuePolicy.action(
-            displayStatus: "rendering",
-            requiresFlushToResumeDecoding: false,
-            isKeyframe: false,
-            renderGapMs: 250,
-            staleKeyframeFlushMs: 150
-        ) == .none)
-        #expect(OwnedMediaDisplayQueuePolicy.action(
-            displayStatus: "rendering",
-            requiresFlushToResumeDecoding: false,
-            isKeyframe: true,
-            renderGapMs: 149,
-            staleKeyframeFlushMs: 150
-        ) == .none)
-        #expect(OwnedMediaDisplayQueuePolicy.action(
-            displayStatus: "rendering",
-            requiresFlushToResumeDecoding: false,
-            isKeyframe: true,
-            renderGapMs: 150,
-            staleKeyframeFlushMs: 150
+            renderGapMs: 40
         ) == .flushAndRemoveImage)
     }
 

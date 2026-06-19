@@ -70,8 +70,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 displayStatus: preEnqueueStatus,
                 requiresFlushToResumeDecoding: requiresFlushToResumeDecoding,
                 isKeyframe: envelope.header.isKeyframe,
-                renderGapMs: renderGapMs,
-                staleKeyframeFlushMs: Double(Config.ownedMediaDisplayStaleKeyframeFlushMs)
+                renderGapMs: renderGapMs
             )
             if displayQueueAction == .flushAndRemoveImage {
                 displayLayer.flushAndRemoveImage()

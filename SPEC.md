@@ -42,7 +42,7 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 
 ### Client
 
-1. **VideoFrameSink.** Concrete implementation `OwnedMediaVideoSink` owns one `AVSampleBufferDisplayLayer`, decodes `OwnedMediaFrameEnvelope` payloads, and renders the active display surface. It preserves delta continuity by enqueuing complete deltas, but may flush queued display history before a stale keyframe or when the layer reports failure / requires flush to resume. Attached console traces split the owned-media lifecycle into host capture/admission/encode/send/ACK, transport packet completion and repair, client complete-to-render enqueue, and estimated display-layer state. Display traces explicitly mark `displayPresentation=estimated`; true on-screen presentation timing is not claimed with the current `AVSampleBufferDisplayLayer` renderer.
+1. **VideoFrameSink.** Concrete implementation `OwnedMediaVideoSink` owns one `AVSampleBufferDisplayLayer`, decodes `OwnedMediaFrameEnvelope` payloads, and renders the active display surface. It preserves delta continuity by enqueuing complete deltas, and flushes queued display history only when the layer reports failure or requires flush to resume. Attached console traces split the owned-media lifecycle into host capture/admission/encode/send/ACK, transport packet completion and repair, client complete-to-render enqueue, and estimated display-layer state. Display traces explicitly mark `displayPresentation=estimated`; true on-screen presentation timing is not claimed with the current `AVSampleBufferDisplayLayer` renderer.
 2. **GestureTranslator.** Converts UIKit gestures on the trackpad and scroll-strip surfaces to `NormalizedInput`. It does not send media quality hints.
 3. **SpacesDotsView.** One-handed Spaces switch surface driven by `DesktopStatePush` from the input channel.
 4. **KeyboardSurface.** Compact keyboard plus accessory row. Emits key and modifier input frames.
@@ -167,6 +167,7 @@ DesktopStatePush   { state: DesktopState }                            // t: "des
 - The host resend ring keeps exact authenticated datagrams and resends only requested indexes still in the ring.
 - Capture freshness is enforced before VideoToolbox. The host keeps one latest raw capture frame, coalesces stale pending captures while transport is busy or the client is behind, and only encodes frames it intends to send.
 - Frame ACKs are the host-side admission fence. Normal cadence allows two unacknowledged frames, behind cadence allows one, and draining cadence allows none until ACKs clear or the drain timeout permits one recovery keyframe.
+- If a behind or draining frame stays unacknowledged past the stale-unacked deadline, the host abandons it for admission accounting and forces the next admitted frame to be a recovery keyframe. This prevents one lost lifecycle ACK from freezing capture admission, while preserving decoder continuity after any abandoned reference frame.
 - Explicit keyframe requests are deferred while draining. Periodic keyframes are suppressed while behind or draining, and a second keyframe is blocked while a prior keyframe is unacknowledged.
 - Once a frame is encoded, the host sends the whole frame. Backpressure adjusts encode cadence and datagram pacing; it does not drop encoded delta frames.
 - A frame repaired before the deadline renders in order.
