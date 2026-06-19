@@ -7,6 +7,10 @@ ios_test_destination := env_var_or_default("AGENTDESK_IOS_TEST_DESTINATION", "pl
 ios_device := env_var_or_default("AGENTDESK_IOS_DEVICE", "93DF5649-FC7B-5460-A6B4-74D2C1CEAB07")
 # UDID of the iPhone simulator used for Maestro UI flows. Override via env.
 ios_sim_udid := env_var_or_default("AGENTDESK_IOS_SIM_UDID", "00000000-0000-4000-8000-000000000022")
+iphone_log_archive := env_var_or_default("AGENTDESK_IPHONE_LOG_ARCHIVE", "/tmp/agentdesk-client.logarchive")
+iphone_log_minutes := env_var_or_default("AGENTDESK_IPHONE_LOG_MINUTES", "5")
+iphone_console_log := env_var_or_default("AGENTDESK_IPHONE_CONSOLE_LOG", "/tmp/agentdesk-client-console.log")
+iphone_log_device_udid := env_var_or_default("AGENTDESK_IOS_DEVICE_UDID", "")
 last_pair_url_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.last-pair-url"
 host_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskHost-gmjyarrzlrjgctfcursfnnulwzfg/Build/Products/Debug/AgentDeskHost.app"
 client_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskClient-asnebogtvhgngpdusosdqtlwsphl/Build/Products/Debug-iphoneos/AgentDeskClient.app"
@@ -31,6 +35,22 @@ dev:
 host-logs:
     : > /tmp/agentdesk-host.log
     log stream --predicate 'subsystem == "com.example.agentdesk.AgentDeskHost"' --info --style compact | tee -a /tmp/agentdesk-host.log
+
+# Pull recent iPhone unified logs for the client into a log archive, then
+# print the same filtered view back to the terminal. Device collection
+# requires root, so this recipe prompts through sudo for the collect step
+# only. By default this uses the first connected device because `log collect`
+# does not accept the CoreDevice identifier used by devicectl. Set
+# AGENTDESK_IOS_DEVICE_UDID when multiple devices are reachable over USB
+# or Wi-Fi.
+iphone-log-collect:
+    rm -rf "{{iphone_log_archive}}"
+    @if [ -n "{{iphone_log_device_udid}}" ]; then \
+        sudo /usr/bin/log collect --device-udid "{{iphone_log_device_udid}}" --last "{{iphone_log_minutes}}m" --predicate 'subsystem == "com.example.agentdesk.AgentDeskClient"' --output "{{iphone_log_archive}}"; \
+    else \
+        sudo /usr/bin/log collect --device --last "{{iphone_log_minutes}}m" --predicate 'subsystem == "com.example.agentdesk.AgentDeskClient"' --output "{{iphone_log_archive}}"; \
+    fi
+    /usr/bin/log show --style compact --info --debug --predicate 'subsystem == "com.example.agentdesk.AgentDeskClient"' "{{iphone_log_archive}}"
 
 # Build host Debug and (re)launch it via LaunchServices so macOS TCC
 # attributes Screen Recording (and any other privacy prompt) to
@@ -97,6 +117,19 @@ pair-iphone:
     @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     @echo "URL: $(cat '{{last_pair_url_path}}')"
     URL="$(cat '{{last_pair_url_path}}')"; xcrun devicectl device process launch --device {{ios_device}} --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\"}" com.example.agentdesk.AgentDeskClient "$URL"
+
+# Pair-launch the physical iPhone client with stdio attached. This blocks
+# until the app exits, and mirrors stdout/stderr to the configured log file.
+# Owned media stderr tracing is enabled so packet-repair diagnostics have a
+# live path separate from iOS unified logging.
+iphone-console-run:
+    @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
+    rm -f "{{last_pair_url_path}}" "{{iphone_console_log}}"
+    kill -USR1 $(pgrep -f AgentDeskHost)
+    @i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
+    @echo "URL: $(cat '{{last_pair_url_path}}')"
+    URL="$(cat '{{last_pair_url_path}}')"; xcrun devicectl device process launch --device {{ios_device}} --console --log-output "{{iphone_console_log}}" --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\"}" com.example.agentdesk.AgentDeskClient "$URL"
 
 fresh-install:
     just host-run
