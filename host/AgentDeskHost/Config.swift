@@ -153,6 +153,26 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PAUSE_US",
         defaultValue: 1_000
     )
+    static let ownedMediaQuicMaxDatagramBytes = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_QUIC_MAX_DATAGRAM_BYTES",
+        defaultValue: 1_200
+    )
+    static let ownedMediaCaptureScaleDown = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CAPTURE_SCALE_DOWN",
+        defaultValue: 1.0
+    )
+    static let ownedMediaBitrateKbps = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_KBPS",
+        defaultValue: SenderTuning.fromEnvironment(ProcessInfo.processInfo.environment).crispProfile.maxBitrateKbps
+    )
+    static let ownedMediaExpectedFrameRate = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_FPS",
+        defaultValue: 30
+    )
+    static let ownedMediaKeyframeIntervalFrames = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES",
+        defaultValue: 120
+    )
     static func ownedMediaMaxQP(environment: [String: String]) -> Int? {
         guard let raw = environment["AGENTDESK_OWNED_MEDIA_MAX_QP"],
               let value = Int(raw),
@@ -165,6 +185,15 @@ enum Config {
     static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
         guard let raw = ProcessInfo.processInfo.environment[environmentKey],
               let value = Int(raw),
+              value > 0
+        else {
+            return defaultValue
+        }
+        return value
+    }
+    static func positiveDouble(environmentKey: String, defaultValue: Double) -> Double {
+        guard let raw = ProcessInfo.processInfo.environment[environmentKey],
+              let value = Double(raw),
               value > 0
         else {
             return defaultValue

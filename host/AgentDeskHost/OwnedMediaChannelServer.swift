@@ -4,13 +4,14 @@ import os
 import CryptoKit
 
 final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendable {
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media-datagram")
+    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media-quic")
     private let connection: NWConnection
     private let fingerprint: DeviceFingerprint
     private let key: SymmetricKey
+    private let onControlMessage: @Sendable (OwnedMediaControlMessage) -> Void
     private let burstPacketCount: Int
     private let burstPauseUs: Int
-    private let stateQueue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-datagram-state")
+    private let stateQueue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic-state")
     private let sendGate = DatagramSendGate()
     private var closed = false
     private var newestFrameId: UInt64 = 0
@@ -20,16 +21,18 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         connection: NWConnection,
         fingerprint: DeviceFingerprint,
         key: SymmetricKey,
+        onControlMessage: @escaping @Sendable (OwnedMediaControlMessage) -> Void = { _ in },
         burstPacketCount: Int = Config.ownedMediaDatagramBurstPacketCount,
         burstPauseUs: Int = Config.ownedMediaDatagramBurstPauseUs
     ) {
         self.connection = connection
         self.fingerprint = fingerprint
         self.key = key
+        self.onControlMessage = onControlMessage
         self.burstPacketCount = burstPacketCount
         self.burstPauseUs = burstPauseUs
         connection.stateUpdateHandler = { [weak self] state in
-            self?.logger.notice("owned media datagram state=\(String(describing: state), privacy: .public) fp=\(fingerprint.rawValue, privacy: .public)")
+            self?.logger.notice("owned media quic state=\(String(describing: state), privacy: .public) fp=\(fingerprint.rawValue, privacy: .public)")
             switch state {
             case .cancelled, .failed:
                 self?.markClosed()
@@ -37,6 +40,7 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                 break
             }
         }
+        receiveControlMessage()
     }
 
     func send(_ envelope: OwnedMediaFrameEnvelope) async throws {
@@ -55,7 +59,7 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
             )
             let ordinal = noteSentFrame()
             if envelope.header.isKeyframe || ordinal == 1 || ordinal.isMultiple(of: 120) {
-                logger.notice("owned media datagram send frame=\(frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) burst=\(self.burstPacketCount, privacy: .public) pauseUs=\(self.burstPauseUs, privacy: .public)")
+                logger.notice("owned media quic send frame=\(frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) burst=\(self.burstPacketCount, privacy: .public) pauseUs=\(self.burstPauseUs, privacy: .public)")
             }
             for (index, packet) in packets.enumerated() {
                 guard shouldContinueSending(frameId: frameId, isKeyframe: envelope.header.isKeyframe),
@@ -72,7 +76,7 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                 }
             }
             if envelope.header.isKeyframe || ordinal == 1 || ordinal.isMultiple(of: 120) {
-                logger.notice("owned media datagram sent frame=\(frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) packets=\(packets.count, privacy: .public)")
+                logger.notice("owned media quic sent frame=\(frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) packets=\(packets.count, privacy: .public)")
             }
             await sendGate.signal()
         } catch {
@@ -129,6 +133,28 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                     }
                 }
             )
+        }
+    }
+
+    private func receiveControlMessage() {
+        connection.receiveMessage { [weak self] data, _, _, error in
+            guard let self else { return }
+            if let error {
+                self.logger.error("owned media quic control receive failed: \(String(describing: error), privacy: .public)")
+                self.markClosed()
+                return
+            }
+            guard !self.isClosed else { return }
+            if let data, !data.isEmpty {
+                do {
+                    let message = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
+                    self.logger.notice("owned media quic control kind=\(message.kind.rawValue, privacy: .public) frame=\(message.frameId, privacy: .public)")
+                    self.onControlMessage(message)
+                } catch {
+                    self.logger.error("owned media quic control malformed bytes=\(data.count, privacy: .public): \(String(describing: error), privacy: .public)")
+                }
+            }
+            self.receiveControlMessage()
         }
     }
 }

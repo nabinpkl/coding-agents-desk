@@ -35,9 +35,12 @@ enum MediaStack {
         }
         let planes = MediaPlaneConfiguration.defaultPlanes
         let ownedPixelFormat = Config.ownedMediaChroma.capturePixelFormat
+        let ownedDetailScaleDown = Config.mediaStackMode == .owned
+            ? Config.ownedMediaCaptureScaleDown
+            : planes[.detail]?.captureScaleDownBy ?? 1.0
         return VideoPlaneSources([
             .detail: ScreenCaptureKitFrameSource(
-                scaleDownBy: planes[.detail]?.captureScaleDownBy ?? 1.0,
+                scaleDownBy: ownedDetailScaleDown,
                 pixelFormat: Config.mediaStackMode == .owned ? ownedPixelFormat : kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
             ),
             .motion: ScreenCaptureKitFrameSource(

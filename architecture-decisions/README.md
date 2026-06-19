@@ -57,4 +57,5 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0010 | Host-side push-to-talk dictation | proposed | 2026-05-28 |
 | ADR-0011 | Session-bound input channel authentication | accepted | 2026-05-31 |
 | ADR-0012 | Owned media transport control and reuse map | superseded by ADR-0013 | 2026-06-18 |
-| ADR-0013 | Single-surface UDP owned media | accepted | 2026-06-18 |
+| ADR-0013 | Single-surface UDP owned media | superseded by ADR-0014 | 2026-06-18 |
+| ADR-0014 | QUIC datagram owned media | accepted | 2026-06-18 |

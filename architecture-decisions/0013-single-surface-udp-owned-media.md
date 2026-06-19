@@ -2,6 +2,7 @@
 status: accepted
 date: 2026-06-18
 supersedes: ADR-0012
+superseded-by: ADR-0014
 ---
 
 # Single-surface UDP owned media

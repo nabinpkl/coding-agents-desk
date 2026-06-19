@@ -87,6 +87,10 @@ struct ScrollQualityTests {
         #expect(32 + 32 + payloadLength == 1_114)
     }
 
+    @Test func ownedMediaQuicDatagramDefaultFitsAdmdPacketSize() {
+        #expect(Config.ownedMediaQuicMaxDatagramBytes >= 1_114)
+    }
+
     @Test func motionCodecCanBeTunedToDownscaledVp9() {
         let planes = MediaPlaneConfiguration.defaultPlanes(environment: [
             "AGENTDESK_TUNING_MOTION_CODEC": "vp9",

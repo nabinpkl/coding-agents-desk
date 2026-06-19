@@ -18,6 +18,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     private var formatDescription: CMVideoFormatDescription?
     private var loggedFirstRenderedFrame = false
     private var renderCount = 0
+    private var flushCount = 0
 
     init() {
         let container = LayerBackedVideoContainerView()
@@ -63,17 +64,27 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 envelope: envelope,
                 formatDescription: formatDescription
             )
+            if displayLayer.status == .failed {
+                displayLayer.flushAndRemoveImage()
+                flushCount += 1
+            } else if envelope.header.isKeyframe {
+                displayLayer.flush()
+                flushCount += 1
+            }
             displayLayer.enqueue(sampleBuffer)
             renderCount += 1
             let status = Self.displayStatus(displayLayer)
+            if renderCount == 1 || renderCount.isMultiple(of: 30) || envelope.header.isKeyframe {
+                ownedMediaStderrTrace("render count=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count) display=\(status)")
+            }
             setOwnedMediaDebugStatus(
-                "rendered=\(renderCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(status)"
+                "rendered=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(status)"
             )
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 150_000_000)
                 guard let self else { return }
                 self.setOwnedMediaDebugStatus(
-                    "rendered=\(self.renderCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(Self.displayStatus(self.displayLayer))"
+                    "rendered=\(self.renderCount) flushed=\(self.flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(Self.displayStatus(self.displayLayer))"
                 )
             }
             if !loggedFirstRenderedFrame {
@@ -195,7 +206,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
 
         var timing = CMSampleTimingInfo(
             duration: .invalid,
-            presentationTimeStamp: CMTime(value: Int64(envelope.header.presentationTimeNs), timescale: 1_000_000_000),
+            presentationTimeStamp: .invalid,
             decodeTimeStamp: .invalid
         )
         var sampleSize = payload.length
@@ -224,6 +235,14 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         }
         return sampleBuffer
     }
+}
+
+private func ownedMediaStderrTrace(_ message: String) {
+    guard ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_STDERR_TRACE"] == "1",
+          let data = "[owned-media] \(message)\n".data(using: .utf8) else {
+        return
+    }
+    FileHandle.standardError.write(data)
 }
 
 private final class LayerBackedVideoContainerView: UIView {

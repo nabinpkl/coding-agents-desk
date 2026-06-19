@@ -83,6 +83,18 @@ struct InputChannelTests {
         #expect(json.contains("\"cn\""))
     }
 
+    @Test func ownedMediaControlFrameSerializesWithCompactKeys() throws {
+        let message = OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 42)
+        let data = try JSONEncoder().encode(message)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
+
+        #expect(decoded == message)
+        #expect(json.contains("\"t\":\"owned-media-control\""))
+        #expect(json.contains("\"k\":\"keyframe-request\""))
+        #expect(json.contains("\"id\":42"))
+    }
+
     @Test func ownedMediaEnvelopeRoundTripsHeaderAndPayload() throws {
         let header = OwnedMediaFrameHeader(
             frameId: 1,

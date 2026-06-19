@@ -33,10 +33,12 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
 }
 
 final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
+    private static let quicALPN = "agentdesk-owned-media"
+    private static let maxQuicDatagramBytes = 1_200
     let connectionState: AsyncStream<MediaConnectionState>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
     private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "owned-media")
-    private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.client.owned-media-datagram")
+    private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.client.owned-media-quic")
     private let host: String
     private let port: UInt16
     private let active: ActiveSession
@@ -73,10 +75,14 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             throw SessionRejected(reason: .malformed)
         }
         self.sink = sink
-        let connection = NWConnection(host: NWEndpoint.Host(host), port: endpointPort, using: .udp)
+        let connection = NWConnection(
+            host: NWEndpoint.Host(host),
+            port: endpointPort,
+            using: Self.makeQuicDatagramParameters()
+        )
         self.connection = connection
         connection.stateUpdateHandler = { [weak self] state in
-            self?.logger.notice("owned media udp state=\(String(describing: state), privacy: .public)")
+            self?.logger.notice("owned media quic state=\(String(describing: state), privacy: .public)")
             if case .failed = state {
                 self?.stateContinuation.yield(.failed)
             }
@@ -118,32 +124,49 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         var droppedPackets = 0
         var receivedPackets = 0
         var completedFrames = 0
+        var skippedDeltasWaitingForKeyframe = 0
+        var awaitingKeyframe = false
         while !Task.isCancelled {
             do {
                 let data = try await receive(on: connection)
                 let packet = try MediaDatagramFramePacket.decode(data, key: key)
                 receivedPackets += 1
                 if receivedPackets == 1 || receivedPackets.isMultiple(of: 600) {
-                    logger.notice("owned media udp received packet count=\(receivedPackets, privacy: .public) frame=\(packet.frameId, privacy: .public) index=\(packet.packetIndex, privacy: .public)/\(packet.packetCount, privacy: .public) bytes=\(data.count, privacy: .public)")
+                    logger.notice("owned media quic received packet count=\(receivedPackets, privacy: .public) frame=\(packet.frameId, privacy: .public) index=\(packet.packetIndex, privacy: .public)/\(packet.packetCount, privacy: .public) bytes=\(data.count, privacy: .public)")
                     await MainActor.run { [weak self] in
-                        self?.sink?.setOwnedMediaDebugStatus("udp packets=\(receivedPackets) frame=\(packet.frameId) index=\(packet.packetIndex)/\(packet.packetCount)\ncomplete=\(completedFrames) malformed=\(droppedPackets)")
+                        self?.sink?.setOwnedMediaDebugStatus("quic packets=\(receivedPackets) frame=\(packet.frameId) index=\(packet.packetIndex)/\(packet.packetCount)\ncomplete=\(completedFrames) malformed=\(droppedPackets)")
                     }
                 }
                 if let droppedFrame = assembler.noteNewerFrameIfNeeded(packet) {
-                    logger.error("owned media udp abandoned incomplete frame=\(droppedFrame.frameId, privacy: .public) received=\(droppedFrame.received, privacy: .public)/\(droppedFrame.expected, privacy: .public)")
+                    awaitingKeyframe = true
+                    logger.error("owned media quic abandoned incomplete frame=\(droppedFrame.frameId, privacy: .public) received=\(droppedFrame.received, privacy: .public)/\(droppedFrame.expected, privacy: .public)")
+                    try? await sendKeyframeRequest(afterFrameId: droppedFrame.frameId, on: connection)
                     await MainActor.run { [weak self] in
-                        self?.sink?.setOwnedMediaDebugStatus("abandoned frame=\(droppedFrame.frameId) received=\(droppedFrame.received)/\(droppedFrame.expected)\nudp packets=\(receivedPackets) complete=\(completedFrames)")
+                        self?.sink?.setOwnedMediaDebugStatus("abandoned frame=\(droppedFrame.frameId) received=\(droppedFrame.received)/\(droppedFrame.expected)\nquic packets=\(receivedPackets) complete=\(completedFrames)")
                     }
                 }
                 guard let frameData = assembler.accept(packet) else { continue }
                 completedFrames += 1
+                let envelope = try OwnedMediaFrameEnvelope.decode(frameData)
+                if awaitingKeyframe, !envelope.header.isKeyframe {
+                    skippedDeltasWaitingForKeyframe += 1
+                    if skippedDeltasWaitingForKeyframe == 1 || skippedDeltasWaitingForKeyframe.isMultiple(of: 30) {
+                        logger.notice("owned media quic skipped delta while waiting for keyframe count=\(skippedDeltasWaitingForKeyframe, privacy: .public) frame=\(envelope.header.frameId, privacy: .public)")
+                        try? await sendKeyframeRequest(afterFrameId: envelope.header.frameId, on: connection)
+                    }
+                    continue
+                }
+                if envelope.header.isKeyframe {
+                    awaitingKeyframe = false
+                    skippedDeltasWaitingForKeyframe = 0
+                }
                 if completedFrames == 1 || completedFrames.isMultiple(of: 60) {
-                    logger.notice("owned media udp completed frame count=\(completedFrames, privacy: .public) frame=\(packet.frameId, privacy: .public) bytes=\(frameData.count, privacy: .public) packets=\(packet.packetCount, privacy: .public)")
+                    logger.notice("owned media quic completed frame count=\(completedFrames, privacy: .public) frame=\(packet.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(frameData.count, privacy: .public) packets=\(packet.packetCount, privacy: .public)")
+                    ownedMediaStderrTrace("complete count=\(completedFrames) frame=\(packet.frameId) key=\(envelope.header.isKeyframe) bytes=\(frameData.count) packets=\(packet.packetCount) quic=\(receivedPackets) drops=\(droppedPackets)")
                     await MainActor.run { [weak self] in
-                        self?.sink?.setOwnedMediaDebugStatus("completed=\(completedFrames) frame=\(packet.frameId) bytes=\(frameData.count) packets=\(packet.packetCount)\nudp packets=\(receivedPackets) malformed=\(droppedPackets)")
+                        self?.sink?.setOwnedMediaDebugStatus("completed=\(completedFrames) frame=\(packet.frameId) key=\(envelope.header.isKeyframe) packets=\(packet.packetCount)\nquic packets=\(receivedPackets) malformed=\(droppedPackets)")
                     }
                 }
-                let envelope = try OwnedMediaFrameEnvelope.decode(frameData)
                 await MainActor.run { [weak self] in
                     self?.sink?.renderOwnedMediaFrame(envelope)
                 }
@@ -152,16 +175,18 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             } catch let error as MediaDatagramPacketError {
                 droppedPackets += 1
                 if droppedPackets == 1 || droppedPackets.isMultiple(of: 120) {
-                    logger.error("owned media udp dropped packet count=\(droppedPackets, privacy: .public) reason=\(error.debugSummary, privacy: .public)")
+                    awaitingKeyframe = true
+                    try? await sendKeyframeRequest(afterFrameId: 0, on: connection)
+                    logger.error("owned media quic dropped packet count=\(droppedPackets, privacy: .public) reason=\(error.debugSummary, privacy: .public)")
                     await MainActor.run { [weak self] in
-                        self?.sink?.setOwnedMediaDebugStatus("\(error.debugSummary)\ndrops=\(droppedPackets) udp=\(receivedPackets) complete=\(completedFrames)")
+                        self?.sink?.setOwnedMediaDebugStatus("\(error.debugSummary)\ndrops=\(droppedPackets) quic=\(receivedPackets) complete=\(completedFrames)")
                     }
                 }
                 continue
             } catch {
-                logger.error("owned media udp receive failed: \(String(describing: error), privacy: .public)")
+                logger.error("owned media quic receive failed: \(String(describing: error), privacy: .public)")
                 await MainActor.run { [weak self] in
-                    self?.sink?.setOwnedMediaDebugStatus("receive failed \(String(describing: error))\nudp packets=\(receivedPackets) complete=\(completedFrames)")
+                    self?.sink?.setOwnedMediaDebugStatus("receive failed \(String(describing: error))\nquic packets=\(receivedPackets) complete=\(completedFrames)")
                 }
                 stateContinuation.yield(.failed)
                 return
@@ -179,6 +204,13 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 }
             })
         }
+    }
+
+    private func sendKeyframeRequest(afterFrameId frameId: UInt64, on connection: NWConnection) async throws {
+        let message = OwnedMediaControlMessage(kind: .keyframeRequest, frameId: frameId)
+        let data = try JSONEncoder().encode(message)
+        try await send(data, on: connection)
+        logger.notice("owned media quic requested keyframe after frame=\(frameId, privacy: .public)")
     }
 
     private func receiveReady(sessionId: String, on connection: NWConnection) async throws -> MediaChannelReady {
@@ -212,6 +244,27 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         }
         return Data(bytes)
     }
+
+    private static func makeQuicDatagramParameters() -> NWParameters {
+        let options = NWProtocolQUIC.Options(alpn: [Self.quicALPN])
+        options.direction = .bidirectional
+        options.isDatagram = true
+        options.maxDatagramFrameSize = Self.maxQuicDatagramBytes
+        #if DEBUG
+        sec_protocol_options_set_verify_block(options.securityProtocolOptions, { _, _, complete in
+            complete(true)
+        }, DispatchQueue.main)
+        #endif
+        return NWParameters(quic: options)
+    }
+}
+
+private func ownedMediaStderrTrace(_ message: String) {
+    guard ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_STDERR_TRACE"] == "1",
+          let data = "[owned-media] \(message)\n".data(using: .utf8) else {
+        return
+    }
+    FileHandle.standardError.write(data)
 }
 
 private final class MediaDatagramFrameAssembler {
@@ -272,15 +325,15 @@ private enum MediaDatagramPacketError: Error {
     var debugSummary: String {
         switch self {
         case .tooShort(let length, let prefix):
-            return "udp non-admd short len=\(length) prefix=\(prefix)"
+            return "quic non-admd short len=\(length) prefix=\(prefix)"
         case .badHeader(let length, let prefix):
-            return "udp non-admd header len=\(length) prefix=\(prefix)"
+            return "quic non-admd header len=\(length) prefix=\(prefix)"
         case .badLength(let length, let expected, let payloadLength):
-            return "udp bad length len=\(length) expected=\(expected) payload=\(payloadLength)"
+            return "quic bad length len=\(length) expected=\(expected) payload=\(payloadLength)"
         case .badPacketCount:
-            return "udp bad packet count"
+            return "quic bad packet count"
         case .authenticationFailed(let frameId, let packetIndex, let packetCount):
-            return "udp auth failed frame=\(frameId) index=\(packetIndex)/\(packetCount)"
+            return "quic auth failed frame=\(frameId) index=\(packetIndex)/\(packetCount)"
         }
     }
 }

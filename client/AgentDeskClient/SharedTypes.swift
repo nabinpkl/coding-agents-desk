@@ -847,6 +847,28 @@ struct MediaChannelReady: Codable, Equatable {
     }
 }
 
+enum OwnedMediaControlKind: String, Codable, Equatable {
+    case keyframeRequest = "keyframe-request"
+}
+
+struct OwnedMediaControlMessage: Codable, Equatable {
+    let type: String
+    let kind: OwnedMediaControlKind
+    let frameId: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case kind = "k"
+        case frameId = "id"
+    }
+
+    init(kind: OwnedMediaControlKind, frameId: UInt64) {
+        self.type = "owned-media-control"
+        self.kind = kind
+        self.frameId = frameId
+    }
+}
+
 struct InputChannelEvent: Codable, Equatable {
     let type: String
     let event: NormalizedInput

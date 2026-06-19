@@ -33,30 +33,40 @@ struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
     let expectedPixelFormat: OSType?
     let hevcProfileLevel: String?
     let maxAllowedFrameQP: Int?
+    let targetBitrateKbps: Int
+    let expectedFrameRate: Int
+    let keyframeIntervalFrames: Int
 
     static let `default` = OwnedMediaEncodingConfiguration(
         expectedPixelFormat: nil,
         hevcProfileLevel: nil,
-        maxAllowedFrameQP: nil
+        maxAllowedFrameQP: nil,
+        targetBitrateKbps: SenderTuning.fromEnvironment(ProcessInfo.processInfo.environment).crispProfile.maxBitrateKbps,
+        expectedFrameRate: 30,
+        keyframeIntervalFrames: 120
     )
 
     static func fromConfig() -> OwnedMediaEncodingConfiguration {
         OwnedMediaEncodingConfiguration(
             expectedPixelFormat: Config.ownedMediaChroma.expectedPixelFormat,
             hevcProfileLevel: Config.ownedMediaHEVCProfile?.profileLevel,
-            maxAllowedFrameQP: Config.ownedMediaMaxQP
+            maxAllowedFrameQP: Config.ownedMediaMaxQP,
+            targetBitrateKbps: Config.ownedMediaBitrateKbps,
+            expectedFrameRate: Config.ownedMediaExpectedFrameRate,
+            keyframeIntervalFrames: Config.ownedMediaKeyframeIntervalFrames
         )
     }
 }
 
 final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
+    private static let quicALPN = "agentdesk-owned-media"
     let connectionState: AsyncStream<MediaConnectionState>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
     private let codec: OwnedMediaCodec
     private let configuration: OwnedMediaEncodingConfiguration
     private let authorizer: OwnedMediaDatagramAuthorizer
-    private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-datagram")
+    private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic")
     private let lock = NSLock()
     private var listener: NWListener?
     private var channel: (any OwnedMediaChannelServing)?
@@ -85,7 +95,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     ) async throws {
         self.videoSources = videoSources
         stateContinuation.yield(.connecting)
-        try startDatagramListener()
+        try startQuicDatagramListener()
         try await startIfReady()
     }
 
@@ -110,7 +120,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
     func setVideoInteractive(_ active: Bool) {}
 
-    private func startDatagramListener() throws {
+    private func startQuicDatagramListener() throws {
         lock.lock()
         let existing = listener
         lock.unlock()
@@ -118,14 +128,14 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         guard let port = NWEndpoint.Port(rawValue: Config.signalingPort) else {
             throw SessionRejected(reason: .malformed)
         }
-        let listener = try NWListener(using: .udp, on: port)
+        let listener = try NWListener(using: Self.makeQuicDatagramParameters(), on: port)
         listener.newConnectionHandler = { [weak self] connection in
-            self?.handleDatagramConnection(connection)
+            self?.handleQuicDatagramConnection(connection)
         }
         listener.stateUpdateHandler = { [weak self] state in
-            self?.logger.notice("owned media udp listener state=\(String(describing: state), privacy: .public)")
+            self?.logger.notice("owned media quic listener state=\(String(describing: state), privacy: .public)")
             if case .failed(let error) = state {
-                self?.logger.error("owned media udp listener failed: \(String(describing: error), privacy: .public)")
+                self?.logger.error("owned media quic listener failed: \(String(describing: error), privacy: .public)")
                 self?.stateContinuation.yield(.failed)
             }
         }
@@ -135,12 +145,29 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         listener.start(queue: queue)
     }
 
-    private func handleDatagramConnection(_ connection: NWConnection) {
+    private static func makeQuicDatagramParameters() throws -> NWParameters {
+        let identity = try TLSIdentityLoader(
+            certURL: Config.tlsCertURL,
+            keyURL: Config.tlsKeyURL,
+            identityURL: Config.tlsIdentityURL
+        ).loadIdentity()
+        guard let secIdentity = sec_identity_create(identity) else {
+            throw TLSIdentityError.noIdentityInBundle
+        }
+        let options = NWProtocolQUIC.Options(alpn: [Self.quicALPN])
+        options.direction = .bidirectional
+        options.isDatagram = true
+        options.maxDatagramFrameSize = Config.ownedMediaQuicMaxDatagramBytes
+        sec_protocol_options_set_local_identity(options.securityProtocolOptions, secIdentity)
+        return NWParameters(quic: options)
+    }
+
+    private func handleQuicDatagramConnection(_ connection: NWConnection) {
         connection.start(queue: queue)
         connection.receiveMessage { [weak self, weak connection] data, _, _, error in
             guard let self, let connection else { return }
             if let error {
-                self.logger.error("owned media udp hello receive failed: \(String(describing: error), privacy: .public)")
+                self.logger.error("owned media quic hello receive failed: \(String(describing: error), privacy: .public)")
                 connection.cancel()
                 return
             }
@@ -173,16 +200,23 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 let ready = MediaChannelReady(sessionId: hello.sessionId, serverNonce: serverNonce)
                 let readyData = try JSONEncoder().encode(ready)
                 try await sendReady(readyData, on: connection)
-                let channel = OwnedMediaChannelServer(connection: connection, fingerprint: fingerprint, key: key)
+                let channel = OwnedMediaChannelServer(
+                    connection: connection,
+                    fingerprint: fingerprint,
+                    key: key,
+                    onControlMessage: { [weak self] message in
+                        self?.handleControlMessage(message)
+                    }
+                )
                 installChannel(channel)
-                logger.notice("owned media udp accepted fp=\(fingerprint.rawValue, privacy: .public)")
+                logger.notice("owned media quic accepted fp=\(fingerprint.rawValue, privacy: .public)")
                 try await startIfReady()
             case .rejected(let reason):
-                logger.error("owned media udp rejected reason=\(reason.rawValue, privacy: .public) fp=\(hello.deviceFingerprint.rawValue, privacy: .public)")
+                logger.error("owned media quic rejected reason=\(reason.rawValue, privacy: .public) fp=\(hello.deviceFingerprint.rawValue, privacy: .public)")
                 connection.cancel()
             }
         } catch {
-            logger.error("owned media udp hello failed: \(String(describing: error), privacy: .public)")
+            logger.error("owned media quic hello failed: \(String(describing: error), privacy: .public)")
             connection.cancel()
             stateContinuation.yield(.failed)
         }
@@ -224,8 +258,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             let encoder = VideoToolboxOwnedMediaEncoder(
                 plane: plane,
                 codec: codec,
-                targetBitrateKbps: targetBitrateKbps(for: plane),
-                expectedFrameRate: 30,
                 configuration: configuration,
                 onEncoded: { [weak self, weak channel] envelope in
                     guard let channel else { return }
@@ -259,15 +291,21 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         return (channel, sources)
     }
 
-    private func targetBitrateKbps(for plane: MediaPlane) -> Int {
-        let tuning = SenderTuning.fromEnvironment(ProcessInfo.processInfo.environment)
-        switch plane {
-        case .detail:
-            return tuning.crispProfile.maxBitrateKbps
-        case .motion:
-            return tuning.scrollProfile.maxBitrateKbps
+    private func handleControlMessage(_ message: OwnedMediaControlMessage) {
+        switch message.kind {
+        case .keyframeRequest:
+            logger.notice("owned media keyframe requested after client frame=\(message.frameId, privacy: .public)")
+            requestKeyframe()
         }
     }
+
+    private func requestKeyframe() {
+        lock.lock()
+        let encoders = Array(self.encoders.values)
+        lock.unlock()
+        encoders.forEach { $0.requestKeyframe() }
+    }
+
 }
 
 final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
@@ -282,20 +320,19 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private var session: VTCompressionSession?
     private var size: (width: Int, height: Int)?
     private var frameId: UInt64 = 0
+    private var forceNextKeyframe = false
     private var loggedFirstEncodedFrame = false
 
     init(
         plane: MediaPlane,
         codec: OwnedMediaCodec,
-        targetBitrateKbps: Int,
-        expectedFrameRate: Int,
         configuration: OwnedMediaEncodingConfiguration = .default,
         onEncoded: @escaping @Sendable (OwnedMediaFrameEnvelope) -> Void
     ) {
         self.plane = plane
         self.codec = codec
-        self.targetBitrateKbps = targetBitrateKbps
-        self.expectedFrameRate = expectedFrameRate
+        self.targetBitrateKbps = configuration.targetBitrateKbps
+        self.expectedFrameRate = configuration.expectedFrameRate
         self.configuration = configuration
         self.onEncoded = onEncoded
     }
@@ -307,11 +344,16 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             try ensureSession(for: frame.pixelBuffer)
             guard let session else { return }
             frameId &+= 1
-            let forceKeyframe = frameId == 1 || frameId.isMultiple(of: 120)
+            let requestedKeyframe = forceNextKeyframe
+            forceNextKeyframe = false
+            let forceKeyframe = requestedKeyframe || frameId == 1 || frameId.isMultiple(of: UInt64(configuration.keyframeIntervalFrames))
             let pts = CMTime(value: frame.presentationTimeNs, timescale: 1_000_000_000)
             let frameProperties = forceKeyframe
                 ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary
                 : nil
+            if requestedKeyframe {
+                logger.notice("owned encoder forcing requested keyframe plane=\(self.plane.rawValue, privacy: .public) frame=\(self.frameId, privacy: .public)")
+            }
             let status = VTCompressionSessionEncodeFrame(
                 session,
                 imageBuffer: frame.pixelBuffer,
@@ -341,6 +383,12 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         }
         session = nil
         size = nil
+    }
+
+    func requestKeyframe() {
+        lock.lock()
+        forceNextKeyframe = true
+        lock.unlock()
     }
 
     private func ensureSession(for pixelBuffer: CVPixelBuffer) throws {
@@ -391,7 +439,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         VTCompressionSessionPrepareToEncodeFrames(newSession)
         session = newSession
         size = (width, height)
-        logger.notice("owned encoder session plane=\(self.plane.rawValue, privacy: .public) codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) pixelFormat=\(Self.fourCC(actualPixelFormat), privacy: .public) profile=\(String(describing: self.configuration.hevcProfileLevel), privacy: .public) maxQP=\(String(describing: self.configuration.maxAllowedFrameQP), privacy: .public) bitrate=\(self.targetBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public)")
+        logger.notice("owned encoder session plane=\(self.plane.rawValue, privacy: .public) codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) pixelFormat=\(Self.fourCC(actualPixelFormat), privacy: .public) profile=\(String(describing: self.configuration.hevcProfileLevel), privacy: .public) maxQP=\(String(describing: self.configuration.maxAllowedFrameQP), privacy: .public) bitrate=\(self.targetBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public) keyframeInterval=\(self.configuration.keyframeIntervalFrames, privacy: .public)")
     }
 
     private func setProperty(_ key: CFString, value: CFTypeRef, on session: VTCompressionSession) throws {
