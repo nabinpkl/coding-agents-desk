@@ -160,7 +160,12 @@ struct InputChannelTests {
         let result = buffer.accept(packet(frameId: 2, index: 0, count: 1), now: 2)
 
         #expect(result.resendRequests == [
-            MediaDatagramRepairRequest(frameId: 1, packetIndexes: [1, 2])
+            MediaDatagramRepairRequest(
+                frameId: 1,
+                packetIndexes: [1, 2],
+                requestedAtNs: 2,
+                firstSeenAgeNs: 1
+            )
         ])
         #expect(result.completedFrames.isEmpty)
         #expect(result.expiredFrames.isEmpty)
@@ -197,6 +202,8 @@ struct InputChannelTests {
         #expect(repaired.completedFrames.map(\.frameId) == [1, 2])
         #expect(repaired.completedFrames.first?.data == Data([0x10, 0x11, 0x12]))
         #expect(repaired.completedFrames.first?.wasRepaired == true)
+        #expect(repaired.completedFrames.first?.firstSeenAgeNs == 19)
+        #expect(repaired.completedFrames.first?.repairedAfterNs == 18)
     }
 
     @Test func repairBufferFallsBackAfterRepairDeadline() {
@@ -211,8 +218,44 @@ struct InputChannelTests {
         let expired = buffer.accept(packet(frameId: 3, index: 0, count: 1), now: 52)
 
         #expect(expired.expiredFrames == [
-            IncompleteFrame(frameId: 1, received: 1, expected: 3, missingIndexes: [1, 2])
+            IncompleteFrame(
+                frameId: 1,
+                received: 1,
+                expected: 3,
+                missingIndexes: [1, 2],
+                firstSeenAgeNs: 51,
+                repairAgeNs: 50
+            )
         ])
+    }
+
+    @Test func repairBufferSkipsStaleFrameDuringMotionWithoutFallbackExpiry() {
+        let buffer = MediaDatagramFrameRepairBuffer(
+            repairDeadlineNs: 50,
+            trackedFrameLimit: 8,
+            maxResendPackets: 256
+        )
+
+        _ = buffer.accept(packet(frameId: 1, index: 0, count: 3), now: 1)
+        _ = buffer.accept(packet(frameId: 2, index: 0, count: 1, payload: [0x20]), now: 2)
+        let skipped = buffer.accept(
+            packet(frameId: 3, index: 0, count: 1, payload: [0x30]),
+            now: 52,
+            motionActive: true
+        )
+
+        #expect(skipped.expiredFrames.isEmpty)
+        #expect(skipped.skippedStaleFrames == [
+            IncompleteFrame(
+                frameId: 1,
+                received: 1,
+                expected: 3,
+                missingIndexes: [1, 2],
+                firstSeenAgeNs: 51,
+                repairAgeNs: 50
+            )
+        ])
+        #expect(skipped.completedFrames.map(\.frameId) == [2, 3])
     }
 
     @Test func eventFramePreservesNormalizedInput() throws {

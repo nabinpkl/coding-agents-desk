@@ -4,13 +4,33 @@ import UIKit
 import os
 
 protocol OwnedMediaFrameSink: VideoFrameSink {
+    var interactionState: OwnedMediaInteractionState { get }
+
     @MainActor func renderOwnedMediaFrame(_ envelope: OwnedMediaFrameEnvelope)
     @MainActor func setOwnedMediaDebugStatus(_ status: String)
     @MainActor func setMotionActive(_ active: Bool)
 }
 
+final class OwnedMediaInteractionState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var motionActiveValue = false
+
+    var motionActive: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return motionActiveValue
+    }
+
+    func setMotionActive(_ active: Bool) {
+        lock.lock()
+        motionActiveValue = active
+        lock.unlock()
+    }
+}
+
 @MainActor
 final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
+    let interactionState = OwnedMediaInteractionState()
     let view: UIView
     private let displayLayer = AVSampleBufferDisplayLayer()
     private let debugLabel = UILabel()
@@ -19,6 +39,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     private var loggedFirstRenderedFrame = false
     private var renderCount = 0
     private var flushCount = 0
+    private var lastRenderUptimeNs: UInt64?
 
     init() {
         let container = LayerBackedVideoContainerView()
@@ -74,9 +95,12 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             }
             displayLayer.enqueue(sampleBuffer)
             renderCount += 1
+            let now = DispatchTime.now().uptimeNanoseconds
+            let renderGapNs = lastRenderUptimeNs.map { now &- $0 }
+            lastRenderUptimeNs = now
             let status = Self.displayStatus(displayLayer)
             if renderCount == 1 || renderCount.isMultiple(of: 30) || envelope.header.isKeyframe {
-                ownedMediaStderrTrace("render count=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count) display=\(status)")
+                ownedMediaStderrTrace("render count=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) renderGapMs=\(Self.formatOptionalMilliseconds(renderGapNs)) bytes=\(envelope.payload.count) display=\(status)")
             }
             setOwnedMediaDebugStatus(
                 "rendered=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(status)"
@@ -104,7 +128,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         debugLabel.text = "owned media\n\(status)"
     }
 
-    func setMotionActive(_ active: Bool) {}
+    func setMotionActive(_ active: Bool) {
+        interactionState.setMotionActive(active)
+        ownedMediaStderrTrace("motion-active \(active)")
+    }
 
     private static func displayStatus(_ layer: AVSampleBufferDisplayLayer) -> String {
         let status: String
@@ -246,6 +273,13 @@ private func ownedMediaStderrTrace(_ message: String) {
         return
     }
     FileHandle.standardError.write(data)
+}
+
+private extension OwnedMediaVideoSink {
+    static func formatOptionalMilliseconds(_ ns: UInt64?) -> String {
+        guard let ns else { return "nil" }
+        return String(format: "%.1f", Double(ns) / 1_000_000.0)
+    }
 }
 
 private final class LayerBackedVideoContainerView: UIView {

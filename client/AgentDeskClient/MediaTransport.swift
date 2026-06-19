@@ -193,8 +193,10 @@ final class MediaDatagramFrameRepairBuffer {
     private struct PendingFrame {
         let frameId: UInt64
         let packetCount: UInt16
+        let firstSeenNs: UInt64
         var packets: [UInt16: Data]
         var repairDeadlineNs: UInt64?
+        var repairRequestedAtNs: UInt64?
 
         var isComplete: Bool {
             packets.count == Int(packetCount)
@@ -213,7 +215,18 @@ final class MediaDatagramFrameRepairBuffer {
             )
         }
 
-        var completedFrame: MediaDatagramCompletedFrame? {
+        func incompleteFrame(now: UInt64) -> IncompleteFrame {
+            IncompleteFrame(
+                frameId: frameId,
+                received: packets.count,
+                expected: Int(packetCount),
+                missingIndexes: missingIndexes,
+                firstSeenAgeNs: now &- firstSeenNs,
+                repairAgeNs: repairRequestedAtNs.map { now &- $0 }
+            )
+        }
+
+        func completedFrame(now: UInt64) -> MediaDatagramCompletedFrame? {
             guard isComplete else { return nil }
             var frame = Data()
             for index in UInt16(0)..<packetCount {
@@ -224,7 +237,9 @@ final class MediaDatagramFrameRepairBuffer {
                 frameId: frameId,
                 packetCount: packetCount,
                 data: frame,
-                wasRepaired: repairDeadlineNs != nil
+                wasRepaired: repairDeadlineNs != nil,
+                firstSeenAgeNs: now &- firstSeenNs,
+                repairedAfterNs: repairRequestedAtNs.map { now &- $0 }
             )
         }
     }
@@ -242,7 +257,11 @@ final class MediaDatagramFrameRepairBuffer {
         self.maxResendPackets = max(1, maxResendPackets)
     }
 
-    func accept(_ packet: MediaDatagramFramePacket, now: UInt64) -> MediaDatagramRepairResult {
+    func accept(
+        _ packet: MediaDatagramFramePacket,
+        now: UInt64,
+        motionActive: Bool = false
+    ) -> MediaDatagramRepairResult {
         guard packet.packetIndex < packet.packetCount,
               packet.frameId > deliveredFrameId else {
             return .empty
@@ -258,16 +277,22 @@ final class MediaDatagramFrameRepairBuffer {
             frames[packet.frameId] = PendingFrame(
                 frameId: packet.frameId,
                 packetCount: packet.packetCount,
+                firstSeenNs: now,
                 packets: [packet.packetIndex: packet.payload],
-                repairDeadlineNs: nil
+                repairDeadlineNs: nil,
+                repairRequestedAtNs: nil
             )
         }
 
         var result = MediaDatagramRepairResult.empty
         result.resendRequests.append(contentsOf: requestMissingPackets(now: now))
-        result.expiredFrames.append(contentsOf: expirePastDeadline(now: now))
+        if motionActive {
+            result.skippedStaleFrames.append(contentsOf: skipStaleMotionFrames(now: now))
+        } else {
+            result.expiredFrames.append(contentsOf: expirePastDeadline(now: now))
+        }
         result.expiredFrames.append(contentsOf: enforceTrackedFrameLimit())
-        let completed = drainCompletedFrames()
+        let completed = drainCompletedFrames(now: now)
         result.repairedFrameCount += completed.filter(\.wasRepaired).count
         result.completedFrames.append(contentsOf: completed)
         return result
@@ -286,8 +311,14 @@ final class MediaDatagramFrameRepairBuffer {
             let missing = Array(pending.missingIndexes.prefix(maxResendPackets))
             guard !missing.isEmpty else { continue }
             pending.repairDeadlineNs = now + repairDeadlineNs
+            pending.repairRequestedAtNs = now
             frames[frameId] = pending
-            requests.append(MediaDatagramRepairRequest(frameId: frameId, packetIndexes: missing))
+            requests.append(MediaDatagramRepairRequest(
+                frameId: frameId,
+                packetIndexes: missing,
+                requestedAtNs: now,
+                firstSeenAgeNs: now &- pending.firstSeenNs
+            ))
         }
         return requests
     }
@@ -304,7 +335,23 @@ final class MediaDatagramFrameRepairBuffer {
         return expiredIds.compactMap { frameId in
             guard let frame = frames.removeValue(forKey: frameId) else { return nil }
             deliveredFrameId = max(deliveredFrameId, frameId)
-            return frame.incompleteFrame
+            return frame.incompleteFrame(now: now)
+        }
+    }
+
+    private func skipStaleMotionFrames(now: UInt64) -> [IncompleteFrame] {
+        let staleIds = frames.keys.sorted().filter { frameId in
+            guard let frame = frames[frameId],
+                  !frame.isComplete,
+                  let deadline = frame.repairDeadlineNs else {
+                return false
+            }
+            return now >= deadline
+        }
+        return staleIds.compactMap { frameId in
+            guard let frame = frames.removeValue(forKey: frameId) else { return nil }
+            deliveredFrameId = max(deliveredFrameId, frameId)
+            return frame.incompleteFrame(now: now)
         }
     }
 
@@ -314,17 +361,17 @@ final class MediaDatagramFrameRepairBuffer {
             guard let frame = frames.removeValue(forKey: oldest) else { continue }
             deliveredFrameId = max(deliveredFrameId, oldest)
             if !frame.isComplete {
-                expired.append(frame.incompleteFrame)
+                expired.append(frame.incompleteFrame(now: DispatchTime.now().uptimeNanoseconds))
             }
         }
         return expired
     }
 
-    private func drainCompletedFrames() -> [MediaDatagramCompletedFrame] {
+    private func drainCompletedFrames(now: UInt64) -> [MediaDatagramCompletedFrame] {
         var completed: [MediaDatagramCompletedFrame] = []
         while let nextId = frames.keys.sorted().first,
               let frame = frames[nextId] {
-            guard frame.isComplete, let completedFrame = frame.completedFrame else {
+            guard frame.isComplete, let completedFrame = frame.completedFrame(now: now) else {
                 break
             }
             frames.removeValue(forKey: nextId)
@@ -343,6 +390,7 @@ final class MediaDatagramFrameRepairBuffer {
             resendRequests: [],
             completedFrames: [],
             expiredFrames: [frame.incompleteFrame],
+            skippedStaleFrames: [],
             repairedFrameCount: 0
         )
     }
@@ -351,6 +399,20 @@ final class MediaDatagramFrameRepairBuffer {
 struct MediaDatagramRepairRequest: Equatable {
     let frameId: UInt64
     let packetIndexes: [UInt16]
+    let requestedAtNs: UInt64
+    let firstSeenAgeNs: UInt64
+
+    init(
+        frameId: UInt64,
+        packetIndexes: [UInt16],
+        requestedAtNs: UInt64 = 0,
+        firstSeenAgeNs: UInt64 = 0
+    ) {
+        self.frameId = frameId
+        self.packetIndexes = packetIndexes
+        self.requestedAtNs = requestedAtNs
+        self.firstSeenAgeNs = firstSeenAgeNs
+    }
 }
 
 struct MediaDatagramCompletedFrame: Equatable {
@@ -358,18 +420,38 @@ struct MediaDatagramCompletedFrame: Equatable {
     let packetCount: UInt16
     let data: Data
     let wasRepaired: Bool
+    let firstSeenAgeNs: UInt64
+    let repairedAfterNs: UInt64?
+
+    init(
+        frameId: UInt64,
+        packetCount: UInt16,
+        data: Data,
+        wasRepaired: Bool,
+        firstSeenAgeNs: UInt64 = 0,
+        repairedAfterNs: UInt64? = nil
+    ) {
+        self.frameId = frameId
+        self.packetCount = packetCount
+        self.data = data
+        self.wasRepaired = wasRepaired
+        self.firstSeenAgeNs = firstSeenAgeNs
+        self.repairedAfterNs = repairedAfterNs
+    }
 }
 
 struct MediaDatagramRepairResult: Equatable {
     var resendRequests: [MediaDatagramRepairRequest]
     var completedFrames: [MediaDatagramCompletedFrame]
     var expiredFrames: [IncompleteFrame]
+    var skippedStaleFrames: [IncompleteFrame]
     var repairedFrameCount: Int
 
     static let empty = MediaDatagramRepairResult(
         resendRequests: [],
         completedFrames: [],
         expiredFrames: [],
+        skippedStaleFrames: [],
         repairedFrameCount: 0
     )
 }
@@ -379,6 +461,24 @@ struct IncompleteFrame: Equatable {
     let received: Int
     let expected: Int
     let missingIndexes: [UInt16]
+    let firstSeenAgeNs: UInt64
+    let repairAgeNs: UInt64?
+
+    init(
+        frameId: UInt64,
+        received: Int,
+        expected: Int,
+        missingIndexes: [UInt16],
+        firstSeenAgeNs: UInt64 = 0,
+        repairAgeNs: UInt64? = nil
+    ) {
+        self.frameId = frameId
+        self.received = received
+        self.expected = expected
+        self.missingIndexes = missingIndexes
+        self.firstSeenAgeNs = firstSeenAgeNs
+        self.repairAgeNs = repairAgeNs
+    }
 }
 
 enum MediaDatagramPacketError: Error {
