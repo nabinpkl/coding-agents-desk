@@ -437,6 +437,16 @@ final class GestureTranslator: NSObject {
             // head-start window that hides the encoder reconfig cost.
             setScrollInteractionActive(true)
         case .changed:
+            if !scrollInteractionActive {
+                // UIKit can deliver the first target callback as .changed
+                // after InstantPanGestureRecognizer promotes itself out of
+                // .possible. Keep the media/input interaction state in sync
+                // with the scroll packets instead of depending on .began.
+                stopMomentum(emitEnd: true)
+                lastScrollVelocityY = 0
+                didEmitScrollBegan = false
+                setScrollInteractionActive(true)
+            }
             let rawDy = translation.y - lastScrollTranslation.y
             lastScrollTranslation = translation
             if velocity.y != 0 { lastScrollVelocityY = velocity.y }

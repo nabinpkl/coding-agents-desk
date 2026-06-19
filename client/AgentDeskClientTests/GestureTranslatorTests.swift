@@ -307,6 +307,21 @@ struct GestureTranslatorTests {
         #expect(recorder.interactionStates == [true, false])
     }
 
+    @Test func scrollChangedFirstStillActivatesInteraction() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        translator.processScrollPan(state: .changed, translation: CGPoint(x: 0, y: 10))
+        translator.processScrollPan(state: .ended, translation: CGPoint(x: 0, y: 10))
+
+        #expect(recorder.events == [
+            .scroll(dx: 0, dy: 10, phase: .began),
+            .scroll(dx: 0, dy: 0, phase: .ended)
+        ])
+        #expect(recorder.interactionStates == [true, false])
+    }
+
     @Test func scrollTapWithoutMotionStillSettles() {
         let recorder = InputRecorder()
         let translator = GestureTranslator()
