@@ -42,7 +42,7 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 
 ### Client
 
-1. **VideoFrameSink.** Concrete implementation `OwnedMediaVideoSink` owns one `AVSampleBufferDisplayLayer`, decodes `OwnedMediaFrameEnvelope` payloads, and renders the active display surface.
+1. **VideoFrameSink.** Concrete implementation `OwnedMediaVideoSink` owns one `AVSampleBufferDisplayLayer`, decodes `OwnedMediaFrameEnvelope` payloads, and renders the active display surface. It preserves delta continuity by enqueuing complete deltas, but may flush queued display history before a stale keyframe or when the layer reports failure / requires flush to resume. Attached console traces include render-gap, sample-build, enqueue, render-work, layer-ready, and display-queue action fields.
 2. **GestureTranslator.** Converts UIKit gestures on the trackpad and scroll-strip surfaces to `NormalizedInput`. It does not send media quality hints.
 3. **SpacesDotsView.** One-handed Spaces switch surface driven by `DesktopStatePush` from the input channel.
 4. **KeyboardSurface.** Compact keyboard plus accessory row. Emits key and modifier input frames.

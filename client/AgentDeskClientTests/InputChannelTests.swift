@@ -142,13 +142,65 @@ struct InputChannelTests {
     }
 
     @Test func ownedMediaFlushPolicyDoesNotFlushOrdinaryKeyframes() {
-        #expect(OwnedMediaDisplayFlushPolicy.action(displayStatus: "rendering", isKeyframe: true) == .none)
-        #expect(OwnedMediaDisplayFlushPolicy.action(displayStatus: "unknown", isKeyframe: false) == .none)
+        #expect(OwnedMediaDisplayQueuePolicy.action(
+            displayStatus: "rendering",
+            requiresFlushToResumeDecoding: false,
+            isKeyframe: true,
+            renderGapMs: 40,
+            staleKeyframeFlushMs: 150
+        ) == .none)
+        #expect(OwnedMediaDisplayQueuePolicy.action(
+            displayStatus: "unknown",
+            requiresFlushToResumeDecoding: false,
+            isKeyframe: false,
+            renderGapMs: 300,
+            staleKeyframeFlushMs: 150
+        ) == .none)
     }
 
     @Test func ownedMediaFlushPolicyFlushesOnlyFailedDisplayLayer() {
-        #expect(OwnedMediaDisplayFlushPolicy.action(displayStatus: "failed", isKeyframe: false) == .flushAndRemoveImage)
-        #expect(OwnedMediaDisplayFlushPolicy.action(displayStatus: "failed", isKeyframe: true) == .flushAndRemoveImage)
+        #expect(OwnedMediaDisplayQueuePolicy.action(
+            displayStatus: "failed",
+            requiresFlushToResumeDecoding: false,
+            isKeyframe: false,
+            renderGapMs: 40,
+            staleKeyframeFlushMs: 150
+        ) == .flushAndRemoveImage)
+        #expect(OwnedMediaDisplayQueuePolicy.action(
+            displayStatus: "rendering",
+            requiresFlushToResumeDecoding: true,
+            isKeyframe: false,
+            renderGapMs: 40,
+            staleKeyframeFlushMs: 150
+        ) == .flushAndRemoveImage)
+    }
+
+    @Test func ownedMediaFlushPolicyFlushesOnlyStaleKeyframeForQueueDiscipline() {
+        #expect(OwnedMediaDisplayQueuePolicy.action(
+            displayStatus: "rendering",
+            requiresFlushToResumeDecoding: false,
+            isKeyframe: false,
+            renderGapMs: 250,
+            staleKeyframeFlushMs: 150
+        ) == .none)
+        #expect(OwnedMediaDisplayQueuePolicy.action(
+            displayStatus: "rendering",
+            requiresFlushToResumeDecoding: false,
+            isKeyframe: true,
+            renderGapMs: 149,
+            staleKeyframeFlushMs: 150
+        ) == .none)
+        #expect(OwnedMediaDisplayQueuePolicy.action(
+            displayStatus: "rendering",
+            requiresFlushToResumeDecoding: false,
+            isKeyframe: true,
+            renderGapMs: 150,
+            staleKeyframeFlushMs: 150
+        ) == .flushAndRemoveImage)
+    }
+
+    @Test func ownedMediaRenderTimingReportsMilliseconds() {
+        #expect(OwnedMediaRenderTiming.elapsedMs(from: 1_000_000, to: 3_500_000) == 2.5)
     }
 
     @Test func ownedMediaBacklogEstimateReportsBacklogAfterLargeRenderGap() {
@@ -169,6 +221,12 @@ struct InputChannelTests {
             payloadBytes: 210_000,
             flushCount: 0,
             displayStatus: "rendering",
+            displayReadyBeforeEnqueue: true,
+            requiresFlushToResumeDecoding: false,
+            sampleBuildMs: 1.5,
+            enqueueMs: 0.25,
+            renderWorkMs: 2.0,
+            displayQueueAction: .none,
             clientBacklogFrames: 2,
             clientBacklogBytes: 210_000
         )

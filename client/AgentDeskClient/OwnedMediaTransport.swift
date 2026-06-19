@@ -293,7 +293,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         )
         let data = try JSONEncoder().encode(message)
         try await send(data, on: connection)
-        ownedMediaStderrTrace("frame-ack frame=\(stats.frameId) total=\(stats.totalFramesDecoded) renderGapMs=\(Self.formatOptionalDouble(stats.renderGapMs)) backlogFrames=\(stats.clientBacklogFrames) backlogBytes=\(stats.clientBacklogBytes) flushed=\(stats.flushCount) display=\(stats.displayStatus)")
+        ownedMediaStderrTrace("frame-ack frame=\(stats.frameId) total=\(stats.totalFramesDecoded) renderGapMs=\(Self.formatOptionalDouble(stats.renderGapMs)) sampleMs=\(Self.formatDouble(stats.sampleBuildMs)) enqueueMs=\(Self.formatDouble(stats.enqueueMs)) workMs=\(Self.formatDouble(stats.renderWorkMs)) ready=\(stats.displayReadyBeforeEnqueue) requiresFlush=\(stats.requiresFlushToResumeDecoding) action=\(stats.displayQueueAction.rawValue) backlogFrames=\(stats.clientBacklogFrames) backlogBytes=\(stats.clientBacklogBytes) flushed=\(stats.flushCount) display=\(stats.displayStatus)")
     }
 
     private static func formatPacketIndexes(_ indexes: [UInt16], limit: Int = 16) -> String {

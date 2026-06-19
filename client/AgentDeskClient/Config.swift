@@ -17,6 +17,10 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
         defaultValue: 256
     )
+    static let ownedMediaDisplayStaleKeyframeFlushMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DISPLAY_STALE_KEYFRAME_FLUSH_MS",
+        defaultValue: 150
+    )
 
     static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
         guard let raw = ProcessInfo.processInfo.environment[environmentKey],

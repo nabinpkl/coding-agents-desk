@@ -768,18 +768,44 @@ struct OwnedMediaRenderStats: Equatable {
     let payloadBytes: Int
     let flushCount: Int
     let displayStatus: String
+    let displayReadyBeforeEnqueue: Bool
+    let requiresFlushToResumeDecoding: Bool
+    let sampleBuildMs: Double
+    let enqueueMs: Double
+    let renderWorkMs: Double
+    let displayQueueAction: OwnedMediaDisplayQueueAction
     let clientBacklogFrames: Int
     let clientBacklogBytes: Int
 }
 
-enum OwnedMediaDisplayFlushAction: Equatable {
+enum OwnedMediaDisplayQueueAction: String, Equatable {
     case none
     case flushAndRemoveImage
 }
 
-enum OwnedMediaDisplayFlushPolicy {
-    static func action(displayStatus: String, isKeyframe _: Bool) -> OwnedMediaDisplayFlushAction {
-        displayStatus == "failed" ? .flushAndRemoveImage : .none
+enum OwnedMediaDisplayQueuePolicy {
+    static func action(
+        displayStatus: String,
+        requiresFlushToResumeDecoding: Bool,
+        isKeyframe: Bool,
+        renderGapMs: Double?,
+        staleKeyframeFlushMs: Double
+    ) -> OwnedMediaDisplayQueueAction {
+        if displayStatus == "failed" || requiresFlushToResumeDecoding {
+            return .flushAndRemoveImage
+        }
+        guard isKeyframe,
+              let renderGapMs,
+              renderGapMs >= staleKeyframeFlushMs else {
+            return .none
+        }
+        return .flushAndRemoveImage
+    }
+}
+
+enum OwnedMediaRenderTiming {
+    static func elapsedMs(from startNs: UInt64, to endNs: UInt64) -> Double {
+        Double(endNs &- startNs) / 1_000_000.0
     }
 }
 

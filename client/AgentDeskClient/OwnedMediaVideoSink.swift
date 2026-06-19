@@ -48,6 +48,9 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     }
 
     func renderOwnedMediaFrame(_ envelope: OwnedMediaFrameEnvelope) -> OwnedMediaRenderStats? {
+        let renderStartNs = DispatchTime.now().uptimeNanoseconds
+        let renderGapNs = lastRenderUptimeNs.map { renderStartNs &- $0 }
+        let renderGapMs = renderGapNs.map { Double($0) / 1_000_000.0 }
         do {
             if let parameterSets = envelope.header.parameterSets {
                 formatDescription = try Self.makeFormatDescription(
@@ -60,34 +63,58 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 ownedMediaStderrTrace("render-drop-no-format frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) codec=\(envelope.header.codec.rawValue) bytes=\(envelope.payload.count)")
                 return nil
             }
+            let preEnqueueStatus = Self.displayStatusCode(displayLayer)
+            let readyBeforeEnqueue = displayLayer.isReadyForMoreMediaData
+            let requiresFlushToResumeDecoding = displayLayer.requiresFlushToResumeDecoding
+            let displayQueueAction = OwnedMediaDisplayQueuePolicy.action(
+                displayStatus: preEnqueueStatus,
+                requiresFlushToResumeDecoding: requiresFlushToResumeDecoding,
+                isKeyframe: envelope.header.isKeyframe,
+                renderGapMs: renderGapMs,
+                staleKeyframeFlushMs: Double(Config.ownedMediaDisplayStaleKeyframeFlushMs)
+            )
+            if displayQueueAction == .flushAndRemoveImage {
+                displayLayer.flushAndRemoveImage()
+                flushCount += 1
+            }
+            let sampleBuildStartNs = DispatchTime.now().uptimeNanoseconds
             let sampleBuffer = try Self.makeSampleBuffer(
                 envelope: envelope,
                 formatDescription: formatDescription
             )
-            let preEnqueueStatus = Self.displayStatusCode(displayLayer)
-            if OwnedMediaDisplayFlushPolicy.action(
-                displayStatus: preEnqueueStatus,
-                isKeyframe: envelope.header.isKeyframe
-            ) == .flushAndRemoveImage {
-                displayLayer.flushAndRemoveImage()
-                flushCount += 1
-            }
+            let sampleBuildEndNs = DispatchTime.now().uptimeNanoseconds
+            let enqueueStartNs = DispatchTime.now().uptimeNanoseconds
             displayLayer.enqueue(sampleBuffer)
+            let enqueueEndNs = DispatchTime.now().uptimeNanoseconds
             renderCount += 1
-            let now = DispatchTime.now().uptimeNanoseconds
-            let renderGapNs = lastRenderUptimeNs.map { now &- $0 }
-            lastRenderUptimeNs = now
-            let renderGapMs = renderGapNs.map { Double($0) / 1_000_000.0 }
+            let renderEndNs = DispatchTime.now().uptimeNanoseconds
+            lastRenderUptimeNs = renderEndNs
+            let sampleBuildMs = OwnedMediaRenderTiming.elapsedMs(
+                from: sampleBuildStartNs,
+                to: sampleBuildEndNs
+            )
+            let enqueueMs = OwnedMediaRenderTiming.elapsedMs(
+                from: enqueueStartNs,
+                to: enqueueEndNs
+            )
+            let renderWorkMs = OwnedMediaRenderTiming.elapsedMs(
+                from: renderStartNs,
+                to: renderEndNs
+            )
             let status = Self.displayStatus(displayLayer)
             let backlog = OwnedMediaRenderBacklog.estimate(
                 renderGapMs: renderGapMs,
                 payloadBytes: envelope.payload.count
             )
-            if renderCount == 1 || renderCount.isMultiple(of: 30) || envelope.header.isKeyframe {
-                ownedMediaStderrTrace("render count=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) renderGapMs=\(Self.formatOptionalMilliseconds(renderGapNs)) backlogFrames=\(backlog.frames) backlogBytes=\(backlog.bytes) bytes=\(envelope.payload.count) display=\(status)")
+            if renderCount == 1 ||
+                renderCount.isMultiple(of: 30) ||
+                envelope.header.isKeyframe ||
+                displayQueueAction == .flushAndRemoveImage ||
+                renderWorkMs > 8 {
+                ownedMediaStderrTrace("render count=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) renderGapMs=\(Self.formatOptionalMilliseconds(renderGapNs)) sampleMs=\(Self.formatDouble(sampleBuildMs)) enqueueMs=\(Self.formatDouble(enqueueMs)) workMs=\(Self.formatDouble(renderWorkMs)) ready=\(readyBeforeEnqueue) requiresFlush=\(requiresFlushToResumeDecoding) action=\(displayQueueAction.rawValue) backlogFrames=\(backlog.frames) backlogBytes=\(backlog.bytes) bytes=\(envelope.payload.count) display=\(status)")
             }
             setOwnedMediaDebugStatus(
-                "rendered=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(status)"
+                "rendered=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(status) action=\(displayQueueAction.rawValue)"
             )
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 150_000_000)
@@ -108,6 +135,12 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 payloadBytes: envelope.payload.count,
                 flushCount: flushCount,
                 displayStatus: status,
+                displayReadyBeforeEnqueue: readyBeforeEnqueue,
+                requiresFlushToResumeDecoding: requiresFlushToResumeDecoding,
+                sampleBuildMs: sampleBuildMs,
+                enqueueMs: enqueueMs,
+                renderWorkMs: renderWorkMs,
+                displayQueueAction: displayQueueAction,
                 clientBacklogFrames: backlog.frames,
                 clientBacklogBytes: backlog.bytes
             )
