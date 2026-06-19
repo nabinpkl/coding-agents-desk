@@ -201,6 +201,54 @@ struct InputChannelTests {
         #expect(repaired.completedFrames.first?.repairedAfterNs == 18)
     }
 
+    @Test func repairBufferSkipsLateRepairedDeltaAfterDeadline() {
+        let buffer = MediaDatagramFrameRepairBuffer(
+            repairDeadlineNs: 50,
+            trackedFrameLimit: 8,
+            maxResendPackets: 256
+        )
+
+        _ = buffer.accept(packet(frameId: 1, index: 0, count: 3, payload: [0x10]), now: 1)
+        _ = buffer.accept(packet(frameId: 2, index: 0, count: 1, payload: [0x20]), now: 2)
+        _ = buffer.accept(packet(frameId: 1, index: 1, count: 3, payload: [0x11]), now: 10)
+        let late = buffer.accept(packet(frameId: 1, index: 2, count: 3, payload: [0x12]), now: 53)
+
+        #expect(late.expiredFrames.isEmpty)
+        #expect(late.repairedFrameCount == 0)
+        #expect(late.completedFrames.map(\.frameId) == [2])
+        #expect(late.skippedStaleFrames == [
+            IncompleteFrame(
+                frameId: 1,
+                isKeyframe: false,
+                received: 3,
+                expected: 3,
+                missingIndexes: [],
+                firstSeenAgeNs: 52,
+                repairAgeNs: 51
+            )
+        ])
+    }
+
+    @Test func repairBufferAllowsLateRepairedKeyframeToComplete() {
+        let buffer = MediaDatagramFrameRepairBuffer(
+            repairDeadlineNs: 50,
+            trackedFrameLimit: 8,
+            maxResendPackets: 256
+        )
+
+        _ = buffer.accept(packet(frameId: 1, index: 0, count: 3, isKeyframe: true, payload: [0x10]), now: 1)
+        _ = buffer.accept(packet(frameId: 2, index: 0, count: 1, payload: [0x20]), now: 2)
+        _ = buffer.accept(packet(frameId: 1, index: 1, count: 3, isKeyframe: true, payload: [0x11]), now: 10)
+        let late = buffer.accept(packet(frameId: 1, index: 2, count: 3, isKeyframe: true, payload: [0x12]), now: 53)
+
+        #expect(late.expiredFrames.isEmpty)
+        #expect(late.skippedStaleFrames.isEmpty)
+        #expect(late.repairedFrameCount == 1)
+        #expect(late.completedFrames.map(\.frameId) == [1, 2])
+        #expect(late.completedFrames.first?.data == Data([0x10, 0x11, 0x12]))
+        #expect(late.completedFrames.first?.wasRepaired == true)
+    }
+
     @Test func repairBufferSkipsStaleDeltaAfterRepairDeadline() {
         let buffer = MediaDatagramFrameRepairBuffer(
             repairDeadlineNs: 50,

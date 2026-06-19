@@ -82,6 +82,15 @@ final class MediaDatagramFrameRepairBuffer {
                 repairedAfterNs: repairRequestedAtNs.map { now &- $0 }
             )
         }
+
+        func isLateRepairedDelta(now: UInt64) -> Bool {
+            guard !isKeyframe,
+                  repairRequestedAtNs != nil,
+                  let repairDeadlineNs else {
+                return false
+            }
+            return now >= repairDeadlineNs
+        }
     }
 
     private let repairDeadlineNs: UInt64
@@ -131,9 +140,10 @@ final class MediaDatagramFrameRepairBuffer {
         result.expiredFrames.append(contentsOf: expired.filter(\.isKeyframe))
         result.skippedStaleFrames.append(contentsOf: expired.filter { !$0.isKeyframe })
         result.expiredFrames.append(contentsOf: enforceTrackedFrameLimit())
-        let completed = drainCompletedFrames(now: now)
-        result.repairedFrameCount += completed.filter(\.wasRepaired).count
-        result.completedFrames.append(contentsOf: completed)
+        let drained = drainCompletedFrames(now: now)
+        result.skippedStaleFrames.append(contentsOf: drained.skippedStaleFrames)
+        result.repairedFrameCount += drained.completedFrames.filter(\.wasRepaired).count
+        result.completedFrames.append(contentsOf: drained.completedFrames)
         return result
     }
 
@@ -190,10 +200,17 @@ final class MediaDatagramFrameRepairBuffer {
         return expired
     }
 
-    private func drainCompletedFrames(now: UInt64) -> [MediaDatagramCompletedFrame] {
+    private func drainCompletedFrames(now: UInt64) -> MediaDatagramDrainResult {
         var completed: [MediaDatagramCompletedFrame] = []
+        var skippedStaleFrames: [IncompleteFrame] = []
         while let nextId = frames.keys.sorted().first,
               let frame = frames[nextId] {
+            if frame.isComplete, frame.isLateRepairedDelta(now: now) {
+                frames.removeValue(forKey: nextId)
+                deliveredFrameId = max(deliveredFrameId, nextId)
+                skippedStaleFrames.append(frame.incompleteFrame(now: now))
+                continue
+            }
             guard frame.isComplete, let completedFrame = frame.completedFrame(now: now) else {
                 break
             }
@@ -201,7 +218,10 @@ final class MediaDatagramFrameRepairBuffer {
             deliveredFrameId = max(deliveredFrameId, nextId)
             completed.append(completedFrame)
         }
-        return completed
+        return MediaDatagramDrainResult(
+            completedFrames: completed,
+            skippedStaleFrames: skippedStaleFrames
+        )
     }
 
     private func expire(frameId: UInt64) -> MediaDatagramRepairResult {
@@ -277,6 +297,11 @@ struct MediaDatagramRepairResult: Equatable {
         skippedStaleFrames: [],
         repairedFrameCount: 0
     )
+}
+
+private struct MediaDatagramDrainResult {
+    let completedFrames: [MediaDatagramCompletedFrame]
+    let skippedStaleFrames: [IncompleteFrame]
 }
 
 struct IncompleteFrame: Equatable {

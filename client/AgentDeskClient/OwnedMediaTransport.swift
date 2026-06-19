@@ -116,8 +116,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     private func receiveLoop(connection: NWConnection, key: SymmetricKey) async {
+        let repairDeadlineNs = UInt64(Config.ownedMediaRepairDeadlineMs) * 1_000_000
         let repairBuffer = MediaDatagramFrameRepairBuffer(
-            repairDeadlineNs: UInt64(Config.ownedMediaRepairDeadlineMs) * 1_000_000,
+            repairDeadlineNs: repairDeadlineNs,
             trackedFrameLimit: Config.ownedMediaResendRingFrames,
             maxResendPackets: Config.ownedMediaMaxResendPackets
         )
@@ -178,7 +179,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 }
                 repairedFrames += repair.repairedFrameCount
                 for completed in repair.completedFrames {
-                    completedFrames += 1
                     let envelope = try OwnedMediaFrameEnvelope.decode(completed.data)
                     if keyframeRecovery.isAwaitingKeyframe, !envelope.header.isKeyframe {
                         skippedDeltasWaitingForKeyframe += 1
@@ -195,6 +195,17 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                         keyframeRecovery.noteKeyframe()
                         skippedDeltasWaitingForKeyframe = 0
                     }
+                    if completed.wasRepaired,
+                       !envelope.header.isKeyframe,
+                       completed.firstSeenAgeNs >= repairDeadlineNs {
+                        skippedStaleFrames += 1
+                        ownedMediaStderrTrace("skip-late-repaired-delta frame=\(completed.frameId) ageMs=\(Self.formatMilliseconds(completed.firstSeenAgeNs)) repairedAfterMs=\(Self.formatOptionalMilliseconds(completed.repairedAfterNs)) bytes=\(completed.data.count) packets=\(completed.packetCount) staleSkip=\(skippedStaleFrames)")
+                        await MainActor.run { [weak self] in
+                            self?.sink?.setOwnedMediaDebugStatus("skip late repaired delta frame=\(completed.frameId) ageMs=\(Self.formatMilliseconds(completed.firstSeenAgeNs)) packets=\(completed.packetCount)\nquic=\(receivedPackets) complete=\(completedFrames) repaired=\(repairedFrames) staleSkip=\(skippedStaleFrames)")
+                        }
+                        continue
+                    }
+                    completedFrames += 1
                     if completedFrames == 1 || completedFrames.isMultiple(of: 60) || completed.wasRepaired {
                         logger.notice("owned media quic completed frame count=\(completedFrames, privacy: .public) frame=\(completed.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) repaired=\(completed.wasRepaired, privacy: .public) bytes=\(completed.data.count, privacy: .public) packets=\(completed.packetCount, privacy: .public)")
                         ownedMediaStderrTrace("complete count=\(completedFrames) frame=\(completed.frameId) key=\(envelope.header.isKeyframe) repaired=\(completed.wasRepaired) ageMs=\(Self.formatMilliseconds(completed.firstSeenAgeNs)) repairedAfterMs=\(Self.formatOptionalMilliseconds(completed.repairedAfterNs)) bytes=\(completed.data.count) packets=\(completed.packetCount) quic=\(receivedPackets) drops=\(droppedPackets) resend=\(resendRequests)/\(resendPackets) expired=\(expiredFrames) staleSkip=\(skippedStaleFrames) fallback=\(keyframeFallbacks)")
