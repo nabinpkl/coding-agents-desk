@@ -869,6 +869,38 @@ struct OwnedMediaControlMessage: Codable, Equatable {
     }
 }
 
+struct OwnedMediaKeyframeRequestThrottle: Equatable {
+    static let retryIntervalNs: UInt64 = 500_000_000
+    private(set) var isAwaitingKeyframe = false
+    private var lastRequestUptimeNs: UInt64 = 0
+
+    mutating func noteIncompleteFrame(now: UInt64) -> Bool {
+        noteNeedsKeyframe(now: now)
+    }
+
+    mutating func noteMalformedPacket(now: UInt64) -> Bool {
+        noteNeedsKeyframe(now: now)
+    }
+
+    mutating func noteSkippedDelta(now: UInt64) -> Bool {
+        noteNeedsKeyframe(now: now)
+    }
+
+    mutating func noteKeyframe() {
+        isAwaitingKeyframe = false
+        lastRequestUptimeNs = 0
+    }
+
+    private mutating func noteNeedsKeyframe(now: UInt64) -> Bool {
+        isAwaitingKeyframe = true
+        if lastRequestUptimeNs == 0 || now &- lastRequestUptimeNs >= Self.retryIntervalNs {
+            lastRequestUptimeNs = now
+            return true
+        }
+        return false
+    }
+}
+
 struct InputChannelEvent: Codable, Equatable {
     let type: String
     let event: NormalizedInput

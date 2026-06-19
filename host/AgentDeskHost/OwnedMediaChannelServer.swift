@@ -13,8 +13,8 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
     private let burstPauseUs: Int
     private let stateQueue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic-state")
     private let sendGate = DatagramSendGate()
+    private var freshness = OwnedMediaSendFreshness()
     private var closed = false
-    private var newestFrameId: UInt64 = 0
     private var sentFrameCount: UInt64 = 0
 
     init(
@@ -47,10 +47,16 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         guard !isClosed else {
             throw SessionRejected(reason: .unauthorized)
         }
+        let frameId = envelope.header.frameId
+        let isKeyframe = envelope.header.isKeyframe
+        noteEnqueued(frameId: frameId, isKeyframe: isKeyframe)
         await sendGate.wait()
         do {
+            guard shouldContinueSending(frameId: frameId, isKeyframe: isKeyframe) else {
+                await sendGate.signal()
+                return
+            }
             let data = try envelope.encode()
-            let frameId = noteNewestFrame()
             let packets = try MediaDatagramFramePacket.packetize(
                 frameId: frameId,
                 sentAtUptimeNs: envelope.header.capturedAtUptimeNs,
@@ -58,11 +64,11 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                 key: key
             )
             let ordinal = noteSentFrame()
-            if envelope.header.isKeyframe || ordinal == 1 || ordinal.isMultiple(of: 120) {
-                logger.notice("owned media quic send frame=\(frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) burst=\(self.burstPacketCount, privacy: .public) pauseUs=\(self.burstPauseUs, privacy: .public)")
+            if isKeyframe || ordinal == 1 || ordinal.isMultiple(of: 120) {
+                logger.notice("owned media quic send frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) burst=\(self.burstPacketCount, privacy: .public) pauseUs=\(self.burstPauseUs, privacy: .public)")
             }
             for (index, packet) in packets.enumerated() {
-                guard shouldContinueSending(frameId: frameId, isKeyframe: envelope.header.isKeyframe),
+                guard shouldContinueSending(frameId: frameId, isKeyframe: isKeyframe),
                       !isClosed else {
                     await sendGate.signal()
                     return
@@ -75,8 +81,8 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                     try await Task.sleep(nanoseconds: UInt64(burstPauseUs) * 1_000)
                 }
             }
-            if envelope.header.isKeyframe || ordinal == 1 || ordinal.isMultiple(of: 120) {
-                logger.notice("owned media quic sent frame=\(frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) packets=\(packets.count, privacy: .public)")
+            if isKeyframe || ordinal == 1 || ordinal.isMultiple(of: 120) {
+                logger.notice("owned media quic sent frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) packets=\(packets.count, privacy: .public)")
             }
             await sendGate.signal()
         } catch {
@@ -94,10 +100,9 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         stateQueue.sync { closed }
     }
 
-    private func noteNewestFrame() -> UInt64 {
+    private func noteEnqueued(frameId: UInt64, isKeyframe: Bool) {
         stateQueue.sync {
-            newestFrameId &+= 1
-            return newestFrameId
+            freshness.noteEnqueued(frameId: frameId, isKeyframe: isKeyframe)
         }
     }
 
@@ -109,7 +114,7 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
     }
 
     private func shouldContinueSending(frameId: UInt64, isKeyframe: Bool) -> Bool {
-        stateQueue.sync { isKeyframe || frameId == newestFrameId }
+        stateQueue.sync { freshness.shouldSend(frameId: frameId, isKeyframe: isKeyframe) }
     }
 
     @discardableResult

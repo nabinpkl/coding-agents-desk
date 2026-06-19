@@ -113,6 +113,26 @@ struct InputChannelTests {
         #expect(decoded == envelope)
     }
 
+    @Test func ownedMediaKeyframeRequestsAreDebouncedDuringRecovery() {
+        var throttle = OwnedMediaKeyframeRequestThrottle()
+
+        let firstRequest = throttle.noteIncompleteFrame(now: 1_000)
+        #expect(firstRequest)
+        #expect(throttle.isAwaitingKeyframe)
+        let immediateRetry = throttle.noteIncompleteFrame(now: 1_000 + 100_000_000)
+        let earlyDeltaRetry = throttle.noteSkippedDelta(now: 1_000 + 499_000_000)
+        let dueDeltaRetry = throttle.noteSkippedDelta(now: 1_000 + 500_000_000)
+        #expect(!immediateRetry)
+        #expect(!earlyDeltaRetry)
+        #expect(dueDeltaRetry)
+
+        throttle.noteKeyframe()
+
+        #expect(!throttle.isAwaitingKeyframe)
+        let postKeyframeRequest = throttle.noteIncompleteFrame(now: 2_000_000_000)
+        #expect(postKeyframeRequest)
+    }
+
     @Test func eventFramePreservesNormalizedInput() throws {
         let event = NormalizedInput.cursorMove(dx: 1.5, dy: -2.25)
         let frame = InputChannelEvent(event: event)

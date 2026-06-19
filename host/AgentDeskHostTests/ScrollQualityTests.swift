@@ -91,6 +91,31 @@ struct ScrollQualityTests {
         #expect(Config.ownedMediaQuicMaxDatagramBytes >= 1_114)
     }
 
+    @Test func ownedMediaFreshnessDropsStaleQueuedFrames() {
+        var freshness = OwnedMediaSendFreshness()
+
+        freshness.noteEnqueued(frameId: 10, isKeyframe: false)
+        freshness.noteEnqueued(frameId: 11, isKeyframe: false)
+
+        #expect(!freshness.shouldSend(frameId: 10, isKeyframe: false))
+        #expect(freshness.shouldSend(frameId: 11, isKeyframe: false))
+    }
+
+    @Test func ownedMediaFreshnessSupersedesOldKeyframesButKeepsLatestKeyframe() {
+        var freshness = OwnedMediaSendFreshness()
+
+        freshness.noteEnqueued(frameId: 20, isKeyframe: true)
+        freshness.noteEnqueued(frameId: 21, isKeyframe: false)
+
+        #expect(freshness.shouldSend(frameId: 20, isKeyframe: true))
+        #expect(freshness.shouldSend(frameId: 21, isKeyframe: false))
+
+        freshness.noteEnqueued(frameId: 22, isKeyframe: true)
+
+        #expect(!freshness.shouldSend(frameId: 20, isKeyframe: true))
+        #expect(freshness.shouldSend(frameId: 22, isKeyframe: true))
+    }
+
     @Test func motionCodecCanBeTunedToDownscaledVp9() {
         let planes = MediaPlaneConfiguration.defaultPlanes(environment: [
             "AGENTDESK_TUNING_MOTION_CODEC": "vp9",

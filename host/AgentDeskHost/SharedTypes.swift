@@ -884,6 +884,25 @@ struct OwnedMediaControlMessage: Codable, Equatable {
     }
 }
 
+struct OwnedMediaSendFreshness: Equatable {
+    private var newestFrameId: UInt64 = 0
+    private var newestKeyframeId: UInt64 = 0
+
+    mutating func noteEnqueued(frameId: UInt64, isKeyframe: Bool) {
+        newestFrameId = max(newestFrameId, frameId)
+        if isKeyframe {
+            newestKeyframeId = max(newestKeyframeId, frameId)
+        }
+    }
+
+    func shouldSend(frameId: UInt64, isKeyframe: Bool) -> Bool {
+        if isKeyframe {
+            return frameId == newestKeyframeId
+        }
+        return frameId == newestFrameId
+    }
+}
+
 struct InputChannelEvent: Codable, Equatable {
     let type: String
     let event: NormalizedInput

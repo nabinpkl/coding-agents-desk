@@ -121,11 +121,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
     private func receiveLoop(connection: NWConnection, key: SymmetricKey) async {
         let assembler = MediaDatagramFrameAssembler()
+        var keyframeRecovery = OwnedMediaKeyframeRequestThrottle()
         var droppedPackets = 0
         var receivedPackets = 0
         var completedFrames = 0
         var skippedDeltasWaitingForKeyframe = 0
-        var awaitingKeyframe = false
         while !Task.isCancelled {
             do {
                 let data = try await receive(on: connection)
@@ -138,9 +138,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     }
                 }
                 if let droppedFrame = assembler.noteNewerFrameIfNeeded(packet) {
-                    awaitingKeyframe = true
                     logger.error("owned media quic abandoned incomplete frame=\(droppedFrame.frameId, privacy: .public) received=\(droppedFrame.received, privacy: .public)/\(droppedFrame.expected, privacy: .public)")
-                    try? await sendKeyframeRequest(afterFrameId: droppedFrame.frameId, on: connection)
+                    if keyframeRecovery.noteIncompleteFrame(now: DispatchTime.now().uptimeNanoseconds) {
+                        try? await sendKeyframeRequest(afterFrameId: droppedFrame.frameId, on: connection)
+                    }
                     await MainActor.run { [weak self] in
                         self?.sink?.setOwnedMediaDebugStatus("abandoned frame=\(droppedFrame.frameId) received=\(droppedFrame.received)/\(droppedFrame.expected)\nquic packets=\(receivedPackets) complete=\(completedFrames)")
                     }
@@ -148,16 +149,18 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 guard let frameData = assembler.accept(packet) else { continue }
                 completedFrames += 1
                 let envelope = try OwnedMediaFrameEnvelope.decode(frameData)
-                if awaitingKeyframe, !envelope.header.isKeyframe {
+                if keyframeRecovery.isAwaitingKeyframe, !envelope.header.isKeyframe {
                     skippedDeltasWaitingForKeyframe += 1
                     if skippedDeltasWaitingForKeyframe == 1 || skippedDeltasWaitingForKeyframe.isMultiple(of: 30) {
                         logger.notice("owned media quic skipped delta while waiting for keyframe count=\(skippedDeltasWaitingForKeyframe, privacy: .public) frame=\(envelope.header.frameId, privacy: .public)")
-                        try? await sendKeyframeRequest(afterFrameId: envelope.header.frameId, on: connection)
+                        if keyframeRecovery.noteSkippedDelta(now: DispatchTime.now().uptimeNanoseconds) {
+                            try? await sendKeyframeRequest(afterFrameId: envelope.header.frameId, on: connection)
+                        }
                     }
                     continue
                 }
                 if envelope.header.isKeyframe {
-                    awaitingKeyframe = false
+                    keyframeRecovery.noteKeyframe()
                     skippedDeltasWaitingForKeyframe = 0
                 }
                 if completedFrames == 1 || completedFrames.isMultiple(of: 60) {
@@ -175,8 +178,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             } catch let error as MediaDatagramPacketError {
                 droppedPackets += 1
                 if droppedPackets == 1 || droppedPackets.isMultiple(of: 120) {
-                    awaitingKeyframe = true
-                    try? await sendKeyframeRequest(afterFrameId: 0, on: connection)
+                    if keyframeRecovery.noteMalformedPacket(now: DispatchTime.now().uptimeNanoseconds) {
+                        try? await sendKeyframeRequest(afterFrameId: 0, on: connection)
+                    }
                     logger.error("owned media quic dropped packet count=\(droppedPackets, privacy: .public) reason=\(error.debugSummary, privacy: .public)")
                     await MainActor.run { [weak self] in
                         self?.sink?.setOwnedMediaDebugStatus("\(error.debugSummary)\ndrops=\(droppedPackets) quic=\(receivedPackets) complete=\(completedFrames)")
