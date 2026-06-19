@@ -67,6 +67,13 @@ When in doubt about which direction a code path should produce, the test is: fin
 - Tests are written for **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView** (see `SPEC.md` for why these five). `SpacesProvider`'s smoke test runs against the live SkyLight binding and is the canary for private-API surface drift across macOS versions. Other modules get tests when a bug demands one.
 - Domain glossary terms (`Space`, `Display`, `NormalizedInput`, `DesktopState`, `SessionToken`, `PairingPayload`) are stable. Renames require an ADR.
 
+## Agent-run device sessions
+
+- When an agent launches the physical iPhone for exploratory media, transport, scroll, decode, or gesture feel work, use an attached console launch by default: `just iphone-console-run`.
+- Do not use `just fresh-install` or `just pair-iphone` for exploratory feel runs unless the user explicitly asks for a plain install or a non-attached launch.
+- The attached console path is load-bearing because it writes iPhone-side owned-media diagnostics to `/tmp/agentdesk-client-console.log`, including packet repair, stale skips, decoder recovery, render gaps, and frame age.
+- For physical-device media regressions, preserve host logs and attached client logs in the same run. Host-only logs are not enough to judge motion behavior.
+
 ## ADRs
 
 - Filename: `NNNN-kebab-case-title.md`. Numbers never reuse.
