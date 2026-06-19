@@ -714,6 +714,7 @@ struct OwnedMediaControlMessage: Codable, Equatable {
     let packetIndexes: [UInt16]
     let totalFramesDecoded: UInt64?
     let renderGapMs: Double?
+    let frameAgeMs: Double?
     let clientBacklogFrames: Int?
     let clientBacklogBytes: Int?
 
@@ -734,6 +735,7 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         packetIndexes: [UInt16] = [],
         totalFramesDecoded: UInt64? = nil,
         renderGapMs: Double? = nil,
+        frameAgeMs: Double? = nil,
         clientBacklogFrames: Int? = nil,
         clientBacklogBytes: Int? = nil
     ) {
@@ -743,6 +745,7 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         self.packetIndexes = packetIndexes
         self.totalFramesDecoded = totalFramesDecoded
         self.renderGapMs = renderGapMs
+        self.frameAgeMs = frameAgeMs
         self.clientBacklogFrames = clientBacklogFrames
         self.clientBacklogBytes = clientBacklogBytes
     }
@@ -755,6 +758,7 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         packetIndexes = try container.decodeIfPresent([UInt16].self, forKey: .packetIndexes) ?? []
         totalFramesDecoded = try container.decodeIfPresent(UInt64.self, forKey: .totalFramesDecoded)
         renderGapMs = try container.decodeIfPresent(Double.self, forKey: .renderGapMs)
+        frameAgeMs = nil
         clientBacklogFrames = try container.decodeIfPresent(Int.self, forKey: .clientBacklogFrames)
         clientBacklogBytes = try container.decodeIfPresent(Int.self, forKey: .clientBacklogBytes)
     }
@@ -774,79 +778,147 @@ struct OwnedMediaControlMessage: Codable, Equatable {
     }
 }
 
+struct OwnedMediaSentFrame: Equatable {
+    let bytes: Int
+    let capturedAtUptimeNs: UInt64
+}
+
 struct OwnedMediaSendFreshness: Equatable {
-    private var newestFrameId: UInt64 = 0
-    private var newestKeyframeId: UInt64 = 0
     private(set) var latestAckedFrameId: UInt64 = 0
-    private(set) var inFlightFrames: [UInt64: Int] = [:]
+    private(set) var inFlightFrames: [UInt64: OwnedMediaSentFrame] = [:]
     private(set) var latestClientRenderGapMs: Double = 0
+    private(set) var latestClientFrameAgeMs: Double = 0
     private(set) var latestClientBacklogFrames: Int = 0
     private(set) var latestClientBacklogBytes: Int = 0
 
-    mutating func noteEnqueued(frameId: UInt64, isKeyframe: Bool) {
-        newestFrameId = max(newestFrameId, frameId)
-        if isKeyframe {
-            newestKeyframeId = max(newestKeyframeId, frameId)
-        }
+    var inFlightBytes: Int {
+        inFlightFrames.values.reduce(0) { $0 + $1.bytes }
     }
 
-    mutating func noteSent(frameId: UInt64, bytes: Int) {
-        inFlightFrames[frameId] = bytes
+    mutating func noteSent(frameId: UInt64, bytes: Int, capturedAtUptimeNs: UInt64) {
+        inFlightFrames[frameId] = OwnedMediaSentFrame(
+            bytes: bytes,
+            capturedAtUptimeNs: capturedAtUptimeNs
+        )
     }
 
+    @discardableResult
     mutating func noteAck(
         frameId: UInt64,
         renderGapMs: Double?,
         clientBacklogFrames: Int?,
-        clientBacklogBytes: Int?
-    ) {
+        clientBacklogBytes: Int?,
+        nowUptimeNs: UInt64
+    ) -> Double? {
         latestAckedFrameId = max(latestAckedFrameId, frameId)
+        var computedFrameAgeMs: Double?
+        if let acknowledged = inFlightFrames[frameId],
+           nowUptimeNs >= acknowledged.capturedAtUptimeNs {
+            computedFrameAgeMs = Double(nowUptimeNs - acknowledged.capturedAtUptimeNs) / 1_000_000.0
+            latestClientFrameAgeMs = computedFrameAgeMs ?? latestClientFrameAgeMs
+        }
         inFlightFrames = inFlightFrames.filter { $0.key > latestAckedFrameId }
         latestClientRenderGapMs = max(0, renderGapMs ?? 0)
         latestClientBacklogFrames = max(0, clientBacklogFrames ?? 0)
         latestClientBacklogBytes = max(0, clientBacklogBytes ?? 0)
-    }
-
-    func shouldSend(frameId: UInt64, isKeyframe: Bool) -> Bool {
-        if isKeyframe {
-            return frameId == newestKeyframeId
-        }
-        return frameId == newestFrameId
-    }
-
-    func shouldSend(
-        frameId: UInt64,
-        isKeyframe: Bool,
-        backpressure: OwnedMediaBackpressureConfig
-    ) -> Bool {
-        guard shouldSend(frameId: frameId, isKeyframe: isKeyframe) else {
-            return false
-        }
-        if isKeyframe {
-            return true
-        }
-        return !isClientBehind(backpressure: backpressure)
+        return computedFrameAgeMs
     }
 
     func isClientBehind(backpressure: OwnedMediaBackpressureConfig) -> Bool {
         latestAckedFrameId > 0 && (
             inFlightFrames.count > backpressure.maxInflightFrames ||
-            inFlightFrames.values.reduce(0, +) > backpressure.maxInflightBytes ||
-            latestClientRenderGapMs > backpressure.renderGapMs ||
+            inFlightBytes > backpressure.maxInflightBytes ||
+            latestClientFrameAgeMs > backpressure.frameAgeMs ||
             latestClientBacklogFrames > 0
         )
     }
 }
 
 struct OwnedMediaBackpressureConfig: Equatable {
-    let renderGapMs: Double
+    let frameAgeMs: Double
+    let severeFrameAgeMs: Double
     let maxInflightFrames: Int
     let maxInflightBytes: Int
+    let expectedFrameRate: Int
+    let behindEncodeIntervalMs: Int
+    let severeEncodeIntervalMs: Int
 
-    init(renderGapMs: Double, maxInflightFrames: Int, maxInflightBytes: Int) {
-        self.renderGapMs = renderGapMs
+    init(
+        frameAgeMs: Double,
+        severeFrameAgeMs: Double,
+        maxInflightFrames: Int,
+        maxInflightBytes: Int,
+        expectedFrameRate: Int,
+        behindEncodeIntervalMs: Int,
+        severeEncodeIntervalMs: Int
+    ) {
+        self.frameAgeMs = frameAgeMs
+        self.severeFrameAgeMs = severeFrameAgeMs
         self.maxInflightFrames = maxInflightFrames
         self.maxInflightBytes = maxInflightBytes
+        self.expectedFrameRate = expectedFrameRate
+        self.behindEncodeIntervalMs = behindEncodeIntervalMs
+        self.severeEncodeIntervalMs = severeEncodeIntervalMs
+    }
+
+    var normalEncodeIntervalMs: Int {
+        max(1, Int((1_000.0 / Double(max(expectedFrameRate, 1))).rounded(.up)))
+    }
+}
+
+enum OwnedMediaCadenceMode: Equatable {
+    case normal
+    case behind
+    case severe
+}
+
+struct OwnedMediaEncodeAdmission: Equatable {
+    private(set) var latestAckedFrameId: UInt64 = 0
+    private(set) var latestClientFrameAgeMs: Double = 0
+    private(set) var latestClientRenderGapMs: Double = 0
+    private(set) var latestClientBacklogFrames: Int = 0
+    private(set) var latestClientBacklogBytes: Int = 0
+    private var lastMode: OwnedMediaCadenceMode = .normal
+
+    mutating func noteAck(
+        frameId: UInt64,
+        renderGapMs: Double?,
+        frameAgeMs: Double?,
+        clientBacklogFrames: Int?,
+        clientBacklogBytes: Int?,
+        config: OwnedMediaBackpressureConfig
+    ) -> Bool {
+        latestAckedFrameId = max(latestAckedFrameId, frameId)
+        latestClientRenderGapMs = max(0, renderGapMs ?? 0)
+        latestClientFrameAgeMs = max(0, frameAgeMs ?? 0)
+        latestClientBacklogFrames = max(0, clientBacklogFrames ?? 0)
+        latestClientBacklogBytes = max(0, clientBacklogBytes ?? 0)
+
+        let newMode = mode(config: config)
+        defer { lastMode = newMode }
+        return newMode == .severe && lastMode != .severe
+    }
+
+    func mode(config: OwnedMediaBackpressureConfig) -> OwnedMediaCadenceMode {
+        guard latestAckedFrameId > 0 else { return .normal }
+        if latestClientFrameAgeMs > config.severeFrameAgeMs {
+            return .severe
+        }
+        if latestClientFrameAgeMs > config.frameAgeMs || latestClientBacklogFrames > 0 {
+            return .behind
+        }
+        return .normal
+    }
+
+    func encodeIntervalMs(config: OwnedMediaBackpressureConfig) -> Int {
+        switch mode(config: config) {
+        case .normal:
+            return config.normalEncodeIntervalMs
+        case .behind:
+            return max(config.behindEncodeIntervalMs, config.normalEncodeIntervalMs)
+        case .severe:
+            return max(config.severeEncodeIntervalMs, config.behindEncodeIntervalMs)
+        }
     }
 }
 

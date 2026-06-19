@@ -273,7 +273,11 @@ private func ownedMediaStderrTrace(_ message: String) {
 private extension OwnedMediaVideoSink {
     static func formatOptionalMilliseconds(_ ns: UInt64?) -> String {
         guard let ns else { return "nil" }
-        return String(format: "%.1f", Double(ns) / 1_000_000.0)
+        return formatDouble(Double(ns) / 1_000_000.0)
+    }
+
+    static func formatDouble(_ value: Double) -> String {
+        String(format: "%.1f", value)
     }
 }
 

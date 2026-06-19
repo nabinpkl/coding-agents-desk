@@ -315,7 +315,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
     private static func formatOptionalDouble(_ value: Double?) -> String {
         guard let value else { return "nil" }
-        return String(format: "%.1f", value)
+        return formatDouble(value)
+    }
+
+    private static func formatDouble(_ value: Double) -> String {
+        String(format: "%.1f", value)
     }
 
     private func receiveReady(sessionId: String, on connection: NWConnection) async throws -> MediaChannelReady {

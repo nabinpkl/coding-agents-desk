@@ -116,6 +116,14 @@ MediaChannelHello { deviceFingerprint, sessionId, mediaCapability, clientNonce }
 MediaChannelReady { sessionId, serverNonce }                                      // t: "media-ready"
 OwnedMediaControlMessage { kind: "keyframe-request", frameId }                    // t: "owned-media-control"
 OwnedMediaControlMessage { kind: "packet-resend-request", frameId, packetIndexes } // compact key px
+OwnedMediaControlMessage { kind: "frame-ack", frameId, totalFramesDecoded,
+                           renderGapMs, clientBacklogFrames,
+                           clientBacklogBytes }                                  // compact keys td, rg, qf, qb
+
+The host derives `frameAgeMs` for admission by matching `frame-ack.frameId` to
+its sent-frame table and comparing the original capture timestamp with host
+uptime when the ACK arrives. The iPhone does not send this value because host
+and device monotonic clocks are not comparable.
 
 ADMD packet =
   "ADMD" || version=2 || kind=3 || flags: UInt8 ||
@@ -157,6 +165,8 @@ DesktopStatePush   { state: DesktopState }                            // t: "des
 
 - Packet repair is first resort. The client sends one missing-index request per frame repair window.
 - The host resend ring keeps exact authenticated datagrams and resends only requested indexes still in the ring.
+- Capture freshness is enforced before VideoToolbox. The host keeps one latest raw capture frame, coalesces stale pending captures while transport is busy or the client is behind, and only encodes frames it intends to send.
+- Once a frame is encoded, the host sends the whole frame. Backpressure adjusts encode cadence and datagram pacing; it does not drop encoded delta frames.
 - A frame repaired before the deadline renders in order.
 - An expired delta frame is skipped as stale output.
 - An expired keyframe, decoder failure, malformed packet, or authentication failure requests keyframe recovery.

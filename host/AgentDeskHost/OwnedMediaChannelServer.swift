@@ -32,9 +32,13 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         backpressureBurstPacketCount: Int = Config.ownedMediaBackpressureBurstPacketCount,
         backpressureBurstPauseUs: Int = Config.ownedMediaBackpressureBurstPauseUs,
         backpressureConfig: OwnedMediaBackpressureConfig = OwnedMediaBackpressureConfig(
-            renderGapMs: Config.ownedMediaBackpressureRenderGapMs,
+            frameAgeMs: Config.ownedMediaBackpressureFrameAgeMs,
+            severeFrameAgeMs: Config.ownedMediaBackpressureSevereFrameAgeMs,
             maxInflightFrames: Config.ownedMediaBackpressureMaxInflightFrames,
-            maxInflightBytes: Config.ownedMediaBackpressureMaxInflightBytes
+            maxInflightBytes: Config.ownedMediaBackpressureMaxInflightBytes,
+            expectedFrameRate: Config.ownedMediaExpectedFrameRate,
+            behindEncodeIntervalMs: Config.ownedMediaBackpressureEncodeIntervalMs,
+            severeEncodeIntervalMs: Config.ownedMediaBackpressureSevereEncodeIntervalMs
         ),
         resendRingFrames: Int = Config.ownedMediaResendRingFrames,
         maxResendPackets: Int = Config.ownedMediaMaxResendPackets
@@ -68,14 +72,8 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         }
         let frameId = envelope.header.frameId
         let isKeyframe = envelope.header.isKeyframe
-        noteEnqueued(frameId: frameId, isKeyframe: isKeyframe)
         await sendGate.wait()
         do {
-            guard shouldContinueSending(frameId: frameId, isKeyframe: isKeyframe) else {
-                logBackpressureDrop(frameId: frameId, isKeyframe: isKeyframe)
-                await sendGate.signal()
-                return
-            }
             let data = try envelope.encode()
             let packets = try MediaDatagramFramePacket.packetize(
                 frameId: frameId,
@@ -91,9 +89,7 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                 logger.notice("owned media quic send frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) burst=\(pacing.pacing.burstPacketCount, privacy: .public) pauseUs=\(pacing.pacing.burstPauseUs, privacy: .public) backpressure=\(pacing.isBackpressured, privacy: .public)")
             }
             for (index, packet) in packets.enumerated() {
-                guard shouldContinueSending(frameId: frameId, isKeyframe: isKeyframe),
-                      !isClosed else {
-                    logBackpressureDrop(frameId: frameId, isKeyframe: isKeyframe)
+                guard !isClosed else {
                     await sendGate.signal()
                     return
                 }
@@ -105,7 +101,11 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                     try await Task.sleep(nanoseconds: UInt64(pacing.pacing.burstPauseUs) * 1_000)
                 }
             }
-            let ordinal = noteSentFrame(frameId: frameId, bytes: data.count)
+            let ordinal = noteSentFrame(
+                frameId: frameId,
+                bytes: data.count,
+                capturedAtUptimeNs: envelope.header.capturedAtUptimeNs
+            )
             if shouldLogFrame || ordinal == 1 || ordinal.isMultiple(of: 120) {
                 logger.notice("owned media quic sent frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) packets=\(packets.count, privacy: .public)")
             }
@@ -125,26 +125,14 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         stateQueue.sync { closed }
     }
 
-    private func noteEnqueued(frameId: UInt64, isKeyframe: Bool) {
-        stateQueue.sync {
-            freshness.noteEnqueued(frameId: frameId, isKeyframe: isKeyframe)
-        }
-    }
-
-    private func shouldContinueSending(frameId: UInt64, isKeyframe: Bool) -> Bool {
-        stateQueue.sync {
-            freshness.shouldSend(
-                frameId: frameId,
-                isKeyframe: isKeyframe,
-                backpressure: backpressureConfig
-            )
-        }
-    }
-
-    private func noteSentFrame(frameId: UInt64, bytes: Int) -> UInt64 {
+    private func noteSentFrame(frameId: UInt64, bytes: Int, capturedAtUptimeNs: UInt64) -> UInt64 {
         stateQueue.sync {
             sentFrameCount &+= 1
-            freshness.noteSent(frameId: frameId, bytes: bytes)
+            freshness.noteSent(
+                frameId: frameId,
+                bytes: bytes,
+                capturedAtUptimeNs: capturedAtUptimeNs
+            )
             return sentFrameCount
         }
     }
@@ -165,20 +153,6 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
             )
             return (pacing, isBackpressured)
         }
-    }
-
-    private func logBackpressureDrop(frameId: UInt64, isKeyframe: Bool) {
-        let snapshot = stateQueue.sync {
-            (
-                inflightFrames: freshness.inFlightFrames.count,
-                inflightBytes: freshness.inFlightFrames.values.reduce(0, +),
-                renderGapMs: freshness.latestClientRenderGapMs,
-                backlogFrames: freshness.latestClientBacklogFrames,
-                backlogBytes: freshness.latestClientBacklogBytes,
-                acked: freshness.latestAckedFrameId
-            )
-        }
-        logger.notice("owned media quic drop frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) ack=\(snapshot.acked, privacy: .public) inflightFrames=\(snapshot.inflightFrames, privacy: .public) inflightBytes=\(snapshot.inflightBytes, privacy: .public) renderGapMs=\(snapshot.renderGapMs, privacy: .public) backlogFrames=\(snapshot.backlogFrames, privacy: .public) backlogBytes=\(snapshot.backlogBytes, privacy: .public)")
     }
 
     private func rememberFrame(frameId: UInt64, packets: [Data]) {
@@ -240,22 +214,26 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         case .packetResendRequest:
             resendRequestedPackets(message)
         case .frameAck:
-            noteFrameAck(message)
+            let enrichedMessage = noteFrameAck(message)
+            onControlMessage(enrichedMessage)
         }
     }
 
-    private func noteFrameAck(_ message: OwnedMediaControlMessage) {
+    private func noteFrameAck(_ message: OwnedMediaControlMessage) -> OwnedMediaControlMessage {
+        var computedFrameAgeMs: Double?
         let snapshot = stateQueue.sync {
-            freshness.noteAck(
+            computedFrameAgeMs = freshness.noteAck(
                 frameId: message.frameId,
                 renderGapMs: message.renderGapMs,
                 clientBacklogFrames: message.clientBacklogFrames,
-                clientBacklogBytes: message.clientBacklogBytes
+                clientBacklogBytes: message.clientBacklogBytes,
+                nowUptimeNs: DispatchTime.now().uptimeNanoseconds
             )
             return (
                 inflightFrames: freshness.inFlightFrames.count,
-                inflightBytes: freshness.inFlightFrames.values.reduce(0, +),
+                inflightBytes: freshness.inFlightBytes,
                 renderGapMs: freshness.latestClientRenderGapMs,
+                frameAgeMs: freshness.latestClientFrameAgeMs,
                 backlogFrames: freshness.latestClientBacklogFrames,
                 backlogBytes: freshness.latestClientBacklogBytes,
                 isBackpressured: freshness.isClientBehind(backpressure: backpressureConfig)
@@ -272,7 +250,17 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                 burstPauseUs: backpressureBurstPauseUs
             )
         )
-        logger.notice("owned media quic frame-ack frame=\(message.frameId, privacy: .public) total=\(message.totalFramesDecoded ?? 0, privacy: .public) renderGapMs=\(message.renderGapMs ?? 0, privacy: .public) backlogFrames=\(message.clientBacklogFrames ?? 0, privacy: .public) backlogBytes=\(message.clientBacklogBytes ?? 0, privacy: .public) inflightFrames=\(snapshot.inflightFrames, privacy: .public) inflightBytes=\(snapshot.inflightBytes, privacy: .public) backpressure=\(snapshot.isBackpressured, privacy: .public) pacingBurst=\(pacing.burstPacketCount, privacy: .public) pacingPauseUs=\(pacing.burstPauseUs, privacy: .public)")
+        logger.notice("owned media quic frame-ack frame=\(message.frameId, privacy: .public) total=\(message.totalFramesDecoded ?? 0, privacy: .public) renderGapMs=\(message.renderGapMs ?? 0, privacy: .public) frameAgeMs=\(computedFrameAgeMs ?? snapshot.frameAgeMs, privacy: .public) backlogFrames=\(message.clientBacklogFrames ?? 0, privacy: .public) backlogBytes=\(message.clientBacklogBytes ?? 0, privacy: .public) inflightFrames=\(snapshot.inflightFrames, privacy: .public) inflightBytes=\(snapshot.inflightBytes, privacy: .public) backpressure=\(snapshot.isBackpressured, privacy: .public) pacingBurst=\(pacing.burstPacketCount, privacy: .public) pacingPauseUs=\(pacing.burstPauseUs, privacy: .public)")
+        return OwnedMediaControlMessage(
+            kind: message.kind,
+            frameId: message.frameId,
+            packetIndexes: message.packetIndexes,
+            totalFramesDecoded: message.totalFramesDecoded,
+            renderGapMs: message.renderGapMs,
+            frameAgeMs: computedFrameAgeMs,
+            clientBacklogFrames: message.clientBacklogFrames,
+            clientBacklogBytes: message.clientBacklogBytes
+        )
     }
 
     private func resendRequestedPackets(_ message: OwnedMediaControlMessage) {

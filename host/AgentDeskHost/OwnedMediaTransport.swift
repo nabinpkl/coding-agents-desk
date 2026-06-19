@@ -72,6 +72,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var channel: (any OwnedMediaChannelServing)?
     private var videoSource: VideoFrameSource?
     private var encoder: VideoToolboxOwnedMediaEncoder?
+    private var frameMailbox: LatestCapturedFrameMailbox?
+    private var encodePumpTask: Task<Void, Never>?
+    private var admission = OwnedMediaEncodeAdmission()
+    private var forceKeyframeFromAdmission = false
     private var started = false
 
     init(
@@ -105,7 +109,13 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         self.videoSource = nil
         let encoder = self.encoder
         self.encoder = nil
+        let mailbox = self.frameMailbox
+        self.frameMailbox = nil
+        let pumpTask = self.encodePumpTask
+        self.encodePumpTask = nil
         lock.unlock()
+        pumpTask?.cancel()
+        mailbox?.finish()
         source?.stop()
         encoder?.invalidate()
         listener?.cancel()
@@ -248,25 +258,73 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         guard let (channel, source) = claimStartIfReady() else { return }
         let encoder = VideoToolboxOwnedMediaEncoder(
             codec: codec,
-            configuration: configuration,
-            onEncoded: { [weak self, weak channel] envelope in
-                guard let channel else { return }
-                Task {
-                    do {
-                        try await channel.send(envelope)
-                    } catch {
-                        self?.logger.error("owned media frame send failed: \(String(describing: error), privacy: .public)")
+            configuration: configuration
+        )
+        let mailbox = LatestCapturedFrameMailbox()
+        let pumpTask = Task { [weak self, weak channel, weak encoder, mailbox] in
+            guard let self, let channel, let encoder else { return }
+            await self.runEncodePump(mailbox: mailbox, encoder: encoder, channel: channel)
+        }
+        lock.withLock {
+            self.encoder = encoder
+            self.frameMailbox = mailbox
+            self.encodePumpTask = pumpTask
+        }
+        try await source.start { [mailbox] frame in
+            mailbox.submit(frame)
+        }
+        stateContinuation.yield(.connected)
+    }
+
+    private func runEncodePump(
+        mailbox: LatestCapturedFrameMailbox,
+        encoder: VideoToolboxOwnedMediaEncoder,
+        channel: any OwnedMediaChannelServing
+    ) async {
+        var lastAdmissionNs: UInt64?
+        for await _ in mailbox.stream {
+            guard !Task.isCancelled else { return }
+            guard var frame = mailbox.takeLatest() else { continue }
+
+            let intervalNs = currentEncodeIntervalNs()
+            if let lastAdmissionNs {
+                let now = DispatchTime.now().uptimeNanoseconds
+                let elapsed = now &- lastAdmissionNs
+                if elapsed < intervalNs {
+                    try? await Task.sleep(nanoseconds: intervalNs - elapsed)
+                    if let newest = mailbox.takeLatest() {
+                        frame = newest
                     }
                 }
             }
-        )
+
+            if consumeAdmissionKeyframeRequest() {
+                encoder.requestKeyframe()
+            }
+
+            guard let envelope = await encoder.encode(frame) else { continue }
+            do {
+                try await channel.send(envelope)
+                lastAdmissionNs = DispatchTime.now().uptimeNanoseconds
+            } catch {
+                logger.error("owned media frame send failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    private func currentEncodeIntervalNs() -> UInt64 {
+        let intervalMs = lock.withLock {
+            admission.encodeIntervalMs(config: makeBackpressureConfig())
+        }
+        return UInt64(intervalMs) * 1_000_000
+    }
+
+    private func consumeAdmissionKeyframeRequest() -> Bool {
         lock.withLock {
-            self.encoder = encoder
+            guard forceKeyframeFromAdmission else { return false }
+            forceKeyframeFromAdmission = false
+            return true
         }
-        try await source.start { [weak encoder] frame in
-            encoder?.encode(frame)
-        }
-        stateContinuation.yield(.connected)
     }
 
     private func claimStartIfReady() -> ((any OwnedMediaChannelServing), VideoFrameSource)? {
@@ -287,9 +345,42 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         case .keyframeRequest:
             logger.notice("owned media keyframe requested after client frame=\(message.frameId, privacy: .public)")
             requestKeyframe()
-        case .packetResendRequest, .frameAck:
+        case .frameAck:
+            noteFrameAck(message)
+        case .packetResendRequest:
             break
         }
+    }
+
+    private func noteFrameAck(_ message: OwnedMediaControlMessage) {
+        let shouldForceKeyframe = lock.withLock {
+            admission.noteAck(
+                frameId: message.frameId,
+                renderGapMs: message.renderGapMs,
+                frameAgeMs: message.frameAgeMs,
+                clientBacklogFrames: message.clientBacklogFrames,
+                clientBacklogBytes: message.clientBacklogBytes,
+                config: makeBackpressureConfig()
+            )
+        }
+        if shouldForceKeyframe {
+            lock.withLock {
+                forceKeyframeFromAdmission = true
+            }
+            logger.notice("owned media admission severe frameAgeMs=\(message.frameAgeMs ?? 0, privacy: .public) afterAck=\(message.frameId, privacy: .public) forceNextKeyframe=true")
+        }
+    }
+
+    private func makeBackpressureConfig() -> OwnedMediaBackpressureConfig {
+        OwnedMediaBackpressureConfig(
+            frameAgeMs: Config.ownedMediaBackpressureFrameAgeMs,
+            severeFrameAgeMs: Config.ownedMediaBackpressureSevereFrameAgeMs,
+            maxInflightFrames: Config.ownedMediaBackpressureMaxInflightFrames,
+            maxInflightBytes: Config.ownedMediaBackpressureMaxInflightBytes,
+            expectedFrameRate: configuration.expectedFrameRate,
+            behindEncodeIntervalMs: Config.ownedMediaBackpressureEncodeIntervalMs,
+            severeEncodeIntervalMs: Config.ownedMediaBackpressureSevereEncodeIntervalMs
+        )
     }
 
     private func requestKeyframe() {
@@ -301,60 +392,107 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
 }
 
+final class LatestCapturedFrameMailbox: @unchecked Sendable {
+    let stream: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+    private let lock = NSLock()
+    private var latestFrame: CapturedVideoFrame?
+
+    init() {
+        var continuation: AsyncStream<Void>.Continuation!
+        stream = AsyncStream(bufferingPolicy: .bufferingNewest(1)) { createdContinuation in
+            continuation = createdContinuation
+        }
+        self.continuation = continuation
+    }
+
+    func submit(_ frame: CapturedVideoFrame) {
+        lock.withLock {
+            latestFrame = frame
+        }
+        continuation.yield(())
+    }
+
+    func takeLatest() -> CapturedVideoFrame? {
+        lock.withLock {
+            let frame = latestFrame
+            latestFrame = nil
+            return frame
+        }
+    }
+
+    func finish() {
+        continuation.finish()
+    }
+}
+
 final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
+    private struct PendingEncodedFrame {
+        let capturedAtUptimeNs: UInt64
+        let completion: @Sendable (OwnedMediaFrameEnvelope?) -> Void
+    }
+
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
     private let codec: OwnedMediaCodec
     private let targetBitrateKbps: Int
     private let expectedFrameRate: Int
     private let configuration: OwnedMediaEncodingConfiguration
-    private let onEncoded: @Sendable (OwnedMediaFrameEnvelope) -> Void
     private let lock = NSLock()
     private var session: VTCompressionSession?
     private var size: (width: Int, height: Int)?
     private var frameId: UInt64 = 0
     private var forceNextKeyframe = false
     private var loggedFirstEncodedFrame = false
+    private var pendingFrames: [UInt64: PendingEncodedFrame] = [:]
 
     init(
         codec: OwnedMediaCodec,
-        configuration: OwnedMediaEncodingConfiguration = .default,
-        onEncoded: @escaping @Sendable (OwnedMediaFrameEnvelope) -> Void
+        configuration: OwnedMediaEncodingConfiguration = .default
     ) {
         self.codec = codec
         self.targetBitrateKbps = configuration.targetBitrateKbps
         self.expectedFrameRate = configuration.expectedFrameRate
         self.configuration = configuration
-        self.onEncoded = onEncoded
     }
 
-    func encode(_ frame: CapturedVideoFrame) {
+    func encode(_ frame: CapturedVideoFrame) async -> OwnedMediaFrameEnvelope? {
+        await withCheckedContinuation { continuation in
+            encode(frame) { envelope in
+                continuation.resume(returning: envelope)
+            }
+        }
+    }
+
+    private func encode(
+        _ frame: CapturedVideoFrame,
+        completion: @escaping @Sendable (OwnedMediaFrameEnvelope?) -> Void
+    ) {
         lock.lock()
-        defer { lock.unlock() }
+        let sessionToEncode: VTCompressionSession
+        let encodedFrameId: UInt64
+        let frameProperties: CFDictionary?
         do {
             try ensureSession(for: frame.pixelBuffer)
-            guard let session else { return }
+            guard let session else {
+                lock.unlock()
+                completion(nil)
+                return
+            }
+            sessionToEncode = session
             frameId &+= 1
+            encodedFrameId = frameId
             let requestedKeyframe = forceNextKeyframe
             forceNextKeyframe = false
-            let forceKeyframe = requestedKeyframe || frameId == 1 || frameId.isMultiple(of: UInt64(configuration.keyframeIntervalFrames))
-            let pts = CMTime(value: frame.presentationTimeNs, timescale: 1_000_000_000)
-            let frameProperties = forceKeyframe
+            let forceKeyframe = requestedKeyframe || encodedFrameId == 1 || encodedFrameId.isMultiple(of: UInt64(configuration.keyframeIntervalFrames))
+            frameProperties = forceKeyframe
                 ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary
                 : nil
+            pendingFrames[encodedFrameId] = PendingEncodedFrame(
+                capturedAtUptimeNs: frame.capturedAtUptimeNs,
+                completion: completion
+            )
             if requestedKeyframe {
                 logger.notice("owned encoder forcing requested keyframe frame=\(self.frameId, privacy: .public)")
-            }
-            let status = VTCompressionSessionEncodeFrame(
-                session,
-                imageBuffer: frame.pixelBuffer,
-                presentationTimeStamp: pts,
-                duration: .invalid,
-                frameProperties: frameProperties,
-                sourceFrameRefcon: UnsafeMutableRawPointer(bitPattern: UInt(frame.capturedAtUptimeNs)),
-                infoFlagsOut: nil
-            )
-            if status != noErr {
-                throw SessionRejected(reason: .malformed)
             }
         } catch {
             if let session {
@@ -362,17 +500,41 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             }
             session = nil
             size = nil
+            lock.unlock()
+            completion(nil)
+            return
+        }
+        lock.unlock()
+
+        let pts = CMTime(value: frame.presentationTimeNs, timescale: 1_000_000_000)
+        let status = VTCompressionSessionEncodeFrame(
+            sessionToEncode,
+            imageBuffer: frame.pixelBuffer,
+            presentationTimeStamp: pts,
+            duration: .invalid,
+            frameProperties: frameProperties,
+            sourceFrameRefcon: UnsafeMutableRawPointer(bitPattern: UInt(encodedFrameId)),
+            infoFlagsOut: nil
+        )
+        if status != noErr {
+            lock.lock()
+            let pending = pendingFrames.removeValue(forKey: encodedFrameId)
+            lock.unlock()
+            pending?.completion(nil)
         }
     }
 
     func invalidate() {
         lock.lock()
-        defer { lock.unlock() }
+        let pending = pendingFrames.values
+        pendingFrames.removeAll()
         if let session {
             VTCompressionSessionInvalidate(session)
         }
         session = nil
         size = nil
+        lock.unlock()
+        pending.forEach { $0.completion(nil) }
     }
 
     func requestKeyframe() {
@@ -458,45 +620,69 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     }
 
     private static let outputCallback: VTCompressionOutputCallback = { refcon, sourceFrameRefcon, status, _, sampleBuffer in
-        guard status == noErr,
-              let refcon,
-              let sampleBuffer else {
+        guard let refcon else {
             return
         }
         let encoder = Unmanaged<VideoToolboxOwnedMediaEncoder>.fromOpaque(refcon).takeUnretainedValue()
+        guard status == noErr,
+              let sampleBuffer else {
+            encoder.handleEncodeFailed(sourceFrameRefcon: sourceFrameRefcon)
+            return
+        }
         encoder.handleEncoded(sampleBuffer: sampleBuffer, sourceFrameRefcon: sourceFrameRefcon)
+    }
+
+    private func handleEncodeFailed(sourceFrameRefcon: UnsafeMutableRawPointer?) {
+        guard let sourceFrameRefcon else { return }
+        let encodedFrameId = UInt64(UInt(bitPattern: sourceFrameRefcon))
+        let pending: PendingEncodedFrame?
+        lock.lock()
+        pending = pendingFrames.removeValue(forKey: encodedFrameId)
+        lock.unlock()
+        pending?.completion(nil)
     }
 
     private func handleEncoded(sampleBuffer: CMSampleBuffer, sourceFrameRefcon: UnsafeMutableRawPointer?) {
         guard let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer),
               let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let size else {
+              let sourceFrameRefcon else {
+            return
+        }
+        let encodedFrameId = UInt64(UInt(bitPattern: sourceFrameRefcon))
+        let pending: PendingEncodedFrame?
+        let encodedSize: (width: Int, height: Int)?
+        lock.lock()
+        pending = pendingFrames.removeValue(forKey: encodedFrameId)
+        encodedSize = size
+        lock.unlock()
+        guard let pending,
+              let encodedSize else {
             return
         }
         let payload: Data
         do {
             payload = try Self.copyData(from: dataBuffer)
         } catch {
+            pending.completion(nil)
             return
         }
         let isKeyframe = Self.isKeyframe(sampleBuffer)
         let parameterSets = isKeyframe ? Self.parameterSets(codec: codec, formatDescription: formatDescription) : nil
-        let capturedAt = UInt64(bitPattern: Int64(Int(bitPattern: sourceFrameRefcon)))
         let header = OwnedMediaFrameHeader(
-            frameId: frameId,
+            frameId: encodedFrameId,
             codec: codec,
-            width: size.width,
-            height: size.height,
-            capturedAtUptimeNs: capturedAt,
+            width: encodedSize.width,
+            height: encodedSize.height,
+            capturedAtUptimeNs: pending.capturedAtUptimeNs,
             presentationTimeNs: UInt64(CMSampleBufferGetPresentationTimeStamp(sampleBuffer).value),
             isKeyframe: isKeyframe,
             parameterSets: parameterSets
         )
         if !loggedFirstEncodedFrame {
             loggedFirstEncodedFrame = true
-            logger.notice("owned first encoded frame codec=\(self.codec.rawValue, privacy: .public) size=\(size.width, privacy: .public)x\(size.height, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(payload.count, privacy: .public)")
+            logger.notice("owned first encoded frame codec=\(self.codec.rawValue, privacy: .public) size=\(encodedSize.width, privacy: .public)x\(encodedSize.height, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(payload.count, privacy: .public)")
         }
-        onEncoded(OwnedMediaFrameEnvelope(header: header, payload: payload))
+        pending.completion(OwnedMediaFrameEnvelope(header: header, payload: payload))
     }
 
     private static func copyData(from blockBuffer: CMBlockBuffer) throws -> Data {

@@ -120,6 +120,7 @@ struct SignalingFrameRoutingTests {
         #expect(decoded.packetIndexes.isEmpty)
         #expect(decoded.totalFramesDecoded == nil)
         #expect(decoded.renderGapMs == nil)
+        #expect(decoded.frameAgeMs == nil)
         #expect(decoded.clientBacklogFrames == nil)
         #expect(decoded.clientBacklogBytes == nil)
     }
@@ -140,6 +141,7 @@ struct SignalingFrameRoutingTests {
         #expect(decoded.packetIndexes == [1, 3])
         #expect(decoded.totalFramesDecoded == nil)
         #expect(decoded.renderGapMs == nil)
+        #expect(decoded.frameAgeMs == nil)
         #expect(decoded.clientBacklogFrames == nil)
         #expect(decoded.clientBacklogBytes == nil)
     }
@@ -163,10 +165,12 @@ struct SignalingFrameRoutingTests {
         #expect(decoded.frameId == 42)
         #expect(decoded.totalFramesDecoded == 10)
         #expect(decoded.renderGapMs == 83.5)
+        #expect(decoded.frameAgeMs == nil)
         #expect(decoded.clientBacklogFrames == 1)
         #expect(decoded.clientBacklogBytes == 180_000)
         #expect(json.contains("\"td\":10"))
         #expect(json.contains("\"rg\":83.5"))
+        #expect(!json.contains("\"fa\""))
         #expect(json.contains("\"qf\":1"))
         #expect(json.contains("\"qb\":180000"))
         #expect(!json.contains("\"px\""))

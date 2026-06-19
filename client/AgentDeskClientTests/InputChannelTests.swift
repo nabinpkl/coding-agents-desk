@@ -92,6 +92,7 @@ struct InputChannelTests {
         #expect(!json.contains("\"px\""))
         #expect(!json.contains("\"td\""))
         #expect(!json.contains("\"rg\""))
+        #expect(!json.contains("\"fa\""))
         #expect(!json.contains("\"qf\""))
         #expect(!json.contains("\"qb\""))
     }
@@ -111,6 +112,7 @@ struct InputChannelTests {
         #expect(json.contains("\"px\":[1,3]"))
         #expect(!json.contains("\"td\""))
         #expect(!json.contains("\"rg\""))
+        #expect(!json.contains("\"fa\""))
         #expect(!json.contains("\"qf\""))
         #expect(!json.contains("\"qb\""))
     }
@@ -133,6 +135,7 @@ struct InputChannelTests {
         #expect(json.contains("\"id\":42"))
         #expect(json.contains("\"td\":9"))
         #expect(json.contains("\"rg\":83.5"))
+        #expect(!json.contains("\"fa\""))
         #expect(json.contains("\"qf\":1"))
         #expect(json.contains("\"qb\":180000"))
         #expect(!json.contains("\"px\""))

@@ -161,9 +161,13 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
         defaultValue: 256
     )
-    static let ownedMediaBackpressureRenderGapMs = positiveDouble(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_RENDER_GAP_MS",
+    static let ownedMediaBackpressureFrameAgeMs = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_FRAME_AGE_MS",
         defaultValue: 80
+    )
+    static let ownedMediaBackpressureSevereFrameAgeMs = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_SEVERE_FRAME_AGE_MS",
+        defaultValue: 500
     )
     static let ownedMediaBackpressureMaxInflightFrames = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_MAX_INFLIGHT_FRAMES",
@@ -180,6 +184,14 @@ enum Config {
     static let ownedMediaBackpressureBurstPauseUs = nonNegativeInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_BURST_PAUSE_US",
         defaultValue: 2_500
+    )
+    static let ownedMediaBackpressureEncodeIntervalMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_ENCODE_INTERVAL_MS",
+        defaultValue: 67
+    )
+    static let ownedMediaBackpressureSevereEncodeIntervalMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_SEVERE_ENCODE_INTERVAL_MS",
+        defaultValue: 200
     )
     static func ownedMediaMaxQP(environment: [String: String]) -> Int? {
         guard let raw = environment["AGENTDESK_OWNED_MEDIA_MAX_QP"],
