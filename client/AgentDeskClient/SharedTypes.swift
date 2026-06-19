@@ -772,6 +772,10 @@ struct OwnedMediaRenderStats: Equatable {
     let displayStatus: String
     let displayReadyBeforeEnqueue: Bool
     let requiresFlushToResumeDecoding: Bool
+    let displayStatusAfterEnqueue: String
+    let displayReadyAfterEnqueue: Bool
+    let requiresFlushAfterEnqueue: Bool
+    let displayPresentation: String
     let sampleBuildMs: Double
     let enqueueMs: Double
     let renderWorkMs: Double
@@ -796,8 +800,14 @@ struct OwnedMediaFrameTimeline: Equatable {
     let completeToAckSentMs: Double
     let displayReadyBeforeEnqueue: Bool
     let requiresFlushToResumeDecoding: Bool
+    let displayReadyAfterEnqueue: Bool
+    let requiresFlushAfterEnqueue: Bool
     let displayQueueAction: OwnedMediaDisplayQueueAction
     let displayStatus: String
+    let displayStatusAfterEnqueue: String
+    let displayPresentation: String
+    let completedNotRenderedFrames: Int
+    let completedNotRenderedBytes: Int
 
     var traceLine: String {
         [
@@ -817,8 +827,14 @@ struct OwnedMediaFrameTimeline: Equatable {
             "completeToAckMs=\(Self.format(completeToAckSentMs))",
             "ready=\(displayReadyBeforeEnqueue)",
             "requiresFlush=\(requiresFlushToResumeDecoding)",
+            "postReady=\(displayReadyAfterEnqueue)",
+            "postRequiresFlush=\(requiresFlushAfterEnqueue)",
             "action=\(displayQueueAction.rawValue)",
-            "display=\(displayStatus)"
+            "display=\(displayStatus)",
+            "postDisplay=\(displayStatusAfterEnqueue)",
+            "displayPresentation=\(displayPresentation)",
+            "completedQueueFrames=\(completedNotRenderedFrames)",
+            "completedQueueBytes=\(completedNotRenderedBytes)"
         ].joined(separator: " ")
     }
 

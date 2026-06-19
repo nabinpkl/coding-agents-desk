@@ -225,6 +225,10 @@ struct InputChannelTests {
             displayStatus: "rendering",
             displayReadyBeforeEnqueue: true,
             requiresFlushToResumeDecoding: false,
+            displayStatusAfterEnqueue: "rendering",
+            displayReadyAfterEnqueue: false,
+            requiresFlushAfterEnqueue: false,
+            displayPresentation: "estimated",
             sampleBuildMs: 1.5,
             enqueueMs: 0.25,
             renderWorkMs: 2.0,
@@ -268,8 +272,14 @@ struct InputChannelTests {
             completeToAckSentMs: 4.0,
             displayReadyBeforeEnqueue: true,
             requiresFlushToResumeDecoding: false,
+            displayReadyAfterEnqueue: false,
+            requiresFlushAfterEnqueue: false,
             displayQueueAction: .none,
-            displayStatus: "rendering"
+            displayStatus: "rendering",
+            displayStatusAfterEnqueue: "rendering",
+            displayPresentation: "estimated",
+            completedNotRenderedFrames: 2,
+            completedNotRenderedBytes: 420_000
         )
 
         #expect(timeline.traceLine.contains("timeline frame=55 key=false repaired=true"))
@@ -280,7 +290,8 @@ struct InputChannelTests {
         #expect(timeline.traceLine.contains("enqueueMs=0.2"))
         #expect(timeline.traceLine.contains("ackSendMs=0.5"))
         #expect(timeline.traceLine.contains("completeToAckMs=4.0"))
-        #expect(timeline.traceLine.contains("ready=true requiresFlush=false action=none display=rendering"))
+        #expect(timeline.traceLine.contains("ready=true requiresFlush=false postReady=false postRequiresFlush=false action=none display=rendering postDisplay=rendering displayPresentation=estimated"))
+        #expect(timeline.traceLine.contains("completedQueueFrames=2 completedQueueBytes=420000"))
     }
 
     @Test func ownedMediaEnvelopeRoundTripsHeaderAndPayload() throws {
@@ -354,6 +365,26 @@ struct InputChannelTests {
         let duplicate = buffer.accept(packet(frameId: 2, index: 1, count: 2), now: 3)
 
         #expect(duplicate.resendRequests.isEmpty)
+    }
+
+    @Test func repairBufferDebugSnapshotReportsTrackedBytesAndMissingPackets() {
+        let buffer = MediaDatagramFrameRepairBuffer(
+            repairDeadlineNs: 50,
+            trackedFrameLimit: 8,
+            maxResendPackets: 256
+        )
+
+        _ = buffer.accept(packet(frameId: 1, index: 0, count: 3, payload: [0x10, 0x11]), now: 1)
+        _ = buffer.accept(packet(frameId: 2, index: 0, count: 2, payload: [0x20]), now: 2)
+        let snapshot = buffer.debugSnapshot
+
+        #expect(snapshot.trackedFrameCount == 2)
+        #expect(snapshot.trackedBytes == 3)
+        #expect(snapshot.newestFrameId == 2)
+        #expect(snapshot.deliveredFrameId == 0)
+        #expect(snapshot.missingPacketTotal == 3)
+        #expect(snapshot.traceFields.contains("trackedFrames=2"))
+        #expect(snapshot.traceFields.contains("missingPackets=3"))
     }
 
     @Test func repairBufferCompletesFrameAfterResendBeforeDeadline() {

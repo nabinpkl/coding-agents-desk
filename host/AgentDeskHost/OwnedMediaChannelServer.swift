@@ -70,7 +70,7 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         receiveControlMessage()
     }
 
-    func send(_ envelope: OwnedMediaFrameEnvelope) async throws {
+    func send(_ envelope: OwnedMediaFrameEnvelope) async throws -> OwnedMediaSendStats {
         guard !isClosed else {
             throw SessionRejected(reason: .unauthorized)
         }
@@ -88,23 +88,33 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
             )
             rememberFrame(frameId: frameId, packets: packets)
             let pacing = currentPacing()
+            let sendStartNs = DispatchTime.now().uptimeNanoseconds
+            var lastPacketSentNs: UInt64?
+            var maxInterPacketGapNs: UInt64 = 0
+            var burstPauseCount = 0
             let shouldLogFrame = isKeyframe || frameId == 1 || frameId.isMultiple(of: 120)
             if shouldLogFrame {
                 logger.notice("owned media quic send frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) burst=\(pacing.pacing.burstPacketCount, privacy: .public) pauseUs=\(pacing.pacing.burstPauseUs, privacy: .public) backpressure=\(pacing.isBackpressured, privacy: .public)")
             }
             for (index, packet) in packets.enumerated() {
                 guard !isClosed else {
-                    await sendGate.signal()
-                    return
+                    throw SessionRejected(reason: .unauthorized)
                 }
                 try await sendDatagram(packet)
+                let packetSentNs = DispatchTime.now().uptimeNanoseconds
+                if let lastPacketSentNs, packetSentNs >= lastPacketSentNs {
+                    maxInterPacketGapNs = max(maxInterPacketGapNs, packetSentNs - lastPacketSentNs)
+                }
+                lastPacketSentNs = packetSentNs
                 if pacing.pacing.burstPauseUs > 0,
                    pacing.pacing.burstPacketCount > 0,
                    index + 1 < packets.count,
                    (index + 1).isMultiple(of: pacing.pacing.burstPacketCount) {
+                    burstPauseCount += 1
                     try await Task.sleep(nanoseconds: UInt64(pacing.pacing.burstPauseUs) * 1_000)
                 }
             }
+            let sendEndNs = DispatchTime.now().uptimeNanoseconds
             let ordinal = noteSentFrame(
                 frameId: frameId,
                 bytes: data.count,
@@ -114,6 +124,18 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                 logger.notice("owned media quic sent frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) packets=\(packets.count, privacy: .public)")
             }
             await sendGate.signal()
+            return OwnedMediaSendStats(
+                frameId: frameId,
+                encodedBytes: data.count,
+                packetCount: packets.count,
+                sendStartUptimeNs: sendStartNs,
+                sendEndUptimeNs: sendEndNs,
+                burstPauseCount: burstPauseCount,
+                maxInterPacketGapMs: Double(maxInterPacketGapNs) / 1_000_000.0,
+                pacingBurstPacketCount: pacing.pacing.burstPacketCount,
+                pacingBurstPauseUs: pacing.pacing.burstPauseUs,
+                isBackpressured: pacing.isBackpressured
+            )
         } catch {
             await sendGate.signal()
             throw error

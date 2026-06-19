@@ -66,6 +66,10 @@ final class MediaDatagramFrameRepairBuffer {
             )
         }
 
+        var receivedBytes: Int {
+            packets.values.reduce(0) { $0 + $1.count }
+        }
+
         func completedFrame(now: UInt64) -> MediaDatagramCompletedFrame? {
             guard isComplete else { return nil }
             var frame = Data()
@@ -104,6 +108,16 @@ final class MediaDatagramFrameRepairBuffer {
         self.repairDeadlineNs = repairDeadlineNs
         self.trackedFrameLimit = max(1, trackedFrameLimit)
         self.maxResendPackets = max(1, maxResendPackets)
+    }
+
+    var debugSnapshot: MediaDatagramRepairDebugSnapshot {
+        MediaDatagramRepairDebugSnapshot(
+            trackedFrameCount: frames.count,
+            trackedBytes: frames.values.reduce(0) { $0 + $1.receivedBytes },
+            newestFrameId: newestFrameId,
+            deliveredFrameId: deliveredFrameId,
+            missingPacketTotal: frames.values.reduce(0) { $0 + $1.missingIndexes.count }
+        )
     }
 
     func accept(
@@ -236,6 +250,18 @@ final class MediaDatagramFrameRepairBuffer {
             skippedStaleFrames: [],
             repairedFrameCount: 0
         )
+    }
+}
+
+struct MediaDatagramRepairDebugSnapshot: Equatable {
+    let trackedFrameCount: Int
+    let trackedBytes: Int
+    let newestFrameId: UInt64
+    let deliveredFrameId: UInt64
+    let missingPacketTotal: Int
+
+    var traceFields: String {
+        "trackedFrames=\(trackedFrameCount) trackedBytes=\(trackedBytes) newest=\(newestFrameId) delivered=\(deliveredFrameId) missingPackets=\(missingPacketTotal)"
     }
 }
 

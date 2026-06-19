@@ -86,6 +86,9 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             let enqueueStartNs = DispatchTime.now().uptimeNanoseconds
             displayLayer.enqueue(sampleBuffer)
             let enqueueEndNs = DispatchTime.now().uptimeNanoseconds
+            let postEnqueueStatus = Self.displayStatus(displayLayer)
+            let readyAfterEnqueue = displayLayer.isReadyForMoreMediaData
+            let requiresFlushAfterEnqueue = displayLayer.requiresFlushToResumeDecoding
             renderCount += 1
             let renderEndNs = DispatchTime.now().uptimeNanoseconds
             lastRenderUptimeNs = renderEndNs
@@ -101,7 +104,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 from: renderStartNs,
                 to: renderEndNs
             )
-            let status = Self.displayStatus(displayLayer)
+            let status = preEnqueueStatus
             let backlog = OwnedMediaRenderBacklog.estimate(
                 renderGapMs: renderGapMs,
                 payloadBytes: envelope.payload.count
@@ -111,10 +114,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 envelope.header.isKeyframe ||
                 displayQueueAction == .flushAndRemoveImage ||
                 renderWorkMs > 8 {
-                ownedMediaStderrTrace("render count=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) renderGapMs=\(Self.formatOptionalMilliseconds(renderGapNs)) sampleMs=\(Self.formatDouble(sampleBuildMs)) enqueueMs=\(Self.formatDouble(enqueueMs)) workMs=\(Self.formatDouble(renderWorkMs)) ready=\(readyBeforeEnqueue) requiresFlush=\(requiresFlushToResumeDecoding) action=\(displayQueueAction.rawValue) backlogFrames=\(backlog.frames) backlogBytes=\(backlog.bytes) bytes=\(envelope.payload.count) display=\(status)")
+                ownedMediaStderrTrace("render count=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) renderGapMs=\(Self.formatOptionalMilliseconds(renderGapNs)) sampleMs=\(Self.formatDouble(sampleBuildMs)) enqueueMs=\(Self.formatDouble(enqueueMs)) workMs=\(Self.formatDouble(renderWorkMs)) ready=\(readyBeforeEnqueue) requiresFlush=\(requiresFlushToResumeDecoding) postReady=\(readyAfterEnqueue) postRequiresFlush=\(requiresFlushAfterEnqueue) action=\(displayQueueAction.rawValue) backlogFrames=\(backlog.frames) backlogBytes=\(backlog.bytes) bytes=\(envelope.payload.count) display=\(status) postDisplay=\(postEnqueueStatus) displayPresentation=estimated")
             }
             setOwnedMediaDebugStatus(
-                "rendered=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(status) action=\(displayQueueAction.rawValue)"
+                "rendered=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(postEnqueueStatus) action=\(displayQueueAction.rawValue)"
             )
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 150_000_000)
@@ -139,6 +142,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 displayStatus: status,
                 displayReadyBeforeEnqueue: readyBeforeEnqueue,
                 requiresFlushToResumeDecoding: requiresFlushToResumeDecoding,
+                displayStatusAfterEnqueue: postEnqueueStatus,
+                displayReadyAfterEnqueue: readyAfterEnqueue,
+                requiresFlushAfterEnqueue: requiresFlushAfterEnqueue,
+                displayPresentation: "estimated",
                 sampleBuildMs: sampleBuildMs,
                 enqueueMs: enqueueMs,
                 renderWorkMs: renderWorkMs,

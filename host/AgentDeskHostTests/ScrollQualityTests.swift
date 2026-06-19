@@ -372,6 +372,80 @@ struct ScrollQualityTests {
         ) == backpressure)
     }
 
+    @Test func ownedMediaDiagnosticsFpsWindowCountsOneSecondSamples() {
+        var window = OwnedMediaDiagnosticsFpsWindow(windowStartedAtUptimeNs: 1_000_000_000)
+        window.incrementCaptured()
+        window.incrementCaptured()
+        window.incrementAdmitted()
+        window.incrementEncoded()
+        window.incrementSent()
+        window.incrementAcked()
+
+        let early = window.flushIfDue(nowUptimeNs: 1_999_000_000)
+        let sample = window.flushIfDue(nowUptimeNs: 2_000_000_000)
+
+        #expect(early == nil)
+        #expect(sample?.captured == 2)
+        #expect(sample?.admitted == 1)
+        #expect(sample?.encoded == 1)
+        #expect(sample?.sent == 1)
+        #expect(sample?.acked == 1)
+        #expect(sample?.fps(2) == 2)
+    }
+
+    @Test func ownedMediaSendStatsReportsDurationAndPacing() {
+        let stats = OwnedMediaSendStats(
+            frameId: 7,
+            encodedBytes: 210_000,
+            packetCount: 200,
+            sendStartUptimeNs: 1_000_000_000,
+            sendEndUptimeNs: 1_025_000_000,
+            burstPauseCount: 12,
+            maxInterPacketGapMs: 2.5,
+            pacingBurstPacketCount: 16,
+            pacingBurstPauseUs: 2_500,
+            isBackpressured: true
+        )
+
+        #expect(stats.sendDurationMs == 25)
+        #expect(stats.packetCount == 200)
+        #expect(stats.burstPauseCount == 12)
+        #expect(stats.isBackpressured)
+    }
+
+    @Test func ownedMediaAdmissionAnnotatesKeyframeReason() {
+        var admission = OwnedMediaEncodeAdmission()
+        let backpressure = Self.backpressureConfig()
+
+        admission.noteKeyframeRequested()
+        let clientRequest = admission.decision(
+            nowUptimeNs: 1_000_000_000,
+            config: backpressure
+        )
+
+        #expect(clientRequest.shouldEncode)
+        #expect(clientRequest.forceKeyframe)
+        #expect(clientRequest.keyframeReason == .clientRequest)
+
+        _ = admission.noteAck(
+            frameId: 10,
+            renderGapMs: 10,
+            frameAgeMs: 600,
+            clientBacklogFrames: 0,
+            clientBacklogBytes: 0,
+            nowUptimeNs: 2_000_000_000,
+            config: backpressure
+        )
+        let postDrain = admission.decision(
+            nowUptimeNs: 2_800_000_000,
+            config: backpressure
+        )
+
+        #expect(postDrain.shouldEncode)
+        #expect(postDrain.forceKeyframe)
+        #expect(postDrain.keyframeReason == .postDrainRecovery)
+    }
+
     @Test func ownedMediaResendRingReturnsExactStoredDatagrams() {
         var ring = OwnedMediaResendRing(capacityFrames: 8)
         let packet0 = Data([0x41, 0x44, 0x4d, 0x44, 0x00])

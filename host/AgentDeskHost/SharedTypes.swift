@@ -884,12 +884,20 @@ enum OwnedMediaCadenceMode: Equatable {
     case draining
 }
 
+enum OwnedMediaKeyframeReason: String, Equatable, Sendable {
+    case initial
+    case periodic
+    case clientRequest = "client-request"
+    case postDrainRecovery = "post-drain-recovery"
+}
+
 struct OwnedMediaAdmissionDecision: Equatable {
     let shouldEncode: Bool
     let forceKeyframe: Bool
     let allowPeriodicKeyframe: Bool
     let mode: OwnedMediaCadenceMode
     let holdReason: String?
+    let keyframeReason: OwnedMediaKeyframeReason?
 }
 
 struct OwnedMediaAdmissionAckEvents: Equatable {
@@ -988,7 +996,8 @@ struct OwnedMediaEncodeAdmission: Equatable {
                     forceKeyframe: false,
                     allowPeriodicKeyframe: false,
                     mode: mode,
-                    holdReason: keyframeInFlightFrameId == nil ? "keyframe-cooldown" : "keyframe-inflight"
+                    holdReason: keyframeInFlightFrameId == nil ? "keyframe-cooldown" : "keyframe-inflight",
+                    keyframeReason: nil
                 )
             }
             if unacknowledgedFrameCount >= config.normalMaxUnackedFrames {
@@ -997,7 +1006,8 @@ struct OwnedMediaEncodeAdmission: Equatable {
                     forceKeyframe: false,
                     allowPeriodicKeyframe: false,
                     mode: mode,
-                    holdReason: "unacked-normal"
+                    holdReason: "unacked-normal",
+                    keyframeReason: nil
                 )
             }
             return OwnedMediaAdmissionDecision(
@@ -1005,7 +1015,8 @@ struct OwnedMediaEncodeAdmission: Equatable {
                 forceKeyframe: forceKeyframe,
                 allowPeriodicKeyframe: allowPeriodic,
                 mode: mode,
-                holdReason: nil
+                holdReason: nil,
+                keyframeReason: forceKeyframe ? .clientRequest : nil
             )
         case .behind:
             if unacknowledgedFrameCount >= config.behindMaxUnackedFrames {
@@ -1014,7 +1025,8 @@ struct OwnedMediaEncodeAdmission: Equatable {
                     forceKeyframe: false,
                     allowPeriodicKeyframe: false,
                     mode: mode,
-                    holdReason: "unacked-behind"
+                    holdReason: "unacked-behind",
+                    keyframeReason: nil
                 )
             }
             if pendingKeyframeRequest && !forceKeyframe {
@@ -1023,7 +1035,8 @@ struct OwnedMediaEncodeAdmission: Equatable {
                     forceKeyframe: false,
                     allowPeriodicKeyframe: false,
                     mode: mode,
-                    holdReason: keyframeInFlightFrameId == nil ? "keyframe-cooldown" : "keyframe-inflight"
+                    holdReason: keyframeInFlightFrameId == nil ? "keyframe-cooldown" : "keyframe-inflight",
+                    keyframeReason: nil
                 )
             }
             return OwnedMediaAdmissionDecision(
@@ -1031,7 +1044,8 @@ struct OwnedMediaEncodeAdmission: Equatable {
                 forceKeyframe: forceKeyframe,
                 allowPeriodicKeyframe: allowPeriodic,
                 mode: mode,
-                holdReason: nil
+                holdReason: nil,
+                keyframeReason: forceKeyframe ? .clientRequest : nil
             )
         case .draining:
             guard drainTimedOut(nowUptimeNs: nowUptimeNs, config: config) else {
@@ -1040,7 +1054,8 @@ struct OwnedMediaEncodeAdmission: Equatable {
                     forceKeyframe: false,
                     allowPeriodicKeyframe: false,
                     mode: mode,
-                    holdReason: "draining"
+                    holdReason: "draining",
+                    keyframeReason: nil
                 )
             }
             if canSendKeyframe(nowUptimeNs: nowUptimeNs, config: config) {
@@ -1050,7 +1065,8 @@ struct OwnedMediaEncodeAdmission: Equatable {
                     forceKeyframe: true,
                     allowPeriodicKeyframe: false,
                     mode: mode,
-                    holdReason: nil
+                    holdReason: nil,
+                    keyframeReason: .postDrainRecovery
                 )
             }
             return OwnedMediaAdmissionDecision(
@@ -1058,7 +1074,8 @@ struct OwnedMediaEncodeAdmission: Equatable {
                 forceKeyframe: false,
                 allowPeriodicKeyframe: false,
                 mode: mode,
-                holdReason: keyframeInFlightFrameId == nil ? "drain-keyframe-cooldown" : "keyframe-inflight"
+                holdReason: keyframeInFlightFrameId == nil ? "drain-keyframe-cooldown" : "keyframe-inflight",
+                keyframeReason: nil
             )
         }
     }

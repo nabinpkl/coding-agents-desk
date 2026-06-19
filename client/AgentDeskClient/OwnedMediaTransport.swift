@@ -133,6 +133,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         var expiredFrames = 0
         var skippedStaleFrames = 0
         var keyframeFallbacks = 0
+        var lastRepairSnapshot = repairBuffer.debugSnapshot
         while !Task.isCancelled {
             do {
                 let data = try await receive(on: connection)
@@ -147,11 +148,13 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     }
                 }
                 let repair = repairBuffer.accept(packet, now: now)
+                let repairSnapshot = repairBuffer.debugSnapshot
+                lastRepairSnapshot = repairSnapshot
                 for request in repair.resendRequests {
                     resendRequests += 1
                     resendPackets += request.packetIndexes.count
                     logger.notice("owned media quic packet-resend-request frame=\(request.frameId, privacy: .public) missing=\(request.packetIndexes.count, privacy: .public)")
-                    ownedMediaStderrTrace("resend-request frame=\(request.frameId) missing=\(request.packetIndexes.count) firstSeenAgeMs=\(Self.formatMilliseconds(request.firstSeenAgeNs)) indexes=\(Self.formatPacketIndexes(request.packetIndexes)) total=\(resendRequests)/\(resendPackets)")
+                    ownedMediaStderrTrace("resend-request frame=\(request.frameId) missing=\(request.packetIndexes.count) firstSeenAgeMs=\(Self.formatMilliseconds(request.firstSeenAgeNs)) indexes=\(Self.formatPacketIndexes(request.packetIndexes)) total=\(resendRequests)/\(resendPackets) \(repairSnapshot.traceFields)")
                     try? await sendPacketResendRequest(
                         frameId: request.frameId,
                         packetIndexes: request.packetIndexes,
@@ -162,7 +165,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     expiredFrames += 1
                     keyframeFallbacks += 1
                     logger.error("owned media quic expired incomplete frame=\(droppedFrame.frameId, privacy: .public) received=\(droppedFrame.received, privacy: .public)/\(droppedFrame.expected, privacy: .public) missing=\(droppedFrame.missingIndexes.count, privacy: .public)")
-                    ownedMediaStderrTrace("expired-keyframe frame=\(droppedFrame.frameId) received=\(droppedFrame.received)/\(droppedFrame.expected) missing=\(droppedFrame.missingIndexes.count) firstSeenAgeMs=\(Self.formatMilliseconds(droppedFrame.firstSeenAgeNs)) repairAgeMs=\(Self.formatOptionalMilliseconds(droppedFrame.repairAgeNs)) indexes=\(Self.formatPacketIndexes(droppedFrame.missingIndexes)) expired=\(expiredFrames) fallback=\(keyframeFallbacks)")
+                    ownedMediaStderrTrace("expired-keyframe frame=\(droppedFrame.frameId) received=\(droppedFrame.received)/\(droppedFrame.expected) missing=\(droppedFrame.missingIndexes.count) firstSeenAgeMs=\(Self.formatMilliseconds(droppedFrame.firstSeenAgeNs)) repairAgeMs=\(Self.formatOptionalMilliseconds(droppedFrame.repairAgeNs)) indexes=\(Self.formatPacketIndexes(droppedFrame.missingIndexes)) expired=\(expiredFrames) fallback=\(keyframeFallbacks) \(repairSnapshot.traceFields)")
                     if keyframeRecovery.noteIncompleteFrame(now: now) {
                         try? await sendKeyframeRequest(afterFrameId: droppedFrame.frameId, on: connection)
                     }
@@ -172,13 +175,17 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 }
                 for skippedFrame in repair.skippedStaleFrames {
                     skippedStaleFrames += 1
-                    ownedMediaStderrTrace("skip-stale-delta frame=\(skippedFrame.frameId) received=\(skippedFrame.received)/\(skippedFrame.expected) missing=\(skippedFrame.missingIndexes.count) firstSeenAgeMs=\(Self.formatMilliseconds(skippedFrame.firstSeenAgeNs)) repairAgeMs=\(Self.formatOptionalMilliseconds(skippedFrame.repairAgeNs)) indexes=\(Self.formatPacketIndexes(skippedFrame.missingIndexes)) staleSkip=\(skippedStaleFrames)")
+                    ownedMediaStderrTrace("skip-stale-delta frame=\(skippedFrame.frameId) received=\(skippedFrame.received)/\(skippedFrame.expected) missing=\(skippedFrame.missingIndexes.count) firstSeenAgeMs=\(Self.formatMilliseconds(skippedFrame.firstSeenAgeNs)) repairAgeMs=\(Self.formatOptionalMilliseconds(skippedFrame.repairAgeNs)) indexes=\(Self.formatPacketIndexes(skippedFrame.missingIndexes)) staleSkip=\(skippedStaleFrames) \(repairSnapshot.traceFields)")
                     await MainActor.run { [weak self] in
                         self?.sink?.setOwnedMediaDebugStatus("skip stale frame=\(skippedFrame.frameId) received=\(skippedFrame.received)/\(skippedFrame.expected) missing=\(skippedFrame.missingIndexes.count)\nquic packets=\(receivedPackets) complete=\(completedFrames) repaired=\(repairedFrames) staleSkip=\(skippedStaleFrames)")
                     }
                 }
                 repairedFrames += repair.repairedFrameCount
-                for completed in repair.completedFrames {
+                for (completedIndex, completed) in repair.completedFrames.enumerated() {
+                    let remainingCompletedFrames = max(0, repair.completedFrames.count - completedIndex - 1)
+                    let remainingCompletedBytes = repair.completedFrames
+                        .dropFirst(completedIndex + 1)
+                        .reduce(0) { $0 + $1.data.count }
                     let frameCompleteNs = DispatchTime.now().uptimeNanoseconds
                     let envelope = try OwnedMediaFrameEnvelope.decode(completed.data)
                     if keyframeRecovery.isAwaitingKeyframe, !envelope.header.isKeyframe {
@@ -200,7 +207,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                        !envelope.header.isKeyframe,
                        completed.firstSeenAgeNs >= repairDeadlineNs {
                         skippedStaleFrames += 1
-                        ownedMediaStderrTrace("skip-late-repaired-delta frame=\(completed.frameId) ageMs=\(Self.formatMilliseconds(completed.firstSeenAgeNs)) repairedAfterMs=\(Self.formatOptionalMilliseconds(completed.repairedAfterNs)) bytes=\(completed.data.count) packets=\(completed.packetCount) staleSkip=\(skippedStaleFrames)")
+                        ownedMediaStderrTrace("skip-late-repaired-delta frame=\(completed.frameId) ageMs=\(Self.formatMilliseconds(completed.firstSeenAgeNs)) repairedAfterMs=\(Self.formatOptionalMilliseconds(completed.repairedAfterNs)) bytes=\(completed.data.count) packets=\(completed.packetCount) staleSkip=\(skippedStaleFrames) \(repairSnapshot.traceFields)")
                         await MainActor.run { [weak self] in
                             self?.sink?.setOwnedMediaDebugStatus("skip late repaired delta frame=\(completed.frameId) ageMs=\(Self.formatMilliseconds(completed.firstSeenAgeNs)) packets=\(completed.packetCount)\nquic=\(receivedPackets) complete=\(completedFrames) repaired=\(repairedFrames) staleSkip=\(skippedStaleFrames)")
                         }
@@ -209,7 +216,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     completedFrames += 1
                     if completedFrames == 1 || completedFrames.isMultiple(of: 60) || completed.wasRepaired {
                         logger.notice("owned media quic completed frame count=\(completedFrames, privacy: .public) frame=\(completed.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) repaired=\(completed.wasRepaired, privacy: .public) bytes=\(completed.data.count, privacy: .public) packets=\(completed.packetCount, privacy: .public)")
-                        ownedMediaStderrTrace("complete count=\(completedFrames) frame=\(completed.frameId) key=\(envelope.header.isKeyframe) repaired=\(completed.wasRepaired) ageMs=\(Self.formatMilliseconds(completed.firstSeenAgeNs)) repairedAfterMs=\(Self.formatOptionalMilliseconds(completed.repairedAfterNs)) bytes=\(completed.data.count) packets=\(completed.packetCount) quic=\(receivedPackets) drops=\(droppedPackets) resend=\(resendRequests)/\(resendPackets) expired=\(expiredFrames) staleSkip=\(skippedStaleFrames) fallback=\(keyframeFallbacks)")
+                        ownedMediaStderrTrace("complete count=\(completedFrames) frame=\(completed.frameId) key=\(envelope.header.isKeyframe) repaired=\(completed.wasRepaired) ageMs=\(Self.formatMilliseconds(completed.firstSeenAgeNs)) repairedAfterMs=\(Self.formatOptionalMilliseconds(completed.repairedAfterNs)) bytes=\(completed.data.count) packets=\(completed.packetCount) completedQueueFrames=\(remainingCompletedFrames) completedQueueBytes=\(remainingCompletedBytes) quic=\(receivedPackets) drops=\(droppedPackets) resend=\(resendRequests)/\(resendPackets) expired=\(expiredFrames) staleSkip=\(skippedStaleFrames) fallback=\(keyframeFallbacks) \(repairSnapshot.traceFields)")
                         await MainActor.run { [weak self] in
                             self?.sink?.setOwnedMediaDebugStatus("completed=\(completedFrames) frame=\(completed.frameId) key=\(envelope.header.isKeyframe) repaired=\(repairedFrames) packets=\(completed.packetCount)\nquic=\(receivedPackets) malformed=\(droppedPackets) resend=\(resendRequests)/\(resendPackets) expired=\(expiredFrames) staleSkip=\(skippedStaleFrames) fallback=\(keyframeFallbacks)")
                         }
@@ -239,8 +246,14 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                                 completeToAckSentMs: Self.milliseconds(ackSendEndNs &- frameCompleteNs),
                                 displayReadyBeforeEnqueue: renderStats.displayReadyBeforeEnqueue,
                                 requiresFlushToResumeDecoding: renderStats.requiresFlushToResumeDecoding,
+                                displayReadyAfterEnqueue: renderStats.displayReadyAfterEnqueue,
+                                requiresFlushAfterEnqueue: renderStats.requiresFlushAfterEnqueue,
                                 displayQueueAction: renderStats.displayQueueAction,
-                                displayStatus: renderStats.displayStatus
+                                displayStatus: renderStats.displayStatus,
+                                displayStatusAfterEnqueue: renderStats.displayStatusAfterEnqueue,
+                                displayPresentation: renderStats.displayPresentation,
+                                completedNotRenderedFrames: remainingCompletedFrames,
+                                completedNotRenderedBytes: remainingCompletedBytes
                             )
                             ownedMediaStderrTrace(timeline.traceLine)
                         } catch {
@@ -258,7 +271,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                         try? await sendKeyframeRequest(afterFrameId: 0, on: connection)
                     }
                     logger.error("owned media quic dropped packet count=\(droppedPackets, privacy: .public) reason=\(error.debugSummary, privacy: .public)")
-                    ownedMediaStderrTrace("drop-malformed count=\(droppedPackets) reason=\(error.debugSummary) quic=\(receivedPackets) complete=\(completedFrames) repaired=\(repairedFrames) staleSkip=\(skippedStaleFrames) fallback=\(keyframeFallbacks)")
+                    ownedMediaStderrTrace("drop-malformed count=\(droppedPackets) reason=\(error.debugSummary) quic=\(receivedPackets) complete=\(completedFrames) repaired=\(repairedFrames) staleSkip=\(skippedStaleFrames) fallback=\(keyframeFallbacks) \(lastRepairSnapshot.traceFields)")
                     await MainActor.run { [weak self] in
                         self?.sink?.setOwnedMediaDebugStatus("\(error.debugSummary)\ndrops=\(droppedPackets) quic=\(receivedPackets) complete=\(completedFrames) repaired=\(repairedFrames) fallback=\(keyframeFallbacks)")
                     }
@@ -266,7 +279,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 continue
             } catch {
                 logger.error("owned media quic receive failed: \(String(describing: error), privacy: .public)")
-                ownedMediaStderrTrace("receive-failed error=\(String(describing: error)) quic=\(receivedPackets) complete=\(completedFrames) repaired=\(repairedFrames) resend=\(resendRequests)/\(resendPackets) expired=\(expiredFrames) staleSkip=\(skippedStaleFrames) fallback=\(keyframeFallbacks)")
+                ownedMediaStderrTrace("receive-failed error=\(String(describing: error)) quic=\(receivedPackets) complete=\(completedFrames) repaired=\(repairedFrames) resend=\(resendRequests)/\(resendPackets) expired=\(expiredFrames) staleSkip=\(skippedStaleFrames) fallback=\(keyframeFallbacks) \(lastRepairSnapshot.traceFields)")
                 await MainActor.run { [weak self] in
                     self?.sink?.setOwnedMediaDebugStatus("receive failed \(String(describing: error))\nquic packets=\(receivedPackets) complete=\(completedFrames)")
                 }
@@ -321,7 +334,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         )
         let data = try JSONEncoder().encode(message)
         try await send(data, on: connection)
-        ownedMediaStderrTrace("frame-ack frame=\(stats.frameId) total=\(stats.totalFramesDecoded) renderGapMs=\(Self.formatOptionalDouble(stats.renderGapMs)) sampleMs=\(Self.formatDouble(stats.sampleBuildMs)) enqueueMs=\(Self.formatDouble(stats.enqueueMs)) workMs=\(Self.formatDouble(stats.renderWorkMs)) ready=\(stats.displayReadyBeforeEnqueue) requiresFlush=\(stats.requiresFlushToResumeDecoding) action=\(stats.displayQueueAction.rawValue) backlogFrames=\(stats.clientBacklogFrames) backlogBytes=\(stats.clientBacklogBytes) flushed=\(stats.flushCount) display=\(stats.displayStatus)")
+        ownedMediaStderrTrace("frame-ack frame=\(stats.frameId) total=\(stats.totalFramesDecoded) renderGapMs=\(Self.formatOptionalDouble(stats.renderGapMs)) sampleMs=\(Self.formatDouble(stats.sampleBuildMs)) enqueueMs=\(Self.formatDouble(stats.enqueueMs)) workMs=\(Self.formatDouble(stats.renderWorkMs)) ready=\(stats.displayReadyBeforeEnqueue) requiresFlush=\(stats.requiresFlushToResumeDecoding) postReady=\(stats.displayReadyAfterEnqueue) postRequiresFlush=\(stats.requiresFlushAfterEnqueue) action=\(stats.displayQueueAction.rawValue) backlogFrames=\(stats.clientBacklogFrames) backlogBytes=\(stats.clientBacklogBytes) flushed=\(stats.flushCount) display=\(stats.displayStatus) postDisplay=\(stats.displayStatusAfterEnqueue) displayPresentation=\(stats.displayPresentation)")
     }
 
     private static func formatPacketIndexes(_ indexes: [UInt16], limit: Int = 16) -> String {
