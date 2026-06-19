@@ -145,12 +145,38 @@ enum Config {
     static let ownedMediaMaxQP = ownedMediaMaxQP(
         environment: ProcessInfo.processInfo.environment
     )
+    static let ownedMediaDatagramBurstPacketCount = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PACKET_COUNT",
+        defaultValue: 32
+    )
+    static let ownedMediaDatagramBurstPauseUs = nonNegativeInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PAUSE_US",
+        defaultValue: 1_000
+    )
     static func ownedMediaMaxQP(environment: [String: String]) -> Int? {
         guard let raw = environment["AGENTDESK_OWNED_MEDIA_MAX_QP"],
               let value = Int(raw),
               value > 0
         else {
             return nil
+        }
+        return value
+    }
+    static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
+        guard let raw = ProcessInfo.processInfo.environment[environmentKey],
+              let value = Int(raw),
+              value > 0
+        else {
+            return defaultValue
+        }
+        return value
+    }
+    static func nonNegativeInt(environmentKey: String, defaultValue: Int) -> Int {
+        guard let raw = ProcessInfo.processInfo.environment[environmentKey],
+              let value = Int(raw),
+              value >= 0
+        else {
+            return defaultValue
         }
         return value
     }

@@ -8,14 +8,26 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
     private let connection: NWConnection
     private let fingerprint: DeviceFingerprint
     private let key: SymmetricKey
+    private let burstPacketCount: Int
+    private let burstPauseUs: Int
     private let stateQueue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-datagram-state")
+    private let sendGate = DatagramSendGate()
     private var closed = false
     private var newestFrameId: UInt64 = 0
+    private var sentFrameCount: UInt64 = 0
 
-    init(connection: NWConnection, fingerprint: DeviceFingerprint, key: SymmetricKey) {
+    init(
+        connection: NWConnection,
+        fingerprint: DeviceFingerprint,
+        key: SymmetricKey,
+        burstPacketCount: Int = Config.ownedMediaDatagramBurstPacketCount,
+        burstPauseUs: Int = Config.ownedMediaDatagramBurstPauseUs
+    ) {
         self.connection = connection
         self.fingerprint = fingerprint
         self.key = key
+        self.burstPacketCount = burstPacketCount
+        self.burstPauseUs = burstPauseUs
         connection.stateUpdateHandler = { [weak self] state in
             self?.logger.notice("owned media datagram state=\(String(describing: state), privacy: .public) fp=\(fingerprint.rawValue, privacy: .public)")
             switch state {
@@ -31,17 +43,41 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         guard !isClosed else {
             throw SessionRejected(reason: .unauthorized)
         }
-        let data = try envelope.encode()
-        let frameId = noteNewestFrame()
-        let packets = try MediaDatagramFramePacket.packetize(
-            frameId: frameId,
-            sentAtUptimeNs: envelope.header.capturedAtUptimeNs,
-            payload: data,
-            key: key
-        )
-        for packet in packets {
-            guard shouldContinueSending(frameId: frameId), !isClosed else { return }
-            try await sendDatagram(packet)
+        await sendGate.wait()
+        do {
+            let data = try envelope.encode()
+            let frameId = noteNewestFrame()
+            let packets = try MediaDatagramFramePacket.packetize(
+                frameId: frameId,
+                sentAtUptimeNs: envelope.header.capturedAtUptimeNs,
+                payload: data,
+                key: key
+            )
+            let ordinal = noteSentFrame()
+            if envelope.header.isKeyframe || ordinal == 1 || ordinal.isMultiple(of: 120) {
+                logger.notice("owned media datagram send frame=\(frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) burst=\(self.burstPacketCount, privacy: .public) pauseUs=\(self.burstPauseUs, privacy: .public)")
+            }
+            for (index, packet) in packets.enumerated() {
+                guard shouldContinueSending(frameId: frameId, isKeyframe: envelope.header.isKeyframe),
+                      !isClosed else {
+                    await sendGate.signal()
+                    return
+                }
+                try await sendDatagram(packet)
+                if burstPauseUs > 0,
+                   burstPacketCount > 0,
+                   index + 1 < packets.count,
+                   (index + 1).isMultiple(of: burstPacketCount) {
+                    try await Task.sleep(nanoseconds: UInt64(burstPauseUs) * 1_000)
+                }
+            }
+            if envelope.header.isKeyframe || ordinal == 1 || ordinal.isMultiple(of: 120) {
+                logger.notice("owned media datagram sent frame=\(frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) packets=\(packets.count, privacy: .public)")
+            }
+            await sendGate.signal()
+        } catch {
+            await sendGate.signal()
+            throw error
         }
     }
 
@@ -61,8 +97,15 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         }
     }
 
-    private func shouldContinueSending(frameId: UInt64) -> Bool {
-        stateQueue.sync { frameId == newestFrameId }
+    private func noteSentFrame() -> UInt64 {
+        stateQueue.sync {
+            sentFrameCount &+= 1
+            return sentFrameCount
+        }
+    }
+
+    private func shouldContinueSending(frameId: UInt64, isKeyframe: Bool) -> Bool {
+        stateQueue.sync { isKeyframe || frameId == newestFrameId }
     }
 
     @discardableResult
@@ -90,6 +133,29 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
     }
 }
 
+private actor DatagramSendGate {
+    private var isBusy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if !isBusy {
+            isBusy = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func signal() {
+        if waiters.isEmpty {
+            isBusy = false
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+}
+
 enum MediaDatagramPacketError: Error {
     case malformed
     case authenticationFailed
@@ -100,7 +166,7 @@ struct MediaDatagramFramePacket: Equatable {
     private static let magic = Data([0x41, 0x44, 0x4d, 0x44]) // ADMD
     private static let version: UInt8 = 1
     private static let frameKind: UInt8 = 3
-    private static let headerPrefixLength = 30
+    private static let headerPrefixLength = 32
     private static let macLength = 32
 
     let frameId: UInt64
@@ -143,7 +209,7 @@ struct MediaDatagramFramePacket: Equatable {
         else {
             throw MediaDatagramPacketError.malformed
         }
-        let payloadLength = Int(try data.readUInt16BE(at: 28))
+        let payloadLength = Int(try data.readUInt16BE(at: 30))
         let expectedLength = headerPrefixLength + macLength + payloadLength
         guard data.count == expectedLength else {
             throw MediaDatagramPacketError.malformed
@@ -241,4 +307,5 @@ extension Data {
         }
         return value
     }
+
 }

@@ -115,19 +115,54 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
     private func receiveLoop(connection: NWConnection, key: SymmetricKey) async {
         let assembler = MediaDatagramFrameAssembler()
+        var droppedPackets = 0
+        var receivedPackets = 0
+        var completedFrames = 0
         while !Task.isCancelled {
             do {
                 let data = try await receive(on: connection)
                 let packet = try MediaDatagramFramePacket.decode(data, key: key)
+                receivedPackets += 1
+                if receivedPackets == 1 || receivedPackets.isMultiple(of: 600) {
+                    logger.notice("owned media udp received packet count=\(receivedPackets, privacy: .public) frame=\(packet.frameId, privacy: .public) index=\(packet.packetIndex, privacy: .public)/\(packet.packetCount, privacy: .public) bytes=\(data.count, privacy: .public)")
+                    await MainActor.run { [weak self] in
+                        self?.sink?.setOwnedMediaDebugStatus("udp packets=\(receivedPackets) frame=\(packet.frameId) index=\(packet.packetIndex)/\(packet.packetCount)\ncomplete=\(completedFrames) malformed=\(droppedPackets)")
+                    }
+                }
+                if let droppedFrame = assembler.noteNewerFrameIfNeeded(packet) {
+                    logger.error("owned media udp abandoned incomplete frame=\(droppedFrame.frameId, privacy: .public) received=\(droppedFrame.received, privacy: .public)/\(droppedFrame.expected, privacy: .public)")
+                    await MainActor.run { [weak self] in
+                        self?.sink?.setOwnedMediaDebugStatus("abandoned frame=\(droppedFrame.frameId) received=\(droppedFrame.received)/\(droppedFrame.expected)\nudp packets=\(receivedPackets) complete=\(completedFrames)")
+                    }
+                }
                 guard let frameData = assembler.accept(packet) else { continue }
+                completedFrames += 1
+                if completedFrames == 1 || completedFrames.isMultiple(of: 60) {
+                    logger.notice("owned media udp completed frame count=\(completedFrames, privacy: .public) frame=\(packet.frameId, privacy: .public) bytes=\(frameData.count, privacy: .public) packets=\(packet.packetCount, privacy: .public)")
+                    await MainActor.run { [weak self] in
+                        self?.sink?.setOwnedMediaDebugStatus("completed=\(completedFrames) frame=\(packet.frameId) bytes=\(frameData.count) packets=\(packet.packetCount)\nudp packets=\(receivedPackets) malformed=\(droppedPackets)")
+                    }
+                }
                 let envelope = try OwnedMediaFrameEnvelope.decode(frameData)
                 await MainActor.run { [weak self] in
                     self?.sink?.renderOwnedMediaFrame(envelope)
                 }
             } catch is CancellationError {
                 return
+            } catch let error as MediaDatagramPacketError {
+                droppedPackets += 1
+                if droppedPackets == 1 || droppedPackets.isMultiple(of: 120) {
+                    logger.error("owned media udp dropped packet count=\(droppedPackets, privacy: .public) reason=\(error.debugSummary, privacy: .public)")
+                    await MainActor.run { [weak self] in
+                        self?.sink?.setOwnedMediaDebugStatus("\(error.debugSummary)\ndrops=\(droppedPackets) udp=\(receivedPackets) complete=\(completedFrames)")
+                    }
+                }
+                continue
             } catch {
                 logger.error("owned media udp receive failed: \(String(describing: error), privacy: .public)")
+                await MainActor.run { [weak self] in
+                    self?.sink?.setOwnedMediaDebugStatus("receive failed \(String(describing: error))\nudp packets=\(receivedPackets) complete=\(completedFrames)")
+                }
                 stateContinuation.yield(.failed)
                 return
             }
@@ -184,14 +219,24 @@ private final class MediaDatagramFrameAssembler {
     private var packetCount: UInt16 = 0
     private var packets: [UInt16: Data] = [:]
 
-    func accept(_ packet: MediaDatagramFramePacket) -> Data? {
-        if packet.frameId < frameId {
-            return nil
-        }
-        if packet.frameId > frameId {
+    func noteNewerFrameIfNeeded(_ packet: MediaDatagramFramePacket) -> IncompleteFrame? {
+        guard packet.frameId > frameId else { return nil }
+        defer {
             frameId = packet.frameId
             packetCount = packet.packetCount
             packets.removeAll(keepingCapacity: true)
+        }
+        guard frameId > 0, packets.count < Int(packetCount) else { return nil }
+        return IncompleteFrame(
+            frameId: frameId,
+            received: packets.count,
+            expected: Int(packetCount)
+        )
+    }
+
+    func accept(_ packet: MediaDatagramFramePacket) -> Data? {
+        if packet.frameId < frameId {
+            return nil
         }
         guard packet.packetCount == packetCount,
               packet.packetIndex < packetCount else {
@@ -211,16 +256,40 @@ private final class MediaDatagramFrameAssembler {
     }
 }
 
+private struct IncompleteFrame {
+    let frameId: UInt64
+    let received: Int
+    let expected: Int
+}
+
 private enum MediaDatagramPacketError: Error {
-    case malformed
-    case authenticationFailed
+    case tooShort(length: Int, prefix: String)
+    case badHeader(length: Int, prefix: String)
+    case badLength(length: Int, expected: Int, payloadLength: Int)
+    case badPacketCount
+    case authenticationFailed(frameId: UInt64, packetIndex: UInt16, packetCount: UInt16)
+
+    var debugSummary: String {
+        switch self {
+        case .tooShort(let length, let prefix):
+            return "udp non-admd short len=\(length) prefix=\(prefix)"
+        case .badHeader(let length, let prefix):
+            return "udp non-admd header len=\(length) prefix=\(prefix)"
+        case .badLength(let length, let expected, let payloadLength):
+            return "udp bad length len=\(length) expected=\(expected) payload=\(payloadLength)"
+        case .badPacketCount:
+            return "udp bad packet count"
+        case .authenticationFailed(let frameId, let packetIndex, let packetCount):
+            return "udp auth failed frame=\(frameId) index=\(packetIndex)/\(packetCount)"
+        }
+    }
 }
 
 private struct MediaDatagramFramePacket: Equatable {
     private static let magic = Data([0x41, 0x44, 0x4d, 0x44])
     private static let version: UInt8 = 1
     private static let frameKind: UInt8 = 3
-    private static let headerPrefixLength = 30
+    private static let headerPrefixLength = 32
     private static let macLength = 32
 
     let frameId: UInt64
@@ -230,31 +299,39 @@ private struct MediaDatagramFramePacket: Equatable {
     let payload: Data
 
     static func decode(_ data: Data, key: SymmetricKey) throws -> MediaDatagramFramePacket {
-        guard data.count >= headerPrefixLength + macLength,
-              data.prefix(4) == magic,
+        guard data.count >= headerPrefixLength + macLength else {
+            throw MediaDatagramPacketError.tooShort(length: data.count, prefix: data.hexPrefix())
+        }
+        guard data.prefix(4) == magic,
               data[4] == version,
               data[5] == frameKind
         else {
-            throw MediaDatagramPacketError.malformed
+            throw MediaDatagramPacketError.badHeader(length: data.count, prefix: data.hexPrefix())
         }
-        let payloadLength = Int(try data.readUInt16BE(at: 28))
+        let payloadLength = Int(try data.readUInt16BE(at: 30))
         let expectedLength = headerPrefixLength + macLength + payloadLength
         guard data.count == expectedLength else {
-            throw MediaDatagramPacketError.malformed
+            throw MediaDatagramPacketError.badLength(length: data.count, expected: expectedLength, payloadLength: payloadLength)
         }
         let payload = data.suffix(payloadLength)
         var authenticated = Data(data.prefix(headerPrefixLength))
         authenticated.append(payload)
         let expectedMac = HMAC<SHA256>.authenticationCode(for: authenticated, using: key)
         let actualMac = data.subdata(in: headerPrefixLength..<(headerPrefixLength + macLength))
-        guard Data(expectedMac) == actualMac else {
-            throw MediaDatagramPacketError.authenticationFailed
-        }
         let packetCount = try data.readUInt16BE(at: 20)
-        guard packetCount > 0 else { throw MediaDatagramPacketError.malformed }
+        let packetIndex = try data.readUInt16BE(at: 18)
+        let frameId = try data.readUInt64BE(at: 10)
+        guard Data(expectedMac) == actualMac else {
+            throw MediaDatagramPacketError.authenticationFailed(
+                frameId: frameId,
+                packetIndex: packetIndex,
+                packetCount: packetCount
+            )
+        }
+        guard packetCount > 0 else { throw MediaDatagramPacketError.badPacketCount }
         return MediaDatagramFramePacket(
-            frameId: try data.readUInt64BE(at: 10),
-            packetIndex: try data.readUInt16BE(at: 18),
+            frameId: frameId,
+            packetIndex: packetIndex,
             packetCount: packetCount,
             sentAtUptimeNs: try data.readUInt64BE(at: 22),
             payload: Data(payload)
@@ -275,16 +352,24 @@ private struct MediaDatagramCrypto {
 
 private extension Data {
     func readUInt16BE(at offset: Int) throws -> UInt16 {
-        guard count >= offset + 2 else { throw MediaDatagramPacketError.malformed }
+        guard count >= offset + 2 else {
+            throw MediaDatagramPacketError.tooShort(length: count, prefix: hexPrefix())
+        }
         return (UInt16(self[offset]) << 8) | UInt16(self[offset + 1])
     }
 
     func readUInt64BE(at offset: Int) throws -> UInt64 {
-        guard count >= offset + 8 else { throw MediaDatagramPacketError.malformed }
+        guard count >= offset + 8 else {
+            throw MediaDatagramPacketError.tooShort(length: count, prefix: hexPrefix())
+        }
         var value: UInt64 = 0
         for index in offset..<(offset + 8) {
             value = (value << 8) | UInt64(self[index])
         }
         return value
+    }
+
+    func hexPrefix(byteCount: Int = 12) -> String {
+        prefix(byteCount).map { String(format: "%02x", $0) }.joined()
     }
 }

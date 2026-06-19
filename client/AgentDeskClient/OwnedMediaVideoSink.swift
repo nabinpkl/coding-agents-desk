@@ -5,6 +5,7 @@ import os
 
 protocol OwnedMediaFrameSink: VideoFrameSink {
     @MainActor func renderOwnedMediaFrame(_ envelope: OwnedMediaFrameEnvelope)
+    @MainActor func setOwnedMediaDebugStatus(_ status: String)
     @MainActor func setMotionActive(_ active: Bool)
 }
 
@@ -12,9 +13,11 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
 final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     let view: UIView
     private let displayLayer = AVSampleBufferDisplayLayer()
+    private let debugLabel = UILabel()
     private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "owned-media")
     private var formatDescription: CMVideoFormatDescription?
     private var loggedFirstRenderedFrame = false
+    private var renderCount = 0
 
     init() {
         let container = LayerBackedVideoContainerView()
@@ -23,6 +26,20 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         displayLayer.videoGravity = .resizeAspect
         displayLayer.backgroundColor = UIColor.black.cgColor
         container.layer.addSublayer(displayLayer)
+        debugLabel.backgroundColor = UIColor.black.withAlphaComponent(0.72)
+        debugLabel.textColor = .white
+        debugLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        debugLabel.numberOfLines = 0
+        debugLabel.text = "owned media: waiting"
+        debugLabel.layer.cornerRadius = 6
+        debugLabel.layer.masksToBounds = true
+        debugLabel.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(debugLabel)
+        NSLayoutConstraint.activate([
+            debugLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            debugLabel.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
+            debugLabel.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8)
+        ])
         container.layoutHandler = { [weak self, weak container] in
             guard let self, let bounds = container?.bounds else { return }
             self.displayLayer.frame = bounds
@@ -47,16 +64,51 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 formatDescription: formatDescription
             )
             displayLayer.enqueue(sampleBuffer)
+            renderCount += 1
+            let status = Self.displayStatus(displayLayer)
+            setOwnedMediaDebugStatus(
+                "rendered=\(renderCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(status)"
+            )
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard let self else { return }
+                self.setOwnedMediaDebugStatus(
+                    "rendered=\(self.renderCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(Self.displayStatus(self.displayLayer))"
+                )
+            }
             if !loggedFirstRenderedFrame {
                 loggedFirstRenderedFrame = true
                 logger.notice("owned first rendered frame plane=\(envelope.header.plane.rawValue, privacy: .public) codec=\(envelope.header.codec.rawValue, privacy: .public) size=\(envelope.header.width, privacy: .public)x\(envelope.header.height, privacy: .public) view=\(Int(self.view.bounds.width), privacy: .public)x\(Int(self.view.bounds.height), privacy: .public) bytes=\(envelope.payload.count, privacy: .public)")
             }
         } catch {
+            setOwnedMediaDebugStatus("render failed frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) error=\(String(describing: error))\ndisplay=\(Self.displayStatus(displayLayer))")
             logger.error("owned media render failed: \(String(describing: error), privacy: .public)")
         }
     }
 
+    func setOwnedMediaDebugStatus(_ status: String) {
+        debugLabel.text = "owned media\n\(status)"
+    }
+
     func setMotionActive(_ active: Bool) {}
+
+    private static func displayStatus(_ layer: AVSampleBufferDisplayLayer) -> String {
+        let status: String
+        switch layer.status {
+        case .unknown:
+            status = "unknown"
+        case .rendering:
+            status = "rendering"
+        case .failed:
+            status = "failed"
+        @unknown default:
+            status = "other"
+        }
+        if let error = layer.error {
+            return "\(status) \(String(describing: error))"
+        }
+        return status
+    }
 
     private static func makeFormatDescription(
         codec: OwnedMediaCodec,

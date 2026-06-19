@@ -52,6 +52,41 @@ struct ScrollQualityTests {
         #expect(Config.ownedMediaMaxQP(environment: ["AGENTDESK_OWNED_MEDIA_MAX_QP": "0"]) == nil)
     }
 
+    @Test func ownedMediaDatagramHeaderLengthMatchesWireShape() throws {
+        func appendUInt16BE(_ value: UInt16, to data: inout Data) {
+            data.append(UInt8((value >> 8) & 0xff))
+            data.append(UInt8(value & 0xff))
+        }
+        func appendUInt32BE(_ value: UInt32, to data: inout Data) {
+            data.append(UInt8((value >> 24) & 0xff))
+            data.append(UInt8((value >> 16) & 0xff))
+            data.append(UInt8((value >> 8) & 0xff))
+            data.append(UInt8(value & 0xff))
+        }
+        func appendUInt64BE(_ value: UInt64, to data: inout Data) {
+            for shift in stride(from: 56, through: 0, by: -8) {
+                data.append(UInt8((value >> UInt64(shift)) & 0xff))
+            }
+        }
+
+        let payloadLength = 1_050
+        var header = Data()
+        header.append(Data([0x41, 0x44, 0x4d, 0x44])) // ADMD
+        header.append(1)
+        header.append(3)
+        appendUInt32BE(0, to: &header)
+        appendUInt64BE(42, to: &header)
+        appendUInt16BE(0, to: &header)
+        appendUInt16BE(1, to: &header)
+        appendUInt64BE(123_456, to: &header)
+        appendUInt16BE(UInt16(payloadLength), to: &header)
+
+        #expect(header.count == 32)
+        #expect(header[30] == UInt8((payloadLength >> 8) & 0xff))
+        #expect(header[31] == UInt8(payloadLength & 0xff))
+        #expect(32 + 32 + payloadLength == 1_114)
+    }
+
     @Test func motionCodecCanBeTunedToDownscaledVp9() {
         let planes = MediaPlaneConfiguration.defaultPlanes(environment: [
             "AGENTDESK_TUNING_MOTION_CODEC": "vp9",
