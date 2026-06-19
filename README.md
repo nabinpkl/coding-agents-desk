@@ -8,7 +8,7 @@ I run AI coding agents pinned to separate macOS Spaces. AnyDesk lets me reach th
 
 Secondary frustrations with AnyDesk on the phone: occasional black-canvas-with-a-floating-cursor failure mode, no native two-finger scroll or right-click, and mushy text on Retina-scale content.
 
-AgentDesk is the smallest possible fix: a native iPhone client and a native macOS menu-bar host that ship pixels and input over WebRTC, with a single new gesture that does the thing AnyDesk cannot.
+AgentDesk is the smallest possible fix: a native iPhone client and a native macOS menu-bar host that ship pixels over an owned QUIC media channel, send input over a dedicated authenticated WebSocket, and add the Spaces gesture AnyDesk cannot provide.
 
 ## What it does
 
@@ -34,18 +34,18 @@ The full non-goal list is in `PRD.md`.
   iPhone (Swift / UIKit)                          Mac (Swift / AppKit menu-bar)
   +----------------------+                        +-------------------------------+
   | GestureTranslator    |                        | CaptureEngine (ScreenCapture) |
-  | KeyboardSurface      |    NormalizedInput     | Encoder (VideoToolbox HEVC)   |
+  | KeyboardSurface      |    NormalizedInput     | Encoder (VideoToolbox)        |
   | VideoRenderer        | <===================>  | InputDispatcher (CGEventPost) |
-  | PairingClient        |    HEVC video track    | SpacesProvider (private CGS)  |
-  | Transport (libwebrtc)|                        | Pairing (QR + Keychain)       |
-  +----------------------+                        | Transport (libwebrtc)         |
+  | PairingClient        |    QUIC media packets  | SpacesProvider (private CGS)  |
+  | OwnedMediaTransport  |                        | Pairing (QR + Keychain)       |
+  +----------------------+                        | OwnedMediaTransport           |
                                                   +-------------------------------+
                           peers meet on Tailscale, no STUN/TURN/VPS
 ```
 
 Key choices:
 
-- **Transport:** WebRTC over Tailscale. Both ends are on the tailnet, so the public-internet rendezvous machinery is not needed.
+- **Transport:** owned authenticated QUIC datagrams for video, plus a dedicated TLS WebSocket for input. Both ends are on the tailnet, so the public-internet rendezvous machinery is not needed.
 - **Codec:** Hardware HEVC via VideoToolbox on both ends, decoded into `AVSampleBufferDisplayLayer` at native DPR. This is what buys text crispness.
 - **Spaces:** Private CoreGraphics calls (`CGSGetActiveSpace`, `CGSCopySpaces`, `CGSSpaceCopyOwners`) on the Mac. The 3-finger swipe lands as a synthesized `Ctrl+Arrow` event via `CGEventPost`, which is the same path the OS uses for the keyboard shortcut.
 - **Pairing:** Scan a QR on the Mac. The phone stores a signed bearer token in the Keychain. No accounts, no server.
@@ -54,25 +54,11 @@ Module boundaries, wire shapes (`DesktopState`, `NormalizedInput`, `PairingPaylo
 
 ## Status
 
-Early. No code yet, only the design bundle in `mock-design/` and the planning artifacts in this repo. Execution is broken into nine vertical slices on GitHub:
+In active device-feel development. Pairing, session auth, input, cursor mirroring, Spaces switching, host overlays, and owned hardware media are implemented. The current work is tuning the owned QUIC media path so scroll stays current without sacrificing crisp rest-state text.
 
-| Issue | Slice | Mode |
-| --- | --- | --- |
-| [#2](https://github.com/nabinpkl/agent-desk/issues/2) | S0: stack ADR, repo skeleton, signing | HITL |
-| [#3](https://github.com/nabinpkl/agent-desk/issues/3) | S1: QR pairing | AFK |
-| [#4](https://github.com/nabinpkl/agent-desk/issues/4) | S2: hello-pixels (capture, encode, render) | AFK |
-| [#5](https://github.com/nabinpkl/agent-desk/issues/5) | S3: cursor and basic click | AFK |
-| [#6](https://github.com/nabinpkl/agent-desk/issues/6) | S4: full trackpad gestures | AFK |
-| [#7](https://github.com/nabinpkl/agent-desk/issues/7) | S5: Spaces enumeration and 3-finger swipe | AFK |
-| [#8](https://github.com/nabinpkl/agent-desk/issues/8) | S6: keyboard and accessory row | AFK |
-| [#9](https://github.com/nabinpkl/agent-desk/issues/9) | S7: lifecycle and reconnect | AFK |
-| [#10](https://github.com/nabinpkl/agent-desk/issues/10) | S8: distribution and 7-day self-test | HITL |
-
-v0 is "done" when the author uses it as a daily driver for **seven consecutive days** without reaching for AnyDesk.
+v0 is done when the author uses it as a daily driver without reaching for AnyDesk.
 
 ## How to run it
-
-There is nothing to run yet. Once S2 lands, this section will become the real instructions. The shape they will take:
 
 1. Install on the Mac: open the notarized DMG built from the host workspace, drag the app to `/Applications`, grant Screen Recording and Accessibility permissions on first launch.
 2. Install on the iPhone: TestFlight invite, single device.
@@ -81,7 +67,13 @@ There is nothing to run yet. Once S2 lands, this section will become the real in
 5. Open the iPhone app, scan the QR. The token lands in the Keychain on both ends.
 6. The iPhone shows the active Space at native DPR. Three-finger swipe switches Spaces.
 
-Until S2 lands, the only thing to "run" is the design prototype: open `mock-design/project/index.html` in a browser to see the visual target.
+For a development run on the connected iPhone:
+
+```sh
+AGENTDESK_OWNED_MEDIA_CODEC=hevc \
+AGENTDESK_OWNED_MEDIA_CHROMA=420 \
+just fresh-install
+```
 
 ## Repository layout
 
@@ -90,7 +82,7 @@ Until S2 lands, the only thing to "run" is the design prototype: open `mock-desi
 - `AGENTS.md` how to operate in this repo (conventions, voice, ADR process, work-breakdown rules). Read this if you are coding here, human or agent.
 - `architecture-decisions/` one ADR per locked-in decision. ADR-0001 will record the stack.
 - `mock-design/` design handoff bundle for visual reference only.
-- `TASKS.md` will appear when the first iteration opens.
+- `TASKS.md` current owned-media iteration ledger, with closed ledgers under `tasks/archive/`.
 
 ## License
 

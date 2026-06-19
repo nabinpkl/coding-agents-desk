@@ -40,30 +40,26 @@ struct InputChannelTests {
             sessionId: "session-123",
             inputCapability: "input-capability",
             inputCapabilityExpiresAt: 1_800_000_060,
-            mediaMode: .owned,
             mediaCapability: "media-capability",
-            mediaCapabilityExpiresAt: 1_800_000_060,
-            mediaPlanes: [.detail]
+            mediaCapabilityExpiresAt: 1_800_000_060
         )
         let data = try JSONEncoder().encode(ready)
         let json = String(data: data, encoding: .utf8) ?? ""
-        #expect(json.contains("\"mm\":\"owned\""))
         #expect(json.contains("\"mc\":\"media-capability\""))
         #expect(json.contains("\"me\":1800000060"))
-        #expect(json.contains("\"mp\":[\"detail\"]"))
+        #expect(!json.contains("\"mm\""))
+        #expect(!json.contains("\"mp\""))
 
         let decoded = try JSONDecoder().decode(SessionReady.self, from: data)
         #expect(decoded == ready)
     }
 
-    @Test func oldSessionReadyFixturesDefaultToWebRTC() throws {
+    @Test func oldSessionReadyFixturesDefaultToNoMediaCapability() throws {
         let data = Data(#"{"t":"session-ready","sid":"session-123","ic":"capability","ie":1800000060}"#.utf8)
         let decoded = try JSONDecoder().decode(SessionReady.self, from: data)
 
-        #expect(decoded.mediaMode == .webrtc)
         #expect(decoded.mediaCapability == "")
         #expect(decoded.mediaCapabilityExpiresAt == 0)
-        #expect(decoded.mediaPlanes == MediaPlane.allCases)
     }
 
     @Test func mediaHelloFrameSerializesWithCompactKeys() throws {
@@ -114,7 +110,6 @@ struct InputChannelTests {
     @Test func ownedMediaEnvelopeRoundTripsHeaderAndPayload() throws {
         let header = OwnedMediaFrameHeader(
             frameId: 1,
-            plane: .detail,
             codec: .h264,
             width: 1280,
             height: 720,
@@ -206,7 +201,7 @@ struct InputChannelTests {
         #expect(repaired.completedFrames.first?.repairedAfterNs == 18)
     }
 
-    @Test func repairBufferFallsBackAfterRepairDeadline() {
+    @Test func repairBufferSkipsStaleDeltaAfterRepairDeadline() {
         let buffer = MediaDatagramFrameRepairBuffer(
             repairDeadlineNs: 50,
             trackedFrameLimit: 8,
@@ -215,39 +210,13 @@ struct InputChannelTests {
 
         _ = buffer.accept(packet(frameId: 1, index: 0, count: 3), now: 1)
         _ = buffer.accept(packet(frameId: 2, index: 0, count: 1), now: 2)
-        let expired = buffer.accept(packet(frameId: 3, index: 0, count: 1), now: 52)
-
-        #expect(expired.expiredFrames == [
-            IncompleteFrame(
-                frameId: 1,
-                received: 1,
-                expected: 3,
-                missingIndexes: [1, 2],
-                firstSeenAgeNs: 51,
-                repairAgeNs: 50
-            )
-        ])
-    }
-
-    @Test func repairBufferSkipsStaleFrameDuringMotionWithoutFallbackExpiry() {
-        let buffer = MediaDatagramFrameRepairBuffer(
-            repairDeadlineNs: 50,
-            trackedFrameLimit: 8,
-            maxResendPackets: 256
-        )
-
-        _ = buffer.accept(packet(frameId: 1, index: 0, count: 3), now: 1)
-        _ = buffer.accept(packet(frameId: 2, index: 0, count: 1, payload: [0x20]), now: 2)
-        let skipped = buffer.accept(
-            packet(frameId: 3, index: 0, count: 1, payload: [0x30]),
-            now: 52,
-            motionActive: true
-        )
+        let skipped = buffer.accept(packet(frameId: 3, index: 0, count: 1), now: 52)
 
         #expect(skipped.expiredFrames.isEmpty)
         #expect(skipped.skippedStaleFrames == [
             IncompleteFrame(
                 frameId: 1,
+                isKeyframe: false,
                 received: 1,
                 expected: 3,
                 missingIndexes: [1, 2],
@@ -256,6 +225,31 @@ struct InputChannelTests {
             )
         ])
         #expect(skipped.completedFrames.map(\.frameId) == [2, 3])
+    }
+
+    @Test func repairBufferFallsBackWhenKeyframeExpires() {
+        let buffer = MediaDatagramFrameRepairBuffer(
+            repairDeadlineNs: 50,
+            trackedFrameLimit: 8,
+            maxResendPackets: 256
+        )
+
+        _ = buffer.accept(packet(frameId: 1, index: 0, count: 3, isKeyframe: true), now: 1)
+        _ = buffer.accept(packet(frameId: 2, index: 0, count: 1, payload: [0x20]), now: 2)
+        let expired = buffer.accept(packet(frameId: 3, index: 0, count: 1, payload: [0x30]), now: 52)
+
+        #expect(expired.expiredFrames == [
+            IncompleteFrame(
+                frameId: 1,
+                isKeyframe: true,
+                received: 1,
+                expected: 3,
+                missingIndexes: [1, 2],
+                firstSeenAgeNs: 51,
+                repairAgeNs: 50
+            )
+        ])
+        #expect(expired.skippedStaleFrames.isEmpty)
     }
 
     @Test func eventFramePreservesNormalizedInput() throws {
@@ -343,57 +337,6 @@ struct InputChannelTests {
         #expect(store.resolve(unknown) == nil)
     }
 
-    @Test func interactionHintSerializesWithCompactKeys() throws {
-        let hint = InteractionHint(kind: "scroll", active: true)
-        let data = try JSONEncoder().encode(hint)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        #expect(json.contains("\"t\":\"interaction-hint\""))
-        #expect(json.contains("\"k\":\"scroll\""))
-        #expect(json.contains("\"a\":true"))
-        let decoded = try JSONDecoder().decode(InteractionHint.self, from: data)
-        #expect(decoded == hint)
-    }
-
-    @Test func sdpCodecInspectorReportsFirstVideoCodecAndH264Profile() {
-        let sdp = """
-        v=0
-        m=video 9 UDP/TLS/RTP/SAVPF 96 97 98
-        a=rtpmap:96 H264/90000
-        a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640c34
-        a=rtpmap:97 rtx/90000
-        a=fmtp:97 apt=96
-        a=rtpmap:98 VP9/90000
-        """
-        let codec = SdpVideoCodecInspector.firstNegotiatedVideoCodec(in: sdp)
-        #expect(codec?.name == "H264")
-        #expect(codec?.payloadType == "96")
-        #expect(codec?.h264ProfileLevelId == "640c34")
-        #expect(codec?.logSummary == "H264 pt=96 profile-level-id=640c34")
-    }
-
-    @Test func sdpCodecInspectorSkipsRepairPayloads() {
-        let sdp = """
-        v=0
-        m=video 9 UDP/TLS/RTP/SAVPF 97 96
-        a=rtpmap:97 rtx/90000
-        a=fmtp:97 apt=96
-        a=rtpmap:96 H264/90000
-        a=fmtp:96 profile-level-id=42e034
-        """
-        let codec = SdpVideoCodecInspector.firstNegotiatedVideoCodec(in: sdp)
-        #expect(codec?.name == "H264")
-        #expect(codec?.payloadType == "96")
-    }
-
-    @Test func sdpCodecInspectorReturnsNilWithoutVideoMedia() {
-        let sdp = """
-        v=0
-        m=audio 9 UDP/TLS/RTP/SAVPF 111
-        a=rtpmap:111 opus/48000/2
-        """
-        #expect(SdpVideoCodecInspector.firstNegotiatedVideoCodec(in: sdp) == nil)
-    }
-
     @Test func mediaTimingMathReportsMillisecondsPerAdvancedUnit() {
         let value = MediaTimingMath.millisecondsPerUnit(
             currentCount: 130,
@@ -418,33 +361,6 @@ struct InputChannelTests {
         #expect(MediaTimingMath.millisecondsBetween(currentNs: 1_250_000, previousNs: 1_000_000) == 0.25)
         #expect(MediaTimingMath.formatMilliseconds(1.234) == "1.23")
         #expect(MediaTimingMath.formatMilliseconds(nil) == "?")
-    }
-
-    @Test func h264OnlyCodecPolicyDropsSoftwareCodecFallbacks() {
-        let allowed = CodecPreferencePolicy.orderedAllowedIndexes(
-            capabilities: [
-                CodecCapabilityDescriptor(index: 0, name: "H264", preferredPayloadType: "96", aptPayloadType: nil),
-                CodecCapabilityDescriptor(index: 1, name: "rtx", preferredPayloadType: "97", aptPayloadType: "96"),
-                CodecCapabilityDescriptor(index: 2, name: "VP9", preferredPayloadType: "98", aptPayloadType: nil),
-                CodecCapabilityDescriptor(index: 3, name: "rtx", preferredPayloadType: "99", aptPayloadType: "98"),
-                CodecCapabilityDescriptor(index: 4, name: "VP8", preferredPayloadType: "100", aptPayloadType: nil),
-                CodecCapabilityDescriptor(index: 5, name: "red", preferredPayloadType: "101", aptPayloadType: nil)
-            ],
-            preferences: .h264Only
-        )
-
-        #expect(allowed == [0, 1, 5])
-        #expect(MediaCodecPreferences.h264Only.allows(statsMimeType: "video/H264"))
-        #expect(!MediaCodecPreferences.h264Only.allows(statsMimeType: "video/VP8"))
-    }
-
-    @Test func motionPlaneAcceptsVp9AndH264ForCodecExploration() {
-        let motion = MediaCodecPreferences.defaultPlanes[.motion]
-
-        #expect(motion == MediaCodecPreferences.vp9First)
-        #expect(motion?.allows(statsMimeType: "video/VP9") == true)
-        #expect(motion?.allows(statsMimeType: "video/H264") == true)
-        #expect(motion?.allows(statsMimeType: "video/VP8") == false)
     }
 
     @Test func openerReturnsOnlyAfterInputReady() async throws {
@@ -519,12 +435,14 @@ struct InputChannelTests {
         frameId: UInt64,
         index: UInt16,
         count: UInt16,
+        isKeyframe: Bool = false,
         payload: [UInt8] = [0xff]
     ) -> MediaDatagramFramePacket {
         MediaDatagramFramePacket(
             frameId: frameId,
             packetIndex: index,
             packetCount: count,
+            isKeyframe: isKeyframe,
             sentAtUptimeNs: 0,
             payload: Data(payload)
         )
@@ -572,20 +490,24 @@ private final class FakeInputWebSocketTask: InputWebSocketTask, @unchecked Senda
 
     func receive() async throws -> URLSessionWebSocketTask.Message {
         try await withCheckedThrowingContinuation { continuation in
-            var immediate: Result<URLSessionWebSocketTask.Message, Error>?
-            lock.lock()
-            if cancelled {
-                immediate = .failure(CancellationError())
-            } else if !receiveResults.isEmpty {
-                immediate = receiveResults.removeFirst()
-            } else {
-                receiveContinuations.append(continuation)
-            }
-            lock.unlock()
-
-            if let immediate {
+            if let immediate = takeReceiveOrStore(continuation) {
                 continuation.resume(with: immediate)
             }
+        }
+    }
+
+    private func takeReceiveOrStore(
+        _ continuation: CheckedContinuation<URLSessionWebSocketTask.Message, Error>
+    ) -> Result<URLSessionWebSocketTask.Message, Error>? {
+        lock.withLock {
+            if cancelled {
+                return .failure(CancellationError())
+            }
+            if !receiveResults.isEmpty {
+                return receiveResults.removeFirst()
+            }
+            receiveContinuations.append(continuation)
+            return nil
         }
     }
 
@@ -608,17 +530,20 @@ private final class FakeInputWebSocketTask: InputWebSocketTask, @unchecked Senda
     }
 
     private func enqueueReceive(_ result: Result<URLSessionWebSocketTask.Message, Error>) {
-        var continuation: CheckedContinuation<URLSessionWebSocketTask.Message, Error>?
-        lock.lock()
-        if receiveContinuations.isEmpty {
-            receiveResults.append(result)
-        } else {
-            continuation = receiveContinuations.removeFirst()
-        }
-        lock.unlock()
-
-        if let continuation {
+        if let continuation = takeContinuationOrStore(result) {
             continuation.resume(with: result)
+        }
+    }
+
+    private func takeContinuationOrStore(
+        _ result: Result<URLSessionWebSocketTask.Message, Error>
+    ) -> CheckedContinuation<URLSessionWebSocketTask.Message, Error>? {
+        lock.withLock {
+            if receiveContinuations.isEmpty {
+                receiveResults.append(result)
+                return nil
+            }
+            return receiveContinuations.removeFirst()
         }
     }
 }

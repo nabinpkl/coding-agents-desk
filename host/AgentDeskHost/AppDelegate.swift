@@ -113,7 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var agentSayServer: AgentSayLocalServer?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
-    private let frameSources: VideoPlaneSources = MediaStack.makeFrameSources()
+    private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()
     private var pairingSignalSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -336,7 +336,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             mediaCapabilityExpiresAt: ready.mediaCapabilityExpiresAt
         )
         signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public) session=\(active.sessionId, privacy: .public)")
-        startMediaTransport(for: active, channel: channel)
+        startMediaTransport(for: active)
         refreshConnectedState()
     }
 
@@ -352,10 +352,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshConnectedState()
     }
 
-    private func startMediaTransport(for active: ActiveSession, channel: SignalingChannel) {
+    private func startMediaTransport(for active: ActiveSession) {
         let transport = mediaFactory.make()
         sessions.attachTransport(transport, for: active.deviceFingerprint)
-        let frameSources = self.frameSources
+        let frameSource = self.frameSource
         let fingerprint = active.deviceFingerprint
 
         Task { [weak self, transport] in
@@ -364,18 +364,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // ADR-0005: input no longer rides the WebRTC data channel; the
+        // ADR-0005: input does not ride on the media transport; the
         // input dispatch task is wired in handleInputChannelReady when
         // the client opens its dedicated WSS. Media transport here is
         // video-only.
 
-        Task { [signalingLogger, transport, channel, frameSources] in
+        Task { [signalingLogger, transport, frameSource] in
             do {
                 try await transport.start(
-                    role: .offerer,
-                    signaling: channel,
-                    videoSources: frameSources,
-                    videoSinks: nil
+                    videoSource: frameSource,
+                    videoSink: nil
                 )
                 signalingLogger.notice("media transport started")
             } catch {
@@ -424,15 +422,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let spaceId = refresh {
                     provider.forceRefresh(spaceId: spaceId)
                 }
-            }
-        }
-        // Scroll/interaction hints are still routed for transport
-        // compatibility. The dual-plane client compositor owns visible
-        // quality switching.
-        server.interactionHintHandler = { [weak self] hint in
-            guard hint.kind == "scroll" else { return }
-            Task { @MainActor [weak self] in
-                self?.sessions.transport(for: clientFingerprint)?.setVideoInteractive(hint.active)
             }
         }
         let dispatcher = inputDispatcher

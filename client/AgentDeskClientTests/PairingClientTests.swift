@@ -75,7 +75,6 @@ struct PairingClientTests {
 
     @Test func postReadySessionRejectedSurfacesThroughCapabilityRefresh() async throws {
         let channel = WebSocketSignalingChannel(
-            sender: { _ in },
             capabilityRequestSender: { _ in },
             closer: {}
         )

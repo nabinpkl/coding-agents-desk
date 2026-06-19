@@ -283,7 +283,7 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
         // active tile now reads as "selected" via a transparent
         // border-only overlay over the same thumbnail every other tile
         // has, so an empty active tile would look inconsistent. The
-        // duplicate capture cost (active Space is also on the WebRTC
+        // duplicate capture cost (active Space is also on the media
         // stream) is a few ms every 3s. Trivial.
         var windowsBySpace: [UInt64: [SCWindow]] = [:]
         for win in candidates {

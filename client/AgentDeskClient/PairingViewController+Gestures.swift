@@ -265,24 +265,6 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         sendInput(input)
     }
 
-    // Touch-down on the scroll strip (active=true) primes media before
-    // motion; settle (active=false) lets it restore.
-    func gestureTranslator(_ translator: GestureTranslator, scrollInteractionActive active: Bool) {
-        if let dualSink = videoSink as? DualPlaneVideoSink {
-            dualSink.setMotionActive(active)
-        } else if let ownedSink = videoSink as? any OwnedMediaFrameSink {
-            ownedSink.setMotionActive(active)
-        }
-        sendInteractionHint(InteractionHint(kind: "scroll", active: active))
-    }
-
-    func sendInteractionHint(_ hint: InteractionHint) {
-        guard let channel = pairingClient.activeInputChannel else { return }
-        Task { [channel, hint] in
-            try? await channel.sendInteractionHint(hint)
-        }
-    }
-
     // MARK: - ThumbnailStripViewDelegate
 
     // R20: a tap on a non-active tile sends one .switchSpaceStep frame
@@ -337,7 +319,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     }
 
     // ADR-0005: input rides its own WebSocket Secure channel,
-    // independent of the WebRTC video PC. The channel send is async;
+    // independent of the owned media channel. The channel send is async;
     // fire-and-forget into a detached Task so the trackpad / keyboard
     // caller stays synchronous and main-thread.
     func sendInput(_ input: NormalizedInput) {

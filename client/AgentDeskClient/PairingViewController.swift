@@ -3,7 +3,7 @@ import UIKit
 
 // Pairing + session lifecycle owner. The view controller threads three
 // concerns: the pairing screen (status label, action button, QR camera),
-// the state-machine render, and the WebRTC session start/teardown.
+// the state-machine render, and the owned media session start/teardown.
 // Layout / orientation, keyboard, edge-follow, and gesture forwarding
 // live in companion extensions under PairingViewController+*.swift. All
 // stored properties stay here; extensions reach them as same-module
@@ -20,7 +20,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var sessionTask: Task<Void, Never>?
     var mediaTransport: MediaTransport?
     var videoSink: VideoFrameSink?
-    // R21: pinch-zoom container around the WebRTC sink. Local-only zoom
+    // R21: pinch-zoom container around the owned media sink. Local-only zoom
     // via UIScrollView transform; ADR-0008 dropped the host-side
     // sourceRect crop path in favour of native-pixel encoder density.
     var sinkScrollView: UIScrollView?
@@ -36,7 +36,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var activeDisplayIdMirror: String?
     // Local cursor overlay. Moves immediately from cursorSourcePos on
     // every gesture delta so the user sees instant cursor response
-    // without waiting for the Mac → WebRTC → iOS video round-trip.
+    // without waiting for the Mac -> owned media -> iOS video round-trip.
     var cursorDotView: CursorPointerView?
     // Cursor-image mirror state. The host pushes the real cursor glyph on
     // shape change; we cache it and stamp it at the predicted position.
@@ -191,7 +191,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     // R13.1: on background, tear down both transports explicitly. iOS
-    // suspends the app and the WebRTC PC / input WS quietly die in
+    // suspends the app and the media / input connections quietly die in
     // some network conditions; if we don't flip state here, foreground
     // sees state=.connected and triggerSessionIfPaired short-circuits,
     // leaving the user with a zombie session that produces no input
@@ -248,17 +248,13 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     func startMediaTransportIfNeeded() {
         guard mediaTransport == nil,
-              let signaling = pairingClient.activeSignaling else { return }
-        let mode = pairingClient.activeMediaMode
-        let activePlanes = pairingClient.activeMediaPlanes
-        let sink = MediaStack.makeVideoSink(mode: mode, activePlanes: activePlanes)
+              pairingClient.activeSignaling != nil else { return }
+        let sink = MediaStack.makeVideoSink()
         let mediaFactory = MediaStack.makeFactory(
-            mode: mode,
             host: pairingClient.activeHost,
             port: pairingClient.activePort,
             active: activeSessionForMedia(),
-            mediaCapability: pairingClient.activeMediaCapability,
-            urlSession: pairingClient.mediaURLSession
+            mediaCapability: pairingClient.activeMediaCapability
         )
         let transport = mediaFactory.make()
         videoSink = sink
@@ -275,15 +271,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             }
         }
 
-        Task { [transport, signaling, sink] in
+        Task { [transport, sink] in
             try? await transport.start(
-                role: .answerer,
-                signaling: signaling,
-                videoSources: nil,
-                videoSinks: VideoPlaneSinks([
-                    .detail: sink,
-                    .motion: sink
-                ])
+                videoSource: nil,
+                videoSink: sink
             )
         }
     }

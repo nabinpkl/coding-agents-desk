@@ -20,6 +20,7 @@ client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.0"
 client_build_number := env_var_or_default("AGENTDESK_CLIENT_BUILD", "1")
 
 check:
+    sh tools/media-architecture-guard.sh
     sh tools/launch-env-tests.sh
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost build test
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
@@ -72,15 +73,8 @@ iphone-log-collect:
 # disturb the running host. Each var is only unset if we set it, so a
 # value the user pinned into launchd out-of-band survives.
 #
-# AGENTDESK_CODEC is forwarded for device A/B runs. The default remains
-# the app's central MediaStack choice; setting AGENTDESK_CODEC=h264 forces
-# the hardware-decoder candidate path for feel testing.
-#
-# AGENTDESK_MEDIA_STACK and AGENTDESK_OWNED_MEDIA_* are forwarded for the
-# owned VideoToolbox media prototype gate.
-#
-# AGENTDESK_TUNING_* is forwarded as a prefix so media feel runs can use
-# one-shot shell overrides with `just fresh-install`.
+# AGENTDESK_OWNED_MEDIA_* is forwarded for one-shot owned media feel runs
+# with `just fresh-install`.
 host-run:
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug build >/dev/null
     -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true

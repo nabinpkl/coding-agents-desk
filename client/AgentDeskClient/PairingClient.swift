@@ -183,14 +183,12 @@ final class PairingClient {
     // ADR-0005: dedicated input transport. PairingViewController.sendInput
     // routes through this instead of the deleted MediaTransport.send.
     private(set) var activeInputChannel: InputChannel?
-    private(set) var activeMediaMode: MediaMode = .webrtc
     private(set) var activeMediaCapability: MediaCapabilityGrant?
-    private(set) var activeMediaPlanes: [MediaPlane] = MediaPlane.allCases
     private(set) var activeHost: String?
     private(set) var activePort: UInt16 = Config.signalingPort
     private var inputReconnectTask: Task<Void, Never>?
 
-    /// Called by PairingViewController when the WebRTC media plane reports
+    /// Called by PairingViewController when the owned media channel reports
     /// .failed (or 5s of .disconnected). Tears down the signaling channel
     /// and transitions to .pairedDisconnected so the foreground auto-dial
     /// path can retry on next willEnterForeground.
@@ -259,17 +257,13 @@ final class PairingClient {
                 active: connection.active,
                 signaling: connection.signaling,
                 inputChannel: inputChannel,
-                mediaMode: connection.mediaMode,
                 mediaCapability: connection.mediaCapability,
-                mediaPlanes: connection.mediaPlanes,
                 host: host,
                 port: port
             )
             activeSignaling = session.signaling
             activeInputChannel = session.inputChannel
-            activeMediaMode = session.mediaMode
             activeMediaCapability = session.mediaCapability
-            activeMediaPlanes = session.mediaPlanes
             activeHost = session.host
             activePort = session.port
             startInputReconnectMonitor(
@@ -378,9 +372,7 @@ final class PairingClient {
     }
 
     private func resetActiveMediaSession() {
-        activeMediaMode = .webrtc
         activeMediaCapability = nil
-        activeMediaPlanes = MediaPlane.allCases
         activeHost = nil
         activePort = Config.signalingPort
     }

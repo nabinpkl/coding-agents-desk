@@ -81,13 +81,6 @@ final class SessionDialer {
         )
 
         let channel = WebSocketSignalingChannel(
-            sender: { frame in
-                let data = try JSONEncoder().encode(frame)
-                guard let text = String(data: data, encoding: .utf8) else {
-                    throw SessionRejected(reason: .malformed)
-                }
-                try await task.send(.string(text))
-            },
             capabilityRequestSender: { request in
                 let data = try JSONEncoder().encode(request)
                 guard let text = String(data: data, encoding: .utf8) else {
@@ -115,9 +108,7 @@ final class SessionDialer {
                         channel.close()
                         return
                     }
-                    if let frame = try? JSONDecoder().decode(WebRTCSignalingFrame.self, from: data) {
-                        channel.deliver(frame)
-                    } else if let grant = try? JSONDecoder().decode(InputCapabilityGrant.self, from: data),
+                    if let grant = try? JSONDecoder().decode(InputCapabilityGrant.self, from: data),
                               grant.type == "input-capability-grant" {
                         channel.deliver(grant)
                     } else if let rejected = try? JSONDecoder().decode(SessionRejected.self, from: data),
@@ -145,9 +136,7 @@ final class SessionDialer {
             ),
             signaling: channel,
             inputCapability: inputCapability,
-            mediaMode: ready.mediaMode,
-            mediaCapability: mediaCapability,
-            mediaPlanes: ready.mediaPlanes
+            mediaCapability: mediaCapability
         )
     }
 

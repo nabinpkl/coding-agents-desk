@@ -28,10 +28,8 @@
 		A00000000000000000000214 /* MediaStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000114 /* MediaStack.swift */; };
 		A00000000000000000000215 /* WebSocketSignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000115 /* WebSocketSignalingChannel.swift */; };
 		A00000000000000000000216 /* SignalingFrameRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000116 /* SignalingFrameRouting.swift */; };
-		A00000000000000000000217 /* LibWebRTCMediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000117 /* LibWebRTCMediaTransport.swift */; };
 		A00000000000000000000A01 /* OwnedMediaChannelServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A00 /* OwnedMediaChannelServer.swift */; };
 		A00000000000000000000A03 /* OwnedMediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A02 /* OwnedMediaTransport.swift */; };
-		A00000000000000000000218 /* WebRTCVideoCapturer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000118 /* WebRTCVideoCapturer.swift */; };
 		A00000000000000000000219 /* TestPatternFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000119 /* TestPatternFrameSource.swift */; };
 		A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */; };
 		A0000000000000000000021B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011B /* Assets.xcassets */; };
@@ -40,7 +38,6 @@
 		A00000000000000000000232 /* KeyCodeMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011E /* KeyCodeMap.swift */; };
 		A0000000000000000000022D /* SignalingFrameRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000116 /* SignalingFrameRouting.swift */; };
 		A0000000000000000000022E /* SignalingFrameRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000124 /* SignalingFrameRoutingTests.swift */; };
-		A00000000000000000000401 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000501 /* WebRTC */; };
 		A00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* Base64URL.swift */; };
 		A00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Config.swift */; };
 		A00000000000000000000223 /* HostSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HostSigningKeyStore.swift */; };
@@ -130,10 +127,8 @@
 		A00000000000000000000114 /* MediaStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaStack.swift; sourceTree = "<group>"; };
 		A00000000000000000000115 /* WebSocketSignalingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketSignalingChannel.swift; sourceTree = "<group>"; };
 		A00000000000000000000116 /* SignalingFrameRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingFrameRouting.swift; sourceTree = "<group>"; };
-		A00000000000000000000117 /* LibWebRTCMediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibWebRTCMediaTransport.swift; sourceTree = "<group>"; };
 		A00000000000000000000A00 /* OwnedMediaChannelServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaChannelServer.swift; sourceTree = "<group>"; };
 		A00000000000000000000A02 /* OwnedMediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaTransport.swift; sourceTree = "<group>"; };
-		A00000000000000000000118 /* WebRTCVideoCapturer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebRTCVideoCapturer.swift; sourceTree = "<group>"; };
 		A00000000000000000000119 /* TestPatternFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestPatternFrameSource.swift; sourceTree = "<group>"; };
 		A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureKitFrameSource.swift; sourceTree = "<group>"; };
 		A0000000000000000000011C /* InputDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcher.swift; sourceTree = "<group>"; };
@@ -184,7 +179,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A00000000000000000000401 /* WebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -247,10 +241,8 @@
 				A00000000000000000000114 /* MediaStack.swift */,
 				A00000000000000000000115 /* WebSocketSignalingChannel.swift */,
 				A00000000000000000000116 /* SignalingFrameRouting.swift */,
-				A00000000000000000000117 /* LibWebRTCMediaTransport.swift */,
 				A00000000000000000000A00 /* OwnedMediaChannelServer.swift */,
 				A00000000000000000000A02 /* OwnedMediaTransport.swift */,
-				A00000000000000000000118 /* WebRTCVideoCapturer.swift */,
 				A00000000000000000000119 /* TestPatternFrameSource.swift */,
 				A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */,
 				A0000000000000000000011C /* InputDispatcher.swift */,
@@ -339,7 +331,6 @@
 			);
 			name = AgentDeskHost;
 			packageProductDependencies = (
-				A00000000000000000000501 /* WebRTC */,
 			);
 			productName = AgentDeskHost;
 			productReference = A00000000000000000000141 /* AgentDeskHost.app */;
@@ -391,7 +382,6 @@
 			);
 			mainGroup = A00000000000000000000002;
 			packageReferences = (
-				A00000000000000000000601 /* XCRemoteSwiftPackageReference "WebRTC" */,
 			);
 			productRefGroup = A00000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -403,24 +393,7 @@
 		};
 /* End PBXProject section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		A00000000000000000000601 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/stasel/WebRTC";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 130.0.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
 
-/* Begin XCSwiftPackageProductDependency section */
-		A00000000000000000000501 /* WebRTC */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A00000000000000000000601 /* XCRemoteSwiftPackageReference "WebRTC" */;
-			productName = WebRTC;
-		};
-/* End XCSwiftPackageProductDependency section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A00000000000000000000303 /* Resources */ = {
@@ -466,10 +439,8 @@
 				A00000000000000000000214 /* MediaStack.swift in Sources */,
 				A00000000000000000000215 /* WebSocketSignalingChannel.swift in Sources */,
 				A00000000000000000000216 /* SignalingFrameRouting.swift in Sources */,
-				A00000000000000000000217 /* LibWebRTCMediaTransport.swift in Sources */,
 				A00000000000000000000A01 /* OwnedMediaChannelServer.swift in Sources */,
 				A00000000000000000000A03 /* OwnedMediaTransport.swift in Sources */,
-				A00000000000000000000218 /* WebRTCVideoCapturer.swift in Sources */,
 				A00000000000000000000219 /* TestPatternFrameSource.swift in Sources */,
 				A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */,
 				A0000000000000000000021C /* InputDispatcher.swift in Sources */,

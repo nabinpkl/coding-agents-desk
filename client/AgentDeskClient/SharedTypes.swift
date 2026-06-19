@@ -233,49 +233,36 @@ struct SessionProof: Codable, Equatable {
     }
 }
 
-enum MediaMode: String, Codable, Equatable {
-    case webrtc
-    case owned
-}
-
 struct SessionReady: Codable, Equatable {
     let type: String
     let sessionId: String
     let inputCapability: String
     let inputCapabilityExpiresAt: Int
-    let mediaMode: MediaMode
     let mediaCapability: String
     let mediaCapabilityExpiresAt: Int
-    let mediaPlanes: [MediaPlane]
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case sessionId = "sid"
         case inputCapability = "ic"
         case inputCapabilityExpiresAt = "ie"
-        case mediaMode = "mm"
         case mediaCapability = "mc"
         case mediaCapabilityExpiresAt = "me"
-        case mediaPlanes = "mp"
     }
 
     init(
         sessionId: String,
         inputCapability: String,
         inputCapabilityExpiresAt: Int,
-        mediaMode: MediaMode = .webrtc,
         mediaCapability: String = "",
-        mediaCapabilityExpiresAt: Int = 0,
-        mediaPlanes: [MediaPlane] = MediaPlane.allCases
+        mediaCapabilityExpiresAt: Int = 0
     ) {
         self.type = "session-ready"
         self.sessionId = sessionId
         self.inputCapability = inputCapability
         self.inputCapabilityExpiresAt = inputCapabilityExpiresAt
-        self.mediaMode = mediaMode
         self.mediaCapability = mediaCapability
         self.mediaCapabilityExpiresAt = mediaCapabilityExpiresAt
-        self.mediaPlanes = mediaPlanes
     }
 
     init(from decoder: Decoder) throws {
@@ -284,10 +271,8 @@ struct SessionReady: Codable, Equatable {
         sessionId = try container.decode(String.self, forKey: .sessionId)
         inputCapability = try container.decode(String.self, forKey: .inputCapability)
         inputCapabilityExpiresAt = try container.decode(Int.self, forKey: .inputCapabilityExpiresAt)
-        mediaMode = try container.decodeIfPresent(MediaMode.self, forKey: .mediaMode) ?? .webrtc
         mediaCapability = try container.decodeIfPresent(String.self, forKey: .mediaCapability) ?? ""
         mediaCapabilityExpiresAt = try container.decodeIfPresent(Int.self, forKey: .mediaCapabilityExpiresAt) ?? 0
-        mediaPlanes = try container.decodeIfPresent([MediaPlane].self, forKey: .mediaPlanes) ?? MediaPlane.allCases
     }
 
     func encode(to encoder: Encoder) throws {
@@ -296,10 +281,8 @@ struct SessionReady: Codable, Equatable {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(inputCapability, forKey: .inputCapability)
         try container.encode(inputCapabilityExpiresAt, forKey: .inputCapabilityExpiresAt)
-        try container.encode(mediaMode, forKey: .mediaMode)
         try container.encode(mediaCapability, forKey: .mediaCapability)
         try container.encode(mediaCapabilityExpiresAt, forKey: .mediaCapabilityExpiresAt)
-        try container.encode(mediaPlanes, forKey: .mediaPlanes)
     }
 }
 
@@ -432,7 +415,6 @@ struct OwnedMediaParameterSets: Codable, Equatable {
 
 struct OwnedMediaFrameHeader: Codable, Equatable {
     let frameId: UInt64
-    let plane: MediaPlane
     let codec: OwnedMediaCodec
     let width: Int
     let height: Int
@@ -444,7 +426,6 @@ struct OwnedMediaFrameHeader: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case frameId = "id"
-        case plane = "pl"
         case codec = "c"
         case width = "w"
         case height = "h"
@@ -457,7 +438,6 @@ struct OwnedMediaFrameHeader: Codable, Equatable {
 
     init(
         frameId: UInt64,
-        plane: MediaPlane,
         codec: OwnedMediaCodec,
         width: Int,
         height: Int,
@@ -468,7 +448,6 @@ struct OwnedMediaFrameHeader: Codable, Equatable {
         payloadFormat: OwnedMediaPayloadFormat = .lengthPrefixedNal
     ) {
         self.frameId = frameId
-        self.plane = plane
         self.codec = codec
         self.width = width
         self.height = height
@@ -528,74 +507,6 @@ struct OwnedMediaFrameEnvelope: Equatable {
     }
 }
 
-// ADR-0004 post-SessionReady signaling frames. Mirror of host's definition.
-
-enum WebRTCSignalingFrame: Codable, Equatable {
-    case offer(sdp: String)
-    case answer(sdp: String)
-    case ice(sdp: String, sdpMid: String?, sdpMLineIndex: Int32)
-
-    private enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case sdp = "s"
-        case sdpMid = "m"
-        case sdpMLineIndex = "i"
-    }
-
-    private enum FrameType: String {
-        case offer = "webrtc-offer"
-        case answer = "webrtc-answer"
-        case ice = "webrtc-ice"
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let typeString = try container.decode(String.self, forKey: .type)
-        guard let frameType = FrameType(rawValue: typeString) else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .type,
-                in: container,
-                debugDescription: "unknown webrtc frame type: \(typeString)"
-            )
-        }
-        switch frameType {
-        case .offer:
-            self = .offer(sdp: try container.decode(String.self, forKey: .sdp))
-        case .answer:
-            self = .answer(sdp: try container.decode(String.self, forKey: .sdp))
-        case .ice:
-            self = .ice(
-                sdp: try container.decode(String.self, forKey: .sdp),
-                sdpMid: try container.decodeIfPresent(String.self, forKey: .sdpMid),
-                sdpMLineIndex: try container.decode(Int32.self, forKey: .sdpMLineIndex)
-            )
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .offer(let sdp):
-            try container.encode(FrameType.offer.rawValue, forKey: .type)
-            try container.encode(sdp, forKey: .sdp)
-        case .answer(let sdp):
-            try container.encode(FrameType.answer.rawValue, forKey: .type)
-            try container.encode(sdp, forKey: .sdp)
-        case .ice(let sdp, let sdpMid, let sdpMLineIndex):
-            try container.encode(FrameType.ice.rawValue, forKey: .type)
-            try container.encode(sdp, forKey: .sdp)
-            try container.encodeIfPresent(sdpMid, forKey: .sdpMid)
-            try container.encode(sdpMLineIndex, forKey: .sdpMLineIndex)
-        }
-    }
-
-    static let frameTypeValues: Set<String> = [
-        FrameType.offer.rawValue,
-        FrameType.answer.rawValue,
-        FrameType.ice.rawValue
-    ]
-}
-
 enum SessionSigning {
     static let domainPrefix = "agentdesk-session"
 
@@ -612,76 +523,6 @@ enum SessionSigning {
         data.append(Data(hostFingerprint.utf8))
         data.append(Data(deviceFingerprint.rawValue.utf8))
         return data
-    }
-}
-
-struct NegotiatedVideoCodec: Equatable {
-    let payloadType: String
-    let name: String
-    let fmtp: String?
-
-    var h264ProfileLevelId: String? {
-        guard name.uppercased() == "H264", let fmtp else { return nil }
-        return fmtp
-            .split(separator: ";")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { $0.lowercased().hasPrefix("profile-level-id=") }
-            .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }
-    }
-
-    var logSummary: String {
-        if let h264ProfileLevelId {
-            return "\(name) pt=\(payloadType) profile-level-id=\(h264ProfileLevelId)"
-        }
-        if let fmtp, !fmtp.isEmpty {
-            return "\(name) pt=\(payloadType) fmtp=\(fmtp)"
-        }
-        return "\(name) pt=\(payloadType)"
-    }
-}
-
-enum SdpVideoCodecInspector {
-    static func firstNegotiatedVideoCodec(in sdp: String) -> NegotiatedVideoCodec? {
-        let lines = sdp
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .split(separator: "\n")
-            .map(String.init)
-        guard let mediaLine = lines.first(where: { $0.hasPrefix("m=video ") }) else {
-            return nil
-        }
-        let payloadTypes = mediaLine.split(separator: " ").dropFirst(3).map(String.init)
-        guard !payloadTypes.isEmpty else { return nil }
-
-        var namesByPayload: [String: String] = [:]
-        var fmtpByPayload: [String: String] = [:]
-        for line in lines {
-            if line.hasPrefix("a=rtpmap:") {
-                let rest = String(line.dropFirst("a=rtpmap:".count))
-                let parts = rest.split(separator: " ", maxSplits: 1).map(String.init)
-                guard parts.count == 2 else { continue }
-                let codecName = parts[1].split(separator: "/", maxSplits: 1).first.map(String.init) ?? parts[1]
-                namesByPayload[parts[0]] = codecName.uppercased()
-            } else if line.hasPrefix("a=fmtp:") {
-                let rest = String(line.dropFirst("a=fmtp:".count))
-                let parts = rest.split(separator: " ", maxSplits: 1).map(String.init)
-                guard parts.count == 2 else { continue }
-                fmtpByPayload[parts[0]] = parts[1]
-            }
-        }
-
-        for payloadType in payloadTypes {
-            guard let name = namesByPayload[payloadType] else { continue }
-            if name == "RTX" || name == "RED" || name == "ULPFEC" {
-                continue
-            }
-            return NegotiatedVideoCodec(
-                payloadType: payloadType,
-                name: name,
-                fmtp: fmtpByPayload[payloadType]
-            )
-        }
-        return nil
     }
 }
 
@@ -1148,26 +989,5 @@ struct ClientConfig: Codable, Equatable {
         self.type = "client-config"
         self.thumbnailsEnabled = thumbnailsEnabled
         self.thumbnailRefresh = thumbnailRefresh
-    }
-}
-
-// Client -> host interaction hint. Mirror of the host definition. Sent on
-// scroll-strip touch-down (before motion) and on settle so the host can
-// drop video quality for smooth scrolling and restore it afterward.
-struct InteractionHint: Codable, Equatable {
-    let type: String
-    let kind: String
-    let active: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case kind = "k"
-        case active = "a"
-    }
-
-    init(kind: String, active: Bool) {
-        self.type = "interaction-hint"
-        self.kind = kind
-        self.active = active
     }
 }

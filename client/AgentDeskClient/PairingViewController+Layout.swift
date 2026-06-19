@@ -15,9 +15,8 @@ extension PairingViewController {
         //
         // R21: the sink is wrapped in a UIScrollView so pinch and pan
         // zoom the visible slice of the Mac display. UIScrollView is
-        // the canonical iOS path for zoom-and-pan (per the hackingwithswift
-        // recipe and the libwebrtc-iOS community pattern for
-        // RTCMTLVideoView, which is a plain MTKView). Local-only zoom
+        // the canonical iOS path for zoom-and-pan around a plain video view.
+        // Local-only zoom
         // in v0; cursor wire shape is unchanged.
         let scroll = UIScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false

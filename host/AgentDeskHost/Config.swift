@@ -1,27 +1,6 @@
 import Foundation
 
 enum Config {
-    enum MediaStackMode: String {
-        case webrtc
-        case owned
-
-        init(rawEnvironmentValue: String?) {
-            switch rawEnvironmentValue?.lowercased() {
-            case "owned":
-                self = .owned
-            default:
-                self = .webrtc
-            }
-        }
-
-        var mediaMode: MediaMode {
-            switch self {
-            case .webrtc: .webrtc
-            case .owned: .owned
-            }
-        }
-    }
-
     enum OwnedMediaCodecChoice: String {
         case hevc
         case h264
@@ -120,9 +99,6 @@ enum Config {
     static let nonceTTL: TimeInterval = 90
     static let inputCapabilityTTL: TimeInterval = 60
     static let mediaCapabilityTTL: TimeInterval = 60
-    static let mediaStackMode = MediaStackMode(
-        rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_MEDIA_STACK"]
-    )
     static let ownedMediaCodec = OwnedMediaCodecChoice(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_CODEC"]
     )
@@ -163,7 +139,7 @@ enum Config {
     )
     static let ownedMediaBitrateKbps = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_KBPS",
-        defaultValue: SenderTuning.fromEnvironment(ProcessInfo.processInfo.environment).crispProfile.maxBitrateKbps
+        defaultValue: 8_000
     )
     static let ownedMediaExpectedFrameRate = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS",

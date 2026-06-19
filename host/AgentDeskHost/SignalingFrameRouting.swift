@@ -12,7 +12,6 @@ enum FirstFrameRoute: Equatable {
 }
 
 enum ActiveSessionFrameRoute: Equatable {
-    case webrtc(WebRTCSignalingFrame)
     case inputCapabilityRefresh(InputCapabilityRefreshRequest)
     case malformed
 }
@@ -51,9 +50,6 @@ enum SignalingFrameRouter {
     }
 
     static func classifyActiveSessionFrame(_ data: Data) -> ActiveSessionFrameRoute {
-        if let frame = try? JSONDecoder().decode(WebRTCSignalingFrame.self, from: data) {
-            return .webrtc(frame)
-        }
         if let request = try? JSONDecoder().decode(InputCapabilityRefreshRequest.self, from: data),
            request.type == "input-capability-refresh" {
             return .inputCapabilityRefresh(request)

@@ -13,10 +13,8 @@ struct SessionAuthenticatorTests {
         #expect(!ready.sessionId.isEmpty)
         #expect(!ready.inputCapability.isEmpty)
         #expect(ready.inputCapabilityExpiresAt == Int(fixture.clock.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970))
-        #expect(ready.mediaMode == .webrtc)
         #expect(!ready.mediaCapability.isEmpty)
         #expect(ready.mediaCapabilityExpiresAt == Int(fixture.clock.addingTimeInterval(Config.mediaCapabilityTTL).timeIntervalSince1970))
-        #expect(ready.mediaPlanes == MediaPlane.allCases)
         #expect(active.sessionId == ready.sessionId)
         #expect(active.deviceFingerprint == fixture.deviceFingerprint)
         #expect(active.establishedAt == Int(fixture.clock.timeIntervalSince1970))
@@ -370,21 +368,10 @@ private final class ByteSequence {
 }
 
 private final class FakeSignalingChannel: SignalingChannel, @unchecked Sendable {
-    let inbound: AsyncStream<WebRTCSignalingFrame>
-    private let continuation: AsyncStream<WebRTCSignalingFrame>.Continuation
     private(set) var closed = false
-
-    init() {
-        var continuation: AsyncStream<WebRTCSignalingFrame>.Continuation!
-        inbound = AsyncStream { continuation = $0 }
-        self.continuation = continuation
-    }
-
-    func send(_ frame: WebRTCSignalingFrame) async throws {}
 
     func close() {
         closed = true
-        continuation.finish()
     }
 }
 
@@ -393,7 +380,6 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     private let continuation: AsyncStream<NormalizedInput>.Continuation
     private(set) var closed = false
     var configHandler: ((ClientConfig) -> Void)?
-    var interactionHintHandler: ((InteractionHint) -> Void)?
 
     init() {
         var continuation: AsyncStream<NormalizedInput>.Continuation!
@@ -424,17 +410,13 @@ private final class FakeMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     func start(
-        role: MediaTransportRole,
-        signaling: SignalingChannel,
-        videoSources: VideoPlaneSources?,
-        videoSinks: VideoPlaneSinks?
+        videoSource: VideoFrameSource?,
+        videoSink: VideoFrameSink?
     ) async throws {}
 
     func stop() {
         stopped = true
     }
-
-    func setVideoInteractive(_ active: Bool) {}
 }
 
 private final class Fixture {

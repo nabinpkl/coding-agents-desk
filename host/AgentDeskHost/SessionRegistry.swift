@@ -253,7 +253,7 @@ final class SessionRegistry {
     }
 
     // ADR-0005: input channel server has its own NWConnection independent
-    // of the WebRTC PeerConnection. Registry owns its close() so session
+    // of the media channel. Registry owns its close() so session
     // teardown reliably tears it down without each call site having to
     // remember.
     func attachInputChannelServer(_ server: any InputChannelServing, for fingerprint: DeviceFingerprint) {

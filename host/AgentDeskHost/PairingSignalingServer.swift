@@ -216,9 +216,6 @@ final class PairingSignalingServer: @unchecked Sendable {
         on connection: NWConnection
     ) {
         switch SignalingFrameRouter.classifyActiveSessionFrame(data) {
-        case .webrtc(let frame):
-            channel.deliver(frame)
-            receiveNextMessage(on: connection)
         case .inputCapabilityRefresh(let request):
             guard request.deviceFingerprint == context.activeSessionFingerprint,
                   request.sessionId == context.activeSessionId
@@ -396,34 +393,10 @@ final class PairingSignalingServer: @unchecked Sendable {
 
     private func makeActiveSessionChannel(on connection: NWConnection) -> WebSocketSignalingChannel {
         WebSocketSignalingChannel(
-            sender: { [weak self, weak connection] frame in
-                guard let self, let connection else { return }
-                try await self.sendActiveSessionFrame(frame, on: connection)
-            },
             closer: { [weak connection] in
                 connection?.cancel()
             }
         )
-    }
-
-    private func sendActiveSessionFrame(_ frame: WebRTCSignalingFrame, on connection: NWConnection) async throws {
-        let data = try JSONEncoder().encode(frame)
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
-            let context = NWConnection.ContentContext(identifier: "webrtc-frame", metadata: [metadata])
-            connection.send(
-                content: data,
-                contentContext: context,
-                isComplete: true,
-                completion: .contentProcessed { error in
-                    if let error {
-                        continuation.resume(throwing: error)
-                    } else {
-                        continuation.resume()
-                    }
-                }
-            )
-        }
     }
 
     private func sendWebSocket(data: Data, identifier: String, on connection: NWConnection) {

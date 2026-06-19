@@ -65,6 +65,7 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
             let data = try envelope.encode()
             let packets = try MediaDatagramFramePacket.packetize(
                 frameId: frameId,
+                isKeyframe: isKeyframe,
                 sentAtUptimeNs: envelope.header.capturedAtUptimeNs,
                 payload: data,
                 key: key
@@ -246,19 +247,22 @@ enum MediaDatagramPacketError: Error {
 struct MediaDatagramFramePacket: Equatable {
     static let maxPayloadBytes = 1_050
     private static let magic = Data([0x41, 0x44, 0x4d, 0x44]) // ADMD
-    private static let version: UInt8 = 1
+    private static let version: UInt8 = 2
     private static let frameKind: UInt8 = 3
-    private static let headerPrefixLength = 32
+    private static let keyframeFlag: UInt8 = 1 << 0
+    private static let headerPrefixLength = 33
     private static let macLength = 32
 
     let frameId: UInt64
     let packetIndex: UInt16
     let packetCount: UInt16
+    let isKeyframe: Bool
     let sentAtUptimeNs: UInt64
     let payload: Data
 
     static func packetize(
         frameId: UInt64,
+        isKeyframe: Bool,
         sentAtUptimeNs: UInt64,
         payload: Data,
         key: SymmetricKey
@@ -275,6 +279,7 @@ struct MediaDatagramFramePacket: Equatable {
                 frameId: frameId,
                 packetIndex: UInt16(index),
                 packetCount: UInt16(count),
+                isKeyframe: isKeyframe,
                 sentAtUptimeNs: sentAtUptimeNs,
                 payload: chunk,
                 key: key
@@ -291,7 +296,7 @@ struct MediaDatagramFramePacket: Equatable {
         else {
             throw MediaDatagramPacketError.malformed
         }
-        let payloadLength = Int(try data.readUInt16BE(at: 30))
+        let payloadLength = Int(try data.readUInt16BE(at: 31))
         let expectedLength = headerPrefixLength + macLength + payloadLength
         guard data.count == expectedLength else {
             throw MediaDatagramPacketError.malformed
@@ -304,13 +309,14 @@ struct MediaDatagramFramePacket: Equatable {
         guard Data(expectedMac) == actualMac else {
             throw MediaDatagramPacketError.authenticationFailed
         }
-        let packetCount = try data.readUInt16BE(at: 20)
+        let packetCount = try data.readUInt16BE(at: 21)
         guard packetCount > 0 else { throw MediaDatagramPacketError.malformed }
         return MediaDatagramFramePacket(
-            frameId: try data.readUInt64BE(at: 10),
-            packetIndex: try data.readUInt16BE(at: 18),
+            frameId: try data.readUInt64BE(at: 11),
+            packetIndex: try data.readUInt16BE(at: 19),
             packetCount: packetCount,
-            sentAtUptimeNs: try data.readUInt64BE(at: 22),
+            isKeyframe: (data[6] & keyframeFlag) != 0,
+            sentAtUptimeNs: try data.readUInt64BE(at: 23),
             payload: Data(payload)
         )
     }
@@ -319,6 +325,7 @@ struct MediaDatagramFramePacket: Equatable {
         frameId: UInt64,
         packetIndex: UInt16,
         packetCount: UInt16,
+        isKeyframe: Bool,
         sentAtUptimeNs: UInt64,
         payload: Data,
         key: SymmetricKey
@@ -330,6 +337,7 @@ struct MediaDatagramFramePacket: Equatable {
         prefix.append(magic)
         prefix.append(version)
         prefix.append(frameKind)
+        prefix.append(isKeyframe ? keyframeFlag : 0)
         prefix.appendUInt32BE(0)
         prefix.appendUInt64BE(frameId)
         prefix.appendUInt16BE(packetIndex)
@@ -348,7 +356,7 @@ struct MediaDatagramFramePacket: Equatable {
 
 struct MediaDatagramCrypto {
     static func key(mediaCapability: String, clientNonce: Data, serverNonce: Data) -> SymmetricKey {
-        var seed = Data("agentdesk-owned-media-datagram-v1".utf8)
+        var seed = Data("agentdesk-owned-media-datagram-v2".utf8)
         seed.append(Data(mediaCapability.utf8))
         seed.append(clientNonce)
         seed.append(serverNonce)

@@ -18,7 +18,7 @@ Secondary pain: AnyDesk on phone often degrades to a black canvas with a moving 
 
 ## Solution
 
-Native iOS app plus native macOS menu-bar host, paired over Tailscale, streaming HEVC over WebRTC. The iPhone shows the active Space at native DPR with an AnyDesk-style trackpad and a compact keyboard, plus a one-handed Spaces control that drives the host's native Spaces transition.
+Native iOS app plus native macOS menu-bar host, paired over Tailscale, streaming hardware-encoded desktop video over owned authenticated QUIC datagrams. The iPhone shows the active Space at native DPR with an AnyDesk-style trackpad and a compact keyboard, plus a one-handed Spaces control that drives the host's native Spaces transition.
 
 The macOS host also owns a local **Space Agent** overlay: a small draggable spaceship that stays visible while the host app runs. Clicking the spaceship expands an attached Spaces panel showing live thumbnails for the active display's user Spaces; clicking a non-active Space switches the Mac to it. This is a host-side desktop navigator, not the iPhone remote-control surface.
 
@@ -44,7 +44,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 - **Not multi-user.** Single bearer token in Keychain. No accounts, no sharing.
 - **Not internet-routable.** Tailscale-only. No STUN, no TURN, no VPS, no relay.
 - **Not cross-platform.** macOS host and iOS client only. No Android, no web, no Windows host.
-- **No file transfer, no clipboard sync, no audio on the remote pipeline.** The iPhone-to-Mac path ships pixels and input only. One host-local exception: a push-to-talk dictation bar on the Mac records a short mic clip in memory and transcribes it through a localhost service (ADR-0010). It does not add audio to the WebRTC media plane or any iPhone wire contract.
+- **No file transfer, no clipboard sync, no audio on the remote pipeline.** The iPhone-to-Mac path ships pixels and input only. One host-local exception: a push-to-talk dictation bar on the Mac records a short mic clip in memory and transcribes it through a localhost service (ADR-0010). It does not add audio to the remote media channel or any iPhone wire contract.
 
 ## Explicitly deferred
 

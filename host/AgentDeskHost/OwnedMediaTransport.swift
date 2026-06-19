@@ -41,7 +41,7 @@ struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
         expectedPixelFormat: nil,
         hevcProfileLevel: nil,
         maxAllowedFrameQP: nil,
-        targetBitrateKbps: SenderTuning.fromEnvironment(ProcessInfo.processInfo.environment).crispProfile.maxBitrateKbps,
+        targetBitrateKbps: Config.ownedMediaBitrateKbps,
         expectedFrameRate: 30,
         keyframeIntervalFrames: 120
     )
@@ -70,8 +70,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var listener: NWListener?
     private var channel: (any OwnedMediaChannelServing)?
-    private var videoSources: VideoPlaneSources?
-    private var encoders: [MediaPlane: VideoToolboxOwnedMediaEncoder] = [:]
+    private var videoSource: VideoFrameSource?
+    private var encoder: VideoToolboxOwnedMediaEncoder?
     private var started = false
 
     init(
@@ -87,13 +87,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         self.stateContinuation = continuation
     }
 
-    func start(
-        role: MediaTransportRole,
-        signaling: SignalingChannel,
-        videoSources: VideoPlaneSources?,
-        videoSinks: VideoPlaneSinks?
-    ) async throws {
-        self.videoSources = videoSources
+    func start(videoSource: VideoFrameSource?, videoSink: VideoFrameSink?) async throws {
+        self.videoSource = videoSource
         stateContinuation.yield(.connecting)
         try startQuicDatagramListener()
         try await startIfReady()
@@ -106,19 +101,18 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         started = false
         let listener = self.listener
         self.listener = nil
+        let source = self.videoSource
+        self.videoSource = nil
+        let encoder = self.encoder
+        self.encoder = nil
         lock.unlock()
-        for source in MediaPlane.allCases.compactMap({ videoSources?[$0] }) {
-            source.stop()
-        }
-        encoders.values.forEach { $0.invalidate() }
-        encoders.removeAll()
+        source?.stop()
+        encoder?.invalidate()
         listener?.cancel()
         channel?.close()
         stateContinuation.yield(.closed)
         stateContinuation.finish()
     }
-
-    func setVideoInteractive(_ active: Bool) {}
 
     private func startQuicDatagramListener() throws {
         lock.lock()
@@ -251,44 +245,41 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     private func startIfReady() async throws {
-        guard let (channel, sources) = claimStartIfReady() else { return }
-
-        for plane in [MediaPlane.detail] {
-            guard let source = sources[plane] else { continue }
-            let encoder = VideoToolboxOwnedMediaEncoder(
-                plane: plane,
-                codec: codec,
-                configuration: configuration,
-                onEncoded: { [weak self, weak channel] envelope in
-                    guard let channel else { return }
-                    Task {
-                        do {
-                            try await channel.send(envelope)
-                        } catch {
-                            self?.logger.error("owned media frame send failed plane=\(plane.rawValue, privacy: .public): \(String(describing: error), privacy: .public)")
-                        }
+        guard let (channel, source) = claimStartIfReady() else { return }
+        let encoder = VideoToolboxOwnedMediaEncoder(
+            codec: codec,
+            configuration: configuration,
+            onEncoded: { [weak self, weak channel] envelope in
+                guard let channel else { return }
+                Task {
+                    do {
+                        try await channel.send(envelope)
+                    } catch {
+                        self?.logger.error("owned media frame send failed: \(String(describing: error), privacy: .public)")
                     }
                 }
-            )
-            encoders[plane] = encoder
-            try await source.start { [weak encoder] frame in
-                encoder?.encode(frame)
             }
+        )
+        lock.withLock {
+            self.encoder = encoder
+        }
+        try await source.start { [weak encoder] frame in
+            encoder?.encode(frame)
         }
         stateContinuation.yield(.connected)
     }
 
-    private func claimStartIfReady() -> ((any OwnedMediaChannelServing), VideoPlaneSources)? {
+    private func claimStartIfReady() -> ((any OwnedMediaChannelServing), VideoFrameSource)? {
         lock.lock()
         let channel = self.channel
-        let sources = self.videoSources
+        let source = self.videoSource
         let alreadyStarted = started
-        if channel != nil, sources != nil, !started {
+        if channel != nil, source != nil, !started {
             started = true
         }
         lock.unlock()
-        guard let channel, let sources, !alreadyStarted else { return nil }
-        return (channel, sources)
+        guard let channel, let source, !alreadyStarted else { return nil }
+        return (channel, source)
     }
 
     private func handleControlMessage(_ message: OwnedMediaControlMessage) {
@@ -303,16 +294,15 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
     private func requestKeyframe() {
         lock.lock()
-        let encoders = Array(self.encoders.values)
+        let encoder = self.encoder
         lock.unlock()
-        encoders.forEach { $0.requestKeyframe() }
+        encoder?.requestKeyframe()
     }
 
 }
 
 final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
-    private let plane: MediaPlane
     private let codec: OwnedMediaCodec
     private let targetBitrateKbps: Int
     private let expectedFrameRate: Int
@@ -326,12 +316,10 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private var loggedFirstEncodedFrame = false
 
     init(
-        plane: MediaPlane,
         codec: OwnedMediaCodec,
         configuration: OwnedMediaEncodingConfiguration = .default,
         onEncoded: @escaping @Sendable (OwnedMediaFrameEnvelope) -> Void
     ) {
-        self.plane = plane
         self.codec = codec
         self.targetBitrateKbps = configuration.targetBitrateKbps
         self.expectedFrameRate = configuration.expectedFrameRate
@@ -354,7 +342,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
                 ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary
                 : nil
             if requestedKeyframe {
-                logger.notice("owned encoder forcing requested keyframe plane=\(self.plane.rawValue, privacy: .public) frame=\(self.frameId, privacy: .public)")
+                logger.notice("owned encoder forcing requested keyframe frame=\(self.frameId, privacy: .public)")
             }
             let status = VTCompressionSessionEncodeFrame(
                 session,
@@ -399,7 +387,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         let actualPixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
         if let expectedPixelFormat = configuration.expectedPixelFormat,
            actualPixelFormat != expectedPixelFormat {
-            logger.error("owned capture pixel format mismatch plane=\(self.plane.rawValue, privacy: .public) expected=\(Self.fourCC(expectedPixelFormat), privacy: .public) actual=\(Self.fourCC(actualPixelFormat), privacy: .public)")
+            logger.error("owned capture pixel format mismatch expected=\(Self.fourCC(expectedPixelFormat), privacy: .public) actual=\(Self.fourCC(actualPixelFormat), privacy: .public)")
             throw SessionRejected(reason: .malformed)
         }
         if let size, size.width == width, size.height == height, session != nil {
@@ -441,7 +429,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         VTCompressionSessionPrepareToEncodeFrames(newSession)
         session = newSession
         size = (width, height)
-        logger.notice("owned encoder session plane=\(self.plane.rawValue, privacy: .public) codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) pixelFormat=\(Self.fourCC(actualPixelFormat), privacy: .public) profile=\(String(describing: self.configuration.hevcProfileLevel), privacy: .public) maxQP=\(String(describing: self.configuration.maxAllowedFrameQP), privacy: .public) bitrate=\(self.targetBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public) keyframeInterval=\(self.configuration.keyframeIntervalFrames, privacy: .public)")
+        logger.notice("owned encoder session codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) pixelFormat=\(Self.fourCC(actualPixelFormat), privacy: .public) profile=\(String(describing: self.configuration.hevcProfileLevel), privacy: .public) maxQP=\(String(describing: self.configuration.maxAllowedFrameQP), privacy: .public) bitrate=\(self.targetBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public) keyframeInterval=\(self.configuration.keyframeIntervalFrames, privacy: .public)")
     }
 
     private func setProperty(_ key: CFString, value: CFTypeRef, on session: VTCompressionSession) throws {
@@ -454,7 +442,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private func setRequiredProperty(_ key: CFString, value: CFTypeRef, on session: VTCompressionSession) throws {
         let status = VTSessionSetProperty(session, key: key, value: value)
         guard status == noErr else {
-            logger.error("owned required encoder property failed plane=\(self.plane.rawValue, privacy: .public) key=\(key, privacy: .public) status=\(status, privacy: .public)")
+            logger.error("owned required encoder property failed key=\(key, privacy: .public) status=\(status, privacy: .public)")
             throw SessionRejected(reason: .malformed)
         }
     }
@@ -496,7 +484,6 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         let capturedAt = UInt64(bitPattern: Int64(Int(bitPattern: sourceFrameRefcon)))
         let header = OwnedMediaFrameHeader(
             frameId: frameId,
-            plane: plane,
             codec: codec,
             width: size.width,
             height: size.height,
@@ -507,7 +494,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         )
         if !loggedFirstEncodedFrame {
             loggedFirstEncodedFrame = true
-            logger.notice("owned first encoded frame plane=\(self.plane.rawValue, privacy: .public) codec=\(self.codec.rawValue, privacy: .public) size=\(size.width, privacy: .public)x\(size.height, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(payload.count, privacy: .public)")
+            logger.notice("owned first encoded frame codec=\(self.codec.rawValue, privacy: .public) size=\(size.width, privacy: .public)x\(size.height, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(payload.count, privacy: .public)")
         }
         onEncoded(OwnedMediaFrameEnvelope(header: header, payload: payload))
     }

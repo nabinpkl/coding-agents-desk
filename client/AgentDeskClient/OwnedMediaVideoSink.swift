@@ -4,33 +4,12 @@ import UIKit
 import os
 
 protocol OwnedMediaFrameSink: VideoFrameSink {
-    var interactionState: OwnedMediaInteractionState { get }
-
     @MainActor func renderOwnedMediaFrame(_ envelope: OwnedMediaFrameEnvelope)
     @MainActor func setOwnedMediaDebugStatus(_ status: String)
-    @MainActor func setMotionActive(_ active: Bool)
-}
-
-final class OwnedMediaInteractionState: @unchecked Sendable {
-    private let lock = NSLock()
-    private var motionActiveValue = false
-
-    var motionActive: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return motionActiveValue
-    }
-
-    func setMotionActive(_ active: Bool) {
-        lock.lock()
-        motionActiveValue = active
-        lock.unlock()
-    }
 }
 
 @MainActor
 final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
-    let interactionState = OwnedMediaInteractionState()
     let view: UIView
     private let displayLayer = AVSampleBufferDisplayLayer()
     private let debugLabel = UILabel()
@@ -69,7 +48,6 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     }
 
     func renderOwnedMediaFrame(_ envelope: OwnedMediaFrameEnvelope) {
-        guard envelope.header.plane == .detail else { return }
         do {
             if let parameterSets = envelope.header.parameterSets {
                 formatDescription = try Self.makeFormatDescription(
@@ -114,8 +92,8 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             }
             if !loggedFirstRenderedFrame {
                 loggedFirstRenderedFrame = true
-                logger.notice("owned first rendered frame plane=\(envelope.header.plane.rawValue, privacy: .public) codec=\(envelope.header.codec.rawValue, privacy: .public) size=\(envelope.header.width, privacy: .public)x\(envelope.header.height, privacy: .public) view=\(Int(self.view.bounds.width), privacy: .public)x\(Int(self.view.bounds.height), privacy: .public) bytes=\(envelope.payload.count, privacy: .public)")
-                ownedMediaStderrTrace("first-rendered plane=\(envelope.header.plane.rawValue) codec=\(envelope.header.codec.rawValue) size=\(envelope.header.width)x\(envelope.header.height) view=\(Int(self.view.bounds.width))x\(Int(self.view.bounds.height)) bytes=\(envelope.payload.count)")
+                logger.notice("owned first rendered frame codec=\(envelope.header.codec.rawValue, privacy: .public) size=\(envelope.header.width, privacy: .public)x\(envelope.header.height, privacy: .public) view=\(Int(self.view.bounds.width), privacy: .public)x\(Int(self.view.bounds.height), privacy: .public) bytes=\(envelope.payload.count, privacy: .public)")
+                ownedMediaStderrTrace("first-rendered codec=\(envelope.header.codec.rawValue) size=\(envelope.header.width)x\(envelope.header.height) view=\(Int(self.view.bounds.width))x\(Int(self.view.bounds.height)) bytes=\(envelope.payload.count)")
             }
         } catch {
             setOwnedMediaDebugStatus("render failed frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) error=\(String(describing: error))\ndisplay=\(Self.displayStatus(displayLayer))")
@@ -126,11 +104,6 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
 
     func setOwnedMediaDebugStatus(_ status: String) {
         debugLabel.text = "owned media\n\(status)"
-    }
-
-    func setMotionActive(_ active: Bool) {
-        interactionState.setMotionActive(active)
-        ownedMediaStderrTrace("motion-active \(active)")
     }
 
     private static func displayStatus(_ layer: AVSampleBufferDisplayLayer) -> String {

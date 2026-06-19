@@ -4,8 +4,6 @@ set -eu
 fixed_names='
 AGENTDESK_AUTO_APPROVE
 AGENTDESK_DEV_PERMISSIVE_KEYSTORE
-AGENTDESK_CODEC
-AGENTDESK_MEDIA_STACK
 AGENTDESK_OWNED_MEDIA_CODEC
 AGENTDESK_OWNED_MEDIA_CHROMA
 AGENTDESK_OWNED_MEDIA_HEVC_PROFILE
@@ -63,10 +61,4 @@ apply_name() {
 
 for name in $fixed_names; do
     apply_name "$name"
-done
-
-env | while IFS='=' read -r name _; do
-    case "$name" in
-        AGENTDESK_TUNING_*) apply_name "$name" ;;
-    esac
 done

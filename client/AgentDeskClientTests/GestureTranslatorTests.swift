@@ -4,124 +4,6 @@ import UIKit
 
 @MainActor
 struct GestureTranslatorTests {
-    @Test func dualPlaneCompositorWaitsForFreshDetailFrameBeforeRestoring() {
-        let compositor = DualPlaneVideoCompositor(initialPlane: .detail)
-
-        compositor.setMotionActive(true)
-        #expect(compositor.visiblePlane == .motion)
-
-        compositor.setMotionActive(false)
-        #expect(compositor.visiblePlane == .motion)
-
-        compositor.noteFrameRendered(on: .motion)
-        #expect(compositor.visiblePlane == .motion)
-
-        compositor.noteFrameRendered(on: .detail)
-        #expect(compositor.visiblePlane == .detail)
-    }
-
-    @Test func dualPlaneCompositorReportsFirstMotionFrameDelay() {
-        let compositor = DualPlaneVideoCompositor(initialPlane: .detail)
-
-        let start = compositor.setMotionActive(true, nowNs: 1_000_000)
-        let firstMotion = compositor.noteFrameRendered(on: .motion, nowNs: 4_500_000)
-        let duplicateMotion = compositor.noteFrameRendered(on: .motion, nowNs: 6_000_000)
-
-        #expect(start.phase == .motionStarted)
-        #expect(firstMotion?.phase == .firstMotionFrame)
-        #expect(firstMotion?.delayMs == 3.5)
-        #expect(duplicateMotion == nil)
-    }
-
-    @Test func dualPlaneCompositorReportsDetailRestoreDelay() {
-        let compositor = DualPlaneVideoCompositor(initialPlane: .detail)
-
-        _ = compositor.setMotionActive(true, nowNs: 1_000_000)
-        _ = compositor.setMotionActive(false, nowNs: 2_000_000)
-        let lateFirstMotion = compositor.noteFrameRendered(on: .motion, nowNs: 3_000_000)
-        let restoredDetail = compositor.noteFrameRendered(on: .detail, nowNs: 7_000_000)
-
-        #expect(lateFirstMotion?.phase == .firstMotionFrame)
-        #expect(lateFirstMotion?.delayMs == 2.0)
-        #expect(restoredDetail?.phase == .detailRestored)
-        #expect(restoredDetail?.delayMs == 5.0)
-        #expect(compositor.visiblePlane == .detail)
-    }
-
-    @Test func videoRenderCadenceTrackerReportsPeriodicFrameWindows() {
-        let tracker = VideoRenderCadenceTracker(
-            plane: .motion,
-            reportEveryFrames: 3,
-            lateCallbackGapMs: 20
-        )
-
-        #expect(tracker.note(VideoRenderCadenceSample(
-            plane: .motion,
-            callbackUptimeNs: 1_000_000,
-            mediaTimestampNs: 10_000_000,
-            width: 1800,
-            height: 1168
-        )) == nil)
-        #expect(tracker.note(VideoRenderCadenceSample(
-            plane: .motion,
-            callbackUptimeNs: 17_000_000,
-            mediaTimestampNs: 26_000_000,
-            width: 1800,
-            height: 1168
-        )) == nil)
-        let report = tracker.note(VideoRenderCadenceSample(
-            plane: .motion,
-            callbackUptimeNs: 67_000_000,
-            mediaTimestampNs: 76_000_000,
-            width: 1800,
-            height: 1168
-        ))
-
-        #expect(report?.plane == .motion)
-        #expect(report?.reason == "periodic")
-        #expect(report?.scrollActive == false)
-        #expect(report?.frames == 3)
-        #expect(report?.callbackWindowMs == 66)
-        #expect(report?.avgCallbackGapMs == 33)
-        #expect(report?.maxCallbackGapMs == 50)
-        #expect(report?.mediaWindowMs == 66)
-        #expect(report?.avgMediaGapMs == 33)
-        #expect(report?.maxMediaGapMs == 50)
-        #expect(report?.lateCallbackGaps == 1)
-        #expect(report?.width == 1800)
-        #expect(report?.height == 1168)
-    }
-
-    @Test func videoRenderCadenceTrackerFlushesAtScrollTransitions() {
-        let tracker = VideoRenderCadenceTracker(plane: .detail, reportEveryFrames: 30)
-
-        _ = tracker.note(VideoRenderCadenceSample(
-            plane: .detail,
-            callbackUptimeNs: 1_000_000,
-            mediaTimestampNs: 2_000_000,
-            width: 3600,
-            height: 2338
-        ))
-        let scrollStart = tracker.setScrollActive(true, nowNs: 5_000_000)
-
-        #expect(scrollStart?.reason == "scroll-start")
-        #expect(scrollStart?.scrollActive == false)
-        #expect(scrollStart?.frames == 1)
-
-        _ = tracker.note(VideoRenderCadenceSample(
-            plane: .detail,
-            callbackUptimeNs: 9_000_000,
-            mediaTimestampNs: 10_000_000,
-            width: 3600,
-            height: 2338
-        ))
-        let scrollEnd = tracker.setScrollActive(false, nowNs: 12_000_000)
-
-        #expect(scrollEnd?.reason == "scroll-end")
-        #expect(scrollEnd?.scrollActive == true)
-        #expect(scrollEnd?.frames == 1)
-    }
-
     @Test func panEmitsCursorMoveDeltasSinceLastChangedCallback() {
         let recorder = InputRecorder()
         let translator = GestureTranslator()
@@ -288,26 +170,7 @@ struct GestureTranslatorTests {
         #expect(recorder.events[1] == .dragEnd)
     }
 
-    @Test func scrollTouchDownAndSettleEmitInteractionTransitions() {
-        let recorder = InputRecorder()
-        let translator = GestureTranslator()
-        translator.delegate = recorder
-
-        // Touch-down primes immediately, before any motion.
-        translator.processScrollPan(state: .began, translation: .zero)
-        #expect(recorder.interactionStates == [true])
-
-        // Motion does not re-emit the transition.
-        translator.processScrollPan(state: .changed, translation: CGPoint(x: 0, y: 10))
-        translator.processScrollPan(state: .changed, translation: CGPoint(x: 0, y: 25))
-        #expect(recorder.interactionStates == [true])
-
-        // Lift with no flick settles the interaction.
-        translator.processScrollPan(state: .ended, translation: CGPoint(x: 0, y: 25))
-        #expect(recorder.interactionStates == [true, false])
-    }
-
-    @Test func scrollChangedFirstStillActivatesInteraction() {
+    @Test func scrollChangedFirstStillEmitsScroll() {
         let recorder = InputRecorder()
         let translator = GestureTranslator()
         translator.delegate = recorder
@@ -319,31 +182,24 @@ struct GestureTranslatorTests {
             .scroll(dx: 0, dy: 10, phase: .began),
             .scroll(dx: 0, dy: 0, phase: .ended)
         ])
-        #expect(recorder.interactionStates == [true, false])
     }
 
-    @Test func scrollTapWithoutMotionStillSettles() {
+    @Test func scrollTapWithoutMotionEmitsNothing() {
         let recorder = InputRecorder()
         let translator = GestureTranslator()
         translator.delegate = recorder
 
-        // A rested finger / tap primes on touch-down then settles on lift,
-        // so the host doesn't get stuck in scroll quality.
         translator.processScrollPan(state: .began, translation: .zero)
         translator.processScrollPan(state: .ended, translation: .zero)
 
-        #expect(recorder.interactionStates == [true, false])
+        #expect(recorder.events.isEmpty)
     }
 }
 
 @MainActor
 private final class InputRecorder: GestureTranslatorDelegate {
     private(set) var events: [NormalizedInput] = []
-    private(set) var interactionStates: [Bool] = []
     func gestureTranslator(_ translator: GestureTranslator, didProduce input: NormalizedInput) {
         events.append(input)
-    }
-    func gestureTranslator(_ translator: GestureTranslator, scrollInteractionActive active: Bool) {
-        interactionStates.append(active)
     }
 }

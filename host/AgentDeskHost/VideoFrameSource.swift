@@ -1,15 +1,14 @@
 import CoreVideo
 import Foundation
 
-// ADR-0004 capture seam. ScreenCaptureKitFrameSource is the v0 impl
-// (lands in R8.6.5). TestPatternFrameSource is the diagnostic impl
-// (lands in R8.6.3). Both produce CVPixelBuffer-bearing frames at their
-// native cadence; the WebRTC layer pulls them through a
-// ScreenCaptureKitVideoCapturer that wraps RTCCVPixelBuffer.
+// Capture seam. ScreenCaptureKitFrameSource is the production impl and
+// TestPatternFrameSource is the diagnostic impl. Both produce
+// CVPixelBuffer-bearing frames at their native cadence for the owned
+// VideoToolbox encoder.
 
 // Push-callback model. The previous AsyncStream design buffered up to 2
 // frames in our own stream plus required a pump Task to await them, which
-// added ~70 ms of latency before libwebrtc ever saw a captured frame. The
+// added ~70 ms of latency before encoding. The
 // onFrame closure is invoked directly from whatever thread the underlying
 // capture API delivers on (SCStream's sample queue for the production
 // impl), so there is no buffer of our own between capture and encode.

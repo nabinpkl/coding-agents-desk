@@ -1,26 +1,13 @@
 import CryptoKit
 import Foundation
-
-// ADR-0004 protocol seam. Mirror of host/AgentDeskHost/MediaTransport.swift.
-// The only files that import WebRTC are the LibWebRTC* impls; PairingClient
-// holds a MediaTransportFactory by protocol.
+import UIKit
 
 protocol MediaTransport: AnyObject, Sendable {
-    func start(
-        role: MediaTransportRole,
-        signaling: SignalingChannel,
-        videoSources: VideoPlaneSources?,
-        videoSinks: VideoPlaneSinks?
-    ) async throws
+    func start(videoSource: VideoFrameSource?, videoSink: VideoFrameSink?) async throws
 
     func stop()
 
     var connectionState: AsyncStream<MediaConnectionState> { get }
-}
-
-enum MediaTransportRole {
-    case offerer
-    case answerer
 }
 
 enum MediaConnectionState: Equatable {
@@ -35,164 +22,15 @@ protocol MediaTransportFactory {
     func make() -> MediaTransport
 }
 
-enum MediaPlane: String, CaseIterable, Equatable, Hashable, Codable {
-    case detail
-    case motion
-
-    var trackId: String {
-        switch self {
-        case .detail: "detail-video"
-        case .motion: "motion-video"
-        }
-    }
-
-    var streamId: String {
-        switch self {
-        case .detail: "detail"
-        case .motion: "motion"
-        }
-    }
-
-    init?(trackId: String) {
-        guard let plane = Self.allCases.first(where: { $0.trackId == trackId }) else {
-            return nil
-        }
-        self = plane
-    }
-}
-
-struct VideoPlaneSources: Sendable {
-    private let sources: [MediaPlane: VideoFrameSource]
-
-    init(_ sources: [MediaPlane: VideoFrameSource]) {
-        self.sources = sources
-    }
-
-    subscript(_ plane: MediaPlane) -> VideoFrameSource? {
-        sources[plane]
-    }
-}
-
-struct VideoPlaneSinks: Sendable {
-    private let sinks: [MediaPlane: VideoFrameSink]
-
-    init(_ sinks: [MediaPlane: VideoFrameSink]) {
-        self.sinks = sinks
-    }
-
-    subscript(_ plane: MediaPlane) -> VideoFrameSink? {
-        sinks[plane]
-    }
-}
-
-struct MediaCodecPreferences: Equatable {
-    var preferred: [VideoCodec]
-
-    enum VideoCodec: String, Equatable, Codable {
-        case h264
-        case h265
-        case vp8
-        case vp9
-        case av1
-    }
-
-    static let h264Only = MediaCodecPreferences(preferred: [.h264])
-    static let vp9Only = MediaCodecPreferences(preferred: [.vp9])
-    static let vp9First = MediaCodecPreferences(preferred: [.vp9, .h264])
-
-    static let defaultPlanes: [MediaPlane: MediaCodecPreferences] = [
-        .detail: .vp9Only,
-        .motion: .vp9First
-    ]
-
-    var preferredCodecNames: [String] {
-        preferred.map { codec in
-            switch codec {
-            case .h264: return "H264"
-            case .h265: return "H265"
-            case .vp8: return "VP8"
-            case .vp9: return "VP9"
-            case .av1: return "AV1"
-            }
-        }
-    }
-
-    func allows(statsMimeType: String) -> Bool {
-        guard let subtype = statsMimeType.split(separator: "/").last else { return false }
-        return preferredCodecNames.contains(String(subtype).uppercased())
-    }
-}
-
-struct CodecCapabilityDescriptor: Equatable {
-    let index: Int
-    let name: String
-    let preferredPayloadType: String?
-    let aptPayloadType: String?
-}
-
-enum CodecPreferencePolicy {
-    private static let primaryNames: Set<String> = ["H264", "H265", "VP8", "VP9", "AV1"]
-    private static let protectionNames: Set<String> = ["RED", "ULPFEC", "FLEXFEC-03"]
-
-    static func orderedAllowedIndexes(
-        capabilities: [CodecCapabilityDescriptor],
-        preferences: MediaCodecPreferences
-    ) -> [Int] {
-        var selectedMedia: [CodecCapabilityDescriptor] = []
-        for name in preferences.preferredCodecNames {
-            selectedMedia.append(
-                contentsOf: capabilities.filter {
-                    normalize($0.name) == name && isPrimary($0)
-                }
-            )
-        }
-
-        let mediaAndRepairIndexes = selectedMedia.flatMap { media -> [Int] in
-            let repairIndexes = media.preferredPayloadType.map { payloadType in
-                capabilities
-                    .filter { isRtx($0) && $0.aptPayloadType == payloadType }
-                    .map(\.index)
-            } ?? []
-            return [media.index] + repairIndexes
-        }
-        let protectionIndexes = capabilities
-            .filter(isProtection)
-            .map(\.index)
-        return unique(mediaAndRepairIndexes + protectionIndexes)
-    }
-
-    private static func isPrimary(_ descriptor: CodecCapabilityDescriptor) -> Bool {
-        primaryNames.contains(normalize(descriptor.name))
-    }
-
-    private static func isRtx(_ descriptor: CodecCapabilityDescriptor) -> Bool {
-        normalize(descriptor.name) == "RTX"
-    }
-
-    private static func isProtection(_ descriptor: CodecCapabilityDescriptor) -> Bool {
-        protectionNames.contains(normalize(descriptor.name))
-    }
-
-    private static func normalize(_ name: String) -> String {
-        name.uppercased()
-    }
-
-    private static func unique(_ indexes: [Int]) -> [Int] {
-        indexes.reduce([]) { ordered, index in
-            ordered.contains(index) ? ordered : ordered + [index]
-        }
-    }
-}
-
 enum MediaTransportError: Error {
     case notYetImplemented
-    case unsupportedCodecPreference(String)
 }
 
 final class MediaDatagramFrameRepairBuffer {
     private struct PendingFrame {
         let frameId: UInt64
         let packetCount: UInt16
+        let isKeyframe: Bool
         let firstSeenNs: UInt64
         var packets: [UInt16: Data]
         var repairDeadlineNs: UInt64?
@@ -209,6 +47,7 @@ final class MediaDatagramFrameRepairBuffer {
         var incompleteFrame: IncompleteFrame {
             IncompleteFrame(
                 frameId: frameId,
+                isKeyframe: isKeyframe,
                 received: packets.count,
                 expected: Int(packetCount),
                 missingIndexes: missingIndexes
@@ -218,6 +57,7 @@ final class MediaDatagramFrameRepairBuffer {
         func incompleteFrame(now: UInt64) -> IncompleteFrame {
             IncompleteFrame(
                 frameId: frameId,
+                isKeyframe: isKeyframe,
                 received: packets.count,
                 expected: Int(packetCount),
                 missingIndexes: missingIndexes,
@@ -259,8 +99,7 @@ final class MediaDatagramFrameRepairBuffer {
 
     func accept(
         _ packet: MediaDatagramFramePacket,
-        now: UInt64,
-        motionActive: Bool = false
+        now: UInt64
     ) -> MediaDatagramRepairResult {
         guard packet.packetIndex < packet.packetCount,
               packet.frameId > deliveredFrameId else {
@@ -268,7 +107,8 @@ final class MediaDatagramFrameRepairBuffer {
         }
         newestFrameId = max(newestFrameId, packet.frameId)
         if var pending = frames[packet.frameId] {
-            guard pending.packetCount == packet.packetCount else {
+            guard pending.packetCount == packet.packetCount,
+                  pending.isKeyframe == packet.isKeyframe else {
                 return expire(frameId: packet.frameId)
             }
             pending.packets[packet.packetIndex] = packet.payload
@@ -277,6 +117,7 @@ final class MediaDatagramFrameRepairBuffer {
             frames[packet.frameId] = PendingFrame(
                 frameId: packet.frameId,
                 packetCount: packet.packetCount,
+                isKeyframe: packet.isKeyframe,
                 firstSeenNs: now,
                 packets: [packet.packetIndex: packet.payload],
                 repairDeadlineNs: nil,
@@ -286,11 +127,9 @@ final class MediaDatagramFrameRepairBuffer {
 
         var result = MediaDatagramRepairResult.empty
         result.resendRequests.append(contentsOf: requestMissingPackets(now: now))
-        if motionActive {
-            result.skippedStaleFrames.append(contentsOf: skipStaleMotionFrames(now: now))
-        } else {
-            result.expiredFrames.append(contentsOf: expirePastDeadline(now: now))
-        }
+        let expired = expirePastDeadline(now: now)
+        result.expiredFrames.append(contentsOf: expired.filter(\.isKeyframe))
+        result.skippedStaleFrames.append(contentsOf: expired.filter { !$0.isKeyframe })
         result.expiredFrames.append(contentsOf: enforceTrackedFrameLimit())
         let completed = drainCompletedFrames(now: now)
         result.repairedFrameCount += completed.filter(\.wasRepaired).count
@@ -333,22 +172,6 @@ final class MediaDatagramFrameRepairBuffer {
             return now >= deadline
         }
         return expiredIds.compactMap { frameId in
-            guard let frame = frames.removeValue(forKey: frameId) else { return nil }
-            deliveredFrameId = max(deliveredFrameId, frameId)
-            return frame.incompleteFrame(now: now)
-        }
-    }
-
-    private func skipStaleMotionFrames(now: UInt64) -> [IncompleteFrame] {
-        let staleIds = frames.keys.sorted().filter { frameId in
-            guard let frame = frames[frameId],
-                  !frame.isComplete,
-                  let deadline = frame.repairDeadlineNs else {
-                return false
-            }
-            return now >= deadline
-        }
-        return staleIds.compactMap { frameId in
             guard let frame = frames.removeValue(forKey: frameId) else { return nil }
             deliveredFrameId = max(deliveredFrameId, frameId)
             return frame.incompleteFrame(now: now)
@@ -458,6 +281,7 @@ struct MediaDatagramRepairResult: Equatable {
 
 struct IncompleteFrame: Equatable {
     let frameId: UInt64
+    let isKeyframe: Bool
     let received: Int
     let expected: Int
     let missingIndexes: [UInt16]
@@ -466,6 +290,7 @@ struct IncompleteFrame: Equatable {
 
     init(
         frameId: UInt64,
+        isKeyframe: Bool = false,
         received: Int,
         expected: Int,
         missingIndexes: [UInt16],
@@ -473,6 +298,7 @@ struct IncompleteFrame: Equatable {
         repairAgeNs: UInt64? = nil
     ) {
         self.frameId = frameId
+        self.isKeyframe = isKeyframe
         self.received = received
         self.expected = expected
         self.missingIndexes = missingIndexes
@@ -506,14 +332,16 @@ enum MediaDatagramPacketError: Error {
 
 struct MediaDatagramFramePacket: Equatable {
     private static let magic = Data([0x41, 0x44, 0x4d, 0x44])
-    private static let version: UInt8 = 1
+    private static let version: UInt8 = 2
     private static let frameKind: UInt8 = 3
-    private static let headerPrefixLength = 32
+    private static let keyframeFlag: UInt8 = 1 << 0
+    private static let headerPrefixLength = 33
     private static let macLength = 32
 
     let frameId: UInt64
     let packetIndex: UInt16
     let packetCount: UInt16
+    let isKeyframe: Bool
     let sentAtUptimeNs: UInt64
     let payload: Data
 
@@ -527,7 +355,7 @@ struct MediaDatagramFramePacket: Equatable {
         else {
             throw MediaDatagramPacketError.badHeader(length: data.count, prefix: data.hexPrefix())
         }
-        let payloadLength = Int(try data.readUInt16BE(at: 30))
+        let payloadLength = Int(try data.readUInt16BE(at: 31))
         let expectedLength = headerPrefixLength + macLength + payloadLength
         guard data.count == expectedLength else {
             throw MediaDatagramPacketError.badLength(length: data.count, expected: expectedLength, payloadLength: payloadLength)
@@ -537,9 +365,10 @@ struct MediaDatagramFramePacket: Equatable {
         authenticated.append(payload)
         let expectedMac = HMAC<SHA256>.authenticationCode(for: authenticated, using: key)
         let actualMac = data.subdata(in: headerPrefixLength..<(headerPrefixLength + macLength))
-        let packetCount = try data.readUInt16BE(at: 20)
-        let packetIndex = try data.readUInt16BE(at: 18)
-        let frameId = try data.readUInt64BE(at: 10)
+        let packetCount = try data.readUInt16BE(at: 21)
+        let packetIndex = try data.readUInt16BE(at: 19)
+        let frameId = try data.readUInt64BE(at: 11)
+        let flags = data[6]
         guard Data(expectedMac) == actualMac else {
             throw MediaDatagramPacketError.authenticationFailed(
                 frameId: frameId,
@@ -552,7 +381,8 @@ struct MediaDatagramFramePacket: Equatable {
             frameId: frameId,
             packetIndex: packetIndex,
             packetCount: packetCount,
-            sentAtUptimeNs: try data.readUInt64BE(at: 22),
+            isKeyframe: (flags & keyframeFlag) != 0,
+            sentAtUptimeNs: try data.readUInt64BE(at: 23),
             payload: Data(payload)
         )
     }
@@ -560,7 +390,7 @@ struct MediaDatagramFramePacket: Equatable {
 
 struct MediaDatagramCrypto {
     static func key(mediaCapability: String, clientNonce: Data, serverNonce: Data) -> SymmetricKey {
-        var seed = Data("agentdesk-owned-media-datagram-v1".utf8)
+        var seed = Data("agentdesk-owned-media-datagram-v2".utf8)
         seed.append(Data(mediaCapability.utf8))
         seed.append(clientNonce)
         seed.append(serverNonce)
@@ -601,7 +431,6 @@ protocol VideoFrameSource: AnyObject, Sendable {
     func stop()
 }
 
-// VideoFrameSink is declared in its own file but the protocol surface
-// here keeps MediaTransport.start's signature symmetric with the host.
-// On the client, concrete impls (RTCMTLVideoSink) live alongside the
-// concrete transport.
+protocol VideoFrameSink: AnyObject, Sendable {
+    @MainActor var view: UIView { get }
+}

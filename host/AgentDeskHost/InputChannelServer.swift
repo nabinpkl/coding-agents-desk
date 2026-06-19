@@ -5,7 +5,6 @@ import os
 protocol InputChannelServing: AnyObject, Sendable {
     var events: AsyncStream<NormalizedInput> { get }
     var configHandler: ((ClientConfig) -> Void)? { get set }
-    var interactionHintHandler: ((InteractionHint) -> Void)? { get set }
 
     func close()
     func pushDesktopState(_ state: DesktopState)
@@ -42,9 +41,6 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     // frame after the channel is open. AppDelegate sets this handler on
     // attach; the server itself only routes the frame.
     var configHandler: ((ClientConfig) -> Void)?
-    // Set by AppDelegate on attach; routes scroll/interaction hints to the
-    // session's MediaTransport for quality switching.
-    var interactionHintHandler: ((InteractionHint) -> Void)?
 
     init(connection: NWConnection, fingerprint: DeviceFingerprint) {
         self.connection = connection
@@ -72,7 +68,6 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         continuation?.finish()
         continuation = nil
         configHandler = nil
-        interactionHintHandler = nil
         connection.cancel()
     }
 
@@ -158,7 +153,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     }
 
     // Two inbound frame types after the hello: input-event (the bulk of
-    // traffic) and client-config (opt-in toggles). Peek at the `t`
+        // traffic) and client-config (opt-in toggles). Peek at the `t`
     // discriminator before committing to a struct so an unknown frame
     // gets logged-and-dropped rather than tearing down the channel.
     private func dispatch(data: Data) {
@@ -180,13 +175,6 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
                 configHandler?(frame)
             } catch {
                 logger.error("client-config decode failed: \(String(describing: error), privacy: .public)")
-            }
-        case "interaction-hint":
-            do {
-                let frame = try JSONDecoder().decode(InteractionHint.self, from: data)
-                interactionHintHandler?(frame)
-            } catch {
-                logger.error("interaction-hint decode failed: \(String(describing: error), privacy: .public)")
             }
         default:
             logger.notice("input-channel unknown frame type=\(header.type, privacy: .public)")

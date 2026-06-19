@@ -107,10 +107,8 @@ final class SessionAuthenticator {
                 sessionId: sessionId,
                 inputCapability: inputCapability,
                 inputCapabilityExpiresAt: inputCapabilityExpiresAt,
-                mediaMode: Config.mediaStackMode.mediaMode,
                 mediaCapability: mediaCapability,
-                mediaCapabilityExpiresAt: mediaCapabilityExpiresAt,
-                mediaPlanes: Config.mediaStackMode == .owned ? [.detail] : MediaPlane.allCases
+                mediaCapabilityExpiresAt: mediaCapabilityExpiresAt
             ),
             session
         )

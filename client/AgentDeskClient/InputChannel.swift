@@ -7,8 +7,8 @@ import OSLog
 // one InputChannelEvent per NormalizedInput emitted by the trackpad,
 // keyboard, or accessory row.
 //
-// Independent of the WebRTC PeerConnection that carries video: dropping
-// the input WS does not tear down video, and vice versa. PairingClient
+// Independent of the owned media channel: dropping the input WS does not
+// tear down video, and vice versa. PairingClient
 // owns one instance per active session and exposes it through
 // ActiveSession.
 
@@ -44,10 +44,6 @@ protocol InputChannel: AnyObject, Sendable {
     // ADR-0006: client -> host opt-in / force-refresh. Sent on channel
     // open and on settings change.
     func sendConfig(_ config: ClientConfig) async throws
-
-    // Client -> host interaction hint (scroll touch-down / settle) so the
-    // host can pre-emptively switch video quality.
-    func sendInteractionHint(_ hint: InteractionHint) async throws
 
     var closed: AsyncStream<Void> { get }
 }
@@ -170,20 +166,6 @@ final class WebSocketInputChannel: InputChannel, @unchecked Sendable {
         try await task.send(.string(text))
     }
 
-    func sendInteractionHint(_ hint: InteractionHint) async throws {
-        guard !closedFlag.isClosed else { throw InputChannelError.notOpen }
-        let data: Data
-        do {
-            data = try encoder.encode(hint)
-        } catch {
-            throw InputChannelError.encodeFailed
-        }
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw InputChannelError.encodeFailed
-        }
-        try await task.send(.string(text))
-    }
-
     func close() {
         guard finishStreamsIfNeeded() else { return }
         task.cancel(with: .normalClosure, reason: nil)
@@ -275,8 +257,8 @@ private struct InputFrameHeader: Decodable {
 }
 
 // Opens the WS, sends the hello, returns a ready-to-send channel.
-// Factored out so PairingClient.attemptSession can construct one
-// alongside the WebRTC PeerConnection without growing the dialer.
+// Factored out so PairingClient.attemptSession can construct one alongside
+// the session and owned media capability without growing the dialer.
 enum InputChannelOpener {
     static func open(
         host: String,
