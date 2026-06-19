@@ -704,6 +704,7 @@ struct MediaChannelReady: Codable, Equatable {
 enum OwnedMediaControlKind: String, Codable, Equatable {
     case keyframeRequest = "keyframe-request"
     case packetResendRequest = "packet-resend-request"
+    case frameAck = "frame-ack"
 }
 
 struct OwnedMediaControlMessage: Codable, Equatable {
@@ -711,19 +712,39 @@ struct OwnedMediaControlMessage: Codable, Equatable {
     let kind: OwnedMediaControlKind
     let frameId: UInt64
     let packetIndexes: [UInt16]
+    let totalFramesDecoded: UInt64?
+    let renderGapMs: Double?
+    let clientBacklogFrames: Int?
+    let clientBacklogBytes: Int?
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case kind = "k"
         case frameId = "id"
         case packetIndexes = "px"
+        case totalFramesDecoded = "td"
+        case renderGapMs = "rg"
+        case clientBacklogFrames = "qf"
+        case clientBacklogBytes = "qb"
     }
 
-    init(kind: OwnedMediaControlKind, frameId: UInt64, packetIndexes: [UInt16] = []) {
+    init(
+        kind: OwnedMediaControlKind,
+        frameId: UInt64,
+        packetIndexes: [UInt16] = [],
+        totalFramesDecoded: UInt64? = nil,
+        renderGapMs: Double? = nil,
+        clientBacklogFrames: Int? = nil,
+        clientBacklogBytes: Int? = nil
+    ) {
         self.type = "owned-media-control"
         self.kind = kind
         self.frameId = frameId
         self.packetIndexes = packetIndexes
+        self.totalFramesDecoded = totalFramesDecoded
+        self.renderGapMs = renderGapMs
+        self.clientBacklogFrames = clientBacklogFrames
+        self.clientBacklogBytes = clientBacklogBytes
     }
 
     init(from decoder: Decoder) throws {
@@ -732,6 +753,10 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         kind = try container.decode(OwnedMediaControlKind.self, forKey: .kind)
         frameId = try container.decode(UInt64.self, forKey: .frameId)
         packetIndexes = try container.decodeIfPresent([UInt16].self, forKey: .packetIndexes) ?? []
+        totalFramesDecoded = try container.decodeIfPresent(UInt64.self, forKey: .totalFramesDecoded)
+        renderGapMs = try container.decodeIfPresent(Double.self, forKey: .renderGapMs)
+        clientBacklogFrames = try container.decodeIfPresent(Int.self, forKey: .clientBacklogFrames)
+        clientBacklogBytes = try container.decodeIfPresent(Int.self, forKey: .clientBacklogBytes)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -742,12 +767,21 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         if !packetIndexes.isEmpty {
             try container.encode(packetIndexes, forKey: .packetIndexes)
         }
+        try container.encodeIfPresent(totalFramesDecoded, forKey: .totalFramesDecoded)
+        try container.encodeIfPresent(renderGapMs, forKey: .renderGapMs)
+        try container.encodeIfPresent(clientBacklogFrames, forKey: .clientBacklogFrames)
+        try container.encodeIfPresent(clientBacklogBytes, forKey: .clientBacklogBytes)
     }
 }
 
 struct OwnedMediaSendFreshness: Equatable {
     private var newestFrameId: UInt64 = 0
     private var newestKeyframeId: UInt64 = 0
+    private(set) var latestAckedFrameId: UInt64 = 0
+    private(set) var inFlightFrames: [UInt64: Int] = [:]
+    private(set) var latestClientRenderGapMs: Double = 0
+    private(set) var latestClientBacklogFrames: Int = 0
+    private(set) var latestClientBacklogBytes: Int = 0
 
     mutating func noteEnqueued(frameId: UInt64, isKeyframe: Bool) {
         newestFrameId = max(newestFrameId, frameId)
@@ -756,11 +790,76 @@ struct OwnedMediaSendFreshness: Equatable {
         }
     }
 
+    mutating func noteSent(frameId: UInt64, bytes: Int) {
+        inFlightFrames[frameId] = bytes
+    }
+
+    mutating func noteAck(
+        frameId: UInt64,
+        renderGapMs: Double?,
+        clientBacklogFrames: Int?,
+        clientBacklogBytes: Int?
+    ) {
+        latestAckedFrameId = max(latestAckedFrameId, frameId)
+        inFlightFrames = inFlightFrames.filter { $0.key > latestAckedFrameId }
+        latestClientRenderGapMs = max(0, renderGapMs ?? 0)
+        latestClientBacklogFrames = max(0, clientBacklogFrames ?? 0)
+        latestClientBacklogBytes = max(0, clientBacklogBytes ?? 0)
+    }
+
     func shouldSend(frameId: UInt64, isKeyframe: Bool) -> Bool {
         if isKeyframe {
             return frameId == newestKeyframeId
         }
         return frameId == newestFrameId
+    }
+
+    func shouldSend(
+        frameId: UInt64,
+        isKeyframe: Bool,
+        backpressure: OwnedMediaBackpressureConfig
+    ) -> Bool {
+        guard shouldSend(frameId: frameId, isKeyframe: isKeyframe) else {
+            return false
+        }
+        if isKeyframe {
+            return true
+        }
+        return !isClientBehind(backpressure: backpressure)
+    }
+
+    func isClientBehind(backpressure: OwnedMediaBackpressureConfig) -> Bool {
+        latestAckedFrameId > 0 && (
+            inFlightFrames.count > backpressure.maxInflightFrames ||
+            inFlightFrames.values.reduce(0, +) > backpressure.maxInflightBytes ||
+            latestClientRenderGapMs > backpressure.renderGapMs ||
+            latestClientBacklogFrames > 0
+        )
+    }
+}
+
+struct OwnedMediaBackpressureConfig: Equatable {
+    let renderGapMs: Double
+    let maxInflightFrames: Int
+    let maxInflightBytes: Int
+
+    init(renderGapMs: Double, maxInflightFrames: Int, maxInflightBytes: Int) {
+        self.renderGapMs = renderGapMs
+        self.maxInflightFrames = maxInflightFrames
+        self.maxInflightBytes = maxInflightBytes
+    }
+}
+
+struct OwnedMediaDatagramPacing: Equatable {
+    let burstPacketCount: Int
+    let burstPauseUs: Int
+
+    static func choose(
+        isBackpressured: Bool,
+        normal: OwnedMediaDatagramPacing,
+        backpressure: OwnedMediaDatagramPacing
+    ) -> OwnedMediaDatagramPacing {
+        isBackpressured ? backpressure : normal
     }
 }
 

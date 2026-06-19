@@ -90,6 +90,10 @@ struct InputChannelTests {
         #expect(json.contains("\"k\":\"keyframe-request\""))
         #expect(json.contains("\"id\":42"))
         #expect(!json.contains("\"px\""))
+        #expect(!json.contains("\"td\""))
+        #expect(!json.contains("\"rg\""))
+        #expect(!json.contains("\"qf\""))
+        #expect(!json.contains("\"qb\""))
     }
 
     @Test func ownedMediaPacketResendControlSerializesWithCompactIndexes() throws {
@@ -105,6 +109,83 @@ struct InputChannelTests {
         #expect(decoded == message)
         #expect(json.contains("\"k\":\"packet-resend-request\""))
         #expect(json.contains("\"px\":[1,3]"))
+        #expect(!json.contains("\"td\""))
+        #expect(!json.contains("\"rg\""))
+        #expect(!json.contains("\"qf\""))
+        #expect(!json.contains("\"qb\""))
+    }
+
+    @Test func ownedMediaFrameAckControlSerializesWithCompactRenderStats() throws {
+        let message = OwnedMediaControlMessage(
+            kind: .frameAck,
+            frameId: 42,
+            totalFramesDecoded: 9,
+            renderGapMs: 83.5,
+            clientBacklogFrames: 1,
+            clientBacklogBytes: 180_000
+        )
+        let data = try JSONEncoder().encode(message)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
+
+        #expect(decoded == message)
+        #expect(json.contains("\"k\":\"frame-ack\""))
+        #expect(json.contains("\"id\":42"))
+        #expect(json.contains("\"td\":9"))
+        #expect(json.contains("\"rg\":83.5"))
+        #expect(json.contains("\"qf\":1"))
+        #expect(json.contains("\"qb\":180000"))
+        #expect(!json.contains("\"px\""))
+    }
+
+    @Test func ownedMediaFlushPolicyDoesNotFlushOrdinaryKeyframes() {
+        #expect(OwnedMediaDisplayFlushPolicy.action(displayStatus: "rendering", isKeyframe: true) == .none)
+        #expect(OwnedMediaDisplayFlushPolicy.action(displayStatus: "unknown", isKeyframe: false) == .none)
+    }
+
+    @Test func ownedMediaFlushPolicyFlushesOnlyFailedDisplayLayer() {
+        #expect(OwnedMediaDisplayFlushPolicy.action(displayStatus: "failed", isKeyframe: false) == .flushAndRemoveImage)
+        #expect(OwnedMediaDisplayFlushPolicy.action(displayStatus: "failed", isKeyframe: true) == .flushAndRemoveImage)
+    }
+
+    @Test func ownedMediaBacklogEstimateReportsBacklogAfterLargeRenderGap() {
+        let underOneFrame = OwnedMediaRenderBacklog.estimate(renderGapMs: 32.0, payloadBytes: 200_000)
+        let overBudget = OwnedMediaRenderBacklog.estimate(renderGapMs: 83.5, payloadBytes: 200_000)
+
+        #expect(underOneFrame.frames == 0)
+        #expect(underOneFrame.bytes == 0)
+        #expect(overBudget.frames == 1)
+        #expect(overBudget.bytes == 200_000)
+    }
+
+    @Test func ownedMediaRenderStatsMapsToFrameAckPayload() throws {
+        let stats = OwnedMediaRenderStats(
+            frameId: 55,
+            totalFramesDecoded: 13,
+            renderGapMs: 120.0,
+            payloadBytes: 210_000,
+            flushCount: 0,
+            displayStatus: "rendering",
+            clientBacklogFrames: 2,
+            clientBacklogBytes: 210_000
+        )
+        let message = OwnedMediaControlMessage(
+            kind: .frameAck,
+            frameId: stats.frameId,
+            totalFramesDecoded: stats.totalFramesDecoded,
+            renderGapMs: stats.renderGapMs,
+            clientBacklogFrames: stats.clientBacklogFrames,
+            clientBacklogBytes: stats.clientBacklogBytes
+        )
+        let data = try JSONEncoder().encode(message)
+        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
+
+        #expect(decoded.kind == .frameAck)
+        #expect(decoded.frameId == stats.frameId)
+        #expect(decoded.totalFramesDecoded == stats.totalFramesDecoded)
+        #expect(decoded.renderGapMs == stats.renderGapMs)
+        #expect(decoded.clientBacklogFrames == stats.clientBacklogFrames)
+        #expect(decoded.clientBacklogBytes == stats.clientBacklogBytes)
     }
 
     @Test func ownedMediaEnvelopeRoundTripsHeaderAndPayload() throws {

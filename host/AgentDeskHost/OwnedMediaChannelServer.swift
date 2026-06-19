@@ -11,6 +11,9 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
     private let onControlMessage: @Sendable (OwnedMediaControlMessage) -> Void
     private let burstPacketCount: Int
     private let burstPauseUs: Int
+    private let backpressureBurstPacketCount: Int
+    private let backpressureBurstPauseUs: Int
+    private let backpressureConfig: OwnedMediaBackpressureConfig
     private let maxResendPackets: Int
     private let stateQueue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic-state")
     private let sendGate = DatagramSendGate()
@@ -26,6 +29,13 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         onControlMessage: @escaping @Sendable (OwnedMediaControlMessage) -> Void = { _ in },
         burstPacketCount: Int = Config.ownedMediaDatagramBurstPacketCount,
         burstPauseUs: Int = Config.ownedMediaDatagramBurstPauseUs,
+        backpressureBurstPacketCount: Int = Config.ownedMediaBackpressureBurstPacketCount,
+        backpressureBurstPauseUs: Int = Config.ownedMediaBackpressureBurstPauseUs,
+        backpressureConfig: OwnedMediaBackpressureConfig = OwnedMediaBackpressureConfig(
+            renderGapMs: Config.ownedMediaBackpressureRenderGapMs,
+            maxInflightFrames: Config.ownedMediaBackpressureMaxInflightFrames,
+            maxInflightBytes: Config.ownedMediaBackpressureMaxInflightBytes
+        ),
         resendRingFrames: Int = Config.ownedMediaResendRingFrames,
         maxResendPackets: Int = Config.ownedMediaMaxResendPackets
     ) {
@@ -35,6 +45,9 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         self.onControlMessage = onControlMessage
         self.burstPacketCount = burstPacketCount
         self.burstPauseUs = burstPauseUs
+        self.backpressureBurstPacketCount = backpressureBurstPacketCount
+        self.backpressureBurstPauseUs = backpressureBurstPauseUs
+        self.backpressureConfig = backpressureConfig
         self.maxResendPackets = maxResendPackets
         self.resendRing = OwnedMediaResendRing(capacityFrames: resendRingFrames)
         connection.stateUpdateHandler = { [weak self] state in
@@ -59,6 +72,7 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         await sendGate.wait()
         do {
             guard shouldContinueSending(frameId: frameId, isKeyframe: isKeyframe) else {
+                logBackpressureDrop(frameId: frameId, isKeyframe: isKeyframe)
                 await sendGate.signal()
                 return
             }
@@ -71,25 +85,28 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                 key: key
             )
             rememberFrame(frameId: frameId, packets: packets)
-            let ordinal = noteSentFrame()
-            if isKeyframe || ordinal == 1 || ordinal.isMultiple(of: 120) {
-                logger.notice("owned media quic send frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) burst=\(self.burstPacketCount, privacy: .public) pauseUs=\(self.burstPauseUs, privacy: .public)")
+            let pacing = currentPacing()
+            let shouldLogFrame = isKeyframe || frameId == 1 || frameId.isMultiple(of: 120)
+            if shouldLogFrame {
+                logger.notice("owned media quic send frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) burst=\(pacing.pacing.burstPacketCount, privacy: .public) pauseUs=\(pacing.pacing.burstPauseUs, privacy: .public) backpressure=\(pacing.isBackpressured, privacy: .public)")
             }
             for (index, packet) in packets.enumerated() {
                 guard shouldContinueSending(frameId: frameId, isKeyframe: isKeyframe),
                       !isClosed else {
+                    logBackpressureDrop(frameId: frameId, isKeyframe: isKeyframe)
                     await sendGate.signal()
                     return
                 }
                 try await sendDatagram(packet)
-                if burstPauseUs > 0,
-                   burstPacketCount > 0,
+                if pacing.pacing.burstPauseUs > 0,
+                   pacing.pacing.burstPacketCount > 0,
                    index + 1 < packets.count,
-                   (index + 1).isMultiple(of: burstPacketCount) {
-                    try await Task.sleep(nanoseconds: UInt64(burstPauseUs) * 1_000)
+                   (index + 1).isMultiple(of: pacing.pacing.burstPacketCount) {
+                    try await Task.sleep(nanoseconds: UInt64(pacing.pacing.burstPauseUs) * 1_000)
                 }
             }
-            if isKeyframe || ordinal == 1 || ordinal.isMultiple(of: 120) {
+            let ordinal = noteSentFrame(frameId: frameId, bytes: data.count)
+            if shouldLogFrame || ordinal == 1 || ordinal.isMultiple(of: 120) {
                 logger.notice("owned media quic sent frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) packets=\(packets.count, privacy: .public)")
             }
             await sendGate.signal()
@@ -114,15 +131,54 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         }
     }
 
-    private func noteSentFrame() -> UInt64 {
+    private func shouldContinueSending(frameId: UInt64, isKeyframe: Bool) -> Bool {
+        stateQueue.sync {
+            freshness.shouldSend(
+                frameId: frameId,
+                isKeyframe: isKeyframe,
+                backpressure: backpressureConfig
+            )
+        }
+    }
+
+    private func noteSentFrame(frameId: UInt64, bytes: Int) -> UInt64 {
         stateQueue.sync {
             sentFrameCount &+= 1
+            freshness.noteSent(frameId: frameId, bytes: bytes)
             return sentFrameCount
         }
     }
 
-    private func shouldContinueSending(frameId: UInt64, isKeyframe: Bool) -> Bool {
-        stateQueue.sync { freshness.shouldSend(frameId: frameId, isKeyframe: isKeyframe) }
+    private func currentPacing() -> (pacing: OwnedMediaDatagramPacing, isBackpressured: Bool) {
+        stateQueue.sync {
+            let isBackpressured = freshness.isClientBehind(backpressure: backpressureConfig)
+            let pacing = OwnedMediaDatagramPacing.choose(
+                isBackpressured: isBackpressured,
+                normal: OwnedMediaDatagramPacing(
+                    burstPacketCount: burstPacketCount,
+                    burstPauseUs: burstPauseUs
+                ),
+                backpressure: OwnedMediaDatagramPacing(
+                    burstPacketCount: backpressureBurstPacketCount,
+                    burstPauseUs: backpressureBurstPauseUs
+                )
+            )
+            return (pacing, isBackpressured)
+        }
+    }
+
+    private func logBackpressureDrop(frameId: UInt64, isKeyframe: Bool) {
+        let snapshot = stateQueue.sync {
+            (
+                inflightFrames: freshness.inFlightFrames.count,
+                inflightBytes: freshness.inFlightFrames.values.reduce(0, +),
+                renderGapMs: freshness.latestClientRenderGapMs,
+                backlogFrames: freshness.latestClientBacklogFrames,
+                backlogBytes: freshness.latestClientBacklogBytes,
+                acked: freshness.latestAckedFrameId
+            )
+        }
+        logger.notice("owned media quic drop frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) ack=\(snapshot.acked, privacy: .public) inflightFrames=\(snapshot.inflightFrames, privacy: .public) inflightBytes=\(snapshot.inflightBytes, privacy: .public) renderGapMs=\(snapshot.renderGapMs, privacy: .public) backlogFrames=\(snapshot.backlogFrames, privacy: .public) backlogBytes=\(snapshot.backlogBytes, privacy: .public)")
     }
 
     private func rememberFrame(frameId: UInt64, packets: [Data]) {
@@ -183,7 +239,40 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
             onControlMessage(message)
         case .packetResendRequest:
             resendRequestedPackets(message)
+        case .frameAck:
+            noteFrameAck(message)
         }
+    }
+
+    private func noteFrameAck(_ message: OwnedMediaControlMessage) {
+        let snapshot = stateQueue.sync {
+            freshness.noteAck(
+                frameId: message.frameId,
+                renderGapMs: message.renderGapMs,
+                clientBacklogFrames: message.clientBacklogFrames,
+                clientBacklogBytes: message.clientBacklogBytes
+            )
+            return (
+                inflightFrames: freshness.inFlightFrames.count,
+                inflightBytes: freshness.inFlightFrames.values.reduce(0, +),
+                renderGapMs: freshness.latestClientRenderGapMs,
+                backlogFrames: freshness.latestClientBacklogFrames,
+                backlogBytes: freshness.latestClientBacklogBytes,
+                isBackpressured: freshness.isClientBehind(backpressure: backpressureConfig)
+            )
+        }
+        let pacing = OwnedMediaDatagramPacing.choose(
+            isBackpressured: snapshot.isBackpressured,
+            normal: OwnedMediaDatagramPacing(
+                burstPacketCount: burstPacketCount,
+                burstPauseUs: burstPauseUs
+            ),
+            backpressure: OwnedMediaDatagramPacing(
+                burstPacketCount: backpressureBurstPacketCount,
+                burstPauseUs: backpressureBurstPauseUs
+            )
+        )
+        logger.notice("owned media quic frame-ack frame=\(message.frameId, privacy: .public) total=\(message.totalFramesDecoded ?? 0, privacy: .public) renderGapMs=\(message.renderGapMs ?? 0, privacy: .public) backlogFrames=\(message.clientBacklogFrames ?? 0, privacy: .public) backlogBytes=\(message.clientBacklogBytes ?? 0, privacy: .public) inflightFrames=\(snapshot.inflightFrames, privacy: .public) inflightBytes=\(snapshot.inflightBytes, privacy: .public) backpressure=\(snapshot.isBackpressured, privacy: .public) pacingBurst=\(pacing.burstPacketCount, privacy: .public) pacingPauseUs=\(pacing.burstPauseUs, privacy: .public)")
     }
 
     private func resendRequestedPackets(_ message: OwnedMediaControlMessage) {

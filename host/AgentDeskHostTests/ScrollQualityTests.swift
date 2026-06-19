@@ -82,6 +82,95 @@ struct ScrollQualityTests {
         #expect(freshness.shouldSend(frameId: 22, isKeyframe: true))
     }
 
+    @Test func ownedMediaFreshnessAckClearsInflightFramesAndBytes() {
+        var freshness = OwnedMediaSendFreshness()
+
+        freshness.noteSent(frameId: 10, bytes: 120_000)
+        freshness.noteSent(frameId: 11, bytes: 140_000)
+        freshness.noteSent(frameId: 12, bytes: 160_000)
+        freshness.noteAck(frameId: 11, renderGapMs: 10, clientBacklogFrames: 0, clientBacklogBytes: 0)
+
+        #expect(freshness.latestAckedFrameId == 11)
+        #expect(freshness.inFlightFrames == [12: 160_000])
+    }
+
+    @Test func ownedMediaFreshnessDropsNonKeyframesWhenRenderGapExceedsBudget() {
+        var freshness = OwnedMediaSendFreshness()
+        let backpressure = OwnedMediaBackpressureConfig(
+            renderGapMs: 80,
+            maxInflightFrames: 2,
+            maxInflightBytes: 300_000
+        )
+
+        freshness.noteEnqueued(frameId: 20, isKeyframe: false)
+        freshness.noteAck(frameId: 19, renderGapMs: 81, clientBacklogFrames: 0, clientBacklogBytes: 0)
+
+        #expect(!freshness.shouldSend(frameId: 20, isKeyframe: false, backpressure: backpressure))
+    }
+
+    @Test func ownedMediaFreshnessDropsNonKeyframesWhenInflightFramesExceedLimit() {
+        var freshness = OwnedMediaSendFreshness()
+        let backpressure = OwnedMediaBackpressureConfig(
+            renderGapMs: 80,
+            maxInflightFrames: 2,
+            maxInflightBytes: 300_000
+        )
+
+        freshness.noteSent(frameId: 10, bytes: 10_000)
+        freshness.noteSent(frameId: 11, bytes: 10_000)
+        freshness.noteSent(frameId: 12, bytes: 10_000)
+        freshness.noteAck(frameId: 9, renderGapMs: 10, clientBacklogFrames: 0, clientBacklogBytes: 0)
+        freshness.noteEnqueued(frameId: 13, isKeyframe: false)
+
+        #expect(!freshness.shouldSend(frameId: 13, isKeyframe: false, backpressure: backpressure))
+    }
+
+    @Test func ownedMediaFreshnessDropsNonKeyframesWhenInflightBytesExceedLimit() {
+        var freshness = OwnedMediaSendFreshness()
+        let backpressure = OwnedMediaBackpressureConfig(
+            renderGapMs: 80,
+            maxInflightFrames: 2,
+            maxInflightBytes: 300_000
+        )
+
+        freshness.noteSent(frameId: 10, bytes: 200_000)
+        freshness.noteSent(frameId: 11, bytes: 200_000)
+        freshness.noteAck(frameId: 9, renderGapMs: 10, clientBacklogFrames: 0, clientBacklogBytes: 0)
+        freshness.noteEnqueued(frameId: 12, isKeyframe: false)
+
+        #expect(!freshness.shouldSend(frameId: 12, isKeyframe: false, backpressure: backpressure))
+    }
+
+    @Test func ownedMediaFreshnessKeepsKeyframesUnderBackpressure() {
+        var freshness = OwnedMediaSendFreshness()
+        let backpressure = OwnedMediaBackpressureConfig(
+            renderGapMs: 80,
+            maxInflightFrames: 2,
+            maxInflightBytes: 300_000
+        )
+
+        freshness.noteAck(frameId: 30, renderGapMs: 200, clientBacklogFrames: 3, clientBacklogBytes: 240_000)
+        freshness.noteEnqueued(frameId: 31, isKeyframe: true)
+
+        #expect(freshness.shouldSend(frameId: 31, isKeyframe: true, backpressure: backpressure))
+    }
+
+    @Test func ownedMediaDatagramPacingSwitchesUnderBackpressure() {
+        let normal = OwnedMediaDatagramPacing(burstPacketCount: 32, burstPauseUs: 1_000)
+        let backpressure = OwnedMediaDatagramPacing(burstPacketCount: 16, burstPauseUs: 2_500)
+
+        #expect(OwnedMediaDatagramPacing.choose(
+            isBackpressured: false,
+            normal: normal,
+            backpressure: backpressure
+        ) == normal)
+        #expect(OwnedMediaDatagramPacing.choose(
+            isBackpressured: true,
+            normal: normal,
+            backpressure: backpressure
+        ) == backpressure)
+    }
+
     @Test func ownedMediaResendRingReturnsExactStoredDatagrams() {
         var ring = OwnedMediaResendRing(capacityFrames: 8)
         let packet0 = Data([0x41, 0x44, 0x4d, 0x44, 0x00])

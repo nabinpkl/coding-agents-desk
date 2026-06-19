@@ -213,8 +213,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                             self?.sink?.setOwnedMediaDebugStatus("completed=\(completedFrames) frame=\(completed.frameId) key=\(envelope.header.isKeyframe) repaired=\(repairedFrames) packets=\(completed.packetCount)\nquic=\(receivedPackets) malformed=\(droppedPackets) resend=\(resendRequests)/\(resendPackets) expired=\(expiredFrames) staleSkip=\(skippedStaleFrames) fallback=\(keyframeFallbacks)")
                         }
                     }
-                    await MainActor.run { [weak self] in
+                    let renderStats = await MainActor.run { [weak self] in
                         self?.sink?.renderOwnedMediaFrame(envelope)
+                    }
+                    if let renderStats {
+                        try? await sendFrameAck(renderStats, on: connection)
                     }
                 }
             } catch is CancellationError {
@@ -279,6 +282,20 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         try await send(data, on: connection)
     }
 
+    private func sendFrameAck(_ stats: OwnedMediaRenderStats, on connection: NWConnection) async throws {
+        let message = OwnedMediaControlMessage(
+            kind: .frameAck,
+            frameId: stats.frameId,
+            totalFramesDecoded: stats.totalFramesDecoded,
+            renderGapMs: stats.renderGapMs,
+            clientBacklogFrames: stats.clientBacklogFrames,
+            clientBacklogBytes: stats.clientBacklogBytes
+        )
+        let data = try JSONEncoder().encode(message)
+        try await send(data, on: connection)
+        ownedMediaStderrTrace("frame-ack frame=\(stats.frameId) total=\(stats.totalFramesDecoded) renderGapMs=\(Self.formatOptionalDouble(stats.renderGapMs)) backlogFrames=\(stats.clientBacklogFrames) backlogBytes=\(stats.clientBacklogBytes) flushed=\(stats.flushCount) display=\(stats.displayStatus)")
+    }
+
     private static func formatPacketIndexes(_ indexes: [UInt16], limit: Int = 16) -> String {
         let prefix = indexes.prefix(limit).map { String($0) }.joined(separator: ",")
         if indexes.count > limit {
@@ -294,6 +311,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private static func formatOptionalMilliseconds(_ ns: UInt64?) -> String {
         guard let ns else { return "nil" }
         return formatMilliseconds(ns)
+    }
+
+    private static func formatOptionalDouble(_ value: Double?) -> String {
+        guard let value else { return "nil" }
+        return String(format: "%.1f", value)
     }
 
     private func receiveReady(sessionId: String, on connection: NWConnection) async throws -> MediaChannelReady {

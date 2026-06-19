@@ -4,7 +4,7 @@ import UIKit
 import os
 
 protocol OwnedMediaFrameSink: VideoFrameSink {
-    @MainActor func renderOwnedMediaFrame(_ envelope: OwnedMediaFrameEnvelope)
+    @MainActor func renderOwnedMediaFrame(_ envelope: OwnedMediaFrameEnvelope) -> OwnedMediaRenderStats?
     @MainActor func setOwnedMediaDebugStatus(_ status: String)
 }
 
@@ -47,7 +47,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         }
     }
 
-    func renderOwnedMediaFrame(_ envelope: OwnedMediaFrameEnvelope) {
+    func renderOwnedMediaFrame(_ envelope: OwnedMediaFrameEnvelope) -> OwnedMediaRenderStats? {
         do {
             if let parameterSets = envelope.header.parameterSets {
                 formatDescription = try Self.makeFormatDescription(
@@ -58,17 +58,18 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             guard let formatDescription else {
                 logger.error("owned media frame dropped without format description")
                 ownedMediaStderrTrace("render-drop-no-format frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) codec=\(envelope.header.codec.rawValue) bytes=\(envelope.payload.count)")
-                return
+                return nil
             }
             let sampleBuffer = try Self.makeSampleBuffer(
                 envelope: envelope,
                 formatDescription: formatDescription
             )
-            if displayLayer.status == .failed {
+            let preEnqueueStatus = Self.displayStatusCode(displayLayer)
+            if OwnedMediaDisplayFlushPolicy.action(
+                displayStatus: preEnqueueStatus,
+                isKeyframe: envelope.header.isKeyframe
+            ) == .flushAndRemoveImage {
                 displayLayer.flushAndRemoveImage()
-                flushCount += 1
-            } else if envelope.header.isKeyframe {
-                displayLayer.flush()
                 flushCount += 1
             }
             displayLayer.enqueue(sampleBuffer)
@@ -76,9 +77,14 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             let now = DispatchTime.now().uptimeNanoseconds
             let renderGapNs = lastRenderUptimeNs.map { now &- $0 }
             lastRenderUptimeNs = now
+            let renderGapMs = renderGapNs.map { Double($0) / 1_000_000.0 }
             let status = Self.displayStatus(displayLayer)
+            let backlog = OwnedMediaRenderBacklog.estimate(
+                renderGapMs: renderGapMs,
+                payloadBytes: envelope.payload.count
+            )
             if renderCount == 1 || renderCount.isMultiple(of: 30) || envelope.header.isKeyframe {
-                ownedMediaStderrTrace("render count=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) renderGapMs=\(Self.formatOptionalMilliseconds(renderGapNs)) bytes=\(envelope.payload.count) display=\(status)")
+                ownedMediaStderrTrace("render count=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) renderGapMs=\(Self.formatOptionalMilliseconds(renderGapNs)) backlogFrames=\(backlog.frames) backlogBytes=\(backlog.bytes) bytes=\(envelope.payload.count) display=\(status)")
             }
             setOwnedMediaDebugStatus(
                 "rendered=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(status)"
@@ -95,10 +101,21 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 logger.notice("owned first rendered frame codec=\(envelope.header.codec.rawValue, privacy: .public) size=\(envelope.header.width, privacy: .public)x\(envelope.header.height, privacy: .public) view=\(Int(self.view.bounds.width), privacy: .public)x\(Int(self.view.bounds.height), privacy: .public) bytes=\(envelope.payload.count, privacy: .public)")
                 ownedMediaStderrTrace("first-rendered codec=\(envelope.header.codec.rawValue) size=\(envelope.header.width)x\(envelope.header.height) view=\(Int(self.view.bounds.width))x\(Int(self.view.bounds.height)) bytes=\(envelope.payload.count)")
             }
+            return OwnedMediaRenderStats(
+                frameId: envelope.header.frameId,
+                totalFramesDecoded: UInt64(renderCount),
+                renderGapMs: renderGapMs,
+                payloadBytes: envelope.payload.count,
+                flushCount: flushCount,
+                displayStatus: status,
+                clientBacklogFrames: backlog.frames,
+                clientBacklogBytes: backlog.bytes
+            )
         } catch {
             setOwnedMediaDebugStatus("render failed frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) error=\(String(describing: error))\ndisplay=\(Self.displayStatus(displayLayer))")
             logger.error("owned media render failed: \(String(describing: error), privacy: .public)")
             ownedMediaStderrTrace("render-failed frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) error=\(String(describing: error)) display=\(Self.displayStatus(displayLayer))")
+            return nil
         }
     }
 
@@ -107,6 +124,14 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     }
 
     private static func displayStatus(_ layer: AVSampleBufferDisplayLayer) -> String {
+        let status = displayStatusCode(layer)
+        if let error = layer.error {
+            return "\(status) \(String(describing: error))"
+        }
+        return status
+    }
+
+    private static func displayStatusCode(_ layer: AVSampleBufferDisplayLayer) -> String {
         let status: String
         switch layer.status {
         case .unknown:
@@ -117,9 +142,6 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             status = "failed"
         @unknown default:
             status = "other"
-        }
-        if let error = layer.error {
-            return "\(status) \(String(describing: error))"
         }
         return status
     }

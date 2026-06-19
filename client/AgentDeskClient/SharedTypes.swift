@@ -691,6 +691,7 @@ struct MediaChannelReady: Codable, Equatable {
 enum OwnedMediaControlKind: String, Codable, Equatable {
     case keyframeRequest = "keyframe-request"
     case packetResendRequest = "packet-resend-request"
+    case frameAck = "frame-ack"
 }
 
 struct OwnedMediaControlMessage: Codable, Equatable {
@@ -698,19 +699,39 @@ struct OwnedMediaControlMessage: Codable, Equatable {
     let kind: OwnedMediaControlKind
     let frameId: UInt64
     let packetIndexes: [UInt16]
+    let totalFramesDecoded: UInt64?
+    let renderGapMs: Double?
+    let clientBacklogFrames: Int?
+    let clientBacklogBytes: Int?
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case kind = "k"
         case frameId = "id"
         case packetIndexes = "px"
+        case totalFramesDecoded = "td"
+        case renderGapMs = "rg"
+        case clientBacklogFrames = "qf"
+        case clientBacklogBytes = "qb"
     }
 
-    init(kind: OwnedMediaControlKind, frameId: UInt64, packetIndexes: [UInt16] = []) {
+    init(
+        kind: OwnedMediaControlKind,
+        frameId: UInt64,
+        packetIndexes: [UInt16] = [],
+        totalFramesDecoded: UInt64? = nil,
+        renderGapMs: Double? = nil,
+        clientBacklogFrames: Int? = nil,
+        clientBacklogBytes: Int? = nil
+    ) {
         self.type = "owned-media-control"
         self.kind = kind
         self.frameId = frameId
         self.packetIndexes = packetIndexes
+        self.totalFramesDecoded = totalFramesDecoded
+        self.renderGapMs = renderGapMs
+        self.clientBacklogFrames = clientBacklogFrames
+        self.clientBacklogBytes = clientBacklogBytes
     }
 
     init(from decoder: Decoder) throws {
@@ -719,6 +740,10 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         kind = try container.decode(OwnedMediaControlKind.self, forKey: .kind)
         frameId = try container.decode(UInt64.self, forKey: .frameId)
         packetIndexes = try container.decodeIfPresent([UInt16].self, forKey: .packetIndexes) ?? []
+        totalFramesDecoded = try container.decodeIfPresent(UInt64.self, forKey: .totalFramesDecoded)
+        renderGapMs = try container.decodeIfPresent(Double.self, forKey: .renderGapMs)
+        clientBacklogFrames = try container.decodeIfPresent(Int.self, forKey: .clientBacklogFrames)
+        clientBacklogBytes = try container.decodeIfPresent(Int.self, forKey: .clientBacklogBytes)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -729,6 +754,42 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         if !packetIndexes.isEmpty {
             try container.encode(packetIndexes, forKey: .packetIndexes)
         }
+        try container.encodeIfPresent(totalFramesDecoded, forKey: .totalFramesDecoded)
+        try container.encodeIfPresent(renderGapMs, forKey: .renderGapMs)
+        try container.encodeIfPresent(clientBacklogFrames, forKey: .clientBacklogFrames)
+        try container.encodeIfPresent(clientBacklogBytes, forKey: .clientBacklogBytes)
+    }
+}
+
+struct OwnedMediaRenderStats: Equatable {
+    let frameId: UInt64
+    let totalFramesDecoded: UInt64
+    let renderGapMs: Double?
+    let payloadBytes: Int
+    let flushCount: Int
+    let displayStatus: String
+    let clientBacklogFrames: Int
+    let clientBacklogBytes: Int
+}
+
+enum OwnedMediaDisplayFlushAction: Equatable {
+    case none
+    case flushAndRemoveImage
+}
+
+enum OwnedMediaDisplayFlushPolicy {
+    static func action(displayStatus: String, isKeyframe _: Bool) -> OwnedMediaDisplayFlushAction {
+        displayStatus == "failed" ? .flushAndRemoveImage : .none
+    }
+}
+
+enum OwnedMediaRenderBacklog {
+    static func estimate(renderGapMs: Double?, payloadBytes: Int) -> (frames: Int, bytes: Int) {
+        guard let renderGapMs else {
+            return (0, 0)
+        }
+        let frames = max(0, Int(floor(renderGapMs / 33.3)) - 1)
+        return (frames, frames > 0 ? payloadBytes : 0)
     }
 }
 
