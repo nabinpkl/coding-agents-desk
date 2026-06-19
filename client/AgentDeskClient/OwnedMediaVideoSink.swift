@@ -132,6 +132,8 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 frameId: envelope.header.frameId,
                 totalFramesDecoded: UInt64(renderCount),
                 renderGapMs: renderGapMs,
+                renderStartUptimeNs: renderStartNs,
+                renderEndUptimeNs: renderEndNs,
                 payloadBytes: envelope.payload.count,
                 flushCount: flushCount,
                 displayStatus: status,

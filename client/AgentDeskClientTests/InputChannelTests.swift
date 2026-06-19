@@ -218,6 +218,8 @@ struct InputChannelTests {
             frameId: 55,
             totalFramesDecoded: 13,
             renderGapMs: 120.0,
+            renderStartUptimeNs: 2_000_000,
+            renderEndUptimeNs: 4_000_000,
             payloadBytes: 210_000,
             flushCount: 0,
             displayStatus: "rendering",
@@ -247,6 +249,38 @@ struct InputChannelTests {
         #expect(decoded.renderGapMs == stats.renderGapMs)
         #expect(decoded.clientBacklogFrames == stats.clientBacklogFrames)
         #expect(decoded.clientBacklogBytes == stats.clientBacklogBytes)
+    }
+
+    @Test func ownedMediaFrameTimelineFormatsCompleteToAckPath() {
+        let timeline = OwnedMediaFrameTimeline(
+            frameId: 55,
+            isKeyframe: false,
+            wasRepaired: true,
+            packetCount: 42,
+            payloadBytes: 210_000,
+            firstPacketToCompleteMs: 18.24,
+            completeToRenderStartMs: 2.0,
+            mainActorWaitMs: 1.5,
+            sampleBuildMs: 0.76,
+            enqueueMs: 0.24,
+            renderWorkMs: 1.25,
+            ackSendMs: 0.5,
+            completeToAckSentMs: 4.0,
+            displayReadyBeforeEnqueue: true,
+            requiresFlushToResumeDecoding: false,
+            displayQueueAction: .none,
+            displayStatus: "rendering"
+        )
+
+        #expect(timeline.traceLine.contains("timeline frame=55 key=false repaired=true"))
+        #expect(timeline.traceLine.contains("firstToCompleteMs=18.2"))
+        #expect(timeline.traceLine.contains("completeToRenderStartMs=2.0"))
+        #expect(timeline.traceLine.contains("mainActorWaitMs=1.5"))
+        #expect(timeline.traceLine.contains("sampleMs=0.8"))
+        #expect(timeline.traceLine.contains("enqueueMs=0.2"))
+        #expect(timeline.traceLine.contains("ackSendMs=0.5"))
+        #expect(timeline.traceLine.contains("completeToAckMs=4.0"))
+        #expect(timeline.traceLine.contains("ready=true requiresFlush=false action=none display=rendering"))
     }
 
     @Test func ownedMediaEnvelopeRoundTripsHeaderAndPayload() throws {

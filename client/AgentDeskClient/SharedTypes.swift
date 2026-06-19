@@ -765,6 +765,8 @@ struct OwnedMediaRenderStats: Equatable {
     let frameId: UInt64
     let totalFramesDecoded: UInt64
     let renderGapMs: Double?
+    let renderStartUptimeNs: UInt64
+    let renderEndUptimeNs: UInt64
     let payloadBytes: Int
     let flushCount: Int
     let displayStatus: String
@@ -776,6 +778,53 @@ struct OwnedMediaRenderStats: Equatable {
     let displayQueueAction: OwnedMediaDisplayQueueAction
     let clientBacklogFrames: Int
     let clientBacklogBytes: Int
+}
+
+struct OwnedMediaFrameTimeline: Equatable {
+    let frameId: UInt64
+    let isKeyframe: Bool
+    let wasRepaired: Bool
+    let packetCount: UInt16
+    let payloadBytes: Int
+    let firstPacketToCompleteMs: Double
+    let completeToRenderStartMs: Double
+    let mainActorWaitMs: Double
+    let sampleBuildMs: Double
+    let enqueueMs: Double
+    let renderWorkMs: Double
+    let ackSendMs: Double
+    let completeToAckSentMs: Double
+    let displayReadyBeforeEnqueue: Bool
+    let requiresFlushToResumeDecoding: Bool
+    let displayQueueAction: OwnedMediaDisplayQueueAction
+    let displayStatus: String
+
+    var traceLine: String {
+        [
+            "timeline",
+            "frame=\(frameId)",
+            "key=\(isKeyframe)",
+            "repaired=\(wasRepaired)",
+            "packets=\(packetCount)",
+            "bytes=\(payloadBytes)",
+            "firstToCompleteMs=\(Self.format(firstPacketToCompleteMs))",
+            "completeToRenderStartMs=\(Self.format(completeToRenderStartMs))",
+            "mainActorWaitMs=\(Self.format(mainActorWaitMs))",
+            "sampleMs=\(Self.format(sampleBuildMs))",
+            "enqueueMs=\(Self.format(enqueueMs))",
+            "workMs=\(Self.format(renderWorkMs))",
+            "ackSendMs=\(Self.format(ackSendMs))",
+            "completeToAckMs=\(Self.format(completeToAckSentMs))",
+            "ready=\(displayReadyBeforeEnqueue)",
+            "requiresFlush=\(requiresFlushToResumeDecoding)",
+            "action=\(displayQueueAction.rawValue)",
+            "display=\(displayStatus)"
+        ].joined(separator: " ")
+    }
+
+    private static func format(_ value: Double) -> String {
+        String(format: "%.1f", value)
+    }
 }
 
 enum OwnedMediaDisplayQueueAction: String, Equatable {

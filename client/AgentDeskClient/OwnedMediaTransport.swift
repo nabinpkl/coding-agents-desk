@@ -179,6 +179,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 }
                 repairedFrames += repair.repairedFrameCount
                 for completed in repair.completedFrames {
+                    let frameCompleteNs = DispatchTime.now().uptimeNanoseconds
                     let envelope = try OwnedMediaFrameEnvelope.decode(completed.data)
                     if keyframeRecovery.isAwaitingKeyframe, !envelope.header.isKeyframe {
                         skippedDeltasWaitingForKeyframe += 1
@@ -213,11 +214,38 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                             self?.sink?.setOwnedMediaDebugStatus("completed=\(completedFrames) frame=\(completed.frameId) key=\(envelope.header.isKeyframe) repaired=\(repairedFrames) packets=\(completed.packetCount)\nquic=\(receivedPackets) malformed=\(droppedPackets) resend=\(resendRequests)/\(resendPackets) expired=\(expiredFrames) staleSkip=\(skippedStaleFrames) fallback=\(keyframeFallbacks)")
                         }
                     }
+                    let renderRequestNs = DispatchTime.now().uptimeNanoseconds
                     let renderStats = await MainActor.run { [weak self] in
                         self?.sink?.renderOwnedMediaFrame(envelope)
                     }
                     if let renderStats {
-                        try? await sendFrameAck(renderStats, on: connection)
+                        let ackSendStartNs = DispatchTime.now().uptimeNanoseconds
+                        do {
+                            try await sendFrameAck(renderStats, on: connection)
+                            let ackSendEndNs = DispatchTime.now().uptimeNanoseconds
+                            let timeline = OwnedMediaFrameTimeline(
+                                frameId: completed.frameId,
+                                isKeyframe: envelope.header.isKeyframe,
+                                wasRepaired: completed.wasRepaired,
+                                packetCount: completed.packetCount,
+                                payloadBytes: envelope.payload.count,
+                                firstPacketToCompleteMs: Self.milliseconds(completed.firstSeenAgeNs),
+                                completeToRenderStartMs: Self.milliseconds(renderStats.renderStartUptimeNs &- frameCompleteNs),
+                                mainActorWaitMs: Self.milliseconds(renderStats.renderStartUptimeNs &- renderRequestNs),
+                                sampleBuildMs: renderStats.sampleBuildMs,
+                                enqueueMs: renderStats.enqueueMs,
+                                renderWorkMs: renderStats.renderWorkMs,
+                                ackSendMs: Self.milliseconds(ackSendEndNs &- ackSendStartNs),
+                                completeToAckSentMs: Self.milliseconds(ackSendEndNs &- frameCompleteNs),
+                                displayReadyBeforeEnqueue: renderStats.displayReadyBeforeEnqueue,
+                                requiresFlushToResumeDecoding: renderStats.requiresFlushToResumeDecoding,
+                                displayQueueAction: renderStats.displayQueueAction,
+                                displayStatus: renderStats.displayStatus
+                            )
+                            ownedMediaStderrTrace(timeline.traceLine)
+                        } catch {
+                            ownedMediaStderrTrace("frame-ack-failed frame=\(renderStats.frameId) error=\(String(describing: error))")
+                        }
                     }
                 }
             } catch is CancellationError {
@@ -305,7 +333,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     private static func formatMilliseconds(_ ns: UInt64) -> String {
-        String(format: "%.1f", Double(ns) / 1_000_000.0)
+        String(format: "%.1f", milliseconds(ns))
+    }
+
+    private static func milliseconds(_ ns: UInt64) -> Double {
+        Double(ns) / 1_000_000.0
     }
 
     private static func formatOptionalMilliseconds(_ ns: UInt64?) -> String {
