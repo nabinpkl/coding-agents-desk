@@ -63,7 +63,6 @@ final class SessionRegistry {
     private var iceGraceTimers: [DeviceFingerprint: Task<Void, Never>] = [:]
     private var inputTasks: [DeviceFingerprint: Task<Void, Never>] = [:]
     private var inputChannelServers: [DeviceFingerprint: any InputChannelServing] = [:]
-    private var mediaChannelServers: [DeviceFingerprint: any OwnedMediaChannelServing] = [:]
     private var inputCapabilities: [DeviceFingerprint: InputCapabilityRecord] = [:]
     private var staleInputCapabilities: [InputCapabilityKey: StaleInputCapabilityRecord] = [:]
     private var mediaCapabilities: [DeviceFingerprint: MediaCapabilityRecord] = [:]
@@ -135,8 +134,6 @@ final class SessionRegistry {
         inputTasks.removeValue(forKey: fingerprint)
         inputChannelServers[fingerprint]?.close()
         inputChannelServers.removeValue(forKey: fingerprint)
-        mediaChannelServers[fingerprint]?.close()
-        mediaChannelServers.removeValue(forKey: fingerprint)
         if let transport = transports.removeValue(forKey: fingerprint) {
             transport.stop()
         }
@@ -244,9 +241,6 @@ final class SessionRegistry {
     // Attachments
     func attachTransport(_ transport: MediaTransport, for fingerprint: DeviceFingerprint) {
         transports[fingerprint] = transport
-        if let channel = mediaChannelServers[fingerprint] {
-            transport.attachOwnedMediaChannel(channel)
-        }
     }
 
     func transport(for fingerprint: DeviceFingerprint) -> MediaTransport? {
@@ -265,12 +259,6 @@ final class SessionRegistry {
     func attachInputChannelServer(_ server: any InputChannelServing, for fingerprint: DeviceFingerprint) {
         inputChannelServers[fingerprint]?.close()
         inputChannelServers[fingerprint] = server
-    }
-
-    func attachMediaChannelServer(_ server: any OwnedMediaChannelServing, for fingerprint: DeviceFingerprint) {
-        mediaChannelServers[fingerprint]?.close()
-        mediaChannelServers[fingerprint] = server
-        transports[fingerprint]?.attachOwnedMediaChannel(server)
     }
 
     func scheduleIceGrace(_ task: Task<Void, Never>, for fingerprint: DeviceFingerprint) {

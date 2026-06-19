@@ -22,15 +22,6 @@ protocol MediaTransport: AnyObject, Sendable {
     // renderer keeps both senders warm; the client compositor owns visible
     // plane switching.
     func setVideoInteractive(_ active: Bool)
-
-    // Owned-media stack hook. WebRTC transports ignore this; owned
-    // transports begin sending encoded ADMF frames when the authenticated
-    // media WebSocket arrives.
-    func attachOwnedMediaChannel(_ channel: any OwnedMediaChannelServing)
-}
-
-extension MediaTransport {
-    func attachOwnedMediaChannel(_ channel: any OwnedMediaChannelServing) {}
 }
 
 protocol OwnedMediaChannelServing: AnyObject, Sendable {

@@ -70,7 +70,8 @@ struct InputChannelTests {
         let hello = MediaChannelHello(
             deviceFingerprint: DeviceFingerprint("device-fp-xyz"),
             sessionId: "session-123",
-            mediaCapability: "media-capability"
+            mediaCapability: "media-capability",
+            clientNonce: Data([1, 2, 3])
         )
         let data = try JSONEncoder().encode(hello)
         let json = String(data: data, encoding: .utf8) ?? ""
@@ -79,6 +80,7 @@ struct InputChannelTests {
         #expect(json.contains("device-fp-xyz"))
         #expect(json.contains("\"sid\":\"session-123\""))
         #expect(json.contains("\"mc\":\"media-capability\""))
+        #expect(json.contains("\"cn\""))
     }
 
     @Test func ownedMediaEnvelopeRoundTripsHeaderAndPayload() throws {

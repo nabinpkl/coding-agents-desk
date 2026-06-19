@@ -145,22 +145,6 @@ enum Config {
     static let ownedMediaMaxQP = ownedMediaMaxQP(
         environment: ProcessInfo.processInfo.environment
     )
-    static let ownedMediaDetailActive: Bool = {
-        ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_DETAIL_ACTIVE"] != "0"
-    }()
-    static let ownedMediaMotionActive: Bool = {
-        ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_MOTION_ACTIVE"] != "0"
-    }()
-    static var ownedMediaActivePlanes: [MediaPlane] {
-        var planes: [MediaPlane] = []
-        if ownedMediaDetailActive {
-            planes.append(.detail)
-        }
-        if ownedMediaMotionActive {
-            planes.append(.motion)
-        }
-        return planes.isEmpty ? [.detail] : planes
-    }
     static func ownedMediaMaxQP(environment: [String: String]) -> Int? {
         guard let raw = environment["AGENTDESK_OWNED_MEDIA_MAX_QP"],
               let value = Int(raw),

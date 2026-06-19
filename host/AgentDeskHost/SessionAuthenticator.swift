@@ -110,7 +110,7 @@ final class SessionAuthenticator {
                 mediaMode: Config.mediaStackMode.mediaMode,
                 mediaCapability: mediaCapability,
                 mediaCapabilityExpiresAt: mediaCapabilityExpiresAt,
-                mediaPlanes: Config.mediaStackMode == .owned ? Config.ownedMediaActivePlanes : MediaPlane.allCases
+                mediaPlanes: Config.mediaStackMode == .owned ? [.detail] : MediaPlane.allCases
             ),
             session
         )

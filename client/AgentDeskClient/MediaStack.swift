@@ -30,8 +30,7 @@ enum MediaStack {
                 host: host,
                 port: port,
                 active: active,
-                mediaCapability: mediaCapability,
-                urlSession: urlSession
+                mediaCapability: mediaCapability
             )
         }
     }
@@ -42,7 +41,7 @@ enum MediaStack {
         case .webrtc:
             return DualPlaneVideoSink()
         case .owned:
-            return OwnedMediaVideoSink(activePlanes: Set(activePlanes))
+            return OwnedMediaVideoSink()
         }
     }
 }

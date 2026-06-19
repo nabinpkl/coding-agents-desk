@@ -87,7 +87,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let signalingLogger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private var signalingServer: PairingSignalingServer?
     private let sessions = SessionRegistry()
-    private let mediaFactory: MediaTransportFactory = MediaStack.makeFactory()
+    private lazy var mediaFactory: MediaTransportFactory = MediaStack.makeFactory(
+        ownedDatagramAuthorizer: { [weak self] hello in
+            await MainActor.run {
+                guard let self else {
+                    return .rejected(.unauthorized)
+                }
+                guard (try? self.pairing.lookup(deviceFingerprint: hello.deviceFingerprint)) != nil else {
+                    return .rejected(.unauthorized)
+                }
+                return self.sessions.validateMediaCapability(hello)
+            }
+        }
+    )
     private let inputDispatcher = InputDispatcher()
     private let spacesProvider = SpacesProvider()
     private let spaceThumbnailProvider = SpaceThumbnailProvider()
@@ -282,24 +294,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.handleInputChannelReady(fingerprint, server: server)
                 }
             },
-            mediaChannelAuthorizeHandler: { [weak self] hello, completion in
-                Task { @MainActor in
-                    guard let self else {
-                        completion(.rejected(.unauthorized))
-                        return
-                    }
-                    guard (try? self.pairing.lookup(deviceFingerprint: hello.deviceFingerprint)) != nil else {
-                        completion(.rejected(.unauthorized))
-                        return
-                    }
-                    completion(self.sessions.validateMediaCapability(hello))
-                }
-            },
-            mediaChannelReadyHandler: { [weak self] fingerprint, server in
-                Task { @MainActor in
-                    self?.handleMediaChannelReady(fingerprint, server: server)
-                }
-            },
             inputCapabilityRefreshHandler: { [weak self] request, completion in
                 Task { @MainActor in
                     guard let self else {
@@ -452,11 +446,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             for: fingerprint
         )
-    }
-
-    private func handleMediaChannelReady(_ fingerprint: DeviceFingerprint, server: OwnedMediaChannelServer) {
-        signalingLogger.notice("owned media channel ready fp=\(fingerprint.rawValue, privacy: .public)")
-        sessions.attachMediaChannelServer(server, for: fingerprint)
     }
 
     // ADR-0006: drains the SpaceThumbnailProvider's emit stream and

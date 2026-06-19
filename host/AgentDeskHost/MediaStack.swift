@@ -7,17 +7,17 @@ import Foundation
 // R8.6.3+.
 
 enum MediaStack {
-    // Dual-plane media: full-resolution detail for readable rest text,
-    // downscaled H.264 motion for scroll.
-    static func makeFactory() -> MediaTransportFactory {
+    static func makeFactory(
+        ownedDatagramAuthorizer: @escaping OwnedMediaDatagramAuthorizer = { _ in .rejected(.unauthorized) }
+    ) -> MediaTransportFactory {
         switch Config.mediaStackMode {
         case .webrtc:
             return LibWebRTCTransportFactory(planeConfigurations: MediaPlaneConfiguration.defaultPlanes)
         case .owned:
             return OwnedMediaTransportFactory(
                 codec: Config.ownedMediaCodec.wireCodec,
-                activePlanes: Set(Config.ownedMediaActivePlanes),
-                configuration: .fromConfig()
+                configuration: .fromConfig(),
+                authorizer: ownedDatagramAuthorizer
             )
         }
     }

@@ -810,34 +810,40 @@ struct MediaChannelHello: Codable, Equatable {
     let deviceFingerprint: DeviceFingerprint
     let sessionId: String
     let mediaCapability: String
+    let clientNonce: Data
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case deviceFingerprint = "d"
         case sessionId = "sid"
         case mediaCapability = "mc"
+        case clientNonce = "cn"
     }
 
-    init(deviceFingerprint: DeviceFingerprint, sessionId: String, mediaCapability: String) {
+    init(deviceFingerprint: DeviceFingerprint, sessionId: String, mediaCapability: String, clientNonce: Data = Data()) {
         self.type = "media-hello"
         self.deviceFingerprint = deviceFingerprint
         self.sessionId = sessionId
         self.mediaCapability = mediaCapability
+        self.clientNonce = clientNonce
     }
 }
 
 struct MediaChannelReady: Codable, Equatable {
     let type: String
     let sessionId: String
+    let serverNonce: Data
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case sessionId = "sid"
+        case serverNonce = "sn"
     }
 
-    init(sessionId: String) {
+    init(sessionId: String, serverNonce: Data = Data()) {
         self.type = "media-ready"
         self.sessionId = sessionId
+        self.serverNonce = serverNonce
     }
 }
 

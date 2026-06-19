@@ -11,87 +11,52 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
 @MainActor
 final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     let view: UIView
-    private let compositor: DualPlaneVideoCompositor
-    private let activePlanes: Set<MediaPlane>
-    private let detailLayer = AVSampleBufferDisplayLayer()
-    private let motionLayer = AVSampleBufferDisplayLayer()
+    private let displayLayer = AVSampleBufferDisplayLayer()
     private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "owned-media")
-    private var formatDescriptions: [MediaPlane: CMVideoFormatDescription] = [:]
-    private var loggedFirstRenderedFrame: Set<MediaPlane> = []
+    private var formatDescription: CMVideoFormatDescription?
+    private var loggedFirstRenderedFrame = false
 
-    init(activePlanes: Set<MediaPlane> = Set(MediaPlane.allCases), compositor: DualPlaneVideoCompositor = DualPlaneVideoCompositor()) {
-        self.activePlanes = activePlanes.isEmpty ? [.detail] : activePlanes
-        self.compositor = compositor
-        if !self.activePlanes.contains(.detail), self.activePlanes.contains(.motion) {
-            _ = self.compositor.setMotionActive(true)
-        }
+    init() {
         let container = LayerBackedVideoContainerView()
         container.backgroundColor = .black
         view = container
-        for layer in [detailLayer, motionLayer] {
-            layer.videoGravity = .resizeAspect
-            layer.backgroundColor = UIColor.black.cgColor
-            container.layer.addSublayer(layer)
-        }
+        displayLayer.videoGravity = .resizeAspect
+        displayLayer.backgroundColor = UIColor.black.cgColor
+        container.layer.addSublayer(displayLayer)
         container.layoutHandler = { [weak self, weak container] in
             guard let self, let bounds = container?.bounds else { return }
-            self.detailLayer.frame = bounds
-            self.motionLayer.frame = bounds
+            self.displayLayer.frame = bounds
         }
-        applyVisiblePlane()
     }
 
     func renderOwnedMediaFrame(_ envelope: OwnedMediaFrameEnvelope) {
-        guard activePlanes.contains(envelope.header.plane) else { return }
+        guard envelope.header.plane == .detail else { return }
         do {
             if let parameterSets = envelope.header.parameterSets {
-                formatDescriptions[envelope.header.plane] = try Self.makeFormatDescription(
+                formatDescription = try Self.makeFormatDescription(
                     codec: envelope.header.codec,
                     parameterSets: parameterSets
                 )
             }
-            guard let formatDescription = formatDescriptions[envelope.header.plane] else {
-                logger.error("owned media frame dropped without format description plane=\(envelope.header.plane.rawValue, privacy: .public)")
+            guard let formatDescription else {
+                logger.error("owned media frame dropped without format description")
                 return
             }
             let sampleBuffer = try Self.makeSampleBuffer(
                 envelope: envelope,
                 formatDescription: formatDescription
             )
-            displayLayer(for: envelope.header.plane).enqueue(sampleBuffer)
-            if !loggedFirstRenderedFrame.contains(envelope.header.plane) {
-                loggedFirstRenderedFrame.insert(envelope.header.plane)
+            displayLayer.enqueue(sampleBuffer)
+            if !loggedFirstRenderedFrame {
+                loggedFirstRenderedFrame = true
                 logger.notice("owned first rendered frame plane=\(envelope.header.plane.rawValue, privacy: .public) codec=\(envelope.header.codec.rawValue, privacy: .public) size=\(envelope.header.width, privacy: .public)x\(envelope.header.height, privacy: .public) view=\(Int(self.view.bounds.width), privacy: .public)x\(Int(self.view.bounds.height), privacy: .public) bytes=\(envelope.payload.count, privacy: .public)")
             }
-            _ = compositor.noteFrameRendered(on: envelope.header.plane)
-            applyVisiblePlane()
         } catch {
             logger.error("owned media render failed: \(String(describing: error), privacy: .public)")
         }
     }
 
-    func setMotionActive(_ active: Bool) {
-        guard activePlanes.contains(.motion) else {
-            _ = compositor.setMotionActive(false)
-            applyVisiblePlane()
-            return
-        }
-        _ = compositor.setMotionActive(active)
-        applyVisiblePlane()
-    }
-
-    private func displayLayer(for plane: MediaPlane) -> AVSampleBufferDisplayLayer {
-        switch plane {
-        case .detail: detailLayer
-        case .motion: motionLayer
-        }
-    }
-
-    private func applyVisiblePlane() {
-        let visiblePlane = activePlanes.contains(compositor.visiblePlane) ? compositor.visiblePlane : .detail
-        detailLayer.isHidden = visiblePlane != .detail || !activePlanes.contains(.detail)
-        motionLayer.isHidden = visiblePlane != .motion || !activePlanes.contains(.motion)
-    }
+    func setMotionActive(_ active: Bool) {}
 
     private static func makeFormatDescription(
         codec: OwnedMediaCodec,

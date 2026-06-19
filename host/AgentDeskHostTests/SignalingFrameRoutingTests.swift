@@ -154,9 +154,9 @@ struct SignalingFrameRoutingTests {
         #expect(SignalingFrameRouter.classifyFirstFrame(data) == .inputHello)
     }
 
-    @Test func classifyFirstFrameMediaHelloRoutesToMediaHello() {
+    @Test func classifyFirstFrameMediaHelloIsMalformedOnWebSocket() {
         let data = Data(#"{"t":"media-hello"}"#.utf8)
-        #expect(SignalingFrameRouter.classifyFirstFrame(data) == .mediaHello)
+        #expect(SignalingFrameRouter.classifyFirstFrame(data) == .malformed)
     }
 
     @Test func inputHelloFrameRoundTripsThroughCodable() throws {
@@ -178,7 +178,8 @@ struct SignalingFrameRoutingTests {
         let hello = MediaChannelHello(
             deviceFingerprint: DeviceFingerprint("device-fp"),
             sessionId: "session-123",
-            mediaCapability: "media-capability-abc"
+            mediaCapability: "media-capability-abc",
+            clientNonce: Data([1, 2, 3])
         )
         let data = try JSONEncoder().encode(hello)
         let decoded = try JSONDecoder().decode(MediaChannelHello.self, from: data)
@@ -187,6 +188,7 @@ struct SignalingFrameRoutingTests {
         #expect(decoded.deviceFingerprint == DeviceFingerprint("device-fp"))
         #expect(decoded.sessionId == "session-123")
         #expect(decoded.mediaCapability == "media-capability-abc")
+        #expect(decoded.clientNonce == Data([1, 2, 3]))
     }
 
     @Test func sessionReadyDefaultsOldFixturesToWebRTC() throws {

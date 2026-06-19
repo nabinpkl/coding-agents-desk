@@ -8,7 +8,6 @@ enum FirstFrameRoute: Equatable {
     case pair
     case sessionInit
     case inputHello
-    case mediaHello
     case malformed
 }
 
@@ -47,7 +46,6 @@ enum SignalingFrameRouter {
         case "pair": return .pair
         case "session-init": return .sessionInit
         case "input-hello": return .inputHello
-        case "media-hello": return .mediaHello
         default: return .malformed
         }
     }

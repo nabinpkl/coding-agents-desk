@@ -1,6 +1,7 @@
 ---
-status: proposed
+status: superseded by ADR-0013
 date: 2026-06-18
+superseded-by: ADR-0013
 ---
 
 # Owned media transport control and reuse map

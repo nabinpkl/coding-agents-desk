@@ -1,22 +1,31 @@
 import CoreMedia
 import CoreVideo
+import CryptoKit
 import Foundation
+import Network
+import Security
 import VideoToolbox
 import os
 
+typealias OwnedMediaDatagramAuthorizer = @Sendable (MediaChannelHello) async -> MediaCapabilityValidationResult
+
 final class OwnedMediaTransportFactory: MediaTransportFactory {
     private let codec: OwnedMediaCodec
-    private let activePlanes: Set<MediaPlane>
     private let configuration: OwnedMediaEncodingConfiguration
+    private let authorizer: OwnedMediaDatagramAuthorizer
 
-    init(codec: OwnedMediaCodec, activePlanes: Set<MediaPlane>, configuration: OwnedMediaEncodingConfiguration = .default) {
+    init(
+        codec: OwnedMediaCodec,
+        configuration: OwnedMediaEncodingConfiguration = .default,
+        authorizer: @escaping OwnedMediaDatagramAuthorizer
+    ) {
         self.codec = codec
-        self.activePlanes = activePlanes
         self.configuration = configuration
+        self.authorizer = authorizer
     }
 
     func make() -> MediaTransport {
-        OwnedMediaTransport(codec: codec, activePlanes: activePlanes, configuration: configuration)
+        OwnedMediaTransport(codec: codec, configuration: configuration, authorizer: authorizer)
     }
 }
 
@@ -45,18 +54,24 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
     private let codec: OwnedMediaCodec
-    private let activePlanes: Set<MediaPlane>
     private let configuration: OwnedMediaEncodingConfiguration
+    private let authorizer: OwnedMediaDatagramAuthorizer
+    private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-datagram")
     private let lock = NSLock()
+    private var listener: NWListener?
     private var channel: (any OwnedMediaChannelServing)?
     private var videoSources: VideoPlaneSources?
     private var encoders: [MediaPlane: VideoToolboxOwnedMediaEncoder] = [:]
     private var started = false
 
-    init(codec: OwnedMediaCodec, activePlanes: Set<MediaPlane>, configuration: OwnedMediaEncodingConfiguration = .default) {
+    init(
+        codec: OwnedMediaCodec,
+        configuration: OwnedMediaEncodingConfiguration = .default,
+        authorizer: @escaping OwnedMediaDatagramAuthorizer
+    ) {
         self.codec = codec
-        self.activePlanes = activePlanes
         self.configuration = configuration
+        self.authorizer = authorizer
         var continuation: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { continuation = $0 }
         self.stateContinuation = continuation
@@ -70,21 +85,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     ) async throws {
         self.videoSources = videoSources
         stateContinuation.yield(.connecting)
+        try startDatagramListener()
         try await startIfReady()
-    }
-
-    func attachOwnedMediaChannel(_ channel: any OwnedMediaChannelServing) {
-        lock.lock()
-        self.channel = channel
-        lock.unlock()
-        Task { [weak self] in
-            do {
-                try await self?.startIfReady()
-            } catch {
-                self?.logger.error("owned media start after channel attach failed: \(String(describing: error), privacy: .public)")
-                self?.stateContinuation.yield(.failed)
-            }
-        }
     }
 
     func stop() {
@@ -92,12 +94,15 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         let channel = self.channel
         self.channel = nil
         started = false
+        let listener = self.listener
+        self.listener = nil
         lock.unlock()
         for source in MediaPlane.allCases.compactMap({ videoSources?[$0] }) {
             source.stop()
         }
         encoders.values.forEach { $0.invalidate() }
         encoders.removeAll()
+        listener?.cancel()
         channel?.close()
         stateContinuation.yield(.closed)
         stateContinuation.finish()
@@ -105,16 +110,122 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
     func setVideoInteractive(_ active: Bool) {}
 
+    private func startDatagramListener() throws {
+        lock.lock()
+        let existing = listener
+        lock.unlock()
+        guard existing == nil else { return }
+        guard let port = NWEndpoint.Port(rawValue: Config.signalingPort) else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let listener = try NWListener(using: .udp, on: port)
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.handleDatagramConnection(connection)
+        }
+        listener.stateUpdateHandler = { [weak self] state in
+            self?.logger.notice("owned media udp listener state=\(String(describing: state), privacy: .public)")
+            if case .failed(let error) = state {
+                self?.logger.error("owned media udp listener failed: \(String(describing: error), privacy: .public)")
+                self?.stateContinuation.yield(.failed)
+            }
+        }
+        lock.lock()
+        self.listener = listener
+        lock.unlock()
+        listener.start(queue: queue)
+    }
+
+    private func handleDatagramConnection(_ connection: NWConnection) {
+        connection.start(queue: queue)
+        connection.receiveMessage { [weak self, weak connection] data, _, _, error in
+            guard let self, let connection else { return }
+            if let error {
+                self.logger.error("owned media udp hello receive failed: \(String(describing: error), privacy: .public)")
+                connection.cancel()
+                return
+            }
+            guard let data else {
+                connection.cancel()
+                return
+            }
+            Task { [weak self, weak connection] in
+                await self?.acceptDatagramHello(data, on: connection)
+            }
+        }
+    }
+
+    private func acceptDatagramHello(_ data: Data, on connection: NWConnection?) async {
+        guard let connection else { return }
+        do {
+            let hello = try JSONDecoder().decode(MediaChannelHello.self, from: data)
+            guard !hello.clientNonce.isEmpty else {
+                throw SessionRejected(reason: .malformed)
+            }
+            let result = await authorizer(hello)
+            switch result {
+            case .accepted(let fingerprint):
+                let serverNonce = try Self.randomBytes(count: 32)
+                let key = MediaDatagramCrypto.key(
+                    mediaCapability: hello.mediaCapability,
+                    clientNonce: hello.clientNonce,
+                    serverNonce: serverNonce
+                )
+                let ready = MediaChannelReady(sessionId: hello.sessionId, serverNonce: serverNonce)
+                let readyData = try JSONEncoder().encode(ready)
+                try await sendReady(readyData, on: connection)
+                let channel = OwnedMediaChannelServer(connection: connection, fingerprint: fingerprint, key: key)
+                installChannel(channel)
+                logger.notice("owned media udp accepted fp=\(fingerprint.rawValue, privacy: .public)")
+                try await startIfReady()
+            case .rejected(let reason):
+                logger.error("owned media udp rejected reason=\(reason.rawValue, privacy: .public) fp=\(hello.deviceFingerprint.rawValue, privacy: .public)")
+                connection.cancel()
+            }
+        } catch {
+            logger.error("owned media udp hello failed: \(String(describing: error), privacy: .public)")
+            connection.cancel()
+            stateContinuation.yield(.failed)
+        }
+    }
+
+    private func installChannel(_ channel: any OwnedMediaChannelServing) {
+        lock.lock()
+        self.channel?.close()
+        self.channel = channel
+        lock.unlock()
+    }
+
+    private func sendReady(_ data: Data, on connection: NWConnection) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            connection.send(content: data, completion: .contentProcessed { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            })
+        }
+    }
+
+    private static func randomBytes(count: Int) throws -> Data {
+        var bytes = [UInt8](repeating: 0, count: count)
+        let status = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
+        guard status == errSecSuccess else {
+            throw SessionRejected(reason: .malformed)
+        }
+        return Data(bytes)
+    }
+
     private func startIfReady() async throws {
         guard let (channel, sources) = claimStartIfReady() else { return }
 
-        for plane in MediaPlane.allCases where activePlanes.contains(plane) {
+        for plane in [MediaPlane.detail] {
             guard let source = sources[plane] else { continue }
             let encoder = VideoToolboxOwnedMediaEncoder(
                 plane: plane,
                 codec: codec,
                 targetBitrateKbps: targetBitrateKbps(for: plane),
-                expectedFrameRate: plane == .motion ? SenderTuning.fromEnvironment(ProcessInfo.processInfo.environment).scrollProfile.maxFramerate : 30,
+                expectedFrameRate: 30,
                 configuration: configuration,
                 onEncoded: { [weak self, weak channel] envelope in
                     guard let channel else { return }
