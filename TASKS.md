@@ -25,7 +25,7 @@ This iteration is scroll-first hybrid retained graphics, not full Microsoft mixe
 
 Phase goal: isolate the experiment and resolve the Network.framework connection shape before implementation depends on it.
 
-- [ ] R27.1. Add `.worktrees/` to `.gitignore`, commit on `main`, create `.worktrees/scroll-hybrid-retained-graphics` on branch `codex/scroll-hybrid-retained-graphics`, and run `just check` from the worktree.
+- [x] D27.1. Add `.worktrees/` to `.gitignore`, commit on `main`, create `.worktrees/scroll-hybrid-retained-graphics` on branch `codex/scroll-hybrid-retained-graphics`, and run `just check` from the worktree.
 - [ ] R27.2. Verify the reliable graphics connection shape with Network.framework: prefer one listener on `Config.signalingPort` that routes ALPN `agentdesk-owned-media` and `agentdesk-owned-graphics`; if same-port routing is awkward or impossible, add central config `AGENTDESK_GRAPHICS_PORT` and use a second listener.
 - [ ] R27.3. Add ADR-0016 recording scroll-first hybrid retained graphics as the worktree architecture, superseding ADR-0015 inside the branch without editing historical ADR conclusions.
 - [ ] R27.4. Update `SPEC.md`, `README.md`, `.env.example`, and Just recipes so the worktree describes HEVC full-frame refresh plus reliable retained graphics commands as the active media experiment.
@@ -115,7 +115,7 @@ This scope opens only after R33 proves the scroll-first hybrid path works or ide
 ## Promotion log
 
 ```
-R27.1     pending     pending     ignore local worktrees and create the isolated hybrid graphics branch
+D27.1     2026-06-20  committed   local worktrees ignored and hybrid graphics branch baseline passed
 R27.2     pending     pending     verify graphics QUIC ALPN routing or promote a configured graphics port
 R27.3     pending     pending     ADR-0016 records scroll-first hybrid retained graphics
 R27.4     pending     pending     worktree docs describe HEVC plus retained graphics
