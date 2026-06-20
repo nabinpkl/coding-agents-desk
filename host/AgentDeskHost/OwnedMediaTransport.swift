@@ -276,7 +276,7 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
 }
 
 final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
-    private static let quicALPN = "agentdesk-owned-media"
+    static let mediaDatagramALPN = OwnedQuicListenerConfigurations.mediaDatagramALPN
     let connectionState: AsyncStream<MediaConnectionState>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
@@ -285,7 +285,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let authorizer: OwnedMediaDatagramAuthorizer
     private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic")
     private let lock = NSLock()
-    private var listener: NWListener?
+    private var mediaDatagramListener: NWListener?
+    private var graphicsListener: NWListener?
+    private var graphicsConnections: [ObjectIdentifier: NWConnection] = [:]
     private var channel: (any OwnedMediaChannelServing)?
     private var videoSource: VideoFrameSource?
     private var encoder: VideoToolboxOwnedMediaEncoder?
@@ -314,6 +316,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         self.videoSource = videoSource
         stateContinuation.yield(.connecting)
         try startQuicDatagramListener()
+        try startGraphicsListener()
         try await startIfReady()
     }
 
@@ -322,8 +325,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         let channel = self.channel
         self.channel = nil
         started = false
-        let listener = self.listener
-        self.listener = nil
+        let mediaDatagramListener = self.mediaDatagramListener
+        self.mediaDatagramListener = nil
+        let graphicsListener = self.graphicsListener
+        self.graphicsListener = nil
+        let graphicsConnections = Array(self.graphicsConnections.values)
+        self.graphicsConnections.removeAll()
         let source = self.videoSource
         self.videoSource = nil
         let encoder = self.encoder
@@ -337,7 +344,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         mailbox?.finish()
         source?.stop()
         encoder?.invalidate()
-        listener?.cancel()
+        mediaDatagramListener?.cancel()
+        graphicsListener?.cancel()
+        graphicsConnections.forEach { $0.cancel() }
         channel?.close()
         stateContinuation.yield(.closed)
         stateContinuation.finish()
@@ -345,30 +354,64 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
     private func startQuicDatagramListener() throws {
         lock.lock()
-        let existing = listener
+        let existing = mediaDatagramListener
         lock.unlock()
         guard existing == nil else { return }
-        guard let port = NWEndpoint.Port(rawValue: Config.signalingPort) else {
+        let configuration = Self.mediaDatagramListenerConfiguration()
+        guard let port = NWEndpoint.Port(rawValue: configuration.port) else {
             throw SessionRejected(reason: .malformed)
         }
-        let listener = try NWListener(using: Self.makeQuicDatagramParameters(), on: port)
+        let listener = try NWListener(using: Self.makeQuicParameters(configuration: configuration), on: port)
         listener.newConnectionHandler = { [weak self] connection in
             self?.handleQuicDatagramConnection(connection)
         }
         listener.stateUpdateHandler = { [weak self] state in
-            self?.logger.notice("owned media quic listener state=\(String(describing: state), privacy: .public)")
+            self?.logger.notice("owned media quic datagram listener state=\(String(describing: state), privacy: .public) port=\(Int(configuration.port), privacy: .public)")
             if case .failed(let error) = state {
-                self?.logger.error("owned media quic listener failed: \(String(describing: error), privacy: .public)")
+                self?.logger.error("owned media quic datagram listener failed: \(String(describing: error), privacy: .public)")
                 self?.stateContinuation.yield(.failed)
             }
         }
         lock.lock()
-        self.listener = listener
+        self.mediaDatagramListener = listener
         lock.unlock()
         listener.start(queue: queue)
     }
 
-    private static func makeQuicDatagramParameters() throws -> NWParameters {
+    private func startGraphicsListener() throws {
+        lock.lock()
+        let existing = graphicsListener
+        lock.unlock()
+        guard existing == nil else { return }
+        let configuration = Self.graphicsListenerConfiguration()
+        guard let port = NWEndpoint.Port(rawValue: configuration.port) else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let listener = try NWListener(using: Self.makeQuicParameters(configuration: configuration), on: port)
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.handleGraphicsConnection(connection)
+        }
+        listener.stateUpdateHandler = { [weak self] state in
+            self?.logger.notice("owned graphics quic listener state=\(String(describing: state), privacy: .public) port=\(Int(configuration.port), privacy: .public)")
+            if case .failed(let error) = state {
+                self?.logger.error("owned graphics quic listener failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+        lock.lock()
+        self.graphicsListener = listener
+        lock.unlock()
+        listener.start(queue: queue)
+    }
+
+    static func mediaDatagramListenerConfiguration() -> OwnedQuicListenerConfiguration {
+        OwnedQuicListenerConfigurations.mediaDatagram()
+    }
+
+    static func graphicsListenerConfiguration() -> OwnedQuicListenerConfiguration {
+        OwnedQuicListenerConfigurations.graphics()
+    }
+
+    private static func makeQuicParameters(configuration: OwnedQuicListenerConfiguration) throws -> NWParameters {
         let identity = try TLSIdentityLoader(
             certURL: Config.tlsCertURL,
             keyURL: Config.tlsKeyURL,
@@ -377,10 +420,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         guard let secIdentity = sec_identity_create(identity) else {
             throw TLSIdentityError.noIdentityInBundle
         }
-        let options = NWProtocolQUIC.Options(alpn: [Self.quicALPN])
+        let options = NWProtocolQUIC.Options(alpn: [configuration.alpn])
         options.direction = .bidirectional
-        options.isDatagram = true
-        options.maxDatagramFrameSize = Config.ownedMediaQuicMaxDatagramBytes
+        options.isDatagram = configuration.usesDatagrams
+        if let maxDatagramFrameSize = configuration.maxDatagramFrameSize {
+            options.maxDatagramFrameSize = maxDatagramFrameSize
+        }
         sec_protocol_options_set_local_identity(options.securityProtocolOptions, secIdentity)
         return NWParameters(quic: options)
     }
@@ -442,6 +487,73 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             logger.error("owned media quic hello failed: \(String(describing: error), privacy: .public)")
             connection.cancel()
             stateContinuation.yield(.failed)
+        }
+    }
+
+    private func handleGraphicsConnection(_ connection: NWConnection) {
+        let identifier = ObjectIdentifier(connection)
+        lock.withLock {
+            graphicsConnections[identifier] = connection
+        }
+        connection.stateUpdateHandler = { [weak self, weak connection] state in
+            self?.logger.notice("owned graphics quic connection state=\(String(describing: state), privacy: .public)")
+            switch state {
+            case .cancelled, .failed:
+                if let connection {
+                    self?.removeGraphicsConnection(connection)
+                }
+            default:
+                break
+            }
+        }
+        connection.start(queue: queue)
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self, weak connection] data, _, _, error in
+            guard let self, let connection else { return }
+            if let error {
+                self.logger.error("owned graphics quic hello receive failed: \(String(describing: error), privacy: .public)")
+                self.removeGraphicsConnection(connection)
+                connection.cancel()
+                return
+            }
+            guard let data else {
+                self.logger.error("owned graphics quic hello failed: missing data")
+                self.removeGraphicsConnection(connection)
+                connection.cancel()
+                return
+            }
+            Task { [weak self, weak connection] in
+                await self?.acceptGraphicsHello(data, on: connection)
+            }
+        }
+    }
+
+    private func acceptGraphicsHello(_ data: Data, on connection: NWConnection?) async {
+        guard let connection else { return }
+        do {
+            let hello = try OwnedGraphicsHandshake.validateHelloData(data)
+            let result = await authorizer(OwnedGraphicsHandshake.mediaHello(from: hello))
+            switch result {
+            case .accepted(let fingerprint):
+                let serverNonce = try Self.randomBytes(count: 32)
+                let ready = GraphicsChannelReady(sessionId: hello.sessionId, serverNonce: serverNonce)
+                let readyData = try JSONEncoder().encode(ready)
+                try await sendReady(readyData, on: connection)
+                logger.notice("owned graphics quic accepted fp=\(fingerprint.rawValue, privacy: .public) session=\(hello.sessionId, privacy: .public)")
+            case .rejected(let reason):
+                logger.error("owned graphics quic rejected reason=\(reason.rawValue, privacy: .public) fp=\(hello.deviceFingerprint.rawValue, privacy: .public)")
+                removeGraphicsConnection(connection)
+                connection.cancel()
+            }
+        } catch {
+            logger.error("owned graphics quic hello failed: \(String(describing: error), privacy: .public)")
+            removeGraphicsConnection(connection)
+            connection.cancel()
+        }
+    }
+
+    private func removeGraphicsConnection(_ connection: NWConnection) {
+        lock.withLock {
+            _ = graphicsConnections.removeValue(forKey: ObjectIdentifier(connection))
         }
     }
 

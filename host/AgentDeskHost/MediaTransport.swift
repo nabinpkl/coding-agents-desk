@@ -103,6 +103,58 @@ enum MediaTransportError: Error {
     case notYetImplemented
 }
 
+struct OwnedQuicListenerConfiguration: Equatable, Sendable {
+    let alpn: String
+    let port: UInt16
+    let usesDatagrams: Bool
+    let maxDatagramFrameSize: Int?
+}
+
+enum OwnedQuicListenerConfigurations {
+    static let mediaDatagramALPN = "agentdesk-owned-media"
+    static let graphicsALPN = "agentdesk-owned-graphics"
+
+    static func mediaDatagram() -> OwnedQuicListenerConfiguration {
+        OwnedQuicListenerConfiguration(
+            alpn: mediaDatagramALPN,
+            port: Config.signalingPort,
+            usesDatagrams: true,
+            maxDatagramFrameSize: Config.ownedMediaQuicMaxDatagramBytes
+        )
+    }
+
+    static func graphics() -> OwnedQuicListenerConfiguration {
+        OwnedQuicListenerConfiguration(
+            alpn: graphicsALPN,
+            port: Config.graphicsPort,
+            usesDatagrams: false,
+            maxDatagramFrameSize: nil
+        )
+    }
+}
+
+enum OwnedGraphicsHandshake {
+    static func validateHelloData(_ data: Data) throws -> GraphicsChannelHello {
+        guard !data.isEmpty,
+              let hello = try? JSONDecoder().decode(GraphicsChannelHello.self, from: data),
+              hello.type == "graphics-hello",
+              !hello.clientNonce.isEmpty
+        else {
+            throw SessionRejected(reason: .malformed)
+        }
+        return hello
+    }
+
+    static func mediaHello(from hello: GraphicsChannelHello) -> MediaChannelHello {
+        MediaChannelHello(
+            deviceFingerprint: hello.deviceFingerprint,
+            sessionId: hello.sessionId,
+            mediaCapability: hello.graphicsCapability,
+            clientNonce: hello.clientNonce
+        )
+    }
+}
+
 struct OwnedMediaResendRing {
     private let capacityFrames: Int
     private var frames: [UInt64: [UInt16: Data]] = [:]

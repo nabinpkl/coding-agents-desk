@@ -72,6 +72,24 @@ struct ScrollQualityTests {
         #expect(Config.graphicsPort(environment: ["AGENTDESK_GRAPHICS_PORT": "not-a-port"]) == 41_889)
     }
 
+    @Test func graphicsListenerConfigurationUsesGraphicsPortAndReliableQuic() {
+        let configuration = OwnedQuicListenerConfigurations.graphics()
+
+        #expect(configuration.port == Config.graphicsPort)
+        #expect(configuration.alpn == "agentdesk-owned-graphics")
+        #expect(!configuration.usesDatagrams)
+        #expect(configuration.maxDatagramFrameSize == nil)
+    }
+
+    @Test func mediaListenerConfigurationStillUsesSignalingPortAndDatagrams() {
+        let configuration = OwnedQuicListenerConfigurations.mediaDatagram()
+
+        #expect(configuration.port == Config.signalingPort)
+        #expect(configuration.alpn == "agentdesk-owned-media")
+        #expect(configuration.usesDatagrams)
+        #expect(configuration.maxDatagramFrameSize == Config.ownedMediaQuicMaxDatagramBytes)
+    }
+
     @Test func ownedMediaFreshnessAckClearsInflightFramesAndBytes() {
         var freshness = OwnedMediaSendFreshness()
 

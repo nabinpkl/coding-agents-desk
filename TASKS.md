@@ -45,9 +45,11 @@ Phase goal: make all visual updates share one ordering model before renderer wor
 Phase goal: add the ordered graphics command carrier while keeping the existing HEVC datagram path alive.
 
 - [ ] R29.1. Add a sibling reliable QUIC graphics connection using ALPN `agentdesk-owned-graphics`, the same TLS identity, and explicit `GraphicsChannelHello` / `GraphicsChannelReady` nonce handshake.
+  - Host portion green: `OwnedMediaTransport` starts the sibling reliable graphics listener, validates `GraphicsChannelHello`, adapts it to the existing media authorizer, and replies with `GraphicsChannelReady`; client dialer remains open.
 - [x] D29.2. Add authenticated `ADGC` stream framing for graphics frames: magic, version, length, JSON header, and binary payload.
 - [ ] R29.3. Route graphics ACK and reset-request controls through the graphics stream control path while leaving HEVC frame ACKs on the current owned-media control path.
 - [ ] R29.4. Wire the graphics listener and client dialer to the existing `AGENTDESK_GRAPHICS_PORT` host/client config instead of `Config.signalingPort`.
+  - Host portion green: the graphics listener uses `Config.graphicsPort` through the shared host listener configuration; client dialer remains open.
 - [ ] R29.5. Add transport tests for partial stream reads, malformed frame rejection, parse-failure reset request, graphics ACK queue clearing, and HEVC datagram survival after graphics stream errors.
 
 ## v0 Phase 3: scroll delta engine

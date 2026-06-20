@@ -481,6 +481,49 @@ struct SignalingFrameRoutingTests {
         #expect(decodedRequest.lastCommittedUpdateId == OwnedSurfaceUpdateId(surfaceGeneration: 4, frameId: 21))
     }
 
+    @Test func ownedGraphicsHelloValidationRejectsMalformedWrongTypeAndEmptyNonce() throws {
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try OwnedGraphicsHandshake.validateHelloData(Data())
+        }
+
+        let mediaHello = MediaChannelHello(
+            deviceFingerprint: DeviceFingerprint("device-fp"),
+            sessionId: "session-123",
+            mediaCapability: "media-capability",
+            clientNonce: Data([1, 2, 3])
+        )
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try OwnedGraphicsHandshake.validateHelloData(try JSONEncoder().encode(mediaHello))
+        }
+
+        let emptyNonce = GraphicsChannelHello(
+            deviceFingerprint: DeviceFingerprint("device-fp"),
+            sessionId: "session-123",
+            graphicsCapability: "graphics-capability",
+            clientNonce: Data()
+        )
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try OwnedGraphicsHandshake.validateHelloData(try JSONEncoder().encode(emptyNonce))
+        }
+    }
+
+    @Test func ownedGraphicsHelloAdaptsToMediaCapabilityValidationShape() throws {
+        let hello = GraphicsChannelHello(
+            deviceFingerprint: DeviceFingerprint("device-fp"),
+            sessionId: "session-123",
+            graphicsCapability: "media-capability",
+            clientNonce: Data([1, 2, 3])
+        )
+
+        let adapted = OwnedGraphicsHandshake.mediaHello(from: hello)
+
+        #expect(adapted.type == "media-hello")
+        #expect(adapted.deviceFingerprint == hello.deviceFingerprint)
+        #expect(adapted.sessionId == hello.sessionId)
+        #expect(adapted.mediaCapability == hello.graphicsCapability)
+        #expect(adapted.clientNonce == hello.clientNonce)
+    }
+
     @Test func inputCapabilityGrantRoundTripsThroughCodable() throws {
         let grant = InputCapabilityGrant(
             sessionId: "session-123",
