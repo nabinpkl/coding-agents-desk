@@ -1,70 +1,128 @@
-# TASKS: v0 owned single-surface media (with mixed-graphics escalation captured)
+# TASKS: v0 scroll-first hybrid retained graphics (with full mixed mode captured)
 
-`R<N>` = remaining. Flip to `D<N>` once the change has landed and tests are green.
+`R<N>` = remaining. Flip to `D<N>` once landed and tests are green.
 
-Archived history: `tasks/archive/2026-06-19-v0-media-output-friction.md` carries the closed media-output exploration through the packet-repair slice.
+Archived history:
+- `tasks/archive/2026-06-19-v0-media-output-friction.md` carries the closed media-output exploration through packet repair.
+- `tasks/archive/2026-06-20-v0-owned-single-surface-media.md` carries the completed owned single-surface media ledger through motion budget scaling.
 
 ## Position
 
-The active media architecture is one owned QUIC surface carrying VideoToolbox encoded frames. Pairing, session authentication, the dedicated input WebSocket, Tailscale-only networking, Keychain state, Spaces input, cursor push, and host-local overlays stay in place.
+The next media iteration is a separate worktree experiment for scroll-first hybrid retained graphics. The current owned HEVC path stays valuable: it gives the best observed rest-state text quality and remains the full-frame hardware refresh path. The new work adds a retained client surface and a reliable graphics command stream only for the part where full-screen video is weakest: scroll-like text motion.
 
 Ordering:
 
-- First remove the old media runtime branch, stale wire fields, and scroll-driven quality hints. They hide current behavior behind removed alternatives.
-- Then keep packet repair as the first recovery action and skip stale delta frames when they miss the repair deadline.
-- Then run the physical iPhone feel pass against the single path only. The logs should explain repair, stale-delta skip, keyframe fallback, render gaps, and admission lifecycle without any old path vocabulary.
-- Then prevent one stale unacknowledged frame from closing host admission indefinitely. Stale ACKs are treated as congestion and admission pressure, not decoder recovery.
-- Escalate to mixed graphics only after this owned full-frame path proves which text and motion gaps remain.
+- First isolate the experiment in `.worktrees/scroll-hybrid-retained-graphics` so `main` keeps its current working HEVC path while the branch is allowed to break media wire shapes.
+- Then verify the graphics stream transport shape before deeper implementation. The preferred shape is same `Config.signalingPort`, same TLS identity, and ALPN `agentdesk-owned-graphics`; if Network.framework cannot route same-port ALPN cleanly, promote a central `AGENTDESK_GRAPHICS_PORT` knob instead.
+- Then lock the compositor timeline before touching rendering. HEVC refreshes and graphics commands must share `(surfaceGeneration, frameId)` ordering, with `capturedAtUptimeNs` used only for diagnostics.
+- Then build the scroll command path. Accepted scroll sends `copyRect` plus lossless exposed-strip tiles; rejected or timed-out detection falls back to HEVC for that frame.
+- Then build the client retained surface. `@MainActor OwnedSurfaceCompositor` is acceptable for the first slice because it makes correctness obvious, but HEVC-to-BGRA copy, LZFSE tile paint, copyRect, and CALayer commit must be measured as likely bottlenecks from the first compositor task.
+- Then integrate hybrid cadence. During accepted scroll, HEVC is suppressed by default and one rest refresh is forced after 250 ms idle.
 
-## v0 Phase 14 (R26): owned single-surface media cleanup
+This iteration is scroll-first hybrid retained graphics, not full Microsoft mixed mode. Full text/image/video classification, region HEVC, codec atlas, and Metal/IOSurface compositing stay captured future scope until logs justify them.
 
-Phase goal: make the current source tree, tests, and docs expose one owned media path.
+## v0 Phase 0: worktree and platform gates
 
-- [x] D26.1. Add ADR-0015 recording owned QUIC plus VideoToolbox as the current media architecture, superseding the earlier experimental media decisions without editing historical ADR conclusions.
-- [x] D26.2. Replace active source contracts in `host/AgentDeskHost/MediaTransport.swift`, `client/AgentDeskClient/MediaTransport.swift`, `host/AgentDeskHost/SharedTypes.swift`, and `client/AgentDeskClient/SharedTypes.swift` with single-source and single-sink media types, remove runtime selection, and remove old media fields from `SessionReady`.
-- [x] D26.3. Replace owned datagram packet metadata in `host/AgentDeskHost/OwnedMediaChannelServer.swift` and `client/AgentDeskClient/MediaTransport.swift` with `ADMD` v2 flags, where bit 0 marks keyframes and encoded-frame headers no longer carry a surface identifier.
-- [x] D26.4. Remove scroll-driven media hints from `client/AgentDeskClient/GestureTranslator.swift`, `client/AgentDeskClient/PairingViewController+Gestures.swift`, `client/AgentDeskClient/InputChannel.swift`, `host/AgentDeskHost/InputChannelServer.swift`, and `host/AgentDeskHost/AppDelegate.swift`.
-- [x] D26.5. Delete removed transport and renderer files, remove package references from both Xcode projects, and make `MediaStack` construct the owned transport and sink directly.
-- [x] D26.6. Update host and client tests so they assert the owned-only session shape, `ADMD` v2 keyframe flags, exact resend replay, repair-before-deadline completion, stale delta skip, keyframe expiry fallback, and close-only session signaling.
-- [x] D26.7. Update `PRD.md`, `SPEC.md`, `README.md`, `.env.example`, `Justfile`, and launcher tests so current docs and run commands describe the owned path only.
-- [x] D26.8. Run `just check`, fix fallout, and keep the green cleanup ready for commit.
-- [x] D26.9. Physical iPhone feel pass with `AGENTDESK_OWNED_MEDIA_CODEC=hevc AGENTDESK_OWNED_MEDIA_CHROMA=420 just fresh-consoled-run`, capture host and client logs, and show the freeze is host admission closing on stale unacknowledged frames rather than client decode or display enqueue.
-- [x] D26.10. Change `client/AgentDeskClient/SharedTypes.swift`, `client/AgentDeskClient/OwnedMediaVideoSink.swift`, `host/AgentDeskHost/SharedTypes.swift`, and `host/AgentDeskHost/OwnedMediaTransport.swift` so healthy keyframes do not flush the display layer and stale unacknowledged host frames are visible in admission diagnostics.
-- [x] D26.11. Change stale unacknowledged host frames from recovery-keyframe triggers into admission holds that abandon stale accounting while the raw capture mailbox coalesces newer frames.
-- [x] D26.13. Add `AGENTDESK_OWNED_MEDIA_MOTION_SCALE_DOWN` and pre-encode frame scaling in `host/AgentDeskHost/OwnedMediaTransport.swift` so motion frames can reduce packet pressure while rest frames return to native capture.
+Phase goal: isolate the experiment and resolve the Network.framework connection shape before implementation depends on it.
+
+- [ ] R27.1. Add `.worktrees/` to `.gitignore`, commit on `main`, create `.worktrees/scroll-hybrid-retained-graphics` on branch `codex/scroll-hybrid-retained-graphics`, and run `just check` from the worktree.
+- [ ] R27.2. Verify the reliable graphics connection shape with Network.framework: prefer one listener on `Config.signalingPort` that routes ALPN `agentdesk-owned-media` and `agentdesk-owned-graphics`; if same-port routing is awkward or impossible, add central config `AGENTDESK_GRAPHICS_PORT` and use a second listener.
+- [ ] R27.3. Add ADR-0016 recording scroll-first hybrid retained graphics as the worktree architecture, superseding ADR-0015 inside the branch without editing historical ADR conclusions.
+- [ ] R27.4. Update `SPEC.md`, `README.md`, `.env.example`, and Just recipes so the worktree describes HEVC full-frame refresh plus reliable retained graphics commands as the active media experiment.
+
+## v0 Phase 1: compositor timeline contracts
+
+Phase goal: make all visual updates share one ordering model before renderer work starts.
+
+- [ ] R28.1. Add host/client shared types for `OwnedSurfaceUpdateId(surfaceGeneration, frameId)` with lexicographic strict-newer comparison and diagnostics-only `capturedAtUptimeNs`.
+- [ ] R28.2. Extend the HEVC full-frame envelope with `surfaceGeneration`, `frameId`, `capturedAtUptimeNs`, and `refreshReason` values `initial`, `rest`, `scroll-correctness`, and `reset`.
+- [ ] R28.3. Add host/client shared types for `GraphicsChannelHello`, `GraphicsChannelReady`, `OwnedGraphicsFrameHeader`, `OwnedGraphicsCommand`, `OwnedGraphicsFrameAck`, and `OwnedGraphicsResetRequest`.
+- [ ] R28.4. Define reset ordering: `resetSurface` is accepted only when `surfaceGeneration > committedSurfaceGeneration`, then initializes committed order to `(surfaceGeneration, 0)` before reset tiles apply.
+- [ ] R28.5. Add contract tests asserting update-id comparison, stale HEVC discard, stale graphics discard, newer-generation reset acceptance, same-generation reset rejection, and reserved `codecTile` rejection.
+
+## v0 Phase 2: reliable graphics stream
+
+Phase goal: add the ordered graphics command carrier while keeping the existing HEVC datagram path alive.
+
+- [ ] R29.1. Add a sibling reliable QUIC graphics connection using ALPN `agentdesk-owned-graphics`, the same TLS identity, and explicit `GraphicsChannelHello` / `GraphicsChannelReady` nonce handshake.
+- [ ] R29.2. Add authenticated `ADGC` stream framing for graphics frames: magic, version, length, JSON header, and binary payload.
+- [ ] R29.3. Route graphics ACK and reset-request controls through the graphics stream control path while leaving HEVC frame ACKs on the current owned-media control path.
+- [ ] R29.4. If R27.2 selects a second port, add `AGENTDESK_GRAPHICS_PORT` to host/client config and `.env.example`; otherwise keep graphics on `Config.signalingPort`.
+- [ ] R29.5. Add transport tests for partial stream reads, malformed frame rejection, parse-failure reset request, graphics ACK queue clearing, and HEVC datagram survival after graphics stream errors.
+
+## v0 Phase 3: scroll delta engine
+
+Phase goal: create only the scroll-specialized retained-graphics producer, not a full dirty-region classifier.
+
+- [ ] R30.1. Add `ScrollDeltaEngine` on the host that keeps the previous BGRA frame for scroll detection and surface-size tracking.
+- [ ] R30.2. Detect vertical and horizontal scroll up to 240 px in 8 px steps, accepting only confidence `>= 0.92`.
+- [ ] R30.3. Enforce a 4 ms per-frame detection budget; timeout emits no graphics commands, logs `scroll-timeout`, and falls back to HEVC for that frame.
+- [ ] R30.4. On accepted scroll, emit `copyRect` for the stable moved area plus LZFSE `bitmapTile` commands for newly exposed strips.
+- [ ] R30.5. On rejected motion, emit no graphics commands, log `scroll-rejected`, and let HEVC refresh handle the frame.
+- [ ] R30.6. On size change, emit `resetSurface`, increment `surfaceGeneration`, and force the next HEVC full-surface refresh.
+- [ ] R30.7. Add tests for accepted vertical scroll, accepted horizontal scroll, rejected motion, 4 ms timeout, exposed-strip tile bytes, and resize generation reset.
+
+## v0 Phase 4: retained compositor and HEVC bridge
+
+Phase goal: make the client display one retained surface mutated by both HEVC full refreshes and graphics commands.
+
+- [ ] R31.1. Add `@MainActor OwnedSurfaceCompositor` as the single writer for retained BGRA surface mutation and visible `CALayer` commits.
+- [ ] R31.2. Implement retained-surface operations: create, reset, strict-newer update check, overlap-safe `copyRect`, LZFSE tile paint, and stale update discard.
+- [ ] R31.3. Add compositor diagnostics for HEVC-to-retained copy time, copyRect time, LZFSE decode time, tile paint time, CALayer commit time, stale discard count, and reset count.
+- [ ] R31.4. Add `OwnedHEVCFrameDecoder` using `VTDecompressionSession` on iOS so HEVC refreshes produce `CVPixelBuffer` instead of going directly to `AVSampleBufferDisplayLayer`.
+- [ ] R31.5. Copy decoded HEVC frames into `OwnedSurfaceCompositor` as full-surface refreshes ordered by `(surfaceGeneration, frameId)`.
+- [ ] R31.6. On HEVC decode failure, send `graphics-reset-request` and force a HEVC reset refresh instead of silently dropping the retained surface.
+- [ ] R31.7. Add tests for compositor single-writer entry points, overlap-safe copy, exact tile paint, reset generation rules, stale HEVC discard, stale graphics discard, and HEVC decode failure reset request.
+
+## v0 Phase 5: hybrid cadence integration
+
+Phase goal: let graphics commands own scroll motion while HEVC remains the rest/full-frame correctness path.
+
+- [ ] R32.1. Wire host capture into both current HEVC encode admission and `ScrollDeltaEngine`, sharing one `surfaceGeneration` allocator.
+- [ ] R32.2. Suppress HEVC full-frame refresh during accepted scroll by default with central config `AGENTDESK_HYBRID_SCROLL_HEVC_FPS=0`.
+- [ ] R32.3. Force one HEVC rest refresh after 250 ms of scroll idle, then return to the current HEVC rest cadence.
+- [ ] R32.4. Discard late HEVC refreshes on the client when their `(surfaceGeneration, frameId)` is not strictly newer than the retained surface state.
+- [ ] R32.5. Add tests for accepted-scroll HEVC suppression, optional nonzero scroll HEVC FPS tuning, scroll-idle rest refresh, rest cadence recovery, and stale HEVC overwrite prevention.
+
+## v0 Phase 6: device verification and comparison
+
+Phase goal: prove whether the hybrid path improves scroll feel and identify the next bottleneck if it does not.
+
+- [ ] R33.1. Add `just fresh-hybrid-consoled-run` that builds, installs, launches attached console, and preserves `/tmp/agentdesk-client-console.log`.
+- [ ] R33.2. Add `tools/hybrid-graphics-diagnostics-summary.sh` summarizing HEVC bytes, scroll accepted/rejected/timeout rates, copyRect count, exposed-strip bytes, graphics ACK RTT, HEVC decode cost, compositor copy/tile/commit cost, and stale discard counts.
+- [ ] R33.3. Run a physical iPhone attached-console pass for 20 to 30 seconds of repeated scrolling.
+- [ ] R33.4. Acceptance: rest text remains at least as crisp as current HEVC, copyRect is exercised during scroll, scroll detector timeout rate is under 20 percent of scroll frames, HEVC bytes drop during accepted scroll, late HEVC does not overwrite newer graphics state, and there is no repeated reset loop.
+- [ ] R33.5. If the run fails, classify the blocker as scroll detection, graphics stream, HEVC decode, HEVC-to-retained copy, LZFSE tile paint, copyRect, CALayer commit, or transport/auth before changing tuning.
 
 ---
 
-## v0 mixed-graphics scope (captured, not started)
+## v0 full mixed graphics scope (captured, not started)
 
-This scope opens only if R26.9 shows the single full-frame path still cannot keep text crisp at rest and motion current enough during scroll.
+This scope opens only after R33 proves the scroll-first hybrid path works or identifies a specific bottleneck that requires a broader architecture.
 
 | Option | Source | What it catches | Failure shape |
 | ------ | ------ | --------------- | ------------- |
-| Dirty-region refresh | RDP-style graphics remoting | Restores changed desktop areas without full-frame pressure | Region correctness and compositor ordering become product code |
-| Scroll-copy command | Remote desktop screen-content model | Moves existing pixels immediately during scroll while new detail catches up | Breaks if the host app repaint diverges from predicted movement |
-| Text/detail refresh | Mixed graphics model | Keeps code and terminal text crisp independent of motion compression | Requires detecting and painting desktop text without drifting from the host |
-| Full-frame only | Current R26 path | Keeps the implementation small and measurable | May stay packet-heavy under fast desktop changes |
+| Full dirty-region classifier | Microsoft-style mixed graphics | Non-scroll text changes without full HEVC frames | CPU detection and ordering complexity can exceed the saved bytes |
+| Region HEVC / codec atlas | Future `codecTile` command | Image/video-heavy regions without full-screen codec pressure | Decoder/compositor synchronization becomes the hard part |
+| Metal or IOSurface compositor | Client renderer upgrade | Moves BGRA copy, tile paint, and commit cost off the main thread | More rendering complexity before correctness is proven |
+| Multipath graphics transport | AVD 2026 network direction | Better resilience under poor networks | Not useful until command model beats local Wi-Fi bottlenecks |
 
 ### Alternative arc (rejected for now, captured)
 
-- Add a second visual surface. Rejected because R26 intentionally removes media-mode switching and old runtime seams before evaluating the owned path. Revisit only if R26.9 proves the one-surface path cannot satisfy both rest text and motion freshness.
-- Return to a library-owned RTP stack. Rejected because the current ceiling question is receiver buffering, packet recovery, and VideoToolbox lifecycle control. Revisit only if maintaining QUIC media recovery becomes larger than replacing the stack.
+- Pure retained graphics with no HEVC active path. Rejected because hardware HEVC is already the best observed rest-quality ceiling, and deleting it would make the first retained-surface slice CPU-heavy before proving the scroll-copy thesis. Revisit only if HEVC-to-retained decode/copy is the bottleneck and graphics-only rest tiles are cheaper.
+- Full Microsoft mixed mode now. Rejected because text/image/video classification and codec tiles are broader than the current failure. Revisit after scroll-first hybrid logs prove the retained compositor and reliable graphics stream.
 
 ## Promotion log
 
 ```
-D26.1     2026-06-19  committed   ADR-0015 records owned single-surface media as current architecture
-D26.2     2026-06-19  committed   media contracts and SessionReady remove old runtime selection fields
-D26.3     2026-06-19  committed   ADMD v2 packet flags replace surface-tagged datagram metadata
-D26.4     2026-06-19  committed   scroll-driven media quality hints removed from client and host
-D26.5     2026-06-19  committed   removed transport files and package references deleted from active targets
-D26.6     2026-06-19  committed   owned-only tests replace removed media-mode coverage
-D26.7     2026-06-19  committed   current docs and run commands describe owned media only
-D26.8     2026-06-19  committed   full check is green
-D26.9     2026-06-19  committed   physical iPhone feel pass found host admission freeze on stale unacked frames
-D26.10    2026-06-19  committed   healthy keyframes stop flushing and stale unacked frames became visible in admission diagnostics
-D26.11    2026-06-19  committed   stale unacked frames hold admission instead of forcing recovery keyframes
-D26.12    2026-06-19  committed   drain timeout reopens latest-frame admission instead of forcing recovery keyframes
-D26.13    2026-06-20  committed   motion budget can downscale before VideoToolbox while rest returns to native capture
+R27.1     pending     pending     ignore local worktrees and create the isolated hybrid graphics branch
+R27.2     pending     pending     verify graphics QUIC ALPN routing or promote a configured graphics port
+R27.3     pending     pending     ADR-0016 records scroll-first hybrid retained graphics
+R27.4     pending     pending     worktree docs describe HEVC plus retained graphics
+R28       pending     pending     compositor timeline contracts and ordering tests
+R29       pending     pending     reliable graphics stream and transport tests
+R30       pending     pending     scroll delta engine with timeout and exposed-strip tests
+R31       pending     pending     MainActor retained compositor and HEVC decoder bridge
+R32       pending     pending     hybrid cadence suppresses HEVC during accepted scroll
+R33       pending     pending     attached-console iPhone verification and diagnostics summary
 ```
