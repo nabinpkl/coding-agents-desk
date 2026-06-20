@@ -166,13 +166,14 @@ DesktopStatePush   { state: DesktopState }                            // t: "des
 - Packet repair is first resort. The client sends one missing-index request per frame repair window.
 - The host resend ring keeps exact authenticated datagrams and resends only requested indexes still in the ring.
 - Capture freshness is enforced before VideoToolbox. The host keeps one latest raw capture frame, coalesces stale pending captures while transport is busy or the client is behind, and only encodes frames it intends to send.
-- Frame ACKs are the host-side admission fence. Normal cadence allows two unacknowledged frames, behind cadence allows one, and draining cadence allows none until ACKs clear or the drain timeout permits one recovery keyframe.
-- If a behind or draining frame stays unacknowledged past the stale-unacked deadline, the host abandons it for admission accounting and forces the next admitted frame to be a recovery keyframe. This prevents one lost lifecycle ACK from freezing capture admission, while preserving decoder continuity after any abandoned reference frame.
+- Frame ACKs are the host-side admission fence. Normal cadence allows two unacknowledged frames, behind cadence allows one, and draining cadence allows none until ACKs clear or the drain timeout reopens latest-frame admission.
+- If a behind or draining frame stays unacknowledged past the stale-unacked deadline, the host abandons it for admission accounting and holds encode admission while the raw capture mailbox keeps coalescing. This prevents one late lifecycle ACK from freezing capture admission without amplifying congestion with large recovery keyframes.
 - Explicit keyframe requests are deferred while draining. Periodic keyframes are suppressed while behind or draining, and a second keyframe is blocked while a prior keyframe is unacknowledged.
 - Once a frame is encoded, the host sends the whole frame. Backpressure adjusts encode cadence and datagram pacing; it does not drop encoded delta frames.
 - A frame repaired before the deadline renders in order.
 - An expired delta frame is skipped as stale output.
 - An expired keyframe, decoder failure, malformed packet, or authentication failure requests keyframe recovery.
+- Stale unacknowledged host frames and drain timeouts do not force keyframe recovery. Keyframe recovery is reserved for decoder continuity failures, incomplete keyframes, malformed/auth failures, and explicit client requests.
 
 ## Performance Budgets
 

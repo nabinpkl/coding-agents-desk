@@ -281,7 +281,7 @@ struct ScrollQualityTests {
         #expect(admission.unacknowledgedFrameCount == 1)
     }
 
-    @Test func ownedMediaAdmissionAbandonsStaleUnackedAndForcesRecoveryKeyframe() {
+    @Test func ownedMediaAdmissionAbandonsStaleUnackedWithoutForcingKeyframe() {
         var admission = OwnedMediaEncodeAdmission()
         let backpressure = Self.backpressureConfig()
 
@@ -305,14 +305,18 @@ struct ScrollQualityTests {
 
         let decision = admission.decision(nowUptimeNs: 1_370_000_000, config: backpressure)
 
-        #expect(decision.shouldEncode)
-        #expect(decision.forceKeyframe)
+        #expect(!decision.shouldEncode)
+        #expect(!decision.forceKeyframe)
         #expect(!decision.allowPeriodicKeyframe)
-        #expect(decision.keyframeReason == .staleUnackedRecovery)
+        #expect(decision.keyframeReason == nil)
+        #expect(decision.holdReason == "stale-unacked")
+        #expect(decision.abandonedStaleUnackedCount == 1)
+        #expect(decision.abandonedStaleUnackedBytes == 10_000)
+        #expect(decision.abandonedStaleUnackedOldestFrameId == 11)
         #expect(admission.unacknowledgedFrameCount == 0)
     }
 
-    @Test func ownedMediaAdmissionAbandoningStaleKeyframeClearsInflightKeyframe() {
+    @Test func ownedMediaAdmissionAbandoningStaleKeyframeClearsInflightWithoutImmediateReplacement() {
         var admission = OwnedMediaEncodeAdmission()
         let backpressure = Self.backpressureConfig()
 
@@ -337,12 +341,78 @@ struct ScrollQualityTests {
             config: backpressure
         )
 
-        let recovery = admission.decision(nowUptimeNs: 1_360_000_000, config: backpressure)
+        let decision = admission.decision(nowUptimeNs: 1_360_000_000, config: backpressure)
 
-        #expect(recovery.shouldEncode)
-        #expect(recovery.forceKeyframe)
-        #expect(recovery.keyframeReason == .staleUnackedRecovery)
+        #expect(!decision.shouldEncode)
+        #expect(!decision.forceKeyframe)
+        #expect(decision.keyframeReason == nil)
+        #expect(decision.holdReason == "stale-unacked")
+        #expect(decision.abandonedStaleUnackedCount == 1)
         #expect(admission.keyframeInFlightFrameId == nil)
+    }
+
+    @Test func ownedMediaAdmissionAllowsExplicitClientKeyframeAfterStaleAbandonment() {
+        var admission = OwnedMediaEncodeAdmission()
+        let backpressure = Self.backpressureConfig()
+
+        _ = admission.noteAck(
+            frameId: 10,
+            renderGapMs: 90,
+            frameAgeMs: 120,
+            clientBacklogFrames: 1,
+            clientBacklogBytes: 10_000,
+            nowUptimeNs: 1_000_000_000,
+            config: backpressure
+        )
+        admission.noteSent(
+            frameId: 11,
+            bytes: 10_000,
+            capturedAtUptimeNs: 1_010_000_000,
+            isKeyframe: false,
+            nowUptimeNs: 1_020_000_000,
+            config: backpressure
+        )
+
+        let stale = admission.decision(nowUptimeNs: 1_370_000_000, config: backpressure)
+        #expect(!stale.shouldEncode)
+        #expect(stale.holdReason == "stale-unacked")
+
+        admission.noteKeyframeRequested()
+        let requested = admission.decision(nowUptimeNs: 1_371_000_000, config: backpressure)
+
+        #expect(requested.shouldEncode)
+        #expect(requested.forceKeyframe)
+        #expect(requested.keyframeReason == .clientRequest)
+    }
+
+    @Test func ownedMediaAdmissionPrioritizesClientKeyframeOverBehindUnackedHold() {
+        var admission = OwnedMediaEncodeAdmission()
+        let backpressure = Self.backpressureConfig()
+
+        _ = admission.noteAck(
+            frameId: 40,
+            renderGapMs: 200,
+            frameAgeMs: 120,
+            clientBacklogFrames: 2,
+            clientBacklogBytes: 50_000,
+            nowUptimeNs: 1_000_000_000,
+            config: backpressure
+        )
+        admission.noteSent(
+            frameId: 41,
+            bytes: 50_000,
+            capturedAtUptimeNs: 1_010_000_000,
+            isKeyframe: false,
+            nowUptimeNs: 1_020_000_000,
+            config: backpressure
+        )
+        admission.noteKeyframeRequested()
+
+        let decision = admission.decision(nowUptimeNs: 1_030_000_000, config: backpressure)
+
+        #expect(decision.shouldEncode)
+        #expect(decision.forceKeyframe)
+        #expect(decision.keyframeReason == .clientRequest)
     }
 
     @Test func ownedMediaAdmissionAckClearsUnackedFramesAndExitsDrain() {
@@ -382,7 +452,7 @@ struct ScrollQualityTests {
         #expect(admission.mode == .normal)
     }
 
-    @Test func ownedMediaAdmissionDrainTimeoutPermitsOneRecoveryKeyframe() {
+    @Test func ownedMediaAdmissionDrainTimeoutReopensAdmissionWithoutRecoveryKeyframe() {
         var admission = OwnedMediaEncodeAdmission()
         let backpressure = Self.backpressureConfig()
 
@@ -401,11 +471,12 @@ struct ScrollQualityTests {
 
         #expect(!beforeTimeout.shouldEncode)
         #expect(afterTimeout.shouldEncode)
-        #expect(afterTimeout.forceKeyframe)
+        #expect(!afterTimeout.forceKeyframe)
         #expect(!afterTimeout.allowPeriodicKeyframe)
+        #expect(afterTimeout.keyframeReason == nil)
     }
 
-    @Test func ownedMediaAdmissionDefersKeyframeRequestDuringDrain() {
+    @Test func ownedMediaAdmissionPrioritizesClientKeyframeRequestDuringDrain() {
         var admission = OwnedMediaEncodeAdmission()
         let backpressure = Self.backpressureConfig()
 
@@ -422,8 +493,31 @@ struct ScrollQualityTests {
 
         let decision = admission.decision(nowUptimeNs: 1_100_000_000, config: backpressure)
 
-        #expect(!decision.shouldEncode)
-        #expect(decision.holdReason == "draining")
+        #expect(decision.shouldEncode)
+        #expect(decision.forceKeyframe)
+        #expect(decision.keyframeReason == .clientRequest)
+    }
+
+    @Test func ownedMediaAdmissionSendsExplicitClientKeyframeAfterDrainTimeout() {
+        var admission = OwnedMediaEncodeAdmission()
+        let backpressure = Self.backpressureConfig()
+
+        _ = admission.noteAck(
+            frameId: 40,
+            renderGapMs: 10,
+            frameAgeMs: 600,
+            clientBacklogFrames: 0,
+            clientBacklogBytes: 0,
+            nowUptimeNs: 1_000_000_000,
+            config: backpressure
+        )
+        admission.noteKeyframeRequested()
+
+        let decision = admission.decision(nowUptimeNs: 1_701_000_000, config: backpressure)
+
+        #expect(decision.shouldEncode)
+        #expect(decision.forceKeyframe)
+        #expect(decision.keyframeReason == .clientRequest)
     }
 
     @Test func ownedMediaAdmissionBlocksSecondKeyframeWhileOneIsInFlight() {
@@ -519,6 +613,23 @@ struct ScrollQualityTests {
         #expect(clientRequest.shouldEncode)
         #expect(clientRequest.forceKeyframe)
         #expect(clientRequest.keyframeReason == .clientRequest)
+        admission.noteSent(
+            frameId: 1,
+            bytes: 100_000,
+            capturedAtUptimeNs: 1_000_000_000,
+            isKeyframe: true,
+            nowUptimeNs: 1_010_000_000,
+            config: backpressure
+        )
+        _ = admission.noteAck(
+            frameId: 1,
+            renderGapMs: 10,
+            frameAgeMs: 20,
+            clientBacklogFrames: 0,
+            clientBacklogBytes: 0,
+            nowUptimeNs: 1_020_000_000,
+            config: backpressure
+        )
 
         _ = admission.noteAck(
             frameId: 10,
@@ -529,14 +640,14 @@ struct ScrollQualityTests {
             nowUptimeNs: 2_000_000_000,
             config: backpressure
         )
-        let postDrain = admission.decision(
+        let timedOutDrain = admission.decision(
             nowUptimeNs: 2_800_000_000,
             config: backpressure
         )
 
-        #expect(postDrain.shouldEncode)
-        #expect(postDrain.forceKeyframe)
-        #expect(postDrain.keyframeReason == .postDrainRecovery)
+        #expect(timedOutDrain.shouldEncode)
+        #expect(!timedOutDrain.forceKeyframe)
+        #expect(timedOutDrain.keyframeReason == nil)
     }
 
     @Test func ownedMediaResendRingReturnsExactStoredDatagrams() {

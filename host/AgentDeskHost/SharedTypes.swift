@@ -891,8 +891,6 @@ enum OwnedMediaKeyframeReason: String, Equatable, Sendable {
     case initial
     case periodic
     case clientRequest = "client-request"
-    case postDrainRecovery = "post-drain-recovery"
-    case staleUnackedRecovery = "stale-unacked-recovery"
 }
 
 struct OwnedMediaAdmissionDecision: Equatable {
@@ -943,7 +941,6 @@ struct OwnedMediaEncodeAdmission: Equatable {
     private(set) var latestClientBacklogBytes: Int = 0
     private(set) var unacknowledgedFrames: [UInt64: OwnedMediaSentFrame] = [:]
     private(set) var pendingKeyframeRequest = false
-    private(set) var pendingStaleUnackedRecovery = false
     private(set) var keyframeInFlightFrameId: UInt64?
     private(set) var lastKeyframeSentAtUptimeNs: UInt64?
     private(set) var drainEnteredAtUptimeNs: UInt64?
@@ -971,7 +968,6 @@ struct OwnedMediaEncodeAdmission: Equatable {
         )
         if isKeyframe {
             pendingKeyframeRequest = false
-            pendingStaleUnackedRecovery = false
             keyframeInFlightFrameId = frameId
             lastKeyframeSentAtUptimeNs = nowUptimeNs
         }
@@ -1016,16 +1012,14 @@ struct OwnedMediaEncodeAdmission: Equatable {
         config: OwnedMediaBackpressureConfig
     ) -> OwnedMediaAdmissionDecision {
         refreshMode(config: config, nowUptimeNs: nowUptimeNs)
-        if let staleRecovery = staleUnackedRecoveryDecision(nowUptimeNs: nowUptimeNs, config: config) {
-            return staleRecovery
+        if let staleHold = staleUnackedAdmissionHoldDecision(nowUptimeNs: nowUptimeNs, config: config) {
+            return staleHold
         }
         let forceKeyframe = pendingKeyframeRequest && canSendKeyframe(nowUptimeNs: nowUptimeNs, config: config)
-        let forcedKeyframeReason: OwnedMediaKeyframeReason = pendingStaleUnackedRecovery ? .staleUnackedRecovery : .clientRequest
+        let forcedKeyframeReason: OwnedMediaKeyframeReason = .clientRequest
         let allowPeriodic = mode == .normal
-
-        switch mode {
-        case .normal:
-            if pendingKeyframeRequest && !forceKeyframe {
+        if pendingKeyframeRequest {
+            guard forceKeyframe else {
                 return OwnedMediaAdmissionDecision(
                     shouldEncode: false,
                     forceKeyframe: false,
@@ -1035,6 +1029,18 @@ struct OwnedMediaEncodeAdmission: Equatable {
                     keyframeReason: nil
                 )
             }
+            return OwnedMediaAdmissionDecision(
+                shouldEncode: true,
+                forceKeyframe: true,
+                allowPeriodicKeyframe: false,
+                mode: mode,
+                holdReason: nil,
+                keyframeReason: forcedKeyframeReason
+            )
+        }
+
+        switch mode {
+        case .normal:
             if unacknowledgedFrameCount >= config.normalMaxUnackedFrames {
                 return OwnedMediaAdmissionDecision(
                     shouldEncode: false,
@@ -1064,16 +1070,6 @@ struct OwnedMediaEncodeAdmission: Equatable {
                     keyframeReason: nil
                 )
             }
-            if pendingKeyframeRequest && !forceKeyframe {
-                return OwnedMediaAdmissionDecision(
-                    shouldEncode: false,
-                    forceKeyframe: false,
-                    allowPeriodicKeyframe: false,
-                    mode: mode,
-                    holdReason: keyframeInFlightFrameId == nil ? "keyframe-cooldown" : "keyframe-inflight",
-                    keyframeReason: nil
-                )
-            }
             return OwnedMediaAdmissionDecision(
                 shouldEncode: true,
                 forceKeyframe: forceKeyframe,
@@ -1093,23 +1089,12 @@ struct OwnedMediaEncodeAdmission: Equatable {
                     keyframeReason: nil
                 )
             }
-            if canSendKeyframe(nowUptimeNs: nowUptimeNs, config: config) {
-                pendingKeyframeRequest = true
-                return OwnedMediaAdmissionDecision(
-                    shouldEncode: true,
-                    forceKeyframe: true,
-                    allowPeriodicKeyframe: false,
-                    mode: mode,
-                    holdReason: nil,
-                    keyframeReason: .postDrainRecovery
-                )
-            }
             return OwnedMediaAdmissionDecision(
-                shouldEncode: false,
+                shouldEncode: true,
                 forceKeyframe: false,
                 allowPeriodicKeyframe: false,
                 mode: mode,
-                holdReason: keyframeInFlightFrameId == nil ? "drain-keyframe-cooldown" : "keyframe-inflight",
+                holdReason: nil,
                 keyframeReason: nil
             )
         }
@@ -1152,7 +1137,7 @@ struct OwnedMediaEncodeAdmission: Equatable {
             unacknowledgedBytes > config.maxInflightBytes
     }
 
-    private mutating func staleUnackedRecoveryDecision(
+    private mutating func staleUnackedAdmissionHoldDecision(
         nowUptimeNs: UInt64,
         config: OwnedMediaBackpressureConfig
     ) -> OwnedMediaAdmissionDecision? {
@@ -1180,30 +1165,14 @@ struct OwnedMediaEncodeAdmission: Equatable {
         if abandonedInflightKeyframe {
             keyframeInFlightFrameId = nil
         }
-        pendingKeyframeRequest = true
-        pendingStaleUnackedRecovery = true
         refreshMode(config: config, nowUptimeNs: nowUptimeNs)
-
-        if canSendKeyframe(nowUptimeNs: nowUptimeNs, config: config) || abandonedInflightKeyframe {
-            return OwnedMediaAdmissionDecision(
-                shouldEncode: true,
-                forceKeyframe: true,
-                allowPeriodicKeyframe: false,
-                mode: mode,
-                holdReason: nil,
-                keyframeReason: .staleUnackedRecovery,
-                abandonedStaleUnackedCount: staleFrames.count,
-                abandonedStaleUnackedBytes: abandonedBytes,
-                abandonedStaleUnackedOldestFrameId: oldestFrameId
-            )
-        }
 
         return OwnedMediaAdmissionDecision(
             shouldEncode: false,
             forceKeyframe: false,
             allowPeriodicKeyframe: false,
             mode: mode,
-            holdReason: keyframeInFlightFrameId == nil ? "keyframe-cooldown" : "keyframe-inflight",
+            holdReason: "stale-unacked",
             keyframeReason: nil,
             abandonedStaleUnackedCount: staleFrames.count,
             abandonedStaleUnackedBytes: abandonedBytes,

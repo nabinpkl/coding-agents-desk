@@ -603,9 +603,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         if decision.mode == .draining && decision.forceKeyframe && envelope.header.isKeyframe {
             logger.notice("owned media keyframe-sent-after-drain frame=\(envelope.header.frameId, privacy: .public)")
         }
-        if decision.keyframeReason == .staleUnackedRecovery && envelope.header.isKeyframe {
-            logger.notice("owned media recovery-keyframe-admitted reason=stale-unacked frame=\(envelope.header.frameId, privacy: .public)")
-        }
     }
 
     private func claimStartIfReady() -> ((any OwnedMediaChannelServing), VideoFrameSource)? {
