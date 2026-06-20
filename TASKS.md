@@ -27,7 +27,7 @@ Phase goal: isolate the experiment and resolve the Network.framework connection 
 
 - [x] D27.1. Add `.worktrees/` to `.gitignore`, commit on `main`, create `.worktrees/scroll-hybrid-retained-graphics` on branch `codex/scroll-hybrid-retained-graphics`, and run `just check` from the worktree.
 - [x] D27.2. Add central host/client `AGENTDESK_GRAPHICS_PORT` config, default `41889`, after selecting a second graphics listener over same-port Network.framework ALPN routing.
-- [ ] R27.3. Add ADR-0016 recording scroll-first hybrid retained graphics and the R27.2 second configured graphics port decision as the worktree architecture, superseding ADR-0015 inside the branch without editing historical ADR conclusions.
+- [x] D27.3. Add ADR-0016 recording scroll-first hybrid retained graphics and the R27.2 second configured graphics port decision as the worktree architecture, superseding ADR-0015 inside the branch without editing historical ADR conclusions.
 - [ ] R27.4. Update `SPEC.md`, `README.md`, `.env.example`, and Just recipes so the worktree describes HEVC full-frame refresh plus reliable retained graphics commands as the active media experiment.
 
 ## v0 Phase 1: compositor timeline contracts
@@ -117,7 +117,7 @@ This scope opens only after R33 proves the scroll-first hybrid path works or ide
 ```
 D27.1     2026-06-20  committed   local worktrees ignored and hybrid graphics branch baseline passed
 D27.2     2026-06-20  committed   second configured graphics port chosen after Network.framework ALPN routing review
-R27.3     pending     pending     ADR-0016 records scroll-first hybrid retained graphics
+D27.3     2026-06-20  committed   ADR-0016 records scroll-first hybrid retained graphics
 R27.4     pending     pending     worktree docs describe HEVC plus retained graphics
 R28       pending     pending     compositor timeline contracts and ordering tests
 R29       pending     pending     reliable graphics stream and transport tests
