@@ -482,21 +482,22 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         channel: any OwnedMediaChannelServing,
         diagnostics: OwnedMediaHostDiagnostics
     ) async {
-        var lastAdmissionNs: UInt64?
+        var cadenceScheduler = OwnedMediaCadenceScheduler()
         for await _ in mailbox.stream {
             guard !Task.isCancelled else { return }
             diagnostics.setPhase(.idle)
             guard var frame = mailbox.takeLatest() else { continue }
 
-            let intervalNs = currentEncodeIntervalNs()
-            if let lastAdmissionNs {
-                let now = DispatchTime.now().uptimeNanoseconds
-                let elapsed = now &- lastAdmissionNs
-                if elapsed < intervalNs {
-                    try? await Task.sleep(nanoseconds: intervalNs - elapsed)
-                    if let newest = mailbox.takeLatest() {
-                        frame = newest
-                    }
+            let intervalMs = currentEncodeIntervalMs()
+            let intervalNs = UInt64(intervalMs) * 1_000_000
+            let delayNs = cadenceScheduler.delayBeforeNextAdmission(
+                nowUptimeNs: DispatchTime.now().uptimeNanoseconds,
+                intervalMs: intervalMs
+            )
+            if delayNs > 0 {
+                try? await Task.sleep(nanoseconds: delayNs)
+                if let newest = mailbox.takeLatest() {
+                    frame = newest
                 }
             }
 
@@ -513,6 +514,13 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             }
 
             let admissionNs = DispatchTime.now().uptimeNanoseconds
+            let cadenceLateNs = Self.cadenceLateNs(
+                scheduler: cadenceScheduler,
+                admissionUptimeNs: admissionNs,
+                intervalMs: intervalMs
+            )
+            cadenceScheduler.noteAdmissionStarted(atUptimeNs: admissionNs)
+            logger.notice("owned media cadence intervalMs=\(intervalMs, privacy: .public) admissionDelayMs=\(Double(delayNs) / 1_000_000.0, privacy: .public) cadenceLateMs=\(Double(cadenceLateNs) / 1_000_000.0, privacy: .public) mode=\(String(describing: decision.mode), privacy: .public)")
             diagnostics.noteAdmitted(frame, decision: decision, nowUptimeNs: admissionNs)
             diagnostics.setPhase(.encoding)
             diagnostics.noteEncodeStarted(frame: frame, nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
@@ -538,7 +546,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 let sendStats = try await channel.send(envelope)
                 diagnostics.noteSent(envelope: envelope, stats: sendStats, decision: decision)
                 noteAdmissionSent(envelope, decision: decision)
-                lastAdmissionNs = DispatchTime.now().uptimeNanoseconds
             } catch {
                 logger.error("owned media frame send failed: \(String(describing: error), privacy: .public)")
             }
@@ -546,11 +553,21 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         }
     }
 
-    private func currentEncodeIntervalNs() -> UInt64 {
-        let intervalMs = lock.withLock {
+    private static func cadenceLateNs(
+        scheduler: OwnedMediaCadenceScheduler,
+        admissionUptimeNs: UInt64,
+        intervalMs: Int
+    ) -> UInt64 {
+        guard let lastAdmissionStartedAtUptimeNs = scheduler.lastAdmissionStartedAtUptimeNs else { return 0 }
+        let expectedAdmissionNs = lastAdmissionStartedAtUptimeNs &+ UInt64(max(intervalMs, 1)) * 1_000_000
+        guard admissionUptimeNs > expectedAdmissionNs else { return 0 }
+        return admissionUptimeNs - expectedAdmissionNs
+    }
+
+    private func currentEncodeIntervalMs() -> Int {
+        lock.withLock {
             admission.encodeIntervalMs(config: makeBackpressureConfig())
         }
-        return UInt64(intervalMs) * 1_000_000
     }
 
     private func resolvedKeyframeReason(

@@ -29,7 +29,7 @@
 - Modify `host/AgentDeskHost/OwnedMediaTransport.swift`
 - Test `host/AgentDeskHostTests/ScrollQualityTests.swift`
 
-- [ ] **Step 1: Write failing scheduler tests**
+- [x] **Step 1: Write failing scheduler tests**
 
 Add tests that prove the scheduler targets frame start cadence, not send-completion cadence:
 
@@ -59,7 +59,7 @@ Add tests that prove the scheduler targets frame start cadence, not send-complet
 }
 ```
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run:
 
@@ -69,7 +69,7 @@ xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -only-tes
 
 Expected: fail because `OwnedMediaCadenceScheduler` does not exist.
 
-- [ ] **Step 3: Add the pure scheduler**
+- [x] **Step 3: Add the pure scheduler**
 
 Add to `host/AgentDeskHost/SharedTypes.swift`:
 
@@ -91,17 +91,17 @@ struct OwnedMediaCadenceScheduler: Equatable {
 }
 ```
 
-- [ ] **Step 4: Wire the scheduler into the encode pump**
+- [x] **Step 4: Wire the scheduler into the encode pump**
 
 In `host/AgentDeskHost/OwnedMediaTransport.swift`, replace `lastAdmissionNs` with `OwnedMediaCadenceScheduler`. Sleep before admission based on `delayBeforeNextAdmission`, then call `noteAdmissionStarted` at the moment a frame is admitted, not after `channel.send` completes.
 
 Expected behavior: a behind interval of `67 ms` plus a `42 ms` send still produces roughly 15 FPS start cadence when ACK budget allows it, instead of falling to roughly 9 FPS.
 
-- [ ] **Step 5: Add diagnostics for target cadence misses**
+- [x] **Step 5: Add diagnostics for target cadence misses**
 
 Log `admissionDelayMs`, `intervalMs`, and `cadenceLateMs` on `owned media host-frame` or a compact `owned media cadence` line.
 
-- [ ] **Step 6: Run focused tests and `just check`**
+- [x] **Step 6: Run focused tests and `just check`**
 
 Run:
 

@@ -1196,6 +1196,22 @@ struct OwnedMediaEncodeAdmission: Equatable {
     }
 }
 
+struct OwnedMediaCadenceScheduler: Equatable {
+    private(set) var lastAdmissionStartedAtUptimeNs: UInt64?
+
+    mutating func noteAdmissionStarted(atUptimeNs nowUptimeNs: UInt64) {
+        lastAdmissionStartedAtUptimeNs = nowUptimeNs
+    }
+
+    func delayBeforeNextAdmission(nowUptimeNs: UInt64, intervalMs: Int) -> UInt64 {
+        guard let lastAdmissionStartedAtUptimeNs else { return 0 }
+        let intervalNs = UInt64(max(intervalMs, 1)) * 1_000_000
+        let nextAdmissionNs = lastAdmissionStartedAtUptimeNs &+ intervalNs
+        guard nextAdmissionNs > nowUptimeNs else { return 0 }
+        return nextAdmissionNs - nowUptimeNs
+    }
+}
+
 struct OwnedMediaDatagramPacing: Equatable {
     let burstPacketCount: Int
     let burstPauseUs: Int

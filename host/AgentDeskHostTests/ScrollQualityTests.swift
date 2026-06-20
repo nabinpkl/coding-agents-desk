@@ -168,6 +168,30 @@ struct ScrollQualityTests {
         #expect(admission.encodeIntervalMs(config: backpressure) == 200)
     }
 
+    @Test func ownedMediaCadenceSchedulerUsesAdmissionStartNotSendEnd() {
+        var scheduler = OwnedMediaCadenceScheduler()
+        scheduler.noteAdmissionStarted(atUptimeNs: 1_000_000_000)
+
+        let delay = scheduler.delayBeforeNextAdmission(
+            nowUptimeNs: 1_042_000_000,
+            intervalMs: 67
+        )
+
+        #expect(delay == 25_000_000)
+    }
+
+    @Test func ownedMediaCadenceSchedulerDoesNotDelayWhenSlotAlreadyPassed() {
+        var scheduler = OwnedMediaCadenceScheduler()
+        scheduler.noteAdmissionStarted(atUptimeNs: 1_000_000_000)
+
+        let delay = scheduler.delayBeforeNextAdmission(
+            nowUptimeNs: 1_080_000_000,
+            intervalMs: 67
+        )
+
+        #expect(delay == 0)
+    }
+
     @Test func ownedMediaAdmissionEntersDrainInsteadOfImmediateKeyframe() {
         var admission = OwnedMediaEncodeAdmission()
         let backpressure = Self.backpressureConfig()
