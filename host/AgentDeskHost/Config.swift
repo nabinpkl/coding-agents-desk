@@ -96,6 +96,7 @@ enum Config {
     }
 
     static let signalingPort: UInt16 = 41888
+    static let graphicsPort = graphicsPort(environment: ProcessInfo.processInfo.environment)
     static let nonceTTL: TimeInterval = 90
     static let inputCapabilityTTL: TimeInterval = 60
     static let mediaCapabilityTTL: TimeInterval = 60
@@ -284,6 +285,15 @@ enum Config {
             environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_SCALE_DOWN",
             defaultValue: 1.25
         )
+    }
+    static func graphicsPort(environment: [String: String]) -> UInt16 {
+        guard let raw = environment["AGENTDESK_GRAPHICS_PORT"],
+              let value = UInt16(raw),
+              value > 0
+        else {
+            return 41_889
+        }
+        return value
     }
     static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
         guard let raw = ProcessInfo.processInfo.environment[environmentKey],

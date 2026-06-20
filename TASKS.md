@@ -13,7 +13,7 @@ The next media iteration is a separate worktree experiment for scroll-first hybr
 Ordering:
 
 - First isolate the experiment in `.worktrees/scroll-hybrid-retained-graphics` so `main` keeps its current working HEVC path while the branch is allowed to break media wire shapes.
-- Then verify the graphics stream transport shape before deeper implementation. The preferred shape is same `Config.signalingPort`, same TLS identity, and ALPN `agentdesk-owned-graphics`; if Network.framework cannot route same-port ALPN cleanly, promote a central `AGENTDESK_GRAPHICS_PORT` knob instead.
+- Then verify the graphics stream transport shape before deeper implementation. R27.2 selected a second configured graphics port after reviewing the same-port Network.framework ALPN routing cost; graphics uses `AGENTDESK_GRAPHICS_PORT` instead of sharing `Config.signalingPort`.
 - Then lock the compositor timeline before touching rendering. HEVC refreshes and graphics commands must share `(surfaceGeneration, frameId)` ordering, with `capturedAtUptimeNs` used only for diagnostics.
 - Then build the scroll command path. Accepted scroll sends `copyRect` plus lossless exposed-strip tiles; rejected or timed-out detection falls back to HEVC for that frame.
 - Then build the client retained surface. `@MainActor OwnedSurfaceCompositor` is acceptable for the first slice because it makes correctness obvious, but HEVC-to-BGRA copy, LZFSE tile paint, copyRect, and CALayer commit must be measured as likely bottlenecks from the first compositor task.
@@ -26,8 +26,8 @@ This iteration is scroll-first hybrid retained graphics, not full Microsoft mixe
 Phase goal: isolate the experiment and resolve the Network.framework connection shape before implementation depends on it.
 
 - [x] D27.1. Add `.worktrees/` to `.gitignore`, commit on `main`, create `.worktrees/scroll-hybrid-retained-graphics` on branch `codex/scroll-hybrid-retained-graphics`, and run `just check` from the worktree.
-- [ ] R27.2. Verify the reliable graphics connection shape with Network.framework: prefer one listener on `Config.signalingPort` that routes ALPN `agentdesk-owned-media` and `agentdesk-owned-graphics`; if same-port routing is awkward or impossible, add central config `AGENTDESK_GRAPHICS_PORT` and use a second listener.
-- [ ] R27.3. Add ADR-0016 recording scroll-first hybrid retained graphics as the worktree architecture, superseding ADR-0015 inside the branch without editing historical ADR conclusions.
+- [x] D27.2. Add central host/client `AGENTDESK_GRAPHICS_PORT` config, default `41889`, after selecting a second graphics listener over same-port Network.framework ALPN routing.
+- [ ] R27.3. Add ADR-0016 recording scroll-first hybrid retained graphics and the R27.2 second configured graphics port decision as the worktree architecture, superseding ADR-0015 inside the branch without editing historical ADR conclusions.
 - [ ] R27.4. Update `SPEC.md`, `README.md`, `.env.example`, and Just recipes so the worktree describes HEVC full-frame refresh plus reliable retained graphics commands as the active media experiment.
 
 ## v0 Phase 1: compositor timeline contracts
@@ -47,7 +47,7 @@ Phase goal: add the ordered graphics command carrier while keeping the existing 
 - [ ] R29.1. Add a sibling reliable QUIC graphics connection using ALPN `agentdesk-owned-graphics`, the same TLS identity, and explicit `GraphicsChannelHello` / `GraphicsChannelReady` nonce handshake.
 - [ ] R29.2. Add authenticated `ADGC` stream framing for graphics frames: magic, version, length, JSON header, and binary payload.
 - [ ] R29.3. Route graphics ACK and reset-request controls through the graphics stream control path while leaving HEVC frame ACKs on the current owned-media control path.
-- [ ] R29.4. If R27.2 selects a second port, add `AGENTDESK_GRAPHICS_PORT` to host/client config and `.env.example`; otherwise keep graphics on `Config.signalingPort`.
+- [ ] R29.4. Wire the graphics listener and client dialer to the existing `AGENTDESK_GRAPHICS_PORT` host/client config instead of `Config.signalingPort`.
 - [ ] R29.5. Add transport tests for partial stream reads, malformed frame rejection, parse-failure reset request, graphics ACK queue clearing, and HEVC datagram survival after graphics stream errors.
 
 ## v0 Phase 3: scroll delta engine
@@ -116,7 +116,7 @@ This scope opens only after R33 proves the scroll-first hybrid path works or ide
 
 ```
 D27.1     2026-06-20  committed   local worktrees ignored and hybrid graphics branch baseline passed
-R27.2     pending     pending     verify graphics QUIC ALPN routing or promote a configured graphics port
+D27.2     2026-06-20  committed   second configured graphics port chosen after Network.framework ALPN routing review
 R27.3     pending     pending     ADR-0016 records scroll-first hybrid retained graphics
 R27.4     pending     pending     worktree docs describe HEVC plus retained graphics
 R28       pending     pending     compositor timeline contracts and ordering tests

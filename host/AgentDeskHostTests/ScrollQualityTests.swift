@@ -58,6 +58,20 @@ struct ScrollQualityTests {
         #expect(Config.ownedMediaQuicMaxDatagramBytes >= 1_115)
     }
 
+    @Test func graphicsPortDefaultsToSecondConfiguredPort() {
+        #expect(Config.graphicsPort(environment: [:]) == 41_889)
+    }
+
+    @Test func graphicsPortUsesEnvironmentOverrideWhenValid() {
+        #expect(Config.graphicsPort(environment: ["AGENTDESK_GRAPHICS_PORT": "41999"]) == 41_999)
+    }
+
+    @Test func graphicsPortFallsBackForInvalidEnvironmentOverride() {
+        #expect(Config.graphicsPort(environment: ["AGENTDESK_GRAPHICS_PORT": "0"]) == 41_889)
+        #expect(Config.graphicsPort(environment: ["AGENTDESK_GRAPHICS_PORT": "99999"]) == 41_889)
+        #expect(Config.graphicsPort(environment: ["AGENTDESK_GRAPHICS_PORT": "not-a-port"]) == 41_889)
+    }
+
     @Test func ownedMediaFreshnessAckClearsInflightFramesAndBytes() {
         var freshness = OwnedMediaSendFreshness()
 
