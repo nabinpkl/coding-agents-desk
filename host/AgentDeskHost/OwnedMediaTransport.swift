@@ -1144,6 +1144,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         let isKeyframe = Self.isKeyframe(sampleBuffer)
         let parameterSets = isKeyframe ? Self.parameterSets(codec: codec, formatDescription: formatDescription) : nil
         let header = OwnedMediaFrameHeader(
+            surfaceGeneration: 0,
             frameId: encodedFrameId,
             codec: codec,
             width: encodedSize.width,
@@ -1151,7 +1152,8 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             capturedAtUptimeNs: pending.capturedAtUptimeNs,
             presentationTimeNs: UInt64(CMSampleBufferGetPresentationTimeStamp(sampleBuffer).value),
             isKeyframe: isKeyframe,
-            parameterSets: parameterSets
+            parameterSets: parameterSets,
+            refreshReason: encodedFrameId == 1 ? .initial : .rest
         )
         if !loggedFirstEncodedFrame {
             loggedFirstEncodedFrame = true

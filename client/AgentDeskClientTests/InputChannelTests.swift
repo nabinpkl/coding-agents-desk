@@ -141,6 +141,62 @@ struct InputChannelTests {
         #expect(!json.contains("\"px\""))
     }
 
+    @Test func ownedSurfaceUpdateIdOrdersOnlyGenerationThenFrame() {
+        let committed = OwnedSurfaceUpdateId(surfaceGeneration: 2, frameId: 10)
+
+        #expect(OwnedSurfaceUpdateId(surfaceGeneration: 2, frameId: 11).isStrictlyNewer(than: committed))
+        #expect(OwnedSurfaceUpdateId(surfaceGeneration: 3, frameId: 0).isStrictlyNewer(than: committed))
+        #expect(!OwnedSurfaceUpdateId(surfaceGeneration: 2, frameId: 10).isStrictlyNewer(than: committed))
+        #expect(!OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 99).isStrictlyNewer(than: committed))
+        #expect(OwnedSurfaceUpdateId(surfaceGeneration: 2, frameId: 9) < committed)
+    }
+
+    @Test func ownedSurfaceResetAcceptsOnlyNewerGenerationAndBuildsBaseline() {
+        #expect(OwnedSurfaceUpdateId.canAcceptReset(surfaceGeneration: 4, committedSurfaceGeneration: 3))
+        #expect(!OwnedSurfaceUpdateId.canAcceptReset(surfaceGeneration: 3, committedSurfaceGeneration: 3))
+        #expect(!OwnedSurfaceUpdateId.canAcceptReset(surfaceGeneration: 2, committedSurfaceGeneration: 3))
+
+        #expect(OwnedSurfaceUpdateId.acceptedResetBaseline(
+            surfaceGeneration: 4,
+            committedSurfaceGeneration: 3
+        ) == OwnedSurfaceUpdateId(surfaceGeneration: 4, frameId: 0))
+        #expect(OwnedSurfaceUpdateId.acceptedResetBaseline(
+            surfaceGeneration: 3,
+            committedSurfaceGeneration: 3
+        ) == nil)
+    }
+
+    @Test func ownedMediaUpdateOrderingIgnoresCaptureTimestampDiagnostics() {
+        let committed = OwnedSurfaceUpdateId(surfaceGeneration: 5, frameId: 10)
+        let staleCaptureNewerFrame = OwnedMediaFrameHeader(
+            surfaceGeneration: 5,
+            frameId: 11,
+            codec: .hevc,
+            width: 1920,
+            height: 1080,
+            capturedAtUptimeNs: 1,
+            presentationTimeNs: 120,
+            isKeyframe: false,
+            parameterSets: nil,
+            refreshReason: .rest
+        )
+        let newerCaptureStaleFrame = OwnedMediaFrameHeader(
+            surfaceGeneration: 5,
+            frameId: 9,
+            codec: .hevc,
+            width: 1920,
+            height: 1080,
+            capturedAtUptimeNs: 9_999,
+            presentationTimeNs: 120,
+            isKeyframe: false,
+            parameterSets: nil,
+            refreshReason: .rest
+        )
+
+        #expect(staleCaptureNewerFrame.updateId.isStrictlyNewer(than: committed))
+        #expect(!newerCaptureStaleFrame.updateId.isStrictlyNewer(than: committed))
+    }
+
     @Test func ownedMediaFlushPolicyDoesNotFlushHealthyKeyframesEvenAfterLongGap() {
         #expect(OwnedMediaDisplayQueuePolicy.action(
             displayStatus: "rendering",
@@ -274,6 +330,7 @@ struct InputChannelTests {
 
     @Test func ownedMediaEnvelopeRoundTripsHeaderAndPayload() throws {
         let header = OwnedMediaFrameHeader(
+            surfaceGeneration: 7,
             frameId: 1,
             codec: .h264,
             width: 1280,
@@ -281,12 +338,119 @@ struct InputChannelTests {
             capturedAtUptimeNs: 10,
             presentationTimeNs: 20,
             isKeyframe: false,
-            parameterSets: nil
+            parameterSets: nil,
+            refreshReason: .reset
         )
         let envelope = OwnedMediaFrameEnvelope(header: header, payload: Data([0x10, 0x20]))
         let decoded = try OwnedMediaFrameEnvelope.decode(envelope.encode())
 
         #expect(decoded == envelope)
+        #expect(decoded.header.surfaceGeneration == 7)
+        #expect(decoded.header.refreshReason == .reset)
+    }
+
+    @Test func graphicsHelloAndReadyRoundTripWithCompactKeys() throws {
+        let hello = GraphicsChannelHello(
+            deviceFingerprint: DeviceFingerprint("device-fp"),
+            sessionId: "session-123",
+            graphicsCapability: "graphics-capability",
+            clientNonce: Data([1, 2, 3])
+        )
+        let helloData = try JSONEncoder().encode(hello)
+        let helloJson = String(data: helloData, encoding: .utf8) ?? ""
+        let decodedHello = try JSONDecoder().decode(GraphicsChannelHello.self, from: helloData)
+        #expect(decodedHello == hello)
+        #expect(helloJson.contains("\"t\":\"graphics-hello\""))
+        #expect(helloJson.contains("\"gc\":\"graphics-capability\""))
+
+        let ready = GraphicsChannelReady(sessionId: "session-123", serverNonce: Data([4, 5, 6]))
+        let readyData = try JSONEncoder().encode(ready)
+        let readyJson = String(data: readyData, encoding: .utf8) ?? ""
+        let decodedReady = try JSONDecoder().decode(GraphicsChannelReady.self, from: readyData)
+        #expect(decodedReady == ready)
+        #expect(readyJson.contains("\"t\":\"graphics-ready\""))
+        #expect(readyJson.contains("\"sn\""))
+    }
+
+    @Test func graphicsFrameHeaderRoundTripsThroughCodable() throws {
+        let header = OwnedGraphicsFrameHeader(
+            surfaceGeneration: 9,
+            frameId: 44,
+            capturedAtUptimeNs: 123,
+            commandCount: 3,
+            payloadLength: 4096
+        )
+        let data = try JSONEncoder().encode(header)
+        let decoded = try JSONDecoder().decode(OwnedGraphicsFrameHeader.self, from: data)
+
+        #expect(decoded == header)
+        #expect(header.updateId == OwnedSurfaceUpdateId(surfaceGeneration: 9, frameId: 44))
+    }
+
+    @Test func staleGraphicsUpdateUsesSharedTimelineOrdering() {
+        let committed = OwnedSurfaceUpdateId(surfaceGeneration: 3, frameId: 20)
+        let staleGraphics = OwnedGraphicsFrameHeader(
+            surfaceGeneration: 3,
+            frameId: 19,
+            capturedAtUptimeNs: 9_999,
+            commandCount: 1,
+            payloadLength: 128
+        )
+
+        #expect(!staleGraphics.updateId.isStrictlyNewer(than: committed))
+    }
+
+    @Test func graphicsCommandsRoundTripAndRejectReservedCodecTile() throws {
+        let commands: [OwnedGraphicsCommand] = [
+            .resetSurface(surfaceGeneration: 3, width: 1920, height: 1080, pixelFormat: .bgra),
+            .copyRect(srcX: 0, srcY: 8, dstX: 0, dstY: 0, width: 1920, height: 1072),
+            .bitmapTile(
+                x: 0,
+                y: 1072,
+                width: 1920,
+                height: 8,
+                compression: .lzfse,
+                byteRange: OwnedGraphicsByteRange(offset: 64, length: 1024)
+            ),
+            .codecTile
+        ]
+
+        for command in commands {
+            let data = try JSONEncoder().encode(command)
+            let decoded = try JSONDecoder().decode(OwnedGraphicsCommand.self, from: data)
+            #expect(decoded == command)
+        }
+
+        try commands[0].validateForCurrentScope()
+        try commands[1].validateForCurrentScope()
+        try commands[2].validateForCurrentScope()
+        do {
+            try commands[3].validateForCurrentScope()
+            Issue.record("codecTile should be reserved in R28")
+        } catch {}
+    }
+
+    @Test func graphicsAckAndResetRequestRoundTripThroughCodable() throws {
+        let ack = OwnedGraphicsFrameAck(
+            surfaceGeneration: 4,
+            frameId: 22,
+            compositorMs: 1.75,
+            staleDiscardCount: 3
+        )
+        let ackData = try JSONEncoder().encode(ack)
+        let decodedAck = try JSONDecoder().decode(OwnedGraphicsFrameAck.self, from: ackData)
+        #expect(decodedAck == ack)
+        #expect(decodedAck.updateId == OwnedSurfaceUpdateId(surfaceGeneration: 4, frameId: 22))
+
+        let request = OwnedGraphicsResetRequest(
+            reason: "malformed-frame",
+            lastCommittedSurfaceGeneration: 4,
+            lastCommittedFrameId: 21
+        )
+        let requestData = try JSONEncoder().encode(request)
+        let decodedRequest = try JSONDecoder().decode(OwnedGraphicsResetRequest.self, from: requestData)
+        #expect(decodedRequest == request)
+        #expect(decodedRequest.lastCommittedUpdateId == OwnedSurfaceUpdateId(surfaceGeneration: 4, frameId: 21))
     }
 
     @Test func ownedMediaKeyframeRequestsAreDebouncedDuringRecovery() {

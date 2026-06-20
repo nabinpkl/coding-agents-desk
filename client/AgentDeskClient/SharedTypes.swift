@@ -392,6 +392,44 @@ struct ActiveSession: Equatable {
     let establishedAt: Int
 }
 
+struct OwnedSurfaceUpdateId: Codable, Equatable, Comparable {
+    let surfaceGeneration: UInt32
+    let frameId: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case surfaceGeneration = "sg"
+        case frameId = "id"
+    }
+
+    static func < (lhs: OwnedSurfaceUpdateId, rhs: OwnedSurfaceUpdateId) -> Bool {
+        if lhs.surfaceGeneration != rhs.surfaceGeneration {
+            return lhs.surfaceGeneration < rhs.surfaceGeneration
+        }
+        return lhs.frameId < rhs.frameId
+    }
+
+    func isStrictlyNewer(than committed: OwnedSurfaceUpdateId) -> Bool {
+        self > committed
+    }
+
+    static func canAcceptReset(surfaceGeneration: UInt32, committedSurfaceGeneration: UInt32) -> Bool {
+        surfaceGeneration > committedSurfaceGeneration
+    }
+
+    static func acceptedResetBaseline(
+        surfaceGeneration: UInt32,
+        committedSurfaceGeneration: UInt32
+    ) -> OwnedSurfaceUpdateId? {
+        guard canAcceptReset(
+            surfaceGeneration: surfaceGeneration,
+            committedSurfaceGeneration: committedSurfaceGeneration
+        ) else {
+            return nil
+        }
+        return OwnedSurfaceUpdateId(surfaceGeneration: surfaceGeneration, frameId: 0)
+    }
+}
+
 enum OwnedMediaCodec: String, Codable, Equatable {
     case hevc
     case h264
@@ -399,6 +437,13 @@ enum OwnedMediaCodec: String, Codable, Equatable {
 
 enum OwnedMediaPayloadFormat: String, Codable, Equatable {
     case lengthPrefixedNal = "length-prefixed-nal"
+}
+
+enum OwnedMediaRefreshReason: String, Codable, Equatable {
+    case initial
+    case rest
+    case scrollCorrectness = "scroll-correctness"
+    case reset
 }
 
 struct OwnedMediaParameterSets: Codable, Equatable {
@@ -414,6 +459,7 @@ struct OwnedMediaParameterSets: Codable, Equatable {
 }
 
 struct OwnedMediaFrameHeader: Codable, Equatable {
+    let surfaceGeneration: UInt32
     let frameId: UInt64
     let codec: OwnedMediaCodec
     let width: Int
@@ -423,8 +469,14 @@ struct OwnedMediaFrameHeader: Codable, Equatable {
     let isKeyframe: Bool
     let parameterSets: OwnedMediaParameterSets?
     let payloadFormat: OwnedMediaPayloadFormat
+    let refreshReason: OwnedMediaRefreshReason
+
+    var updateId: OwnedSurfaceUpdateId {
+        OwnedSurfaceUpdateId(surfaceGeneration: surfaceGeneration, frameId: frameId)
+    }
 
     enum CodingKeys: String, CodingKey {
+        case surfaceGeneration = "sg"
         case frameId = "id"
         case codec = "c"
         case width = "w"
@@ -434,9 +486,11 @@ struct OwnedMediaFrameHeader: Codable, Equatable {
         case isKeyframe = "k"
         case parameterSets = "ps"
         case payloadFormat = "pf"
+        case refreshReason = "rr"
     }
 
     init(
+        surfaceGeneration: UInt32,
         frameId: UInt64,
         codec: OwnedMediaCodec,
         width: Int,
@@ -445,8 +499,10 @@ struct OwnedMediaFrameHeader: Codable, Equatable {
         presentationTimeNs: UInt64,
         isKeyframe: Bool,
         parameterSets: OwnedMediaParameterSets?,
-        payloadFormat: OwnedMediaPayloadFormat = .lengthPrefixedNal
+        payloadFormat: OwnedMediaPayloadFormat = .lengthPrefixedNal,
+        refreshReason: OwnedMediaRefreshReason
     ) {
+        self.surfaceGeneration = surfaceGeneration
         self.frameId = frameId
         self.codec = codec
         self.width = width
@@ -456,6 +512,7 @@ struct OwnedMediaFrameHeader: Codable, Equatable {
         self.isKeyframe = isKeyframe
         self.parameterSets = parameterSets
         self.payloadFormat = payloadFormat
+        self.refreshReason = refreshReason
     }
 }
 
@@ -685,6 +742,243 @@ struct MediaChannelReady: Codable, Equatable {
         self.type = "media-ready"
         self.sessionId = sessionId
         self.serverNonce = serverNonce
+    }
+}
+
+struct GraphicsChannelHello: Codable, Equatable {
+    let type: String
+    let deviceFingerprint: DeviceFingerprint
+    let sessionId: String
+    let graphicsCapability: String
+    let clientNonce: Data
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case deviceFingerprint = "d"
+        case sessionId = "sid"
+        case graphicsCapability = "gc"
+        case clientNonce = "cn"
+    }
+
+    init(deviceFingerprint: DeviceFingerprint, sessionId: String, graphicsCapability: String, clientNonce: Data = Data()) {
+        self.type = "graphics-hello"
+        self.deviceFingerprint = deviceFingerprint
+        self.sessionId = sessionId
+        self.graphicsCapability = graphicsCapability
+        self.clientNonce = clientNonce
+    }
+}
+
+struct GraphicsChannelReady: Codable, Equatable {
+    let type: String
+    let sessionId: String
+    let serverNonce: Data
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case sessionId = "sid"
+        case serverNonce = "sn"
+    }
+
+    init(sessionId: String, serverNonce: Data = Data()) {
+        self.type = "graphics-ready"
+        self.sessionId = sessionId
+        self.serverNonce = serverNonce
+    }
+}
+
+struct OwnedGraphicsFrameHeader: Codable, Equatable {
+    let surfaceGeneration: UInt32
+    let frameId: UInt64
+    let capturedAtUptimeNs: UInt64
+    let commandCount: Int
+    let payloadLength: Int
+
+    var updateId: OwnedSurfaceUpdateId {
+        OwnedSurfaceUpdateId(surfaceGeneration: surfaceGeneration, frameId: frameId)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case surfaceGeneration = "sg"
+        case frameId = "id"
+        case capturedAtUptimeNs = "cu"
+        case commandCount = "cc"
+        case payloadLength = "pl"
+    }
+}
+
+enum OwnedGraphicsPixelFormat: String, Codable, Equatable {
+    case bgra
+}
+
+enum OwnedGraphicsTileCompression: String, Codable, Equatable {
+    case lzfse
+}
+
+struct OwnedGraphicsByteRange: Codable, Equatable {
+    let offset: Int
+    let length: Int
+
+    enum CodingKeys: String, CodingKey {
+        case offset = "o"
+        case length = "l"
+    }
+}
+
+enum OwnedGraphicsCommand: Equatable {
+    case resetSurface(surfaceGeneration: UInt32, width: Int, height: Int, pixelFormat: OwnedGraphicsPixelFormat)
+    case copyRect(srcX: Int, srcY: Int, dstX: Int, dstY: Int, width: Int, height: Int)
+    case bitmapTile(x: Int, y: Int, width: Int, height: Int, compression: OwnedGraphicsTileCompression, byteRange: OwnedGraphicsByteRange)
+    case codecTile
+
+    enum Kind: String, Codable {
+        case resetSurface
+        case copyRect
+        case bitmapTile
+        case codecTile
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case kind = "k"
+        case surfaceGeneration = "sg"
+        case width = "w"
+        case height = "h"
+        case pixelFormat = "pf"
+        case srcX = "sx"
+        case srcY = "sy"
+        case dstX = "dx"
+        case dstY = "dy"
+        case x
+        case y
+        case compression = "comp"
+        case byteRange = "br"
+    }
+
+    func validateForCurrentScope() throws {
+        if case .codecTile = self {
+            throw SessionRejected(reason: .malformed)
+        }
+    }
+}
+
+extension OwnedGraphicsCommand: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .kind) {
+        case .resetSurface:
+            self = .resetSurface(
+                surfaceGeneration: try container.decode(UInt32.self, forKey: .surfaceGeneration),
+                width: try container.decode(Int.self, forKey: .width),
+                height: try container.decode(Int.self, forKey: .height),
+                pixelFormat: try container.decode(OwnedGraphicsPixelFormat.self, forKey: .pixelFormat)
+            )
+        case .copyRect:
+            self = .copyRect(
+                srcX: try container.decode(Int.self, forKey: .srcX),
+                srcY: try container.decode(Int.self, forKey: .srcY),
+                dstX: try container.decode(Int.self, forKey: .dstX),
+                dstY: try container.decode(Int.self, forKey: .dstY),
+                width: try container.decode(Int.self, forKey: .width),
+                height: try container.decode(Int.self, forKey: .height)
+            )
+        case .bitmapTile:
+            self = .bitmapTile(
+                x: try container.decode(Int.self, forKey: .x),
+                y: try container.decode(Int.self, forKey: .y),
+                width: try container.decode(Int.self, forKey: .width),
+                height: try container.decode(Int.self, forKey: .height),
+                compression: try container.decode(OwnedGraphicsTileCompression.self, forKey: .compression),
+                byteRange: try container.decode(OwnedGraphicsByteRange.self, forKey: .byteRange)
+            )
+        case .codecTile:
+            self = .codecTile
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .resetSurface(surfaceGeneration, width, height, pixelFormat):
+            try container.encode(Kind.resetSurface, forKey: .kind)
+            try container.encode(surfaceGeneration, forKey: .surfaceGeneration)
+            try container.encode(width, forKey: .width)
+            try container.encode(height, forKey: .height)
+            try container.encode(pixelFormat, forKey: .pixelFormat)
+        case let .copyRect(srcX, srcY, dstX, dstY, width, height):
+            try container.encode(Kind.copyRect, forKey: .kind)
+            try container.encode(srcX, forKey: .srcX)
+            try container.encode(srcY, forKey: .srcY)
+            try container.encode(dstX, forKey: .dstX)
+            try container.encode(dstY, forKey: .dstY)
+            try container.encode(width, forKey: .width)
+            try container.encode(height, forKey: .height)
+        case let .bitmapTile(x, y, width, height, compression, byteRange):
+            try container.encode(Kind.bitmapTile, forKey: .kind)
+            try container.encode(x, forKey: .x)
+            try container.encode(y, forKey: .y)
+            try container.encode(width, forKey: .width)
+            try container.encode(height, forKey: .height)
+            try container.encode(compression, forKey: .compression)
+            try container.encode(byteRange, forKey: .byteRange)
+        case .codecTile:
+            try container.encode(Kind.codecTile, forKey: .kind)
+        }
+    }
+}
+
+struct OwnedGraphicsFrameAck: Codable, Equatable {
+    let type: String
+    let surfaceGeneration: UInt32
+    let frameId: UInt64
+    let compositorMs: Double
+    let staleDiscardCount: Int
+
+    var updateId: OwnedSurfaceUpdateId {
+        OwnedSurfaceUpdateId(surfaceGeneration: surfaceGeneration, frameId: frameId)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case surfaceGeneration = "sg"
+        case frameId = "id"
+        case compositorMs = "cm"
+        case staleDiscardCount = "sd"
+    }
+
+    init(surfaceGeneration: UInt32, frameId: UInt64, compositorMs: Double, staleDiscardCount: Int) {
+        self.type = "graphics-frame-ack"
+        self.surfaceGeneration = surfaceGeneration
+        self.frameId = frameId
+        self.compositorMs = compositorMs
+        self.staleDiscardCount = staleDiscardCount
+    }
+}
+
+struct OwnedGraphicsResetRequest: Codable, Equatable {
+    let type: String
+    let reason: String
+    let lastCommittedSurfaceGeneration: UInt32
+    let lastCommittedFrameId: UInt64
+
+    var lastCommittedUpdateId: OwnedSurfaceUpdateId {
+        OwnedSurfaceUpdateId(
+            surfaceGeneration: lastCommittedSurfaceGeneration,
+            frameId: lastCommittedFrameId
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case reason = "r"
+        case lastCommittedSurfaceGeneration = "sg"
+        case lastCommittedFrameId = "id"
+    }
+
+    init(reason: String, lastCommittedSurfaceGeneration: UInt32, lastCommittedFrameId: UInt64) {
+        self.type = "graphics-reset-request"
+        self.reason = reason
+        self.lastCommittedSurfaceGeneration = lastCommittedSurfaceGeneration
+        self.lastCommittedFrameId = lastCommittedFrameId
     }
 }
 

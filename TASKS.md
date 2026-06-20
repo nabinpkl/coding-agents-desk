@@ -34,11 +34,11 @@ Phase goal: isolate the experiment and resolve the Network.framework connection 
 
 Phase goal: make all visual updates share one ordering model before renderer work starts.
 
-- [ ] R28.1. Add host/client shared types for `OwnedSurfaceUpdateId(surfaceGeneration, frameId)` with lexicographic strict-newer comparison and diagnostics-only `capturedAtUptimeNs`.
-- [ ] R28.2. Extend the HEVC full-frame envelope with `surfaceGeneration`, `frameId`, `capturedAtUptimeNs`, and `refreshReason` values `initial`, `rest`, `scroll-correctness`, and `reset`.
-- [ ] R28.3. Add host/client shared types for `GraphicsChannelHello`, `GraphicsChannelReady`, `OwnedGraphicsFrameHeader`, `OwnedGraphicsCommand`, `OwnedGraphicsFrameAck`, and `OwnedGraphicsResetRequest`.
-- [ ] R28.4. Define reset ordering: `resetSurface` is accepted only when `surfaceGeneration > committedSurfaceGeneration`, then initializes committed order to `(surfaceGeneration, 0)` before reset tiles apply.
-- [ ] R28.5. Add contract tests asserting update-id comparison, stale HEVC discard, stale graphics discard, newer-generation reset acceptance, same-generation reset rejection, and reserved `codecTile` rejection.
+- [x] D28.1. Add host/client shared types for `OwnedSurfaceUpdateId(surfaceGeneration, frameId)` with lexicographic strict-newer comparison and diagnostics-only `capturedAtUptimeNs`.
+- [x] D28.2. Extend the HEVC full-frame envelope with `surfaceGeneration`, `frameId`, `capturedAtUptimeNs`, and `refreshReason` values `initial`, `rest`, `scroll-correctness`, and `reset`.
+- [x] D28.3. Add host/client shared types for `GraphicsChannelHello`, `GraphicsChannelReady`, `OwnedGraphicsFrameHeader`, `OwnedGraphicsCommand`, `OwnedGraphicsFrameAck`, and `OwnedGraphicsResetRequest`.
+- [x] D28.4. Define reset ordering: `resetSurface` is accepted only when `surfaceGeneration > committedSurfaceGeneration`, then initializes committed order to `(surfaceGeneration, 0)` before reset tiles apply.
+- [x] D28.5. Add contract tests asserting update-id comparison, stale HEVC discard, stale graphics discard, newer-generation reset acceptance, same-generation reset rejection, and reserved `codecTile` rejection.
 
 ## v0 Phase 2: reliable graphics stream
 
@@ -119,7 +119,7 @@ D27.1     2026-06-20  committed   local worktrees ignored and hybrid graphics br
 D27.2     2026-06-20  committed   second configured graphics port chosen after Network.framework ALPN routing review
 D27.3     2026-06-20  committed   ADR-0016 records scroll-first hybrid retained graphics
 D27.4     2026-06-20  committed   worktree docs describe HEVC plus retained graphics
-R28       pending     pending     compositor timeline contracts and ordering tests
+D28       2026-06-20  committed   compositor timeline contracts and ordering tests
 R29       pending     pending     reliable graphics stream and transport tests
 R30       pending     pending     scroll delta engine with timeout and exposed-strip tests
 R31       pending     pending     MainActor retained compositor and HEVC decoder bridge
