@@ -387,6 +387,116 @@ struct InputChannelTests {
         #expect(header.updateId == OwnedSurfaceUpdateId(surfaceGeneration: 9, frameId: 44))
     }
 
+    @Test func graphicsFrameEnvelopeRoundTripsWithAdgcFraming() throws {
+        let payload = Data([1, 2, 3, 4, 5, 6])
+        let envelope = OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: 2,
+                frameId: 11,
+                capturedAtUptimeNs: 987_654,
+                commandCount: 2,
+                payloadLength: payload.count
+            ),
+            commands: [
+                .copyRect(srcX: 0, srcY: 8, dstX: 0, dstY: 0, width: 100, height: 92),
+                .bitmapTile(
+                    x: 0,
+                    y: 92,
+                    width: 100,
+                    height: 8,
+                    compression: .lzfse,
+                    byteRange: OwnedGraphicsByteRange(offset: 0, length: payload.count)
+                )
+            ],
+            payload: payload
+        )
+
+        let encoded = try envelope.encode()
+        #expect(Array(encoded.prefix(4)) == OwnedGraphicsFrameEnvelope.magic)
+        #expect(encoded[4] == OwnedGraphicsFrameEnvelope.version)
+
+        let decoded = try OwnedGraphicsFrameEnvelope.decode(encoded)
+        #expect(decoded == envelope)
+        #expect(decoded.header.updateId == OwnedSurfaceUpdateId(surfaceGeneration: 2, frameId: 11))
+    }
+
+    @Test func graphicsFrameEnvelopeRejectsMalformedAdgcFrames() throws {
+        let payload = Data([1, 2, 3])
+        let envelope = OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: 1,
+                frameId: 1,
+                capturedAtUptimeNs: 10,
+                commandCount: 0,
+                payloadLength: payload.count
+            ),
+            commands: [],
+            payload: payload
+        )
+        let encoded = try envelope.encode()
+
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try OwnedGraphicsFrameEnvelope.decode(Data(encoded.prefix(OwnedGraphicsFrameEnvelope.fixedHeaderByteCount - 1)))
+        }
+
+        var badMagic = encoded
+        badMagic.replaceSubrange(0..<4, with: Data([0x42, 0x41, 0x44, 0x21]))
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try OwnedGraphicsFrameEnvelope.decode(badMagic)
+        }
+
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try OwnedGraphicsFrameEnvelope.decode(Data(encoded.dropLast()))
+        }
+
+        let mismatched = OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: 1,
+                frameId: 2,
+                capturedAtUptimeNs: 20,
+                commandCount: 0,
+                payloadLength: payload.count + 1
+            ),
+            commands: [],
+            payload: payload
+        )
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try mismatched.encode()
+        }
+
+        struct TestMetadata: Codable {
+            let header: OwnedGraphicsFrameHeader
+            let commands: [OwnedGraphicsCommand]
+
+            enum CodingKeys: String, CodingKey {
+                case header = "h"
+                case commands = "c"
+            }
+        }
+
+        let codecTileHeader = OwnedGraphicsFrameHeader(
+            surfaceGeneration: 1,
+            frameId: 3,
+            capturedAtUptimeNs: 30,
+            commandCount: 1,
+            payloadLength: 0
+        )
+        let codecTileMetadata = try JSONEncoder().encode(TestMetadata(
+            header: codecTileHeader,
+            commands: [.codecTile]
+        ))
+        var codecTileFrame = Data(OwnedGraphicsFrameEnvelope.magic)
+        codecTileFrame.append(OwnedGraphicsFrameEnvelope.version)
+        var metadataLength = UInt32(codecTileMetadata.count).bigEndian
+        var payloadLength = UInt32(0).bigEndian
+        withUnsafeBytes(of: &metadataLength) { codecTileFrame.append(contentsOf: $0) }
+        withUnsafeBytes(of: &payloadLength) { codecTileFrame.append(contentsOf: $0) }
+        codecTileFrame.append(codecTileMetadata)
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try OwnedGraphicsFrameEnvelope.decode(codecTileFrame)
+        }
+    }
+
     @Test func staleGraphicsUpdateUsesSharedTimelineOrdering() {
         let committed = OwnedSurfaceUpdateId(surfaceGeneration: 3, frameId: 20)
         let staleGraphics = OwnedGraphicsFrameHeader(

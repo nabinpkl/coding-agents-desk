@@ -807,6 +807,94 @@ struct OwnedGraphicsFrameHeader: Codable, Equatable {
     }
 }
 
+struct OwnedGraphicsFrameEnvelope: Equatable {
+    static let magic = [UInt8]("ADGC".utf8)
+    static let version: UInt8 = 1
+    static let fixedHeaderByteCount = 13
+
+    let header: OwnedGraphicsFrameHeader
+    let commands: [OwnedGraphicsCommand]
+    let payload: Data
+
+    init(
+        header: OwnedGraphicsFrameHeader,
+        commands: [OwnedGraphicsCommand],
+        payload: Data
+    ) {
+        self.header = header
+        self.commands = commands
+        self.payload = payload
+    }
+
+    func encode() throws -> Data {
+        try validate()
+        let metadata = OwnedGraphicsFrameMetadata(header: header, commands: commands)
+        let metadataData = try JSONEncoder().encode(metadata)
+        guard metadataData.count <= Int(UInt32.max),
+              payload.count <= Int(UInt32.max) else {
+            throw SessionRejected(reason: .malformed)
+        }
+        var encoded = Data(Self.magic)
+        encoded.append(Self.version)
+        var metadataLength = UInt32(metadataData.count).bigEndian
+        var payloadLength = UInt32(payload.count).bigEndian
+        withUnsafeBytes(of: &metadataLength) { encoded.append(contentsOf: $0) }
+        withUnsafeBytes(of: &payloadLength) { encoded.append(contentsOf: $0) }
+        encoded.append(metadataData)
+        encoded.append(payload)
+        return encoded
+    }
+
+    static func decode(_ data: Data) throws -> OwnedGraphicsFrameEnvelope {
+        guard data.count >= fixedHeaderByteCount else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let bytes = [UInt8](data.prefix(fixedHeaderByteCount))
+        guard Array(bytes[0..<4]) == magic, bytes[4] == version else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let metadataLength = bytes[5..<9].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        let payloadLength = bytes[9..<13].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        let metadataStart = fixedHeaderByteCount
+        let metadataEnd = metadataStart + Int(metadataLength)
+        let payloadEnd = metadataEnd + Int(payloadLength)
+        guard data.count >= metadataEnd,
+              data.count >= payloadEnd else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let metadataData = data[metadataStart..<metadataEnd]
+        let metadata = try JSONDecoder().decode(OwnedGraphicsFrameMetadata.self, from: metadataData)
+        let payload = data[metadataEnd..<payloadEnd]
+        let envelope = OwnedGraphicsFrameEnvelope(
+            header: metadata.header,
+            commands: metadata.commands,
+            payload: payload
+        )
+        try envelope.validate()
+        return envelope
+    }
+
+    private func validate() throws {
+        guard header.commandCount == commands.count,
+              header.payloadLength == payload.count else {
+            throw SessionRejected(reason: .malformed)
+        }
+        for command in commands {
+            try command.validateForCurrentScope()
+        }
+    }
+}
+
+private struct OwnedGraphicsFrameMetadata: Codable, Equatable {
+    let header: OwnedGraphicsFrameHeader
+    let commands: [OwnedGraphicsCommand]
+
+    enum CodingKeys: String, CodingKey {
+        case header = "h"
+        case commands = "c"
+    }
+}
+
 enum OwnedGraphicsPixelFormat: String, Codable, Equatable {
     case bgra
 }
