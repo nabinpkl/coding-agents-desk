@@ -39,7 +39,7 @@ So this slice does not touch decode, display, packet repair, codec, chroma, or a
 - Modify `host/AgentDeskHost/SharedTypes.swift`
 - Test `host/AgentDeskHostTests/ScrollQualityTests.swift`
 
-- [ ] **Step 1: Write failing policy tests**
+- [x] **Step 1: Write failing policy tests**
 
 Add these tests near `ownedMediaDatagramPacingSwitchesUnderBackpressure`:
 
@@ -144,7 +144,7 @@ Add these tests near `ownedMediaDatagramPacingSwitchesUnderBackpressure`:
 }
 ```
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run:
 
@@ -154,7 +154,7 @@ xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -only-tes
 
 Expected: fail with `Cannot find 'OwnedMediaDatagramPacingPolicy' in scope`.
 
-- [ ] **Step 3: Add policy types**
+- [x] **Step 3: Add policy types**
 
 Add next to `OwnedMediaDatagramPacing` in `host/AgentDeskHost/SharedTypes.swift`:
 
@@ -198,7 +198,7 @@ struct OwnedMediaDatagramPacingPolicy: Equatable, Sendable {
 }
 ```
 
-- [ ] **Step 4: Run focused tests and verify GREEN**
+- [x] **Step 4: Run focused tests and verify GREEN**
 
 Run the same focused test command.
 
@@ -212,7 +212,7 @@ Expected: new pacing tests pass.
 - Modify `host/AgentDeskHost/Config.swift`
 - Modify `.env.example`
 
-- [ ] **Step 1: Add central config values**
+- [x] **Step 1: Add central config values**
 
 Add after the normal datagram burst config in `host/AgentDeskHost/Config.swift`:
 
@@ -243,7 +243,7 @@ static let ownedMediaJumboFrameBurstPauseUs = nonNegativeInt(
 )
 ```
 
-- [ ] **Step 2: Document the knobs**
+- [x] **Step 2: Document the knobs**
 
 Add to `.env.example` after `AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PAUSE_US`:
 
@@ -265,7 +265,7 @@ AGENTDESK_OWNED_MEDIA_JUMBO_FRAME_BURST_PAUSE_US=1500    # pause for jumbo non-k
 - Modify `host/AgentDeskHost/MediaTransport.swift`
 - Test `host/AgentDeskHostTests/ScrollQualityTests.swift`
 
-- [ ] **Step 1: Extend send stats**
+- [x] **Step 1: Extend send stats**
 
 Add one field to `OwnedMediaSendStats`:
 
@@ -285,7 +285,7 @@ Add:
 #expect(stats.pacingReason == .backpressure)
 ```
 
-- [ ] **Step 2: Add policy dependencies to the channel server**
+- [x] **Step 2: Add policy dependencies to the channel server**
 
 In `OwnedMediaChannelServer`, add:
 
@@ -300,7 +300,7 @@ private let jumboFrameBurstPauseUs: Int
 
 Extend `init` with defaults from `Config` and assign them.
 
-- [ ] **Step 3: Replace binary pacing with packet-count pacing**
+- [x] **Step 3: Replace binary pacing with packet-count pacing**
 
 Replace `currentPacing()` with:
 
@@ -349,7 +349,7 @@ let pacing = currentPacing(packetCount: packets.count, isKeyframe: isKeyframe)
 
 Then replace `pacing.pacing` reads with `pacing.choice.pacing`, and add `pacingReason: pacing.choice.reason` to `OwnedMediaSendStats`.
 
-- [ ] **Step 4: Include reason in logs**
+- [x] **Step 4: Include reason in logs**
 
 Update the `owned media quic send` log:
 
@@ -365,7 +365,7 @@ pacingReason=\(stats.pacingReason.rawValue, privacy: .public)
 
 Update `noteFrameAck` to use the same policy for the logged `pacingBurst` and `pacingPauseUs`, passing `packetCount: 0` and `isKeyframe: false` is not acceptable because it lies about frame-size pacing. Instead, keep ACK logs as current backpressure snapshot only, or rename the fields to `backpressureBurst` and `backpressurePauseUs`. Prefer leaving ACK logs unchanged in this slice.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 
@@ -382,7 +382,7 @@ Expected: pass.
 **Files:**
 - Modify `tools/owned-media-diagnostics-summary.sh`
 
-- [ ] **Step 1: Parse pacing reasons**
+- [x] **Step 1: Parse pacing reasons**
 
 In the host Perl block, add counters:
 
@@ -408,7 +408,7 @@ printf "host pacingMaxSend normal=%.1f large=%.1f jumbo=%.1f backpressure=%.1f\n
     $maxSendByReason{"backpressure"}||0;
 ```
 
-- [ ] **Step 2: Smoke the parser**
+- [x] **Step 2: Smoke the parser**
 
 Run:
 
@@ -425,7 +425,7 @@ Expected: summary prints the new `host pacing` rows even if all counts are zero 
 **Files:**
 - No source files.
 
-- [ ] **Step 1: Run full check**
+- [x] **Step 1: Run full check**
 
 Run:
 

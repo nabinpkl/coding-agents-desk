@@ -129,6 +129,30 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PAUSE_US",
         defaultValue: 1_000
     )
+    static let ownedMediaLargeFramePacketThreshold = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_LARGE_FRAME_PACKET_THRESHOLD",
+        defaultValue: 64
+    )
+    static let ownedMediaJumboFramePacketThreshold = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_JUMBO_FRAME_PACKET_THRESHOLD",
+        defaultValue: 128
+    )
+    static let ownedMediaLargeFrameBurstPacketCount = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_LARGE_FRAME_BURST_PACKET_COUNT",
+        defaultValue: 24
+    )
+    static let ownedMediaLargeFrameBurstPauseUs = nonNegativeInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_LARGE_FRAME_BURST_PAUSE_US",
+        defaultValue: 1_500
+    )
+    static let ownedMediaJumboFrameBurstPacketCount = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_JUMBO_FRAME_BURST_PACKET_COUNT",
+        defaultValue: 16
+    )
+    static let ownedMediaJumboFrameBurstPauseUs = nonNegativeInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_JUMBO_FRAME_BURST_PAUSE_US",
+        defaultValue: 1_500
+    )
     static let ownedMediaQuicMaxDatagramBytes = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_QUIC_MAX_DATAGRAM_BYTES",
         defaultValue: 1_200

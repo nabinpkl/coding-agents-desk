@@ -22,6 +22,7 @@ struct OwnedMediaSendStats: Equatable, Sendable {
     let maxInterPacketGapMs: Double
     let pacingBurstPacketCount: Int
     let pacingBurstPauseUs: Int
+    let pacingReason: OwnedMediaDatagramPacingReason
     let isBackpressured: Bool
 
     var sendDurationMs: Double {

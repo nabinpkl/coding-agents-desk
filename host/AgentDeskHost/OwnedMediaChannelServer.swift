@@ -11,6 +11,12 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
     private let onControlMessage: @Sendable (OwnedMediaControlMessage) -> Void
     private let burstPacketCount: Int
     private let burstPauseUs: Int
+    private let largeFramePacketThreshold: Int
+    private let jumboFramePacketThreshold: Int
+    private let largeFrameBurstPacketCount: Int
+    private let largeFrameBurstPauseUs: Int
+    private let jumboFrameBurstPacketCount: Int
+    private let jumboFrameBurstPauseUs: Int
     private let backpressureBurstPacketCount: Int
     private let backpressureBurstPauseUs: Int
     private let backpressureConfig: OwnedMediaBackpressureConfig
@@ -29,6 +35,12 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         onControlMessage: @escaping @Sendable (OwnedMediaControlMessage) -> Void = { _ in },
         burstPacketCount: Int = Config.ownedMediaDatagramBurstPacketCount,
         burstPauseUs: Int = Config.ownedMediaDatagramBurstPauseUs,
+        largeFramePacketThreshold: Int = Config.ownedMediaLargeFramePacketThreshold,
+        jumboFramePacketThreshold: Int = Config.ownedMediaJumboFramePacketThreshold,
+        largeFrameBurstPacketCount: Int = Config.ownedMediaLargeFrameBurstPacketCount,
+        largeFrameBurstPauseUs: Int = Config.ownedMediaLargeFrameBurstPauseUs,
+        jumboFrameBurstPacketCount: Int = Config.ownedMediaJumboFrameBurstPacketCount,
+        jumboFrameBurstPauseUs: Int = Config.ownedMediaJumboFrameBurstPauseUs,
         backpressureBurstPacketCount: Int = Config.ownedMediaBackpressureBurstPacketCount,
         backpressureBurstPauseUs: Int = Config.ownedMediaBackpressureBurstPauseUs,
         backpressureConfig: OwnedMediaBackpressureConfig = OwnedMediaBackpressureConfig(
@@ -54,6 +66,12 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         self.onControlMessage = onControlMessage
         self.burstPacketCount = burstPacketCount
         self.burstPauseUs = burstPauseUs
+        self.largeFramePacketThreshold = largeFramePacketThreshold
+        self.jumboFramePacketThreshold = jumboFramePacketThreshold
+        self.largeFrameBurstPacketCount = largeFrameBurstPacketCount
+        self.largeFrameBurstPauseUs = largeFrameBurstPauseUs
+        self.jumboFrameBurstPacketCount = jumboFrameBurstPacketCount
+        self.jumboFrameBurstPauseUs = jumboFrameBurstPauseUs
         self.backpressureBurstPacketCount = backpressureBurstPacketCount
         self.backpressureBurstPauseUs = backpressureBurstPauseUs
         self.backpressureConfig = backpressureConfig
@@ -88,14 +106,14 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                 key: key
             )
             rememberFrame(frameId: frameId, packets: packets)
-            let pacing = currentPacing()
+            let pacing = currentPacing(packetCount: packets.count, isKeyframe: isKeyframe)
             let sendStartNs = DispatchTime.now().uptimeNanoseconds
             var lastPacketSentNs: UInt64?
             var maxInterPacketGapNs: UInt64 = 0
             var burstPauseCount = 0
             let shouldLogFrame = isKeyframe || frameId == 1 || frameId.isMultiple(of: 120)
             if shouldLogFrame {
-                logger.notice("owned media quic send frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) burst=\(pacing.pacing.burstPacketCount, privacy: .public) pauseUs=\(pacing.pacing.burstPauseUs, privacy: .public) backpressure=\(pacing.isBackpressured, privacy: .public)")
+                logger.notice("owned media quic send frame=\(frameId, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) burst=\(pacing.choice.pacing.burstPacketCount, privacy: .public) pauseUs=\(pacing.choice.pacing.burstPauseUs, privacy: .public) reason=\(pacing.choice.reason.rawValue, privacy: .public) backpressure=\(pacing.isBackpressured, privacy: .public)")
             }
             for (index, packet) in packets.enumerated() {
                 guard !isClosed else {
@@ -107,12 +125,12 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                     maxInterPacketGapNs = max(maxInterPacketGapNs, packetSentNs - lastPacketSentNs)
                 }
                 lastPacketSentNs = packetSentNs
-                if pacing.pacing.burstPauseUs > 0,
-                   pacing.pacing.burstPacketCount > 0,
+                if pacing.choice.pacing.burstPauseUs > 0,
+                   pacing.choice.pacing.burstPacketCount > 0,
                    index + 1 < packets.count,
-                   (index + 1).isMultiple(of: pacing.pacing.burstPacketCount) {
+                   (index + 1).isMultiple(of: pacing.choice.pacing.burstPacketCount) {
                     burstPauseCount += 1
-                    try await Task.sleep(nanoseconds: UInt64(pacing.pacing.burstPauseUs) * 1_000)
+                    try await Task.sleep(nanoseconds: UInt64(pacing.choice.pacing.burstPauseUs) * 1_000)
                 }
             }
             let sendEndNs = DispatchTime.now().uptimeNanoseconds
@@ -133,8 +151,9 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                 sendEndUptimeNs: sendEndNs,
                 burstPauseCount: burstPauseCount,
                 maxInterPacketGapMs: Double(maxInterPacketGapNs) / 1_000_000.0,
-                pacingBurstPacketCount: pacing.pacing.burstPacketCount,
-                pacingBurstPauseUs: pacing.pacing.burstPauseUs,
+                pacingBurstPacketCount: pacing.choice.pacing.burstPacketCount,
+                pacingBurstPauseUs: pacing.choice.pacing.burstPauseUs,
+                pacingReason: pacing.choice.reason,
                 isBackpressured: pacing.isBackpressured
             )
         } catch {
@@ -164,10 +183,27 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         }
     }
 
-    private func currentPacing() -> (pacing: OwnedMediaDatagramPacing, isBackpressured: Bool) {
+    private func currentPacing(
+        packetCount: Int,
+        isKeyframe: Bool
+    ) -> (choice: OwnedMediaDatagramPacingChoice, isBackpressured: Bool) {
         stateQueue.sync {
             let isBackpressured = freshness.isClientBehind(backpressure: backpressureConfig)
-            let pacing = OwnedMediaDatagramPacing.choose(
+            let policy = OwnedMediaDatagramPacingPolicy(
+                largeFramePacketThreshold: largeFramePacketThreshold,
+                jumboFramePacketThreshold: jumboFramePacketThreshold,
+                largeFramePacing: OwnedMediaDatagramPacing(
+                    burstPacketCount: largeFrameBurstPacketCount,
+                    burstPauseUs: largeFrameBurstPauseUs
+                ),
+                jumboFramePacing: OwnedMediaDatagramPacing(
+                    burstPacketCount: jumboFrameBurstPacketCount,
+                    burstPauseUs: jumboFrameBurstPauseUs
+                )
+            )
+            let choice = policy.choose(
+                packetCount: packetCount,
+                isKeyframe: isKeyframe,
                 isBackpressured: isBackpressured,
                 normal: OwnedMediaDatagramPacing(
                     burstPacketCount: burstPacketCount,
@@ -178,7 +214,7 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
                     burstPauseUs: backpressureBurstPauseUs
                 )
             )
-            return (pacing, isBackpressured)
+            return (choice, isBackpressured)
         }
     }
 

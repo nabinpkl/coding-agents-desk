@@ -583,6 +583,105 @@ struct ScrollQualityTests {
         ) == backpressure)
     }
 
+    @Test func ownedMediaPacingKeepsSmallFramesOnNormalPacing() {
+        let policy = OwnedMediaDatagramPacingPolicy(
+            largeFramePacketThreshold: 64,
+            jumboFramePacketThreshold: 128,
+            largeFramePacing: OwnedMediaDatagramPacing(burstPacketCount: 24, burstPauseUs: 1_500),
+            jumboFramePacing: OwnedMediaDatagramPacing(burstPacketCount: 16, burstPauseUs: 1_500)
+        )
+
+        let choice = policy.choose(
+            packetCount: 5,
+            isKeyframe: false,
+            isBackpressured: false,
+            normal: OwnedMediaDatagramPacing(burstPacketCount: 32, burstPauseUs: 1_000),
+            backpressure: OwnedMediaDatagramPacing(burstPacketCount: 16, burstPauseUs: 2_500)
+        )
+
+        #expect(choice.pacing == OwnedMediaDatagramPacing(burstPacketCount: 32, burstPauseUs: 1_000))
+        #expect(choice.reason == .normal)
+    }
+
+    @Test func ownedMediaPacingSmoothsLargeDeltaFramesBeforeBackpressure() {
+        let policy = OwnedMediaDatagramPacingPolicy(
+            largeFramePacketThreshold: 64,
+            jumboFramePacketThreshold: 128,
+            largeFramePacing: OwnedMediaDatagramPacing(burstPacketCount: 24, burstPauseUs: 1_500),
+            jumboFramePacing: OwnedMediaDatagramPacing(burstPacketCount: 16, burstPauseUs: 1_500)
+        )
+
+        let choice = policy.choose(
+            packetCount: 96,
+            isKeyframe: false,
+            isBackpressured: false,
+            normal: OwnedMediaDatagramPacing(burstPacketCount: 32, burstPauseUs: 1_000),
+            backpressure: OwnedMediaDatagramPacing(burstPacketCount: 16, burstPauseUs: 2_500)
+        )
+
+        #expect(choice.pacing == OwnedMediaDatagramPacing(burstPacketCount: 24, burstPauseUs: 1_500))
+        #expect(choice.reason == .largeFrame)
+    }
+
+    @Test func ownedMediaPacingSmoothsJumboDeltaFramesBeforeBackpressure() {
+        let policy = OwnedMediaDatagramPacingPolicy(
+            largeFramePacketThreshold: 64,
+            jumboFramePacketThreshold: 128,
+            largeFramePacing: OwnedMediaDatagramPacing(burstPacketCount: 24, burstPauseUs: 1_500),
+            jumboFramePacing: OwnedMediaDatagramPacing(burstPacketCount: 16, burstPauseUs: 1_500)
+        )
+
+        let choice = policy.choose(
+            packetCount: 180,
+            isKeyframe: false,
+            isBackpressured: false,
+            normal: OwnedMediaDatagramPacing(burstPacketCount: 32, burstPauseUs: 1_000),
+            backpressure: OwnedMediaDatagramPacing(burstPacketCount: 16, burstPauseUs: 2_500)
+        )
+
+        #expect(choice.pacing == OwnedMediaDatagramPacing(burstPacketCount: 16, burstPauseUs: 1_500))
+        #expect(choice.reason == .jumboFrame)
+    }
+
+    @Test func ownedMediaPacingLetsBackpressureWinOverFrameSize() {
+        let policy = OwnedMediaDatagramPacingPolicy(
+            largeFramePacketThreshold: 64,
+            jumboFramePacketThreshold: 128,
+            largeFramePacing: OwnedMediaDatagramPacing(burstPacketCount: 24, burstPauseUs: 1_500),
+            jumboFramePacing: OwnedMediaDatagramPacing(burstPacketCount: 16, burstPauseUs: 1_500)
+        )
+
+        let choice = policy.choose(
+            packetCount: 180,
+            isKeyframe: false,
+            isBackpressured: true,
+            normal: OwnedMediaDatagramPacing(burstPacketCount: 32, burstPauseUs: 1_000),
+            backpressure: OwnedMediaDatagramPacing(burstPacketCount: 16, burstPauseUs: 2_500)
+        )
+
+        #expect(choice.pacing == OwnedMediaDatagramPacing(burstPacketCount: 16, burstPauseUs: 2_500))
+        #expect(choice.reason == .backpressure)
+    }
+
+    @Test func ownedMediaPacingKeepsKeyframesOnNormalOrBackpressurePacing() {
+        let policy = OwnedMediaDatagramPacingPolicy(
+            largeFramePacketThreshold: 64,
+            jumboFramePacketThreshold: 128,
+            largeFramePacing: OwnedMediaDatagramPacing(burstPacketCount: 24, burstPauseUs: 1_500),
+            jumboFramePacing: OwnedMediaDatagramPacing(burstPacketCount: 16, burstPauseUs: 1_500)
+        )
+
+        let normalKeyframe = policy.choose(
+            packetCount: 180,
+            isKeyframe: true,
+            isBackpressured: false,
+            normal: OwnedMediaDatagramPacing(burstPacketCount: 32, burstPauseUs: 1_000),
+            backpressure: OwnedMediaDatagramPacing(burstPacketCount: 16, burstPauseUs: 2_500)
+        )
+
+        #expect(normalKeyframe.reason == .normal)
+    }
+
     @Test func ownedMediaDiagnosticsFpsWindowCountsOneSecondSamples() {
         var window = OwnedMediaDiagnosticsFpsWindow(windowStartedAtUptimeNs: 1_000_000_000)
         window.incrementCaptured()
@@ -615,12 +714,14 @@ struct ScrollQualityTests {
             maxInterPacketGapMs: 2.5,
             pacingBurstPacketCount: 16,
             pacingBurstPauseUs: 2_500,
+            pacingReason: .backpressure,
             isBackpressured: true
         )
 
         #expect(stats.sendDurationMs == 25)
         #expect(stats.packetCount == 200)
         #expect(stats.burstPauseCount == 12)
+        #expect(stats.pacingReason == .backpressure)
         #expect(stats.isBackpressured)
     }
 

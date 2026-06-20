@@ -1212,7 +1212,7 @@ struct OwnedMediaCadenceScheduler: Equatable {
     }
 }
 
-struct OwnedMediaDatagramPacing: Equatable {
+struct OwnedMediaDatagramPacing: Equatable, Sendable {
     let burstPacketCount: Int
     let burstPauseUs: Int
 
@@ -1222,6 +1222,44 @@ struct OwnedMediaDatagramPacing: Equatable {
         backpressure: OwnedMediaDatagramPacing
     ) -> OwnedMediaDatagramPacing {
         isBackpressured ? backpressure : normal
+    }
+}
+
+enum OwnedMediaDatagramPacingReason: String, Equatable, Sendable {
+    case normal
+    case largeFrame = "large-frame"
+    case jumboFrame = "jumbo-frame"
+    case backpressure
+}
+
+struct OwnedMediaDatagramPacingChoice: Equatable, Sendable {
+    let pacing: OwnedMediaDatagramPacing
+    let reason: OwnedMediaDatagramPacingReason
+}
+
+struct OwnedMediaDatagramPacingPolicy: Equatable, Sendable {
+    let largeFramePacketThreshold: Int
+    let jumboFramePacketThreshold: Int
+    let largeFramePacing: OwnedMediaDatagramPacing
+    let jumboFramePacing: OwnedMediaDatagramPacing
+
+    func choose(
+        packetCount: Int,
+        isKeyframe: Bool,
+        isBackpressured: Bool,
+        normal: OwnedMediaDatagramPacing,
+        backpressure: OwnedMediaDatagramPacing
+    ) -> OwnedMediaDatagramPacingChoice {
+        if isBackpressured {
+            return OwnedMediaDatagramPacingChoice(pacing: backpressure, reason: .backpressure)
+        }
+        if !isKeyframe && packetCount >= max(jumboFramePacketThreshold, largeFramePacketThreshold) {
+            return OwnedMediaDatagramPacingChoice(pacing: jumboFramePacing, reason: .jumboFrame)
+        }
+        if !isKeyframe && packetCount >= largeFramePacketThreshold {
+            return OwnedMediaDatagramPacingChoice(pacing: largeFramePacing, reason: .largeFrame)
+        }
+        return OwnedMediaDatagramPacingChoice(pacing: normal, reason: .normal)
     }
 }
 

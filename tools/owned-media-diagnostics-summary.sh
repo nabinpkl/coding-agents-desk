@@ -60,6 +60,16 @@ perl -ne '
     if (/sendMs=([0-9.]+)/) { $maxSend = $1 if $1 > $maxSend; }
     if (/ackRttMs=([0-9.]+)/) { $maxAckRtt = $1 if $1 > $maxAckRtt; }
     if (/captureToAckMs=([0-9.]+)/) { $maxCaptureAck = $1 if $1 > $maxCaptureAck; }
+    if (/pacingReason=([a-z-]+)/) {
+        $reason = $1;
+        $normalPacing++ if $reason eq "normal";
+        $largePacing++ if $reason eq "large-frame";
+        $jumboPacing++ if $reason eq "jumbo-frame";
+        $backpressurePacing++ if $reason eq "backpressure";
+        if (/sendMs=([0-9.]+)/) {
+            $maxSendByReason{$reason} = $1 if $1 > ($maxSendByReason{$reason} || 0);
+        }
+    }
     $latestFps = $_ if /owned media diag-fps/;
     END {
         chomp($latestFps);
@@ -67,6 +77,12 @@ perl -ne '
         printf "host drain enter=%d exit=%d\n", $drainEnter||0, $drainExit||0;
         printf "host keyframes total=%d initial=%d periodic=%d clientRequest=%d postDrainRecovery=%d\n", $keyframe||0, $initial||0, $periodic||0, $clientRequest||0, $postDrain||0;
         printf "host timing maxSendMs=%.1f maxAckRttMs=%.1f maxCaptureToAckMs=%.1f\n", $maxSend||0, $maxAckRtt||0, $maxCaptureAck||0;
+        printf "host pacing normal=%d large=%d jumbo=%d backpressure=%d\n", $normalPacing||0, $largePacing||0, $jumboPacing||0, $backpressurePacing||0;
+        printf "host pacingMaxSend normal=%.1f large=%.1f jumbo=%.1f backpressure=%.1f\n",
+            $maxSendByReason{"normal"}||0,
+            $maxSendByReason{"large-frame"}||0,
+            $maxSendByReason{"jumbo-frame"}||0,
+            $maxSendByReason{"backpressure"}||0;
         print "host latestFps=$latestFps\n" if $latestFps;
     }
 ' "$host_log"
