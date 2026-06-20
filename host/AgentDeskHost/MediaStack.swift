@@ -3,12 +3,14 @@ import Foundation
 
 enum MediaStack {
     static func makeFactory(
-        ownedDatagramAuthorizer: @escaping OwnedMediaDatagramAuthorizer = { _ in .rejected(.unauthorized) }
+        ownedDatagramAuthorizer: @escaping OwnedMediaDatagramAuthorizer = { _ in .rejected(.unauthorized) },
+        ownedGraphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer = { _ in .rejected(.unauthorized) }
     ) -> MediaTransportFactory {
         OwnedMediaTransportFactory(
             codec: Config.ownedMediaCodec.wireCodec,
             configuration: .fromConfig(),
-            authorizer: ownedDatagramAuthorizer
+            authorizer: ownedDatagramAuthorizer,
+            graphicsAuthorizer: ownedGraphicsAuthorizer
         )
     }
 

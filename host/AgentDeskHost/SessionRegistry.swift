@@ -43,6 +43,10 @@ private struct StaleMediaCapabilityRecord {
     let expiresAt: Int
 }
 
+private struct StaleGraphicsCapabilityRecord {
+    let expiresAt: Int
+}
+
 // Per-fingerprint state for in-flight and active host sessions. Lives
 // outside AppDelegate so the bookkeeping (which dictionary entries belong
 // to which lifecycle phase, what the teardown order is) sits in one
@@ -67,6 +71,7 @@ final class SessionRegistry {
     private var staleInputCapabilities: [InputCapabilityKey: StaleInputCapabilityRecord] = [:]
     private var mediaCapabilities: [DeviceFingerprint: MediaCapabilityRecord] = [:]
     private var staleMediaCapabilities: [MediaCapabilityKey: StaleMediaCapabilityRecord] = [:]
+    private var staleGraphicsCapabilities: [MediaCapabilityKey: StaleGraphicsCapabilityRecord] = [:]
 
     init(
         now: @escaping () -> Date = Date.init,
@@ -141,6 +146,7 @@ final class SessionRegistry {
         staleInputCapabilities = staleInputCapabilities.filter { $0.key.deviceFingerprint != fingerprint }
         mediaCapabilities.removeValue(forKey: fingerprint)
         staleMediaCapabilities = staleMediaCapabilities.filter { $0.key.deviceFingerprint != fingerprint }
+        staleGraphicsCapabilities = staleGraphicsCapabilities.filter { $0.key.deviceFingerprint != fingerprint }
         if closeSignaling {
             channel?.close()
         }
@@ -202,6 +208,33 @@ final class SessionRegistry {
             return .rejected(.expiredMediaCapability)
         }
         markStaleMediaCapability(presented, originalExpiresAt: current.expiresAt)
+        return .accepted(hello.deviceFingerprint)
+    }
+
+    func validateGraphicsCapability(_ hello: GraphicsChannelHello) -> MediaCapabilityValidationResult {
+        pruneExpiredStaleGraphicsCapabilities()
+        let presented = MediaCapabilityKey(
+            deviceFingerprint: hello.deviceFingerprint,
+            sessionId: hello.sessionId,
+            mediaCapability: hello.graphicsCapability
+        )
+        if staleGraphicsCapabilities[presented] != nil {
+            return .rejected(.staleMediaCapability)
+        }
+        guard active.contains(hello.deviceFingerprint),
+              sessionIds[hello.deviceFingerprint] == hello.sessionId,
+              let current = mediaCapabilities[hello.deviceFingerprint],
+              current.sessionId == hello.sessionId
+        else {
+            return .rejected(.unauthorized)
+        }
+        guard current.mediaCapability == hello.graphicsCapability else {
+            return .rejected(.unauthorized)
+        }
+        guard Int(now().timeIntervalSince1970) <= current.expiresAt else {
+            return .rejected(.expiredMediaCapability)
+        }
+        markStaleGraphicsCapability(presented, originalExpiresAt: current.expiresAt)
         return .accepted(hello.deviceFingerprint)
     }
 
@@ -320,6 +353,13 @@ final class SessionRegistry {
         )
     }
 
+    private func markStaleGraphicsCapability(_ key: MediaCapabilityKey, originalExpiresAt: Int) {
+        let ttlExpiresAt = Int(now().addingTimeInterval(Config.mediaCapabilityTTL).timeIntervalSince1970)
+        staleGraphicsCapabilities[key] = StaleGraphicsCapabilityRecord(
+            expiresAt: min(originalExpiresAt, ttlExpiresAt)
+        )
+    }
+
     private func pruneExpiredStaleInputCapabilities() {
         let currentTime = Int(now().timeIntervalSince1970)
         staleInputCapabilities = staleInputCapabilities.filter { $0.value.expiresAt >= currentTime }
@@ -328,6 +368,11 @@ final class SessionRegistry {
     private func pruneExpiredStaleMediaCapabilities() {
         let currentTime = Int(now().timeIntervalSince1970)
         staleMediaCapabilities = staleMediaCapabilities.filter { $0.value.expiresAt >= currentTime }
+    }
+
+    private func pruneExpiredStaleGraphicsCapabilities() {
+        let currentTime = Int(now().timeIntervalSince1970)
+        staleGraphicsCapabilities = staleGraphicsCapabilities.filter { $0.value.expiresAt >= currentTime }
     }
 
     nonisolated private static func systemRandomBytes(_ count: Int) throws -> Data {

@@ -367,6 +367,12 @@ struct SignalingFrameRoutingTests {
             _ = try OwnedGraphicsFrameEnvelope.decode(Data(encoded.dropLast()))
         }
 
+        var withTrailingBytes = encoded
+        withTrailingBytes.append(0xff)
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try OwnedGraphicsFrameEnvelope.decode(withTrailingBytes)
+        }
+
         let mismatched = OwnedGraphicsFrameEnvelope(
             header: OwnedGraphicsFrameHeader(
                 surfaceGeneration: 1,
@@ -412,6 +418,47 @@ struct SignalingFrameRoutingTests {
         codecTileFrame.append(codecTileMetadata)
         #expect(throws: SessionRejected(reason: .malformed)) {
             _ = try OwnedGraphicsFrameEnvelope.decode(codecTileFrame)
+        }
+
+        let invalidTile = OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: 1,
+                frameId: 4,
+                capturedAtUptimeNs: 40,
+                commandCount: 1,
+                payloadLength: payload.count
+            ),
+            commands: [
+                .bitmapTile(
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                    compression: .lzfse,
+                    byteRange: OwnedGraphicsByteRange(offset: payload.count, length: 1)
+                )
+            ],
+            payload: payload
+        )
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try invalidTile.encode()
+        }
+
+        let invalidRect = OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: 1,
+                frameId: 5,
+                capturedAtUptimeNs: 50,
+                commandCount: 1,
+                payloadLength: payload.count
+            ),
+            commands: [
+                .copyRect(srcX: -1, srcY: 0, dstX: 0, dstY: 0, width: 1, height: 1)
+            ],
+            payload: payload
+        )
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try invalidRect.encode()
         }
     }
 
@@ -505,23 +552,6 @@ struct SignalingFrameRoutingTests {
         #expect(throws: SessionRejected(reason: .malformed)) {
             _ = try OwnedGraphicsHandshake.validateHelloData(try JSONEncoder().encode(emptyNonce))
         }
-    }
-
-    @Test func ownedGraphicsHelloAdaptsToMediaCapabilityValidationShape() throws {
-        let hello = GraphicsChannelHello(
-            deviceFingerprint: DeviceFingerprint("device-fp"),
-            sessionId: "session-123",
-            graphicsCapability: "media-capability",
-            clientNonce: Data([1, 2, 3])
-        )
-
-        let adapted = OwnedGraphicsHandshake.mediaHello(from: hello)
-
-        #expect(adapted.type == "media-hello")
-        #expect(adapted.deviceFingerprint == hello.deviceFingerprint)
-        #expect(adapted.sessionId == hello.sessionId)
-        #expect(adapted.mediaCapability == hello.graphicsCapability)
-        #expect(adapted.clientNonce == hello.clientNonce)
     }
 
     @Test func inputCapabilityGrantRoundTripsThroughCodable() throws {

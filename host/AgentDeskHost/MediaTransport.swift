@@ -144,15 +144,6 @@ enum OwnedGraphicsHandshake {
         }
         return hello
     }
-
-    static func mediaHello(from hello: GraphicsChannelHello) -> MediaChannelHello {
-        MediaChannelHello(
-            deviceFingerprint: hello.deviceFingerprint,
-            sessionId: hello.sessionId,
-            mediaCapability: hello.graphicsCapability,
-            clientNonce: hello.clientNonce
-        )
-    }
 }
 
 struct OwnedMediaResendRing {

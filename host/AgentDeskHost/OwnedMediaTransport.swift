@@ -8,24 +8,33 @@ import VideoToolbox
 import os
 
 typealias OwnedMediaDatagramAuthorizer = @Sendable (MediaChannelHello) async -> MediaCapabilityValidationResult
+typealias OwnedGraphicsChannelAuthorizer = @Sendable (GraphicsChannelHello) async -> MediaCapabilityValidationResult
 
 final class OwnedMediaTransportFactory: MediaTransportFactory {
     private let codec: OwnedMediaCodec
     private let configuration: OwnedMediaEncodingConfiguration
     private let authorizer: OwnedMediaDatagramAuthorizer
+    private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
 
     init(
         codec: OwnedMediaCodec,
         configuration: OwnedMediaEncodingConfiguration = .default,
-        authorizer: @escaping OwnedMediaDatagramAuthorizer
+        authorizer: @escaping OwnedMediaDatagramAuthorizer,
+        graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer
     ) {
         self.codec = codec
         self.configuration = configuration
         self.authorizer = authorizer
+        self.graphicsAuthorizer = graphicsAuthorizer
     }
 
     func make() -> MediaTransport {
-        OwnedMediaTransport(codec: codec, configuration: configuration, authorizer: authorizer)
+        OwnedMediaTransport(
+            codec: codec,
+            configuration: configuration,
+            authorizer: authorizer,
+            graphicsAuthorizer: graphicsAuthorizer
+        )
     }
 }
 
@@ -283,6 +292,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let codec: OwnedMediaCodec
     private let configuration: OwnedMediaEncodingConfiguration
     private let authorizer: OwnedMediaDatagramAuthorizer
+    private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
     private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic")
     private let lock = NSLock()
     private var mediaDatagramListener: NWListener?
@@ -302,11 +312,13 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     init(
         codec: OwnedMediaCodec,
         configuration: OwnedMediaEncodingConfiguration = .default,
-        authorizer: @escaping OwnedMediaDatagramAuthorizer
+        authorizer: @escaping OwnedMediaDatagramAuthorizer,
+        graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer
     ) {
         self.codec = codec
         self.configuration = configuration
         self.authorizer = authorizer
+        self.graphicsAuthorizer = graphicsAuthorizer
         var continuation: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { continuation = $0 }
         self.stateContinuation = continuation
@@ -531,7 +543,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         guard let connection else { return }
         do {
             let hello = try OwnedGraphicsHandshake.validateHelloData(data)
-            let result = await authorizer(OwnedGraphicsHandshake.mediaHello(from: hello))
+            let result = await graphicsAuthorizer(hello)
             switch result {
             case .accepted(let fingerprint):
                 let serverNonce = try Self.randomBytes(count: 32)

@@ -890,7 +890,7 @@ struct OwnedGraphicsFrameEnvelope: Equatable {
         let metadataEnd = metadataStart + Int(metadataLength)
         let payloadEnd = metadataEnd + Int(payloadLength)
         guard data.count >= metadataEnd,
-              data.count >= payloadEnd else {
+              data.count == payloadEnd else {
             throw SessionRejected(reason: .malformed)
         }
         let metadataData = data[metadataStart..<metadataEnd]
@@ -911,7 +911,7 @@ struct OwnedGraphicsFrameEnvelope: Equatable {
             throw SessionRejected(reason: .malformed)
         }
         for command in commands {
-            try command.validateForCurrentScope()
+            try command.validateForCurrentScope(payloadLength: payload.count)
         }
     }
 }
@@ -973,8 +973,26 @@ enum OwnedGraphicsCommand: Equatable {
         case byteRange = "br"
     }
 
-    func validateForCurrentScope() throws {
-        if case .codecTile = self {
+    func validateForCurrentScope(payloadLength: Int = Int.max) throws {
+        switch self {
+        case let .resetSurface(_, width, height, _):
+            guard width > 0, height > 0 else {
+                throw SessionRejected(reason: .malformed)
+            }
+        case let .copyRect(srcX, srcY, dstX, dstY, width, height):
+            guard srcX >= 0, srcY >= 0, dstX >= 0, dstY >= 0, width > 0, height > 0 else {
+                throw SessionRejected(reason: .malformed)
+            }
+        case let .bitmapTile(x, y, width, height, _, byteRange):
+            guard x >= 0, y >= 0, width > 0, height > 0,
+                  byteRange.offset >= 0,
+                  byteRange.length >= 0,
+                  byteRange.offset <= payloadLength,
+                  byteRange.length <= payloadLength - byteRange.offset
+            else {
+                throw SessionRejected(reason: .malformed)
+            }
+        case .codecTile:
             throw SessionRejected(reason: .malformed)
         }
     }

@@ -98,6 +98,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 return self.sessions.validateMediaCapability(hello)
             }
+        },
+        ownedGraphicsAuthorizer: { [weak self] hello in
+            await MainActor.run {
+                guard let self else {
+                    return .rejected(.unauthorized)
+                }
+                guard (try? self.pairing.lookup(deviceFingerprint: hello.deviceFingerprint)) != nil else {
+                    return .rejected(.unauthorized)
+                }
+                return self.sessions.validateGraphicsCapability(hello)
+            }
         }
     )
     private let inputDispatcher = InputDispatcher()

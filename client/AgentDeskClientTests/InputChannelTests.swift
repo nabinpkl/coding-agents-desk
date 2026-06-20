@@ -382,7 +382,7 @@ struct InputChannelTests {
         #expect(!plan.usesDatagrams)
     }
 
-    @Test func graphicsHelloUsesActiveSessionAndDerivedMediaCapability() {
+    @Test func graphicsHelloUsesActiveSessionAndMediaCapability() {
         let active = ActiveSession(
             sessionId: "session-123",
             deviceFingerprint: DeviceFingerprint("device-fp"),
@@ -401,7 +401,7 @@ struct InputChannelTests {
 
         #expect(hello.deviceFingerprint == active.deviceFingerprint)
         #expect(hello.sessionId == active.sessionId)
-        #expect(hello.graphicsCapability == "owned-graphics:media-capability")
+        #expect(hello.graphicsCapability == "media-capability")
         #expect(hello.clientNonce == Data([1, 2, 3, 4]))
     }
 
@@ -420,6 +420,14 @@ struct InputChannelTests {
                 GraphicsChannelReady(sessionId: "session-123", serverNonce: Data()),
                 expectedSessionId: "session-123"
             )
+        }
+
+        let wrongTypeData = """
+        {"t":"media-ready","sid":"session-123","sn":"BAUG"}
+        """.data(using: .utf8) ?? Data()
+        let wrongType = try JSONDecoder().decode(GraphicsChannelReady.self, from: wrongTypeData)
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try ClientGraphicsChannelHandshake.validateReady(wrongType, expectedSessionId: "session-123")
         }
     }
 
@@ -500,6 +508,12 @@ struct InputChannelTests {
             _ = try OwnedGraphicsFrameEnvelope.decode(Data(encoded.dropLast()))
         }
 
+        var withTrailingBytes = encoded
+        withTrailingBytes.append(0xff)
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try OwnedGraphicsFrameEnvelope.decode(withTrailingBytes)
+        }
+
         let mismatched = OwnedGraphicsFrameEnvelope(
             header: OwnedGraphicsFrameHeader(
                 surfaceGeneration: 1,
@@ -545,6 +559,47 @@ struct InputChannelTests {
         codecTileFrame.append(codecTileMetadata)
         #expect(throws: SessionRejected(reason: .malformed)) {
             _ = try OwnedGraphicsFrameEnvelope.decode(codecTileFrame)
+        }
+
+        let invalidTile = OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: 1,
+                frameId: 4,
+                capturedAtUptimeNs: 40,
+                commandCount: 1,
+                payloadLength: payload.count
+            ),
+            commands: [
+                .bitmapTile(
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                    compression: .lzfse,
+                    byteRange: OwnedGraphicsByteRange(offset: payload.count, length: 1)
+                )
+            ],
+            payload: payload
+        )
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try invalidTile.encode()
+        }
+
+        let invalidRect = OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: 1,
+                frameId: 5,
+                capturedAtUptimeNs: 50,
+                commandCount: 1,
+                payloadLength: payload.count
+            ),
+            commands: [
+                .copyRect(srcX: -1, srcY: 0, dstX: 0, dstY: 0, width: 1, height: 1)
+            ],
+            payload: payload
+        )
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try invalidRect.encode()
         }
     }
 

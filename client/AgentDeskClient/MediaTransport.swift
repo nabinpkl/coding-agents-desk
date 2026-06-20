@@ -49,7 +49,7 @@ enum ClientGraphicsChannelHandshake {
     static let quicALPN = "agentdesk-owned-graphics"
 
     static func graphicsCapability(from mediaCapability: String) -> String {
-        "owned-graphics:\(mediaCapability)"
+        mediaCapability
     }
 
     static func makeHello(
@@ -69,7 +69,9 @@ enum ClientGraphicsChannelHandshake {
         _ ready: GraphicsChannelReady,
         expectedSessionId: String
     ) throws -> GraphicsChannelReady {
-        guard ready.sessionId == expectedSessionId, !ready.serverNonce.isEmpty else {
+        guard ready.type == "graphics-ready",
+              ready.sessionId == expectedSessionId,
+              !ready.serverNonce.isEmpty else {
             throw SessionRejected(reason: .malformed)
         }
         return ready
