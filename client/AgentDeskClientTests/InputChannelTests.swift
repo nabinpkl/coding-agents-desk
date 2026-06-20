@@ -166,6 +166,79 @@ struct InputChannelTests {
         ) == nil)
     }
 
+    @Test func ownedSurfaceCompositorRejectsStaleResetGeneration() throws {
+        var compositor = OwnedSurfaceCompositor()
+
+        _ = try compositor.applyGraphicsFrame(Self.makeResetSurfaceEnvelope(surfaceGeneration: 1, frameId: 1))
+        let stats = try compositor.applyGraphicsFrame(Self.makeResetSurfaceEnvelope(surfaceGeneration: 1, frameId: 2))
+
+        #expect(stats.action == "stale-reset")
+        #expect(compositor.committedUpdateId == OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 1))
+        #expect(compositor.staleDiscardCount == 1)
+    }
+
+    @Test func ownedSurfaceCompositorKeepsPreviousSurfaceWhenFrameFails() throws {
+        var compositor = OwnedSurfaceCompositor()
+
+        _ = try compositor.applyGraphicsFrame(Self.makeResetSurfaceEnvelope(surfaceGeneration: 1, frameId: 1))
+        let failing = OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: 1,
+                frameId: 2,
+                capturedAtUptimeNs: 200,
+                commandCount: 2,
+                payloadLength: 0
+            ),
+            commands: [
+                .copyRect(srcX: 0, srcY: 0, dstX: 1, dstY: 0, width: 1, height: 1),
+                .bitmapTile(
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                    compression: .lzfse,
+                    byteRange: OwnedGraphicsByteRange(offset: 0, length: 0)
+                )
+            ],
+            payload: Data()
+        )
+
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try compositor.applyGraphicsFrame(failing)
+        }
+        #expect(compositor.committedUpdateId == OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 1))
+    }
+
+    @MainActor
+    @Test func ownedMediaVideoSinkQueuesResetRequestWhenGraphicsFrameFails() {
+        let sink = OwnedMediaVideoSink()
+        let ack = sink.renderOwnedGraphicsFrame(OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: 1,
+                frameId: 1,
+                capturedAtUptimeNs: 100,
+                commandCount: 1,
+                payloadLength: 0
+            ),
+            commands: [
+                .copyRect(srcX: 0, srcY: 0, dstX: 0, dstY: 0, width: 1, height: 1)
+            ],
+            payload: Data()
+        ))
+
+        let request = sink.consumePendingGraphicsResetRequest()
+        #expect(ack == OwnedGraphicsFrameAck(
+            surfaceGeneration: 0,
+            frameId: 0,
+            compositorMs: 0,
+            staleDiscardCount: 0
+        ))
+        #expect(request?.lastCommittedSurfaceGeneration == 0)
+        #expect(request?.lastCommittedFrameId == 0)
+        #expect(request?.reason.contains("graphics-frame-") == true)
+        #expect(sink.consumePendingGraphicsResetRequest() == nil)
+    }
+
     @Test func ownedMediaUpdateOrderingIgnoresCaptureTimestampDiagnostics() {
         let committed = OwnedSurfaceUpdateId(surfaceGeneration: 5, frameId: 10)
         let staleCaptureNewerFrame = OwnedMediaFrameHeader(
@@ -585,6 +658,30 @@ struct InputChannelTests {
             _ = try invalidTile.encode()
         }
 
+        let emptyTile = OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: 1,
+                frameId: 6,
+                capturedAtUptimeNs: 60,
+                commandCount: 1,
+                payloadLength: 0
+            ),
+            commands: [
+                .bitmapTile(
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                    compression: .lzfse,
+                    byteRange: OwnedGraphicsByteRange(offset: 0, length: 0)
+                )
+            ],
+            payload: Data()
+        )
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try emptyTile.encode()
+        }
+
         let invalidRect = OwnedGraphicsFrameEnvelope(
             header: OwnedGraphicsFrameHeader(
                 surfaceGeneration: 1,
@@ -603,6 +700,79 @@ struct InputChannelTests {
         }
     }
 
+    @Test func graphicsStreamParserHandlesPartialAndCoalescedFrames() throws {
+        let first = try makeGraphicsEnvelope(frameId: 1).encode()
+        let secondEnvelope = makeGraphicsEnvelope(frameId: 2)
+        let second = try secondEnvelope.encode()
+        var parser = OwnedGraphicsStreamFrameParser()
+
+        #expect(try parser.append(Data(first.prefix(7))).isEmpty)
+        #expect(try parser.append(Data(first.dropFirst(7))).map(\.header.frameId) == [1])
+        #expect(try parser.append(second + second) == [secondEnvelope, secondEnvelope])
+    }
+
+    @Test func graphicsStreamParserAcceptsNearLimitFrameWithCoalescedNextFrame() throws {
+        let secondEnvelope = makeGraphicsEnvelope(frameId: 2)
+        let second = try secondEnvelope.encode()
+        let first = try makeNearMaximumGraphicsFrame(frameId: 1, followingFrameByteCount: second.count)
+        #expect(first.count <= OwnedGraphicsStreamFrameParser.maxFrameByteCount)
+        #expect(first.count + second.count > OwnedGraphicsStreamFrameParser.maxFrameByteCount)
+        var parser = OwnedGraphicsStreamFrameParser()
+
+        let frames = try parser.append(first + second)
+
+        #expect(frames.map(\.header.frameId) == [1, 2])
+    }
+
+    @Test func graphicsStreamParserRejectsOversizedFrameLength() throws {
+        var parser = OwnedGraphicsStreamFrameParser()
+        var header = Data(OwnedGraphicsFrameEnvelope.magic)
+        header.append(OwnedGraphicsFrameEnvelope.version)
+        var metadataLength = UInt32(OwnedGraphicsStreamFrameParser.maxFrameByteCount + 1).bigEndian
+        var payloadLength = UInt32(0).bigEndian
+        withUnsafeBytes(of: &metadataLength) { header.append(contentsOf: $0) }
+        withUnsafeBytes(of: &payloadLength) { header.append(contentsOf: $0) }
+
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try parser.append(header)
+        }
+    }
+
+    @Test func graphicsControlStreamFramesRoundTripSplitAndCoalescedMessages() throws {
+        let ack = OwnedGraphicsFrameAck(
+            surfaceGeneration: 4,
+            frameId: 22,
+            compositorMs: 1.75,
+            staleDiscardCount: 3
+        )
+        let request = OwnedGraphicsResetRequest(
+            reason: "malformed-frame",
+            lastCommittedSurfaceGeneration: 4,
+            lastCommittedFrameId: 21
+        )
+        let ackFrame = try OwnedGraphicsControlStreamFrame.encode(ack)
+        let requestFrame = try OwnedGraphicsControlStreamFrame.encode(request)
+        var parser = OwnedGraphicsControlStreamFrameParser()
+
+        #expect(try parser.append(Data(ackFrame.prefix(2))).isEmpty)
+        let ackPayloads = try parser.append(Data(ackFrame.dropFirst(2)))
+        #expect(try JSONDecoder().decode(OwnedGraphicsFrameAck.self, from: try #require(ackPayloads.first)) == ack)
+
+        let payloads = try parser.append(requestFrame + ackFrame)
+        #expect(payloads.count == 2)
+        #expect(try JSONDecoder().decode(OwnedGraphicsResetRequest.self, from: payloads[0]) == request)
+        #expect(try JSONDecoder().decode(OwnedGraphicsFrameAck.self, from: payloads[1]) == ack)
+    }
+
+    @Test func graphicsControlStreamRejectsEmptyPayload() throws {
+        var parser = OwnedGraphicsControlStreamFrameParser()
+        let frame = Data([0, 0, 0, 0])
+
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try parser.append(frame)
+        }
+    }
+
     @Test func staleGraphicsUpdateUsesSharedTimelineOrdering() {
         let committed = OwnedSurfaceUpdateId(surfaceGeneration: 3, frameId: 20)
         let staleGraphics = OwnedGraphicsFrameHeader(
@@ -614,6 +784,67 @@ struct InputChannelTests {
         )
 
         #expect(!staleGraphics.updateId.isStrictlyNewer(than: committed))
+    }
+
+    private func makeGraphicsEnvelope(frameId: UInt64) -> OwnedGraphicsFrameEnvelope {
+        let payload = Data([1, 2, 3])
+        return OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: 1,
+                frameId: frameId,
+                capturedAtUptimeNs: 100,
+                commandCount: 1,
+                payloadLength: payload.count
+            ),
+            commands: [
+                .bitmapTile(
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                    compression: .lzfse,
+                    byteRange: OwnedGraphicsByteRange(offset: 0, length: payload.count)
+                )
+            ],
+            payload: payload
+        )
+    }
+
+    private func makeNearMaximumGraphicsFrame(frameId: UInt64, followingFrameByteCount: Int) throws -> Data {
+        var payloadCount = OwnedGraphicsStreamFrameParser.maxFrameByteCount
+            - OwnedGraphicsFrameEnvelope.fixedHeaderByteCount
+        while payloadCount > 0 {
+            let payload = Data(repeating: 0x5a, count: payloadCount)
+            let envelope = OwnedGraphicsFrameEnvelope(
+                header: OwnedGraphicsFrameHeader(
+                    surfaceGeneration: 1,
+                    frameId: frameId,
+                    capturedAtUptimeNs: 100,
+                    commandCount: 1,
+                    payloadLength: payload.count
+                ),
+                commands: [
+                    .bitmapTile(
+                        x: 0,
+                        y: 0,
+                        width: 1,
+                        height: 1,
+                        compression: .lzfse,
+                        byteRange: OwnedGraphicsByteRange(offset: 0, length: payload.count)
+                    )
+                ],
+                payload: payload
+            )
+            let encoded = try envelope.encode()
+            if encoded.count <= OwnedGraphicsStreamFrameParser.maxFrameByteCount {
+                guard encoded.count + followingFrameByteCount > OwnedGraphicsStreamFrameParser.maxFrameByteCount else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                return encoded
+            }
+            payloadCount -= max(1, encoded.count - OwnedGraphicsStreamFrameParser.maxFrameByteCount)
+        }
+        throw SessionRejected(reason: .malformed)
     }
 
     @Test func graphicsCommandsRoundTripAndRejectReservedCodecTile() throws {
@@ -1058,6 +1289,30 @@ struct InputChannelTests {
             isKeyframe: isKeyframe,
             sentAtUptimeNs: 0,
             payload: Data(payload)
+        )
+    }
+
+    private static func makeResetSurfaceEnvelope(
+        surfaceGeneration: UInt32,
+        frameId: UInt64
+    ) -> OwnedGraphicsFrameEnvelope {
+        OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: surfaceGeneration,
+                frameId: frameId,
+                capturedAtUptimeNs: frameId * 100,
+                commandCount: 1,
+                payloadLength: 0
+            ),
+            commands: [
+                .resetSurface(
+                    surfaceGeneration: surfaceGeneration,
+                    width: 2,
+                    height: 1,
+                    pixelFormat: .bgra
+                )
+            ],
+            payload: Data()
         )
     }
 }

@@ -885,6 +885,87 @@ struct OwnedGraphicsFrameEnvelope: Equatable {
     }
 }
 
+struct OwnedGraphicsStreamFrameParser {
+    static let maxFrameByteCount = 8 * 1024 * 1024
+    private var buffer = Data()
+
+    mutating func append(_ chunk: Data) throws -> [OwnedGraphicsFrameEnvelope] {
+        buffer.append(chunk)
+        var frames: [OwnedGraphicsFrameEnvelope] = []
+        while buffer.count >= OwnedGraphicsFrameEnvelope.fixedHeaderByteCount {
+            let fixedHeader = [UInt8](buffer.prefix(OwnedGraphicsFrameEnvelope.fixedHeaderByteCount))
+            guard Array(fixedHeader[0..<4]) == OwnedGraphicsFrameEnvelope.magic,
+                  fixedHeader[4] == OwnedGraphicsFrameEnvelope.version else {
+                throw SessionRejected(reason: .malformed)
+            }
+            let metadataLength = fixedHeader[5..<9].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+            let payloadLength = fixedHeader[9..<13].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+            let frameLength = OwnedGraphicsFrameEnvelope.fixedHeaderByteCount + Int(metadataLength) + Int(payloadLength)
+            guard frameLength >= OwnedGraphicsFrameEnvelope.fixedHeaderByteCount,
+                  frameLength <= Self.maxFrameByteCount else {
+                throw SessionRejected(reason: .malformed)
+            }
+            guard buffer.count >= frameLength else {
+                break
+            }
+            let frameData = buffer.prefix(frameLength)
+            frames.append(try OwnedGraphicsFrameEnvelope.decode(Data(frameData)))
+            buffer.removeFirst(frameLength)
+        }
+        return frames
+    }
+}
+
+enum OwnedGraphicsControlStreamFrame {
+    static let fixedHeaderByteCount = 4
+    static let maxPayloadByteCount = 64 * 1024
+
+    static func encode<T: Encodable>(_ message: T) throws -> Data {
+        let payload = try JSONEncoder().encode(message)
+        guard payload.count <= maxPayloadByteCount else {
+            throw SessionRejected(reason: .malformed)
+        }
+        var encoded = Data()
+        var length = UInt32(payload.count).bigEndian
+        withUnsafeBytes(of: &length) { encoded.append(contentsOf: $0) }
+        encoded.append(payload)
+        return encoded
+    }
+}
+
+struct OwnedGraphicsControlStreamFrameParser {
+    private var buffer = Data()
+
+    mutating func append(_ chunk: Data) throws -> [Data] {
+        buffer.append(chunk)
+        guard buffer.count <= OwnedGraphicsControlStreamFrame.maxPayloadByteCount + OwnedGraphicsControlStreamFrame.fixedHeaderByteCount else {
+            throw SessionRejected(reason: .malformed)
+        }
+        var frames: [Data] = []
+        while buffer.count >= OwnedGraphicsControlStreamFrame.fixedHeaderByteCount {
+            let fixedHeader = [UInt8](buffer.prefix(OwnedGraphicsControlStreamFrame.fixedHeaderByteCount))
+            let payloadLength = fixedHeader.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+            guard payloadLength > 0,
+                  payloadLength <= UInt32(OwnedGraphicsControlStreamFrame.maxPayloadByteCount) else {
+                throw SessionRejected(reason: .malformed)
+            }
+            let frameLength = OwnedGraphicsControlStreamFrame.fixedHeaderByteCount + Int(payloadLength)
+            guard buffer.count >= frameLength else {
+                break
+            }
+            frames.append(
+                Data(
+                    buffer
+                        .dropFirst(OwnedGraphicsControlStreamFrame.fixedHeaderByteCount)
+                        .prefix(Int(payloadLength))
+                )
+            )
+            buffer.removeFirst(frameLength)
+        }
+        return frames
+    }
+}
+
 private struct OwnedGraphicsFrameMetadata: Codable, Equatable {
     let header: OwnedGraphicsFrameHeader
     let commands: [OwnedGraphicsCommand]
@@ -955,7 +1036,7 @@ enum OwnedGraphicsCommand: Equatable {
         case let .bitmapTile(x, y, width, height, _, byteRange):
             guard x >= 0, y >= 0, width > 0, height > 0,
                   byteRange.offset >= 0,
-                  byteRange.length >= 0,
+                  byteRange.length > 0,
                   byteRange.offset <= payloadLength,
                   byteRange.length <= payloadLength - byteRange.offset
             else {

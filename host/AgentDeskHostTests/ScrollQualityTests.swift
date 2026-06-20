@@ -1,4 +1,5 @@
 import CoreVideo
+import Compression
 import Foundation
 import Testing
 
@@ -79,6 +80,11 @@ struct ScrollQualityTests {
         #expect(configuration.alpn == "agentdesk-owned-graphics")
         #expect(!configuration.usesDatagrams)
         #expect(configuration.maxDatagramFrameSize == nil)
+    }
+
+    @Test func hybridScrollConfigDefaultsToSuppressHevcDuringAcceptedScroll() {
+        #expect(Config.hybridScrollHEVCFps == 0)
+        #expect(Config.hybridScrollIdleRefreshMs == 250)
     }
 
     @Test func mediaListenerConfigurationStillUsesSignalingPortAndDatagrams() {
@@ -1165,6 +1171,145 @@ struct ScrollQualityTests {
         #expect(CVPixelBufferGetHeight(motion.pixelBuffer) == 720)
     }
 
+    @Test func hybridHevcKeepsNativeScaleWhenRetainedGraphicsIsAvailable() {
+        #expect(OwnedHybridHEVCScalePolicy.encodeScaleDown(requestedScaleDown: 1.5, retainedGraphicsAvailable: true) == 1.0)
+        #expect(OwnedHybridHEVCScalePolicy.encodeScaleDown(requestedScaleDown: 1.5, retainedGraphicsAvailable: false) == 1.5)
+        #expect(OwnedHybridHEVCScalePolicy.encodeScaleDown(requestedScaleDown: 0.5, retainedGraphicsAvailable: false) == 1.0)
+    }
+
+    @Test func graphicsStreamParserWaitsForPartialFrameAndParsesMultipleFrames() throws {
+        let first = try Self.makeGraphicsEnvelope(frameId: 1).encode()
+        let secondEnvelope = Self.makeGraphicsEnvelope(frameId: 2)
+        let second = try secondEnvelope.encode()
+        var parser = OwnedGraphicsStreamFrameParser()
+
+        #expect(try parser.append(Data(first.prefix(5))).isEmpty)
+        let completed = try parser.append(Data(first.dropFirst(5)))
+        #expect(completed.map(\.header.frameId) == [1])
+
+        let combined = try parser.append(second + second)
+        #expect(combined == [secondEnvelope, secondEnvelope])
+    }
+
+    @Test func graphicsStreamParserAcceptsNearLimitFrameWithCoalescedNextFrame() throws {
+        let secondEnvelope = Self.makeGraphicsEnvelope(frameId: 2)
+        let second = try secondEnvelope.encode()
+        let first = try Self.makeNearMaximumGraphicsFrame(frameId: 1, followingFrameByteCount: second.count)
+        #expect(first.count <= OwnedGraphicsStreamFrameParser.maxFrameByteCount)
+        #expect(first.count + second.count > OwnedGraphicsStreamFrameParser.maxFrameByteCount)
+        var parser = OwnedGraphicsStreamFrameParser()
+
+        let frames = try parser.append(first + second)
+
+        #expect(frames.map(\.header.frameId) == [1, 2])
+    }
+
+    @Test func graphicsStreamParserRejectsMalformedMagic() throws {
+        var parser = OwnedGraphicsStreamFrameParser()
+
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try parser.append(Data([0x42, 0x41, 0x44, 0x21, 1, 0, 0, 0, 0, 0, 0, 0, 0]))
+        }
+    }
+
+    @Test func scrollDeltaEngineEmitsVerticalCopyRectAndExposedStrip() throws {
+        var engine = ScrollDeltaEngine()
+        let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+        let current = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            y < 48 ? Self.pixel(x: x, y: y + 16) : Self.exposedPixel(x: x, y: y)
+        }
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let result = engine.evaluate(current)
+
+        #expect(result.kind == ScrollDeltaKind.accepted)
+        let envelope = try #require(result.envelope)
+        #expect(envelope.commands.count == 2)
+        #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(srcX: 0, srcY: 16, dstX: 0, dstY: 0, width: 64, height: 48))
+        #expect(envelope.commands[1] == OwnedGraphicsCommand.bitmapTile(
+            x: 0,
+            y: 48,
+            width: 64,
+            height: 16,
+            compression: OwnedGraphicsTileCompression.lzfse,
+            byteRange: OwnedGraphicsByteRange(offset: 0, length: envelope.payload.count)
+        ))
+        let decoded = try Self.decompressLZFSE(envelope.payload, expectedCount: 64 * 16 * 4)
+        #expect(decoded == Self.tileBytes(width: 64, height: 16) { x, row in
+            Self.exposedPixel(x: x, y: row + 48)
+        })
+    }
+
+    @Test func scrollDeltaEngineEmitsHorizontalCopyRectAndExposedStrip() throws {
+        var engine = ScrollDeltaEngine()
+        let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+        let current = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            x < 48 ? Self.pixel(x: x + 16, y: y) : Self.exposedPixel(x: x, y: y)
+        }
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let result = engine.evaluate(current)
+
+        #expect(result.kind == ScrollDeltaKind.accepted)
+        let envelope = try #require(result.envelope)
+        #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(srcX: 16, srcY: 0, dstX: 0, dstY: 0, width: 48, height: 64))
+        #expect(envelope.commands[1] == OwnedGraphicsCommand.bitmapTile(
+            x: 48,
+            y: 0,
+            width: 16,
+            height: 64,
+            compression: OwnedGraphicsTileCompression.lzfse,
+            byteRange: OwnedGraphicsByteRange(offset: 0, length: envelope.payload.count)
+        ))
+    }
+
+    @Test func scrollDeltaEngineRejectsUnexplainedMotion() throws {
+        var engine = ScrollDeltaEngine()
+        let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+        let current = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            [UInt8((x * 11 + y * 13) & 0xff), UInt8((x * 17) & 0xff), UInt8((y * 19) & 0xff), 0xff]
+        }
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let result = engine.evaluate(current)
+
+        if case .rejected = result.kind {
+            #expect(result.envelope == nil)
+        } else {
+            Issue.record("expected rejected motion")
+        }
+    }
+
+    @Test func scrollDeltaEngineResetsOnResizeAndReservesHevcIdsInSameGeneration() throws {
+        var engine = ScrollDeltaEngine()
+        let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+        let resized = try Self.makeBGRAFrame(width: 32, height: 64) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+
+        let first = engine.evaluate(previous)
+        engine.commitPendingSurface()
+        let refreshId = engine.reserveRefreshUpdateId()
+        let reset = engine.evaluate(resized)
+
+        #expect(first.kind == ScrollDeltaKind.reset)
+        #expect(refreshId.surfaceGeneration == 1)
+        #expect(reset.kind == ScrollDeltaKind.reset)
+        #expect(reset.envelope?.header.surfaceGeneration == 2)
+        #expect(engine.reserveRefreshUpdateId().surfaceGeneration == 2)
+    }
+
     private static func backpressureConfig() -> OwnedMediaBackpressureConfig {
         OwnedMediaBackpressureConfig(
             frameAgeMs: 80,
@@ -1196,6 +1341,168 @@ struct ScrollQualityTests {
             motionInflightBytes: 120_000,
             restBudgetHoldMs: 500
         )
+    }
+
+    private static func makeGraphicsEnvelope(frameId: UInt64) -> OwnedGraphicsFrameEnvelope {
+        let payload = Data([0x10, 0x20, 0x30])
+        return OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: 1,
+                frameId: frameId,
+                capturedAtUptimeNs: frameId * 100,
+                commandCount: 1,
+                payloadLength: payload.count
+            ),
+            commands: [
+                .bitmapTile(
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                    compression: .lzfse,
+                    byteRange: OwnedGraphicsByteRange(offset: 0, length: payload.count)
+                )
+            ],
+            payload: payload
+        )
+    }
+
+    private static func makeNearMaximumGraphicsFrame(frameId: UInt64, followingFrameByteCount: Int) throws -> Data {
+        var payloadCount = OwnedGraphicsStreamFrameParser.maxFrameByteCount
+            - OwnedGraphicsFrameEnvelope.fixedHeaderByteCount
+        while payloadCount > 0 {
+            let payload = Data(repeating: 0x5a, count: payloadCount)
+            let envelope = OwnedGraphicsFrameEnvelope(
+                header: OwnedGraphicsFrameHeader(
+                    surfaceGeneration: 1,
+                    frameId: frameId,
+                    capturedAtUptimeNs: frameId * 100,
+                    commandCount: 1,
+                    payloadLength: payload.count
+                ),
+                commands: [
+                    .bitmapTile(
+                        x: 0,
+                        y: 0,
+                        width: 1,
+                        height: 1,
+                        compression: .lzfse,
+                        byteRange: OwnedGraphicsByteRange(offset: 0, length: payload.count)
+                    )
+                ],
+                payload: payload
+            )
+            let encoded = try envelope.encode()
+            if encoded.count <= OwnedGraphicsStreamFrameParser.maxFrameByteCount {
+                guard encoded.count + followingFrameByteCount > OwnedGraphicsStreamFrameParser.maxFrameByteCount else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                return encoded
+            }
+            payloadCount -= max(1, encoded.count - OwnedGraphicsStreamFrameParser.maxFrameByteCount)
+        }
+        throw SessionRejected(reason: .malformed)
+    }
+
+    private static func makeBGRAFrame(
+        width: Int,
+        height: Int,
+        pixel: (Int, Int) -> [UInt8]
+    ) throws -> CapturedVideoFrame {
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32BGRA,
+            [
+                kCVPixelBufferIOSurfacePropertiesKey: [:],
+                kCVPixelBufferCGImageCompatibilityKey: true,
+                kCVPixelBufferCGBitmapContextCompatibilityKey: true
+            ] as CFDictionary,
+            &pixelBuffer
+        )
+        guard status == kCVReturnSuccess, let pixelBuffer else {
+            throw SessionRejected(reason: .malformed)
+        }
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
+        guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        for y in 0..<height {
+            for x in 0..<width {
+                let bytes = pixel(x, y)
+                let offset = y * bytesPerRow + x * 4
+                baseAddress.storeBytes(of: bytes[0], toByteOffset: offset, as: UInt8.self)
+                baseAddress.storeBytes(of: bytes[1], toByteOffset: offset + 1, as: UInt8.self)
+                baseAddress.storeBytes(of: bytes[2], toByteOffset: offset + 2, as: UInt8.self)
+                baseAddress.storeBytes(of: bytes[3], toByteOffset: offset + 3, as: UInt8.self)
+            }
+        }
+        return CapturedVideoFrame(
+            pixelBuffer: pixelBuffer,
+            presentationTimeNs: 123_000_000,
+            capturedAtUptimeNs: 456_000_000,
+            rotation: ._0
+        )
+    }
+
+    private static func pixel(x: Int, y: Int) -> [UInt8] {
+        [
+            UInt8((x * 3 + y * 5) & 0xff),
+            UInt8((x * 7 + y * 11) & 0xff),
+            UInt8((x * 13 + y * 17) & 0xff),
+            0xff
+        ]
+    }
+
+    private static func exposedPixel(x: Int, y: Int) -> [UInt8] {
+        [
+            UInt8((200 + x) & 0xff),
+            UInt8((100 + y) & 0xff),
+            UInt8((50 + x + y) & 0xff),
+            0xff
+        ]
+    }
+
+    private static func tileBytes(width: Int, height: Int, pixel: (Int, Int) -> [UInt8]) -> Data {
+        var data = Data(count: width * height * 4)
+        data.withUnsafeMutableBytes { buffer in
+            guard let base = buffer.baseAddress else { return }
+            for y in 0..<height {
+                for x in 0..<width {
+                    let bytes = pixel(x, y)
+                    let offset = (y * width + x) * 4
+                    base.storeBytes(of: bytes[0], toByteOffset: offset, as: UInt8.self)
+                    base.storeBytes(of: bytes[1], toByteOffset: offset + 1, as: UInt8.self)
+                    base.storeBytes(of: bytes[2], toByteOffset: offset + 2, as: UInt8.self)
+                    base.storeBytes(of: bytes[3], toByteOffset: offset + 3, as: UInt8.self)
+                }
+            }
+        }
+        return data
+    }
+
+    private static func decompressLZFSE(_ data: Data, expectedCount: Int) throws -> Data {
+        var output = Data(count: expectedCount)
+        let decodedCount = output.withUnsafeMutableBytes { outputBytes in
+            data.withUnsafeBytes { inputBytes in
+                compression_decode_buffer(
+                    outputBytes.bindMemory(to: UInt8.self).baseAddress!,
+                    expectedCount,
+                    inputBytes.bindMemory(to: UInt8.self).baseAddress!,
+                    data.count,
+                    nil,
+                    COMPRESSION_LZFSE
+                )
+            }
+        }
+        guard decodedCount == expectedCount else {
+            throw SessionRejected(reason: .malformed)
+        }
+        return output
     }
 
     private static func makePixelBufferFrame(width: Int, height: Int) throws -> CapturedVideoFrame {

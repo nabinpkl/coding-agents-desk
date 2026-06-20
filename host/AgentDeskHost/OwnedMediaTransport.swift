@@ -1,6 +1,8 @@
 import CoreMedia
 import CoreVideo
 import CryptoKit
+import Compression
+import CoreImage
 import Foundation
 import Network
 import Security
@@ -9,6 +11,101 @@ import os
 
 typealias OwnedMediaDatagramAuthorizer = @Sendable (MediaChannelHello) async -> MediaCapabilityValidationResult
 typealias OwnedGraphicsChannelAuthorizer = @Sendable (GraphicsChannelHello) async -> MediaCapabilityValidationResult
+
+final class OwnedGraphicsChannelServer: @unchecked Sendable {
+    let connection: NWConnection
+    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-graphics")
+    private let stateQueue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-graphics-state")
+    private var closed = false
+    private var latestAck: OwnedGraphicsFrameAck?
+    private var controlParser = OwnedGraphicsControlStreamFrameParser()
+    private let onResetRequest: @Sendable (OwnedGraphicsResetRequest) -> Void
+
+    init(
+        connection: NWConnection,
+        onResetRequest: @escaping @Sendable (OwnedGraphicsResetRequest) -> Void
+    ) {
+        self.connection = connection
+        self.onResetRequest = onResetRequest
+        receiveControl()
+    }
+
+    func send(_ envelope: OwnedGraphicsFrameEnvelope) async throws {
+        guard !isClosed else {
+            throw SessionRejected(reason: .unauthorized)
+        }
+        let data = try envelope.encode()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            connection.send(content: data, completion: .contentProcessed { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            })
+        }
+        logger.notice("owned graphics sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) bytes=\(data.count, privacy: .public)")
+    }
+
+    func close() {
+        stateQueue.sync {
+            closed = true
+        }
+        connection.cancel()
+    }
+
+    private var isClosed: Bool {
+        stateQueue.sync { closed }
+    }
+
+    private func receiveControl() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16 * 1024) { [weak self] data, _, _, error in
+            guard let self else { return }
+            if let error {
+                self.logger.error("owned graphics control receive failed: \(String(describing: error), privacy: .public)")
+                self.close()
+                return
+            }
+            guard !self.isClosed else { return }
+            if let data, !data.isEmpty {
+                self.handleControlChunk(data)
+            }
+            self.receiveControl()
+        }
+    }
+
+    private func handleControlChunk(_ data: Data) {
+        do {
+            let frames = try stateQueue.sync {
+                try controlParser.append(data)
+            }
+            for frame in frames {
+                handleControlData(frame)
+            }
+        } catch {
+            logger.error("owned graphics malformed control stream bytes=\(data.count, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            close()
+        }
+    }
+
+    private func handleControlData(_ data: Data) {
+        if let ack = try? JSONDecoder().decode(OwnedGraphicsFrameAck.self, from: data),
+           ack.type == "graphics-frame-ack" {
+            stateQueue.sync {
+                latestAck = ack
+            }
+            logger.notice("owned graphics ack frame=\(ack.frameId, privacy: .public) generation=\(ack.surfaceGeneration, privacy: .public) compositorMs=\(ack.compositorMs, privacy: .public) stale=\(ack.staleDiscardCount, privacy: .public)")
+            return
+        }
+        if let request = try? JSONDecoder().decode(OwnedGraphicsResetRequest.self, from: data),
+           request.type == "graphics-reset-request" {
+            logger.error("owned graphics reset-request reason=\(request.reason, privacy: .public) generation=\(request.lastCommittedSurfaceGeneration, privacy: .public) frame=\(request.lastCommittedFrameId, privacy: .public)")
+            onResetRequest(request)
+            return
+        }
+        logger.error("owned graphics malformed control bytes=\(data.count, privacy: .public)")
+    }
+}
 
 final class OwnedMediaTransportFactory: MediaTransportFactory {
     private let codec: OwnedMediaCodec
@@ -298,12 +395,14 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var mediaDatagramListener: NWListener?
     private var graphicsListener: NWListener?
     private var graphicsConnections: [ObjectIdentifier: NWConnection] = [:]
+    private var graphicsChannels: [ObjectIdentifier: OwnedGraphicsChannelServer] = [:]
     private var channel: (any OwnedMediaChannelServing)?
     private var videoSource: VideoFrameSource?
     private var encoder: VideoToolboxOwnedMediaEncoder?
     private var frameMailbox: LatestCapturedFrameMailbox?
     private var encodePumpTask: Task<Void, Never>?
     private var admission = OwnedMediaEncodeAdmission()
+    private var graphicsResetRequested = false
     private var motionBudgetState = OwnedMediaMotionBudgetState()
     private var diagnostics = OwnedMediaHostDiagnostics()
     private let frameScaler = OwnedMediaFrameScaler()
@@ -550,6 +649,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 let ready = GraphicsChannelReady(sessionId: hello.sessionId, serverNonce: serverNonce)
                 let readyData = try JSONEncoder().encode(ready)
                 try await sendReady(readyData, on: connection)
+                installGraphicsChannel(OwnedGraphicsChannelServer(
+                    connection: connection,
+                    onResetRequest: { [weak self] request in
+                        self?.handleGraphicsResetRequest(request)
+                    }
+                ))
                 logger.notice("owned graphics quic accepted fp=\(fingerprint.rawValue, privacy: .public) session=\(hello.sessionId, privacy: .public)")
             case .rejected(let reason):
                 logger.error("owned graphics quic rejected reason=\(reason.rawValue, privacy: .public) fp=\(hello.deviceFingerprint.rawValue, privacy: .public)")
@@ -566,6 +671,19 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private func removeGraphicsConnection(_ connection: NWConnection) {
         lock.withLock {
             _ = graphicsConnections.removeValue(forKey: ObjectIdentifier(connection))
+            graphicsChannels.removeValue(forKey: ObjectIdentifier(connection))?.close()
+        }
+    }
+
+    private func installGraphicsChannel(_ channel: OwnedGraphicsChannelServer) {
+        lock.withLock {
+            graphicsChannels[ObjectIdentifier(channel.connection)] = channel
+        }
+    }
+
+    private func latestGraphicsChannel() -> OwnedGraphicsChannelServer? {
+        lock.withLock {
+            graphicsChannels.values.first
         }
     }
 
@@ -636,10 +754,25 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         diagnostics: OwnedMediaHostDiagnostics
     ) async {
         var cadenceScheduler = OwnedMediaCadenceScheduler()
+        var scrollDeltaEngine = ScrollDeltaEngine()
+        var lastAcceptedScrollAtUptimeNs: UInt64?
+        var lastScrollHevcRefreshAtUptimeNs: UInt64?
+        var pendingScrollIdleRefresh = false
+        var scrollIdleRefreshWakeTask: Task<Void, Never>?
+        defer { scrollIdleRefreshWakeTask?.cancel() }
         for await _ in mailbox.stream {
             guard !Task.isCancelled else { return }
             diagnostics.setPhase(.idle)
             guard var frame = mailbox.takeLatest() else { continue }
+            let pumpNowNs = DispatchTime.now().uptimeNanoseconds
+
+            if pendingScrollIdleRefresh,
+               let lastAcceptedScrollAtUptimeNs,
+               pumpNowNs &- lastAcceptedScrollAtUptimeNs >= UInt64(Config.hybridScrollIdleRefreshMs) * 1_000_000 {
+                requestKeyframe()
+                pendingScrollIdleRefresh = false
+                logger.notice("owned media scroll-idle-refresh requested idleMs=\(Config.hybridScrollIdleRefreshMs, privacy: .public)")
+            }
 
             var timing = currentEncodeTiming(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
             var intervalNs = UInt64(timing.intervalMs) * 1_000_000
@@ -669,6 +802,63 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 intervalNs = UInt64(timing.intervalMs) * 1_000_000
             }
 
+            var retainedGraphicsAvailable = false
+            if let graphicsChannel = latestGraphicsChannel() {
+                retainedGraphicsAvailable = true
+                if consumeGraphicsResetRequested() {
+                    scrollDeltaEngine.invalidateRetainedSurface()
+                    requestKeyframe()
+                    logger.notice("owned graphics reset consumed by encode pump")
+                }
+                let graphics = scrollDeltaEngine.evaluate(frame)
+                switch graphics.kind {
+                case .accepted:
+                    if let envelope = graphics.envelope {
+                        do {
+                            try await graphicsChannel.send(envelope)
+                            scrollDeltaEngine.commitPendingSurface()
+                            let nowNs = DispatchTime.now().uptimeNanoseconds
+                            lastAcceptedScrollAtUptimeNs = nowNs
+                            pendingScrollIdleRefresh = true
+                            scrollIdleRefreshWakeTask?.cancel()
+                            scrollIdleRefreshWakeTask = Task { [mailbox] in
+                                try? await Task.sleep(nanoseconds: UInt64(Config.hybridScrollIdleRefreshMs) * 1_000_000)
+                                _ = mailbox.wakeWithLatestFrame()
+                            }
+                            logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
+                            let scrollHevcFps = Config.hybridScrollHEVCFps
+                            if scrollHevcFps == 0 {
+                                diagnostics.noteAdmissionHold(reason: "graphics-scroll-suppressed-hevc", mode: currentAdmissionMode())
+                                continue
+                            }
+                            let minScrollRefreshIntervalNs = 1_000_000_000 / UInt64(max(scrollHevcFps, 1))
+                            if let lastScrollHevcRefreshAtUptimeNs,
+                               nowNs &- lastScrollHevcRefreshAtUptimeNs < minScrollRefreshIntervalNs {
+                                diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-cadence", mode: currentAdmissionMode())
+                                continue
+                            }
+                            lastScrollHevcRefreshAtUptimeNs = nowNs
+                        } catch {
+                            logger.error("owned graphics scroll send failed: \(String(describing: error), privacy: .public)")
+                        }
+                    }
+                case .reset:
+                    if let envelope = graphics.envelope {
+                        do {
+                            try await graphicsChannel.send(envelope)
+                            scrollDeltaEngine.commitPendingSurface()
+                            logger.notice("owned graphics reset frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
+                        } catch {
+                            logger.error("owned graphics reset send failed: \(String(describing: error), privacy: .public)")
+                        }
+                    }
+                case .timeout:
+                    logger.notice("owned graphics scroll-timeout")
+                case .rejected(let reason):
+                    logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public)")
+                }
+            }
+
             let decision = timing.decision
             logStaleUnackedAbandonment(decision)
             if !decision.shouldEncode {
@@ -688,22 +878,33 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 intervalMs: timing.intervalMs
             )
             let budget = timing.budget
+            let effectiveScaleDown = OwnedHybridHEVCScalePolicy.encodeScaleDown(
+                requestedScaleDown: budget.scaleDown,
+                retainedGraphicsAvailable: retainedGraphicsAvailable
+            )
+            let encodeBudget = OwnedMediaEncodeBudget(
+                mode: budget.mode,
+                bitrateKbps: budget.bitrateKbps,
+                expectedFrameRate: budget.expectedFrameRate,
+                scaleDown: effectiveScaleDown
+            )
+            let updateId = scrollDeltaEngine.reserveRefreshUpdateId()
             let sourcePixelSize = Self.pixelSize(frame.pixelBuffer)
             let encodeFrame: CapturedVideoFrame
             do {
-                encodeFrame = try frameScaler.scaledFrame(frame, scaleDown: budget.scaleDown)
+                encodeFrame = try frameScaler.scaledFrame(frame, scaleDown: effectiveScaleDown)
             } catch {
-                logger.error("owned media pre-encode scale failed scaleDown=\(budget.scaleDown, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                logger.error("owned media pre-encode scale failed scaleDown=\(effectiveScaleDown, privacy: .public) error=\(String(describing: error), privacy: .public)")
                 diagnostics.setPhase(.idle)
                 continue
             }
             let encodePixelSize = Self.pixelSize(encodeFrame.pixelBuffer)
             cadenceScheduler.noteAdmissionStarted(atUptimeNs: admissionNs)
-            logger.notice("owned media cadence intervalMs=\(timing.intervalMs, privacy: .public) admissionIntervalMs=\(timing.admissionIntervalMs, privacy: .public) intervalSource=budget admissionDelayMs=\(Double(totalDelayNs) / 1_000_000.0, privacy: .public) cadenceLateMs=\(Double(cadenceLateNs) / 1_000_000.0, privacy: .public) mode=\(String(describing: decision.mode), privacy: .public) budgetMode=\(budget.mode.rawValue, privacy: .public) budgetKbps=\(budget.bitrateKbps, privacy: .public) budgetFps=\(budget.expectedFrameRate, privacy: .public) scaleDown=\(budget.scaleDown, privacy: .public) sourceSize=\(sourcePixelSize.width, privacy: .public)x\(sourcePixelSize.height, privacy: .public) encodeSize=\(encodePixelSize.width, privacy: .public)x\(encodePixelSize.height, privacy: .public)")
+            logger.notice("owned media cadence intervalMs=\(timing.intervalMs, privacy: .public) admissionIntervalMs=\(timing.admissionIntervalMs, privacy: .public) intervalSource=budget admissionDelayMs=\(Double(totalDelayNs) / 1_000_000.0, privacy: .public) cadenceLateMs=\(Double(cadenceLateNs) / 1_000_000.0, privacy: .public) mode=\(String(describing: decision.mode), privacy: .public) budgetMode=\(encodeBudget.mode.rawValue, privacy: .public) budgetKbps=\(encodeBudget.bitrateKbps, privacy: .public) budgetFps=\(encodeBudget.expectedFrameRate, privacy: .public) scaleDown=\(encodeBudget.scaleDown, privacy: .public) sourceSize=\(sourcePixelSize.width, privacy: .public)x\(sourcePixelSize.height, privacy: .public) encodeSize=\(encodePixelSize.width, privacy: .public)x\(encodePixelSize.height, privacy: .public)")
             diagnostics.noteAdmitted(
                 encodeFrame,
                 decision: decision,
-                budget: budget,
+                budget: encodeBudget,
                 sourcePixelSize: sourcePixelSize,
                 encodePixelSize: encodePixelSize,
                 nowUptimeNs: admissionNs
@@ -712,7 +913,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             diagnostics.noteEncodeStarted(frame: encodeFrame, nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
             guard let envelope = await encoder.encode(
                 encodeFrame,
-                budget: budget,
+                updateId: updateId,
+                budget: encodeBudget,
                 forceKeyframe: decision.forceKeyframe,
                 allowPeriodicKeyframe: decision.allowPeriodicKeyframe,
                 requestedKeyframeReason: decision.keyframeReason
@@ -731,6 +933,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             do {
                 diagnostics.setPhase(.sending)
                 let sendStats = try await channel.send(envelope)
+                scrollDeltaEngine.commitPendingSurface()
                 diagnostics.noteSent(envelope: envelope, stats: sendStats, decision: decision)
                 noteAdmissionSent(envelope, decision: decision)
             } catch {
@@ -845,6 +1048,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         }
     }
 
+    private func currentAdmissionMode() -> OwnedMediaCadenceMode {
+        lock.withLock { admission.mode }
+    }
+
     private func claimStartIfReady() -> ((any OwnedMediaChannelServing), VideoFrameSource)? {
         lock.lock()
         let channel = self.channel
@@ -935,6 +1142,22 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         }
     }
 
+    private func handleGraphicsResetRequest(_ request: OwnedGraphicsResetRequest) {
+        lock.withLock {
+            graphicsResetRequested = true
+        }
+        requestKeyframe()
+        logger.notice("owned graphics reset queued reason=\(request.reason, privacy: .public) generation=\(request.lastCommittedSurfaceGeneration, privacy: .public) frame=\(request.lastCommittedFrameId, privacy: .public)")
+    }
+
+    private func consumeGraphicsResetRequested() -> Bool {
+        lock.withLock {
+            let requested = graphicsResetRequested
+            graphicsResetRequested = false
+            return requested
+        }
+    }
+
 }
 
 final class LatestCapturedFrameMailbox: @unchecked Sendable {
@@ -942,6 +1165,7 @@ final class LatestCapturedFrameMailbox: @unchecked Sendable {
     private let continuation: AsyncStream<Void>.Continuation
     private let lock = NSLock()
     private var latestFrame: CapturedVideoFrame?
+    private var lastSubmittedFrame: CapturedVideoFrame?
 
     init() {
         var continuation: AsyncStream<Void>.Continuation!
@@ -956,10 +1180,24 @@ final class LatestCapturedFrameMailbox: @unchecked Sendable {
         let replaced = lock.withLock {
             let replaced = latestFrame != nil
             latestFrame = frame
+            lastSubmittedFrame = frame
             return replaced
         }
         continuation.yield(())
         return replaced
+    }
+
+    @discardableResult
+    func wakeWithLatestFrame() -> Bool {
+        let hasFrame = lock.withLock {
+            guard let lastSubmittedFrame else { return false }
+            latestFrame = lastSubmittedFrame
+            return true
+        }
+        if hasFrame {
+            continuation.yield(())
+        }
+        return hasFrame
     }
 
     func takeLatest() -> CapturedVideoFrame? {
@@ -977,6 +1215,7 @@ final class LatestCapturedFrameMailbox: @unchecked Sendable {
 
 final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private struct PendingEncodedFrame {
+        let updateId: OwnedSurfaceUpdateId
         let capturedAtUptimeNs: UInt64
         let requestedKeyframeReason: OwnedMediaKeyframeReason?
         let expectedKeyframeReason: OwnedMediaKeyframeReason?
@@ -1009,6 +1248,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
 
     func encode(
         _ frame: CapturedVideoFrame,
+        updateId: OwnedSurfaceUpdateId,
         budget: OwnedMediaEncodeBudget,
         forceKeyframe: Bool = false,
         allowPeriodicKeyframe: Bool = true,
@@ -1017,6 +1257,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         await withCheckedContinuation { continuation in
             encode(
                 frame,
+                updateId: updateId,
                 budget: budget,
                 forceKeyframe: forceKeyframe,
                 allowPeriodicKeyframe: allowPeriodicKeyframe,
@@ -1029,6 +1270,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
 
     private func encode(
         _ frame: CapturedVideoFrame,
+        updateId: OwnedSurfaceUpdateId,
         budget: OwnedMediaEncodeBudget,
         forceKeyframe requestedAdmissionKeyframe: Bool,
         allowPeriodicKeyframe: Bool,
@@ -1066,6 +1308,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
                 ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary
                 : nil
             pendingFrames[encodedFrameId] = PendingEncodedFrame(
+                updateId: updateId,
                 capturedAtUptimeNs: frame.capturedAtUptimeNs,
                 requestedKeyframeReason: requestedKeyframe ? requestedKeyframeReason : nil,
                 expectedKeyframeReason: expectedKeyframeReason,
@@ -1274,8 +1517,8 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             expectedKeyframeReason: pending.expectedKeyframeReason
         )
         let header = OwnedMediaFrameHeader(
-            surfaceGeneration: 0,
-            frameId: encodedFrameId,
+            surfaceGeneration: pending.updateId.surfaceGeneration,
+            frameId: pending.updateId.frameId,
             codec: codec,
             width: encodedSize.width,
             height: encodedSize.height,

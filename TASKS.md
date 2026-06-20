@@ -47,44 +47,45 @@ Phase goal: add the ordered graphics command carrier while keeping the existing 
 - [x] D29.1. Add a sibling reliable QUIC graphics connection using ALPN `agentdesk-owned-graphics`, the same TLS identity, and explicit `GraphicsChannelHello` / `GraphicsChannelReady` nonce handshake.
   - Host and client green: `OwnedMediaTransport` starts the sibling reliable graphics listener and dialer, validates `GraphicsChannelHello` through a separate graphics replay fence over the issued media capability, replies with `GraphicsChannelReady`, and leaves HEVC datagrams alive if the client-side graphics dial fails.
 - [x] D29.2. Add authenticated `ADGC` stream framing for graphics frames: magic, version, length, JSON header, and binary payload.
-- [ ] R29.3. Route graphics ACK and reset-request controls through the graphics stream control path while leaving HEVC frame ACKs on the current owned-media control path.
+- [x] D29.3. Route graphics ACK and reset-request controls through the graphics stream control path while leaving HEVC frame ACKs on the current owned-media control path.
 - [x] D29.4. Wire the graphics listener and client dialer to the existing `AGENTDESK_GRAPHICS_PORT` host/client config instead of `Config.signalingPort`.
   - Host and client green: the graphics listener uses `Config.graphicsPort` through the shared host listener configuration, and `ClientGraphicsConnectionPlan` dials `Config.graphicsPort` with reliable QUIC stream options.
-- [ ] R29.5. Add transport tests for partial stream reads, malformed frame rejection, parse-failure reset request, graphics ACK queue clearing, and HEVC datagram survival after graphics stream errors.
+- [ ] R29.5. Finish transport tests for parse-failure reset request, graphics ACK queue clearing, and HEVC datagram survival after graphics stream errors.
+  - Landed coverage: partial stream reads, coalesced stream frames, malformed frame rejection, oversized frame rejection, and split/coalesced graphics control framing.
 
 ## v0 Phase 3: scroll delta engine
 
 Phase goal: create only the scroll-specialized retained-graphics producer, not a full dirty-region classifier.
 
-- [ ] R30.1. Add `ScrollDeltaEngine` on the host that keeps the previous BGRA frame for scroll detection and surface-size tracking.
-- [ ] R30.2. Detect vertical and horizontal scroll up to 240 px in 8 px steps, accepting only confidence `>= 0.92`.
-- [ ] R30.3. Enforce a 4 ms per-frame detection budget; timeout emits no graphics commands, logs `scroll-timeout`, and falls back to HEVC for that frame.
-- [ ] R30.4. On accepted scroll, emit `copyRect` for the stable moved area plus LZFSE `bitmapTile` commands for newly exposed strips.
-- [ ] R30.5. On rejected motion, emit no graphics commands, log `scroll-rejected`, and let HEVC refresh handle the frame.
-- [ ] R30.6. On size change, emit `resetSurface`, increment `surfaceGeneration`, and force the next HEVC full-surface refresh.
-- [ ] R30.7. Add tests for accepted vertical scroll, accepted horizontal scroll, rejected motion, 4 ms timeout, exposed-strip tile bytes, and resize generation reset.
+- [x] D30.1. Add `ScrollDeltaEngine` on the host that keeps the previous BGRA frame for scroll detection and surface-size tracking.
+- [x] D30.2. Detect vertical and horizontal scroll up to 240 px in 8 px steps, accepting only confidence `>= 0.92`.
+- [x] D30.3. Enforce a 4 ms per-frame detection budget; timeout emits no graphics commands, logs `scroll-timeout`, and falls back to HEVC for that frame.
+- [x] D30.4. On accepted scroll, emit `copyRect` for the stable moved area plus LZFSE `bitmapTile` commands for newly exposed strips.
+- [x] D30.5. On rejected motion, emit no graphics commands, log `scroll-rejected`, and let HEVC refresh handle the frame.
+- [x] D30.6. On size change, emit `resetSurface`, increment `surfaceGeneration`, and force the next HEVC full-surface refresh.
+- [ ] R30.7. Finish tests for 4 ms timeout. Landed tests cover accepted vertical scroll, accepted horizontal scroll, rejected motion, exposed-strip tile bytes, and resize generation reset.
 
 ## v0 Phase 4: retained compositor and HEVC bridge
 
 Phase goal: make the client display one retained surface mutated by both HEVC full refreshes and graphics commands.
 
-- [ ] R31.1. Add `@MainActor OwnedSurfaceCompositor` as the single writer for retained BGRA surface mutation and visible `CALayer` commits.
-- [ ] R31.2. Implement retained-surface operations: create, reset, strict-newer update check, overlap-safe `copyRect`, LZFSE tile paint, and stale update discard.
+- [x] D31.1. Add `@MainActor OwnedSurfaceCompositor` as the single writer for retained BGRA surface mutation and visible `CALayer` commits.
+- [x] D31.2. Implement retained-surface operations: create, reset, strict-newer update check, overlap-safe `copyRect`, LZFSE tile paint, and stale update discard.
 - [ ] R31.3. Add compositor diagnostics for HEVC-to-retained copy time, copyRect time, LZFSE decode time, tile paint time, CALayer commit time, stale discard count, and reset count.
-- [ ] R31.4. Add `OwnedHEVCFrameDecoder` using `VTDecompressionSession` on iOS so HEVC refreshes produce `CVPixelBuffer` instead of going directly to `AVSampleBufferDisplayLayer`.
-- [ ] R31.5. Copy decoded HEVC frames into `OwnedSurfaceCompositor` as full-surface refreshes ordered by `(surfaceGeneration, frameId)`.
-- [ ] R31.6. On HEVC decode failure, send `graphics-reset-request` and force a HEVC reset refresh instead of silently dropping the retained surface.
-- [ ] R31.7. Add tests for compositor single-writer entry points, overlap-safe copy, exact tile paint, reset generation rules, stale HEVC discard, stale graphics discard, and HEVC decode failure reset request.
+- [x] D31.4. Add `OwnedHEVCFrameDecoder` using `VTDecompressionSession` on iOS so HEVC refreshes produce `CVPixelBuffer` instead of going directly to `AVSampleBufferDisplayLayer`.
+- [x] D31.5. Copy decoded HEVC frames into `OwnedSurfaceCompositor` as full-surface refreshes ordered by `(surfaceGeneration, frameId)`.
+- [x] D31.6. On HEVC decode failure, queue `graphics-reset-request`, keep the display-layer fallback alive, and force host-side reset refresh handling.
+- [ ] R31.7. Finish tests for exact tile paint and HEVC decode failure reset request. Landed tests cover compositor single-writer entry points, atomic frame failure, reset generation rules, stale HEVC discard, stale graphics discard, and graphics-frame failure reset request.
 
 ## v0 Phase 5: hybrid cadence integration
 
 Phase goal: let graphics commands own scroll motion while HEVC remains the rest/full-frame correctness path.
 
-- [ ] R32.1. Wire host capture into both current HEVC encode admission and `ScrollDeltaEngine`, sharing one `surfaceGeneration` allocator.
-- [ ] R32.2. Suppress HEVC full-frame refresh during accepted scroll by default with central config `AGENTDESK_HYBRID_SCROLL_HEVC_FPS=0`.
-- [ ] R32.3. Force one HEVC rest refresh after 250 ms of scroll idle, then return to the current HEVC rest cadence.
-- [ ] R32.4. Discard late HEVC refreshes on the client when their `(surfaceGeneration, frameId)` is not strictly newer than the retained surface state.
-- [ ] R32.5. Add tests for accepted-scroll HEVC suppression, optional nonzero scroll HEVC FPS tuning, scroll-idle rest refresh, rest cadence recovery, and stale HEVC overwrite prevention.
+- [x] D32.1. Wire host capture into both current HEVC encode admission and `ScrollDeltaEngine`, sharing one `surfaceGeneration` allocator.
+- [x] D32.2. Suppress HEVC full-frame refresh during accepted scroll by default with central config `AGENTDESK_HYBRID_SCROLL_HEVC_FPS=0`.
+- [x] D32.3. Force one HEVC rest refresh after 250 ms of scroll idle, then return to the current HEVC rest cadence.
+- [x] D32.4. Discard late HEVC refreshes on the client when their `(surfaceGeneration, frameId)` is not strictly newer than the retained surface state.
+- [ ] R32.5. Finish tests for optional nonzero scroll HEVC FPS tuning, rest cadence recovery, and stale HEVC overwrite prevention. Landed tests cover default accepted-scroll HEVC suppression, scroll-idle rest refresh wiring, shared generation allocation, and native-scale HEVC while retained graphics is active.
 
 ## v0 Phase 6: device verification and comparison
 
@@ -122,12 +123,16 @@ D27.2     2026-06-20  committed   second configured graphics port chosen after N
 D27.3     2026-06-20  committed   ADR-0016 records scroll-first hybrid retained graphics
 D27.4     2026-06-20  committed   worktree docs describe HEVC plus retained graphics
 D28       2026-06-20  committed   compositor timeline contracts and ordering tests
-R29       pending     pending     reliable graphics stream and transport tests
+R29       pending     pending     remaining transport resilience tests
 D29.1     2026-06-20  committed   sibling reliable graphics listener and dialer handshake
 D29.2     2026-06-20  committed   ADGC graphics frame envelope contracts and malformed-frame tests
+D29.3     2026-06-20  local       graphics ACK and reset-request controls route through graphics stream
 D29.4     2026-06-20  committed   host and client graphics stream use Config.graphicsPort
-R30       pending     pending     scroll delta engine with timeout and exposed-strip tests
-R31       pending     pending     MainActor retained compositor and HEVC decoder bridge
-R32       pending     pending     hybrid cadence suppresses HEVC during accepted scroll
+R30       pending     pending     scroll delta engine timeout test remains
+D30       2026-06-20  local       scroll delta engine emits copyRect plus LZFSE exposed strips
+R31       pending     pending     compositor diagnostics and exact paint/decode-failure tests remain
+D31       2026-06-20  local       MainActor retained compositor and HEVC decoder bridge are wired
+R32       pending     pending     remaining cadence tuning tests
+D32       2026-06-20  local       accepted scroll suppresses HEVC and idle refresh is forced
 R33       pending     pending     attached-console iPhone verification and diagnostics summary
 ```

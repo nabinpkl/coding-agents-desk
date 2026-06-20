@@ -270,6 +270,14 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_STALE_UNACKED_MS",
         defaultValue: 350
     )
+    static let hybridScrollHEVCFps = nonNegativeInt(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_HEVC_FPS",
+        defaultValue: 0
+    )
+    static let hybridScrollIdleRefreshMs = nonNegativeInt(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_IDLE_REFRESH_MS",
+        defaultValue: 250
+    )
     static func ownedMediaMaxQP(environment: [String: String]) -> Int? {
         guard let raw = environment["AGENTDESK_OWNED_MEDIA_MAX_QP"],
               let value = Int(raw),

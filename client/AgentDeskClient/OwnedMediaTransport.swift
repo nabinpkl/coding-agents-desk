@@ -43,15 +43,20 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     private let active: ActiveSession
     private let mediaCapability: MediaCapabilityGrant
     private var connection: NWConnection?
+    private var pendingConnection: NWConnection?
+    private var receiveTask: Task<Void, Never>?
+    private weak var sink: (any OwnedMediaFrameSink)?
 
     init(
         plan: ClientGraphicsConnectionPlan,
         active: ActiveSession,
-        mediaCapability: MediaCapabilityGrant
+        mediaCapability: MediaCapabilityGrant,
+        sink: (any OwnedMediaFrameSink)?
     ) {
         self.plan = plan
         self.active = active
         self.mediaCapability = mediaCapability
+        self.sink = sink
     }
 
     func start() async throws {
@@ -63,7 +68,7 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
             port: endpointPort,
             using: Self.makeReliableQuicParameters(alpn: self.plan.alpn)
         )
-        self.connection = connection
+        self.pendingConnection = connection
         connection.stateUpdateHandler = { [weak self] state in
             self?.logger.notice("owned graphics quic state=\(String(describing: state), privacy: .public)")
         }
@@ -77,12 +82,71 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         )
         try await self.send(JSONEncoder().encode(hello), on: connection)
         _ = try await self.receiveReady(expectedSessionId: self.active.sessionId, on: connection)
+        self.pendingConnection = nil
+        self.connection = connection
         self.logger.notice("owned graphics quic ready port=\(Int(self.plan.port), privacy: .public)")
+        receiveTask = Task { [weak self, connection] in
+            await self?.receiveFrames(on: connection)
+        }
     }
 
     func stop() {
+        receiveTask?.cancel()
+        receiveTask = nil
+        self.pendingConnection?.cancel()
+        self.pendingConnection = nil
         self.connection?.cancel()
         self.connection = nil
+    }
+
+    func sendResetRequest(_ request: OwnedGraphicsResetRequest) async {
+        guard let connection else {
+            ownedMediaStderrTrace("graphics-reset-request-dropped reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=no-connection")
+            return
+        }
+        do {
+            try await send(OwnedGraphicsControlStreamFrame.encode(request), on: connection)
+            ownedMediaStderrTrace("graphics-reset-request reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId)")
+        } catch {
+            logger.error("owned graphics reset request failed: \(String(describing: error), privacy: .public)")
+            ownedMediaStderrTrace("graphics-reset-request-failed reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) error=\(String(describing: error))")
+        }
+    }
+
+    private func receiveFrames(on connection: NWConnection) async {
+        var framer = OwnedGraphicsStreamFrameParser()
+        while !Task.isCancelled {
+            do {
+                let chunk = try await receive(on: connection, maximumLength: 256 * 1024)
+                let frames = try framer.append(chunk)
+                for frame in frames {
+                    let ack = await MainActor.run { [weak self] in
+                        self?.sink?.renderOwnedGraphicsFrame(frame)
+                    }
+                    if let ack {
+                        try await send(OwnedGraphicsControlStreamFrame.encode(ack), on: connection)
+                        ownedMediaStderrTrace("graphics-ack frame=\(ack.frameId) generation=\(ack.surfaceGeneration) compositorMs=\(Self.formatDouble(ack.compositorMs)) stale=\(ack.staleDiscardCount)")
+                    }
+                    let resetRequest = await MainActor.run { [weak self] in
+                        self?.sink?.consumePendingGraphicsResetRequest()
+                    }
+                    if let resetRequest {
+                        await sendResetRequest(resetRequest)
+                    }
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                let request = await MainActor.run { [weak self] in
+                    self?.sink?.currentGraphicsResetRequest(reason: "graphics-stream-\(String(describing: error))")
+                }
+                if let request {
+                    await sendResetRequest(request)
+                }
+                logger.error("owned graphics quic receive failed: \(String(describing: error), privacy: .public)")
+                return
+            }
+        }
     }
 
     private func receiveReady(
@@ -106,9 +170,9 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         }
     }
 
-    private func receive(on connection: NWConnection) async throws -> Data {
+    private func receive(on connection: NWConnection, maximumLength: Int = 4_096) async throws -> Data {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-            connection.receive(minimumIncompleteLength: 1, maximumLength: 4_096) { data, _, _, error in
+            connection.receive(minimumIncompleteLength: 1, maximumLength: maximumLength) { data, _, _, error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else if let data, !data.isEmpty {
@@ -139,6 +203,10 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         }, DispatchQueue.main)
         #endif
         return NWParameters(quic: options)
+    }
+
+    private static func formatDouble(_ value: Double) -> String {
+        String(format: "%.1f", value)
     }
 }
 
@@ -239,7 +307,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         let transport = OwnedGraphicsTransport(
             plan: ClientGraphicsConnectionPlan(host: host, port: graphicsPort),
             active: active,
-            mediaCapability: mediaCapability
+            mediaCapability: mediaCapability,
+            sink: sink
         )
         graphicsTransport = transport
         graphicsTask = Task { [weak self, transport] in
@@ -397,6 +466,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                         } catch {
                             ownedMediaStderrTrace("frame-ack-failed frame=\(renderStats.frameId) error=\(String(describing: error))")
                         }
+                    }
+                    let resetRequest = await MainActor.run { [weak self] in
+                        self?.sink?.consumePendingGraphicsResetRequest()
+                    }
+                    if let resetRequest {
+                        await graphicsTransport?.sendResetRequest(resetRequest)
                     }
                 }
             } catch is CancellationError {

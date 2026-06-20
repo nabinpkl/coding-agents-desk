@@ -23,6 +23,7 @@
 		B0000000000000000000020F /* WebSocketSignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* WebSocketSignalingChannel.swift */; };
 		B00000000000000000000A01 /* OwnedMediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000A00 /* OwnedMediaTransport.swift */; };
 		B00000000000000000000A03 /* OwnedMediaVideoSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000A02 /* OwnedMediaVideoSink.swift */; };
+		B00000000000000000000A04 /* OwnedMediaVideoSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000A02 /* OwnedMediaVideoSink.swift */; };
 		B00000000000000000000212 /* GestureTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000113 /* GestureTranslator.swift */; };
 		B00000000000000000000213 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000114 /* SettingsStore.swift */; };
 		B00000000000000000000214 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000115 /* SettingsViewController.swift */; };
@@ -349,10 +350,11 @@
 				B000000000000000000009C3 /* CursorImageStore.swift in Sources */,
 				B00000000000000000000227 /* PairingClientTests.swift in Sources */,
 				B00000000000000000000228 /* SessionDialer.swift in Sources */,
-				B00000000000000000000229 /* WebSocketSignalingChannel.swift in Sources */,
-				B0000000000000000000022A /* SignalingChannel.swift in Sources */,
-				B0000000000000000000022A1 /* MediaTransport.swift in Sources */,
-				B0000000000000000000022B /* GestureTranslator.swift in Sources */,
+					B00000000000000000000229 /* WebSocketSignalingChannel.swift in Sources */,
+					B0000000000000000000022A /* SignalingChannel.swift in Sources */,
+					B0000000000000000000022A1 /* MediaTransport.swift in Sources */,
+					B00000000000000000000A04 /* OwnedMediaVideoSink.swift in Sources */,
+					B0000000000000000000022B /* GestureTranslator.swift in Sources */,
 				B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */,
 				B0000000000000000000022D /* KeyboardSurface.swift in Sources */,
 				B0000000000000000000022E /* KeyboardSurfaceTests.swift in Sources */,
