@@ -1,138 +1,131 @@
-# TASKS: v0 scroll-first hybrid retained graphics (with full mixed mode captured)
+# TASKS: v0 retained scroll ownership stabilization (with full mixed graphics captured)
 
 `R<N>` = remaining. Flip to `D<N>` once landed and tests are green.
 
 Archived history:
 - `tasks/archive/2026-06-19-v0-media-output-friction.md` carries the closed media-output exploration through packet repair.
 - `tasks/archive/2026-06-20-v0-owned-single-surface-media.md` carries the completed owned single-surface media ledger through motion budget scaling.
+- `tasks/archive/2026-06-20-v0-scroll-first-hybrid-retained-graphics.md` carries the first hybrid retained-graphics worktree through the initial graphics stream, compositor, HEVC bridge, and physical-run diagnosis.
 
 ## Position
 
-The next media iteration is a separate worktree experiment for scroll-first hybrid retained graphics. The current owned HEVC path stays valuable: it gives the best observed rest-state text quality and remains the full-frame hardware refresh path. The new work adds a retained client surface and a reliable graphics command stream only for the part where full-screen video is weakest: scroll-like text motion.
+The next iteration makes the retained graphics path own scroll motion. The prior run showed that the architecture is present but not yet active in the hot path: scroll detection timed out, the graphics stream did not produce sustained `copyRect` frames, and HEVC continued carrying motion until admission drained into visible freezes.
 
 Ordering:
 
-- First isolate the experiment in `.worktrees/scroll-hybrid-retained-graphics` so `main` keeps its current working HEVC path while the branch is allowed to break media wire shapes.
-- Then verify the graphics stream transport shape before deeper implementation. R27.2 selected a second configured graphics port after reviewing the same-port Network.framework ALPN routing cost; graphics uses `AGENTDESK_GRAPHICS_PORT` instead of sharing `Config.signalingPort`.
-- Then lock the compositor timeline before touching rendering. HEVC refreshes and graphics commands must share `(surfaceGeneration, frameId)` ordering, with `capturedAtUptimeNs` used only for diagnostics.
-- Then build the scroll command path. Accepted scroll sends `copyRect` plus lossless exposed-strip tiles; rejected or timed-out detection falls back to HEVC for that frame.
-- Then build the client retained surface. `@MainActor OwnedSurfaceCompositor` is acceptable for the first slice because it makes correctness obvious, but HEVC-to-BGRA copy, LZFSE tile paint, copyRect, and CALayer commit must be measured as likely bottlenecks from the first compositor task.
-- Then integrate hybrid cadence. During accepted scroll, HEVC is suppressed by default and one rest refresh is forced after 250 ms idle.
+- First make scroll detection cheap enough to succeed. The current detector copies and compares full-resolution BGRA before accepting scroll, so it times out and hands motion back to HEVC.
+- Then make the graphics stream durable. A disconnected graphics stream cannot be the stateful graphics channel, and reset requests must not depend only on the dead stream they are trying to recover.
+- Then make accepted scroll suppress HEVC until idle refresh. HEVC remains the rest-quality and image/video fallback path, not a competing motion path for text scroll.
+- Then add graphics-frame lifecycle ACK and backpressure. Host graphics pacing should use graphics queue depth and compositor progress, not HEVC render-gap state.
+- Then keep HEVC drain tuning secondary. It can limit damage when the retained path misses, but it is not the ceiling path while copyRect is timing out.
 
-This iteration is scroll-first hybrid retained graphics, not full Microsoft mixed mode. Full text/image/video classification, region HEVC, codec atlas, and Metal/IOSurface compositing stay captured future scope until logs justify them.
+This is still scroll-first hybrid retained graphics, not full Microsoft mixed mode. The slice adopts the Microsoft-ish lesson that text-like scroll should be retained-surface commands with lifecycle ACKs, while hardware HEVC remains available for full-frame refresh and image/video-heavy content.
 
-## v0 Phase 0: worktree and platform gates
+## v0 Phase 0: evidence gate
 
-Phase goal: isolate the experiment and resolve the Network.framework connection shape before implementation depends on it.
+Phase goal: pin the current failure shape before changing behavior.
 
-- [x] D27.1. Add `.worktrees/` to `.gitignore`, commit on `main`, create `.worktrees/scroll-hybrid-retained-graphics` on branch `codex/scroll-hybrid-retained-graphics`, and run `just check` from the worktree.
-- [x] D27.2. Add central host/client `AGENTDESK_GRAPHICS_PORT` config, default `41889`, after selecting a second graphics listener over same-port Network.framework ALPN routing.
-- [x] D27.3. Add ADR-0016 recording scroll-first hybrid retained graphics and the R27.2 second configured graphics port decision as the worktree architecture, superseding ADR-0015 inside the branch without editing historical ADR conclusions.
-- [x] D27.4. Update `SPEC.md`, `README.md`, `.env.example`, and Just recipes so the worktree describes HEVC full-frame refresh plus reliable retained graphics commands as the active media experiment.
+- [ ] R34.1. Add `tools/hybrid-graphics-diagnostics-summary.sh` summarizing host and client logs for scroll accepted, rejected, timeout, graphics reset, graphics reconnect, copyRect count, exposed-strip bytes, HEVC bytes, HEVC packet count, graphics ACK RTT, graphics queue depth, drain events, and admission holds.
+- [ ] R34.2. Add representative parser fixtures under `tests/fixtures/owned-media/` covering the current freeze run: zero scroll-accepted, many scroll-timeout lines, a disconnected graphics reset request, HEVC 100-plus packet frames, and repeated admission drain.
+- [ ] R34.3. Run `just fresh-hybrid-consoled-run` on physical iPhone for 20 to 30 seconds and record the baseline summary before implementation changes.
+- [ ] R34.4. Acceptance: baseline output states whether the blocker is scroll detection, graphics stream durability, HEVC competition, graphics ACK pacing, or fallback HEVC drain.
 
-## v0 Phase 1: compositor timeline contracts
+## v0 Phase 1: cheap scroll detection
 
-Phase goal: make all visual updates share one ordering model before renderer work starts.
+Phase goal: make scroll detection finish within budget before building full exposed-strip payloads.
 
-- [x] D28.1. Add host/client shared types for `OwnedSurfaceUpdateId(surfaceGeneration, frameId)` with lexicographic strict-newer comparison and diagnostics-only `capturedAtUptimeNs`.
-- [x] D28.2. Extend the HEVC full-frame envelope with `surfaceGeneration`, `frameId`, `capturedAtUptimeNs`, and `refreshReason` values `initial`, `rest`, `scroll-correctness`, and `reset`.
-- [x] D28.3. Add host/client shared types for `GraphicsChannelHello`, `GraphicsChannelReady`, `OwnedGraphicsFrameHeader`, `OwnedGraphicsCommand`, `OwnedGraphicsFrameAck`, and `OwnedGraphicsResetRequest`.
-- [x] D28.4. Define reset ordering: `resetSurface` is accepted only when `surfaceGeneration > committedSurfaceGeneration`, then initializes committed order to `(surfaceGeneration, 0)` before reset tiles apply.
-- [x] D28.5. Add contract tests asserting update-id comparison, stale HEVC discard, stale graphics discard, newer-generation reset acceptance, same-generation reset rejection, and reserved `codecTile` rejection.
+- [ ] R35.1. Refactor `host/AgentDeskHost/ScrollDeltaEngine.swift` into a two-stage detector: sampled luma or downsampled probe first, full exposed-strip extraction only after an offset is accepted.
+- [ ] R35.2. Replace full-resolution BGRA comparison in `bestScrollOffset` with sampled bands that can evaluate vertical and horizontal offsets without copying the entire frame.
+- [ ] R35.3. Preserve the current acceptance contract: max offset 240 px, stride 8 px, confidence `>= 0.92`, timeout fallback to HEVC, and no graphics command on rejected motion.
+- [ ] R35.4. Add diagnostics for probe time, payload-build time, accepted offset, confidence, timeout reason, and sampled pixel count.
+- [ ] R35.5. Add tests proving accepted vertical and horizontal scroll build `copyRect` plus exposed-strip `bitmapTile` only after probe acceptance, non-scroll motion emits no command, and a forced probe timeout does not allocate exposed-strip payload.
+- [ ] R35.6. Acceptance: physical scroll run shows scroll detector timeout rate below 20 percent of scroll frames and sustained `copyRects>0` on the client.
 
-## v0 Phase 2: reliable graphics stream
+## v0 Phase 2: durable graphics stream
 
-Phase goal: add the ordered graphics command carrier while keeping the existing HEVC datagram path alive.
+Phase goal: make the reliable graphics channel recoverable enough to carry stateful surface commands.
 
-- [x] D29.1. Add a sibling reliable QUIC graphics connection using ALPN `agentdesk-owned-graphics`, the same TLS identity, and explicit `GraphicsChannelHello` / `GraphicsChannelReady` nonce handshake.
-  - Host and client green: `OwnedMediaTransport` starts the sibling reliable graphics listener and dialer, validates `GraphicsChannelHello` through a separate graphics replay fence over the issued media capability, replies with `GraphicsChannelReady`, and leaves HEVC datagrams alive if the client-side graphics dial fails.
-- [x] D29.2. Add authenticated `ADGC` stream framing for graphics frames: magic, version, length, JSON header, and binary payload.
-- [x] D29.3. Route graphics ACK and reset-request controls through the graphics stream control path while leaving HEVC frame ACKs on the current owned-media control path.
-- [x] D29.4. Wire the graphics listener and client dialer to the existing `AGENTDESK_GRAPHICS_PORT` host/client config instead of `Config.signalingPort`.
-  - Host and client green: the graphics listener uses `Config.graphicsPort` through the shared host listener configuration, and `ClientGraphicsConnectionPlan` dials `Config.graphicsPort` with reliable QUIC stream options.
-- [ ] R29.5. Finish transport tests for parse-failure reset request, graphics ACK queue clearing, and HEVC datagram survival after graphics stream errors.
-  - Landed coverage: partial stream reads, coalesced stream frames, malformed frame rejection, oversized frame rejection, and split/coalesced graphics control framing.
+- [ ] R36.1. Extend `host/AgentDeskHost/OwnedMediaTransport.swift` and `client/AgentDeskClient/OwnedMediaTransport.swift` so graphics stream disconnect, timeout, receive failure, and send failure enter a reconnect state instead of permanently disabling retained graphics.
+- [ ] R36.2. Route graphics reset requests through a live fallback control path when the graphics stream is disconnected, then force a graphics-stream reconnect and next-generation `resetSurface`.
+- [ ] R36.3. Add a graphics handshake replay fence for reconnect attempts using the current session identity and fresh nonces.
+- [ ] R36.4. Add host diagnostics for graphics channel state: connected, disconnected, reconnecting, reconnect failed, reset queued, reset sent, reset acked.
+- [ ] R36.5. Add client diagnostics for graphics receive errors, reconnect attempts, reset request path, and stale frame discard after reconnect.
+- [ ] R36.6. Add tests proving a graphics stream receive error reconnects, reset request does not depend on the dead stream, stale pre-reconnect frames cannot overwrite the reset generation, and HEVC datagrams continue while graphics reconnects.
+- [ ] R36.7. Acceptance: physical scroll run has no unrecovered `graphics-reset-request-failed ... Socket is not connected` loop, and copyRect resumes after one forced graphics stream close.
 
-## v0 Phase 3: scroll delta engine
+## v0 Phase 3: accepted-scroll HEVC suppression
 
-Phase goal: create only the scroll-specialized retained-graphics producer, not a full dirty-region classifier.
+Phase goal: prevent full-screen HEVC from competing with copyRect during text scroll.
 
-- [x] D30.1. Add `ScrollDeltaEngine` on the host that keeps the previous BGRA frame for scroll detection and surface-size tracking.
-- [x] D30.2. Detect vertical and horizontal scroll up to 240 px in 8 px steps, accepting only confidence `>= 0.92`.
-- [x] D30.3. Enforce a 4 ms per-frame detection budget; timeout emits no graphics commands, logs `scroll-timeout`, and falls back to HEVC for that frame.
-- [x] D30.4. On accepted scroll, emit `copyRect` for the stable moved area plus LZFSE `bitmapTile` commands for newly exposed strips.
-- [x] D30.5. On rejected motion, emit no graphics commands, log `scroll-rejected`, and let HEVC refresh handle the frame.
-- [x] D30.6. On size change, emit `resetSurface`, increment `surfaceGeneration`, and force the next HEVC full-surface refresh.
-- [ ] R30.7. Finish tests for 4 ms timeout. Landed tests cover accepted vertical scroll, accepted horizontal scroll, rejected motion, exposed-strip tile bytes, and resize generation reset.
+- [ ] R37.1. In `host/AgentDeskHost/OwnedMediaTransport.swift`, make accepted scroll an explicit HEVC admission suppressor until the configured scroll-idle refresh window expires.
+- [ ] R37.2. Keep `AGENTDESK_HYBRID_SCROLL_HEVC_FPS=0` as the default and treat nonzero values as diagnostics-only tuning, not the production path.
+- [ ] R37.3. Force exactly one HEVC full-surface refresh after `AGENTDESK_HYBRID_SCROLL_IDLE_REFRESH_MS`, then return to rest cadence.
+- [ ] R37.4. Ensure late HEVC refreshes still obey `(surfaceGeneration, frameId)` ordering and cannot overwrite newer graphics commands.
+- [ ] R37.5. Add tests proving accepted scroll suppresses HEVC, rejected or timed-out scroll falls back to HEVC, idle emits one refresh, nonzero scroll HEVC FPS is rate-limited, and stale HEVC refresh is discarded after newer graphics commit.
+- [ ] R37.6. Acceptance: during accepted scroll, host HEVC bytes drop near zero until idle refresh, while graphics ACKs continue advancing.
 
-## v0 Phase 4: retained compositor and HEVC bridge
+## v0 Phase 4: graphics lifecycle ACK and backpressure
 
-Phase goal: make the client display one retained surface mutated by both HEVC full refreshes and graphics commands.
+Phase goal: pace retained graphics frames using the graphics surface lifecycle.
 
-- [x] D31.1. Add `@MainActor OwnedSurfaceCompositor` as the single writer for retained BGRA surface mutation and visible `CALayer` commits.
-- [x] D31.2. Implement retained-surface operations: create, reset, strict-newer update check, overlap-safe `copyRect`, LZFSE tile paint, and stale update discard.
-- [ ] R31.3. Add compositor diagnostics for HEVC-to-retained copy time, copyRect time, LZFSE decode time, tile paint time, CALayer commit time, stale discard count, and reset count.
-- [x] D31.4. Add `OwnedHEVCFrameDecoder` using `VTDecompressionSession` on iOS so HEVC refreshes produce `CVPixelBuffer` instead of going directly to `AVSampleBufferDisplayLayer`.
-- [x] D31.5. Copy decoded HEVC frames into `OwnedSurfaceCompositor` as full-surface refreshes ordered by `(surfaceGeneration, frameId)`.
-- [x] D31.6. On HEVC decode failure, queue `graphics-reset-request`, keep the display-layer fallback alive, and force host-side reset refresh handling.
-- [ ] R31.7. Finish tests for exact tile paint and HEVC decode failure reset request. Landed tests cover compositor single-writer entry points, atomic frame failure, reset generation rules, stale HEVC discard, stale graphics discard, and graphics-frame failure reset request.
+- [ ] R38.1. Extend `OwnedGraphicsFrameAck` in host/client shared types with compact fields for `queueDepthBytes`, `queuedFrames`, `totalGraphicsFramesApplied`, and `compositorMs`.
+- [ ] R38.2. Track graphics in-flight frames and bytes on the host by `(surfaceGeneration, frameId)` and clear them only when graphics ACKs arrive.
+- [ ] R38.3. Add host graphics admission policy: normal admits a small number of unacked graphics frames, behind coalesces to latest raw capture, severe sends no new graphics commands until ACKs clear or reconnect/reset fires.
+- [ ] R38.4. Keep graphics coalescing upstream of command construction so stale captures do not build LZFSE strips that will never be sent.
+- [ ] R38.5. Add client queue-depth diagnostics before `OwnedSurfaceCompositor` mutation and after visible layer commit.
+- [ ] R38.6. Add tests proving graphics ACKs clear in-flight frames, queue depth enters behind mode, severe mode coalesces raw captures without building command payloads, and reset frames bypass normal coalescing only when generation advances.
+- [ ] R38.7. Acceptance: repeated scroll shows graphics admitted FPS near 12 to 15 under motion, low queue depth, and no long graphics ACK stalls.
 
-## v0 Phase 5: hybrid cadence integration
+## v0 Phase 5: fallback HEVC guardrails
 
-Phase goal: let graphics commands own scroll motion while HEVC remains the rest/full-frame correctness path.
+Phase goal: keep HEVC useful as a fallback without letting it hide retained-path failures.
 
-- [x] D32.1. Wire host capture into both current HEVC encode admission and `ScrollDeltaEngine`, sharing one `surfaceGeneration` allocator.
-- [x] D32.2. Suppress HEVC full-frame refresh during accepted scroll by default with central config `AGENTDESK_HYBRID_SCROLL_HEVC_FPS=0`.
-- [x] D32.3. Force one HEVC rest refresh after 250 ms of scroll idle, then return to the current HEVC rest cadence.
-- [x] D32.4. Discard late HEVC refreshes on the client when their `(surfaceGeneration, frameId)` is not strictly newer than the retained surface state.
-- [ ] R32.5. Finish tests for optional nonzero scroll HEVC FPS tuning, rest cadence recovery, and stale HEVC overwrite prevention. Landed tests cover default accepted-scroll HEVC suppression, scroll-idle rest refresh wiring, shared generation allocation, and native-scale HEVC while retained graphics is active.
+- [ ] R39.1. Add explicit diagnostics when scroll timeout or graphics disconnect causes HEVC fallback, including fallback reason and encoded frame byte count.
+- [ ] R39.2. Cap fallback HEVC damage during active scroll by coalescing raw captures and limiting recovery keyframes to decoder-continuity failures, not graphics stream failures.
+- [ ] R39.3. Keep existing HEVC drain tuning in place but remove any path that treats HEVC drain recovery as success while copyRect is not firing.
+- [ ] R39.4. Add tests proving graphics failure fallback does not request repeated HEVC keyframes, HEVC drain does not mark retained graphics healthy, and fallback reasons appear in diagnostics.
+- [ ] R39.5. Acceptance: if copyRect fails, logs say so directly and HEVC fallback remains usable rather than freezing silently.
 
-## v0 Phase 6: device verification and comparison
+## v0 Phase 6: physical comparison
 
-Phase goal: prove whether the hybrid path improves scroll feel and identify the next bottleneck if it does not.
+Phase goal: decide whether the retained scroll path beats the current HEVC-only ceiling.
 
-- [ ] R33.1. Use `just fresh-hybrid-consoled-run` for the physical verification pass and confirm it builds, installs, launches attached console, and preserves `/tmp/agentdesk-client-console.log`.
-- [ ] R33.2. Add `tools/hybrid-graphics-diagnostics-summary.sh` summarizing HEVC bytes, scroll accepted/rejected/timeout rates, copyRect count, exposed-strip bytes, graphics ACK RTT, HEVC decode cost, compositor copy/tile/commit cost, and stale discard counts.
-- [ ] R33.3. Run a physical iPhone attached-console pass for 20 to 30 seconds of repeated scrolling.
-- [ ] R33.4. Acceptance: rest text remains at least as crisp as current HEVC, copyRect is exercised during scroll, scroll detector timeout rate is under 20 percent of scroll frames, HEVC bytes drop during accepted scroll, late HEVC does not overwrite newer graphics state, and there is no repeated reset loop.
-- [ ] R33.5. If the run fails, classify the blocker as scroll detection, graphics stream, HEVC decode, HEVC-to-retained copy, LZFSE tile paint, copyRect, CALayer commit, or transport/auth before changing tuning.
+- [ ] R40.1. Run `just fresh-hybrid-consoled-run` on physical iPhone with default HEVC 420 and retained graphics enabled.
+- [ ] R40.2. Scroll repeatedly for 20 to 30 seconds and save `tools/hybrid-graphics-diagnostics-summary.sh` output.
+- [ ] R40.3. Compare against the archived first hybrid run: scroll timeout rate, copyRect count, HEVC bytes during scroll, graphics ACK RTT, render gaps, drain events, and user-visible freeze reports.
+- [ ] R40.4. Acceptance: rest text remains HEVC-crisp, accepted scroll is driven by copyRect plus exposed strips, HEVC does not compete during active scroll, and the screen does not freeze after sustained motion.
+- [ ] R40.5. If acceptance fails, classify the blocker as probe accuracy, graphics reconnect, graphics queue depth, compositor cost, LZFSE strip cost, CALayer commit, HEVC fallback, or network transport before the next edit.
 
 ---
 
 ## v0 full mixed graphics scope (captured, not started)
 
-This scope opens only after R33 proves the scroll-first hybrid path works or identifies a specific bottleneck that requires a broader architecture.
+This scope opens only after R40 proves scroll-first retained graphics works or identifies a bottleneck that requires the broader mixed-mode architecture.
 
 | Option | Source | What it catches | Failure shape |
 | ------ | ------ | --------------- | ------------- |
-| Full dirty-region classifier | Microsoft-style mixed graphics | Non-scroll text changes without full HEVC frames | CPU detection and ordering complexity can exceed the saved bytes |
+| Full dirty-region classifier | Microsoft-style mixed graphics | Non-scroll text edits and cursor-near text changes without full HEVC frames | CPU detection and ordering complexity can exceed saved bytes |
 | Region HEVC / codec atlas | Future `codecTile` command | Image/video-heavy regions without full-screen codec pressure | Decoder/compositor synchronization becomes the hard part |
-| Metal or IOSurface compositor | Client renderer upgrade | Moves BGRA copy, tile paint, and commit cost off the main thread | More rendering complexity before correctness is proven |
-| Multipath graphics transport | AVD 2026 network direction | Better resilience under poor networks | Not useful until command model beats local Wi-Fi bottlenecks |
+| Metal or IOSurface compositor | Client renderer upgrade | Moves BGRA copy, tile paint, and commit cost off the main thread | More renderer complexity before correctness is proven |
+| QUIC FEC or transport loss-delay control | RDP UDP-like recovery | Packet-loss-heavy networks after command model works | Current evidence points to detection/admission starvation, not packet loss |
 
 ### Alternative arc (rejected for now, captured)
 
-- Pure retained graphics with no HEVC active path. Rejected because hardware HEVC is already the best observed rest-quality ceiling, and deleting it would make the first retained-surface slice CPU-heavy before proving the scroll-copy thesis. Revisit only if HEVC-to-retained decode/copy is the bottleneck and graphics-only rest tiles are cheaper.
-- Full Microsoft mixed mode now. Rejected because text/image/video classification and codec tiles are broader than the current failure. Revisit after scroll-first hybrid logs prove the retained compositor and reliable graphics stream.
+- More HEVC drain tuning. Useful as a fallback guardrail. Rejected as the primary path because the freeze run showed copyRect was not firing and HEVC continued carrying motion until admission drained. Revisit only after scroll detection and graphics stream durability are healthy.
+- Full Microsoft mixed mode now. Useful because it handles text, images, video, and arbitrary dirty regions. Rejected because the current failure is narrower: scroll-copy is timing out and graphics transport is not durable. Revisit after scroll-first ownership proves or disproves the retained-surface spine.
+- Pure retained graphics with no HEVC active path. Useful because it removes full-screen codec competition. Rejected because HEVC remains the best observed rest-quality ceiling and is still needed for full-frame correctness refreshes.
+
+---
 
 ## Promotion log
 
 ```
-D27.1     2026-06-20  committed   local worktrees ignored and hybrid graphics branch baseline passed
-D27.2     2026-06-20  committed   second configured graphics port chosen after Network.framework ALPN routing review
-D27.3     2026-06-20  committed   ADR-0016 records scroll-first hybrid retained graphics
-D27.4     2026-06-20  committed   worktree docs describe HEVC plus retained graphics
-D28       2026-06-20  committed   compositor timeline contracts and ordering tests
-R29       pending     pending     remaining transport resilience tests
-D29.1     2026-06-20  committed   sibling reliable graphics listener and dialer handshake
-D29.2     2026-06-20  committed   ADGC graphics frame envelope contracts and malformed-frame tests
-D29.3     2026-06-20  local       graphics ACK and reset-request controls route through graphics stream
-D29.4     2026-06-20  committed   host and client graphics stream use Config.graphicsPort
-R30       pending     pending     scroll delta engine timeout test remains
-D30       2026-06-20  local       scroll delta engine emits copyRect plus LZFSE exposed strips
-R31       pending     pending     compositor diagnostics and exact paint/decode-failure tests remain
-D31       2026-06-20  local       MainActor retained compositor and HEVC decoder bridge are wired
-R32       pending     pending     remaining cadence tuning tests
-D32       2026-06-20  local       accepted scroll suppresses HEVC and idle refresh is forced
-R33       pending     pending     attached-console iPhone verification and diagnostics summary
+D27-D32   2026-06-20  archived    initial scroll-first hybrid retained graphics implementation moved to tasks/archive
+R34       pending     pending     evidence gate and hybrid diagnostics summary
+R35       pending     pending     cheap scroll detection before full BGRA payload work
+R36       pending     pending     durable graphics stream reconnect and reset recovery
+R37       pending     pending     accepted-scroll HEVC suppression until idle refresh
+R38       pending     pending     graphics lifecycle ACK and queue-depth backpressure
+R39       pending     pending     fallback HEVC guardrails after retained-path failures
+R40       pending     pending     physical iPhone comparison and blocker classification
 ```
