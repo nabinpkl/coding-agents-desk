@@ -87,6 +87,7 @@ private struct OwnedMediaFrameLifecycle {
     var requestedKeyframeReason: OwnedMediaKeyframeReason?
     var actualKeyframeReason: OwnedMediaKeyframeReason?
     var admissionMode: OwnedMediaCadenceMode = .normal
+    var encodeBudget: OwnedMediaEncodeBudget?
 }
 
 final class OwnedMediaHostDiagnostics: @unchecked Sendable {
@@ -141,7 +142,12 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
         logger.notice("owned media admission-hold-diagnostic mode=\(String(describing: mode), privacy: .public) reason=\(reason ?? "unknown", privacy: .public)")
     }
 
-    func noteAdmitted(_ frame: CapturedVideoFrame, decision: OwnedMediaAdmissionDecision, nowUptimeNs: UInt64) {
+    func noteAdmitted(
+        _ frame: CapturedVideoFrame,
+        decision: OwnedMediaAdmissionDecision,
+        budget: OwnedMediaEncodeBudget,
+        nowUptimeNs: UInt64
+    ) {
         let fpsSample = lock.withLock {
             fpsWindow.incrementAdmitted()
             lifecycleByCaptureNs[frame.capturedAtUptimeNs] = OwnedMediaFrameLifecycle(
@@ -149,7 +155,8 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
                 capturedAtUptimeNs: frame.capturedAtUptimeNs,
                 admissionUptimeNs: nowUptimeNs,
                 requestedKeyframeReason: decision.keyframeReason,
-                admissionMode: decision.mode
+                admissionMode: decision.mode,
+                encodeBudget: budget
             )
             return fpsWindow.flushIfDue(nowUptimeNs: nowUptimeNs)
         }
@@ -214,7 +221,7 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
             )
         }
         logFpsIfNeeded(snapshot.fps)
-        logger.notice("owned media host-frame frame=\(envelope.header.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) keyframeReason=\(snapshot.lifecycle.actualKeyframeReason?.rawValue ?? snapshot.lifecycle.requestedKeyframeReason?.rawValue ?? "none", privacy: .public) mode=\(String(describing: decision.mode), privacy: .public) captureToAdmissionMs=\(Self.ms(from: snapshot.lifecycle.capturedAtUptimeNs, to: snapshot.lifecycle.admissionUptimeNs), privacy: .public) encodeMs=\(Self.ms(from: snapshot.lifecycle.encodeStartUptimeNs, to: snapshot.lifecycle.encodeEndUptimeNs), privacy: .public) sendMs=\(stats.sendDurationMs, privacy: .public) bytes=\(stats.encodedBytes, privacy: .public) packets=\(stats.packetCount, privacy: .public) burst=\(stats.pacingBurstPacketCount, privacy: .public) pauseUs=\(stats.pacingBurstPauseUs, privacy: .public) pacingReason=\(stats.pacingReason.rawValue, privacy: .public) burstPauses=\(stats.burstPauseCount, privacy: .public) maxPacketGapMs=\(stats.maxInterPacketGapMs, privacy: .public) backpressure=\(stats.isBackpressured, privacy: .public) coalescedRaw=\(snapshot.raw, privacy: .public) coalescedAdmissionHold=\(snapshot.hold, privacy: .public) coalescedEncodeBusy=\(snapshot.encode, privacy: .public) coalescedNetwork=\(snapshot.network, privacy: .public)")
+        logger.notice("owned media host-frame frame=\(envelope.header.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) keyframeReason=\(snapshot.lifecycle.actualKeyframeReason?.rawValue ?? snapshot.lifecycle.requestedKeyframeReason?.rawValue ?? "none", privacy: .public) mode=\(String(describing: decision.mode), privacy: .public) budgetMode=\(snapshot.lifecycle.encodeBudget?.mode.rawValue ?? "unknown", privacy: .public) budgetKbps=\(snapshot.lifecycle.encodeBudget?.bitrateKbps ?? 0, privacy: .public) budgetFps=\(snapshot.lifecycle.encodeBudget?.expectedFrameRate ?? 0, privacy: .public) captureToAdmissionMs=\(Self.ms(from: snapshot.lifecycle.capturedAtUptimeNs, to: snapshot.lifecycle.admissionUptimeNs), privacy: .public) encodeMs=\(Self.ms(from: snapshot.lifecycle.encodeStartUptimeNs, to: snapshot.lifecycle.encodeEndUptimeNs), privacy: .public) sendMs=\(stats.sendDurationMs, privacy: .public) bytes=\(stats.encodedBytes, privacy: .public) packets=\(stats.packetCount, privacy: .public) burst=\(stats.pacingBurstPacketCount, privacy: .public) pauseUs=\(stats.pacingBurstPauseUs, privacy: .public) pacingReason=\(stats.pacingReason.rawValue, privacy: .public) burstPauses=\(stats.burstPauseCount, privacy: .public) maxPacketGapMs=\(stats.maxInterPacketGapMs, privacy: .public) backpressure=\(stats.isBackpressured, privacy: .public) coalescedRaw=\(snapshot.raw, privacy: .public) coalescedAdmissionHold=\(snapshot.hold, privacy: .public) coalescedEncodeBusy=\(snapshot.encode, privacy: .public) coalescedNetwork=\(snapshot.network, privacy: .public)")
     }
 
     func noteAck(message: OwnedMediaControlMessage, admissionMode: OwnedMediaCadenceMode, unackedFrames: Int, unackedBytes: Int) {
@@ -265,6 +272,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var frameMailbox: LatestCapturedFrameMailbox?
     private var encodePumpTask: Task<Void, Never>?
     private var admission = OwnedMediaEncodeAdmission()
+    private var motionBudgetState = OwnedMediaMotionBudgetState()
     private var diagnostics = OwnedMediaHostDiagnostics()
     private var started = false
 
@@ -519,13 +527,15 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 admissionUptimeNs: admissionNs,
                 intervalMs: intervalMs
             )
+            let budget = currentEncodeBudget(nowUptimeNs: admissionNs)
             cadenceScheduler.noteAdmissionStarted(atUptimeNs: admissionNs)
-            logger.notice("owned media cadence intervalMs=\(intervalMs, privacy: .public) admissionDelayMs=\(Double(delayNs) / 1_000_000.0, privacy: .public) cadenceLateMs=\(Double(cadenceLateNs) / 1_000_000.0, privacy: .public) mode=\(String(describing: decision.mode), privacy: .public)")
-            diagnostics.noteAdmitted(frame, decision: decision, nowUptimeNs: admissionNs)
+            logger.notice("owned media cadence intervalMs=\(intervalMs, privacy: .public) admissionDelayMs=\(Double(delayNs) / 1_000_000.0, privacy: .public) cadenceLateMs=\(Double(cadenceLateNs) / 1_000_000.0, privacy: .public) mode=\(String(describing: decision.mode), privacy: .public) budgetMode=\(budget.mode.rawValue, privacy: .public) budgetKbps=\(budget.bitrateKbps, privacy: .public) budgetFps=\(budget.expectedFrameRate, privacy: .public)")
+            diagnostics.noteAdmitted(frame, decision: decision, budget: budget, nowUptimeNs: admissionNs)
             diagnostics.setPhase(.encoding)
             diagnostics.noteEncodeStarted(frame: frame, nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
             guard let envelope = await encoder.encode(
                 frame,
+                budget: budget,
                 forceKeyframe: decision.forceKeyframe,
                 allowPeriodicKeyframe: decision.allowPeriodicKeyframe,
                 requestedKeyframeReason: decision.keyframeReason
@@ -592,6 +602,33 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         return lock.withLock {
             admission.decision(nowUptimeNs: now, config: makeBackpressureConfig())
         }
+    }
+
+    private func currentEncodeBudget(nowUptimeNs: UInt64) -> OwnedMediaEncodeBudget {
+        lock.withLock {
+            motionBudgetState.choose(
+                policy: makeMotionBudgetPolicy(),
+                mode: admission.mode,
+                frameAgeMs: admission.latestClientFrameAgeMs,
+                backlogFrames: admission.latestClientBacklogFrames,
+                unacknowledgedBytes: admission.unacknowledgedBytes,
+                nowUptimeNs: nowUptimeNs
+            )
+        }
+    }
+
+    private func makeMotionBudgetPolicy() -> OwnedMediaMotionBudgetPolicy {
+        OwnedMediaMotionBudgetPolicy(
+            enabled: Config.ownedMediaMotionBudgetEnabled,
+            restBitrateKbps: configuration.targetBitrateKbps,
+            restFps: configuration.expectedFrameRate,
+            motionBitrateKbps: Config.ownedMediaMotionBitrateKbps,
+            motionFps: Config.ownedMediaMotionFps,
+            motionFrameAgeMs: Config.ownedMediaMotionFrameAgeMs,
+            motionBacklogFrames: Config.ownedMediaMotionBacklogFrames,
+            motionInflightBytes: Config.ownedMediaMotionInflightBytes,
+            restBudgetHoldMs: Config.ownedMediaRestBudgetHoldMs
+        )
     }
 
     private func noteAdmissionSent(_ envelope: OwnedMediaFrameEnvelope, decision: OwnedMediaAdmissionDecision) {
@@ -772,6 +809,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private var forceNextKeyframe = false
     private var loggedFirstEncodedFrame = false
     private var pendingFrames: [UInt64: PendingEncodedFrame] = [:]
+    private var appliedBudget = OwnedMediaAppliedEncodeBudget()
 
     init(
         codec: OwnedMediaCodec,
@@ -785,6 +823,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
 
     func encode(
         _ frame: CapturedVideoFrame,
+        budget: OwnedMediaEncodeBudget,
         forceKeyframe: Bool = false,
         allowPeriodicKeyframe: Bool = true,
         requestedKeyframeReason: OwnedMediaKeyframeReason? = nil
@@ -792,6 +831,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         await withCheckedContinuation { continuation in
             encode(
                 frame,
+                budget: budget,
                 forceKeyframe: forceKeyframe,
                 allowPeriodicKeyframe: allowPeriodicKeyframe,
                 requestedKeyframeReason: requestedKeyframeReason
@@ -803,6 +843,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
 
     private func encode(
         _ frame: CapturedVideoFrame,
+        budget: OwnedMediaEncodeBudget,
         forceKeyframe requestedAdmissionKeyframe: Bool,
         allowPeriodicKeyframe: Bool,
         requestedKeyframeReason: OwnedMediaKeyframeReason?,
@@ -820,6 +861,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
                 return
             }
             sessionToEncode = session
+            try applyBudgetIfNeeded(budget, to: sessionToEncode)
             frameId &+= 1
             encodedFrameId = frameId
             let requestedKeyframe = forceNextKeyframe || requestedAdmissionKeyframe
@@ -852,6 +894,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             }
             session = nil
             size = nil
+            appliedBudget.reset()
             lock.unlock()
             completion(nil)
             return
@@ -885,6 +928,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         }
         session = nil
         size = nil
+        appliedBudget.reset()
         lock.unlock()
         pending.forEach { $0.completion(nil) }
     }
@@ -910,6 +954,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         if let session {
             VTCompressionSessionInvalidate(session)
         }
+        appliedBudget.reset()
         var newSession: VTCompressionSession?
         let encoderSpecification = [
             kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: kCFBooleanTrue as Any,
@@ -944,6 +989,22 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         session = newSession
         size = (width, height)
         logger.notice("owned encoder session codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) pixelFormat=\(Self.fourCC(actualPixelFormat), privacy: .public) profile=\(String(describing: self.configuration.hevcProfileLevel), privacy: .public) maxQP=\(String(describing: self.configuration.maxAllowedFrameQP), privacy: .public) bitrate=\(self.targetBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public) keyframeInterval=\(self.configuration.keyframeIntervalFrames, privacy: .public)")
+    }
+
+    private func applyBudgetIfNeeded(_ budget: OwnedMediaEncodeBudget, to session: VTCompressionSession) throws {
+        guard appliedBudget.shouldApply(budget) else { return }
+        try setProperty(
+            kVTCompressionPropertyKey_AverageBitRate,
+            value: NSNumber(value: budget.bitrateKbps * 1_000),
+            on: session
+        )
+        try setProperty(
+            kVTCompressionPropertyKey_ExpectedFrameRate,
+            value: NSNumber(value: budget.expectedFrameRate),
+            on: session
+        )
+        appliedBudget.noteApplied(budget)
+        logger.notice("owned encoder budget mode=\(budget.mode.rawValue, privacy: .public) bitrate=\(budget.bitrateKbps, privacy: .public)kbps fps=\(budget.expectedFrameRate, privacy: .public)")
     }
 
     private func setProperty(_ key: CFString, value: CFTypeRef, on session: VTCompressionSession) throws {

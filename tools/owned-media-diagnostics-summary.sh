@@ -70,6 +70,16 @@ perl -ne '
             $maxSendByReason{$reason} = $1 if $1 > ($maxSendByReason{$reason} || 0);
         }
     }
+    if (/budgetMode=(rest|motion)/) {
+        $budget = $1;
+        $budgetCount{$budget}++;
+        if (/packets=([0-9]+)/) {
+            $maxPacketsByBudget{$budget} = $1 if $1 > ($maxPacketsByBudget{$budget} || 0);
+        }
+        if (/bytes=([0-9]+)/) {
+            $maxBytesByBudget{$budget} = $1 if $1 > ($maxBytesByBudget{$budget} || 0);
+        }
+    }
     $latestFps = $_ if /owned media diag-fps/;
     END {
         chomp($latestFps);
@@ -83,6 +93,9 @@ perl -ne '
             $maxSendByReason{"large-frame"}||0,
             $maxSendByReason{"jumbo-frame"}||0,
             $maxSendByReason{"backpressure"}||0;
+        printf "host budget rest=%d motion=%d\n", $budgetCount{"rest"}||0, $budgetCount{"motion"}||0;
+        printf "host budgetPacketMax rest=%d motion=%d\n", $maxPacketsByBudget{"rest"}||0, $maxPacketsByBudget{"motion"}||0;
+        printf "host budgetBytesMax rest=%d motion=%d\n", $maxBytesByBudget{"rest"}||0, $maxBytesByBudget{"motion"}||0;
         print "host latestFps=$latestFps\n" if $latestFps;
     }
 ' "$host_log"

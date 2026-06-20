@@ -169,6 +169,35 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS",
         defaultValue: 30
     )
+    static let ownedMediaMotionBudgetEnabled = enabledFlag(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_BUDGET_ENABLED",
+        defaultValue: true,
+        environment: ProcessInfo.processInfo.environment
+    )
+    static let ownedMediaMotionBitrateKbps = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_BITRATE_KBPS",
+        defaultValue: 5_000
+    )
+    static let ownedMediaMotionFps = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_FPS",
+        defaultValue: 15
+    )
+    static let ownedMediaMotionFrameAgeMs = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_FRAME_AGE_MS",
+        defaultValue: 80
+    )
+    static let ownedMediaMotionBacklogFrames = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_BACKLOG_FRAMES",
+        defaultValue: 1
+    )
+    static let ownedMediaMotionInflightBytes = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_INFLIGHT_BYTES",
+        defaultValue: 120_000
+    )
+    static let ownedMediaRestBudgetHoldMs = nonNegativeInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_REST_BUDGET_HOLD_MS",
+        defaultValue: 500
+    )
     static let ownedMediaKeyframeIntervalFrames = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES",
         defaultValue: 120
@@ -272,6 +301,23 @@ enum Config {
             return defaultValue
         }
         return value
+    }
+    static func enabledFlag(
+        environmentKey: String,
+        defaultValue: Bool,
+        environment: [String: String]
+    ) -> Bool {
+        guard let raw = environment[environmentKey]?.lowercased() else {
+            return defaultValue
+        }
+        switch raw {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
+        default:
+            return defaultValue
+        }
     }
     static let gestureChildExecutableURL: URL? = {
         guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_GESTURE_CHILD_PATH"],

@@ -887,6 +887,111 @@ enum OwnedMediaCadenceMode: Equatable {
     case draining
 }
 
+enum OwnedMediaEncodeBudgetMode: String, Equatable, Sendable {
+    case rest
+    case motion
+}
+
+struct OwnedMediaEncodeBudget: Equatable, Sendable {
+    let mode: OwnedMediaEncodeBudgetMode
+    let bitrateKbps: Int
+    let expectedFrameRate: Int
+}
+
+struct OwnedMediaMotionBudgetPolicy: Equatable, Sendable {
+    let enabled: Bool
+    let restBitrateKbps: Int
+    let restFps: Int
+    let motionBitrateKbps: Int
+    let motionFps: Int
+    let motionFrameAgeMs: Double
+    let motionBacklogFrames: Int
+    let motionInflightBytes: Int
+    let restBudgetHoldMs: Int
+
+    var restBudget: OwnedMediaEncodeBudget {
+        OwnedMediaEncodeBudget(
+            mode: .rest,
+            bitrateKbps: restBitrateKbps,
+            expectedFrameRate: restFps
+        )
+    }
+
+    var motionBudget: OwnedMediaEncodeBudget {
+        OwnedMediaEncodeBudget(
+            mode: .motion,
+            bitrateKbps: motionBitrateKbps,
+            expectedFrameRate: motionFps
+        )
+    }
+
+    func choose(
+        mode: OwnedMediaCadenceMode,
+        frameAgeMs: Double,
+        backlogFrames: Int,
+        unacknowledgedBytes: Int,
+        lastMotionBudgetAtUptimeNs: UInt64?,
+        nowUptimeNs: UInt64
+    ) -> OwnedMediaEncodeBudget {
+        guard enabled else { return restBudget }
+        if mode == .behind || mode == .draining ||
+            frameAgeMs >= motionFrameAgeMs ||
+            backlogFrames >= motionBacklogFrames ||
+            unacknowledgedBytes >= motionInflightBytes {
+            return motionBudget
+        }
+        guard let lastMotionBudgetAtUptimeNs else { return restBudget }
+        let holdNs = UInt64(max(restBudgetHoldMs, 0)) * 1_000_000
+        if nowUptimeNs >= lastMotionBudgetAtUptimeNs &&
+            nowUptimeNs - lastMotionBudgetAtUptimeNs < holdNs {
+            return motionBudget
+        }
+        return restBudget
+    }
+}
+
+struct OwnedMediaMotionBudgetState: Equatable {
+    private(set) var lastMotionBudgetAtUptimeNs: UInt64?
+
+    mutating func choose(
+        policy: OwnedMediaMotionBudgetPolicy,
+        mode: OwnedMediaCadenceMode,
+        frameAgeMs: Double,
+        backlogFrames: Int,
+        unacknowledgedBytes: Int,
+        nowUptimeNs: UInt64
+    ) -> OwnedMediaEncodeBudget {
+        let budget = policy.choose(
+            mode: mode,
+            frameAgeMs: frameAgeMs,
+            backlogFrames: backlogFrames,
+            unacknowledgedBytes: unacknowledgedBytes,
+            lastMotionBudgetAtUptimeNs: lastMotionBudgetAtUptimeNs,
+            nowUptimeNs: nowUptimeNs
+        )
+        if budget.mode == .motion {
+            lastMotionBudgetAtUptimeNs = nowUptimeNs
+        }
+        return budget
+    }
+}
+
+struct OwnedMediaAppliedEncodeBudget: Equatable {
+    private(set) var budget: OwnedMediaEncodeBudget?
+
+    func shouldApply(_ next: OwnedMediaEncodeBudget) -> Bool {
+        budget != next
+    }
+
+    mutating func noteApplied(_ next: OwnedMediaEncodeBudget) {
+        budget = next
+    }
+
+    mutating func reset() {
+        budget = nil
+    }
+}
+
 enum OwnedMediaKeyframeReason: String, Equatable, Sendable {
     case initial
     case periodic

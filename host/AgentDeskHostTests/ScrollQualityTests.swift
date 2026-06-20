@@ -168,6 +168,146 @@ struct ScrollQualityTests {
         #expect(admission.encodeIntervalMs(config: backpressure) == 200)
     }
 
+    @Test func ownedMediaMotionBudgetStaysRestWhenDisabled() {
+        let policy = OwnedMediaMotionBudgetPolicy(
+            enabled: false,
+            restBitrateKbps: 8_000,
+            restFps: 30,
+            motionBitrateKbps: 5_000,
+            motionFps: 15,
+            motionFrameAgeMs: 80,
+            motionBacklogFrames: 1,
+            motionInflightBytes: 120_000,
+            restBudgetHoldMs: 500
+        )
+
+        let budget = policy.choose(
+            mode: .behind,
+            frameAgeMs: 200,
+            backlogFrames: 2,
+            unacknowledgedBytes: 200_000,
+            lastMotionBudgetAtUptimeNs: nil,
+            nowUptimeNs: 1_000_000_000
+        )
+
+        #expect(budget.mode == .rest)
+        #expect(budget.bitrateKbps == 8_000)
+        #expect(budget.expectedFrameRate == 30)
+    }
+
+    @Test func ownedMediaMotionBudgetTurnsOnForBehindFrameAge() {
+        let policy = Self.motionBudgetPolicy()
+
+        let budget = policy.choose(
+            mode: .behind,
+            frameAgeMs: 90,
+            backlogFrames: 0,
+            unacknowledgedBytes: 0,
+            lastMotionBudgetAtUptimeNs: nil,
+            nowUptimeNs: 1_000_000_000
+        )
+
+        #expect(budget.mode == .motion)
+        #expect(budget.bitrateKbps == 5_000)
+        #expect(budget.expectedFrameRate == 15)
+    }
+
+    @Test func ownedMediaMotionBudgetTurnsOnForBacklogOrInflightBytes() {
+        let policy = Self.motionBudgetPolicy()
+
+        let backlog = policy.choose(
+            mode: .normal,
+            frameAgeMs: 20,
+            backlogFrames: 1,
+            unacknowledgedBytes: 0,
+            lastMotionBudgetAtUptimeNs: nil,
+            nowUptimeNs: 1_000_000_000
+        )
+        let bytes = policy.choose(
+            mode: .normal,
+            frameAgeMs: 20,
+            backlogFrames: 0,
+            unacknowledgedBytes: 130_000,
+            lastMotionBudgetAtUptimeNs: nil,
+            nowUptimeNs: 1_100_000_000
+        )
+
+        #expect(backlog.mode == .motion)
+        #expect(bytes.mode == .motion)
+    }
+
+    @Test func ownedMediaMotionBudgetHoldsBeforeReturningToRest() {
+        let policy = Self.motionBudgetPolicy()
+
+        let held = policy.choose(
+            mode: .normal,
+            frameAgeMs: 20,
+            backlogFrames: 0,
+            unacknowledgedBytes: 0,
+            lastMotionBudgetAtUptimeNs: 1_000_000_000,
+            nowUptimeNs: 1_300_000_000
+        )
+        let restored = policy.choose(
+            mode: .normal,
+            frameAgeMs: 20,
+            backlogFrames: 0,
+            unacknowledgedBytes: 0,
+            lastMotionBudgetAtUptimeNs: 1_000_000_000,
+            nowUptimeNs: 1_501_000_000
+        )
+
+        #expect(held.mode == .motion)
+        #expect(restored.mode == .rest)
+    }
+
+    @Test func ownedMediaMotionBudgetConfigParsesBooleanAndThresholds() {
+        #expect(Config.enabledFlag(environmentKey: "MISSING", defaultValue: true, environment: [:]))
+        #expect(!Config.enabledFlag(environmentKey: "FLAG", defaultValue: true, environment: ["FLAG": "0"]))
+        #expect(!Config.enabledFlag(environmentKey: "FLAG", defaultValue: true, environment: ["FLAG": "false"]))
+        #expect(Config.enabledFlag(environmentKey: "FLAG", defaultValue: false, environment: ["FLAG": "1"]))
+        #expect(Config.enabledFlag(environmentKey: "FLAG", defaultValue: false, environment: ["FLAG": "true"]))
+    }
+
+    @Test func ownedMediaMotionBudgetStateRecordsLastMotionUse() {
+        var state = OwnedMediaMotionBudgetState()
+        let policy = Self.motionBudgetPolicy()
+
+        let motion = state.choose(
+            policy: policy,
+            mode: .behind,
+            frameAgeMs: 120,
+            backlogFrames: 1,
+            unacknowledgedBytes: 130_000,
+            nowUptimeNs: 1_000_000_000
+        )
+        let held = state.choose(
+            policy: policy,
+            mode: .normal,
+            frameAgeMs: 20,
+            backlogFrames: 0,
+            unacknowledgedBytes: 0,
+            nowUptimeNs: 1_300_000_000
+        )
+
+        #expect(motion.mode == .motion)
+        #expect(held.mode == .motion)
+        #expect(state.lastMotionBudgetAtUptimeNs == 1_300_000_000)
+    }
+
+    @Test func ownedMediaEncoderBudgetApplicationSkipsUnchangedBudget() {
+        var applied = OwnedMediaAppliedEncodeBudget()
+        let rest = OwnedMediaEncodeBudget(mode: .rest, bitrateKbps: 8_000, expectedFrameRate: 30)
+        let motion = OwnedMediaEncodeBudget(mode: .motion, bitrateKbps: 5_000, expectedFrameRate: 15)
+
+        #expect(applied.shouldApply(rest))
+        applied.noteApplied(rest)
+        #expect(!applied.shouldApply(rest))
+        #expect(applied.shouldApply(motion))
+
+        applied.reset()
+        #expect(applied.shouldApply(rest))
+    }
+
     @Test func ownedMediaCadenceSchedulerUsesAdmissionStartNotSendEnd() {
         var scheduler = OwnedMediaCadenceScheduler()
         scheduler.noteAdmissionStarted(atUptimeNs: 1_000_000_000)
@@ -832,6 +972,20 @@ struct ScrollQualityTests {
             normalMaxUnackedFrames: 2,
             behindMaxUnackedFrames: 1,
             staleUnackedMs: 350
+        )
+    }
+
+    private static func motionBudgetPolicy() -> OwnedMediaMotionBudgetPolicy {
+        OwnedMediaMotionBudgetPolicy(
+            enabled: true,
+            restBitrateKbps: 8_000,
+            restFps: 30,
+            motionBitrateKbps: 5_000,
+            motionFps: 15,
+            motionFrameAgeMs: 80,
+            motionBacklogFrames: 1,
+            motionInflightBytes: 120_000,
+            restBudgetHoldMs: 500
         )
     }
 }
