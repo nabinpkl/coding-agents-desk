@@ -10,6 +10,7 @@ ios_sim_udid := env_var_or_default("AGENTDESK_IOS_SIM_UDID", "00000000-0000-4000
 iphone_log_archive := env_var_or_default("AGENTDESK_IPHONE_LOG_ARCHIVE", "/tmp/agentdesk-client.logarchive")
 iphone_log_minutes := env_var_or_default("AGENTDESK_IPHONE_LOG_MINUTES", "5")
 iphone_console_log := env_var_or_default("AGENTDESK_IPHONE_CONSOLE_LOG", "/tmp/agentdesk-client-console.log")
+sim_console_log := env_var_or_default("AGENTDESK_SIM_CONSOLE_LOG", "/tmp/agentdesk-sim-console.log")
 iphone_log_device_udid := env_var_or_default("AGENTDESK_IOS_DEVICE_UDID", "")
 last_pair_url_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.last-pair-url"
 host_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskHost-gmjyarrzlrjgctfcursfnnulwzfg/Build/Products/Debug/AgentDeskHost.app"
@@ -188,6 +189,21 @@ pair-sim:
         SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost \
         xcrun simctl launch --terminate-running-process {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient
 
+# Pair-launch the simulator client with stdout/stderr attached. This is
+# the simulator mirror of `iphone-console-run`: it blocks until the app exits
+# and tees owned-media stderr traces into {{sim_console_log}}. Maestro flows
+# used with this recipe must not include `launchApp`, because relaunching the
+# app drops the explicit pairing URL and simulator-only localhost override.
+sim-console-run:
+    @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
+    rm -f "{{last_pair_url_path}}" "{{sim_console_log}}"
+    kill -USR1 $(pgrep -f AgentDeskHost)
+    @i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
+    @echo "URL: $(cat '{{last_pair_url_path}}')"
+    xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
+    bash -o pipefail -c 'URL="$(cat "{{last_pair_url_path}}")"; SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost SIMCTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE=1 xcrun simctl launch --console --terminate-running-process {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient "$URL" 2>&1 | tee "{{sim_console_log}}"'
+
 # Rebuild and relaunch the Mac host, uninstall and reinstall the iOS
 # app on the simulator, then pair and open it. Use after changes that
 # affect either side's install-time metadata, or when you want a
@@ -198,6 +214,14 @@ sim-fresh-install:
     just host-run
     just client-sim-reinstall
     just pair-sim
+
+# Rebuild and relaunch the Mac host, uninstall/reinstall the simulator app,
+# then pair-launch with stdout/stderr attached. This is the default simulator
+# feel-test path when an agent needs to inspect client owned-media logs.
+fresh-sim-consoled-run:
+    just host-run
+    just client-sim-reinstall
+    just sim-console-run
 
 # Drive the iPhone simulator with a Maestro flow. Maestro is the standard
 # tool for declarative iOS UI automation (Playwright-equivalent for mobile);

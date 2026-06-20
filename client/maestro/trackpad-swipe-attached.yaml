@@ -1,0 +1,16 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- extendedWaitUntil:
+    visible: "Trackpad"
+    timeout: 20000
+# Use with `just fresh-sim-consoled-run` already running in another shell.
+# This flow intentionally does not launch the app, because launchApp drops
+# the pairing URL and simulator-only localhost override needed by the
+# attached console run.
+- swipe:
+    start: 30%, 75%
+    end: 70%, 75%
+    duration: 500
+- waitForAnimationToEnd:
+    timeout: 1000
+- takeScreenshot: after-attached-swipe
