@@ -7,17 +7,20 @@ import Security
 final class OwnedMediaTransportFactory: MediaTransportFactory {
     private let host: String
     private let port: UInt16
+    private let graphicsPort: UInt16
     private let active: ActiveSession
     private let mediaCapability: MediaCapabilityGrant
 
     init(
         host: String,
         port: UInt16,
+        graphicsPort: UInt16 = Config.graphicsPort,
         active: ActiveSession,
         mediaCapability: MediaCapabilityGrant
     ) {
         self.host = host
         self.port = port
+        self.graphicsPort = graphicsPort
         self.active = active
         self.mediaCapability = mediaCapability
     }
@@ -26,9 +29,116 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
         OwnedMediaTransport(
             host: host,
             port: port,
+            graphicsPort: graphicsPort,
             active: active,
             mediaCapability: mediaCapability
         )
+    }
+}
+
+final class OwnedGraphicsTransport: @unchecked Sendable {
+    private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "owned-graphics")
+    private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.client.owned-graphics-quic")
+    private let plan: ClientGraphicsConnectionPlan
+    private let active: ActiveSession
+    private let mediaCapability: MediaCapabilityGrant
+    private var connection: NWConnection?
+
+    init(
+        plan: ClientGraphicsConnectionPlan,
+        active: ActiveSession,
+        mediaCapability: MediaCapabilityGrant
+    ) {
+        self.plan = plan
+        self.active = active
+        self.mediaCapability = mediaCapability
+    }
+
+    func start() async throws {
+        guard let endpointPort = NWEndpoint.Port(rawValue: self.plan.port) else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let connection = NWConnection(
+            host: NWEndpoint.Host(self.plan.host),
+            port: endpointPort,
+            using: Self.makeReliableQuicParameters(alpn: self.plan.alpn)
+        )
+        self.connection = connection
+        connection.stateUpdateHandler = { [weak self] state in
+            self?.logger.notice("owned graphics quic state=\(String(describing: state), privacy: .public)")
+        }
+        connection.start(queue: self.queue)
+
+        let clientNonce = try Self.randomBytes(count: 32)
+        let hello = ClientGraphicsChannelHandshake.makeHello(
+            active: self.active,
+            mediaCapability: self.mediaCapability,
+            clientNonce: clientNonce
+        )
+        try await self.send(JSONEncoder().encode(hello), on: connection)
+        _ = try await self.receiveReady(expectedSessionId: self.active.sessionId, on: connection)
+        self.logger.notice("owned graphics quic ready port=\(Int(self.plan.port), privacy: .public)")
+    }
+
+    func stop() {
+        self.connection?.cancel()
+        self.connection = nil
+    }
+
+    private func receiveReady(
+        expectedSessionId: String,
+        on connection: NWConnection
+    ) async throws -> GraphicsChannelReady {
+        let data = try await receive(on: connection)
+        let ready = try JSONDecoder().decode(GraphicsChannelReady.self, from: data)
+        return try ClientGraphicsChannelHandshake.validateReady(ready, expectedSessionId: expectedSessionId)
+    }
+
+    private func send(_ data: Data, on connection: NWConnection) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            connection.send(content: data, completion: .contentProcessed { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            })
+        }
+    }
+
+    private func receive(on connection: NWConnection) async throws -> Data {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 4_096) { data, _, _, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let data, !data.isEmpty {
+                    continuation.resume(returning: data)
+                } else {
+                    continuation.resume(throwing: SessionRejected(reason: .malformed))
+                }
+            }
+        }
+    }
+
+    private static func randomBytes(count: Int) throws -> Data {
+        var bytes = [UInt8](repeating: 0, count: count)
+        let status = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
+        guard status == errSecSuccess else {
+            throw SessionRejected(reason: .malformed)
+        }
+        return Data(bytes)
+    }
+
+    private static func makeReliableQuicParameters(alpn: String) -> NWParameters {
+        let options = NWProtocolQUIC.Options(alpn: [alpn])
+        options.direction = .bidirectional
+        options.isDatagram = false
+        #if DEBUG
+        sec_protocol_options_set_verify_block(options.securityProtocolOptions, { _, _, complete in
+            complete(true)
+        }, DispatchQueue.main)
+        #endif
+        return NWParameters(quic: options)
     }
 }
 
@@ -41,20 +151,25 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.client.owned-media-quic")
     private let host: String
     private let port: UInt16
+    private let graphicsPort: UInt16
     private let active: ActiveSession
     private let mediaCapability: MediaCapabilityGrant
     private var connection: NWConnection?
+    private var graphicsTransport: OwnedGraphicsTransport?
+    private var graphicsTask: Task<Void, Never>?
     private var receiveTask: Task<Void, Never>?
     private weak var sink: (any OwnedMediaFrameSink)?
 
     init(
         host: String,
         port: UInt16,
+        graphicsPort: UInt16 = Config.graphicsPort,
         active: ActiveSession,
         mediaCapability: MediaCapabilityGrant
     ) {
         self.host = host
         self.port = port
+        self.graphicsPort = graphicsPort
         self.active = active
         self.mediaCapability = mediaCapability
         var continuation: AsyncStream<MediaConnectionState>.Continuation!
@@ -101,18 +216,41 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             serverNonce: ready.serverNonce
         )
         stateContinuation.yield(.connected)
+        startGraphicsChannel()
         receiveTask = Task { [weak self, connection] in
             await self?.receiveLoop(connection: connection, key: key)
         }
     }
 
     func stop() {
+        graphicsTask?.cancel()
+        graphicsTask = nil
+        graphicsTransport?.stop()
+        graphicsTransport = nil
         receiveTask?.cancel()
         receiveTask = nil
         connection?.cancel()
         connection = nil
         stateContinuation.yield(.closed)
         stateContinuation.finish()
+    }
+
+    private func startGraphicsChannel() {
+        let transport = OwnedGraphicsTransport(
+            plan: ClientGraphicsConnectionPlan(host: host, port: graphicsPort),
+            active: active,
+            mediaCapability: mediaCapability
+        )
+        graphicsTransport = transport
+        graphicsTask = Task { [weak self, transport] in
+            do {
+                try await transport.start()
+            } catch is CancellationError {
+                return
+            } catch {
+                self?.logger.error("owned graphics quic connect failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     private func receiveLoop(connection: NWConnection, key: SymmetricKey) async {

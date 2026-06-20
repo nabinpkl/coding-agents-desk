@@ -26,6 +26,56 @@ enum MediaTransportError: Error {
     case notYetImplemented
 }
 
+struct ClientGraphicsConnectionPlan: Equatable {
+    let host: String
+    let port: UInt16
+    let alpn: String
+    let usesDatagrams: Bool
+
+    init(
+        host: String,
+        port: UInt16 = Config.graphicsPort,
+        alpn: String = ClientGraphicsChannelHandshake.quicALPN,
+        usesDatagrams: Bool = false
+    ) {
+        self.host = host
+        self.port = port
+        self.alpn = alpn
+        self.usesDatagrams = usesDatagrams
+    }
+}
+
+enum ClientGraphicsChannelHandshake {
+    static let quicALPN = "agentdesk-owned-graphics"
+
+    static func graphicsCapability(from mediaCapability: String) -> String {
+        "owned-graphics:\(mediaCapability)"
+    }
+
+    static func makeHello(
+        active: ActiveSession,
+        mediaCapability: MediaCapabilityGrant,
+        clientNonce: Data
+    ) -> GraphicsChannelHello {
+        GraphicsChannelHello(
+            deviceFingerprint: active.deviceFingerprint,
+            sessionId: active.sessionId,
+            graphicsCapability: graphicsCapability(from: mediaCapability.mediaCapability),
+            clientNonce: clientNonce
+        )
+    }
+
+    static func validateReady(
+        _ ready: GraphicsChannelReady,
+        expectedSessionId: String
+    ) throws -> GraphicsChannelReady {
+        guard ready.sessionId == expectedSessionId, !ready.serverNonce.isEmpty else {
+            throw SessionRejected(reason: .malformed)
+        }
+        return ready
+    }
+}
+
 final class MediaDatagramFrameRepairBuffer {
     private struct PendingFrame {
         let frameId: UInt64

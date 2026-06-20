@@ -372,6 +372,57 @@ struct InputChannelTests {
         #expect(readyJson.contains("\"sn\""))
     }
 
+    @Test func graphicsConnectionPlanUsesGraphicsPortAndReliableQuic() {
+        let plan = ClientGraphicsConnectionPlan(host: "mac.tailnet.test")
+
+        #expect(plan.host == "mac.tailnet.test")
+        #expect(plan.port == Config.graphicsPort)
+        #expect(plan.port != Config.signalingPort)
+        #expect(plan.alpn == ClientGraphicsChannelHandshake.quicALPN)
+        #expect(!plan.usesDatagrams)
+    }
+
+    @Test func graphicsHelloUsesActiveSessionAndDerivedMediaCapability() {
+        let active = ActiveSession(
+            sessionId: "session-123",
+            deviceFingerprint: DeviceFingerprint("device-fp"),
+            establishedAt: 1_800_000_000
+        )
+        let mediaCapability = MediaCapabilityGrant(
+            sessionId: "session-123",
+            mediaCapability: "media-capability",
+            mediaCapabilityExpiresAt: 1_800_000_060
+        )
+        let hello = ClientGraphicsChannelHandshake.makeHello(
+            active: active,
+            mediaCapability: mediaCapability,
+            clientNonce: Data([1, 2, 3, 4])
+        )
+
+        #expect(hello.deviceFingerprint == active.deviceFingerprint)
+        #expect(hello.sessionId == active.sessionId)
+        #expect(hello.graphicsCapability == "owned-graphics:media-capability")
+        #expect(hello.clientNonce == Data([1, 2, 3, 4]))
+    }
+
+    @Test func graphicsReadyValidationRejectsWrongSessionOrEmptyNonce() throws {
+        let ready = GraphicsChannelReady(sessionId: "session-123", serverNonce: Data([4, 5, 6]))
+        #expect(try ClientGraphicsChannelHandshake.validateReady(ready, expectedSessionId: "session-123") == ready)
+
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try ClientGraphicsChannelHandshake.validateReady(
+                GraphicsChannelReady(sessionId: "other-session", serverNonce: Data([4, 5, 6])),
+                expectedSessionId: "session-123"
+            )
+        }
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try ClientGraphicsChannelHandshake.validateReady(
+                GraphicsChannelReady(sessionId: "session-123", serverNonce: Data()),
+                expectedSessionId: "session-123"
+            )
+        }
+    }
+
     @Test func graphicsFrameHeaderRoundTripsThroughCodable() throws {
         let header = OwnedGraphicsFrameHeader(
             surfaceGeneration: 9,
