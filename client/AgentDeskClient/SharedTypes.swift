@@ -862,9 +862,9 @@ struct OwnedGraphicsFrameEnvelope: Equatable {
               data.count == payloadEnd else {
             throw SessionRejected(reason: .malformed)
         }
-        let metadataData = data[metadataStart..<metadataEnd]
+        let metadataData = Data(data[metadataStart..<metadataEnd])
         let metadata = try JSONDecoder().decode(OwnedGraphicsFrameMetadata.self, from: metadataData)
-        let payload = data[metadataEnd..<payloadEnd]
+        let payload = Data(data[metadataEnd..<payloadEnd])
         let envelope = OwnedGraphicsFrameEnvelope(
             header: metadata.header,
             commands: metadata.commands,

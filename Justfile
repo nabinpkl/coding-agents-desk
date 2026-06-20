@@ -13,9 +13,10 @@ iphone_console_log := env_var_or_default("AGENTDESK_IPHONE_CONSOLE_LOG", "/tmp/a
 sim_console_log := env_var_or_default("AGENTDESK_SIM_CONSOLE_LOG", "/tmp/agentdesk-sim-console.log")
 iphone_log_device_udid := env_var_or_default("AGENTDESK_IOS_DEVICE_UDID", "")
 last_pair_url_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.last-pair-url"
-host_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskHost-gmjyarrzlrjgctfcursfnnulwzfg/Build/Products/Debug/AgentDeskHost.app"
-client_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskClient-asnebogtvhgngpdusosdqtlwsphl/Build/Products/Debug-iphoneos/AgentDeskClient.app"
-client_sim_app := env_var_or_default("HOME", "") + "/Library/Developer/Xcode/DerivedData/AgentDeskClient-asnebogtvhgngpdusosdqtlwsphl/Build/Products/Debug-iphonesimulator/AgentDeskClient.app"
+derived_data := env_var_or_default("AGENTDESK_DERIVED_DATA_PATH", justfile_directory() + "/.build/DerivedData")
+host_app := derived_data + "/Build/Products/Debug/AgentDeskHost.app"
+client_app := derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
+client_sim_app := derived_data + "/Build/Products/Debug-iphonesimulator/AgentDeskClient.app"
 client_archive_path := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_PATH", "/tmp/AgentDeskClient.xcarchive")
 client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.0")
 client_build_number := env_var_or_default("AGENTDESK_CLIENT_BUILD", "1")
@@ -23,8 +24,8 @@ client_build_number := env_var_or_default("AGENTDESK_CLIENT_BUILD", "1")
 check:
     sh tools/media-architecture-guard.sh
     sh tools/launch-env-tests.sh
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost build test
-    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -derivedDataPath '{{derived_data}}' build test
+    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
 
 dev:
     open host/AgentDeskHost.xcodeproj
@@ -79,7 +80,7 @@ iphone-log-collect:
 # AGENTDESK_GRAPHICS_PORT and AGENTDESK_HYBRID_* in .env.example; those
 # knobs become active when the graphics stream and cadence wiring land.
 host-run:
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug build >/dev/null
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' build >/dev/null
     -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
     sleep 1
     AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
@@ -90,7 +91,7 @@ host-run:
 
 # Build client Debug for the iPhone and install (does not launch).
 client-install:
-    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -destination 'platform=iOS,id={{ios_device}}' build >/dev/null
+    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' build >/dev/null
     xcrun devicectl device install app --device {{ios_device}} "{{client_app}}"
 
 # Uninstall + clean install. iOS caches device-family and other bundle
@@ -153,7 +154,7 @@ fresh-hybrid-consoled-run:
 # physical device.
 client-sim-install:
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
-    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' build >/dev/null
+    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' build >/dev/null
     xcrun simctl install {{ios_sim_udid}} "{{client_sim_app}}"
 
 # Uninstall + clean install on the simulator. Same reasoning as
@@ -245,6 +246,7 @@ client-archive:
     # Override per upload: AGENTDESK_CLIENT_VERSION=1.0 AGENTDESK_CLIENT_BUILD=2 just client-archive
     xcodebuild -project client/AgentDeskClient.xcodeproj \
         -scheme AgentDeskClient \
+        -derivedDataPath '{{derived_data}}' \
         -configuration Release \
         -destination 'generic/platform=iOS' \
         -archivePath '{{client_archive_path}}' \

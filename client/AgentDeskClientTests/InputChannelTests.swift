@@ -549,6 +549,7 @@ struct InputChannelTests {
 
         let decoded = try OwnedGraphicsFrameEnvelope.decode(encoded)
         #expect(decoded == envelope)
+        #expect(decoded.payload.startIndex == 0)
         #expect(decoded.header.updateId == OwnedSurfaceUpdateId(surfaceGeneration: 2, frameId: 11))
     }
 
