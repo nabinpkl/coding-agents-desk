@@ -1,0 +1,198 @@
+#!/usr/bin/env sh
+set -eu
+
+client_log="${1:-/tmp/agentdesk-client-console.log}"
+host_log="${2:-}"
+
+if [ -f "$client_log" ]; then
+    client_source="$client_log"
+else
+    client_source="/dev/null"
+fi
+
+if [ -n "$host_log" ] && [ -f "$host_log" ]; then
+    host_source="$host_log"
+else
+    host_source="/dev/null"
+fi
+
+echo "Hybrid graphics diagnostics summary"
+echo "clientLog=$client_log"
+if [ -n "$host_log" ]; then
+    echo "hostLog=$host_log"
+else
+    echo "hostLog=(none)"
+fi
+echo
+
+perl -ne '
+    sub max_value {
+        my ($name, $value) = @_;
+        $max{$name} = $value if !defined($max{$name}) || $value > $max{$name};
+    }
+
+    $graphicsFrame++ if /graphics-frame /;
+    $graphicsFrameFailed++ if /graphics-frame-failed /;
+    $graphicsAck++ if /graphics-ack /;
+    $graphicsResetRequest++ if /graphics-reset-request(?: |-|$)/;
+    $graphicsResetDropped++ if /graphics-reset-request-dropped /;
+    $graphicsResetFailed++ if /graphics-reset-request-failed /;
+    $graphicsReconnect++ if /owned graphics quic (ready|state=.*ready|state=.*preparing|state=.*setup)/;
+    $graphicsDisconnect++ if /owned graphics quic (receive failed|connect failed|state=.*(failed|cancelled|waiting))/ ||
+        /graphics-reset-request-(dropped|failed).*Socket is not connected/;
+    $hevcComplete++ if /complete .*bytes=/;
+    $hevcAck++ if /frame-ack /;
+    $hevcRender++ if /render /;
+    $drainHint++ if /action=(flush|reset|drop|failed)/;
+
+    if (/copyRects=([0-9]+)/) {
+        $copyRects += $1;
+        max_value("copyRects", $1);
+    }
+    if (/tileBytes=([0-9]+)/) {
+        $tileBytes += $1;
+        max_value("tileBytes", $1);
+    }
+    if (/graphics-frame .*bytes=([0-9]+)/) {
+        $graphicsBytes += $1;
+        max_value("graphicsBytes", $1);
+    }
+    if (/complete .*bytes=([0-9]+)/) {
+        $hevcBytes += $1;
+        max_value("hevcBytes", $1);
+    }
+    if (/complete .*packets=([0-9]+)/) {
+        $hevcPackets += $1;
+        max_value("hevcPackets", $1);
+        $hevcPacketFramesOver100++ if $1 >= 100;
+    }
+    if (/compositorMs=([0-9.]+)/) {
+        $graphicsCompositorCount++;
+        $graphicsCompositorTotal += $1;
+        max_value("graphicsCompositorMs", $1);
+    }
+    if (/graphicsAckRttMs=([0-9.]+)/ || /graphics.*ackRttMs=([0-9.]+)/) {
+        $graphicsAckRttCount++;
+        max_value("graphicsAckRttMs", $1);
+    }
+    if (/(?:graphicsQueueDepth|queueDepth|queuedFrames)=([0-9]+)/) {
+        $graphicsQueueSamples++;
+        max_value("graphicsQueueFrames", $1);
+    }
+    if (/(?:graphicsQueueBytes|queueDepthBytes|queuedBytes)=([0-9]+)/) {
+        $graphicsQueueByteSamples++;
+        max_value("graphicsQueueBytes", $1);
+    }
+    if (/backlogFrames=([0-9]+)/) {
+        $hevcBacklogSamples++;
+        max_value("hevcBacklogFrames", $1);
+    }
+    if (/backlogBytes=([0-9]+)/) {
+        max_value("hevcBacklogBytes", $1);
+    }
+    if (/renderGapMs=([0-9.]+)/) {
+        max_value("renderGapMs", $1);
+    }
+
+    END {
+        my $avgCompositor = $graphicsCompositorCount ? $graphicsCompositorTotal / $graphicsCompositorCount : 0;
+        printf "client graphics frames=%d failed=%d acks=%d copyRects=%d maxCopyRects=%d tileBytes=%d maxTileBytes=%d payloadBytes=%d\n",
+            $graphicsFrame||0, $graphicsFrameFailed||0, $graphicsAck||0, $copyRects||0, $max{"copyRects"}||0, $tileBytes||0, $max{"tileBytes"}||0, $graphicsBytes||0;
+        printf "client graphics resetRequests=%d dropped=%d failed=%d reconnectHints=%d disconnectHints=%d\n",
+            $graphicsResetRequest||0, $graphicsResetDropped||0, $graphicsResetFailed||0, $graphicsReconnect||0, $graphicsDisconnect||0;
+        printf "client graphics timing compositorSamples=%d avgCompositorMs=%.2f maxCompositorMs=%.2f ackRttSamples=%d maxAckRttMs=%.2f\n",
+            $graphicsCompositorCount||0, $avgCompositor, $max{"graphicsCompositorMs"}||0, $graphicsAckRttCount||0, $max{"graphicsAckRttMs"}||0;
+        printf "client graphics queue samples=%d maxFrames=%d byteSamples=%d maxBytes=%d\n",
+            $graphicsQueueSamples||0, $max{"graphicsQueueFrames"}||0, $graphicsQueueByteSamples||0, $max{"graphicsQueueBytes"}||0;
+        printf "client hevc complete=%d render=%d frameAck=%d bytes=%d maxBytes=%d packets=%d maxPackets=%d framesOver100Packets=%d\n",
+            $hevcComplete||0, $hevcRender||0, $hevcAck||0, $hevcBytes||0, $max{"hevcBytes"}||0, $hevcPackets||0, $max{"hevcPackets"}||0, $hevcPacketFramesOver100||0;
+        printf "client hevc backlogSamples=%d maxBacklogFrames=%d maxBacklogBytes=%d maxRenderGapMs=%.2f drainHints=%d\n",
+            $hevcBacklogSamples||0, $max{"hevcBacklogFrames"}||0, $max{"hevcBacklogBytes"}||0, $max{"renderGapMs"}||0, $drainHint||0;
+    }
+' "$client_source"
+
+echo
+
+perl -ne '
+    sub max_value {
+        my ($name, $value) = @_;
+        $max{$name} = $value if !defined($max{$name}) || $value > $max{$name};
+    }
+
+    $scrollAccepted++ if /owned graphics scroll-accepted/;
+    $scrollRejected++ if /owned graphics scroll-rejected/;
+    $scrollTimeout++ if /owned graphics scroll-timeout/;
+    $graphicsResetFrame++ if /owned graphics reset frame=/;
+    $graphicsResetQueued++ if /owned graphics reset queued/;
+    $graphicsResetConsumed++ if /owned graphics reset consumed/;
+    $graphicsResetSendFailed++ if /owned graphics reset send failed/;
+    $graphicsReconnect++ if /owned graphics quic (accepted|connection state=.*ready|listener state=.*ready|connection state=.*preparing|connection state=.*setup)/;
+    $graphicsDisconnect++ if /owned graphics quic (connection state=.*(failed|cancelled|waiting)|hello receive failed|hello failed|listener failed)/ ||
+        /owned graphics .*send failed.*Socket is not connected/;
+    $hostFrame++ if /owned media host-frame frame=/;
+    $hostAck++ if /owned media host-frame-ack/;
+    $drainEnter++ if /owned media drain-enter/;
+    $drainExit++ if /owned media drain-exit/;
+    $admissionHold++ if /owned media admission-hold/;
+
+    if (/owned graphics scroll-accepted .*commands=([0-9]+)/) {
+        $graphicsCommands += $1;
+        max_value("graphicsCommands", $1);
+    }
+    if (/owned graphics (?:scroll-accepted|reset) .*payloadBytes=([0-9]+)/) {
+        $graphicsPayloadBytes += $1;
+        max_value("graphicsPayloadBytes", $1);
+    }
+    if (/owned media host-frame .*bytes=([0-9]+)/) {
+        $hevcBytes += $1;
+        max_value("hevcBytes", $1);
+    }
+    if (/owned media host-frame .*packets=([0-9]+)/) {
+        $hevcPackets += $1;
+        max_value("hevcPackets", $1);
+        $hevcPacketFramesOver100++ if $1 >= 100;
+    }
+    if (/ackRttMs=([0-9.]+)/) {
+        $ackRttCount++;
+        max_value("ackRttMs", $1);
+    }
+    if (/captureToAckMs=([0-9.]+)/) {
+        max_value("captureToAckMs", $1);
+    }
+    if (/renderGapMs=([0-9.]+)/) {
+        max_value("renderGapMs", $1);
+    }
+    if (/unacked=([0-9]+)/) {
+        max_value("unackedFrames", $1);
+    }
+    if (/owned media host-frame-ack .*bytes=([0-9]+)/ || /owned media admission-state .*bytes=([0-9]+)/) {
+        max_value("unackedBytes", $1);
+    }
+    if (/owned media admission-hold/ && /reason=([^[:space:]]+)/) {
+        my $reason = $1;
+        $holdReasons{$reason}++;
+    }
+
+    END {
+        printf "host scroll accepted=%d rejected=%d timeout=%d\n",
+            $scrollAccepted||0, $scrollRejected||0, $scrollTimeout||0;
+        printf "host graphics resets=%d queued=%d consumed=%d sendFailed=%d reconnectHints=%d disconnectHints=%d commands=%d maxCommands=%d payloadBytes=%d maxPayloadBytes=%d\n",
+            $graphicsResetFrame||0, $graphicsResetQueued||0, $graphicsResetConsumed||0, $graphicsResetSendFailed||0,
+            $graphicsReconnect||0, $graphicsDisconnect||0, $graphicsCommands||0, $max{"graphicsCommands"}||0,
+            $graphicsPayloadBytes||0, $max{"graphicsPayloadBytes"}||0;
+        printf "host hevc frames=%d acks=%d bytes=%d maxBytes=%d packets=%d maxPackets=%d framesOver100Packets=%d\n",
+            $hostFrame||0, $hostAck||0, $hevcBytes||0, $max{"hevcBytes"}||0, $hevcPackets||0, $max{"hevcPackets"}||0, $hevcPacketFramesOver100||0;
+        printf "host timing ackSamples=%d maxAckRttMs=%.2f maxCaptureToAckMs=%.2f maxRenderGapMs=%.2f\n",
+            $ackRttCount||0, $max{"ackRttMs"}||0, $max{"captureToAckMs"}||0, $max{"renderGapMs"}||0;
+        printf "host queue maxUnackedFrames=%d maxUnackedBytes=%d\n",
+            $max{"unackedFrames"}||0, $max{"unackedBytes"}||0;
+        printf "host drain enter=%d exit=%d admissionHolds=%d\n",
+            $drainEnter||0, $drainExit||0, $admissionHold||0;
+        if (%holdReasons) {
+            my @parts = map { "$_=$holdReasons{$_}" } sort keys %holdReasons;
+            print "host admissionHoldReasons " . join(" ", @parts) . "\n";
+        } else {
+            print "host admissionHoldReasons none\n";
+        }
+    }
+' "$host_source"

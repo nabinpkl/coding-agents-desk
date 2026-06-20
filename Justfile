@@ -24,6 +24,7 @@ client_build_number := env_var_or_default("AGENTDESK_CLIENT_BUILD", "1")
 check:
     sh tools/media-architecture-guard.sh
     sh tools/launch-env-tests.sh
+    sh tools/hybrid-graphics-diagnostics-summary-tests.sh
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -derivedDataPath '{{derived_data}}' build test
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
 

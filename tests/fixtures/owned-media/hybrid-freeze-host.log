@@ -1,0 +1,16 @@
+2026-06-20 11:00:00.900 AgentDeskHost[200] owned graphics quic connection state=ready
+2026-06-20 11:00:00.950 AgentDeskHost[200] owned graphics reset frame=41 generation=2 payloadBytes=8294400
+2026-06-20 11:00:01.000 AgentDeskHost[200] owned graphics scroll-timeout
+2026-06-20 11:00:01.033 AgentDeskHost[200] owned graphics scroll-timeout
+2026-06-20 11:00:01.066 AgentDeskHost[200] owned graphics scroll-timeout
+2026-06-20 11:00:01.080 AgentDeskHost[200] owned graphics scroll-rejected reason=confidence
+2026-06-20 11:00:01.100 AgentDeskHost[200] owned media admission-hold mode=draining reason=drain-unacked
+2026-06-20 11:00:01.101 AgentDeskHost[200] owned media drain-enter afterSend=700
+2026-06-20 11:00:01.110 AgentDeskHost[200] owned media host-frame frame=700 keyframe=true keyframeReason=initial mode=draining budgetMode=motion budgetKbps=6000 budgetFps=15 scaleDown=1.0 sourceSize=2796x1290 encodeSize=2796x1290 captureToAdmissionMs=4.0 encodeMs=7.0 sendMs=18.0 bytes=420000 packets=136 burst=16 pauseUs=2500 pacingReason=backpressure burstPauses=9 maxPacketGapMs=3.0 backpressure=true coalescedRaw=3 coalescedAdmissionHold=2 coalescedEncodeBusy=1 coalescedNetwork=4
+2026-06-20 11:00:01.120 AgentDeskHost[200] owned media host-frame-ack frame=700 ackRttMs=92.0 captureToAckMs=131.0 captureToAdmissionMs=4.0 encodeMs=7.0 sendMs=18.0 renderGapMs=0.0 frameAgeMs=92.0 unacked=2 bytes=800000 mode=draining
+2026-06-20 11:00:01.130 AgentDeskHost[200] owned graphics quic connection state=failed
+2026-06-20 11:00:01.131 AgentDeskHost[200] owned graphics reset queued reason=graphics-stream-NWError generation=1 frame=42
+2026-06-20 11:00:01.140 AgentDeskHost[200] owned media admission-hold mode=draining reason=keyframe-inflight
+2026-06-20 11:00:01.150 AgentDeskHost[200] owned media host-frame frame=701 keyframe=false keyframeReason=none mode=draining budgetMode=motion budgetKbps=6000 budgetFps=15 scaleDown=1.0 sourceSize=2796x1290 encodeSize=2796x1290 captureToAdmissionMs=6.0 encodeMs=8.0 sendMs=21.0 bytes=380000 packets=121 burst=16 pauseUs=2500 pacingReason=backpressure burstPauses=8 maxPacketGapMs=3.0 backpressure=true coalescedRaw=4 coalescedAdmissionHold=3 coalescedEncodeBusy=1 coalescedNetwork=5
+2026-06-20 11:00:01.180 AgentDeskHost[200] owned media host-frame-ack frame=701 ackRttMs=220.0 captureToAckMs=281.0 captureToAdmissionMs=6.0 encodeMs=8.0 sendMs=21.0 renderGapMs=186.0 frameAgeMs=240.0 unacked=1 bytes=380000 mode=draining
+2026-06-20 11:00:01.181 AgentDeskHost[200] owned media drain-exit afterAck=701

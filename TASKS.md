@@ -25,8 +25,9 @@ This is still scroll-first hybrid retained graphics, not full Microsoft mixed mo
 
 Phase goal: pin the current failure shape before changing behavior.
 
-- [ ] R34.1. Add `tools/hybrid-graphics-diagnostics-summary.sh` summarizing host and client logs for scroll accepted, rejected, timeout, graphics reset, graphics reconnect, copyRect count, exposed-strip bytes, HEVC bytes, HEVC packet count, graphics ACK RTT, graphics queue depth, drain events, and admission holds.
-- [ ] R34.2. Add representative parser fixtures under `tests/fixtures/owned-media/` covering the current freeze run: zero scroll-accepted, many scroll-timeout lines, a disconnected graphics reset request, HEVC 100-plus packet frames, and repeated admission drain.
+- [x] R34.1. Add `tools/hybrid-graphics-diagnostics-summary.sh` summarizing host and client logs for scroll accepted, rejected, timeout, graphics reset, graphics reconnect, copyRect count, exposed-strip bytes, HEVC bytes, HEVC packet count, graphics ACK RTT or compositor timing, graphics queue depth when present, drain events, and admission holds.
+- [x] R34.2. Add representative parser fixtures under `tests/fixtures/owned-media/` covering the current freeze run: zero scroll-accepted, many scroll-timeout lines, a disconnected graphics reset request, HEVC 100-plus packet frames, and repeated admission drain.
+  - 2026-06-20 progress: local parser, fixtures, and narrow shell test are implemented and wired into `just check`.
 - [ ] R34.3. Run `just fresh-hybrid-consoled-run` on physical iPhone for 20 to 30 seconds and record the baseline summary before implementation changes.
 - [ ] R34.4. Acceptance: baseline output states whether the blocker is scroll detection, graphics stream durability, HEVC competition, graphics ACK pacing, or fallback HEVC drain.
 
