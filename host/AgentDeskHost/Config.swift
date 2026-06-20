@@ -182,6 +182,9 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_FPS",
         defaultValue: 15
     )
+    static let ownedMediaMotionScaleDown = ownedMediaMotionScaleDown(
+        environment: ProcessInfo.processInfo.environment
+    )
     static let ownedMediaMotionFrameAgeMs = positiveDouble(
         environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_FRAME_AGE_MS",
         defaultValue: 80
@@ -275,6 +278,13 @@ enum Config {
         }
         return value
     }
+    static func ownedMediaMotionScaleDown(environment: [String: String]) -> Double {
+        positiveDouble(
+            environment: environment,
+            environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_SCALE_DOWN",
+            defaultValue: 1.25
+        )
+    }
     static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
         guard let raw = ProcessInfo.processInfo.environment[environmentKey],
               let value = Int(raw),
@@ -285,7 +295,18 @@ enum Config {
         return value
     }
     static func positiveDouble(environmentKey: String, defaultValue: Double) -> Double {
-        guard let raw = ProcessInfo.processInfo.environment[environmentKey],
+        positiveDouble(
+            environment: ProcessInfo.processInfo.environment,
+            environmentKey: environmentKey,
+            defaultValue: defaultValue
+        )
+    }
+    static func positiveDouble(
+        environment: [String: String],
+        environmentKey: String,
+        defaultValue: Double
+    ) -> Double {
+        guard let raw = environment[environmentKey],
               let value = Double(raw),
               value > 0
         else {

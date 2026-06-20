@@ -30,6 +30,8 @@
 		A00000000000000000000216 /* SignalingFrameRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000116 /* SignalingFrameRouting.swift */; };
 		A00000000000000000000A01 /* OwnedMediaChannelServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A00 /* OwnedMediaChannelServer.swift */; };
 		A00000000000000000000A03 /* OwnedMediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A02 /* OwnedMediaTransport.swift */; };
+		A00000000000000000000A05 /* OwnedMediaFrameScaler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */; };
+		A00000000000000000000A06 /* OwnedMediaFrameScaler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */; };
 		A00000000000000000000219 /* TestPatternFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000119 /* TestPatternFrameSource.swift */; };
 		A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */; };
 		A0000000000000000000021B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011B /* Assets.xcassets */; };
@@ -129,6 +131,7 @@
 		A00000000000000000000116 /* SignalingFrameRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingFrameRouting.swift; sourceTree = "<group>"; };
 		A00000000000000000000A00 /* OwnedMediaChannelServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaChannelServer.swift; sourceTree = "<group>"; };
 		A00000000000000000000A02 /* OwnedMediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaTransport.swift; sourceTree = "<group>"; };
+		A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaFrameScaler.swift; sourceTree = "<group>"; };
 		A00000000000000000000119 /* TestPatternFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestPatternFrameSource.swift; sourceTree = "<group>"; };
 		A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureKitFrameSource.swift; sourceTree = "<group>"; };
 		A0000000000000000000011C /* InputDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcher.swift; sourceTree = "<group>"; };
@@ -242,6 +245,7 @@
 				A00000000000000000000115 /* WebSocketSignalingChannel.swift */,
 				A00000000000000000000116 /* SignalingFrameRouting.swift */,
 				A00000000000000000000A00 /* OwnedMediaChannelServer.swift */,
+				A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */,
 				A00000000000000000000A02 /* OwnedMediaTransport.swift */,
 				A00000000000000000000119 /* TestPatternFrameSource.swift */,
 				A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */,
@@ -440,6 +444,7 @@
 				A00000000000000000000215 /* WebSocketSignalingChannel.swift in Sources */,
 				A00000000000000000000216 /* SignalingFrameRouting.swift in Sources */,
 				A00000000000000000000A01 /* OwnedMediaChannelServer.swift in Sources */,
+				A00000000000000000000A05 /* OwnedMediaFrameScaler.swift in Sources */,
 				A00000000000000000000A03 /* OwnedMediaTransport.swift in Sources */,
 				A00000000000000000000219 /* TestPatternFrameSource.swift in Sources */,
 				A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */,
@@ -488,6 +493,7 @@
 				A00000000000000000000252 /* MediaTransport.swift in Sources */,
 				A00000000000000000000253 /* SignalingChannel.swift in Sources */,
 				A00000000000000000000254 /* VideoFrameSource.swift in Sources */,
+				A00000000000000000000A06 /* OwnedMediaFrameScaler.swift in Sources */,
 				A00000000000000000000255 /* SessionRegistry.swift in Sources */,
 				A00000000000000000000256 /* InputChannelServer.swift in Sources */,
 				A0000000000000000000025D /* JsonlChildProcess.swift in Sources */,

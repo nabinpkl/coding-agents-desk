@@ -31,6 +31,7 @@ Phase goal: make the current source tree, tests, and docs expose one owned media
 - [x] D26.9. Physical iPhone feel pass with `AGENTDESK_OWNED_MEDIA_CODEC=hevc AGENTDESK_OWNED_MEDIA_CHROMA=420 just fresh-consoled-run`, capture host and client logs, and show the freeze is host admission closing on stale unacknowledged frames rather than client decode or display enqueue.
 - [x] D26.10. Change `client/AgentDeskClient/SharedTypes.swift`, `client/AgentDeskClient/OwnedMediaVideoSink.swift`, `host/AgentDeskHost/SharedTypes.swift`, and `host/AgentDeskHost/OwnedMediaTransport.swift` so healthy keyframes do not flush the display layer and stale unacknowledged host frames are visible in admission diagnostics.
 - [x] D26.11. Change stale unacknowledged host frames from recovery-keyframe triggers into admission holds that abandon stale accounting while the raw capture mailbox coalesces newer frames.
+- [x] D26.13. Add `AGENTDESK_OWNED_MEDIA_MOTION_SCALE_DOWN` and pre-encode frame scaling in `host/AgentDeskHost/OwnedMediaTransport.swift` so motion frames can reduce packet pressure while rest frames return to native capture.
 
 ---
 
@@ -65,4 +66,5 @@ D26.9     2026-06-19  committed   physical iPhone feel pass found host admission
 D26.10    2026-06-19  committed   healthy keyframes stop flushing and stale unacked frames became visible in admission diagnostics
 D26.11    2026-06-19  committed   stale unacked frames hold admission instead of forcing recovery keyframes
 D26.12    2026-06-19  committed   drain timeout reopens latest-frame admission instead of forcing recovery keyframes
+D26.13    2026-06-20  committed   motion budget can downscale before VideoToolbox while rest returns to native capture
 ```

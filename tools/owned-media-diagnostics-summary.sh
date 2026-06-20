@@ -80,6 +80,20 @@ perl -ne '
             $maxBytesByBudget{$budget} = $1 if $1 > ($maxBytesByBudget{$budget} || 0);
         }
     }
+    if (/owned media host-frame frame=/ && /scaleDown=([0-9.]+)/) {
+        $scale = $1;
+        $scaleBucket = $scale <= 1.0 ? "scale1" : "scaled";
+        if (/budgetMode=(rest|motion)/) {
+            $scaleBudgetCount{$1}++;
+        }
+        $scaledFrames++ if $scale > 1.0;
+        if (/packets=([0-9]+)/) {
+            $maxPacketsByScale{$scaleBucket} = $1 if $1 > ($maxPacketsByScale{$scaleBucket} || 0);
+        }
+        if (/bytes=([0-9]+)/) {
+            $maxBytesByScale{$scaleBucket} = $1 if $1 > ($maxBytesByScale{$scaleBucket} || 0);
+        }
+    }
     $latestFps = $_ if /owned media diag-fps/;
     END {
         chomp($latestFps);
@@ -96,6 +110,9 @@ perl -ne '
         printf "host budget rest=%d motion=%d\n", $budgetCount{"rest"}||0, $budgetCount{"motion"}||0;
         printf "host budgetPacketMax rest=%d motion=%d\n", $maxPacketsByBudget{"rest"}||0, $maxPacketsByBudget{"motion"}||0;
         printf "host budgetBytesMax rest=%d motion=%d\n", $maxBytesByBudget{"rest"}||0, $maxBytesByBudget{"motion"}||0;
+        printf "host scale rest=%d motion=%d scaled=%d\n", $scaleBudgetCount{"rest"}||0, $scaleBudgetCount{"motion"}||0, $scaledFrames||0;
+        printf "host scaleMaxPackets scale1=%d scaled=%d\n", $maxPacketsByScale{"scale1"}||0, $maxPacketsByScale{"scaled"}||0;
+        printf "host scaleMaxBytes scale1=%d scaled=%d\n", $maxBytesByScale{"scale1"}||0, $maxBytesByScale{"scaled"}||0;
         print "host latestFps=$latestFps\n" if $latestFps;
     }
 ' "$host_log"

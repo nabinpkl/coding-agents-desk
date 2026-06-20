@@ -88,6 +88,11 @@ private struct OwnedMediaFrameLifecycle {
     var actualKeyframeReason: OwnedMediaKeyframeReason?
     var admissionMode: OwnedMediaCadenceMode = .normal
     var encodeBudget: OwnedMediaEncodeBudget?
+    var scaleDown: Double = 1.0
+    var sourceWidth: Int = 0
+    var sourceHeight: Int = 0
+    var encodeWidth: Int = 0
+    var encodeHeight: Int = 0
 }
 
 final class OwnedMediaHostDiagnostics: @unchecked Sendable {
@@ -146,11 +151,13 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
         _ frame: CapturedVideoFrame,
         decision: OwnedMediaAdmissionDecision,
         budget: OwnedMediaEncodeBudget,
+        sourcePixelSize: CapturePixelSize,
+        encodePixelSize: CapturePixelSize,
         nowUptimeNs: UInt64
     ) {
         let fpsSample = lock.withLock {
             fpsWindow.incrementAdmitted()
-            lifecycleByCaptureNs[frame.capturedAtUptimeNs] = OwnedMediaFrameLifecycle(
+            var lifecycle = OwnedMediaFrameLifecycle(
                 frameId: 0,
                 capturedAtUptimeNs: frame.capturedAtUptimeNs,
                 admissionUptimeNs: nowUptimeNs,
@@ -158,6 +165,12 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
                 admissionMode: decision.mode,
                 encodeBudget: budget
             )
+            lifecycle.scaleDown = budget.scaleDown
+            lifecycle.sourceWidth = sourcePixelSize.width
+            lifecycle.sourceHeight = sourcePixelSize.height
+            lifecycle.encodeWidth = encodePixelSize.width
+            lifecycle.encodeHeight = encodePixelSize.height
+            lifecycleByCaptureNs[frame.capturedAtUptimeNs] = lifecycle
             return fpsWindow.flushIfDue(nowUptimeNs: nowUptimeNs)
         }
         logFpsIfNeeded(fpsSample)
@@ -221,7 +234,7 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
             )
         }
         logFpsIfNeeded(snapshot.fps)
-        logger.notice("owned media host-frame frame=\(envelope.header.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) keyframeReason=\(snapshot.lifecycle.actualKeyframeReason?.rawValue ?? snapshot.lifecycle.requestedKeyframeReason?.rawValue ?? "none", privacy: .public) mode=\(String(describing: decision.mode), privacy: .public) budgetMode=\(snapshot.lifecycle.encodeBudget?.mode.rawValue ?? "unknown", privacy: .public) budgetKbps=\(snapshot.lifecycle.encodeBudget?.bitrateKbps ?? 0, privacy: .public) budgetFps=\(snapshot.lifecycle.encodeBudget?.expectedFrameRate ?? 0, privacy: .public) captureToAdmissionMs=\(Self.ms(from: snapshot.lifecycle.capturedAtUptimeNs, to: snapshot.lifecycle.admissionUptimeNs), privacy: .public) encodeMs=\(Self.ms(from: snapshot.lifecycle.encodeStartUptimeNs, to: snapshot.lifecycle.encodeEndUptimeNs), privacy: .public) sendMs=\(stats.sendDurationMs, privacy: .public) bytes=\(stats.encodedBytes, privacy: .public) packets=\(stats.packetCount, privacy: .public) burst=\(stats.pacingBurstPacketCount, privacy: .public) pauseUs=\(stats.pacingBurstPauseUs, privacy: .public) pacingReason=\(stats.pacingReason.rawValue, privacy: .public) burstPauses=\(stats.burstPauseCount, privacy: .public) maxPacketGapMs=\(stats.maxInterPacketGapMs, privacy: .public) backpressure=\(stats.isBackpressured, privacy: .public) coalescedRaw=\(snapshot.raw, privacy: .public) coalescedAdmissionHold=\(snapshot.hold, privacy: .public) coalescedEncodeBusy=\(snapshot.encode, privacy: .public) coalescedNetwork=\(snapshot.network, privacy: .public)")
+        logger.notice("owned media host-frame frame=\(envelope.header.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) keyframeReason=\(snapshot.lifecycle.actualKeyframeReason?.rawValue ?? snapshot.lifecycle.requestedKeyframeReason?.rawValue ?? "none", privacy: .public) mode=\(String(describing: decision.mode), privacy: .public) budgetMode=\(snapshot.lifecycle.encodeBudget?.mode.rawValue ?? "unknown", privacy: .public) budgetKbps=\(snapshot.lifecycle.encodeBudget?.bitrateKbps ?? 0, privacy: .public) budgetFps=\(snapshot.lifecycle.encodeBudget?.expectedFrameRate ?? 0, privacy: .public) scaleDown=\(snapshot.lifecycle.scaleDown, privacy: .public) sourceSize=\(snapshot.lifecycle.sourceWidth, privacy: .public)x\(snapshot.lifecycle.sourceHeight, privacy: .public) encodeSize=\(snapshot.lifecycle.encodeWidth, privacy: .public)x\(snapshot.lifecycle.encodeHeight, privacy: .public) captureToAdmissionMs=\(Self.ms(from: snapshot.lifecycle.capturedAtUptimeNs, to: snapshot.lifecycle.admissionUptimeNs), privacy: .public) encodeMs=\(Self.ms(from: snapshot.lifecycle.encodeStartUptimeNs, to: snapshot.lifecycle.encodeEndUptimeNs), privacy: .public) sendMs=\(stats.sendDurationMs, privacy: .public) bytes=\(stats.encodedBytes, privacy: .public) packets=\(stats.packetCount, privacy: .public) burst=\(stats.pacingBurstPacketCount, privacy: .public) pauseUs=\(stats.pacingBurstPauseUs, privacy: .public) pacingReason=\(stats.pacingReason.rawValue, privacy: .public) burstPauses=\(stats.burstPauseCount, privacy: .public) maxPacketGapMs=\(stats.maxInterPacketGapMs, privacy: .public) backpressure=\(stats.isBackpressured, privacy: .public) coalescedRaw=\(snapshot.raw, privacy: .public) coalescedAdmissionHold=\(snapshot.hold, privacy: .public) coalescedEncodeBusy=\(snapshot.encode, privacy: .public) coalescedNetwork=\(snapshot.network, privacy: .public)")
     }
 
     func noteAck(message: OwnedMediaControlMessage, admissionMode: OwnedMediaCadenceMode, unackedFrames: Int, unackedBytes: Int) {
@@ -274,6 +287,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var admission = OwnedMediaEncodeAdmission()
     private var motionBudgetState = OwnedMediaMotionBudgetState()
     private var diagnostics = OwnedMediaHostDiagnostics()
+    private let frameScaler = OwnedMediaFrameScaler()
     private var started = false
 
     init(
@@ -528,13 +542,30 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 intervalMs: intervalMs
             )
             let budget = currentEncodeBudget(nowUptimeNs: admissionNs)
+            let sourcePixelSize = Self.pixelSize(frame.pixelBuffer)
+            let encodeFrame: CapturedVideoFrame
+            do {
+                encodeFrame = try frameScaler.scaledFrame(frame, scaleDown: budget.scaleDown)
+            } catch {
+                logger.error("owned media pre-encode scale failed scaleDown=\(budget.scaleDown, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                diagnostics.setPhase(.idle)
+                continue
+            }
+            let encodePixelSize = Self.pixelSize(encodeFrame.pixelBuffer)
             cadenceScheduler.noteAdmissionStarted(atUptimeNs: admissionNs)
-            logger.notice("owned media cadence intervalMs=\(intervalMs, privacy: .public) admissionDelayMs=\(Double(delayNs) / 1_000_000.0, privacy: .public) cadenceLateMs=\(Double(cadenceLateNs) / 1_000_000.0, privacy: .public) mode=\(String(describing: decision.mode), privacy: .public) budgetMode=\(budget.mode.rawValue, privacy: .public) budgetKbps=\(budget.bitrateKbps, privacy: .public) budgetFps=\(budget.expectedFrameRate, privacy: .public)")
-            diagnostics.noteAdmitted(frame, decision: decision, budget: budget, nowUptimeNs: admissionNs)
+            logger.notice("owned media cadence intervalMs=\(intervalMs, privacy: .public) admissionDelayMs=\(Double(delayNs) / 1_000_000.0, privacy: .public) cadenceLateMs=\(Double(cadenceLateNs) / 1_000_000.0, privacy: .public) mode=\(String(describing: decision.mode), privacy: .public) budgetMode=\(budget.mode.rawValue, privacy: .public) budgetKbps=\(budget.bitrateKbps, privacy: .public) budgetFps=\(budget.expectedFrameRate, privacy: .public) scaleDown=\(budget.scaleDown, privacy: .public) sourceSize=\(sourcePixelSize.width, privacy: .public)x\(sourcePixelSize.height, privacy: .public) encodeSize=\(encodePixelSize.width, privacy: .public)x\(encodePixelSize.height, privacy: .public)")
+            diagnostics.noteAdmitted(
+                encodeFrame,
+                decision: decision,
+                budget: budget,
+                sourcePixelSize: sourcePixelSize,
+                encodePixelSize: encodePixelSize,
+                nowUptimeNs: admissionNs
+            )
             diagnostics.setPhase(.encoding)
-            diagnostics.noteEncodeStarted(frame: frame, nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
+            diagnostics.noteEncodeStarted(frame: encodeFrame, nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
             guard let envelope = await encoder.encode(
-                frame,
+                encodeFrame,
                 budget: budget,
                 forceKeyframe: decision.forceKeyframe,
                 allowPeriodicKeyframe: decision.allowPeriodicKeyframe,
@@ -622,12 +653,21 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             enabled: Config.ownedMediaMotionBudgetEnabled,
             restBitrateKbps: configuration.targetBitrateKbps,
             restFps: configuration.expectedFrameRate,
+            restScaleDown: Config.ownedMediaCaptureScaleDown,
             motionBitrateKbps: Config.ownedMediaMotionBitrateKbps,
             motionFps: Config.ownedMediaMotionFps,
+            motionScaleDown: Config.ownedMediaMotionScaleDown,
             motionFrameAgeMs: Config.ownedMediaMotionFrameAgeMs,
             motionBacklogFrames: Config.ownedMediaMotionBacklogFrames,
             motionInflightBytes: Config.ownedMediaMotionInflightBytes,
             restBudgetHoldMs: Config.ownedMediaRestBudgetHoldMs
+        )
+    }
+
+    private static func pixelSize(_ pixelBuffer: CVPixelBuffer) -> CapturePixelSize {
+        CapturePixelSize(
+            width: CVPixelBufferGetWidth(pixelBuffer),
+            height: CVPixelBufferGetHeight(pixelBuffer)
         )
     }
 

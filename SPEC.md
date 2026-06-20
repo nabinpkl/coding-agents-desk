@@ -166,6 +166,7 @@ DesktopStatePush   { state: DesktopState }                            // t: "des
 - Packet repair is first resort. The client sends one missing-index request per frame repair window.
 - The host resend ring keeps exact authenticated datagrams and resends only requested indexes still in the ring.
 - Capture freshness is enforced before VideoToolbox. The host keeps one latest raw capture frame, coalesces stale pending captures while transport is busy or the client is behind, and only encodes frames it intends to send.
+- Motion budget can downscale frames before VideoToolbox while client pressure is active. This is a transport pressure control only: rest returns to native capture, the client remains a single surface, and input coordinates stay in host logical space.
 - Frame ACKs are the host-side admission fence. Normal cadence allows two unacknowledged frames, behind cadence allows one, and draining cadence allows none until ACKs clear or the drain timeout reopens latest-frame admission.
 - If a behind or draining frame stays unacknowledged past the stale-unacked deadline, the host abandons it for admission accounting and holds encode admission while the raw capture mailbox keeps coalescing. This prevents one late lifecycle ACK from freezing capture admission without amplifying congestion with large recovery keyframes.
 - Explicit keyframe requests are deferred while draining. Periodic keyframes are suppressed while behind or draining, and a second keyframe is blocked while a prior keyframe is unacknowledged.

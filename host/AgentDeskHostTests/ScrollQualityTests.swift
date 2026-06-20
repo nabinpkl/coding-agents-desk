@@ -1,3 +1,4 @@
+import CoreVideo
 import Foundation
 import Testing
 
@@ -173,8 +174,10 @@ struct ScrollQualityTests {
             enabled: false,
             restBitrateKbps: 8_000,
             restFps: 30,
+            restScaleDown: 1.0,
             motionBitrateKbps: 5_000,
             motionFps: 15,
+            motionScaleDown: 1.25,
             motionFrameAgeMs: 80,
             motionBacklogFrames: 1,
             motionInflightBytes: 120_000,
@@ -193,6 +196,55 @@ struct ScrollQualityTests {
         #expect(budget.mode == .rest)
         #expect(budget.bitrateKbps == 8_000)
         #expect(budget.expectedFrameRate == 30)
+    }
+
+    @Test func ownedMediaMotionBudgetCarriesRestAndMotionScaleDown() {
+        let policy = OwnedMediaMotionBudgetPolicy(
+            enabled: true,
+            restBitrateKbps: 8_000,
+            restFps: 30,
+            restScaleDown: 1.0,
+            motionBitrateKbps: 5_000,
+            motionFps: 15,
+            motionScaleDown: 1.5,
+            motionFrameAgeMs: 80,
+            motionBacklogFrames: 1,
+            motionInflightBytes: 120_000,
+            restBudgetHoldMs: 500
+        )
+
+        let rest = policy.choose(
+            mode: .normal,
+            frameAgeMs: 10,
+            backlogFrames: 0,
+            unacknowledgedBytes: 0,
+            lastMotionBudgetAtUptimeNs: nil,
+            nowUptimeNs: 1_000_000_000
+        )
+        let motion = policy.choose(
+            mode: .behind,
+            frameAgeMs: 120,
+            backlogFrames: 0,
+            unacknowledgedBytes: 0,
+            lastMotionBudgetAtUptimeNs: nil,
+            nowUptimeNs: 1_010_000_000
+        )
+
+        #expect(rest.mode == .rest)
+        #expect(rest.scaleDown == 1.0)
+        #expect(motion.mode == .motion)
+        #expect(motion.scaleDown == 1.5)
+    }
+
+    @Test func ownedMediaMotionBudgetClampsInvalidScaleDownToOne() {
+        let budget = OwnedMediaEncodeBudget(
+            mode: .motion,
+            bitrateKbps: 5_000,
+            expectedFrameRate: 15,
+            scaleDown: 0.5
+        )
+
+        #expect(budget.scaleDown == 1.0)
     }
 
     @Test func ownedMediaMotionBudgetTurnsOnForBehindFrameAge() {
@@ -266,6 +318,12 @@ struct ScrollQualityTests {
         #expect(!Config.enabledFlag(environmentKey: "FLAG", defaultValue: true, environment: ["FLAG": "false"]))
         #expect(Config.enabledFlag(environmentKey: "FLAG", defaultValue: false, environment: ["FLAG": "1"]))
         #expect(Config.enabledFlag(environmentKey: "FLAG", defaultValue: false, environment: ["FLAG": "true"]))
+    }
+
+    @Test func ownedMediaMotionScaleDownConfigParsesPositiveValues() {
+        #expect(Config.ownedMediaMotionScaleDown(environment: ["AGENTDESK_OWNED_MEDIA_MOTION_SCALE_DOWN": "1.5"]) == 1.5)
+        #expect(Config.ownedMediaMotionScaleDown(environment: ["AGENTDESK_OWNED_MEDIA_MOTION_SCALE_DOWN": "0"]) == 1.25)
+        #expect(Config.ownedMediaMotionScaleDown(environment: ["AGENTDESK_OWNED_MEDIA_MOTION_SCALE_DOWN": "bad"]) == 1.25)
     }
 
     @Test func ownedMediaMotionBudgetStateRecordsLastMotionUse() {
@@ -958,6 +1016,55 @@ struct ScrollQualityTests {
         #expect(size.height.isMultiple(of: 2))
     }
 
+    @Test func ownedMediaFrameScalerReturnsOriginalFrameWhenScaleIsOne() throws {
+        let scaler = OwnedMediaFrameScaler()
+        let frame = try Self.makePixelBufferFrame(width: 640, height: 480)
+
+        let scaled = try scaler.scaledFrame(frame, scaleDown: 1.0)
+
+        #expect(CVPixelBufferGetWidth(scaled.pixelBuffer) == 640)
+        #expect(CVPixelBufferGetHeight(scaled.pixelBuffer) == 480)
+        #expect(scaled.capturedAtUptimeNs == frame.capturedAtUptimeNs)
+        #expect(scaled.presentationTimeNs == frame.presentationTimeNs)
+    }
+
+    @Test func ownedMediaFrameScalerDownscalesToEvenDimensions() throws {
+        let scaler = OwnedMediaFrameScaler()
+        let frame = try Self.makePixelBufferFrame(width: 641, height: 481)
+
+        let scaled = try scaler.scaledFrame(frame, scaleDown: 1.5)
+
+        #expect(CVPixelBufferGetWidth(scaled.pixelBuffer) == 426)
+        #expect(CVPixelBufferGetHeight(scaled.pixelBuffer) == 320)
+        #expect(scaled.capturedAtUptimeNs == frame.capturedAtUptimeNs)
+        #expect(scaled.presentationTimeNs == frame.presentationTimeNs)
+    }
+
+    @Test func ownedMediaFrameScalerKeepsNativeSizeForRestBudgetAndDownscalesMotionBudget() throws {
+        let scaler = OwnedMediaFrameScaler()
+        let frame = try Self.makePixelBufferFrame(width: 1_920, height: 1_080)
+        let restBudget = OwnedMediaEncodeBudget(
+            mode: .rest,
+            bitrateKbps: 8_000,
+            expectedFrameRate: 30,
+            scaleDown: 1.0
+        )
+        let motionBudget = OwnedMediaEncodeBudget(
+            mode: .motion,
+            bitrateKbps: 5_000,
+            expectedFrameRate: 15,
+            scaleDown: 1.5
+        )
+
+        let rest = try scaler.scaledFrame(frame, scaleDown: restBudget.scaleDown)
+        let motion = try scaler.scaledFrame(frame, scaleDown: motionBudget.scaleDown)
+
+        #expect(CVPixelBufferGetWidth(rest.pixelBuffer) == 1_920)
+        #expect(CVPixelBufferGetHeight(rest.pixelBuffer) == 1_080)
+        #expect(CVPixelBufferGetWidth(motion.pixelBuffer) == 1_280)
+        #expect(CVPixelBufferGetHeight(motion.pixelBuffer) == 720)
+    }
+
     private static func backpressureConfig() -> OwnedMediaBackpressureConfig {
         OwnedMediaBackpressureConfig(
             frameAgeMs: 80,
@@ -980,12 +1087,39 @@ struct ScrollQualityTests {
             enabled: true,
             restBitrateKbps: 8_000,
             restFps: 30,
+            restScaleDown: 1.0,
             motionBitrateKbps: 5_000,
             motionFps: 15,
+            motionScaleDown: 1.25,
             motionFrameAgeMs: 80,
             motionBacklogFrames: 1,
             motionInflightBytes: 120_000,
             restBudgetHoldMs: 500
+        )
+    }
+
+    private static func makePixelBufferFrame(width: Int, height: Int) throws -> CapturedVideoFrame {
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+            [
+                kCVPixelBufferIOSurfacePropertiesKey: [:],
+                kCVPixelBufferCGImageCompatibilityKey: true,
+                kCVPixelBufferCGBitmapContextCompatibilityKey: true
+            ] as CFDictionary,
+            &pixelBuffer
+        )
+        guard status == kCVReturnSuccess, let pixelBuffer else {
+            throw SessionRejected(reason: .malformed)
+        }
+        return CapturedVideoFrame(
+            pixelBuffer: pixelBuffer,
+            presentationTimeNs: 123_000_000,
+            capturedAtUptimeNs: 456_000_000,
+            rotation: ._0
         )
     }
 }

@@ -896,14 +896,33 @@ struct OwnedMediaEncodeBudget: Equatable, Sendable {
     let mode: OwnedMediaEncodeBudgetMode
     let bitrateKbps: Int
     let expectedFrameRate: Int
+    private let requestedScaleDown: Double
+
+    var scaleDown: Double {
+        max(requestedScaleDown, 1.0)
+    }
+
+    init(
+        mode: OwnedMediaEncodeBudgetMode,
+        bitrateKbps: Int,
+        expectedFrameRate: Int,
+        scaleDown: Double = 1.0
+    ) {
+        self.mode = mode
+        self.bitrateKbps = bitrateKbps
+        self.expectedFrameRate = expectedFrameRate
+        self.requestedScaleDown = scaleDown
+    }
 }
 
 struct OwnedMediaMotionBudgetPolicy: Equatable, Sendable {
     let enabled: Bool
     let restBitrateKbps: Int
     let restFps: Int
+    let restScaleDown: Double
     let motionBitrateKbps: Int
     let motionFps: Int
+    let motionScaleDown: Double
     let motionFrameAgeMs: Double
     let motionBacklogFrames: Int
     let motionInflightBytes: Int
@@ -913,7 +932,8 @@ struct OwnedMediaMotionBudgetPolicy: Equatable, Sendable {
         OwnedMediaEncodeBudget(
             mode: .rest,
             bitrateKbps: restBitrateKbps,
-            expectedFrameRate: restFps
+            expectedFrameRate: restFps,
+            scaleDown: restScaleDown
         )
     }
 
@@ -921,7 +941,8 @@ struct OwnedMediaMotionBudgetPolicy: Equatable, Sendable {
         OwnedMediaEncodeBudget(
             mode: .motion,
             bitrateKbps: motionBitrateKbps,
-            expectedFrameRate: motionFps
+            expectedFrameRate: motionFps,
+            scaleDown: motionScaleDown
         )
     }
 
