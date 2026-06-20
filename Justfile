@@ -74,7 +74,9 @@ iphone-log-collect:
 # value the user pinned into launchd out-of-band survives.
 #
 # AGENTDESK_OWNED_MEDIA_* is forwarded for one-shot owned media feel runs
-# with `just fresh-install`.
+# with `just fresh-install`. The scroll-hybrid worktree also documents
+# AGENTDESK_GRAPHICS_PORT and AGENTDESK_HYBRID_* in .env.example; those
+# knobs become active when the graphics stream and cadence wiring land.
 host-run:
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug build >/dev/null
     -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
@@ -136,6 +138,14 @@ fresh-consoled-run:
     just host-run
     just client-reinstall
     just iphone-console-run
+
+# Branch-local scroll-first hybrid retained-graphics run. This keeps the
+# physical iPhone attached console path and preserves
+# /tmp/agentdesk-client-console.log for media and compositor diagnostics.
+# It delegates to the current consoled run until the reliable graphics
+# stream and retained compositor behavior land.
+fresh-hybrid-consoled-run:
+    just fresh-consoled-run
 
 # Build client Debug for the iPhone simulator and install (does not launch).
 # Mirrors `client-install` but targets the simulator instead of the

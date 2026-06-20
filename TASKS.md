@@ -28,7 +28,7 @@ Phase goal: isolate the experiment and resolve the Network.framework connection 
 - [x] D27.1. Add `.worktrees/` to `.gitignore`, commit on `main`, create `.worktrees/scroll-hybrid-retained-graphics` on branch `codex/scroll-hybrid-retained-graphics`, and run `just check` from the worktree.
 - [x] D27.2. Add central host/client `AGENTDESK_GRAPHICS_PORT` config, default `41889`, after selecting a second graphics listener over same-port Network.framework ALPN routing.
 - [x] D27.3. Add ADR-0016 recording scroll-first hybrid retained graphics and the R27.2 second configured graphics port decision as the worktree architecture, superseding ADR-0015 inside the branch without editing historical ADR conclusions.
-- [ ] R27.4. Update `SPEC.md`, `README.md`, `.env.example`, and Just recipes so the worktree describes HEVC full-frame refresh plus reliable retained graphics commands as the active media experiment.
+- [x] D27.4. Update `SPEC.md`, `README.md`, `.env.example`, and Just recipes so the worktree describes HEVC full-frame refresh plus reliable retained graphics commands as the active media experiment.
 
 ## v0 Phase 1: compositor timeline contracts
 
@@ -88,7 +88,7 @@ Phase goal: let graphics commands own scroll motion while HEVC remains the rest/
 
 Phase goal: prove whether the hybrid path improves scroll feel and identify the next bottleneck if it does not.
 
-- [ ] R33.1. Add `just fresh-hybrid-consoled-run` that builds, installs, launches attached console, and preserves `/tmp/agentdesk-client-console.log`.
+- [ ] R33.1. Use `just fresh-hybrid-consoled-run` for the physical verification pass and confirm it builds, installs, launches attached console, and preserves `/tmp/agentdesk-client-console.log`.
 - [ ] R33.2. Add `tools/hybrid-graphics-diagnostics-summary.sh` summarizing HEVC bytes, scroll accepted/rejected/timeout rates, copyRect count, exposed-strip bytes, graphics ACK RTT, HEVC decode cost, compositor copy/tile/commit cost, and stale discard counts.
 - [ ] R33.3. Run a physical iPhone attached-console pass for 20 to 30 seconds of repeated scrolling.
 - [ ] R33.4. Acceptance: rest text remains at least as crisp as current HEVC, copyRect is exercised during scroll, scroll detector timeout rate is under 20 percent of scroll frames, HEVC bytes drop during accepted scroll, late HEVC does not overwrite newer graphics state, and there is no repeated reset loop.
@@ -118,7 +118,7 @@ This scope opens only after R33 proves the scroll-first hybrid path works or ide
 D27.1     2026-06-20  committed   local worktrees ignored and hybrid graphics branch baseline passed
 D27.2     2026-06-20  committed   second configured graphics port chosen after Network.framework ALPN routing review
 D27.3     2026-06-20  committed   ADR-0016 records scroll-first hybrid retained graphics
-R27.4     pending     pending     worktree docs describe HEVC plus retained graphics
+D27.4     2026-06-20  committed   worktree docs describe HEVC plus retained graphics
 R28       pending     pending     compositor timeline contracts and ordering tests
 R29       pending     pending     reliable graphics stream and transport tests
 R30       pending     pending     scroll delta engine with timeout and exposed-strip tests
