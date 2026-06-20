@@ -329,8 +329,7 @@ struct SignalingFrameRoutingTests {
                 height: 8,
                 compression: .lzfse,
                 byteRange: OwnedGraphicsByteRange(offset: 64, length: 1024)
-            ),
-            .codecTile
+            )
         ]
 
         for command in commands {
@@ -342,10 +341,11 @@ struct SignalingFrameRoutingTests {
         try commands[0].validateForCurrentScope()
         try commands[1].validateForCurrentScope()
         try commands[2].validateForCurrentScope()
-        do {
-            try commands[3].validateForCurrentScope()
-            Issue.record("codecTile should be reserved in R28")
-        } catch {}
+
+        let codecTileData = try JSONEncoder().encode(OwnedGraphicsCommand.codecTile)
+        #expect(throws: SessionRejected(reason: .malformed)) {
+            _ = try JSONDecoder().decode(OwnedGraphicsCommand.self, from: codecTileData)
+        }
     }
 
     @Test func graphicsAckAndResetRequestRoundTripThroughCodable() throws {

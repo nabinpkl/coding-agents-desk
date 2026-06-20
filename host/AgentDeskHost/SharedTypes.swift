@@ -444,6 +444,24 @@ enum OwnedMediaRefreshReason: String, Codable, Equatable {
     case rest
     case scrollCorrectness = "scroll-correctness"
     case reset
+
+    static func fromEncodedFrame(
+        frameId: UInt64,
+        isKeyframe: Bool,
+        requestedKeyframeReason: OwnedMediaKeyframeReason?,
+        expectedKeyframeReason: OwnedMediaKeyframeReason?
+    ) -> OwnedMediaRefreshReason {
+        if frameId == 1 {
+            return .initial
+        }
+        guard isKeyframe else {
+            return .rest
+        }
+        if requestedKeyframeReason == .clientRequest || expectedKeyframeReason == .clientRequest {
+            return .reset
+        }
+        return .rest
+    }
 }
 
 struct OwnedMediaParameterSets: Codable, Equatable {
@@ -904,7 +922,7 @@ extension OwnedGraphicsCommand: Codable {
                 byteRange: try container.decode(OwnedGraphicsByteRange.self, forKey: .byteRange)
             )
         case .codecTile:
-            self = .codecTile
+            throw SessionRejected(reason: .malformed)
         }
     }
 

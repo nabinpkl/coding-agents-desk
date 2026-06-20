@@ -1028,6 +1028,33 @@ struct ScrollQualityTests {
         #expect(timedOutDrain.keyframeReason == nil)
     }
 
+    @Test func ownedMediaEncoderMapsClientKeyframeToResetRefreshReason() {
+        #expect(OwnedMediaRefreshReason.fromEncodedFrame(
+            frameId: 1,
+            isKeyframe: true,
+            requestedKeyframeReason: nil,
+            expectedKeyframeReason: .initial
+        ) == .initial)
+        #expect(OwnedMediaRefreshReason.fromEncodedFrame(
+            frameId: 20,
+            isKeyframe: false,
+            requestedKeyframeReason: .clientRequest,
+            expectedKeyframeReason: .clientRequest
+        ) == .rest)
+        #expect(OwnedMediaRefreshReason.fromEncodedFrame(
+            frameId: 21,
+            isKeyframe: true,
+            requestedKeyframeReason: .periodic,
+            expectedKeyframeReason: .periodic
+        ) == .rest)
+        #expect(OwnedMediaRefreshReason.fromEncodedFrame(
+            frameId: 22,
+            isKeyframe: true,
+            requestedKeyframeReason: .clientRequest,
+            expectedKeyframeReason: .clientRequest
+        ) == .reset)
+    }
+
     @Test func ownedMediaResendRingReturnsExactStoredDatagrams() {
         var ring = OwnedMediaResendRing(capacityFrames: 8)
         let packet0 = Data([0x41, 0x44, 0x4d, 0x44, 0x00])

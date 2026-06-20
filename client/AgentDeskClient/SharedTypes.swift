@@ -891,7 +891,7 @@ extension OwnedGraphicsCommand: Codable {
                 byteRange: try container.decode(OwnedGraphicsByteRange.self, forKey: .byteRange)
             )
         case .codecTile:
-            self = .codecTile
+            throw SessionRejected(reason: .malformed)
         }
     }
 
