@@ -18,5 +18,8 @@ DerivedData/
 .swiftpm/
 .build/
 
+# Local feature worktrees
+.worktrees/
+
 # Maestro UI flow screenshots
 client/maestro/screenshots/
