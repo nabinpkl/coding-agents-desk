@@ -95,6 +95,13 @@ private struct OwnedMediaFrameLifecycle {
     var encodeHeight: Int = 0
 }
 
+private struct OwnedMediaEncodeTiming {
+    let decision: OwnedMediaAdmissionDecision
+    let budget: OwnedMediaEncodeBudget
+    let admissionIntervalMs: Int
+    let intervalMs: Int
+}
+
 final class OwnedMediaHostDiagnostics: @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
     private let lock = NSLock()
@@ -510,20 +517,35 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             diagnostics.setPhase(.idle)
             guard var frame = mailbox.takeLatest() else { continue }
 
-            let intervalMs = currentEncodeIntervalMs()
-            let intervalNs = UInt64(intervalMs) * 1_000_000
+            var timing = currentEncodeTiming(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
+            var intervalNs = UInt64(timing.intervalMs) * 1_000_000
             let delayNs = cadenceScheduler.delayBeforeNextAdmission(
                 nowUptimeNs: DispatchTime.now().uptimeNanoseconds,
-                intervalMs: intervalMs
+                intervalMs: timing.intervalMs
             )
+            var totalDelayNs = delayNs
             if delayNs > 0 {
                 try? await Task.sleep(nanoseconds: delayNs)
                 if let newest = mailbox.takeLatest() {
                     frame = newest
                 }
+                timing = currentEncodeTiming(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
+                let additionalDelayNs = cadenceScheduler.delayBeforeNextAdmission(
+                    nowUptimeNs: DispatchTime.now().uptimeNanoseconds,
+                    intervalMs: timing.intervalMs
+                )
+                if additionalDelayNs > 0 {
+                    totalDelayNs += additionalDelayNs
+                    try? await Task.sleep(nanoseconds: additionalDelayNs)
+                    if let newest = mailbox.takeLatest() {
+                        frame = newest
+                    }
+                    timing = currentEncodeTiming(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
+                }
+                intervalNs = UInt64(timing.intervalMs) * 1_000_000
             }
 
-            let decision = admissionDecision()
+            let decision = timing.decision
             logStaleUnackedAbandonment(decision)
             if !decision.shouldEncode {
                 diagnostics.noteAdmissionHold(reason: decision.holdReason, mode: decision.mode)
@@ -539,9 +561,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             let cadenceLateNs = Self.cadenceLateNs(
                 scheduler: cadenceScheduler,
                 admissionUptimeNs: admissionNs,
-                intervalMs: intervalMs
+                intervalMs: timing.intervalMs
             )
-            let budget = currentEncodeBudget(nowUptimeNs: admissionNs)
+            let budget = timing.budget
             let sourcePixelSize = Self.pixelSize(frame.pixelBuffer)
             let encodeFrame: CapturedVideoFrame
             do {
@@ -553,7 +575,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             }
             let encodePixelSize = Self.pixelSize(encodeFrame.pixelBuffer)
             cadenceScheduler.noteAdmissionStarted(atUptimeNs: admissionNs)
-            logger.notice("owned media cadence intervalMs=\(intervalMs, privacy: .public) admissionDelayMs=\(Double(delayNs) / 1_000_000.0, privacy: .public) cadenceLateMs=\(Double(cadenceLateNs) / 1_000_000.0, privacy: .public) mode=\(String(describing: decision.mode), privacy: .public) budgetMode=\(budget.mode.rawValue, privacy: .public) budgetKbps=\(budget.bitrateKbps, privacy: .public) budgetFps=\(budget.expectedFrameRate, privacy: .public) scaleDown=\(budget.scaleDown, privacy: .public) sourceSize=\(sourcePixelSize.width, privacy: .public)x\(sourcePixelSize.height, privacy: .public) encodeSize=\(encodePixelSize.width, privacy: .public)x\(encodePixelSize.height, privacy: .public)")
+            logger.notice("owned media cadence intervalMs=\(timing.intervalMs, privacy: .public) admissionIntervalMs=\(timing.admissionIntervalMs, privacy: .public) intervalSource=budget admissionDelayMs=\(Double(totalDelayNs) / 1_000_000.0, privacy: .public) cadenceLateMs=\(Double(cadenceLateNs) / 1_000_000.0, privacy: .public) mode=\(String(describing: decision.mode), privacy: .public) budgetMode=\(budget.mode.rawValue, privacy: .public) budgetKbps=\(budget.bitrateKbps, privacy: .public) budgetFps=\(budget.expectedFrameRate, privacy: .public) scaleDown=\(budget.scaleDown, privacy: .public) sourceSize=\(sourcePixelSize.width, privacy: .public)x\(sourcePixelSize.height, privacy: .public) encodeSize=\(encodePixelSize.width, privacy: .public)x\(encodePixelSize.height, privacy: .public)")
             diagnostics.noteAdmitted(
                 encodeFrame,
                 decision: decision,
@@ -605,12 +627,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         return admissionUptimeNs - expectedAdmissionNs
     }
 
-    private func currentEncodeIntervalMs() -> Int {
-        lock.withLock {
-            admission.encodeIntervalMs(config: makeBackpressureConfig())
-        }
-    }
-
     private func resolvedKeyframeReason(
         frameId: UInt64,
         decision: OwnedMediaAdmissionDecision
@@ -628,22 +644,28 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         return nil
     }
 
-    private func admissionDecision() -> OwnedMediaAdmissionDecision {
-        let now = DispatchTime.now().uptimeNanoseconds
-        return lock.withLock {
-            admission.decision(nowUptimeNs: now, config: makeBackpressureConfig())
-        }
-    }
-
-    private func currentEncodeBudget(nowUptimeNs: UInt64) -> OwnedMediaEncodeBudget {
+    private func currentEncodeTiming(nowUptimeNs: UInt64) -> OwnedMediaEncodeTiming {
         lock.withLock {
-            motionBudgetState.choose(
+            let config = makeBackpressureConfig()
+            let decision = admission.decision(nowUptimeNs: nowUptimeNs, config: config)
+            let budget = motionBudgetState.choose(
                 policy: makeMotionBudgetPolicy(),
                 mode: admission.mode,
                 frameAgeMs: admission.latestClientFrameAgeMs,
                 backlogFrames: admission.latestClientBacklogFrames,
                 unacknowledgedBytes: admission.unacknowledgedBytes,
                 nowUptimeNs: nowUptimeNs
+            )
+            let admissionIntervalMs = admission.encodeIntervalMs(config: config)
+            let intervalMs = OwnedMediaEncodeCadencePolicy.intervalMs(
+                admissionIntervalMs: admissionIntervalMs,
+                budget: budget
+            )
+            return OwnedMediaEncodeTiming(
+                decision: decision,
+                budget: budget,
+                admissionIntervalMs: admissionIntervalMs,
+                intervalMs: intervalMs
             )
         }
     }

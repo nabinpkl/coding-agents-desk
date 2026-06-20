@@ -915,6 +915,19 @@ struct OwnedMediaEncodeBudget: Equatable, Sendable {
     }
 }
 
+struct OwnedMediaEncodeCadencePolicy: Equatable, Sendable {
+    static func intervalMs(
+        admissionIntervalMs: Int,
+        budget: OwnedMediaEncodeBudget
+    ) -> Int {
+        max(admissionIntervalMs, budgetIntervalMs(budget))
+    }
+
+    private static func budgetIntervalMs(_ budget: OwnedMediaEncodeBudget) -> Int {
+        max(1, Int((1_000.0 / Double(max(budget.expectedFrameRate, 1))).rounded(.up)))
+    }
+}
+
 struct OwnedMediaMotionBudgetPolicy: Equatable, Sendable {
     let enabled: Bool
     let restBitrateKbps: Int

@@ -247,6 +247,22 @@ struct ScrollQualityTests {
         #expect(budget.scaleDown == 1.0)
     }
 
+    @Test func ownedMediaMotionBudgetControlsCadenceDuringRestHold() {
+        let budget = OwnedMediaEncodeBudget(
+            mode: .motion,
+            bitrateKbps: 5_000,
+            expectedFrameRate: 15,
+            scaleDown: 1.25
+        )
+
+        let interval = OwnedMediaEncodeCadencePolicy.intervalMs(
+            admissionIntervalMs: 34,
+            budget: budget
+        )
+
+        #expect(interval == 67)
+    }
+
     @Test func ownedMediaMotionBudgetTurnsOnForBehindFrameAge() {
         let policy = Self.motionBudgetPolicy()
 
