@@ -342,7 +342,7 @@ struct ScrollQualityTests {
         #expect(Config.ownedMediaMotionScaleDown(environment: ["AGENTDESK_OWNED_MEDIA_MOTION_SCALE_DOWN": "bad"]) == 1.25)
     }
 
-    @Test func ownedMediaMotionBudgetStateRecordsLastMotionUse() {
+    @Test func ownedMediaMotionBudgetStateDoesNotRefreshHoldOnlyMotion() {
         var state = OwnedMediaMotionBudgetState()
         let policy = Self.motionBudgetPolicy()
 
@@ -365,6 +365,31 @@ struct ScrollQualityTests {
 
         #expect(motion.mode == .motion)
         #expect(held.mode == .motion)
+        #expect(state.lastMotionBudgetAtUptimeNs == 1_000_000_000)
+    }
+
+    @Test func ownedMediaMotionBudgetStateRefreshesOnDirectPressure() {
+        var state = OwnedMediaMotionBudgetState()
+        let policy = Self.motionBudgetPolicy()
+
+        _ = state.choose(
+            policy: policy,
+            mode: .behind,
+            frameAgeMs: 120,
+            backlogFrames: 1,
+            unacknowledgedBytes: 130_000,
+            nowUptimeNs: 1_000_000_000
+        )
+        let pressured = state.choose(
+            policy: policy,
+            mode: .normal,
+            frameAgeMs: 90,
+            backlogFrames: 0,
+            unacknowledgedBytes: 0,
+            nowUptimeNs: 1_300_000_000
+        )
+
+        #expect(pressured.mode == .motion)
         #expect(state.lastMotionBudgetAtUptimeNs == 1_300_000_000)
     }
 

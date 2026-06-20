@@ -968,10 +968,12 @@ struct OwnedMediaMotionBudgetPolicy: Equatable, Sendable {
         nowUptimeNs: UInt64
     ) -> OwnedMediaEncodeBudget {
         guard enabled else { return restBudget }
-        if mode == .behind || mode == .draining ||
-            frameAgeMs >= motionFrameAgeMs ||
-            backlogFrames >= motionBacklogFrames ||
-            unacknowledgedBytes >= motionInflightBytes {
+        if hasMotionPressure(
+            mode: mode,
+            frameAgeMs: frameAgeMs,
+            backlogFrames: backlogFrames,
+            unacknowledgedBytes: unacknowledgedBytes
+        ) {
             return motionBudget
         }
         guard let lastMotionBudgetAtUptimeNs else { return restBudget }
@@ -981,6 +983,19 @@ struct OwnedMediaMotionBudgetPolicy: Equatable, Sendable {
             return motionBudget
         }
         return restBudget
+    }
+
+    func hasMotionPressure(
+        mode: OwnedMediaCadenceMode,
+        frameAgeMs: Double,
+        backlogFrames: Int,
+        unacknowledgedBytes: Int
+    ) -> Bool {
+        guard enabled else { return false }
+        return mode == .behind || mode == .draining ||
+            frameAgeMs >= motionFrameAgeMs ||
+            backlogFrames >= motionBacklogFrames ||
+            unacknowledgedBytes >= motionInflightBytes
     }
 }
 
@@ -1003,7 +1018,12 @@ struct OwnedMediaMotionBudgetState: Equatable {
             lastMotionBudgetAtUptimeNs: lastMotionBudgetAtUptimeNs,
             nowUptimeNs: nowUptimeNs
         )
-        if budget.mode == .motion {
+        if policy.hasMotionPressure(
+            mode: mode,
+            frameAgeMs: frameAgeMs,
+            backlogFrames: backlogFrames,
+            unacknowledgedBytes: unacknowledgedBytes
+        ) {
             lastMotionBudgetAtUptimeNs = nowUptimeNs
         }
         return budget
