@@ -815,12 +815,13 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             }
 
             var retainedGraphicsAvailable = false
+            var hevcFallbackReason: OwnedHybridHEVCFallbackReason?
             if let graphicsChannel = latestGraphicsChannel() {
                 retainedGraphicsAvailable = true
                 let pendingReset = peekPendingGraphicsResetRequest()
                 if pendingReset != nil {
                     scrollDeltaEngine.invalidateRetainedSurface()
-                    requestKeyframe()
+                    hevcFallbackReason = .graphicsReset
                     logger.notice("owned graphics reset consumed by encode pump")
                 }
                 let graphicsDecision = graphicsAdmissionDecision(allowsReset: pendingReset != nil)
@@ -865,6 +866,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                             }
                         } catch {
                             logger.error("owned graphics scroll send failed: \(String(describing: error), privacy: .public)")
+                            hevcFallbackReason = .graphicsSendFailed
                         }
                     }
                 case .reset:
@@ -878,21 +880,26 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                             logger.notice("owned graphics reset sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public)")
                         } catch {
                             logger.error("owned graphics reset send failed: \(String(describing: error), privacy: .public)")
+                            hevcFallbackReason = .graphicsResetSendFailed
                         }
                     }
                 case .timeout:
+                    hevcFallbackReason = .scrollTimeout
                     if let scrollDiagnostics = graphics.diagnostics {
                         logger.notice("owned graphics scroll-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
                     } else {
                         logger.notice("owned graphics scroll-timeout")
                     }
                 case .rejected(let reason):
+                    hevcFallbackReason = .rejectedMotion
                     if let scrollDiagnostics = graphics.diagnostics {
                         logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
                     } else {
                         logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public)")
                     }
                 }
+            } else {
+                hevcFallbackReason = .graphicsDisconnected
             }
 
             let decision = timing.decision
@@ -971,6 +978,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 let sendStats = try await channel.send(envelope)
                 scrollDeltaEngine.observeFallbackFrame(frame)
                 diagnostics.noteSent(envelope: envelope, stats: sendStats, decision: decision)
+                if let hevcFallbackReason {
+                    logger.notice("owned media hevc-fallback reason=\(hevcFallbackReason.rawValue, privacy: .public) frame=\(envelope.header.frameId, privacy: .public) bytes=\(sendStats.encodedBytes, privacy: .public) packets=\(sendStats.packetCount, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public)")
+                }
                 noteAdmissionSent(envelope, decision: decision)
             } catch {
                 logger.error("owned media frame send failed: \(String(describing: error), privacy: .public)")

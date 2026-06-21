@@ -131,6 +131,21 @@ struct ScrollQualityTests {
         #expect(!afterConsumed)
     }
 
+    @Test func hybridHevcFallbackReasonsDoNotRequestKeyframes() {
+        let reasons: [OwnedHybridHEVCFallbackReason] = [
+            .scrollTimeout,
+            .graphicsDisconnected,
+            .graphicsReset,
+            .graphicsSendFailed,
+            .graphicsResetSendFailed,
+            .rejectedMotion
+        ]
+
+        #expect(reasons.allSatisfy { !$0.requestsKeyframe })
+        #expect(reasons.map(\.rawValue).contains("scroll-timeout"))
+        #expect(reasons.map(\.rawValue).contains("graphics-disconnected"))
+    }
+
     @Test func ownedGraphicsAdmissionAckClearsInflightFramesAndBytes() {
         var admission = OwnedGraphicsAdmission()
         let config = Self.graphicsAdmissionConfig()

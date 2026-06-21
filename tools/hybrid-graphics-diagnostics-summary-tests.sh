@@ -24,6 +24,8 @@ assert_contains "client hevc backlogSamples=3 maxBacklogFrames=4 maxBacklogBytes
 assert_contains "host scroll accepted=0 rejected=1 timeout=3"
 assert_contains "host graphics resets=1 queued=1 consumed=0 sendFailed=0 reconnectHints=1 disconnectHints=1"
 assert_contains "host hevc frames=2 acks=2 bytes=800000 maxBytes=420000 packets=257 maxPackets=136 framesOver100Packets=2"
+assert_contains "host hevc fallbacks=2"
+assert_contains "host hevcFallbackReasons graphics-disconnected=1 scroll-timeout=1"
 assert_contains "host timing ackSamples=2 maxAckRttMs=220.00 maxCaptureToAckMs=281.00 maxRenderGapMs=186.00"
 assert_contains "host queue maxUnackedFrames=2 maxUnackedBytes=800000"
 assert_contains "host drain enter=1 exit=1 admissionHolds=2"

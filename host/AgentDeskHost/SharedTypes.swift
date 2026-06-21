@@ -1511,6 +1511,19 @@ struct HybridScrollHEVCAdmission: Equatable {
     }
 }
 
+enum OwnedHybridHEVCFallbackReason: String, Equatable, Sendable {
+    case scrollTimeout = "scroll-timeout"
+    case graphicsDisconnected = "graphics-disconnected"
+    case graphicsReset = "graphics-reset"
+    case graphicsSendFailed = "graphics-send-failed"
+    case graphicsResetSendFailed = "graphics-reset-send-failed"
+    case rejectedMotion = "rejected-motion"
+
+    var requestsKeyframe: Bool {
+        false
+    }
+}
+
 enum OwnedGraphicsAdmissionMode: Equatable {
     case normal
     case behind

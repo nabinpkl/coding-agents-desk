@@ -82,10 +82,10 @@ Phase goal: pace retained graphics frames using the graphics surface lifecycle.
 
 Phase goal: keep HEVC useful as a fallback without letting it hide retained-path failures.
 
-- [ ] R39.1. Add explicit diagnostics when scroll timeout or graphics disconnect causes HEVC fallback, including fallback reason and encoded frame byte count.
-- [ ] R39.2. Cap fallback HEVC damage during active scroll by coalescing raw captures and limiting recovery keyframes to decoder-continuity failures, not graphics stream failures.
-- [ ] R39.3. Keep existing HEVC drain tuning in place but remove any path that treats HEVC drain recovery as success while copyRect is not firing.
-- [ ] R39.4. Add tests proving graphics failure fallback does not request repeated HEVC keyframes, HEVC drain does not mark retained graphics healthy, and fallback reasons appear in diagnostics.
+- [x] D39.1. Add explicit diagnostics when scroll timeout or graphics disconnect causes HEVC fallback, including fallback reason and encoded frame byte count.
+- [x] D39.2. Cap fallback HEVC damage during active scroll by coalescing raw captures and limiting recovery keyframes to decoder-continuity failures, not graphics stream failures.
+- [x] D39.3. Keep existing HEVC drain tuning in place but remove any path that treats HEVC drain recovery as success while copyRect is not firing.
+- [x] D39.4. Add tests proving graphics failure fallback does not request repeated HEVC keyframes, HEVC drain does not mark retained graphics healthy, and fallback reasons appear in diagnostics.
 - [ ] R39.5. Acceptance: if copyRect fails, logs say so directly and HEVC fallback remains usable rather than freezing silently.
 
 ## v0 Phase 6: physical comparison
@@ -131,6 +131,7 @@ R37.1-R37.5 2026-06-21  committed   accepted-scroll HEVC suppression and one idl
 R37.6     pending     pending     physical accepted-scroll HEVC suppression acceptance
 R38.1-R38.6 2026-06-21  committed   graphics ACK queue fields, host graphics admission, and client queue diagnostics
 R38.7     pending     pending     physical graphics ACK/backpressure acceptance
-R39       pending     pending     fallback HEVC guardrails after retained-path failures
+R39.1-R39.4 2026-06-21  committed   HEVC fallback reasons, graphics-failure keyframe guardrail, and diagnostics summary coverage
+R39.5     pending     pending     physical fallback observability acceptance
 R40       pending     pending     physical iPhone comparison and blocker classification
 ```

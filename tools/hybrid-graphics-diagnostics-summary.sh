@@ -134,6 +134,7 @@ perl -ne '
         /owned graphics .*send failed.*Socket is not connected/;
     $hostFrame++ if /owned media host-frame frame=/;
     $hostAck++ if /owned media host-frame-ack/;
+    $hevcFallback++ if /owned media hevc-fallback /;
     $drainEnter++ if /owned media drain-enter/;
     $drainExit++ if /owned media drain-exit/;
     $admissionHold++ if /owned media admission-hold/;
@@ -175,6 +176,10 @@ perl -ne '
         my $reason = $1;
         $holdReasons{$reason}++;
     }
+    if (/owned media hevc-fallback/ && /reason=([^[:space:]]+)/) {
+        my $reason = $1;
+        $fallbackReasons{$reason}++;
+    }
 
     END {
         printf "host scroll accepted=%d rejected=%d timeout=%d\n",
@@ -185,6 +190,13 @@ perl -ne '
             $graphicsCommands||0, $max{"graphicsCommands"}||0, $graphicsPayloadBytes||0, $max{"graphicsPayloadBytes"}||0;
         printf "host hevc frames=%d acks=%d bytes=%d maxBytes=%d packets=%d maxPackets=%d framesOver100Packets=%d\n",
             $hostFrame||0, $hostAck||0, $hevcBytes||0, $max{"hevcBytes"}||0, $hevcPackets||0, $max{"hevcPackets"}||0, $hevcPacketFramesOver100||0;
+        printf "host hevc fallbacks=%d\n", $hevcFallback||0;
+        if (%fallbackReasons) {
+            my @parts = map { "$_=$fallbackReasons{$_}" } sort keys %fallbackReasons;
+            print "host hevcFallbackReasons " . join(" ", @parts) . "\n";
+        } else {
+            print "host hevcFallbackReasons none\n";
+        }
         printf "host timing ackSamples=%d maxAckRttMs=%.2f maxCaptureToAckMs=%.2f maxRenderGapMs=%.2f\n",
             $ackRttCount||0, $max{"ackRttMs"}||0, $max{"captureToAckMs"}||0, $max{"renderGapMs"}||0;
         printf "host queue maxUnackedFrames=%d maxUnackedBytes=%d\n",
