@@ -402,7 +402,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var frameMailbox: LatestCapturedFrameMailbox?
     private var encodePumpTask: Task<Void, Never>?
     private var admission = OwnedMediaEncodeAdmission()
-    private var graphicsResetRequested = false
+    private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?
     private var motionBudgetState = OwnedMediaMotionBudgetState()
     private var diagnostics = OwnedMediaHostDiagnostics()
     private let frameScaler = OwnedMediaFrameScaler()
@@ -609,7 +609,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             self?.logger.notice("owned graphics quic connection state=\(String(describing: state), privacy: .public)")
             switch state {
+            case .ready:
+                self?.logger.notice("owned graphics channel-connected")
             case .cancelled, .failed:
+                self?.logger.notice("owned graphics channel-disconnected state=\(String(describing: state), privacy: .public)")
                 if let connection {
                     self?.removeGraphicsConnection(connection)
                 }
@@ -649,6 +652,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 let ready = GraphicsChannelReady(sessionId: hello.sessionId, serverNonce: serverNonce)
                 let readyData = try JSONEncoder().encode(ready)
                 try await sendReady(readyData, on: connection)
+                logger.notice("owned graphics reset acked session=\(hello.sessionId, privacy: .public)")
                 installGraphicsChannel(OwnedGraphicsChannelServer(
                     connection: connection,
                     onResetRequest: { [weak self] request in
@@ -805,7 +809,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             var retainedGraphicsAvailable = false
             if let graphicsChannel = latestGraphicsChannel() {
                 retainedGraphicsAvailable = true
-                if consumeGraphicsResetRequested() {
+                if peekPendingGraphicsResetRequest() != nil {
                     scrollDeltaEngine.invalidateRetainedSurface()
                     requestKeyframe()
                     logger.notice("owned graphics reset consumed by encode pump")
@@ -851,7 +855,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                         do {
                             try await graphicsChannel.send(envelope)
                             scrollDeltaEngine.commitPendingSurface()
+                            clearPendingGraphicsResetRequest()
                             logger.notice("owned graphics reset frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
+                            logger.notice("owned graphics reset sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public)")
                         } catch {
                             logger.error("owned graphics reset send failed: \(String(describing: error), privacy: .public)")
                         }
@@ -1086,6 +1092,14 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             noteFrameAck(message)
         case .packetResendRequest:
             break
+        case .graphicsResetRequest:
+            let request = OwnedGraphicsResetRequest(
+                reason: message.reason ?? "media-fallback",
+                lastCommittedSurfaceGeneration: message.graphicsSurfaceGeneration ?? 0,
+                lastCommittedFrameId: message.frameId
+            )
+            logger.notice("owned graphics reset fallback received reason=\(request.reason, privacy: .public) generation=\(request.lastCommittedSurfaceGeneration, privacy: .public) frame=\(request.lastCommittedFrameId, privacy: .public)")
+            handleGraphicsResetRequest(request)
         }
     }
 
@@ -1156,17 +1170,20 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
     private func handleGraphicsResetRequest(_ request: OwnedGraphicsResetRequest) {
         lock.withLock {
-            graphicsResetRequested = true
+            pendingGraphicsResetRequest = request
         }
-        requestKeyframe()
         logger.notice("owned graphics reset queued reason=\(request.reason, privacy: .public) generation=\(request.lastCommittedSurfaceGeneration, privacy: .public) frame=\(request.lastCommittedFrameId, privacy: .public)")
     }
 
-    private func consumeGraphicsResetRequested() -> Bool {
+    private func peekPendingGraphicsResetRequest() -> OwnedGraphicsResetRequest? {
         lock.withLock {
-            let requested = graphicsResetRequested
-            graphicsResetRequested = false
-            return requested
+            pendingGraphicsResetRequest
+        }
+    }
+
+    private func clearPendingGraphicsResetRequest() {
+        lock.withLock {
+            pendingGraphicsResetRequest = nil
         }
     }
 

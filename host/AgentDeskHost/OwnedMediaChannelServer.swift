@@ -279,6 +279,8 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
         case .frameAck:
             let enrichedMessage = noteFrameAck(message)
             onControlMessage(enrichedMessage)
+        case .graphicsResetRequest:
+            onControlMessage(message)
         }
     }
 

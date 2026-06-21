@@ -1173,6 +1173,7 @@ enum OwnedMediaControlKind: String, Codable, Equatable {
     case keyframeRequest = "keyframe-request"
     case packetResendRequest = "packet-resend-request"
     case frameAck = "frame-ack"
+    case graphicsResetRequest = "graphics-reset-request"
 }
 
 struct OwnedMediaControlMessage: Codable, Equatable {
@@ -1184,6 +1185,8 @@ struct OwnedMediaControlMessage: Codable, Equatable {
     let renderGapMs: Double?
     let clientBacklogFrames: Int?
     let clientBacklogBytes: Int?
+    let graphicsSurfaceGeneration: UInt32?
+    let reason: String?
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
@@ -1194,6 +1197,8 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         case renderGapMs = "rg"
         case clientBacklogFrames = "qf"
         case clientBacklogBytes = "qb"
+        case graphicsSurfaceGeneration = "sg"
+        case reason = "r"
     }
 
     init(
@@ -1203,7 +1208,9 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         totalFramesDecoded: UInt64? = nil,
         renderGapMs: Double? = nil,
         clientBacklogFrames: Int? = nil,
-        clientBacklogBytes: Int? = nil
+        clientBacklogBytes: Int? = nil,
+        graphicsSurfaceGeneration: UInt32? = nil,
+        reason: String? = nil
     ) {
         self.type = "owned-media-control"
         self.kind = kind
@@ -1213,6 +1220,8 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         self.renderGapMs = renderGapMs
         self.clientBacklogFrames = clientBacklogFrames
         self.clientBacklogBytes = clientBacklogBytes
+        self.graphicsSurfaceGeneration = graphicsSurfaceGeneration
+        self.reason = reason
     }
 
     init(from decoder: Decoder) throws {
@@ -1225,6 +1234,8 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         renderGapMs = try container.decodeIfPresent(Double.self, forKey: .renderGapMs)
         clientBacklogFrames = try container.decodeIfPresent(Int.self, forKey: .clientBacklogFrames)
         clientBacklogBytes = try container.decodeIfPresent(Int.self, forKey: .clientBacklogBytes)
+        graphicsSurfaceGeneration = try container.decodeIfPresent(UInt32.self, forKey: .graphicsSurfaceGeneration)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1239,6 +1250,8 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         try container.encodeIfPresent(renderGapMs, forKey: .renderGapMs)
         try container.encodeIfPresent(clientBacklogFrames, forKey: .clientBacklogFrames)
         try container.encodeIfPresent(clientBacklogBytes, forKey: .clientBacklogBytes)
+        try container.encodeIfPresent(graphicsSurfaceGeneration, forKey: .graphicsSurfaceGeneration)
+        try container.encodeIfPresent(reason, forKey: .reason)
     }
 }
 

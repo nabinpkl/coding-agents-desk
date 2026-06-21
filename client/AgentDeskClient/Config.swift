@@ -18,6 +18,18 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
         defaultValue: 256
     )
+    static let graphicsReconnectInitialDelayMs = positiveInt(
+        environmentKey: "AGENTDESK_GRAPHICS_RECONNECT_INITIAL_DELAY_MS",
+        defaultValue: 250
+    )
+    static let graphicsReconnectMaxDelayMs = positiveInt(
+        environmentKey: "AGENTDESK_GRAPHICS_RECONNECT_MAX_DELAY_MS",
+        defaultValue: 2_000
+    )
+    static let graphicsReconnectMaxAttempts = positiveInt(
+        environmentKey: "AGENTDESK_GRAPHICS_RECONNECT_MAX_ATTEMPTS",
+        defaultValue: 120
+    )
 
     static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
         guard let raw = ProcessInfo.processInfo.environment[environmentKey],

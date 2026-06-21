@@ -47,12 +47,12 @@ Phase goal: make scroll detection finish within budget before building full expo
 
 Phase goal: make the reliable graphics channel recoverable enough to carry stateful surface commands.
 
-- [ ] R36.1. Extend `host/AgentDeskHost/OwnedMediaTransport.swift` and `client/AgentDeskClient/OwnedMediaTransport.swift` so graphics stream disconnect, timeout, receive failure, and send failure enter a reconnect state instead of permanently disabling retained graphics.
-- [ ] R36.2. Route graphics reset requests through a live fallback control path when the graphics stream is disconnected, then force a graphics-stream reconnect and next-generation `resetSurface`.
-- [ ] R36.3. Add a graphics handshake replay fence for reconnect attempts using the current session identity and fresh nonces.
-- [ ] R36.4. Add host diagnostics for graphics channel state: connected, disconnected, reconnecting, reconnect failed, reset queued, reset sent, reset acked.
-- [ ] R36.5. Add client diagnostics for graphics receive errors, reconnect attempts, reset request path, and stale frame discard after reconnect.
-- [ ] R36.6. Add tests proving a graphics stream receive error reconnects, reset request does not depend on the dead stream, stale pre-reconnect frames cannot overwrite the reset generation, and HEVC datagrams continue while graphics reconnects.
+- [x] R36.1. Extend `host/AgentDeskHost/OwnedMediaTransport.swift` and `client/AgentDeskClient/OwnedMediaTransport.swift` so graphics stream disconnect, timeout, receive failure, and send failure enter a reconnect state instead of permanently disabling retained graphics.
+- [x] R36.2. Route graphics reset requests through a live fallback control path when the graphics stream is disconnected, then force a graphics-stream reconnect and next-generation `resetSurface`.
+- [x] R36.3. Add a graphics handshake replay fence for reconnect attempts using the current session identity and fresh nonces.
+- [x] R36.4. Add host diagnostics for graphics channel state: connected, disconnected, reconnecting, reconnect failed, reset queued, reset sent, reset acked.
+- [x] R36.5. Add client diagnostics for graphics receive errors, reconnect attempts, reset request path, and stale frame discard after reconnect.
+- [x] R36.6. Add tests proving a graphics stream receive error reconnects, reset request does not depend on the dead stream, stale pre-reconnect frames cannot overwrite the reset generation, and HEVC datagrams continue while graphics reconnects.
 - [ ] R36.7. Acceptance: physical scroll run has no unrecovered `graphics-reset-request-failed ... Socket is not connected` loop, and copyRect resumes after one forced graphics stream close.
 
 ## v0 Phase 3: accepted-scroll HEVC suppression
@@ -126,6 +126,7 @@ D27-D32   2026-06-20  archived    initial scroll-first hybrid retained graphics 
 R34       pending     pending     evidence gate and hybrid diagnostics summary
 R35       pending     pending     cheap scroll detection before full BGRA payload work
 R36       pending     pending     durable graphics stream reconnect and reset recovery
+R36.1-R36.6 2026-06-21  committed   durable graphics reconnect, fallback reset control, bounded retry policy, and contract tests
 R37       pending     pending     accepted-scroll HEVC suppression until idle refresh
 R38       pending     pending     graphics lifecycle ACK and queue-depth backpressure
 R39       pending     pending     fallback HEVC guardrails after retained-path failures

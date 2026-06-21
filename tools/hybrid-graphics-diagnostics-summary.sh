@@ -37,6 +37,7 @@ perl -ne '
     $graphicsResetRequest++ if /graphics-reset-request(?: |-|$)/;
     $graphicsResetDropped++ if /graphics-reset-request-dropped /;
     $graphicsResetFailed++ if /graphics-reset-request-failed /;
+    $graphicsResetFallback++ if /graphics-reset-(?:request-)?fallback /;
     $graphicsReconnect++ if /owned graphics quic (ready|state=.*ready|state=.*preparing|state=.*setup)/;
     $graphicsDisconnect++ if /owned graphics quic (receive failed|connect failed|state=.*(failed|cancelled|waiting))/ ||
         /graphics-reset-request-(dropped|failed).*Socket is not connected/;
@@ -98,8 +99,8 @@ perl -ne '
         my $avgCompositor = $graphicsCompositorCount ? $graphicsCompositorTotal / $graphicsCompositorCount : 0;
         printf "client graphics frames=%d failed=%d acks=%d copyRects=%d maxCopyRects=%d tileBytes=%d maxTileBytes=%d payloadBytes=%d\n",
             $graphicsFrame||0, $graphicsFrameFailed||0, $graphicsAck||0, $copyRects||0, $max{"copyRects"}||0, $tileBytes||0, $max{"tileBytes"}||0, $graphicsBytes||0;
-        printf "client graphics resetRequests=%d dropped=%d failed=%d reconnectHints=%d disconnectHints=%d\n",
-            $graphicsResetRequest||0, $graphicsResetDropped||0, $graphicsResetFailed||0, $graphicsReconnect||0, $graphicsDisconnect||0;
+        printf "client graphics resetRequests=%d dropped=%d failed=%d fallback=%d reconnectHints=%d disconnectHints=%d\n",
+            $graphicsResetRequest||0, $graphicsResetDropped||0, $graphicsResetFailed||0, $graphicsResetFallback||0, $graphicsReconnect||0, $graphicsDisconnect||0;
         printf "client graphics timing compositorSamples=%d avgCompositorMs=%.2f maxCompositorMs=%.2f ackRttSamples=%d maxAckRttMs=%.2f\n",
             $graphicsCompositorCount||0, $avgCompositor, $max{"graphicsCompositorMs"}||0, $graphicsAckRttCount||0, $max{"graphicsAckRttMs"}||0;
         printf "client graphics queue samples=%d maxFrames=%d byteSamples=%d maxBytes=%d\n",
@@ -125,6 +126,8 @@ perl -ne '
     $graphicsResetFrame++ if /owned graphics reset frame=/;
     $graphicsResetQueued++ if /owned graphics reset queued/;
     $graphicsResetConsumed++ if /owned graphics reset consumed/;
+    $graphicsResetFallbackReceived++ if /owned graphics reset fallback received/;
+    $graphicsResetAcked++ if /owned graphics reset acked/;
     $graphicsResetSendFailed++ if /owned graphics reset send failed/;
     $graphicsReconnect++ if /owned graphics quic (accepted|connection state=.*ready|listener state=.*ready|connection state=.*preparing|connection state=.*setup)/;
     $graphicsDisconnect++ if /owned graphics quic (connection state=.*(failed|cancelled|waiting)|hello receive failed|hello failed|listener failed)/ ||
@@ -176,10 +179,10 @@ perl -ne '
     END {
         printf "host scroll accepted=%d rejected=%d timeout=%d\n",
             $scrollAccepted||0, $scrollRejected||0, $scrollTimeout||0;
-        printf "host graphics resets=%d queued=%d consumed=%d sendFailed=%d reconnectHints=%d disconnectHints=%d commands=%d maxCommands=%d payloadBytes=%d maxPayloadBytes=%d\n",
+        printf "host graphics resets=%d queued=%d consumed=%d sendFailed=%d reconnectHints=%d disconnectHints=%d fallbackReceived=%d acked=%d commands=%d maxCommands=%d payloadBytes=%d maxPayloadBytes=%d\n",
             $graphicsResetFrame||0, $graphicsResetQueued||0, $graphicsResetConsumed||0, $graphicsResetSendFailed||0,
-            $graphicsReconnect||0, $graphicsDisconnect||0, $graphicsCommands||0, $max{"graphicsCommands"}||0,
-            $graphicsPayloadBytes||0, $max{"graphicsPayloadBytes"}||0;
+            $graphicsReconnect||0, $graphicsDisconnect||0, $graphicsResetFallbackReceived||0, $graphicsResetAcked||0,
+            $graphicsCommands||0, $max{"graphicsCommands"}||0, $graphicsPayloadBytes||0, $max{"graphicsPayloadBytes"}||0;
         printf "host hevc frames=%d acks=%d bytes=%d maxBytes=%d packets=%d maxPackets=%d framesOver100Packets=%d\n",
             $hostFrame||0, $hostAck||0, $hevcBytes||0, $max{"hevcBytes"}||0, $hevcPackets||0, $max{"hevcPackets"}||0, $hevcPacketFramesOver100||0;
         printf "host timing ackSamples=%d maxAckRttMs=%.2f maxCaptureToAckMs=%.2f maxRenderGapMs=%.2f\n",

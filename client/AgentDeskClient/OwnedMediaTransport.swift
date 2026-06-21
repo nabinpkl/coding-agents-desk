@@ -46,17 +46,23 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     private var pendingConnection: NWConnection?
     private var receiveTask: Task<Void, Never>?
     private weak var sink: (any OwnedMediaFrameSink)?
+    private let onFallbackResetRequest: @Sendable (OwnedGraphicsResetRequest) async -> Void
+    private let onDisconnected: @Sendable (String) -> Void
 
     init(
         plan: ClientGraphicsConnectionPlan,
         active: ActiveSession,
         mediaCapability: MediaCapabilityGrant,
-        sink: (any OwnedMediaFrameSink)?
+        sink: (any OwnedMediaFrameSink)?,
+        onFallbackResetRequest: @escaping @Sendable (OwnedGraphicsResetRequest) async -> Void,
+        onDisconnected: @escaping @Sendable (String) -> Void
     ) {
         self.plan = plan
         self.active = active
         self.mediaCapability = mediaCapability
         self.sink = sink
+        self.onFallbackResetRequest = onFallbackResetRequest
+        self.onDisconnected = onDisconnected
     }
 
     func start() async throws {
@@ -101,7 +107,9 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
 
     func sendResetRequest(_ request: OwnedGraphicsResetRequest) async {
         guard let connection else {
-            ownedMediaStderrTrace("graphics-reset-request-dropped reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=no-connection")
+            ownedMediaStderrTrace("graphics-reset-request-fallback reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=no-connection")
+            await onFallbackResetRequest(request)
+            onDisconnected("reset-no-connection")
             return
         }
         do {
@@ -110,6 +118,8 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         } catch {
             logger.error("owned graphics reset request failed: \(String(describing: error), privacy: .public)")
             ownedMediaStderrTrace("graphics-reset-request-failed reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) error=\(String(describing: error))")
+            await onFallbackResetRequest(request)
+            onDisconnected("reset-send-failed")
         }
     }
 
@@ -141,9 +151,13 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
                     self?.sink?.currentGraphicsResetRequest(reason: "graphics-stream-\(String(describing: error))")
                 }
                 if let request {
-                    await sendResetRequest(request)
+                    await onFallbackResetRequest(request)
+                    ownedMediaStderrTrace("graphics-reset-request-fallback reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=receive-failed")
                 }
                 logger.error("owned graphics quic receive failed: \(String(describing: error), privacy: .public)")
+                connection.cancel()
+                self.connection = nil
+                onDisconnected("receive-failed")
                 return
             }
         }
@@ -217,6 +231,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
     private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "owned-media")
     private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.client.owned-media-quic")
+    private let lifecycleLock = NSLock()
+    private let graphicsReconnectPolicy = GraphicsReconnectPolicy(
+        initialDelayMs: Config.graphicsReconnectInitialDelayMs,
+        maxDelayMs: Config.graphicsReconnectMaxDelayMs,
+        maxAttempts: Config.graphicsReconnectMaxAttempts
+    )
     private let host: String
     private let port: UInt16
     private let graphicsPort: UInt16
@@ -225,8 +245,13 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var connection: NWConnection?
     private var graphicsTransport: OwnedGraphicsTransport?
     private var graphicsTask: Task<Void, Never>?
+    private var graphicsReconnectTask: Task<Void, Never>?
     private var receiveTask: Task<Void, Never>?
     private weak var sink: (any OwnedMediaFrameSink)?
+    private var isStopped = false
+    private var graphicsReconnectGeneration: UInt64 = 0
+    private var graphicsReconnectAttempt = 0
+    private var graphicsReconnectScheduled = false
 
     init(
         host: String,
@@ -248,6 +273,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     func start(videoSource: VideoFrameSource?, videoSink: VideoFrameSink?) async throws {
         guard let sink = videoSink as? any OwnedMediaFrameSink else {
             throw MediaTransportError.notYetImplemented
+        }
+        lifecycleLock.withLock {
+            isStopped = false
+            graphicsReconnectGeneration &+= 1
+            graphicsReconnectAttempt = 0
+            graphicsReconnectScheduled = false
         }
         guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
             throw SessionRejected(reason: .malformed)
@@ -291,8 +322,16 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     func stop() {
+        lifecycleLock.withLock {
+            isStopped = true
+            graphicsReconnectGeneration &+= 1
+            graphicsReconnectAttempt = 0
+            graphicsReconnectScheduled = false
+        }
         graphicsTask?.cancel()
         graphicsTask = nil
+        graphicsReconnectTask?.cancel()
+        graphicsReconnectTask = nil
         graphicsTransport?.stop()
         graphicsTransport = nil
         receiveTask?.cancel()
@@ -304,21 +343,124 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     private func startGraphicsChannel() {
+        let generation = nextGraphicsLifecycleGeneration()
+        guard let generation else { return }
+        graphicsTask?.cancel()
+        graphicsTransport?.stop()
+        graphicsReconnectTask?.cancel()
+        graphicsReconnectTask = nil
         let transport = OwnedGraphicsTransport(
             plan: ClientGraphicsConnectionPlan(host: host, port: graphicsPort),
             active: active,
             mediaCapability: mediaCapability,
-            sink: sink
+            sink: sink,
+            onFallbackResetRequest: { [weak self] request in
+                await self?.sendGraphicsResetFallback(request)
+            },
+            onDisconnected: { [weak self] reason in
+                self?.scheduleGraphicsReconnect(reason: reason, generation: generation)
+            }
         )
         graphicsTransport = transport
         graphicsTask = Task { [weak self, transport] in
             do {
                 try await transport.start()
+                self?.noteGraphicsConnected(generation: generation)
             } catch is CancellationError {
                 return
             } catch {
                 self?.logger.error("owned graphics quic connect failed: \(String(describing: error), privacy: .public)")
+                ownedMediaStderrTrace("graphics-reconnect-failed error=\(String(describing: error))")
+                self?.scheduleGraphicsReconnect(reason: "connect-failed", generation: generation)
             }
+        }
+    }
+
+    private func nextGraphicsLifecycleGeneration() -> UInt64? {
+        lifecycleLock.withLock {
+            guard !isStopped else { return nil }
+            graphicsReconnectGeneration &+= 1
+            graphicsReconnectScheduled = false
+            return graphicsReconnectGeneration
+        }
+    }
+
+    private func noteGraphicsConnected(generation: UInt64) {
+        lifecycleLock.withLock {
+            guard generation == graphicsReconnectGeneration else { return }
+            graphicsReconnectAttempt = 0
+            graphicsReconnectScheduled = false
+        }
+    }
+
+    private func nextReconnectDelay(reason: String, generation: UInt64) -> (attempt: Int, delayMs: Int)? {
+        lifecycleLock.withLock {
+            guard !isStopped,
+                  connection != nil,
+                  generation == graphicsReconnectGeneration,
+                  !graphicsReconnectScheduled else {
+                return nil
+            }
+            let nextAttempt = graphicsReconnectAttempt + 1
+            guard let delayMs = graphicsReconnectPolicy.delayMs(forAttempt: nextAttempt) else {
+                logger.error("owned graphics reconnect stopped reason=\(reason, privacy: .public) attempts=\(self.graphicsReconnectAttempt, privacy: .public)")
+                ownedMediaStderrTrace("graphics-reconnect-stopped reason=\(reason) attempts=\(self.graphicsReconnectAttempt)")
+                return nil
+            }
+            graphicsReconnectAttempt = nextAttempt
+            graphicsReconnectScheduled = true
+            return (nextAttempt, delayMs)
+        }
+    }
+
+    private func scheduleGraphicsReconnect(reason: String, generation: UInt64) {
+        guard let plan = nextReconnectDelay(reason: reason, generation: generation) else { return }
+        logger.notice("owned graphics reconnecting reason=\(reason, privacy: .public) attempt=\(plan.attempt, privacy: .public) delayMs=\(plan.delayMs, privacy: .public)")
+        ownedMediaStderrTrace("graphics-reconnecting reason=\(reason) attempt=\(plan.attempt) delayMs=\(plan.delayMs)")
+        let task = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(plan.delayMs) * 1_000_000)
+            guard let self, !Task.isCancelled else { return }
+            let canReconnect = self.lifecycleLock.withLock {
+                guard generation == self.graphicsReconnectGeneration,
+                      !self.isStopped,
+                      self.connection != nil else {
+                    return false
+                }
+                self.graphicsReconnectScheduled = false
+                self.graphicsReconnectTask = nil
+                return true
+            }
+            guard canReconnect else { return }
+            self.startGraphicsChannel()
+        }
+        lifecycleLock.withLock {
+            if !isStopped,
+               generation == graphicsReconnectGeneration,
+               graphicsReconnectScheduled {
+                graphicsReconnectTask = task
+            } else {
+                task.cancel()
+            }
+        }
+    }
+
+    private func sendGraphicsResetFallback(_ request: OwnedGraphicsResetRequest) async {
+        guard let connection else {
+            ownedMediaStderrTrace("graphics-reset-fallback-dropped reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=no-media-connection")
+            return
+        }
+        let message = OwnedMediaControlMessage(
+            kind: .graphicsResetRequest,
+            frameId: request.lastCommittedFrameId,
+            graphicsSurfaceGeneration: request.lastCommittedSurfaceGeneration,
+            reason: request.reason
+        )
+        do {
+            let data = try JSONEncoder().encode(message)
+            try await send(data, on: connection)
+            ownedMediaStderrTrace("graphics-reset-fallback reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId)")
+        } catch {
+            ownedMediaStderrTrace("graphics-reset-fallback-failed reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) error=\(String(describing: error))")
         }
     }
 

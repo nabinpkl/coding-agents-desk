@@ -45,6 +45,20 @@ struct ClientGraphicsConnectionPlan: Equatable {
     }
 }
 
+struct GraphicsReconnectPolicy: Equatable, Sendable {
+    let initialDelayMs: Int
+    let maxDelayMs: Int
+    let maxAttempts: Int
+
+    func delayMs(forAttempt attempt: Int) -> Int? {
+        guard attempt > 0, attempt <= maxAttempts else { return nil }
+        let shift = min(attempt - 1, 12)
+        let multiplied = initialDelayMs.multipliedReportingOverflow(by: 1 << shift)
+        let uncapped = multiplied.overflow ? maxDelayMs : multiplied.partialValue
+        return min(max(uncapped, initialDelayMs), maxDelayMs)
+    }
+}
+
 enum ClientGraphicsChannelHandshake {
     static let quicALPN = "agentdesk-owned-graphics"
 

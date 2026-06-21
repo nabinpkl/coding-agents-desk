@@ -232,6 +232,32 @@ struct SignalingFrameRoutingTests {
         #expect(!json.contains("\"px\""))
     }
 
+    @Test func ownedMediaGraphicsResetFallbackControlMessageRoundTripsThroughCodable() throws {
+        let message = OwnedMediaControlMessage(
+            kind: .graphicsResetRequest,
+            frameId: 44,
+            graphicsSurfaceGeneration: 7,
+            reason: "graphics-stream-NWError"
+        )
+        let data = try JSONEncoder().encode(message)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
+
+        #expect(decoded == message)
+        #expect(decoded.type == "owned-media-control")
+        #expect(decoded.kind == .graphicsResetRequest)
+        #expect(decoded.frameId == 44)
+        #expect(decoded.graphicsSurfaceGeneration == 7)
+        #expect(decoded.reason == "graphics-stream-NWError")
+        #expect(json.contains("\"k\":\"graphics-reset-request\""))
+        #expect(json.contains("\"id\":44"))
+        #expect(json.contains("\"sg\":7"))
+        #expect(json.contains("\"r\":\"graphics-stream-NWError\""))
+        #expect(!json.contains("\"px\""))
+        #expect(!json.contains("\"td\""))
+        #expect(!json.contains("\"rg\""))
+    }
+
     @Test func sessionReadyDefaultsOldFixturesToNoMediaCapability() throws {
         let data = Data(#"{"t":"session-ready","sid":"session-123","ic":"capability","ie":1800000060}"#.utf8)
         let decoded = try JSONDecoder().decode(SessionReady.self, from: data)

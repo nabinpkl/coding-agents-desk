@@ -141,6 +141,29 @@ struct InputChannelTests {
         #expect(!json.contains("\"px\""))
     }
 
+    @Test func ownedMediaGraphicsResetFallbackControlSerializesWithCompactFields() throws {
+        let message = OwnedMediaControlMessage(
+            kind: .graphicsResetRequest,
+            frameId: 21,
+            graphicsSurfaceGeneration: 4,
+            reason: "graphics-frame-badRange"
+        )
+        let data = try JSONEncoder().encode(message)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
+
+        #expect(decoded == message)
+        #expect(json.contains("\"k\":\"graphics-reset-request\""))
+        #expect(json.contains("\"id\":21"))
+        #expect(json.contains("\"sg\":4"))
+        #expect(json.contains("\"r\":\"graphics-frame-badRange\""))
+        #expect(!json.contains("\"px\""))
+        #expect(!json.contains("\"td\""))
+        #expect(!json.contains("\"rg\""))
+        #expect(!json.contains("\"qf\""))
+        #expect(!json.contains("\"qb\""))
+    }
+
     @Test func ownedSurfaceUpdateIdOrdersOnlyGenerationThenFrame() {
         let committed = OwnedSurfaceUpdateId(surfaceGeneration: 2, frameId: 10)
 
@@ -453,6 +476,18 @@ struct InputChannelTests {
         #expect(plan.port != Config.signalingPort)
         #expect(plan.alpn == ClientGraphicsChannelHandshake.quicALPN)
         #expect(!plan.usesDatagrams)
+    }
+
+    @Test func graphicsReconnectPolicyBacksOffAndStopsAtConfiguredAttemptLimit() {
+        let policy = GraphicsReconnectPolicy(initialDelayMs: 250, maxDelayMs: 2_000, maxAttempts: 5)
+
+        #expect(policy.delayMs(forAttempt: 0) == nil)
+        #expect(policy.delayMs(forAttempt: 1) == 250)
+        #expect(policy.delayMs(forAttempt: 2) == 500)
+        #expect(policy.delayMs(forAttempt: 3) == 1_000)
+        #expect(policy.delayMs(forAttempt: 4) == 2_000)
+        #expect(policy.delayMs(forAttempt: 5) == 2_000)
+        #expect(policy.delayMs(forAttempt: 6) == nil)
     }
 
     @Test func graphicsHelloUsesActiveSessionAndMediaCapability() {
