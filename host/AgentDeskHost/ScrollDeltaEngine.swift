@@ -40,6 +40,12 @@ struct ScrollDeltaDiagnostics: Equatable {
     let candidateCount: Int
     let timeoutPhase: String?
     let probeScale: Int
+    let hintActive: Bool
+    let hintAxis: String?
+    let hintPredictedOffset: Int?
+    let hintCandidates: [Int]
+    let acceptedBy: String?
+    let tieBreak: String?
 
     init(
         probeMs: Double,
@@ -54,7 +60,13 @@ struct ScrollDeltaDiagnostics: Equatable {
         secondBestConfidence: Double = 0,
         candidateCount: Int = 0,
         timeoutPhase: String? = nil,
-        probeScale: Int = 1
+        probeScale: Int = 1,
+        hintActive: Bool = false,
+        hintAxis: String? = nil,
+        hintPredictedOffset: Int? = nil,
+        hintCandidates: [Int] = [],
+        acceptedBy: String? = nil,
+        tieBreak: String? = nil
     ) {
         self.probeMs = probeMs
         self.payloadBuildMs = payloadBuildMs
@@ -69,6 +81,12 @@ struct ScrollDeltaDiagnostics: Equatable {
         self.candidateCount = candidateCount
         self.timeoutPhase = timeoutPhase
         self.probeScale = probeScale
+        self.hintActive = hintActive
+        self.hintAxis = hintAxis
+        self.hintPredictedOffset = hintPredictedOffset
+        self.hintCandidates = hintCandidates
+        self.acceptedBy = acceptedBy
+        self.tieBreak = tieBreak
     }
 }
 
@@ -118,10 +136,12 @@ struct ScrollDeltaEngine {
 
     mutating func evaluate(
         _ frame: CapturedVideoFrame,
+        scrollHint: ScrollActivityHint? = nil,
         detectionBudgetMs overrideDetectionBudgetMs: Double? = nil
     ) -> ScrollDeltaResult {
         let detectionBudgetMs = overrideDetectionBudgetMs ?? self.detectionBudgetMs
         let startedAt = DispatchTime.now().uptimeNanoseconds
+        let activeHint = scrollHint?.isActive(nowUptimeNs: startedAt) == true ? scrollHint : nil
         guard let previous else {
             guard let current = makeSurface(frame.pixelBuffer) else {
                 pendingSurface = nil
@@ -176,33 +196,22 @@ struct ScrollDeltaEngine {
             previous: previous,
             currentPixelBuffer: frame.pixelBuffer,
             startedAt: startedAt,
-            detectionBudgetMs: detectionBudgetMs
+            detectionBudgetMs: detectionBudgetMs,
+            scrollHint: activeHint
         )
         let probeMs = elapsedMs(since: startedAt)
-        let acceptedOffset = probe.offset.flatMap { offset in
-            probe.confidence >= Self.confidenceThreshold &&
-                probe.confidence - probe.secondBestConfidence >= Self.confidenceMargin
-                ? offset
-                : nil
-        }
+        let acceptedOffset = probe.offset
         guard let offset = acceptedOffset else {
             return ScrollDeltaResult(
                 kind: probe.timedOut ? .timeout : .rejected("no-scroll-match"),
                 envelope: nil,
-                diagnostics: ScrollDeltaDiagnostics(
+                diagnostics: makeDiagnostics(
                     probeMs: probeMs,
                     payloadBuildMs: nil,
-                    acceptedDx: nil,
-                    acceptedDy: nil,
-                    confidence: probe.confidence,
-                    timeoutReason: probe.timeoutReason,
-                    sampledPixelCount: probe.sampledPixelCount,
-                    bestDx: probe.bestDx,
-                    bestDy: probe.bestDy,
-                    secondBestConfidence: probe.secondBestConfidence,
-                    candidateCount: probe.candidateCount,
-                    timeoutPhase: probe.timeoutPhase,
-                    probeScale: probe.probeScale
+                    acceptedOffset: nil,
+                    probe: probe,
+                    scrollHint: activeHint,
+                    acceptedBy: nil
                 )
             )
         }
@@ -221,20 +230,13 @@ struct ScrollDeltaEngine {
         return ScrollDeltaResult(
             kind: .accepted,
             envelope: envelope,
-            diagnostics: ScrollDeltaDiagnostics(
+            diagnostics: makeDiagnostics(
                 probeMs: probeMs,
                 payloadBuildMs: elapsedMs(since: payloadStartedAt),
-                acceptedDx: offset.dx,
-                acceptedDy: offset.dy,
-                confidence: probe.confidence,
-                timeoutReason: nil,
-                sampledPixelCount: probe.sampledPixelCount,
-                bestDx: probe.bestDx,
-                bestDy: probe.bestDy,
-                secondBestConfidence: probe.secondBestConfidence,
-                candidateCount: probe.candidateCount,
-                timeoutPhase: probe.timeoutPhase,
-                probeScale: probe.probeScale
+                acceptedOffset: offset,
+                probe: probe,
+                scrollHint: activeHint,
+                acceptedBy: activeHint == nil ? "blind" : "hint"
             )
         )
     }
@@ -285,7 +287,8 @@ struct ScrollDeltaEngine {
         previous: Surface,
         currentPixelBuffer: CVPixelBuffer,
         startedAt: UInt64,
-        detectionBudgetMs: Double
+        detectionBudgetMs: Double,
+        scrollHint: ScrollActivityHint?
     ) -> ProbeOutcome {
         CVPixelBufferLockBaseAddress(currentPixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(currentPixelBuffer, .readOnly) }
@@ -301,7 +304,9 @@ struct ScrollDeltaEngine {
                 timedOut: false,
                 timeoutReason: "no-probe-sampler",
                 timeoutPhase: nil,
-                probeScale: 1
+                probeScale: 1,
+                hintCandidates: [],
+                tieBreak: nil
             )
         }
         return ScrollDeltaProbe(
@@ -313,7 +318,38 @@ struct ScrollDeltaEngine {
             startedAt: startedAt,
             detectionBudgetMs: detectionBudgetMs,
             elapsedMs: elapsedMs(since:)
-        ).bestOffset()
+        ).bestOffset(scrollHint: scrollHint)
+    }
+
+    private func makeDiagnostics(
+        probeMs: Double,
+        payloadBuildMs: Double?,
+        acceptedOffset: ScrollOffset?,
+        probe: ProbeOutcome,
+        scrollHint: ScrollActivityHint?,
+        acceptedBy: String?
+    ) -> ScrollDeltaDiagnostics {
+        ScrollDeltaDiagnostics(
+            probeMs: probeMs,
+            payloadBuildMs: payloadBuildMs,
+            acceptedDx: acceptedOffset?.dx,
+            acceptedDy: acceptedOffset?.dy,
+            confidence: probe.confidence,
+            timeoutReason: probe.timeoutReason,
+            sampledPixelCount: probe.sampledPixelCount,
+            bestDx: probe.bestDx,
+            bestDy: probe.bestDy,
+            secondBestConfidence: probe.secondBestConfidence,
+            candidateCount: probe.candidateCount,
+            timeoutPhase: probe.timeoutPhase,
+            probeScale: probe.probeScale,
+            hintActive: scrollHint != nil,
+            hintAxis: scrollHint?.axis.rawValue,
+            hintPredictedOffset: scrollHint?.predictedOffsetPx,
+            hintCandidates: probe.hintCandidates,
+            acceptedBy: acceptedBy,
+            tieBreak: probe.tieBreak
+        )
     }
 
     private func makeProbeSampler(for pixelBuffer: CVPixelBuffer) -> ScrollDeltaProbeSampler? {

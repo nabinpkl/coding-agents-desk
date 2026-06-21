@@ -121,8 +121,12 @@ perl -ne '
     }
 
     $scrollAccepted++ if /owned graphics scroll-accepted/;
+    $scrollAcceptedHint++ if /owned graphics scroll-accepted/ && /acceptedBy=hint/;
+    $scrollAcceptedBlind++ if /owned graphics scroll-accepted/ && /acceptedBy=blind/;
     $scrollRejected++ if /owned graphics scroll-rejected/;
     $scrollTimeout++ if /owned graphics scroll-timeout/;
+    $scrollHintTimeout++ if /owned graphics scroll-hint-timeout/;
+    $scrollBlindTimeout++ if /owned graphics scroll-timeout/;
     $graphicsResetFrame++ if /owned graphics reset frame=/;
     $graphicsResetQueued++ if /owned graphics reset queued/;
     $graphicsResetConsumed++ if /owned graphics reset consumed/;
@@ -166,6 +170,12 @@ perl -ne '
     if (/renderGapMs=([0-9.]+)/) {
         max_value("renderGapMs", $1);
     }
+    if (/probeMs=([0-9.]+)/) {
+        max_value("probeMs", $1);
+    }
+    if (/candidateCount=([0-9]+)/ || /candidates=([0-9]+)/) {
+        max_value("candidateCount", $1);
+    }
     if (/unacked=([0-9]+)/) {
         max_value("unackedFrames", $1);
     }
@@ -182,8 +192,10 @@ perl -ne '
     }
 
     END {
-        printf "host scroll accepted=%d rejected=%d timeout=%d\n",
-            $scrollAccepted||0, $scrollRejected||0, $scrollTimeout||0;
+        printf "host scroll accepted=%d hintAccepted=%d blindAccepted=%d rejected=%d timeout=%d hintTimeout=%d blindTimeout=%d maxProbeMs=%.2f maxCandidates=%d\n",
+            $scrollAccepted||0, $scrollAcceptedHint||0, $scrollAcceptedBlind||0, $scrollRejected||0,
+            ($scrollTimeout||0) + ($scrollHintTimeout||0), $scrollHintTimeout||0, $scrollBlindTimeout||0,
+            $max{"probeMs"}||0, $max{"candidateCount"}||0;
         printf "host graphics resets=%d queued=%d consumed=%d sendFailed=%d reconnectHints=%d disconnectHints=%d fallbackReceived=%d acked=%d commands=%d maxCommands=%d payloadBytes=%d maxPayloadBytes=%d\n",
             $graphicsResetFrame||0, $graphicsResetQueued||0, $graphicsResetConsumed||0, $graphicsResetSendFailed||0,
             $graphicsReconnect||0, $graphicsDisconnect||0, $graphicsResetFallbackReceived||0, $graphicsResetAcked||0,

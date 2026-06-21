@@ -25,9 +25,18 @@ struct ScrollDeltaProbeOutcome {
     let timeoutReason: String?
     let timeoutPhase: String?
     let probeScale: Int
+    let hintCandidates: [Int]
+    let tieBreak: String?
 }
 
 struct ScrollDeltaMatchScore {
+    let confidence: Double
+    let samples: Int
+}
+
+private struct ScrollDeltaHintScore {
+    let offset: ScrollDeltaOffset
+    let scalar: Int
     let confidence: Double
     let samples: Int
 }
@@ -92,7 +101,7 @@ struct ScrollDeltaProbe {
     let detectionBudgetMs: Double
     let elapsedMs: (UInt64) -> Double
 
-    func bestOffset() -> ScrollDeltaProbeOutcome {
+    func bestOffset(scrollHint: ScrollActivityHint? = nil) -> ScrollDeltaProbeOutcome {
         if detectionBudgetMs <= 0 {
             return outcome(
                 offset: nil,
@@ -106,6 +115,9 @@ struct ScrollDeltaProbe {
                 timeoutPhase: "candidate-scan",
                 probeScale: 1
             )
+        }
+        if let scrollHint, scrollHint.isActive(nowUptimeNs: startedAt) {
+            return bestHintOffset(scrollHint)
         }
         let sampleXs = sampleCoordinates(length: min(previous.width, sampler.width), targetCount: Self.targetSampleColumns)
         let sampleYs = sampleCoordinates(length: min(previous.height, sampler.height), targetCount: Self.targetSampleRows)
@@ -235,6 +247,174 @@ struct ScrollDeltaProbe {
             timeoutPhase: timedOut ? "candidate-scan" : nil,
             probeScale: probeScale
         )
+    }
+
+    private func bestHintOffset(_ hint: ScrollActivityHint) -> ScrollDeltaProbeOutcome {
+        let sampleXs = sampleCoordinates(
+            length: min(previous.width, sampler.width),
+            targetCount: Self.verificationSampleColumns
+        )
+        let sampleYs = sampleCoordinates(
+            length: min(previous.height, sampler.height),
+            targetCount: Self.verificationSampleRows
+        )
+        guard !sampleXs.isEmpty, !sampleYs.isEmpty else {
+            return outcome(
+                offset: nil,
+                bestOffset: nil,
+                confidence: 0,
+                secondBestConfidence: 0,
+                sampledPixelCount: 0,
+                candidateCount: 0,
+                timedOut: false,
+                timeoutReason: "no-probe-samples",
+                timeoutPhase: nil,
+                probeScale: 1
+            )
+        }
+        let candidates = hintCandidateOffsets(from: hint)
+        guard !candidates.isEmpty else {
+            return outcome(
+                offset: nil,
+                bestOffset: nil,
+                confidence: 0,
+                secondBestConfidence: 0,
+                sampledPixelCount: 0,
+                candidateCount: 0,
+                timedOut: false,
+                timeoutReason: "no-hint-candidates",
+                timeoutPhase: nil,
+                probeScale: 1,
+                hintCandidates: candidates
+            )
+        }
+
+        var scores: [ScrollDeltaHintScore] = []
+        var sampledPixelCount = 0
+        for candidate in candidates {
+            let score = hint.axis == .vertical
+                ? verticalScore(offset: candidate, sampleXs: sampleXs, sampleYs: sampleYs)
+                : horizontalScore(offset: candidate, sampleXs: sampleXs, sampleYs: sampleYs)
+            sampledPixelCount += score.samples
+            scores.append(ScrollDeltaHintScore(
+                offset: hint.axis == .vertical
+                    ? ScrollDeltaOffset(dx: 0, dy: candidate)
+                    : ScrollDeltaOffset(dx: candidate, dy: 0),
+                scalar: candidate,
+                confidence: score.confidence,
+                samples: score.samples
+            ))
+        }
+        guard let rawBest = scores.max(by: { lhs, rhs in lhs.confidence < rhs.confidence }) else {
+            return outcome(
+                offset: nil,
+                bestOffset: nil,
+                confidence: 0,
+                secondBestConfidence: 0,
+                sampledPixelCount: sampledPixelCount,
+                candidateCount: candidates.count,
+                timedOut: false,
+                timeoutReason: "no-hint-candidates",
+                timeoutPhase: nil,
+                probeScale: 1,
+                hintCandidates: candidates
+            )
+        }
+
+        var best = rawBest
+        var tieBreak: String?
+        let nearMatches = scores.filter { candidate in
+            candidate.scalar != rawBest.scalar &&
+                candidate.confidence >= confidenceThreshold &&
+                rawBest.confidence - candidate.confidence <= confidenceMargin
+        }
+        if !nearMatches.isEmpty {
+            let predicted = hint.predictedOffsetPx
+            let tied = ([rawBest] + nearMatches).min { lhs, rhs in
+                let lhsDistance = abs(lhs.scalar - predicted)
+                let rhsDistance = abs(rhs.scalar - predicted)
+                if lhsDistance != rhsDistance {
+                    return lhsDistance < rhsDistance
+                }
+                return lhs.confidence > rhs.confidence
+            }
+            if let tied {
+                best = tied
+                tieBreak = "predicted-offset"
+            }
+        }
+
+        let zeroMotionScore = hint.axis == .vertical
+            ? verticalScore(offset: 0, sampleXs: sampleXs, sampleYs: sampleYs)
+            : horizontalScore(offset: 0, sampleXs: sampleXs, sampleYs: sampleYs)
+        sampledPixelCount += zeroMotionScore.samples
+        if zeroMotionScore.confidence >= confidenceThreshold &&
+            abs(best.confidence - zeroMotionScore.confidence) <= 0.001 {
+            let probeScale = max(1, min(previous.width, previous.height) / max(sampleXs.count, sampleYs.count))
+            return outcome(
+                offset: nil,
+                bestOffset: best.offset,
+                confidence: best.confidence,
+                secondBestConfidence: max(secondBest(scores: scores, excluding: best.scalar), zeroMotionScore.confidence),
+                sampledPixelCount: sampledPixelCount,
+                candidateCount: candidates.count,
+                timedOut: false,
+                timeoutReason: "hint-zero-motion-ambiguous",
+                timeoutPhase: nil,
+                probeScale: probeScale,
+                hintCandidates: candidates,
+                tieBreak: tieBreak
+            )
+        }
+
+        let secondBestConfidence = scores
+            .filter { $0.scalar != best.scalar }
+            .map(\.confidence)
+            .max() ?? 0
+        let accepted = best.confidence >= confidenceThreshold
+        let timedOut = !accepted && best.confidence > 0 && isOverBudget
+        let probeScale = max(1, min(previous.width, previous.height) / max(sampleXs.count, sampleYs.count))
+        return outcome(
+            offset: accepted ? best.offset : nil,
+            bestOffset: best.offset,
+            confidence: best.confidence,
+            secondBestConfidence: secondBestConfidence,
+            sampledPixelCount: sampledPixelCount,
+            candidateCount: candidates.count,
+            timedOut: timedOut,
+            timeoutReason: timedOut ? "probe-budget-exceeded" : nil,
+            timeoutPhase: timedOut ? "hint-candidate-scan" : nil,
+            probeScale: probeScale,
+            hintCandidates: candidates,
+            tieBreak: tieBreak
+        )
+    }
+
+    private func secondBest(scores: [ScrollDeltaHintScore], excluding scalar: Int) -> Double {
+        scores
+            .filter { $0.scalar != scalar }
+            .map(\.confidence)
+            .max() ?? 0
+    }
+
+    private func hintCandidateOffsets(from hint: ScrollActivityHint) -> [Int] {
+        let sign = hint.sign < 0 ? -1 : 1
+        var seen = Set<Int>()
+        var candidates: [Int] = []
+        for candidate in hint.candidateOffsets {
+            guard candidate != 0,
+                  abs(candidate) <= maxScrollOffset,
+                  (candidate < 0 ? -1 : 1) == sign else {
+                continue
+            }
+            if seen.insert(candidate).inserted {
+                candidates.append(candidate)
+                if candidates.count == 24 {
+                    break
+                }
+            }
+        }
+        return candidates
     }
 
     private var isOverBudget: Bool {
@@ -419,7 +599,9 @@ struct ScrollDeltaProbe {
         timedOut: Bool,
         timeoutReason: String?,
         timeoutPhase: String?,
-        probeScale: Int
+        probeScale: Int,
+        hintCandidates: [Int] = [],
+        tieBreak: String? = nil
     ) -> ScrollDeltaProbeOutcome {
         ScrollDeltaProbeOutcome(
             offset: offset,
@@ -432,7 +614,9 @@ struct ScrollDeltaProbe {
             timedOut: timedOut,
             timeoutReason: timeoutReason,
             timeoutPhase: timeoutPhase,
-            probeScale: probeScale
+            probeScale: probeScale,
+            hintCandidates: hintCandidates,
+            tieBreak: tieBreak
         )
     }
 }

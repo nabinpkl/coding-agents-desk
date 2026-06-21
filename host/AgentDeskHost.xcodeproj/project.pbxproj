@@ -36,6 +36,9 @@
 		A00000000000000000000A09 /* ScrollDeltaEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A07 /* ScrollDeltaEngine.swift */; };
 		A00000000000000000000A0B /* ScrollDeltaProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A0A /* ScrollDeltaProbe.swift */; };
 		A00000000000000000000A0C /* ScrollDeltaProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A0A /* ScrollDeltaProbe.swift */; };
+		A00000000000000000000A0E /* ScrollActivityTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A0D /* ScrollActivityTracker.swift */; };
+		A00000000000000000000A0F /* ScrollActivityTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A0D /* ScrollActivityTracker.swift */; };
+		A00000000000000000000A11 /* ScrollActivityTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A10 /* ScrollActivityTrackerTests.swift */; };
 		A00000000000000000000219 /* TestPatternFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000119 /* TestPatternFrameSource.swift */; };
 		A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */; };
 		A0000000000000000000021B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011B /* Assets.xcassets */; };
@@ -109,6 +112,16 @@
 		A00000000000000000000264 /* AgentSayLocalServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000015A /* AgentSayLocalServerTests.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A00000000000000000000B00 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A00000000000000000000004;
+			remoteInfo = AgentDeskHost;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		A00000000000000000000101 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A00000000000000000000102 /* Base64URL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Base64URL.swift; sourceTree = "<group>"; };
@@ -138,6 +151,8 @@
 		A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaFrameScaler.swift; sourceTree = "<group>"; };
 		A00000000000000000000A07 /* ScrollDeltaEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaEngine.swift; sourceTree = "<group>"; };
 		A00000000000000000000A0A /* ScrollDeltaProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaProbe.swift; sourceTree = "<group>"; };
+		A00000000000000000000A0D /* ScrollActivityTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollActivityTracker.swift; sourceTree = "<group>"; };
+		A00000000000000000000A10 /* ScrollActivityTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollActivityTrackerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000119 /* TestPatternFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestPatternFrameSource.swift; sourceTree = "<group>"; };
 		A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureKitFrameSource.swift; sourceTree = "<group>"; };
 		A0000000000000000000011C /* InputDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcher.swift; sourceTree = "<group>"; };
@@ -255,6 +270,7 @@
 				A00000000000000000000A02 /* OwnedMediaTransport.swift */,
 				A00000000000000000000A07 /* ScrollDeltaEngine.swift */,
 				A00000000000000000000A0A /* ScrollDeltaProbe.swift */,
+				A00000000000000000000A0D /* ScrollActivityTracker.swift */,
 				A00000000000000000000119 /* TestPatternFrameSource.swift */,
 				A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */,
 				A0000000000000000000011C /* InputDispatcher.swift */,
@@ -320,6 +336,7 @@
 				A00000000000000000000126 /* SpacesProviderTests.swift */,
 				A000000000000000000009B0 /* CursorMonitorTests.swift */,
 				A000000000000000000009D0 /* ScrollQualityTests.swift */,
+				A00000000000000000000A10 /* ScrollActivityTrackerTests.swift */,
 				A0000000000000000000012B /* SpaceAgentModelTests.swift */,
 				A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */,
 			);
@@ -359,6 +376,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				A00000000000000000000B01 /* PBXTargetDependency */,
 			);
 			name = AgentDeskHostTests;
 			productName = AgentDeskHostTests;
@@ -456,6 +474,7 @@
 				A00000000000000000000A03 /* OwnedMediaTransport.swift in Sources */,
 				A00000000000000000000A08 /* ScrollDeltaEngine.swift in Sources */,
 				A00000000000000000000A0B /* ScrollDeltaProbe.swift in Sources */,
+				A00000000000000000000A0E /* ScrollActivityTracker.swift in Sources */,
 				A00000000000000000000219 /* TestPatternFrameSource.swift in Sources */,
 				A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */,
 				A0000000000000000000021C /* InputDispatcher.swift in Sources */,
@@ -506,6 +525,7 @@
 				A00000000000000000000A06 /* OwnedMediaFrameScaler.swift in Sources */,
 				A00000000000000000000A09 /* ScrollDeltaEngine.swift in Sources */,
 				A00000000000000000000A0C /* ScrollDeltaProbe.swift in Sources */,
+				A00000000000000000000A0F /* ScrollActivityTracker.swift in Sources */,
 				A00000000000000000000255 /* SessionRegistry.swift in Sources */,
 				A00000000000000000000256 /* InputChannelServer.swift in Sources */,
 				A0000000000000000000025D /* JsonlChildProcess.swift in Sources */,
@@ -527,6 +547,7 @@
 				A000000000000000000009A2 /* CursorMonitor.swift in Sources */,
 				A000000000000000000009B1 /* CursorMonitorTests.swift in Sources */,
 				A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */,
+				A00000000000000000000A11 /* ScrollActivityTrackerTests.swift in Sources */,
 				A0000000000000000000023F /* SpaceThumbnailProvider.swift in Sources */,
 				A0000000000000000000023C /* SpaceAgentModel.swift in Sources */,
 				A0000000000000000000023D /* SpaceAgentViewController.swift in Sources */,
@@ -540,6 +561,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A00000000000000000000B01 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A00000000000000000000004 /* AgentDeskHost */;
+			targetProxy = A00000000000000000000B00 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A00000000000000000000007 /* Debug */ = {

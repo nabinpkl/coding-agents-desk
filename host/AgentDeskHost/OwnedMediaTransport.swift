@@ -117,17 +117,20 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
     private let configuration: OwnedMediaEncodingConfiguration
     private let authorizer: OwnedMediaDatagramAuthorizer
     private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
+    private let scrollActivityHintProvider: @Sendable () -> ScrollActivityHint?
 
     init(
         codec: OwnedMediaCodec,
         configuration: OwnedMediaEncodingConfiguration = .default,
         authorizer: @escaping OwnedMediaDatagramAuthorizer,
-        graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer
+        graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer,
+        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
     ) {
         self.codec = codec
         self.configuration = configuration
         self.authorizer = authorizer
         self.graphicsAuthorizer = graphicsAuthorizer
+        self.scrollActivityHintProvider = scrollActivityHintProvider
     }
 
     func make() -> MediaTransport {
@@ -135,7 +138,8 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
             codec: codec,
             configuration: configuration,
             authorizer: authorizer,
-            graphicsAuthorizer: graphicsAuthorizer
+            graphicsAuthorizer: graphicsAuthorizer,
+            scrollActivityHintProvider: scrollActivityHintProvider
         )
     }
 }
@@ -387,6 +391,8 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
 }
 
 final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
+    private static let scrollHintFallbackGraceMs = 120
+
     static let mediaDatagramALPN = OwnedQuicListenerConfigurations.mediaDatagramALPN
     let connectionState: AsyncStream<MediaConnectionState>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
@@ -395,6 +401,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let configuration: OwnedMediaEncodingConfiguration
     private let authorizer: OwnedMediaDatagramAuthorizer
     private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
+    private let scrollActivityHintProvider: @Sendable () -> ScrollActivityHint?
     private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic")
     private let lock = NSLock()
     private var mediaDatagramListener: NWListener?
@@ -418,12 +425,14 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         codec: OwnedMediaCodec,
         configuration: OwnedMediaEncodingConfiguration = .default,
         authorizer: @escaping OwnedMediaDatagramAuthorizer,
-        graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer
+        graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer,
+        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
     ) {
         self.codec = codec
         self.configuration = configuration
         self.authorizer = authorizer
         self.graphicsAuthorizer = graphicsAuthorizer
+        self.scrollActivityHintProvider = scrollActivityHintProvider
         var continuation: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { continuation = $0 }
         self.stateContinuation = continuation
@@ -831,7 +840,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     try? await Task.sleep(nanoseconds: intervalNs)
                     continue
                 }
-                let graphics = scrollDeltaEngine.evaluate(frame)
+                let scrollHint = scrollActivityHintProvider()
+                let graphics = scrollDeltaEngine.evaluate(frame, scrollHint: scrollHint)
                 switch graphics.kind {
                 case .accepted:
                     if let envelope = graphics.envelope {
@@ -847,7 +857,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                                 _ = mailbox.wakeWithLatestFrame()
                             }
                             if let scrollDiagnostics = graphics.diagnostics {
-                                logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) dx=\(scrollDiagnostics.acceptedDx ?? 0, privacy: .public) dy=\(scrollDiagnostics.acceptedDy ?? 0, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) payloadBuildMs=\(scrollDiagnostics.payloadBuildMs ?? 0, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                                logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) dx=\(scrollDiagnostics.acceptedDx ?? 0, privacy: .public) dy=\(scrollDiagnostics.acceptedDy ?? 0, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) acceptedBy=\(scrollDiagnostics.acceptedBy ?? "unknown", privacy: .public) tieBreak=\(scrollDiagnostics.tieBreak ?? "none", privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) payloadBuildMs=\(scrollDiagnostics.payloadBuildMs ?? 0, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
                             } else {
                                 logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
                             }
@@ -886,14 +896,25 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 case .timeout:
                     hevcFallbackReason = .scrollTimeout
                     if let scrollDiagnostics = graphics.diagnostics {
-                        logger.notice("owned graphics scroll-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                        if scrollDiagnostics.hintActive {
+                            logger.notice("owned graphics scroll-hint-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                            if !scrollHevcAdmission.allowsHintTimeoutFallback(
+                                nowUptimeNs: DispatchTime.now().uptimeNanoseconds,
+                                fallbackGraceMs: Self.scrollHintFallbackGraceMs
+                            ) {
+                                diagnostics.noteAdmissionHold(reason: "graphics-hint-timeout-suppressed-hevc", mode: currentAdmissionMode())
+                                continue
+                            }
+                        } else {
+                            logger.notice("owned graphics scroll-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                        }
                     } else {
                         logger.notice("owned graphics scroll-timeout")
                     }
                 case .rejected(let reason):
                     hevcFallbackReason = .rejectedMotion
                     if let scrollDiagnostics = graphics.diagnostics {
-                        logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                        logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
                     } else {
                         logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public)")
                     }

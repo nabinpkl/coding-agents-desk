@@ -3,6 +3,8 @@
 2026-06-20 11:00:01.000 AgentDeskHost[200] owned graphics scroll-timeout
 2026-06-20 11:00:01.033 AgentDeskHost[200] owned graphics scroll-timeout
 2026-06-20 11:00:01.066 AgentDeskHost[200] owned graphics scroll-timeout
+2026-06-20 11:00:01.070 AgentDeskHost[200] owned graphics scroll-hint-timeout reason=probe-budget-exceeded confidence=0.870 secondConfidence=0.860 bestDx=0 bestDy=-15 hintAxis=vertical hintPredictedOffset=-15 hintCandidates=11 candidates=11 timeoutPhase=hint-candidate-scan probeScale=22 probeMs=4.20 sampledPixels=1024
+2026-06-20 11:00:01.075 AgentDeskHost[200] owned graphics scroll-accepted frame=42 generation=2 commands=2 payloadBytes=24000 dx=0 dy=-15 bestDx=0 bestDy=-15 confidence=0.940 secondConfidence=0.930 hintActive=true hintAxis=vertical hintPredictedOffset=-15 hintCandidates=11 acceptedBy=hint tieBreak=predicted-offset candidates=11 timeoutPhase=none probeScale=22 probeMs=2.50 payloadBuildMs=1.30 sampledPixels=1024
 2026-06-20 11:00:01.080 AgentDeskHost[200] owned graphics scroll-rejected reason=confidence
 2026-06-20 11:00:01.100 AgentDeskHost[200] owned media admission-hold mode=draining reason=drain-unacked
 2026-06-20 11:00:01.101 AgentDeskHost[200] owned media drain-enter afterSend=700

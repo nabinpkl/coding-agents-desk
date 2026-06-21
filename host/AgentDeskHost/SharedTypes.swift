@@ -1527,6 +1527,11 @@ struct HybridScrollHEVCAdmission: Equatable {
         lastScrollHevcRefreshAtUptimeNs = nowUptimeNs
         return .allow
     }
+
+    func allowsHintTimeoutFallback(nowUptimeNs: UInt64, fallbackGraceMs: Int) -> Bool {
+        guard let lastAcceptedScrollAtUptimeNs else { return true }
+        return nowUptimeNs &- lastAcceptedScrollAtUptimeNs >= UInt64(max(0, fallbackGraceMs)) * 1_000_000
+    }
 }
 
 enum OwnedHybridHEVCFallbackReason: String, Equatable, Sendable {

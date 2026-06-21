@@ -99,6 +99,26 @@ struct ScrollQualityTests {
         ) == .suppress)
     }
 
+    @Test func hybridScrollHevcAdmissionAllowsHintTimeoutFallbackOnlyAfterGraceWindow() {
+        var admission = HybridScrollHEVCAdmission()
+
+        #expect(admission.allowsHintTimeoutFallback(
+            nowUptimeNs: 1_000_000_000,
+            fallbackGraceMs: 120
+        ))
+
+        admission.noteAcceptedScroll(nowUptimeNs: 1_000_000_000)
+
+        #expect(!admission.allowsHintTimeoutFallback(
+            nowUptimeNs: 1_119_000_000,
+            fallbackGraceMs: 120
+        ))
+        #expect(admission.allowsHintTimeoutFallback(
+            nowUptimeNs: 1_120_000_000,
+            fallbackGraceMs: 120
+        ))
+    }
+
     @Test func hybridScrollHevcAdmissionRateLimitsNonzeroScrollFps() {
         var admission = HybridScrollHEVCAdmission()
 
@@ -1528,6 +1548,187 @@ struct ScrollQualityTests {
         })
     }
 
+    @Test func scrollDeltaEngineHintGuidedProbeAcceptsBoundedVerticalOffsets() throws {
+        for scrollDy in [1, 15, 80] {
+            var engine = ScrollDeltaEngine()
+            let width = 320
+            let height = 256
+            let previous = try Self.makeBGRAFrame(width: width, height: height) { x, y in
+                Self.scrollProbePixel(x: x, y: y)
+            }
+            let current = try Self.makeBGRAFrame(width: width, height: height) { x, y in
+                y < height - scrollDy ? Self.scrollProbePixel(x: x, y: y + scrollDy) : Self.exposedPixel(x: x, y: y)
+            }
+            let hint = Self.scrollHint(axis: .vertical, predictedOffset: -scrollDy)
+
+            #expect(engine.evaluate(previous).kind == .reset)
+            engine.commitPendingSurface()
+            let result = engine.evaluate(current, scrollHint: hint)
+
+            #expect(result.kind == ScrollDeltaKind.accepted)
+            let diagnostics = try #require(result.diagnostics)
+            #expect(diagnostics.acceptedDy == -scrollDy)
+            #expect(diagnostics.acceptedDx == 0)
+            #expect(diagnostics.acceptedBy == "hint")
+            #expect(diagnostics.hintActive)
+            #expect(diagnostics.hintAxis == "vertical")
+            #expect(diagnostics.hintPredictedOffset == -scrollDy)
+            #expect(diagnostics.candidateCount <= 24)
+            #expect(diagnostics.hintCandidates.count == diagnostics.candidateCount)
+            let envelope = try #require(result.envelope)
+            Self.expectSingleCopyRectAndTile(envelope)
+        }
+    }
+
+    @Test func scrollDeltaEngineHintGuidedProbeUsesLatestDeltaAcrossSequentialScrollFrames() throws {
+        var tracker = ScrollActivityTracker()
+        var engine = ScrollDeltaEngine()
+        let width = 160
+        let height = 128
+        let firstScrollDy = 10
+        let secondScrollDy = 15
+        let totalScrollDy = firstScrollDy + secondScrollDy
+        let previous = try Self.makeBGRAFrame(width: width, height: height) { x, y in
+            Self.scrollProbePixel(x: x, y: y)
+        }
+        let first = try Self.makeBGRAFrame(width: width, height: height) { x, y in
+            y < height - firstScrollDy ? Self.scrollProbePixel(x: x, y: y + firstScrollDy) : Self.exposedPixel(x: x, y: y)
+        }
+        let second = try Self.makeBGRAFrame(width: width, height: height) { x, y in
+            y < height - totalScrollDy ? Self.scrollProbePixel(x: x, y: y + totalScrollDy) : Self.exposedPixel(x: x, y: y)
+        }
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+
+        let firstNow = DispatchTime.now().uptimeNanoseconds
+        tracker.record(.scroll(dx: 0, dy: Float(-firstScrollDy), phase: .changed), nowUptimeNs: firstNow)
+        let firstHint = try #require(tracker.hint(nowUptimeNs: firstNow))
+        let firstResult = engine.evaluate(first, scrollHint: firstHint)
+        #expect(firstResult.kind == ScrollDeltaKind.accepted)
+        let firstDiagnostics = try #require(firstResult.diagnostics)
+        #expect(firstDiagnostics.acceptedDy == -firstScrollDy)
+        engine.commitPendingSurface()
+
+        let secondNow = DispatchTime.now().uptimeNanoseconds
+        tracker.record(.scroll(dx: 0, dy: Float(-secondScrollDy), phase: .changed), nowUptimeNs: secondNow)
+        let secondHint = try #require(tracker.hint(nowUptimeNs: secondNow))
+        #expect(secondHint.predictedOffsetPx == -secondScrollDy)
+        #expect(secondHint.candidateOffsets.contains(-totalScrollDy))
+        let secondResult = engine.evaluate(second, scrollHint: secondHint)
+
+        #expect(secondResult.kind == ScrollDeltaKind.accepted)
+        let secondDiagnostics = try #require(secondResult.diagnostics)
+        #expect(secondDiagnostics.acceptedDy == -secondScrollDy)
+        #expect(secondDiagnostics.acceptedBy == "hint")
+        #expect(secondDiagnostics.candidateCount <= 24)
+    }
+
+    @Test func scrollDeltaEngineHintTieBreakUsesPredictedOffsetForAdjacentCandidates() throws {
+        var engine = ScrollDeltaEngine()
+        let width = 96
+        let height = 96
+        let previous = try Self.makeBGRAFrame(width: width, height: height) { x, _ in
+            Self.xOnlyPixel(x: x)
+        }
+        let current = try Self.makeBGRAFrame(width: width, height: height) { x, y in
+            y < height - 15 ? Self.xOnlyPixel(x: x) : Self.exposedPixel(x: x, y: y)
+        }
+        let hint = ScrollActivityHint(
+            axis: .vertical,
+            sign: -1,
+            predictedOffsetPx: -15,
+            candidateOffsets: [-14, -15],
+            activeUntilUptimeNs: UInt64.max,
+            eventCount: 1
+        )
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let result = engine.evaluate(current, scrollHint: hint)
+
+        #expect(result.kind == ScrollDeltaKind.accepted)
+        let diagnostics = try #require(result.diagnostics)
+        #expect(diagnostics.acceptedDy == -15)
+        #expect(diagnostics.acceptedBy == "hint")
+        #expect(diagnostics.tieBreak == "predicted-offset")
+        #expect(diagnostics.candidateCount == 2)
+    }
+
+    @Test func scrollDeltaEngineHintRejectsZeroMotionAmbiguity() throws {
+        var engine = ScrollDeltaEngine()
+        let width = 96
+        let height = 96
+        let previous = try Self.makeBGRAFrame(width: width, height: height) { x, _ in
+            Self.xOnlyPixel(x: x)
+        }
+        let current = try Self.makeBGRAFrame(width: width, height: height) { x, _ in
+            Self.xOnlyPixel(x: x)
+        }
+        let hint = ScrollActivityHint(
+            axis: .vertical,
+            sign: -1,
+            predictedOffsetPx: -15,
+            candidateOffsets: [-14, -15],
+            activeUntilUptimeNs: UInt64.max,
+            eventCount: 1
+        )
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let result = engine.evaluate(current, scrollHint: hint)
+
+        if case .rejected = result.kind {
+            let diagnostics = try #require(result.diagnostics)
+            #expect(diagnostics.timeoutReason == "hint-zero-motion-ambiguous")
+            #expect(diagnostics.hintActive)
+            #expect(diagnostics.acceptedBy == nil)
+            #expect(diagnostics.candidateCount == 2)
+        } else {
+            Issue.record("expected rejected zero-motion ambiguity, got \(result.kind)")
+        }
+    }
+
+    @Test func scrollDeltaEngineExpiredHintPreservesRejectedMotionFallback() throws {
+        var engine = ScrollDeltaEngine()
+        let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+        let current = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            let hash = UInt32(truncatingIfNeeded: x) &* 73_856_093 ^
+                UInt32(truncatingIfNeeded: y) &* 19_349_663 ^
+                0x9e37_79b9
+            return [
+                UInt8(truncatingIfNeeded: hash),
+                UInt8(truncatingIfNeeded: hash >> 8),
+                UInt8(truncatingIfNeeded: hash >> 16),
+                0xff
+            ]
+        }
+        let expiredHint = ScrollActivityHint(
+            axis: .vertical,
+            sign: -1,
+            predictedOffsetPx: -15,
+            candidateOffsets: [-15],
+            activeUntilUptimeNs: 0,
+            eventCount: 1
+        )
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let result = engine.evaluate(current, scrollHint: expiredHint)
+
+        if case .rejected = result.kind {
+            let diagnostics = try #require(result.diagnostics)
+            #expect(!diagnostics.hintActive)
+            #expect(diagnostics.acceptedBy == nil)
+            #expect(diagnostics.candidateCount > 24)
+            #expect(result.envelope == nil)
+        } else {
+            Issue.record("expected rejected motion, got \(result.kind), diagnostics: \(String(describing: result.diagnostics))")
+        }
+    }
+
     @Test func scrollDeltaEngineEmitsHorizontalCopyRectAndExposedStrip() throws {
         var engine = ScrollDeltaEngine()
         let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
@@ -1944,6 +2145,11 @@ struct ScrollQualityTests {
         return [value, value, value, 0xff]
     }
 
+    private static func xOnlyPixel(x: Int) -> [UInt8] {
+        let value = UInt8((x * 37 + (x / 7) * 23) & 0xff)
+        return [value, value, value, 0xff]
+    }
+
     private static func luma(_ bgra: [UInt8]) -> UInt8 {
         let blue = 29 * Int(bgra[0])
         let green = 150 * Int(bgra[1])
@@ -1976,6 +2182,48 @@ struct ScrollQualityTests {
             }
         }
         return data
+    }
+
+    private static func scrollHint(axis: ScrollActivityAxis, predictedOffset: Int) -> ScrollActivityHint {
+        let sign = predictedOffset < 0 ? -1 : 1
+        let candidates = [
+            predictedOffset,
+            predictedOffset - sign,
+            predictedOffset + sign,
+            predictedOffset - 2 * sign,
+            predictedOffset + 2 * sign,
+            predictedOffset - 4 * sign,
+            predictedOffset + 4 * sign
+        ].filter { $0 != 0 }
+        return ScrollActivityHint(
+            axis: axis,
+            sign: sign,
+            predictedOffsetPx: predictedOffset,
+            candidateOffsets: candidates,
+            activeUntilUptimeNs: UInt64.max,
+            eventCount: 1
+        )
+    }
+
+    private static func expectSingleCopyRectAndTile(_ envelope: OwnedGraphicsFrameEnvelope) {
+        var copyRectCount = 0
+        var bitmapTileCount = 0
+        for command in envelope.commands {
+            switch command {
+            case .copyRect:
+                copyRectCount += 1
+            case let .bitmapTile(_, _, _, _, compression, byteRange):
+                bitmapTileCount += 1
+                #expect(compression == .lzfse)
+                #expect(byteRange.offset == 0)
+                #expect(byteRange.length == envelope.payload.count)
+            case .resetSurface, .codecTile:
+                break
+            }
+        }
+        #expect(envelope.commands.count == 2)
+        #expect(copyRectCount == 1)
+        #expect(bitmapTileCount == 1)
     }
 
     private static func decompressLZFSE(_ data: Data, expectedCount: Int) throws -> Data {

@@ -99,6 +99,19 @@ Phase goal: decide whether the retained scroll path beats the current HEVC-only 
 - [ ] R40.4. Acceptance: rest text remains HEVC-crisp, accepted scroll is driven by copyRect plus exposed strips, HEVC does not compete during active scroll, and the screen does not freeze after sustained motion.
 - [ ] R40.5. If acceptance fails, classify the blocker as probe accuracy, graphics reconnect, graphics queue depth, compositor cost, LZFSE strip cost, CALayer commit, HEVC fallback, or network transport before the next edit.
 
+## v0 Phase 7: input-guided scroll-copy activation
+
+Phase goal: make copyRect fire by using host scroll input as the classifier prior, then verifying a narrow pixel candidate set instead of scanning the whole surface.
+
+- [x] D41.1. Add a host-only `ScrollActivityTracker` that records recent `NormalizedInput.scroll(dx:dy:phase)` events before `InputDispatcher.dispatch(_:)` and exposes active hints with axis, sign, predicted offset, candidate offsets, active-until time, and event count.
+- [x] D41.2. Wire the input event loop to record scroll hints before dispatching CGEvents, and pass the latest active hint into `OwnedMediaTransport` and `ScrollDeltaEngine.evaluate`.
+- [x] D41.3. Add a hint-guided `ScrollDeltaProbe` path that verifies only same-axis, same-sign candidates from the input prediction, accepts confidence `>= 0.88`, breaks adjacent ties by closeness to predicted offset, and rejects zero-motion ambiguity.
+- [x] D41.4. Keep blind scan as no-hint fallback only, still bounded by the 4 ms budget and still falling back to HEVC on timeout or rejected motion.
+- [x] D41.5. Make active-hint timeout log `scroll-hint-timeout` and allow HEVC fallback only when no graphics update has been accepted for 120 ms.
+- [x] D41.6. Extend diagnostics and `tools/hybrid-graphics-diagnostics-summary.sh` to report hint-guided accepted frames, hint timeouts, blind timeouts, copyRects, HEVC fallback reason counts, and max probe ms.
+- [x] D41.7. Add host tests for signed candidate generation, hint expiry, hint-guided 1 px, 15 px, and 80 px vertical scroll acceptance, sequential latest-delta scroll acceptance with cumulative fallback candidates, predicted-offset tie break, zero-motion ambiguity rejection, bounded candidate counts, no-hint fallback behavior, and accepted-scroll copyRect payload construction.
+- [ ] R41.8. Acceptance: physical iPhone run shows `scroll accepted > 0`, `copyRects > 0`, hint-guided probe max mostly below 4 ms with `candidateCount <= 24`, timeout rate under 20 percent, and HEVC bytes near zero during accepted scroll until idle refresh.
+
 ---
 
 ## v0 full mixed graphics scope (captured, not started)
@@ -137,4 +150,6 @@ R39.1-R39.4 2026-06-21  committed   HEVC fallback reasons, graphics-failure keyf
 R39.5     pending     pending     physical fallback observability acceptance
 R40       2026-06-21  blocked     physical iPhone unavailable after devicectl tunnel reset; simulator console smoke launched but did not exercise scroll copyRect
 R40       pending     pending     physical iPhone comparison and blocker classification
+R41.1-R41.7 2026-06-21  committed   input-guided scroll hints, narrow probe candidates, diagnostics summary, and host tests
+R41.8     pending     pending     physical input-guided copyRect acceptance
 ```
