@@ -19,18 +19,21 @@ final class OwnedGraphicsChannelServer: @unchecked Sendable {
     private var closed = false
     private var latestAck: OwnedGraphicsFrameAck?
     private var controlParser = OwnedGraphicsControlStreamFrameParser()
+    private let onFrameAck: @Sendable (OwnedGraphicsFrameAck) -> Void
     private let onResetRequest: @Sendable (OwnedGraphicsResetRequest) -> Void
 
     init(
         connection: NWConnection,
+        onFrameAck: @escaping @Sendable (OwnedGraphicsFrameAck) -> Void,
         onResetRequest: @escaping @Sendable (OwnedGraphicsResetRequest) -> Void
     ) {
         self.connection = connection
+        self.onFrameAck = onFrameAck
         self.onResetRequest = onResetRequest
         receiveControl()
     }
 
-    func send(_ envelope: OwnedGraphicsFrameEnvelope) async throws {
+    func send(_ envelope: OwnedGraphicsFrameEnvelope) async throws -> Int {
         guard !isClosed else {
             throw SessionRejected(reason: .unauthorized)
         }
@@ -45,6 +48,7 @@ final class OwnedGraphicsChannelServer: @unchecked Sendable {
             })
         }
         logger.notice("owned graphics sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) bytes=\(data.count, privacy: .public)")
+        return data.count
     }
 
     func close() {
@@ -94,7 +98,8 @@ final class OwnedGraphicsChannelServer: @unchecked Sendable {
             stateQueue.sync {
                 latestAck = ack
             }
-            logger.notice("owned graphics ack frame=\(ack.frameId, privacy: .public) generation=\(ack.surfaceGeneration, privacy: .public) compositorMs=\(ack.compositorMs, privacy: .public) stale=\(ack.staleDiscardCount, privacy: .public)")
+            onFrameAck(ack)
+            logger.notice("owned graphics ack frame=\(ack.frameId, privacy: .public) generation=\(ack.surfaceGeneration, privacy: .public) compositorMs=\(ack.compositorMs, privacy: .public) queuedFrames=\(ack.queuedFrames, privacy: .public) queueBytes=\(ack.queueDepthBytes, privacy: .public) totalApplied=\(ack.totalGraphicsFramesApplied, privacy: .public) stale=\(ack.staleDiscardCount, privacy: .public)")
             return
         }
         if let request = try? JSONDecoder().decode(OwnedGraphicsResetRequest.self, from: data),
@@ -402,6 +407,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var frameMailbox: LatestCapturedFrameMailbox?
     private var encodePumpTask: Task<Void, Never>?
     private var admission = OwnedMediaEncodeAdmission()
+    private var graphicsAdmission = OwnedGraphicsAdmission()
     private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?
     private var motionBudgetState = OwnedMediaMotionBudgetState()
     private var diagnostics = OwnedMediaHostDiagnostics()
@@ -655,6 +661,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 logger.notice("owned graphics reset acked session=\(hello.sessionId, privacy: .public)")
                 installGraphicsChannel(OwnedGraphicsChannelServer(
                     connection: connection,
+                    onFrameAck: { [weak self] ack in
+                        self?.noteGraphicsFrameAck(ack)
+                    },
                     onResetRequest: { [weak self] request in
                         self?.handleGraphicsResetRequest(request)
                     }
@@ -676,6 +685,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         lock.withLock {
             _ = graphicsConnections.removeValue(forKey: ObjectIdentifier(connection))
             graphicsChannels.removeValue(forKey: ObjectIdentifier(connection))?.close()
+            graphicsAdmission.reset(config: Self.graphicsAdmissionConfig())
         }
     }
 
@@ -807,17 +817,26 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             var retainedGraphicsAvailable = false
             if let graphicsChannel = latestGraphicsChannel() {
                 retainedGraphicsAvailable = true
-                if peekPendingGraphicsResetRequest() != nil {
+                let pendingReset = peekPendingGraphicsResetRequest()
+                if pendingReset != nil {
                     scrollDeltaEngine.invalidateRetainedSurface()
                     requestKeyframe()
                     logger.notice("owned graphics reset consumed by encode pump")
+                }
+                let graphicsDecision = graphicsAdmissionDecision(allowsReset: pendingReset != nil)
+                if !graphicsDecision.shouldBuildCommands {
+                    diagnostics.noteAdmissionHold(reason: graphicsDecision.reason, mode: currentAdmissionMode())
+                    logger.notice("owned graphics admission-hold mode=\(String(describing: graphicsDecision.mode), privacy: .public) reason=\(graphicsDecision.reason ?? "unknown", privacy: .public) unackedFrames=\(graphicsDecision.unackedFrames, privacy: .public) unackedBytes=\(graphicsDecision.unackedBytes, privacy: .public)")
+                    try? await Task.sleep(nanoseconds: intervalNs)
+                    continue
                 }
                 let graphics = scrollDeltaEngine.evaluate(frame)
                 switch graphics.kind {
                 case .accepted:
                     if let envelope = graphics.envelope {
                         do {
-                            try await graphicsChannel.send(envelope)
+                            let encodedBytes = try await graphicsChannel.send(envelope)
+                            noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
                             scrollDeltaEngine.commitPendingSurface()
                             let nowNs = DispatchTime.now().uptimeNanoseconds
                             scrollHevcAdmission.noteAcceptedScroll(nowUptimeNs: nowNs)
@@ -851,7 +870,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 case .reset:
                     if let envelope = graphics.envelope {
                         do {
-                            try await graphicsChannel.send(envelope)
+                            let encodedBytes = try await graphicsChannel.send(envelope)
+                            noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
                             scrollDeltaEngine.commitPendingSurface()
                             clearPendingGraphicsResetRequest()
                             logger.notice("owned graphics reset frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
@@ -1166,9 +1186,44 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         }
     }
 
+    private func graphicsAdmissionDecision(allowsReset: Bool) -> OwnedGraphicsAdmissionDecision {
+        lock.withLock {
+            graphicsAdmission.decision(allowsReset: allowsReset, config: Self.graphicsAdmissionConfig())
+        }
+    }
+
+    private func noteGraphicsFrameSent(_ envelope: OwnedGraphicsFrameEnvelope, encodedBytes: Int) {
+        let snapshot = lock.withLock {
+            graphicsAdmission.noteSent(
+                updateId: envelope.header.updateId,
+                encodedBytes: encodedBytes,
+                config: Self.graphicsAdmissionConfig()
+            )
+            return (
+                mode: graphicsAdmission.mode,
+                unackedFrames: graphicsAdmission.unackedFrameCount,
+                unackedBytes: graphicsAdmission.unackedByteCount
+            )
+        }
+        logger.notice("owned graphics in-flight-sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) bytes=\(encodedBytes, privacy: .public) mode=\(String(describing: snapshot.mode), privacy: .public) unackedFrames=\(snapshot.unackedFrames, privacy: .public) unackedBytes=\(snapshot.unackedBytes, privacy: .public)")
+    }
+
+    private func noteGraphicsFrameAck(_ ack: OwnedGraphicsFrameAck) {
+        let snapshot = lock.withLock {
+            graphicsAdmission.noteAck(ack, config: Self.graphicsAdmissionConfig())
+            return (
+                mode: graphicsAdmission.mode,
+                unackedFrames: graphicsAdmission.unackedFrameCount,
+                unackedBytes: graphicsAdmission.unackedByteCount
+            )
+        }
+        logger.notice("owned graphics ack-applied frame=\(ack.frameId, privacy: .public) generation=\(ack.surfaceGeneration, privacy: .public) mode=\(String(describing: snapshot.mode), privacy: .public) unackedFrames=\(snapshot.unackedFrames, privacy: .public) unackedBytes=\(snapshot.unackedBytes, privacy: .public) queuedFrames=\(ack.queuedFrames, privacy: .public) queueBytes=\(ack.queueDepthBytes, privacy: .public) compositorMs=\(ack.compositorMs, privacy: .public)")
+    }
+
     private func handleGraphicsResetRequest(_ request: OwnedGraphicsResetRequest) {
         lock.withLock {
             pendingGraphicsResetRequest = request
+            graphicsAdmission.reset(config: Self.graphicsAdmissionConfig())
         }
         logger.notice("owned graphics reset queued reason=\(request.reason, privacy: .public) generation=\(request.lastCommittedSurfaceGeneration, privacy: .public) frame=\(request.lastCommittedFrameId, privacy: .public)")
     }
@@ -1183,6 +1238,20 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         lock.withLock {
             pendingGraphicsResetRequest = nil
         }
+    }
+
+    private static func graphicsAdmissionConfig() -> OwnedGraphicsAdmissionConfig {
+        OwnedGraphicsAdmissionConfig(
+            normalMaxUnackedFrames: Config.graphicsNormalMaxUnackedFrames,
+            behindMaxUnackedFrames: Config.graphicsBehindMaxUnackedFrames,
+            maxUnackedBytes: Config.graphicsMaxUnackedBytes,
+            behindQueuedFrames: Config.graphicsBehindQueuedFrames,
+            severeQueuedFrames: Config.graphicsSevereQueuedFrames,
+            behindQueueDepthBytes: Config.graphicsBehindQueueDepthBytes,
+            severeQueueDepthBytes: Config.graphicsSevereQueueDepthBytes,
+            behindCompositorMs: Config.graphicsBehindCompositorMs,
+            severeCompositorMs: Config.graphicsSevereCompositorMs
+        )
     }
 
 }

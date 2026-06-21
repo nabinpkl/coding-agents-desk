@@ -845,6 +845,12 @@ struct OwnedGraphicsFrameEnvelope: Equatable {
         return encoded
     }
 
+    var wireByteCount: Int {
+        let metadata = OwnedGraphicsFrameMetadata(header: header, commands: commands)
+        let metadataByteCount = (try? JSONEncoder().encode(metadata).count) ?? 0
+        return Self.fixedHeaderByteCount + metadataByteCount + payload.count
+    }
+
     static func decode(_ data: Data) throws -> OwnedGraphicsFrameEnvelope {
         guard data.count >= fixedHeaderByteCount else {
             throw SessionRejected(reason: .malformed)
@@ -1113,10 +1119,20 @@ extension OwnedGraphicsCommand: Codable {
     }
 }
 
+struct OwnedGraphicsQueueDepth: Equatable {
+    let queuedFrames: Int
+    let queueDepthBytes: Int
+
+    static let empty = OwnedGraphicsQueueDepth(queuedFrames: 0, queueDepthBytes: 0)
+}
+
 struct OwnedGraphicsFrameAck: Codable, Equatable {
     let type: String
     let surfaceGeneration: UInt32
     let frameId: UInt64
+    let queueDepthBytes: Int
+    let queuedFrames: Int
+    let totalGraphicsFramesApplied: UInt64
     let compositorMs: Double
     let staleDiscardCount: Int
 
@@ -1128,16 +1144,54 @@ struct OwnedGraphicsFrameAck: Codable, Equatable {
         case type = "t"
         case surfaceGeneration = "sg"
         case frameId = "id"
+        case queueDepthBytes = "qb"
+        case queuedFrames = "qf"
+        case totalGraphicsFramesApplied = "tg"
         case compositorMs = "cm"
         case staleDiscardCount = "sd"
     }
 
-    init(surfaceGeneration: UInt32, frameId: UInt64, compositorMs: Double, staleDiscardCount: Int) {
+    init(
+        surfaceGeneration: UInt32,
+        frameId: UInt64,
+        queueDepthBytes: Int = 0,
+        queuedFrames: Int = 0,
+        totalGraphicsFramesApplied: UInt64 = 0,
+        compositorMs: Double,
+        staleDiscardCount: Int
+    ) {
         self.type = "graphics-frame-ack"
         self.surfaceGeneration = surfaceGeneration
         self.frameId = frameId
+        self.queueDepthBytes = queueDepthBytes
+        self.queuedFrames = queuedFrames
+        self.totalGraphicsFramesApplied = totalGraphicsFramesApplied
         self.compositorMs = compositorMs
         self.staleDiscardCount = staleDiscardCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        surfaceGeneration = try container.decode(UInt32.self, forKey: .surfaceGeneration)
+        frameId = try container.decode(UInt64.self, forKey: .frameId)
+        queueDepthBytes = try container.decodeIfPresent(Int.self, forKey: .queueDepthBytes) ?? 0
+        queuedFrames = try container.decodeIfPresent(Int.self, forKey: .queuedFrames) ?? 0
+        totalGraphicsFramesApplied = try container.decodeIfPresent(UInt64.self, forKey: .totalGraphicsFramesApplied) ?? 0
+        compositorMs = try container.decodeIfPresent(Double.self, forKey: .compositorMs) ?? 0
+        staleDiscardCount = try container.decodeIfPresent(Int.self, forKey: .staleDiscardCount) ?? 0
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(surfaceGeneration, forKey: .surfaceGeneration)
+        try container.encode(frameId, forKey: .frameId)
+        try container.encode(queueDepthBytes, forKey: .queueDepthBytes)
+        try container.encode(queuedFrames, forKey: .queuedFrames)
+        try container.encode(totalGraphicsFramesApplied, forKey: .totalGraphicsFramesApplied)
+        try container.encode(compositorMs, forKey: .compositorMs)
+        try container.encode(staleDiscardCount, forKey: .staleDiscardCount)
     }
 }
 

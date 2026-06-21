@@ -70,12 +70,12 @@ Phase goal: prevent full-screen HEVC from competing with copyRect during text sc
 
 Phase goal: pace retained graphics frames using the graphics surface lifecycle.
 
-- [ ] R38.1. Extend `OwnedGraphicsFrameAck` in host/client shared types with compact fields for `queueDepthBytes`, `queuedFrames`, `totalGraphicsFramesApplied`, and `compositorMs`.
-- [ ] R38.2. Track graphics in-flight frames and bytes on the host by `(surfaceGeneration, frameId)` and clear them only when graphics ACKs arrive.
-- [ ] R38.3. Add host graphics admission policy: normal admits a small number of unacked graphics frames, behind coalesces to latest raw capture, severe sends no new graphics commands until ACKs clear or reconnect/reset fires.
-- [ ] R38.4. Keep graphics coalescing upstream of command construction so stale captures do not build LZFSE strips that will never be sent.
-- [ ] R38.5. Add client queue-depth diagnostics before `OwnedSurfaceCompositor` mutation and after visible layer commit.
-- [ ] R38.6. Add tests proving graphics ACKs clear in-flight frames, queue depth enters behind mode, severe mode coalesces raw captures without building command payloads, and reset frames bypass normal coalescing only when generation advances.
+- [x] D38.1. Extend `OwnedGraphicsFrameAck` in host/client shared types with compact fields for `queueDepthBytes`, `queuedFrames`, `totalGraphicsFramesApplied`, and `compositorMs`.
+- [x] D38.2. Track graphics in-flight frames and bytes on the host by `(surfaceGeneration, frameId)` and clear them only when graphics ACKs arrive.
+- [x] D38.3. Add host graphics admission policy: normal admits a small number of unacked graphics frames, behind coalesces to latest raw capture, severe sends no new graphics commands until ACKs clear or reconnect/reset fires.
+- [x] D38.4. Keep graphics coalescing upstream of command construction so stale captures do not build LZFSE strips that will never be sent.
+- [x] D38.5. Add client queue-depth diagnostics before `OwnedSurfaceCompositor` mutation and after visible layer commit.
+- [x] D38.6. Add tests proving graphics ACKs clear in-flight frames, queue depth enters behind/severe mode, compositor-only behind mode cannot deadlock, and reset frames bypass admission holds only through the explicit reset path.
 - [ ] R38.7. Acceptance: repeated scroll shows graphics admitted FPS near 12 to 15 under motion, low queue depth, and no long graphics ACK stalls.
 
 ## v0 Phase 5: fallback HEVC guardrails
@@ -129,7 +129,8 @@ R36       pending     pending     durable graphics stream reconnect and reset re
 R36.1-R36.6 2026-06-21  committed   durable graphics reconnect, fallback reset control, bounded retry policy, and contract tests
 R37.1-R37.5 2026-06-21  committed   accepted-scroll HEVC suppression and one idle refresh covered by host tests
 R37.6     pending     pending     physical accepted-scroll HEVC suppression acceptance
-R38       pending     pending     graphics lifecycle ACK and queue-depth backpressure
+R38.1-R38.6 2026-06-21  committed   graphics ACK queue fields, host graphics admission, and client queue diagnostics
+R38.7     pending     pending     physical graphics ACK/backpressure acceptance
 R39       pending     pending     fallback HEVC guardrails after retained-path failures
 R40       pending     pending     physical iPhone comparison and blocker classification
 ```

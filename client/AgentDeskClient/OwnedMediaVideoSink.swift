@@ -7,7 +7,10 @@ import os
 
 protocol OwnedMediaFrameSink: VideoFrameSink {
     @MainActor func renderOwnedMediaFrame(_ envelope: OwnedMediaFrameEnvelope) -> OwnedMediaRenderStats?
-    @MainActor func renderOwnedGraphicsFrame(_ envelope: OwnedGraphicsFrameEnvelope) -> OwnedGraphicsFrameAck
+    @MainActor func renderOwnedGraphicsFrame(
+        _ envelope: OwnedGraphicsFrameEnvelope,
+        queueDepth: OwnedGraphicsQueueDepth
+    ) -> OwnedGraphicsFrameAck
     @MainActor func currentGraphicsResetRequest(reason: String) -> OwnedGraphicsResetRequest
     @MainActor func consumePendingGraphicsResetRequest() -> OwnedGraphicsResetRequest?
     @MainActor func setOwnedMediaDebugStatus(_ status: String)
@@ -193,24 +196,34 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         }
     }
 
-    func renderOwnedGraphicsFrame(_ envelope: OwnedGraphicsFrameEnvelope) -> OwnedGraphicsFrameAck {
+    func renderOwnedGraphicsFrame(
+        _ envelope: OwnedGraphicsFrameEnvelope,
+        queueDepth: OwnedGraphicsQueueDepth = .empty
+    ) -> OwnedGraphicsFrameAck {
         do {
+            ownedMediaStderrTrace("graphics-frame-apply-start frame=\(envelope.header.frameId) generation=\(envelope.header.surfaceGeneration) queuedFrames=\(queueDepth.queuedFrames) queueDepthBytes=\(queueDepth.queueDepthBytes) totalGraphicsApplied=\(compositor.totalGraphicsFramesApplied)")
             let stats = try compositor.applyGraphicsFrame(envelope)
             surfaceLayer.contents = compositor.makeImage()
             surfaceLayer.isHidden = false
-            ownedMediaStderrTrace("graphics-frame frame=\(envelope.header.frameId) generation=\(envelope.header.surfaceGeneration) commands=\(envelope.commands.count) bytes=\(envelope.payload.count) action=\(stats.action) compositorMs=\(Self.formatDouble(stats.compositorMs)) stale=\(stats.staleDiscardCount) copyRects=\(stats.copyRectCount) tileBytes=\(stats.tileBytes)")
+            ownedMediaStderrTrace("graphics-frame frame=\(envelope.header.frameId) generation=\(envelope.header.surfaceGeneration) commands=\(envelope.commands.count) bytes=\(envelope.payload.count) action=\(stats.action) compositorMs=\(Self.formatDouble(stats.compositorMs)) stale=\(stats.staleDiscardCount) copyRects=\(stats.copyRectCount) tileBytes=\(stats.tileBytes) queuedFrames=\(queueDepth.queuedFrames) queueDepthBytes=\(queueDepth.queueDepthBytes) totalGraphicsApplied=\(stats.totalGraphicsFramesApplied)")
             return OwnedGraphicsFrameAck(
                 surfaceGeneration: envelope.header.surfaceGeneration,
                 frameId: envelope.header.frameId,
+                queueDepthBytes: queueDepth.queueDepthBytes,
+                queuedFrames: queueDepth.queuedFrames,
+                totalGraphicsFramesApplied: stats.totalGraphicsFramesApplied,
                 compositorMs: stats.compositorMs,
                 staleDiscardCount: stats.staleDiscardCount
             )
         } catch {
-            ownedMediaStderrTrace("graphics-frame-failed frame=\(envelope.header.frameId) generation=\(envelope.header.surfaceGeneration) error=\(String(describing: error))")
+            ownedMediaStderrTrace("graphics-frame-failed frame=\(envelope.header.frameId) generation=\(envelope.header.surfaceGeneration) queuedFrames=\(queueDepth.queuedFrames) queueDepthBytes=\(queueDepth.queueDepthBytes) totalGraphicsApplied=\(compositor.totalGraphicsFramesApplied) error=\(String(describing: error))")
             pendingGraphicsResetRequest = currentGraphicsResetRequest(reason: "graphics-frame-\(String(describing: error))")
             return OwnedGraphicsFrameAck(
                 surfaceGeneration: compositor.committedUpdateId.surfaceGeneration,
                 frameId: compositor.committedUpdateId.frameId,
+                queueDepthBytes: queueDepth.queueDepthBytes,
+                queuedFrames: queueDepth.queuedFrames,
+                totalGraphicsFramesApplied: compositor.totalGraphicsFramesApplied,
                 compositorMs: 0,
                 staleDiscardCount: compositor.staleDiscardCount
             )
@@ -459,6 +472,7 @@ struct OwnedSurfaceCompositorStats: Equatable {
     let action: String
     let compositorMs: Double
     let staleDiscardCount: Int
+    let totalGraphicsFramesApplied: UInt64
     let copyRectCount: Int
     let tileBytes: Int
 }
@@ -466,6 +480,7 @@ struct OwnedSurfaceCompositorStats: Equatable {
 struct OwnedSurfaceCompositor {
     private(set) var committedUpdateId = OwnedSurfaceUpdateId(surfaceGeneration: 0, frameId: 0)
     private(set) var staleDiscardCount = 0
+    private(set) var totalGraphicsFramesApplied: UInt64 = 0
     private var width = 0
     private var height = 0
     private var bytesPerRow = 0
@@ -561,6 +576,7 @@ struct OwnedSurfaceCompositor {
         if updateId.isStrictlyNewer(than: next.committedUpdateId) {
             next.committedUpdateId = updateId
         }
+        next.totalGraphicsFramesApplied += 1
         self = next
         return stats(action: "graphics", startNs: startNs, copyRects: copyRects, tileBytes: tileBytes)
     }
@@ -596,6 +612,7 @@ struct OwnedSurfaceCompositor {
             action: action,
             compositorMs: Double(DispatchTime.now().uptimeNanoseconds &- startNs) / 1_000_000.0,
             staleDiscardCount: staleDiscardCount,
+            totalGraphicsFramesApplied: totalGraphicsFramesApplied,
             copyRectCount: copyRects,
             tileBytes: tileBytes
         )

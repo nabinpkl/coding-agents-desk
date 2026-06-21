@@ -198,6 +198,7 @@ struct InputChannelTests {
         #expect(stats.action == "stale-reset")
         #expect(compositor.committedUpdateId == OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 1))
         #expect(compositor.staleDiscardCount == 1)
+        #expect(compositor.totalGraphicsFramesApplied == 1)
     }
 
     @Test func ownedSurfaceCompositorKeepsPreviousSurfaceWhenFrameFails() throws {
@@ -260,6 +261,23 @@ struct InputChannelTests {
         #expect(request?.lastCommittedFrameId == 0)
         #expect(request?.reason.contains("graphics-frame-") == true)
         #expect(sink.consumePendingGraphicsResetRequest() == nil)
+    }
+
+    @MainActor
+    @Test func ownedMediaVideoSinkGraphicsAckIncludesQueueDepthAndAppliedTotal() {
+        let sink = OwnedMediaVideoSink()
+        let ack = sink.renderOwnedGraphicsFrame(
+            Self.makeResetSurfaceEnvelope(surfaceGeneration: 1, frameId: 1),
+            queueDepth: OwnedGraphicsQueueDepth(queuedFrames: 2, queueDepthBytes: 4_096)
+        )
+
+        #expect(ack.surfaceGeneration == 1)
+        #expect(ack.frameId == 1)
+        #expect(ack.queuedFrames == 2)
+        #expect(ack.queueDepthBytes == 4_096)
+        #expect(ack.totalGraphicsFramesApplied == 1)
+        #expect(ack.compositorMs >= 0)
+        #expect(ack.staleDiscardCount == 0)
     }
 
     @Test func ownedMediaUpdateOrderingIgnoresCaptureTimestampDiagnostics() {
@@ -778,6 +796,9 @@ struct InputChannelTests {
         let ack = OwnedGraphicsFrameAck(
             surfaceGeneration: 4,
             frameId: 22,
+            queueDepthBytes: 16_384,
+            queuedFrames: 2,
+            totalGraphicsFramesApplied: 9,
             compositorMs: 1.75,
             staleDiscardCount: 3
         )
@@ -917,13 +938,22 @@ struct InputChannelTests {
         let ack = OwnedGraphicsFrameAck(
             surfaceGeneration: 4,
             frameId: 22,
+            queueDepthBytes: 16_384,
+            queuedFrames: 2,
+            totalGraphicsFramesApplied: 9,
             compositorMs: 1.75,
             staleDiscardCount: 3
         )
         let ackData = try JSONEncoder().encode(ack)
+        let ackJson = String(data: ackData, encoding: .utf8) ?? ""
         let decodedAck = try JSONDecoder().decode(OwnedGraphicsFrameAck.self, from: ackData)
         #expect(decodedAck == ack)
         #expect(decodedAck.updateId == OwnedSurfaceUpdateId(surfaceGeneration: 4, frameId: 22))
+        #expect(ackJson.contains("\"qb\":16384"))
+        #expect(ackJson.contains("\"qf\":2"))
+        #expect(ackJson.contains("\"tg\":9"))
+        #expect(ackJson.contains("\"cm\":1.75"))
+        #expect(ackJson.contains("\"sd\":3"))
 
         let request = OwnedGraphicsResetRequest(
             reason: "malformed-frame",
@@ -934,6 +964,19 @@ struct InputChannelTests {
         let decodedRequest = try JSONDecoder().decode(OwnedGraphicsResetRequest.self, from: requestData)
         #expect(decodedRequest == request)
         #expect(decodedRequest.lastCommittedUpdateId == OwnedSurfaceUpdateId(surfaceGeneration: 4, frameId: 21))
+    }
+
+    @Test func graphicsAckDefaultsMissingDiagnosticFieldsOnDecode() throws {
+        let data = Data(#"{"t":"graphics-frame-ack","sg":4,"id":22,"cm":1.75,"sd":3}"#.utf8)
+        let decoded = try JSONDecoder().decode(OwnedGraphicsFrameAck.self, from: data)
+
+        #expect(decoded.surfaceGeneration == 4)
+        #expect(decoded.frameId == 22)
+        #expect(decoded.queueDepthBytes == 0)
+        #expect(decoded.queuedFrames == 0)
+        #expect(decoded.totalGraphicsFramesApplied == 0)
+        #expect(decoded.compositorMs == 1.75)
+        #expect(decoded.staleDiscardCount == 3)
     }
 
     @Test func ownedMediaKeyframeRequestsAreDebouncedDuringRecovery() {

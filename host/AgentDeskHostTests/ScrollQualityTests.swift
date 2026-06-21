@@ -131,6 +131,168 @@ struct ScrollQualityTests {
         #expect(!afterConsumed)
     }
 
+    @Test func ownedGraphicsAdmissionAckClearsInflightFramesAndBytes() {
+        var admission = OwnedGraphicsAdmission()
+        let config = Self.graphicsAdmissionConfig()
+
+        admission.noteSent(
+            updateId: OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 10),
+            encodedBytes: 40_000,
+            config: config
+        )
+        admission.noteSent(
+            updateId: OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 11),
+            encodedBytes: 50_000,
+            config: config
+        )
+        admission.noteAck(
+            OwnedGraphicsFrameAck(
+                surfaceGeneration: 1,
+                frameId: 10,
+                compositorMs: 1,
+                queueDepthBytes: 0,
+                queuedFrames: 0,
+                totalGraphicsFramesApplied: 1,
+                staleDiscardCount: 0
+            ),
+            config: config
+        )
+
+        #expect(admission.unackedFrameCount == 1)
+        #expect(admission.unackedByteCount == 50_000)
+        #expect(admission.decision(allowsReset: false, config: config).shouldBuildCommands)
+    }
+
+    @Test func ownedGraphicsAdmissionUsesAckQueueDepthForBehindAndSevere() {
+        var behind = OwnedGraphicsAdmission()
+        let config = Self.graphicsAdmissionConfig()
+
+        behind.noteAck(
+            OwnedGraphicsFrameAck(
+                surfaceGeneration: 1,
+                frameId: 1,
+                compositorMs: 1,
+                queueDepthBytes: 130_000,
+                queuedFrames: 1,
+                totalGraphicsFramesApplied: 1,
+                staleDiscardCount: 0
+            ),
+            config: config
+        )
+        #expect(behind.mode == .behind)
+
+        var severe = OwnedGraphicsAdmission()
+        severe.noteAck(
+            OwnedGraphicsFrameAck(
+                surfaceGeneration: 1,
+                frameId: 2,
+                compositorMs: 1,
+                queueDepthBytes: 370_000,
+                queuedFrames: 3,
+                totalGraphicsFramesApplied: 2,
+                staleDiscardCount: 0
+            ),
+            config: config
+        )
+        let decision = severe.decision(allowsReset: false, config: config)
+
+        #expect(decision.mode == .severe)
+        #expect(!decision.shouldBuildCommands)
+        #expect(decision.reason == "graphics-severe")
+    }
+
+    @Test func ownedGraphicsAdmissionDoesNotStallForeverAfterSingleSlowCompositorAck() {
+        var admission = OwnedGraphicsAdmission()
+        let config = Self.graphicsAdmissionConfig()
+
+        admission.noteSent(
+            updateId: OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 10),
+            encodedBytes: 40_000,
+            config: config
+        )
+        admission.noteAck(
+            OwnedGraphicsFrameAck(
+                surfaceGeneration: 1,
+                frameId: 10,
+                compositorMs: 30,
+                queueDepthBytes: 0,
+                queuedFrames: 0,
+                totalGraphicsFramesApplied: 1,
+                staleDiscardCount: 0
+            ),
+            config: config
+        )
+
+        let decision = admission.decision(allowsReset: false, config: config)
+
+        #expect(decision.mode == .behind)
+        #expect(decision.shouldBuildCommands)
+        #expect(decision.unackedFrames == 0)
+    }
+
+    @Test func ownedGraphicsAdmissionClampsBehindBudgetSoCompositorAckCannotDeadlock() {
+        var admission = OwnedGraphicsAdmission()
+        let config = OwnedGraphicsAdmissionConfig(
+            normalMaxUnackedFrames: 2,
+            behindMaxUnackedFrames: 0,
+            maxUnackedBytes: 180_000,
+            behindQueuedFrames: 1,
+            severeQueuedFrames: 3,
+            behindQueueDepthBytes: 120_000,
+            severeQueueDepthBytes: 360_000,
+            behindCompositorMs: 8,
+            severeCompositorMs: 24
+        )
+
+        admission.noteSent(
+            updateId: OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 10),
+            encodedBytes: 40_000,
+            config: config
+        )
+        admission.noteAck(
+            OwnedGraphicsFrameAck(
+                surfaceGeneration: 1,
+                frameId: 10,
+                compositorMs: 30,
+                queueDepthBytes: 0,
+                queuedFrames: 0,
+                totalGraphicsFramesApplied: 1,
+                staleDiscardCount: 0
+            ),
+            config: config
+        )
+
+        let decision = admission.decision(allowsReset: false, config: config)
+
+        #expect(config.behindMaxUnackedFrames == 1)
+        #expect(decision.mode == .behind)
+        #expect(decision.shouldBuildCommands)
+        #expect(decision.unackedFrames == 0)
+    }
+
+    @Test func ownedGraphicsAdmissionLimitsUnackedFramesAndLetsResetBypassHold() {
+        var admission = OwnedGraphicsAdmission()
+        let config = Self.graphicsAdmissionConfig()
+
+        admission.noteSent(
+            updateId: OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 10),
+            encodedBytes: 40_000,
+            config: config
+        )
+        admission.noteSent(
+            updateId: OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 11),
+            encodedBytes: 40_000,
+            config: config
+        )
+
+        let held = admission.decision(allowsReset: false, config: config)
+        let reset = admission.decision(allowsReset: true, config: config)
+
+        #expect(!held.shouldBuildCommands)
+        #expect(held.reason == "graphics-unacked-frames")
+        #expect(reset.shouldBuildCommands)
+    }
+
     @Test func mediaListenerConfigurationStillUsesSignalingPortAndDatagrams() {
         let configuration = OwnedQuicListenerConfigurations.mediaDatagram()
 
@@ -1451,6 +1613,20 @@ struct ScrollQualityTests {
             normalMaxUnackedFrames: 2,
             behindMaxUnackedFrames: 1,
             staleUnackedMs: 350
+        )
+    }
+
+    private static func graphicsAdmissionConfig() -> OwnedGraphicsAdmissionConfig {
+        OwnedGraphicsAdmissionConfig(
+            normalMaxUnackedFrames: 2,
+            behindMaxUnackedFrames: 1,
+            maxUnackedBytes: 180_000,
+            behindQueuedFrames: 1,
+            severeQueuedFrames: 3,
+            behindQueueDepthBytes: 120_000,
+            severeQueueDepthBytes: 360_000,
+            behindCompositorMs: 8,
+            severeCompositorMs: 24
         )
     }
 

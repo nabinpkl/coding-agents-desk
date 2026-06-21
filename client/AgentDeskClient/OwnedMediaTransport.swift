@@ -129,13 +129,21 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
             do {
                 let chunk = try await receive(on: connection, maximumLength: 256 * 1024)
                 let frames = try framer.append(chunk)
-                for frame in frames {
+                for (index, frame) in frames.enumerated() {
+                    let queuedFrames = max(0, frames.count - index - 1)
+                    let queueDepthBytes = frames.dropFirst(index + 1).reduce(0) { partial, queuedFrame in
+                        partial + queuedFrame.wireByteCount
+                    }
+                    let queueDepth = OwnedGraphicsQueueDepth(
+                        queuedFrames: queuedFrames,
+                        queueDepthBytes: queueDepthBytes
+                    )
                     let ack = await MainActor.run { [weak self] in
-                        self?.sink?.renderOwnedGraphicsFrame(frame)
+                        self?.sink?.renderOwnedGraphicsFrame(frame, queueDepth: queueDepth)
                     }
                     if let ack {
                         try await send(OwnedGraphicsControlStreamFrame.encode(ack), on: connection)
-                        ownedMediaStderrTrace("graphics-ack frame=\(ack.frameId) generation=\(ack.surfaceGeneration) compositorMs=\(Self.formatDouble(ack.compositorMs)) stale=\(ack.staleDiscardCount)")
+                        ownedMediaStderrTrace("graphics-ack frame=\(ack.frameId) generation=\(ack.surfaceGeneration) queuedFrames=\(ack.queuedFrames) queueDepthBytes=\(ack.queueDepthBytes) totalGraphicsApplied=\(ack.totalGraphicsFramesApplied) compositorMs=\(Self.formatDouble(ack.compositorMs)) stale=\(ack.staleDiscardCount)")
                     }
                     let resetRequest = await MainActor.run { [weak self] in
                         self?.sink?.consumePendingGraphicsResetRequest()

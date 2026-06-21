@@ -278,6 +278,42 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_IDLE_REFRESH_MS",
         defaultValue: 250
     )
+    static let graphicsNormalMaxUnackedFrames = positiveInt(
+        environmentKey: "AGENTDESK_GRAPHICS_NORMAL_MAX_UNACKED_FRAMES",
+        defaultValue: 2
+    )
+    static let graphicsBehindMaxUnackedFrames = positiveInt(
+        environmentKey: "AGENTDESK_GRAPHICS_BEHIND_MAX_UNACKED_FRAMES",
+        defaultValue: 1
+    )
+    static let graphicsMaxUnackedBytes = positiveInt(
+        environmentKey: "AGENTDESK_GRAPHICS_MAX_UNACKED_BYTES",
+        defaultValue: 180_000
+    )
+    static let graphicsBehindQueuedFrames = positiveInt(
+        environmentKey: "AGENTDESK_GRAPHICS_BEHIND_QUEUED_FRAMES",
+        defaultValue: 1
+    )
+    static let graphicsSevereQueuedFrames = positiveInt(
+        environmentKey: "AGENTDESK_GRAPHICS_SEVERE_QUEUED_FRAMES",
+        defaultValue: 3
+    )
+    static let graphicsBehindQueueDepthBytes = positiveInt(
+        environmentKey: "AGENTDESK_GRAPHICS_BEHIND_QUEUE_DEPTH_BYTES",
+        defaultValue: 120_000
+    )
+    static let graphicsSevereQueueDepthBytes = positiveInt(
+        environmentKey: "AGENTDESK_GRAPHICS_SEVERE_QUEUE_DEPTH_BYTES",
+        defaultValue: 360_000
+    )
+    static let graphicsBehindCompositorMs = positiveDouble(
+        environmentKey: "AGENTDESK_GRAPHICS_BEHIND_COMPOSITOR_MS",
+        defaultValue: 8
+    )
+    static let graphicsSevereCompositorMs = positiveDouble(
+        environmentKey: "AGENTDESK_GRAPHICS_SEVERE_COMPOSITOR_MS",
+        defaultValue: 24
+    )
     static func ownedMediaMaxQP(environment: [String: String]) -> Int? {
         guard let raw = environment["AGENTDESK_OWNED_MEDIA_MAX_QP"],
               let value = Int(raw),

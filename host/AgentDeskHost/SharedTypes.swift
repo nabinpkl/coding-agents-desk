@@ -392,7 +392,7 @@ struct ActiveSession: Equatable {
     let establishedAt: Int
 }
 
-struct OwnedSurfaceUpdateId: Codable, Equatable, Comparable {
+struct OwnedSurfaceUpdateId: Codable, Equatable, Hashable, Comparable {
     let surfaceGeneration: UInt32
     let frameId: UInt64
 
@@ -1148,6 +1148,9 @@ struct OwnedGraphicsFrameAck: Codable, Equatable {
     let surfaceGeneration: UInt32
     let frameId: UInt64
     let compositorMs: Double
+    let queueDepthBytes: Int
+    let queuedFrames: Int
+    let totalGraphicsFramesApplied: UInt64
     let staleDiscardCount: Int
 
     var updateId: OwnedSurfaceUpdateId {
@@ -1159,15 +1162,53 @@ struct OwnedGraphicsFrameAck: Codable, Equatable {
         case surfaceGeneration = "sg"
         case frameId = "id"
         case compositorMs = "cm"
+        case queueDepthBytes = "qb"
+        case queuedFrames = "qf"
+        case totalGraphicsFramesApplied = "tg"
         case staleDiscardCount = "sd"
     }
 
-    init(surfaceGeneration: UInt32, frameId: UInt64, compositorMs: Double, staleDiscardCount: Int) {
+    init(
+        surfaceGeneration: UInt32,
+        frameId: UInt64,
+        compositorMs: Double,
+        queueDepthBytes: Int = 0,
+        queuedFrames: Int = 0,
+        totalGraphicsFramesApplied: UInt64 = 0,
+        staleDiscardCount: Int
+    ) {
         self.type = "graphics-frame-ack"
         self.surfaceGeneration = surfaceGeneration
         self.frameId = frameId
         self.compositorMs = compositorMs
+        self.queueDepthBytes = queueDepthBytes
+        self.queuedFrames = queuedFrames
+        self.totalGraphicsFramesApplied = totalGraphicsFramesApplied
         self.staleDiscardCount = staleDiscardCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        surfaceGeneration = try container.decode(UInt32.self, forKey: .surfaceGeneration)
+        frameId = try container.decode(UInt64.self, forKey: .frameId)
+        compositorMs = try container.decodeIfPresent(Double.self, forKey: .compositorMs) ?? 0
+        queueDepthBytes = try container.decodeIfPresent(Int.self, forKey: .queueDepthBytes) ?? 0
+        queuedFrames = try container.decodeIfPresent(Int.self, forKey: .queuedFrames) ?? 0
+        totalGraphicsFramesApplied = try container.decodeIfPresent(UInt64.self, forKey: .totalGraphicsFramesApplied) ?? 0
+        staleDiscardCount = try container.decodeIfPresent(Int.self, forKey: .staleDiscardCount) ?? 0
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(surfaceGeneration, forKey: .surfaceGeneration)
+        try container.encode(frameId, forKey: .frameId)
+        try container.encode(compositorMs, forKey: .compositorMs)
+        try container.encode(queueDepthBytes, forKey: .queueDepthBytes)
+        try container.encode(queuedFrames, forKey: .queuedFrames)
+        try container.encode(totalGraphicsFramesApplied, forKey: .totalGraphicsFramesApplied)
+        try container.encode(staleDiscardCount, forKey: .staleDiscardCount)
     }
 }
 
@@ -1467,6 +1508,144 @@ struct HybridScrollHEVCAdmission: Equatable {
         }
         lastScrollHevcRefreshAtUptimeNs = nowUptimeNs
         return .allow
+    }
+}
+
+enum OwnedGraphicsAdmissionMode: Equatable {
+    case normal
+    case behind
+    case severe
+}
+
+struct OwnedGraphicsAdmissionConfig: Equatable, Sendable {
+    let normalMaxUnackedFrames: Int
+    let behindMaxUnackedFrames: Int
+    let maxUnackedBytes: Int
+    let behindQueuedFrames: Int
+    let severeQueuedFrames: Int
+    let behindQueueDepthBytes: Int
+    let severeQueueDepthBytes: Int
+    let behindCompositorMs: Double
+    let severeCompositorMs: Double
+
+    init(
+        normalMaxUnackedFrames: Int,
+        behindMaxUnackedFrames: Int,
+        maxUnackedBytes: Int,
+        behindQueuedFrames: Int,
+        severeQueuedFrames: Int,
+        behindQueueDepthBytes: Int,
+        severeQueueDepthBytes: Int,
+        behindCompositorMs: Double,
+        severeCompositorMs: Double
+    ) {
+        self.normalMaxUnackedFrames = max(normalMaxUnackedFrames, 1)
+        self.behindMaxUnackedFrames = max(behindMaxUnackedFrames, 1)
+        self.maxUnackedBytes = max(maxUnackedBytes, 1)
+        self.behindQueuedFrames = max(behindQueuedFrames, 1)
+        self.severeQueuedFrames = max(severeQueuedFrames, self.behindQueuedFrames + 1)
+        self.behindQueueDepthBytes = max(behindQueueDepthBytes, 1)
+        self.severeQueueDepthBytes = max(severeQueueDepthBytes, self.behindQueueDepthBytes + 1)
+        self.behindCompositorMs = max(behindCompositorMs, 0)
+        self.severeCompositorMs = max(severeCompositorMs, self.behindCompositorMs)
+    }
+}
+
+struct OwnedGraphicsAdmissionDecision: Equatable {
+    let shouldBuildCommands: Bool
+    let mode: OwnedGraphicsAdmissionMode
+    let reason: String?
+    let unackedFrames: Int
+    let unackedBytes: Int
+}
+
+struct OwnedGraphicsAdmission: Equatable {
+    private var unackedFrames: [OwnedSurfaceUpdateId: Int] = [:]
+    private(set) var latestAck: OwnedGraphicsFrameAck?
+    private(set) var mode: OwnedGraphicsAdmissionMode = .normal
+
+    var unackedFrameCount: Int { unackedFrames.count }
+    var unackedByteCount: Int { unackedFrames.values.reduce(0, +) }
+
+    mutating func noteSent(updateId: OwnedSurfaceUpdateId, encodedBytes: Int, config: OwnedGraphicsAdmissionConfig) {
+        unackedFrames[updateId] = max(encodedBytes, 0)
+        refreshMode(config: config)
+    }
+
+    mutating func noteAck(_ ack: OwnedGraphicsFrameAck, config: OwnedGraphicsAdmissionConfig) {
+        latestAck = ack
+        unackedFrames = unackedFrames.filter { updateId, _ in
+            updateId.isStrictlyNewer(than: ack.updateId)
+        }
+        refreshMode(config: config)
+    }
+
+    mutating func reset(config: OwnedGraphicsAdmissionConfig) {
+        unackedFrames.removeAll()
+        latestAck = nil
+        refreshMode(config: config)
+    }
+
+    mutating func decision(
+        allowsReset: Bool,
+        config: OwnedGraphicsAdmissionConfig
+    ) -> OwnedGraphicsAdmissionDecision {
+        refreshMode(config: config)
+        if allowsReset {
+            return OwnedGraphicsAdmissionDecision(
+                shouldBuildCommands: true,
+                mode: mode,
+                reason: nil,
+                unackedFrames: unackedFrameCount,
+                unackedBytes: unackedByteCount
+            )
+        }
+        let maxFrames = mode == .normal ? config.normalMaxUnackedFrames : config.behindMaxUnackedFrames
+        if mode == .severe {
+            return hold(reason: "graphics-severe")
+        }
+        if unackedFrameCount >= maxFrames {
+            return hold(reason: "graphics-unacked-frames")
+        }
+        if unackedByteCount >= config.maxUnackedBytes {
+            return hold(reason: "graphics-unacked-bytes")
+        }
+        return OwnedGraphicsAdmissionDecision(
+            shouldBuildCommands: true,
+            mode: mode,
+            reason: nil,
+            unackedFrames: unackedFrameCount,
+            unackedBytes: unackedByteCount
+        )
+    }
+
+    private mutating func refreshMode(config: OwnedGraphicsAdmissionConfig) {
+        let ackQueuedFrames = latestAck?.queuedFrames ?? 0
+        let ackQueueDepthBytes = latestAck?.queueDepthBytes ?? 0
+        let ackCompositorMs = latestAck?.compositorMs ?? 0
+        if unackedByteCount >= config.maxUnackedBytes * 2
+            || ackQueuedFrames >= config.severeQueuedFrames
+            || ackQueueDepthBytes >= config.severeQueueDepthBytes {
+            mode = .severe
+        } else if unackedFrameCount >= config.normalMaxUnackedFrames
+            || unackedByteCount >= config.maxUnackedBytes
+            || ackQueuedFrames >= config.behindQueuedFrames
+            || ackQueueDepthBytes >= config.behindQueueDepthBytes
+            || ackCompositorMs >= config.behindCompositorMs {
+            mode = .behind
+        } else {
+            mode = .normal
+        }
+    }
+
+    private func hold(reason: String) -> OwnedGraphicsAdmissionDecision {
+        OwnedGraphicsAdmissionDecision(
+            shouldBuildCommands: false,
+            mode: mode,
+            reason: reason,
+            unackedFrames: unackedFrameCount,
+            unackedBytes: unackedByteCount
+        )
     }
 }
 

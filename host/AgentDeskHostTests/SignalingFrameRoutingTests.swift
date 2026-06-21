@@ -537,12 +537,19 @@ struct SignalingFrameRoutingTests {
             surfaceGeneration: 4,
             frameId: 22,
             compositorMs: 1.75,
+            queueDepthBytes: 4096,
+            queuedFrames: 2,
+            totalGraphicsFramesApplied: 42,
             staleDiscardCount: 3
         )
         let ackData = try JSONEncoder().encode(ack)
+        let ackJSON = String(data: ackData, encoding: .utf8) ?? ""
         let decodedAck = try JSONDecoder().decode(OwnedGraphicsFrameAck.self, from: ackData)
         #expect(decodedAck == ack)
         #expect(decodedAck.updateId == OwnedSurfaceUpdateId(surfaceGeneration: 4, frameId: 22))
+        #expect(ackJSON.contains("\"qb\":4096"))
+        #expect(ackJSON.contains("\"qf\":2"))
+        #expect(ackJSON.contains("\"tg\":42"))
 
         let request = OwnedGraphicsResetRequest(
             reason: "malformed-frame",
