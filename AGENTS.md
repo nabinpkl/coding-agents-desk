@@ -73,6 +73,7 @@ When in doubt about which direction a code path should produce, the test is: fin
 - Do not use `just fresh-install` or `just pair-iphone` for exploratory feel runs unless the user explicitly asks for a plain install or a non-attached launch.
 - The attached console path is load-bearing because it writes iPhone-side owned-media diagnostics to `/tmp/agentdesk-client-console.log`, including packet repair, stale skips, decoder recovery, render gaps, and frame age.
 - For physical-device media regressions, preserve host logs and attached client logs in the same run. Host-only logs are not enough to judge motion behavior.
+- When collecting host unified logs from an agent shell, invoke `/usr/bin/log` explicitly. Do not run bare `log`, because zsh can resolve that as the shell builtin and fail with `too many arguments`.
 
 ## ADRs
 
