@@ -48,6 +48,7 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     private let mediaCapability: MediaCapabilityGrant
     private var connection: NWConnection?
     private var pendingConnection: NWConnection?
+    private var pendingResetRequest: OwnedGraphicsResetRequest?
     private var receiveTask: Task<Void, Never>?
     private weak var sink: (any OwnedMediaFrameSink)?
     private let onFallbackResetRequest: @Sendable (OwnedGraphicsResetRequest) async -> Void
@@ -79,6 +80,16 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
             using: Self.makeReliableQuicParameters(alpn: self.plan.alpn)
         )
         self.pendingConnection = connection
+        var didStart = false
+        defer {
+            if !didStart {
+                if self.pendingConnection === connection {
+                    self.pendingConnection = nil
+                }
+                self.pendingResetRequest = nil
+                connection.cancel()
+            }
+        }
         connection.stateUpdateHandler = { [weak self] state in
             self?.logger.notice("owned graphics quic state=\(String(describing: state), privacy: .public)")
         }
@@ -94,6 +105,20 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         _ = try await self.receiveReady(expectedSessionId: self.active.sessionId, on: connection)
         self.pendingConnection = nil
         self.connection = connection
+        if let pendingResetRequest {
+            self.pendingResetRequest = nil
+            do {
+                try await send(OwnedGraphicsControlStreamFrame.encode(pendingResetRequest), on: connection)
+                ownedMediaStderrTrace("graphics-reset-request reason=\(pendingResetRequest.reason) generation=\(pendingResetRequest.lastCommittedSurfaceGeneration) frame=\(pendingResetRequest.lastCommittedFrameId) state=drained-pending")
+            } catch {
+                logger.error("owned graphics pending reset request failed: \(String(describing: error), privacy: .public)")
+                ownedMediaStderrTrace("graphics-reset-request-failed reason=\(pendingResetRequest.reason) generation=\(pendingResetRequest.lastCommittedSurfaceGeneration) frame=\(pendingResetRequest.lastCommittedFrameId) error=\(String(describing: error)) state=drained-pending")
+                await onFallbackResetRequest(pendingResetRequest)
+                onDisconnected("reset-send-failed")
+                throw error
+            }
+        }
+        didStart = true
         self.logger.notice("owned graphics quic ready port=\(Int(self.plan.port), privacy: .public)")
         receiveTask = Task { [weak self, connection] in
             await self?.receiveFrames(on: connection)
@@ -105,12 +130,18 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         receiveTask = nil
         self.pendingConnection?.cancel()
         self.pendingConnection = nil
+        self.pendingResetRequest = nil
         self.connection?.cancel()
         self.connection = nil
     }
 
     func sendResetRequest(_ request: OwnedGraphicsResetRequest) async {
         guard let connection else {
+            if pendingConnection != nil {
+                pendingResetRequest = request
+                ownedMediaStderrTrace("graphics-reset-request-pending reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=pending-connection")
+                return
+            }
             ownedMediaStderrTrace("graphics-reset-request-fallback reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=no-connection")
             await onFallbackResetRequest(request)
             onDisconnected("reset-no-connection")

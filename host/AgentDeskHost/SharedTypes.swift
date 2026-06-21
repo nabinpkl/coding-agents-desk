@@ -1547,6 +1547,139 @@ enum OwnedHybridHEVCFallbackReason: String, Equatable, Sendable {
     }
 }
 
+enum HybridGraphicsRecoveryState: String, Equatable, Sendable {
+    case idle
+    case resetting
+    case reconnecting
+    case failedCoolingDown
+}
+
+enum HybridGraphicsRecoveryHEVCDecision: Equatable {
+    case allow
+    case suppress(reason: String)
+}
+
+struct HybridGraphicsRecoveryHEVCGate: Equatable {
+    private(set) var lastFallbackAtUptimeNs: UInt64?
+
+    mutating func decision(
+        reason: OwnedHybridHEVCFallbackReason?,
+        recoveryState: HybridGraphicsRecoveryState,
+        nowUptimeNs: UInt64,
+        minIntervalMs: Int
+    ) -> HybridGraphicsRecoveryHEVCDecision {
+        guard let reason, Self.isGraphicsRecoveryReason(reason) else {
+            return .allow
+        }
+        switch recoveryState {
+        case .idle:
+            return .allow
+        case .resetting:
+            return .suppress(reason: "graphics-recovery-resetting")
+        case .reconnecting, .failedCoolingDown:
+            let minIntervalNs = UInt64(max(0, minIntervalMs)) * 1_000_000
+            if let lastFallbackAtUptimeNs,
+               nowUptimeNs &- lastFallbackAtUptimeNs < minIntervalNs {
+                return .suppress(reason: "graphics-recovery-rate-limited")
+            }
+            lastFallbackAtUptimeNs = nowUptimeNs
+            return .allow
+        }
+    }
+
+    private static func isGraphicsRecoveryReason(_ reason: OwnedHybridHEVCFallbackReason) -> Bool {
+        switch reason {
+        case .graphicsDisconnected, .graphicsReset, .graphicsSendFailed, .graphicsResetSendFailed:
+            return true
+        case .scrollTimeout, .rejectedMotion:
+            return false
+        }
+    }
+}
+
+enum OwnedGraphicsResetSendError: Error, Equatable {
+    case ackTimeout(OwnedSurfaceUpdateId)
+    case staleChannel(OwnedSurfaceUpdateId)
+}
+
+final class OwnedGraphicsAckWaiter: @unchecked Sendable {
+    private struct Waiter {
+        let updateId: OwnedSurfaceUpdateId
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
+    private let lock = NSLock()
+    private var latestAck: OwnedSurfaceUpdateId?
+    private var waiters: [UUID: Waiter] = [:]
+
+    func wait(for updateId: OwnedSurfaceUpdateId, timeoutMs: Int) async -> Bool {
+        let id = UUID()
+        let shouldScheduleTimeout = lock.withLock {
+            if let latestAck, latestAck >= updateId {
+                return false
+            }
+            return true
+        }
+        if !shouldScheduleTimeout {
+            return true
+        }
+        return await withCheckedContinuation { continuation in
+            let shouldResumeNow = lock.withLock {
+                if let latestAck, latestAck >= updateId {
+                    return true
+                }
+                waiters[id] = Waiter(updateId: updateId, continuation: continuation)
+                return false
+            }
+            if shouldResumeNow {
+                continuation.resume(returning: true)
+                return
+            }
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(max(1, timeoutMs)) * 1_000_000)
+                self?.finishWaiter(id: id, result: false)
+            }
+        }
+    }
+
+    func noteAck(_ ack: OwnedGraphicsFrameAck) {
+        let completed = lock.withLock {
+            if latestAck.map({ ack.updateId.isStrictlyNewer(than: $0) }) ?? true {
+                latestAck = ack.updateId
+            }
+            let covered = waiters.filter { _, waiter in
+                ack.updateId >= waiter.updateId
+            }
+            for id in covered.keys {
+                waiters.removeValue(forKey: id)
+            }
+            return Array(covered.values)
+        }
+        for waiter in completed {
+            waiter.continuation.resume(returning: true)
+        }
+    }
+
+    func reset() {
+        let pending = lock.withLock {
+            latestAck = nil
+            let pending = Array(waiters.values)
+            waiters.removeAll()
+            return pending
+        }
+        for waiter in pending {
+            waiter.continuation.resume(returning: false)
+        }
+    }
+
+    private func finishWaiter(id: UUID, result: Bool) {
+        let waiter = lock.withLock {
+            waiters.removeValue(forKey: id)
+        }
+        waiter?.continuation.resume(returning: result)
+    }
+}
+
 enum OwnedGraphicsAdmissionMode: Equatable {
     case normal
     case behind

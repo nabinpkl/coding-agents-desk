@@ -122,6 +122,17 @@ Phase goal: keep scroll motion owned by retained graphics after activation inste
 - [x] D45. Stripe retained graphics resets across bounded payloads in `host/AgentDeskHost/OwnedMediaTransport.swift` using the retained-surface reset and tile commands already consumed by the client compositor, with reset stripe count, reset stripe ACK timeout, and max reset stripe bytes exposed in diagnostics.
 - [ ] R46. Run a physical iPhone comparison with `just fresh-hybrid-consoled-run`, save `tools/hybrid-graphics-diagnostics-summary.sh` output, and classify whether sustained ownership, HEVC fallback gating, striped reset, compositor cost, or transport loss remains the blocker.
 
+## v0 Phase 9: graphics reset and HEVC fallback freeze fix
+
+Phase goal: recover the retained graphics channel without letting HEVC flood the screen while reset ownership is unresolved.
+
+- [x] D47. Introduce active graphics channel identity in `host/AgentDeskHost/OwnedMediaTransport.swift` so each reset, ACK wait, reconnect, and stale frame discard is scoped to the currently installed graphics channel rather than any still-referenced old connection.
+- [x] D48. Replace reset stripe ACK waiting in `host/AgentDeskHost/OwnedMediaTransport.swift` with a reset ACK state machine that records sent, wait-success, timeout, reconnect-required, and abandoned states per reset generation.
+- [x] D49. Add a HEVC fallback valve in `host/AgentDeskHost/OwnedMediaTransport.swift` that suppresses fallback flood during graphics recovery, allows bounded continuity refresh only after the reset state machine releases it, and logs the valve reason for every suppression or release.
+- [x] D50. Extend `tools/hybrid-graphics-diagnostics-summary.sh`, `tools/hybrid-graphics-diagnostics-summary-tests.sh`, and `tests/fixtures/owned-media/` to report active-channel replacement, reset ACK wait success or timeout, graphics recovery state, and HEVC fallback suppression while preserving the existing scroll, reset, HEVC, queue, and drain summary lines.
+  - 2026-06-21 result: diagnostics parser and fixture cover reset stripes applied, reset ACK timeout after one successful stripe ACK, graphics disconnect, HEVC 100-plus packet flood, HEVC suppression during recovery, and client `copyRects=0`.
+- [ ] R51. Run the physical comparison with `just fresh-hybrid-consoled-run`, save the diagnostics summary, and classify whether the remaining blocker is active-channel identity, reset ACK state, HEVC fallback valve release, client compositor cost, or transport loss.
+
 ---
 
 ## v0 full mixed graphics scope (captured, not started)
@@ -167,4 +178,7 @@ D43       2026-06-21  committed   active ownership uses bounded candidates and l
 D44       2026-06-21  committed   HEVC fallback waits for ownership miss budget or fallback delay
 D45       2026-06-21  committed   retained reset stripes are sent with ACK waits and bounded decoded payloads
 R46       pending     pending     physical comparison for sustained ownership
+D47-D49   2026-06-21  committed   active graphics channel identity, reset ACK state machine, and HEVC fallback valve
+D50       2026-06-21  committed   diagnostics summary and freeze fixture updated for reset and HEVC recovery
+R51       pending     pending     physical comparison for graphics reset and HEVC fallback freeze fix
 ```

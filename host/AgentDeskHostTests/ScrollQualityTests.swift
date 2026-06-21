@@ -89,7 +89,8 @@ struct ScrollQualityTests {
         #expect(Config.hybridScrollFallbackAfterMs == 300)
         #expect(Config.hybridScrollOwnershipMaxMisses == 2)
         #expect(Config.hybridResetStripeMaxDecodedBytes == 2 * 1_024 * 1_024)
-        #expect(Config.hybridResetStripeAckTimeoutMs == 500)
+        #expect(Config.hybridResetStripeAckTimeoutMs == 1_000)
+        #expect(Config.hybridGraphicsFallbackMinIntervalMs == 1_500)
     }
 
     @Test func hybridScrollHevcAdmissionSuppressesAcceptedScrollAtZeroFps() {
@@ -1421,6 +1422,72 @@ struct ScrollQualityTests {
         #expect(OwnedHybridHEVCScalePolicy.encodeScaleDown(requestedScaleDown: 1.5, retainedGraphicsAvailable: true) == 1.0)
         #expect(OwnedHybridHEVCScalePolicy.encodeScaleDown(requestedScaleDown: 1.5, retainedGraphicsAvailable: false) == 1.5)
         #expect(OwnedHybridHEVCScalePolicy.encodeScaleDown(requestedScaleDown: 0.5, retainedGraphicsAvailable: false) == 1.0)
+    }
+
+    @Test func hybridGraphicsRecoveryHevcGateSuppressesAndRateLimitsRecoveryFallback() {
+        var gate = HybridGraphicsRecoveryHEVCGate()
+
+        #expect(gate.decision(
+            reason: .graphicsReset,
+            recoveryState: .resetting,
+            nowUptimeNs: 1_000_000_000,
+            minIntervalMs: 1_500
+        ) == .suppress(reason: "graphics-recovery-resetting"))
+        #expect(gate.decision(
+            reason: .graphicsDisconnected,
+            recoveryState: .reconnecting,
+            nowUptimeNs: 2_000_000_000,
+            minIntervalMs: 1_500
+        ) == .allow)
+        #expect(gate.decision(
+            reason: .graphicsDisconnected,
+            recoveryState: .reconnecting,
+            nowUptimeNs: 2_500_000_000,
+            minIntervalMs: 1_500
+        ) == .suppress(reason: "graphics-recovery-rate-limited"))
+        #expect(gate.decision(
+            reason: .graphicsDisconnected,
+            recoveryState: .reconnecting,
+            nowUptimeNs: 3_500_000_000,
+            minIntervalMs: 1_500
+        ) == .allow)
+        #expect(gate.decision(
+            reason: .scrollTimeout,
+            recoveryState: .failedCoolingDown,
+            nowUptimeNs: 3_600_000_000,
+            minIntervalMs: 1_500
+        ) == .allow)
+    }
+
+    @Test func ownedGraphicsAckWaiterCompletesWhenAckCoversUpdate() async {
+        let waiter = OwnedGraphicsAckWaiter()
+        let task = Task {
+            await waiter.wait(
+                for: OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 10),
+                timeoutMs: 1_000
+            )
+        }
+
+        waiter.noteAck(OwnedGraphicsFrameAck(
+            surfaceGeneration: 1,
+            frameId: 11,
+            compositorMs: 1,
+            totalGraphicsFramesApplied: 11,
+            staleDiscardCount: 0
+        ))
+
+        #expect(await task.value)
+    }
+
+    @Test func ownedGraphicsAckWaiterTimesOutWithoutMutatingAuthState() async {
+        let waiter = OwnedGraphicsAckWaiter()
+
+        let acked = await waiter.wait(
+            for: OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 10),
+            timeoutMs: 1
+        )
+
+        #expect(!acked)
     }
 
     @Test func graphicsStreamParserWaitsForPartialFrameAndParsesMultipleFrames() throws {

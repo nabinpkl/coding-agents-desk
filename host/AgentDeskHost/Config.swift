@@ -296,7 +296,11 @@ enum Config {
     )
     static let hybridResetStripeAckTimeoutMs = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_RESET_STRIPE_ACK_TIMEOUT_MS",
-        defaultValue: 500
+        defaultValue: 1_000
+    )
+    static let hybridGraphicsFallbackMinIntervalMs = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_GRAPHICS_FALLBACK_MIN_INTERVAL_MS",
+        defaultValue: 1_500
     )
     static let graphicsNormalMaxUnackedFrames = positiveInt(
         environmentKey: "AGENTDESK_GRAPHICS_NORMAL_MAX_UNACKED_FRAMES",

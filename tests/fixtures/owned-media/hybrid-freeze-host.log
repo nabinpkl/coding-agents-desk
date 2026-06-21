@@ -1,24 +1,29 @@
-2026-06-20 11:00:00.900 AgentDeskHost[200] owned graphics quic connection state=ready
-2026-06-20 11:00:00.950 AgentDeskHost[200] owned graphics reset frame=41 generation=2 payloadBytes=8294400
-2026-06-20 11:00:01.000 AgentDeskHost[200] owned graphics scroll-timeout
-2026-06-20 11:00:01.033 AgentDeskHost[200] owned graphics scroll-timeout
-2026-06-20 11:00:01.066 AgentDeskHost[200] owned graphics scroll-timeout
-2026-06-20 11:00:01.070 AgentDeskHost[200] owned graphics scroll-hint-timeout reason=probe-budget-exceeded confidence=0.870 secondConfidence=0.860 bestDx=0 bestDy=-15 hintAxis=vertical hintPredictedOffset=-15 hintCandidates=11 hintSource=ownership ownership=miss candidates=11 timeoutPhase=hint-candidate-scan probeScale=22 probeMs=4.20 sampledPixels=1024
-2026-06-20 11:00:01.075 AgentDeskHost[200] owned graphics scroll-accepted frame=42 generation=2 commands=2 payloadBytes=24000 dx=0 dy=-15 bestDx=0 bestDy=-15 confidence=0.940 secondConfidence=0.930 hintActive=true hintAxis=vertical hintPredictedOffset=-15 hintCandidates=11 hintSource=input ownership=accepted acceptedBy=hint tieBreak=predicted-offset candidates=11 timeoutPhase=none probeScale=22 probeMs=2.50 payloadBuildMs=1.30 sampledPixels=1024
-2026-06-20 11:00:01.080 AgentDeskHost[200] owned graphics scroll-rejected reason=confidence hintSource=blind ownership=released
-2026-06-20 11:00:01.100 AgentDeskHost[200] owned media admission-hold mode=draining reason=drain-unacked
-2026-06-20 11:00:01.101 AgentDeskHost[200] owned media drain-enter afterSend=700
-2026-06-20 11:00:01.110 AgentDeskHost[200] owned media host-frame frame=700 keyframe=true keyframeReason=initial mode=draining budgetMode=motion budgetKbps=6000 budgetFps=15 scaleDown=1.0 sourceSize=2796x1290 encodeSize=2796x1290 captureToAdmissionMs=4.0 encodeMs=7.0 sendMs=18.0 bytes=420000 packets=136 burst=16 pauseUs=2500 pacingReason=backpressure burstPauses=9 maxPacketGapMs=3.0 backpressure=true coalescedRaw=3 coalescedAdmissionHold=2 coalescedEncodeBusy=1 coalescedNetwork=4
-2026-06-20 11:00:01.111 AgentDeskHost[200] owned media hevc-fallback reason=scroll-timeout frame=700 bytes=420000 packets=136 keyframe=true
-2026-06-20 11:00:01.120 AgentDeskHost[200] owned media host-frame-ack frame=700 ackRttMs=92.0 captureToAckMs=131.0 captureToAdmissionMs=4.0 encodeMs=7.0 sendMs=18.0 renderGapMs=0.0 frameAgeMs=92.0 unacked=2 bytes=800000 mode=draining
-2026-06-20 11:00:01.130 AgentDeskHost[200] owned graphics quic connection state=failed
-2026-06-20 11:00:01.131 AgentDeskHost[200] owned graphics reset queued reason=graphics-stream-NWError generation=1 frame=42
-2026-06-20 11:00:01.140 AgentDeskHost[200] owned media admission-hold mode=draining reason=keyframe-inflight
-2026-06-20 11:00:01.150 AgentDeskHost[200] owned media host-frame frame=701 keyframe=false keyframeReason=none mode=draining budgetMode=motion budgetKbps=6000 budgetFps=15 scaleDown=1.0 sourceSize=2796x1290 encodeSize=2796x1290 captureToAdmissionMs=6.0 encodeMs=8.0 sendMs=21.0 bytes=380000 packets=121 burst=16 pauseUs=2500 pacingReason=backpressure burstPauses=8 maxPacketGapMs=3.0 backpressure=true coalescedRaw=4 coalescedAdmissionHold=3 coalescedEncodeBusy=1 coalescedNetwork=5
-2026-06-20 11:00:01.151 AgentDeskHost[200] owned media hevc-fallback reason=graphics-disconnected frame=701 bytes=380000 packets=121 keyframe=false
-2026-06-20 11:00:01.155 AgentDeskHost[200] owned media hevc-suppressed reason=suppressed-by-ownership frame=702
-2026-06-20 11:00:01.160 AgentDeskHost[200] owned graphics reset-stripe frame=44 generation=3 index=1 count=4 bytes=262144
-2026-06-20 11:00:01.165 AgentDeskHost[200] owned graphics reset-stripe frame=44 generation=3 index=2 count=4 bytes=524288
-2026-06-20 11:00:01.170 AgentDeskHost[200] owned graphics reset-stripe-ack-timeout frame=44 generation=3 missing=2
-2026-06-20 11:00:01.180 AgentDeskHost[200] owned media host-frame-ack frame=701 ackRttMs=220.0 captureToAckMs=281.0 captureToAdmissionMs=6.0 encodeMs=8.0 sendMs=21.0 renderGapMs=186.0 frameAgeMs=240.0 unacked=1 bytes=380000 mode=draining
-2026-06-20 11:00:01.181 AgentDeskHost[200] owned media drain-exit afterAck=701
+2026-06-21 09:00:00.900 AgentDeskHost[200] owned graphics quic connection state=ready
+2026-06-21 09:00:00.901 AgentDeskHost[200] owned graphics channel-connected
+2026-06-21 09:00:00.902 AgentDeskHost[200] owned graphics active-channel replaced old=none new=channel-a session=session-a
+2026-06-21 09:00:00.903 AgentDeskHost[200] owned graphics reset acked session=session-a
+2026-06-21 09:00:00.950 AgentDeskHost[200] owned graphics reset queued reason=graphics-frame-badRange generation=2 frame=43
+2026-06-21 09:00:00.951 AgentDeskHost[200] owned graphics recovery state=reconnecting previous=idle reason=reset-queued
+2026-06-21 09:00:01.000 AgentDeskHost[200] owned graphics scroll-timeout reason=probe-budget-exceeded confidence=0.860 secondConfidence=0.850 candidates=11 timeoutPhase=ownership-candidate-scan probeScale=22 probeMs=4.40 sampledPixels=1024 hintSource=ownership ownership=miss
+2026-06-21 09:00:01.033 AgentDeskHost[200] owned graphics scroll-hint-timeout reason=probe-budget-exceeded confidence=0.870 secondConfidence=0.860 bestDx=0 bestDy=-15 hintAxis=vertical hintPredictedOffset=-15 hintCandidates=11 hintSource=ownership ownership=miss candidates=11 timeoutPhase=hint-candidate-scan probeScale=22 probeMs=4.20 sampledPixels=1024
+2026-06-21 09:00:01.080 AgentDeskHost[200] owned graphics scroll-rejected reason=confidence hintSource=ownership ownership=miss confidence=0.810 secondConfidence=0.800 candidates=11 probeMs=3.90
+2026-06-21 09:00:01.100 AgentDeskHost[200] owned media hevc-suppressed reason=graphics-recovery-resetting fallbackReason=graphics-reset recoveryState=resetting
+2026-06-21 09:00:01.110 AgentDeskHost[200] owned media host-frame frame=900 keyframe=true keyframeReason=initial mode=draining budgetMode=motion budgetKbps=6000 budgetFps=15 scaleDown=1.0 sourceSize=2796x1290 encodeSize=2796x1290 captureToAdmissionMs=4.0 encodeMs=7.0 sendMs=18.0 bytes=420000 packets=136 burst=16 pauseUs=2500 pacingReason=backpressure burstPauses=9 maxPacketGapMs=3.0 backpressure=true coalescedRaw=3 coalescedAdmissionHold=2 coalescedEncodeBusy=1 coalescedNetwork=4
+2026-06-21 09:00:01.111 AgentDeskHost[200] owned media hevc-fallback reason=scroll-timeout frame=900 bytes=420000 packets=136 keyframe=true
+2026-06-21 09:00:01.120 AgentDeskHost[200] owned media host-frame-ack frame=900 ackRttMs=92.0 captureToAckMs=131.0 captureToAdmissionMs=4.0 encodeMs=7.0 sendMs=18.0 renderGapMs=0.0 frameAgeMs=92.0 unacked=3 bytes=1550000 mode=draining
+2026-06-21 09:00:01.130 AgentDeskHost[200] owned graphics reset-stripe sent frame=44 generation=3 stripe=1 stripes=3 commands=1 bytes=262144 maxDecodedBytes=524288
+2026-06-21 09:00:01.131 AgentDeskHost[200] owned graphics reset-stripe-acked frame=44 generation=3 stripe=1 updateId=44-1
+2026-06-21 09:00:01.140 AgentDeskHost[200] owned graphics reset-stripe sent frame=45 generation=3 stripe=2 stripes=3 commands=1 bytes=524288 maxDecodedBytes=524288
+2026-06-21 09:00:01.141 AgentDeskHost[200] owned graphics reset-stripe-ack-timeout frame=45 generation=3 timeoutMs=180
+2026-06-21 09:00:01.142 AgentDeskHost[200] owned graphics recovery state=failedCoolingDown previous=resetting reason=reset-ack-timeout
+2026-06-21 09:00:01.145 AgentDeskHost[200] owned graphics channel-disconnected state=failed
+2026-06-21 09:00:01.146 AgentDeskHost[200] owned graphics quic connection state=failed
+2026-06-21 09:00:01.150 AgentDeskHost[200] owned media host-frame frame=901 keyframe=false keyframeReason=none mode=draining budgetMode=motion budgetKbps=6000 budgetFps=15 scaleDown=1.0 sourceSize=2796x1290 encodeSize=2796x1290 captureToAdmissionMs=6.0 encodeMs=8.0 sendMs=21.0 bytes=520000 packets=158 burst=16 pauseUs=2500 pacingReason=backpressure burstPauses=8 maxPacketGapMs=3.0 backpressure=true coalescedRaw=4 coalescedAdmissionHold=3 coalescedEncodeBusy=1 coalescedNetwork=5
+2026-06-21 09:00:01.151 AgentDeskHost[200] owned media hevc-fallback reason=graphics-reset-send-failed frame=901 bytes=520000 packets=158 keyframe=false
+2026-06-21 09:00:01.155 AgentDeskHost[200] owned media hevc-suppressed reason=graphics-recovery-rate-limited fallbackReason=graphics-disconnected recoveryState=failedCoolingDown
+2026-06-21 09:00:01.180 AgentDeskHost[200] owned media host-frame-ack frame=901 ackRttMs=220.0 captureToAckMs=281.0 captureToAdmissionMs=6.0 encodeMs=8.0 sendMs=21.0 renderGapMs=186.0 frameAgeMs=240.0 unacked=2 bytes=1130000 mode=draining
+2026-06-21 09:00:01.200 AgentDeskHost[200] owned media admission-hold mode=draining reason=keyframe-inflight
+2026-06-21 09:00:01.250 AgentDeskHost[200] owned media host-frame frame=902 keyframe=false keyframeReason=none mode=draining budgetMode=motion budgetKbps=6000 budgetFps=15 scaleDown=1.0 sourceSize=2796x1290 encodeSize=2796x1290 captureToAdmissionMs=7.0 encodeMs=9.0 sendMs=24.0 bytes=610000 packets=190 burst=16 pauseUs=2500 pacingReason=backpressure burstPauses=11 maxPacketGapMs=3.5 backpressure=true coalescedRaw=5 coalescedAdmissionHold=4 coalescedEncodeBusy=2 coalescedNetwork=6
+2026-06-21 09:00:01.251 AgentDeskHost[200] owned media hevc-fallback reason=graphics-disconnected frame=902 bytes=610000 packets=190 keyframe=false
+2026-06-21 09:00:01.280 AgentDeskHost[200] owned media host-frame-ack frame=902 ackRttMs=260.0 captureToAckMs=330.0 captureToAdmissionMs=7.0 encodeMs=9.0 sendMs=24.0 renderGapMs=214.0 frameAgeMs=300.0 unacked=1 bytes=610000 mode=draining
+2026-06-21 09:00:01.281 AgentDeskHost[200] owned media drain-exit afterAck=902

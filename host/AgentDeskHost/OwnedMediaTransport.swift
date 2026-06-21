@@ -19,12 +19,12 @@ final class OwnedGraphicsChannelServer: @unchecked Sendable {
     private var closed = false
     private var latestAck: OwnedGraphicsFrameAck?
     private var controlParser = OwnedGraphicsControlStreamFrameParser()
-    private let onFrameAck: @Sendable (OwnedGraphicsFrameAck) -> Void
+    private let onFrameAck: @Sendable (ObjectIdentifier, OwnedGraphicsFrameAck) -> Void
     private let onResetRequest: @Sendable (OwnedGraphicsResetRequest) -> Void
 
     init(
         connection: NWConnection,
-        onFrameAck: @escaping @Sendable (OwnedGraphicsFrameAck) -> Void,
+        onFrameAck: @escaping @Sendable (ObjectIdentifier, OwnedGraphicsFrameAck) -> Void,
         onResetRequest: @escaping @Sendable (OwnedGraphicsResetRequest) -> Void
     ) {
         self.connection = connection
@@ -56,6 +56,10 @@ final class OwnedGraphicsChannelServer: @unchecked Sendable {
             closed = true
         }
         connection.cancel()
+    }
+
+    var isOpen: Bool {
+        !isClosed
     }
 
     private var isClosed: Bool {
@@ -98,7 +102,7 @@ final class OwnedGraphicsChannelServer: @unchecked Sendable {
             stateQueue.sync {
                 latestAck = ack
             }
-            onFrameAck(ack)
+            onFrameAck(ObjectIdentifier(connection), ack)
             logger.notice("owned graphics ack frame=\(ack.frameId, privacy: .public) generation=\(ack.surfaceGeneration, privacy: .public) compositorMs=\(ack.compositorMs, privacy: .public) queuedFrames=\(ack.queuedFrames, privacy: .public) queueBytes=\(ack.queueDepthBytes, privacy: .public) totalApplied=\(ack.totalGraphicsFramesApplied, privacy: .public) stale=\(ack.staleDiscardCount, privacy: .public)")
             return
         }
@@ -392,7 +396,6 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
 
 final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private static let scrollHintFallbackGraceMs = 120
-    private static let resetStripeAckPollNs: UInt64 = 10_000_000
 
     static let mediaDatagramALPN = OwnedQuicListenerConfigurations.mediaDatagramALPN
     let connectionState: AsyncStream<MediaConnectionState>
@@ -409,6 +412,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var graphicsListener: NWListener?
     private var graphicsConnections: [ObjectIdentifier: NWConnection] = [:]
     private var graphicsChannels: [ObjectIdentifier: OwnedGraphicsChannelServer] = [:]
+    private var latestPendingGraphicsConnectionId: ObjectIdentifier?
+    private var activeGraphicsConnectionId: ObjectIdentifier?
     private var channel: (any OwnedMediaChannelServing)?
     private var videoSource: VideoFrameSource?
     private var encoder: VideoToolboxOwnedMediaEncoder?
@@ -417,6 +422,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var admission = OwnedMediaEncodeAdmission()
     private var graphicsAdmission = OwnedGraphicsAdmission()
     private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?
+    private var graphicsRecoveryState: HybridGraphicsRecoveryState = .idle
+    private var graphicsRecoveryHEVCGate = HybridGraphicsRecoveryHEVCGate()
+    private let graphicsAckWaiter = OwnedGraphicsAckWaiter()
     private var motionBudgetState = OwnedMediaMotionBudgetState()
     private var diagnostics = OwnedMediaHostDiagnostics()
     private let frameScaler = OwnedMediaFrameScaler()
@@ -458,6 +466,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         self.graphicsListener = nil
         let graphicsConnections = Array(self.graphicsConnections.values)
         self.graphicsConnections.removeAll()
+        let graphicsChannels = Array(self.graphicsChannels.values)
+        self.graphicsChannels.removeAll()
+        self.latestPendingGraphicsConnectionId = nil
+        self.activeGraphicsConnectionId = nil
+        self.graphicsRecoveryState = .idle
         let source = self.videoSource
         self.videoSource = nil
         let encoder = self.encoder
@@ -474,6 +487,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         mediaDatagramListener?.cancel()
         graphicsListener?.cancel()
         graphicsConnections.forEach { $0.cancel() }
+        graphicsChannels.forEach { $0.close() }
+        graphicsAckWaiter.reset()
         channel?.close()
         stateContinuation.yield(.closed)
         stateContinuation.finish()
@@ -621,6 +636,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         let identifier = ObjectIdentifier(connection)
         lock.withLock {
             graphicsConnections[identifier] = connection
+            latestPendingGraphicsConnectionId = identifier
         }
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             self?.logger.notice("owned graphics quic connection state=\(String(describing: state), privacy: .public)")
@@ -630,7 +646,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             case .cancelled, .failed:
                 self?.logger.notice("owned graphics channel-disconnected state=\(String(describing: state), privacy: .public)")
                 if let connection {
-                    self?.removeGraphicsConnection(connection)
+                    self?.removeGraphicsConnection(connection, reason: String(describing: state))
                 }
             default:
                 break
@@ -641,13 +657,13 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             guard let self, let connection else { return }
             if let error {
                 self.logger.error("owned graphics quic hello receive failed: \(String(describing: error), privacy: .public)")
-                self.removeGraphicsConnection(connection)
+                self.removeGraphicsConnection(connection, reason: "hello-receive-failed")
                 connection.cancel()
                 return
             }
             guard let data else {
                 self.logger.error("owned graphics quic hello failed: missing data")
-                self.removeGraphicsConnection(connection)
+                self.removeGraphicsConnection(connection, reason: "missing-hello")
                 connection.cancel()
                 return
             }
@@ -664,6 +680,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             let result = await graphicsAuthorizer(hello)
             switch result {
             case .accepted(let fingerprint):
+                guard consumePendingGraphicsConnection(connection) else {
+                    logger.notice("owned graphics stale-hello-ignored session=\(hello.sessionId, privacy: .public)")
+                    connection.cancel()
+                    return
+                }
                 let serverNonce = try Self.randomBytes(count: 32)
                 let ready = GraphicsChannelReady(sessionId: hello.sessionId, serverNonce: serverNonce)
                 let readyData = try JSONEncoder().encode(ready)
@@ -671,8 +692,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 logger.notice("owned graphics reset acked session=\(hello.sessionId, privacy: .public)")
                 installGraphicsChannel(OwnedGraphicsChannelServer(
                     connection: connection,
-                    onFrameAck: { [weak self] ack in
-                        self?.noteGraphicsFrameAck(ack)
+                    onFrameAck: { [weak self] connectionId, ack in
+                        self?.noteGraphicsFrameAck(ack, connectionId: connectionId)
                     },
                     onResetRequest: { [weak self] request in
                         self?.handleGraphicsResetRequest(request)
@@ -681,33 +702,121 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 logger.notice("owned graphics quic accepted fp=\(fingerprint.rawValue, privacy: .public) session=\(hello.sessionId, privacy: .public)")
             case .rejected(let reason):
                 logger.error("owned graphics quic rejected reason=\(reason.rawValue, privacy: .public) fp=\(hello.deviceFingerprint.rawValue, privacy: .public)")
-                removeGraphicsConnection(connection)
+                removeGraphicsConnection(connection, reason: "rejected-\(reason.rawValue)")
                 connection.cancel()
             }
         } catch {
             logger.error("owned graphics quic hello failed: \(String(describing: error), privacy: .public)")
-            removeGraphicsConnection(connection)
+            removeGraphicsConnection(connection, reason: "hello-failed")
             connection.cancel()
         }
     }
 
-    private func removeGraphicsConnection(_ connection: NWConnection) {
-        lock.withLock {
-            _ = graphicsConnections.removeValue(forKey: ObjectIdentifier(connection))
-            graphicsChannels.removeValue(forKey: ObjectIdentifier(connection))?.close()
-            graphicsAdmission.reset(config: Self.graphicsAdmissionConfig())
+    private func removeGraphicsConnection(_ connection: NWConnection, reason: String) {
+        let removed = lock.withLock {
+            let id = ObjectIdentifier(connection)
+            let wasActive = activeGraphicsConnectionId == id
+            if latestPendingGraphicsConnectionId == id {
+                latestPendingGraphicsConnectionId = nil
+            }
+            _ = graphicsConnections.removeValue(forKey: id)
+            let channel = graphicsChannels.removeValue(forKey: id)
+            if wasActive {
+                activeGraphicsConnectionId = nil
+                graphicsAdmission.reset(config: Self.graphicsAdmissionConfig())
+                if graphicsRecoveryState != .failedCoolingDown {
+                    graphicsRecoveryState = .reconnecting
+                }
+            }
+            return (wasActive, channel)
+        }
+        removed.1?.close()
+        if removed.0 {
+            graphicsAckWaiter.reset()
+            logger.notice("owned graphics active-channel-disconnected reason=\(reason, privacy: .public) recoveryState=\(self.currentGraphicsRecoveryState().rawValue, privacy: .public)")
+        } else {
+            logger.notice("owned graphics stale-channel-disconnected reason=\(reason, privacy: .public)")
         }
     }
 
     private func installGraphicsChannel(_ channel: OwnedGraphicsChannelServer) {
-        lock.withLock {
-            graphicsChannels[ObjectIdentifier(channel.connection)] = channel
+        let replaced = lock.withLock {
+            let id = ObjectIdentifier(channel.connection)
+            let previousChannels = graphicsChannels.filter { key, _ in key != id }.map(\.value)
+            let previousConnections = graphicsConnections.filter { key, _ in key != id }.map(\.value)
+            graphicsChannels = [id: channel]
+            graphicsConnections = [id: channel.connection]
+            latestPendingGraphicsConnectionId = nil
+            activeGraphicsConnectionId = id
+            graphicsAdmission.reset(config: Self.graphicsAdmissionConfig())
+            graphicsRecoveryState = pendingGraphicsResetRequest == nil ? .idle : .reconnecting
+            return (previousChannels, previousConnections)
+        }
+        graphicsAckWaiter.reset()
+        replaced.0.forEach { $0.close() }
+        replaced.1.forEach { $0.cancel() }
+        if !replaced.0.isEmpty || !replaced.1.isEmpty {
+            logger.notice("owned graphics active-channel-replaced oldChannels=\(replaced.0.count, privacy: .public) oldConnections=\(replaced.1.count, privacy: .public)")
         }
     }
 
     private func latestGraphicsChannel() -> OwnedGraphicsChannelServer? {
         lock.withLock {
-            graphicsChannels.values.first
+            guard let activeGraphicsConnectionId,
+                  let channel = graphicsChannels[activeGraphicsConnectionId],
+                  channel.isOpen else {
+                return nil
+            }
+            return channel
+        }
+    }
+
+    private func consumePendingGraphicsConnection(_ connection: NWConnection) -> Bool {
+        lock.withLock {
+            let id = ObjectIdentifier(connection)
+            guard latestPendingGraphicsConnectionId == id,
+                  graphicsConnections[id] != nil else {
+                return false
+            }
+            latestPendingGraphicsConnectionId = nil
+            return true
+        }
+    }
+
+    private func currentGraphicsRecoveryState() -> HybridGraphicsRecoveryState {
+        lock.withLock { graphicsRecoveryState }
+    }
+
+    private func isActiveGraphicsConnection(_ connectionId: ObjectIdentifier) -> Bool {
+        lock.withLock {
+            activeGraphicsConnectionId == connectionId
+        }
+    }
+
+    private func setGraphicsRecoveryState(_ state: HybridGraphicsRecoveryState, reason: String) {
+        let previous = lock.withLock {
+            let previous = graphicsRecoveryState
+            graphicsRecoveryState = state
+            return previous
+        }
+        if previous != state {
+            logger.notice("owned graphics recovery state=\(state.rawValue, privacy: .public) previous=\(previous.rawValue, privacy: .public) reason=\(reason, privacy: .public)")
+        }
+    }
+
+    private func graphicsRecoveryHEVCDecision(
+        reason: OwnedHybridHEVCFallbackReason?,
+        nowUptimeNs: UInt64
+    ) -> (HybridGraphicsRecoveryState, HybridGraphicsRecoveryHEVCDecision) {
+        lock.withLock {
+            let state = graphicsRecoveryState
+            let decision = graphicsRecoveryHEVCGate.decision(
+                reason: reason,
+                recoveryState: state,
+                nowUptimeNs: nowUptimeNs,
+                minIntervalMs: Config.hybridGraphicsFallbackMinIntervalMs
+            )
+            return (state, decision)
         }
     }
 
@@ -910,6 +1019,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                             }
                         } catch {
                             logger.error("owned graphics scroll send failed: \(String(describing: error), privacy: .public)")
+                            if isActiveGraphicsConnection(ObjectIdentifier(graphicsChannel.connection)) {
+                                graphicsChannel.close()
+                                setGraphicsRecoveryState(.failedCoolingDown, reason: "scroll-send-failed")
+                            }
                             hevcFallbackReason = .graphicsSendFailed
                         }
                     }
@@ -918,29 +1031,59 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                         ? graphics.envelope.map { [$0] } ?? []
                         : graphics.envelopes
                     if !envelopes.isEmpty {
+                        let resetConnectionId = ObjectIdentifier(graphicsChannel.connection)
                         do {
+                            setGraphicsRecoveryState(.resetting, reason: "reset-start")
                             for (index, envelope) in envelopes.enumerated() {
+                                guard isActiveGraphicsConnection(resetConnectionId) else {
+                                    logger.notice("owned graphics reset abandoned reason=stale-channel frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public)")
+                                    throw OwnedGraphicsResetSendError.staleChannel(envelope.header.updateId)
+                                }
                                 let encodedBytes = try await graphicsChannel.send(envelope)
                                 noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
                                 logger.notice("owned graphics reset stripe sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) stripe=\(index + 1, privacy: .public) stripes=\(envelopes.count, privacy: .public) commands=\(envelope.commands.count, privacy: .public) bytes=\(envelope.payload.count, privacy: .public) maxDecodedBytes=\(Config.hybridResetStripeMaxDecodedBytes, privacy: .public)")
-                                let acked = await waitForGraphicsAck(
-                                    updateId: envelope.header.updateId,
+                                let acked = await graphicsAckWaiter.wait(
+                                    for: envelope.header.updateId,
                                     timeoutMs: Config.hybridResetStripeAckTimeoutMs
                                 )
-                                if !acked {
-                                    logger.error("owned graphics reset-stripe-ack-timeout frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) timeoutMs=\(Config.hybridResetStripeAckTimeoutMs, privacy: .public)")
-                                    graphicsChannel.close()
-                                    throw SessionRejected(reason: .unauthorized)
+                                if acked {
+                                    logger.notice("owned graphics reset-stripe-ack frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) stripe=\(index + 1, privacy: .public) stripes=\(envelopes.count, privacy: .public)")
+                                } else if !isActiveGraphicsConnection(resetConnectionId) {
+                                    logger.notice("owned graphics reset wait abandoned reason=stale-channel frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public)")
+                                    throw OwnedGraphicsResetSendError.staleChannel(envelope.header.updateId)
+                                } else {
+                                    throw OwnedGraphicsResetSendError.ackTimeout(envelope.header.updateId)
                                 }
                             }
                             scrollDeltaEngine.commitPendingSurface()
                             clearPendingGraphicsResetRequest()
+                            setGraphicsRecoveryState(.idle, reason: "reset-complete")
                             if let first = envelopes.first, let last = envelopes.last {
                                 logger.notice("owned graphics reset frame=\(first.header.frameId, privacy: .public) generation=\(first.header.surfaceGeneration, privacy: .public) stripes=\(envelopes.count, privacy: .public) lastFrame=\(last.header.frameId, privacy: .public)")
                                 logger.notice("owned graphics reset sent frame=\(last.header.frameId, privacy: .public) generation=\(last.header.surfaceGeneration, privacy: .public) stripes=\(envelopes.count, privacy: .public)")
                             }
+                            continue
+                        } catch let error as OwnedGraphicsResetSendError {
+                            logger.error("owned graphics reset send failed: \(String(describing: error), privacy: .public)")
+                            switch error {
+                            case .ackTimeout(let updateId):
+                                logger.error("owned graphics reset-stripe-ack-timeout frame=\(updateId.frameId, privacy: .public) generation=\(updateId.surfaceGeneration, privacy: .public) timeoutMs=\(Config.hybridResetStripeAckTimeoutMs, privacy: .public)")
+                            case .staleChannel(let updateId):
+                                logger.notice("owned graphics reset stale-channel ignored frame=\(updateId.frameId, privacy: .public) generation=\(updateId.surfaceGeneration, privacy: .public)")
+                            }
+                            guard isActiveGraphicsConnection(resetConnectionId) else {
+                                continue
+                            }
+                            graphicsChannel.close()
+                            setGraphicsRecoveryState(.failedCoolingDown, reason: "reset-ack-timeout")
+                            hevcFallbackReason = .graphicsResetSendFailed
                         } catch {
                             logger.error("owned graphics reset send failed: \(String(describing: error), privacy: .public)")
+                            guard isActiveGraphicsConnection(resetConnectionId) else {
+                                continue
+                            }
+                            graphicsChannel.close()
+                            setGraphicsRecoveryState(.failedCoolingDown, reason: "reset-send-failed")
                             hevcFallbackReason = .graphicsResetSendFailed
                         }
                     }
@@ -1003,6 +1146,20 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 hevcFallbackReason = .graphicsDisconnected
             }
 
+            let recoveryGate = graphicsRecoveryHEVCDecision(
+                reason: hevcFallbackReason,
+                nowUptimeNs: DispatchTime.now().uptimeNanoseconds
+            )
+            switch recoveryGate.1 {
+            case .allow:
+                break
+            case .suppress(let reason):
+                diagnostics.noteAdmissionHold(reason: reason, mode: currentAdmissionMode())
+                logger.notice("owned media hevc-suppressed reason=\(reason, privacy: .public) fallbackReason=\(hevcFallbackReason?.rawValue ?? "none", privacy: .public) recoveryState=\(recoveryGate.0.rawValue, privacy: .public)")
+                try? await Task.sleep(nanoseconds: intervalNs)
+                continue
+            }
+
             let decision = timing.decision
             logStaleUnackedAbandonment(decision)
             if !decision.shouldEncode {
@@ -1022,9 +1179,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 intervalMs: timing.intervalMs
             )
             let budget = timing.budget
+            let useRetainedNativeScale = retainedGraphicsAvailable && currentGraphicsRecoveryState() == .idle
             let effectiveScaleDown = OwnedHybridHEVCScalePolicy.encodeScaleDown(
                 requestedScaleDown: budget.scaleDown,
-                retainedGraphicsAvailable: retainedGraphicsAvailable
+                retainedGraphicsAvailable: useRetainedNativeScale
             )
             let encodeBudget = OwnedMediaEncodeBudget(
                 mode: budget.mode,
@@ -1119,29 +1277,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             return (.horizontal, dx < 0 ? -1 : 1, dx, frameId, nowUptimeNs)
         }
         return nil
-    }
-
-    private func waitForGraphicsAck(updateId: OwnedSurfaceUpdateId, timeoutMs: Int) async -> Bool {
-        let deadline = DispatchTime.now().uptimeNanoseconds &+ UInt64(max(1, timeoutMs)) * 1_000_000
-        while !Task.isCancelled {
-            if graphicsAckCovers(updateId) {
-                return true
-            }
-            let now = DispatchTime.now().uptimeNanoseconds
-            if now >= deadline {
-                return false
-            }
-            let remaining = deadline - now
-            try? await Task.sleep(nanoseconds: min(Self.resetStripeAckPollNs, remaining))
-        }
-        return false
-    }
-
-    private func graphicsAckCovers(_ updateId: OwnedSurfaceUpdateId) -> Bool {
-        lock.withLock {
-            guard let ack = graphicsAdmission.latestAck else { return false }
-            return ack.updateId >= updateId
-        }
     }
 
     private func resolvedKeyframeReason(
@@ -1362,14 +1497,22 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         logger.notice("owned graphics in-flight-sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) bytes=\(encodedBytes, privacy: .public) mode=\(String(describing: snapshot.mode), privacy: .public) unackedFrames=\(snapshot.unackedFrames, privacy: .public) unackedBytes=\(snapshot.unackedBytes, privacy: .public)")
     }
 
-    private func noteGraphicsFrameAck(_ ack: OwnedGraphicsFrameAck) {
+    private func noteGraphicsFrameAck(_ ack: OwnedGraphicsFrameAck, connectionId: ObjectIdentifier) {
         let snapshot = lock.withLock {
+            guard activeGraphicsConnectionId == connectionId else {
+                return nil as (mode: OwnedGraphicsAdmissionMode, unackedFrames: Int, unackedBytes: Int)?
+            }
+            graphicsAckWaiter.noteAck(ack)
             graphicsAdmission.noteAck(ack, config: Self.graphicsAdmissionConfig())
             return (
                 mode: graphicsAdmission.mode,
                 unackedFrames: graphicsAdmission.unackedFrameCount,
                 unackedBytes: graphicsAdmission.unackedByteCount
             )
+        }
+        guard let snapshot else {
+            logger.notice("owned graphics stale-ack-ignored frame=\(ack.frameId, privacy: .public) generation=\(ack.surfaceGeneration, privacy: .public)")
+            return
         }
         logger.notice("owned graphics ack-applied frame=\(ack.frameId, privacy: .public) generation=\(ack.surfaceGeneration, privacy: .public) mode=\(String(describing: snapshot.mode), privacy: .public) unackedFrames=\(snapshot.unackedFrames, privacy: .public) unackedBytes=\(snapshot.unackedBytes, privacy: .public) queuedFrames=\(ack.queuedFrames, privacy: .public) queueBytes=\(ack.queueDepthBytes, privacy: .public) compositorMs=\(ack.compositorMs, privacy: .public)")
     }
