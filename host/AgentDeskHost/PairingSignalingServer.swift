@@ -25,6 +25,10 @@ final class PairingSignalingServer: @unchecked Sendable {
         InputCapabilityRefreshRequest,
         @escaping (Result<InputCapabilityGrant, SessionRejectionReason>) -> Void
     ) -> Void
+    typealias MediaCapabilityRefreshHandler = (
+        MediaCapabilityRefreshRequest,
+        @escaping (Result<MediaCapabilityGrant, SessionRejectionReason>) -> Void
+    ) -> Void
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private let pairing: Pairing
@@ -35,6 +39,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     private let inputChannelAuthorizeHandler: InputChannelAuthorizeHandler
     private let inputChannelReadyHandler: InputChannelReadyHandler
     private let inputCapabilityRefreshHandler: InputCapabilityRefreshHandler
+    private let mediaCapabilityRefreshHandler: MediaCapabilityRefreshHandler
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: ConnectionContext] = [:]
 
@@ -46,7 +51,8 @@ final class PairingSignalingServer: @unchecked Sendable {
         sessionEndedHandler: @escaping SessionEndedHandler = { _, _ in },
         inputChannelAuthorizeHandler: @escaping InputChannelAuthorizeHandler = { _, completion in completion(.rejected(.unauthorized)) },
         inputChannelReadyHandler: @escaping InputChannelReadyHandler = { _, _ in },
-        inputCapabilityRefreshHandler: @escaping InputCapabilityRefreshHandler = { _, completion in completion(.failure(.unauthorized)) }
+        inputCapabilityRefreshHandler: @escaping InputCapabilityRefreshHandler = { _, completion in completion(.failure(.unauthorized)) },
+        mediaCapabilityRefreshHandler: @escaping MediaCapabilityRefreshHandler = { _, completion in completion(.failure(.unauthorized)) }
     ) {
         self.pairing = pairing
         self.approvalHandler = approvalHandler
@@ -56,6 +62,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         self.inputChannelAuthorizeHandler = inputChannelAuthorizeHandler
         self.inputChannelReadyHandler = inputChannelReadyHandler
         self.inputCapabilityRefreshHandler = inputCapabilityRefreshHandler
+        self.mediaCapabilityRefreshHandler = mediaCapabilityRefreshHandler
     }
 
     func start(port: UInt16 = Config.signalingPort) throws {
@@ -225,6 +232,25 @@ final class PairingSignalingServer: @unchecked Sendable {
                 return
             }
             inputCapabilityRefreshHandler(request) { [weak self, weak connection] result in
+                guard let self, let connection else { return }
+                switch result {
+                case .success(let grant):
+                    self.send(sessionMessage: grant, on: connection)
+                    self.receiveNextMessage(on: connection)
+                case .failure(let reason):
+                    self.sendSessionRejected(reason: reason, on: connection)
+                    connection.cancel()
+                }
+            }
+        case .mediaCapabilityRefresh(let request):
+            guard request.deviceFingerprint == context.activeSessionFingerprint,
+                  request.sessionId == context.activeSessionId
+            else {
+                sendSessionRejected(reason: .unauthorized, on: connection)
+                connection.cancel()
+                return
+            }
+            mediaCapabilityRefreshHandler(request) { [weak self, weak connection] result in
                 guard let self, let connection else { return }
                 switch result {
                 case .success(let grant):

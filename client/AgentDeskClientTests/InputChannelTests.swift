@@ -79,6 +79,22 @@ struct InputChannelTests {
         #expect(json.contains("\"cn\""))
     }
 
+    @Test func mediaCapabilityRefreshFrameSerializesWithCompactKeys() throws {
+        let request = MediaCapabilityRefreshRequest(
+            deviceFingerprint: DeviceFingerprint("device-fp-xyz"),
+            sessionId: "session-123"
+        )
+        let data = try JSONEncoder().encode(request)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        let decoded = try JSONDecoder().decode(MediaCapabilityRefreshRequest.self, from: data)
+
+        #expect(decoded == request)
+        #expect(json.contains("\"t\":\"media-capability-refresh\""))
+        #expect(json.contains("\"d\""))
+        #expect(json.contains("device-fp-xyz"))
+        #expect(json.contains("\"sid\":\"session-123\""))
+    }
+
     @Test func ownedMediaControlFrameSerializesWithCompactKeys() throws {
         let message = OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 42)
         let data = try JSONEncoder().encode(message)

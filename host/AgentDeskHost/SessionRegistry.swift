@@ -255,6 +255,36 @@ final class SessionRegistry {
         }
     }
 
+    func refreshMediaCapability(
+        deviceFingerprint: DeviceFingerprint,
+        sessionId: String
+    ) -> Result<MediaCapabilityGrant, SessionRejectionReason> {
+        pruneExpiredStaleMediaCapabilities()
+        guard active.contains(deviceFingerprint),
+              sessionIds[deviceFingerprint] == sessionId
+        else {
+            return .failure(.unauthorized)
+        }
+        if let current = mediaCapabilities[deviceFingerprint] {
+            markStaleMediaCapabilityForRefresh(MediaCapabilityKey(
+                deviceFingerprint: deviceFingerprint,
+                sessionId: current.sessionId,
+                mediaCapability: current.mediaCapability
+            ))
+        }
+        do {
+            let record = try makeMediaCapabilityRecord(sessionId: sessionId)
+            mediaCapabilities[deviceFingerprint] = record
+            return .success(MediaCapabilityGrant(
+                sessionId: sessionId,
+                mediaCapability: record.mediaCapability,
+                mediaCapabilityExpiresAt: record.expiresAt
+            ))
+        } catch {
+            return .failure(.malformed)
+        }
+    }
+
     // Attachments
     func attachTransport(_ transport: MediaTransport, for fingerprint: DeviceFingerprint) {
         transports[fingerprint] = transport
@@ -323,6 +353,15 @@ final class SessionRegistry {
         )
     }
 
+    private func makeMediaCapabilityRecord(sessionId: String) throws -> MediaCapabilityRecord {
+        let issuedAt = now()
+        return MediaCapabilityRecord(
+            sessionId: sessionId,
+            mediaCapability: try randomBytes(32).base64URLEncodedString(),
+            expiresAt: Int(issuedAt.addingTimeInterval(Config.mediaCapabilityTTL).timeIntervalSince1970)
+        )
+    }
+
     private func markStaleInputCapability(_ key: InputCapabilityKey, originalExpiresAt: Int) {
         let ttlExpiresAt = Int(now().addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
         staleInputCapabilities[key] = StaleInputCapabilityRecord(
@@ -334,6 +373,12 @@ final class SessionRegistry {
         let ttlExpiresAt = Int(now().addingTimeInterval(Config.mediaCapabilityTTL).timeIntervalSince1970)
         staleMediaCapabilities[key] = StaleMediaCapabilityRecord(
             expiresAt: min(originalExpiresAt, ttlExpiresAt)
+        )
+    }
+
+    private func markStaleMediaCapabilityForRefresh(_ key: MediaCapabilityKey) {
+        staleMediaCapabilities[key] = StaleMediaCapabilityRecord(
+            expiresAt: Int(now().addingTimeInterval(Config.mediaCapabilityTTL).timeIntervalSince1970)
         )
     }
 

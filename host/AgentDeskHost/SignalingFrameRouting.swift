@@ -13,6 +13,7 @@ enum FirstFrameRoute: Equatable {
 
 enum ActiveSessionFrameRoute: Equatable {
     case inputCapabilityRefresh(InputCapabilityRefreshRequest)
+    case mediaCapabilityRefresh(MediaCapabilityRefreshRequest)
     case malformed
 }
 
@@ -53,6 +54,10 @@ enum SignalingFrameRouter {
         if let request = try? JSONDecoder().decode(InputCapabilityRefreshRequest.self, from: data),
            request.type == "input-capability-refresh" {
             return .inputCapabilityRefresh(request)
+        }
+        if let request = try? JSONDecoder().decode(MediaCapabilityRefreshRequest.self, from: data),
+           request.type == "media-capability-refresh" {
+            return .mediaCapabilityRefresh(request)
         }
         return .malformed
     }

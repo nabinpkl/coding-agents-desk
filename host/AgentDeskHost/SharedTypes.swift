@@ -307,6 +307,24 @@ struct MediaCapabilityGrant: Codable, Equatable {
     }
 }
 
+struct MediaCapabilityRefreshRequest: Codable, Equatable {
+    let type: String
+    let deviceFingerprint: DeviceFingerprint
+    let sessionId: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case deviceFingerprint = "d"
+        case sessionId = "sid"
+    }
+
+    init(deviceFingerprint: DeviceFingerprint, sessionId: String) {
+        self.type = "media-capability-refresh"
+        self.deviceFingerprint = deviceFingerprint
+        self.sessionId = sessionId
+    }
+}
+
 struct InputCapabilityRefreshRequest: Codable, Equatable {
     let type: String
     let deviceFingerprint: DeviceFingerprint

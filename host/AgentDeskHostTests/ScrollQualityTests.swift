@@ -1494,6 +1494,40 @@ struct ScrollQualityTests {
         #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(srcX: 0, srcY: 32, dstX: 0, dstY: 0, width: 320, height: 224))
     }
 
+    @Test func scrollDeltaEngineAcceptsPhysicalScaleNonStrideVerticalScrollWithinBudget() throws {
+        var engine = ScrollDeltaEngine()
+        let width = 1_920
+        let height = 1_080
+        let scrollDy = 37
+        let previous = try Self.makeBGRAFrame(width: width, height: height) { x, y in
+            Self.scrollProbePixel(x: x, y: y)
+        }
+        let current = try Self.make420Frame(width: width, height: height) { x, y in
+            y < height - scrollDy ? Self.scrollProbePixel(x: x, y: y + scrollDy) : Self.exposedPixel(x: x, y: y)
+        }
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let result = engine.evaluate(current, detectionBudgetMs: 4)
+
+        #expect(result.kind == ScrollDeltaKind.accepted)
+        let diagnostics = try #require(result.diagnostics)
+        #expect(diagnostics.acceptedDx == 0)
+        #expect(abs((diagnostics.acceptedDy ?? 0) + scrollDy) <= 2)
+        #expect(diagnostics.confidence >= 0.88)
+        #expect(diagnostics.secondBestConfidence <= diagnostics.confidence)
+        #expect(diagnostics.confidence - diagnostics.secondBestConfidence >= 0.06)
+        #expect(diagnostics.candidateCount > 100)
+        #expect(diagnostics.probeScale > 1)
+        #expect(diagnostics.timeoutReason == nil)
+        #expect(diagnostics.payloadBuildMs != nil)
+        let envelope = try #require(result.envelope)
+        #expect(envelope.commands.contains { command in
+            if case .copyRect = command { return true }
+            return false
+        })
+    }
+
     @Test func scrollDeltaEngineEmitsHorizontalCopyRectAndExposedStrip() throws {
         var engine = ScrollDeltaEngine()
         let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
@@ -1532,7 +1566,15 @@ struct ScrollQualityTests {
             Self.pixel(x: x, y: y)
         }
         let current = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
-            [UInt8((x * 11 + y * 13) & 0xff), UInt8((x * 17) & 0xff), UInt8((y * 19) & 0xff), 0xff]
+            let hash = UInt32(truncatingIfNeeded: x) &* 73_856_093 ^
+                UInt32(truncatingIfNeeded: y) &* 19_349_663 ^
+                0x9e37_79b9
+            return [
+                UInt8(truncatingIfNeeded: hash),
+                UInt8(truncatingIfNeeded: hash >> 8),
+                UInt8(truncatingIfNeeded: hash >> 16),
+                0xff
+            ]
         }
 
         #expect(engine.evaluate(previous).kind == .reset)
@@ -1547,7 +1589,7 @@ struct ScrollQualityTests {
             #expect(diagnostics.payloadBuildMs == nil)
             #expect(diagnostics.sampledPixelCount > 0)
         } else {
-            Issue.record("expected rejected motion")
+            Issue.record("expected rejected motion, got \(result.kind), diagnostics: \(String(describing: result.diagnostics))")
         }
     }
 
@@ -1571,6 +1613,48 @@ struct ScrollQualityTests {
         #expect(diagnostics.payloadBuildMs == nil)
         #expect(diagnostics.acceptedDx == nil)
         #expect(diagnostics.acceptedDy == nil)
+    }
+
+    @Test func scrollDeltaProbeEnforcesPositiveBudgetDuringCandidateScan() {
+        let surface = ScrollDeltaSurface(
+            width: 16,
+            height: 16,
+            bytesPerRow: 64,
+            pixels: Self.tileBytes(width: 16, height: 16) { x, y in
+                Self.scrollProbePixel(x: x, y: y)
+            }
+        )
+        let current = ScrollDeltaSurface(
+            width: 16,
+            height: 16,
+            bytesPerRow: 64,
+            pixels: Self.tileBytes(width: 16, height: 16) { x, y in
+                y < 14 ? Self.scrollProbePixel(x: x, y: y + 2) : Self.exposedPixel(x: x, y: y)
+            }
+        )
+        let sampler = ScrollDeltaProbeSampler.surface(ScrollDeltaSurfaceSampler(surface: current))
+        var elapsed = 0.0
+        let probe = ScrollDeltaProbe(
+            previous: surface,
+            sampler: sampler,
+            maxScrollOffset: 240,
+            confidenceThreshold: 1.1,
+            confidenceMargin: 0.06,
+            startedAt: 1,
+            detectionBudgetMs: 0.1,
+            elapsedMs: { _ in
+                elapsed += 1.0
+                return elapsed
+            }
+        )
+
+        let outcome = probe.bestOffset()
+
+        #expect(outcome.timedOut)
+        #expect(outcome.offset == nil)
+        #expect(outcome.timeoutReason == "probe-budget-exceeded")
+        #expect(outcome.timeoutPhase == "candidate-scan")
+        #expect(outcome.candidateCount > 0)
     }
 
     @Test func scrollDeltaEngineTimeoutDoesNotReplaceCommittedBaseline() throws {
@@ -1853,6 +1937,11 @@ struct ScrollQualityTests {
             UInt8((x * 13 + y * 17) & 0xff),
             0xff
         ]
+    }
+
+    private static func scrollProbePixel(x: Int, y: Int) -> [UInt8] {
+        let value = UInt8((x * 37 + y * 101 + (x / 23) * 19 + (y / 17) * 53) & 0xff)
+        return [value, value, value, 0xff]
     }
 
     private static func luma(_ bgra: [UInt8]) -> UInt8 {

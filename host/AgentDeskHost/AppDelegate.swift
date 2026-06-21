@@ -320,6 +320,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         sessionId: request.sessionId
                     ))
                 }
+            },
+            mediaCapabilityRefreshHandler: { [weak self] request, completion in
+                Task { @MainActor in
+                    guard let self else {
+                        completion(.failure(.unauthorized))
+                        return
+                    }
+                    guard (try? self.pairing.lookup(deviceFingerprint: request.deviceFingerprint)) != nil else {
+                        completion(.failure(.revoked))
+                        return
+                    }
+                    completion(self.sessions.refreshMediaCapability(
+                        deviceFingerprint: request.deviceFingerprint,
+                        sessionId: request.sessionId
+                    ))
+                }
             }
         )
         do {

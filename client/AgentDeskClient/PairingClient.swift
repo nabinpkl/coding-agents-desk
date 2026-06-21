@@ -192,7 +192,7 @@ final class PairingClient {
     /// .failed (or 5s of .disconnected). Tears down the signaling channel
     /// and transitions to .pairedDisconnected so the foreground auto-dial
     /// path can retry on next willEnterForeground.
-    func handleMediaSessionFailed() {
+    func handleMediaSessionFailed(rejection: SessionRejected? = nil) {
         activeSignaling?.close()
         activeSignaling = nil
         inputReconnectTask?.cancel()
@@ -200,6 +200,10 @@ final class PairingClient {
         activeInputChannel?.close()
         activeInputChannel = nil
         resetActiveMediaSession()
+        if let rejection {
+            applyRejection(rejection)
+            return
+        }
         if case .connected = state {
             state = .pairedDisconnected
         }

@@ -10,19 +10,22 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
     private let graphicsPort: UInt16
     private let active: ActiveSession
     private let mediaCapability: MediaCapabilityGrant
+    private let mediaCapabilityRefresher: MediaCapabilityRefreshing?
 
     init(
         host: String,
         port: UInt16,
         graphicsPort: UInt16 = Config.graphicsPort,
         active: ActiveSession,
-        mediaCapability: MediaCapabilityGrant
+        mediaCapability: MediaCapabilityGrant,
+        mediaCapabilityRefresher: MediaCapabilityRefreshing?
     ) {
         self.host = host
         self.port = port
         self.graphicsPort = graphicsPort
         self.active = active
         self.mediaCapability = mediaCapability
+        self.mediaCapabilityRefresher = mediaCapabilityRefresher
     }
 
     func make() -> MediaTransport {
@@ -31,7 +34,8 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
             port: port,
             graphicsPort: graphicsPort,
             active: active,
-            mediaCapability: mediaCapability
+            mediaCapability: mediaCapability,
+            mediaCapabilityRefresher: mediaCapabilityRefresher
         )
     }
 }
@@ -176,6 +180,10 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         on connection: NWConnection
     ) async throws -> GraphicsChannelReady {
         let data = try await receive(on: connection)
+        if let rejected = try? JSONDecoder().decode(SessionRejected.self, from: data),
+           rejected.type == "session-rejected" {
+            throw rejected
+        }
         let ready = try JSONDecoder().decode(GraphicsChannelReady.self, from: data)
         return try ClientGraphicsChannelHandshake.validateReady(ready, expectedSessionId: expectedSessionId)
     }
@@ -249,7 +257,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let port: UInt16
     private let graphicsPort: UInt16
     private let active: ActiveSession
-    private let mediaCapability: MediaCapabilityGrant
+    private var mediaCapability: MediaCapabilityGrant
+    private let mediaCapabilityRefresher: MediaCapabilityRefreshing?
     private var connection: NWConnection?
     private var graphicsTransport: OwnedGraphicsTransport?
     private var graphicsTask: Task<Void, Never>?
@@ -266,13 +275,15 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         port: UInt16,
         graphicsPort: UInt16 = Config.graphicsPort,
         active: ActiveSession,
-        mediaCapability: MediaCapabilityGrant
+        mediaCapability: MediaCapabilityGrant,
+        mediaCapabilityRefresher: MediaCapabilityRefreshing?
     ) {
         self.host = host
         self.port = port
         self.graphicsPort = graphicsPort
         self.active = active
         self.mediaCapability = mediaCapability
+        self.mediaCapabilityRefresher = mediaCapabilityRefresher
         var continuation: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { continuation = $0 }
         self.stateContinuation = continuation
@@ -302,7 +313,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             self?.logger.notice("owned media quic state=\(String(describing: state), privacy: .public)")
             ownedMediaStderrTrace("state \(String(describing: state))")
             if case .failed = state {
-                self?.stateContinuation.yield(.failed)
+                self?.stateContinuation.yield(.failed(nil))
             }
         }
         stateContinuation.yield(.connecting)
@@ -323,7 +334,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             serverNonce: ready.serverNonce
         )
         stateContinuation.yield(.connected)
-        startGraphicsChannel()
+        startGraphicsChannel(refreshCapability: false)
         receiveTask = Task { [weak self, connection] in
             await self?.receiveLoop(connection: connection, key: key)
         }
@@ -350,38 +361,90 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         stateContinuation.finish()
     }
 
-    private func startGraphicsChannel() {
+    private func startGraphicsChannel(refreshCapability: Bool) {
         let generation = nextGraphicsLifecycleGeneration()
         guard let generation else { return }
         graphicsTask?.cancel()
         graphicsTransport?.stop()
         graphicsReconnectTask?.cancel()
         graphicsReconnectTask = nil
-        let transport = OwnedGraphicsTransport(
-            plan: ClientGraphicsConnectionPlan(host: host, port: graphicsPort),
-            active: active,
-            mediaCapability: mediaCapability,
-            sink: sink,
-            onFallbackResetRequest: { [weak self] request in
-                await self?.sendGraphicsResetFallback(request)
-            },
-            onDisconnected: { [weak self] reason in
-                self?.scheduleGraphicsReconnect(reason: reason, generation: generation)
-            }
-        )
-        graphicsTransport = transport
-        graphicsTask = Task { [weak self, transport] in
+        graphicsTask = Task { [weak self] in
+            guard let self else { return }
+            let grant: MediaCapabilityGrant
             do {
-                try await transport.start()
-                self?.noteGraphicsConnected(generation: generation)
+                grant = try await self.mediaCapabilityForGraphicsConnect(refreshCapability: refreshCapability)
             } catch is CancellationError {
                 return
             } catch {
-                self?.logger.error("owned graphics quic connect failed: \(String(describing: error), privacy: .public)")
+                self.failMediaTransportAfterCapabilityRefresh(error)
+                return
+            }
+            do {
+                guard self.lifecycleLock.withLock({ !self.isStopped && self.graphicsReconnectGeneration == generation }) else {
+                    return
+                }
+                let transport = OwnedGraphicsTransport(
+                    plan: ClientGraphicsConnectionPlan(host: self.host, port: self.graphicsPort),
+                    active: self.active,
+                    mediaCapability: grant,
+                    sink: self.sink,
+                    onFallbackResetRequest: { [weak self] request in
+                        await self?.sendGraphicsResetFallback(request)
+                    },
+                    onDisconnected: { [weak self] reason in
+                        self?.scheduleGraphicsReconnect(reason: reason, generation: generation)
+                    }
+                )
+                self.graphicsTransport = transport
+                try await transport.start()
+                self.noteGraphicsConnected(generation: generation)
+            } catch is CancellationError {
+                return
+            } catch {
+                self.logger.error("owned graphics quic connect failed: \(String(describing: error), privacy: .public)")
                 ownedMediaStderrTrace("graphics-reconnect-failed error=\(String(describing: error))")
-                self?.scheduleGraphicsReconnect(reason: "connect-failed", generation: generation)
+                self.scheduleGraphicsReconnect(reason: "connect-failed", generation: generation)
             }
         }
+    }
+
+    private func mediaCapabilityForGraphicsConnect(refreshCapability: Bool) async throws -> MediaCapabilityGrant {
+        guard refreshCapability else {
+            return lifecycleLock.withLock { mediaCapability }
+        }
+        guard let mediaCapabilityRefresher else {
+            throw SessionRejected(reason: .malformed)
+        }
+        ownedMediaStderrTrace("graphics-capability-refresh-request session=\(active.sessionId)")
+        let refreshed = try await mediaCapabilityRefresher.refreshMediaCapability(
+            deviceFingerprint: active.deviceFingerprint,
+            sessionId: active.sessionId
+        )
+        lifecycleLock.withLock {
+            mediaCapability = refreshed
+        }
+        ownedMediaStderrTrace("graphics-capability-refreshed session=\(refreshed.sessionId) expiresAt=\(refreshed.mediaCapabilityExpiresAt)")
+        return refreshed
+    }
+
+    private func failMediaTransportAfterCapabilityRefresh(_ error: Error) {
+        logger.error("owned graphics capability refresh failed: \(String(describing: error), privacy: .public)")
+        ownedMediaStderrTrace("graphics-capability-refresh-failed error=\(String(describing: error))")
+        lifecycleLock.withLock {
+            isStopped = true
+            graphicsReconnectGeneration &+= 1
+            graphicsReconnectAttempt = 0
+            graphicsReconnectScheduled = false
+        }
+        graphicsReconnectTask?.cancel()
+        graphicsReconnectTask = nil
+        graphicsTransport?.stop()
+        graphicsTransport = nil
+        receiveTask?.cancel()
+        receiveTask = nil
+        connection?.cancel()
+        connection = nil
+        stateContinuation.yield(.failed(error as? SessionRejected))
     }
 
     private func nextGraphicsLifecycleGeneration() -> UInt64? {
@@ -439,7 +502,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 return true
             }
             guard canReconnect else { return }
-            self.startGraphicsChannel()
+            self.startGraphicsChannel(refreshCapability: true)
         }
         lifecycleLock.withLock {
             if !isStopped,
@@ -646,7 +709,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 await MainActor.run { [weak self] in
                     self?.sink?.setOwnedMediaDebugStatus("receive failed \(String(describing: error))\nquic packets=\(receivedPackets) complete=\(completedFrames)")
                 }
-                stateContinuation.yield(.failed)
+                stateContinuation.yield(.failed(nil))
                 return
             }
         }

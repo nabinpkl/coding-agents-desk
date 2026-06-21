@@ -6,7 +6,8 @@ enum MediaStack {
         host: String?,
         port: UInt16,
         active: ActiveSession?,
-        mediaCapability: MediaCapabilityGrant?
+        mediaCapability: MediaCapabilityGrant?,
+        mediaCapabilityRefresher: MediaCapabilityRefreshing?
     ) -> MediaTransportFactory {
         guard let host, let active, let mediaCapability else {
             return MissingOwnedMediaTransportFactory()
@@ -15,7 +16,8 @@ enum MediaStack {
             host: host,
             port: port,
             active: active,
-            mediaCapability: mediaCapability
+            mediaCapability: mediaCapability,
+            mediaCapabilityRefresher: mediaCapabilityRefresher
         )
     }
 
@@ -33,7 +35,7 @@ private struct MissingOwnedMediaTransportFactory: MediaTransportFactory {
 
 private final class MissingOwnedMediaTransport: MediaTransport, @unchecked Sendable {
     let connectionState: AsyncStream<MediaConnectionState> = AsyncStream { continuation in
-        continuation.yield(.failed)
+        continuation.yield(.failed(nil))
         continuation.finish()
     }
 

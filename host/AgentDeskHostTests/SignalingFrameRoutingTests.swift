@@ -35,6 +35,15 @@ struct SignalingFrameRoutingTests {
         #expect(SignalingFrameRouter.classifyActiveSessionFrame(data) == .inputCapabilityRefresh(request))
     }
 
+    @Test func classifyActiveSessionFrameMediaCapabilityRefreshDecodes() {
+        let request = MediaCapabilityRefreshRequest(
+            deviceFingerprint: DeviceFingerprint("device-fp"),
+            sessionId: "session-123"
+        )
+        let data = try! JSONEncoder().encode(request)
+        #expect(SignalingFrameRouter.classifyActiveSessionFrame(data) == .mediaCapabilityRefresh(request))
+    }
+
     @Test func classifyActiveSessionFrameMalformedIsMalformed() {
         let data = Data(#"{"t":"unknown"}"#.utf8)
         #expect(SignalingFrameRouter.classifyActiveSessionFrame(data) == .malformed)
@@ -106,6 +115,21 @@ struct SignalingFrameRoutingTests {
         #expect(decoded.sessionId == "session-123")
         #expect(decoded.mediaCapability == "media-capability-abc")
         #expect(decoded.clientNonce == Data([1, 2, 3]))
+    }
+
+    @Test func mediaCapabilityRefreshFrameRoundTripsThroughCodable() throws {
+        let request = MediaCapabilityRefreshRequest(
+            deviceFingerprint: DeviceFingerprint("device-fp"),
+            sessionId: "session-123"
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let decoded = try JSONDecoder().decode(MediaCapabilityRefreshRequest.self, from: data)
+
+        #expect(decoded == request)
+        #expect(decoded.type == "media-capability-refresh")
+        #expect(decoded.deviceFingerprint == DeviceFingerprint("device-fp"))
+        #expect(decoded.sessionId == "session-123")
     }
 
     @Test func ownedMediaControlMessageRoundTripsThroughCodable() throws {

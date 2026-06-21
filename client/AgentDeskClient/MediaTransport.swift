@@ -14,7 +14,7 @@ enum MediaConnectionState: Equatable {
     case connecting
     case connected
     case disconnected
-    case failed
+    case failed(SessionRejected?)
     case closed
 }
 

@@ -43,6 +43,7 @@ Before doing project work, read `PRD.md` and `SPEC.md` once. They are short on p
 - Slices are labelled `hitl` (requires the human) or `afk` (an agent can ship it without intervention). AFK issues also carry `ready-for-agent`.
 - v0 slices are issues #2 through #10. #2 (S0) and #10 (S8) are HITL. The rest are AFK. Dependency edges live in each issue's "Blocked by" section, not here.
 - New work appends new issues. Closed issues stay as history.
+- Huge feature work goes through `TASKS.md` and a subagent flow. The main agent acts as coordinator and reviewer: it decomposes the plan into concrete R-tasks, delegates bounded exploration, implementation, and review work to subagents where the harness exposes them, integrates the results, resolves conflicts, updates `TASKS.md`, verifies with `just check`, then commits and pushes each green task cluster.
 
 # Conventions
 

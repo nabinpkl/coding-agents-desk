@@ -88,6 +88,13 @@ final class SessionDialer {
                 }
                 try await task.send(.string(text))
             },
+            mediaCapabilityRequestSender: { request in
+                let data = try JSONEncoder().encode(request)
+                guard let text = String(data: data, encoding: .utf8) else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                try await task.send(.string(text))
+            },
             closer: {
                 task.cancel(with: .normalClosure, reason: nil)
             }
@@ -110,6 +117,9 @@ final class SessionDialer {
                     }
                     if let grant = try? JSONDecoder().decode(InputCapabilityGrant.self, from: data),
                               grant.type == "input-capability-grant" {
+                        channel.deliver(grant)
+                    } else if let grant = try? JSONDecoder().decode(MediaCapabilityGrant.self, from: data),
+                              grant.type == "media-capability-grant" {
                         channel.deliver(grant)
                     } else if let rejected = try? JSONDecoder().decode(SessionRejected.self, from: data),
                               rejected.type == "session-rejected" {

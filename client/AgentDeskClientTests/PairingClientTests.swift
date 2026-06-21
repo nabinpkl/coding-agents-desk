@@ -96,6 +96,60 @@ struct PairingClientTests {
         }
     }
 
+    @Test func mediaCapabilityRefreshSendsRequestAndResumesWithGrant() async throws {
+        let requests = MediaRefreshRequests()
+        let channel = WebSocketSignalingChannel(
+            capabilityRequestSender: { _ in },
+            mediaCapabilityRequestSender: { request in
+                await requests.append(request)
+            },
+            closer: {}
+        )
+        let refresh = Task {
+            try await channel.refreshMediaCapability(
+                deviceFingerprint: DeviceFingerprint("device-fp"),
+                sessionId: "session-123"
+            )
+        }
+
+        try await waitUntil {
+            await requests.values.count == 1
+        }
+        #expect(await requests.values == [
+            MediaCapabilityRefreshRequest(
+                deviceFingerprint: DeviceFingerprint("device-fp"),
+                sessionId: "session-123"
+            )
+        ])
+        channel.deliver(MediaCapabilityGrant(
+            sessionId: "session-123",
+            mediaCapability: "media-capability-fresh",
+            mediaCapabilityExpiresAt: 1_800_000_060
+        ))
+
+        let grant = try await refresh.value
+        #expect(grant.mediaCapability == "media-capability-fresh")
+        #expect(grant.mediaCapabilityExpiresAt == 1_800_000_060)
+    }
+
+    @Test func mediaSessionRevokedFailureClearsStoredCredentials() throws {
+        let hostKey = P256.Signing.PrivateKey()
+        let token = try signedToken(hostKey: hostKey, deviceFingerprint: DeviceFingerprint("device"))
+        let store = InMemorySessionTokenStore()
+        try store.store(StoredPairingRecord(
+            token: token,
+            hostPublicKey: hostKey.publicKey.x963Representation,
+            tailnetFQDN: "mac.tailnet.ts.net",
+            tailnetIPv4: "100.64.0.10"
+        ))
+        let client = PairingClient(tokenStore: store, deviceKeyProvider: InMemoryDeviceSigningKeyProvider(), resolver: StaticResolver())
+
+        client.handleMediaSessionFailed(rejection: SessionRejected(reason: .revoked))
+
+        #expect(client.state == .revoked)
+        #expect(try store.load() == nil)
+    }
+
     @Test func revokedRefreshRejectionClearsStoredCredentials() throws {
         let hostKey = P256.Signing.PrivateKey()
         let token = try signedToken(hostKey: hostKey, deviceFingerprint: DeviceFingerprint("device"))
@@ -187,5 +241,31 @@ private struct InMemoryDeviceSigningKeyProvider: DeviceSigningKeyProviding {
 private struct StaticResolver: DNSResolving {
     func canResolve(_ host: String) -> Bool {
         true
+    }
+}
+
+private actor MediaRefreshRequests {
+    private var storage: [MediaCapabilityRefreshRequest] = []
+
+    var values: [MediaCapabilityRefreshRequest] {
+        storage
+    }
+
+    func append(_ request: MediaCapabilityRefreshRequest) {
+        storage.append(request)
+    }
+}
+
+@MainActor
+private func waitUntil(
+    timeoutNs: UInt64 = 1_000_000_000,
+    predicate: @escaping @Sendable () async -> Bool
+) async throws {
+    let startedAt = DispatchTime.now().uptimeNanoseconds
+    while !(await predicate()) {
+        if DispatchTime.now().uptimeNanoseconds &- startedAt > timeoutNs {
+            throw SessionRejected(reason: .malformed)
+        }
+        try await Task.sleep(nanoseconds: 5_000_000)
     }
 }

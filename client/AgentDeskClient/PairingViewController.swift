@@ -254,7 +254,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             host: pairingClient.activeHost,
             port: pairingClient.activePort,
             active: activeSessionForMedia(),
-            mediaCapability: pairingClient.activeMediaCapability
+            mediaCapability: pairingClient.activeMediaCapability,
+            mediaCapabilityRefresher: pairingClient.activeSignaling as? MediaCapabilityRefreshing
         )
         let transport = mediaFactory.make()
         videoSink = sink
@@ -302,16 +303,20 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                     self?.failMediaSession()
                 }
             }
-        case .failed, .closed:
+        case .failed(let rejection):
+            iceGraceTask?.cancel()
+            iceGraceTask = nil
+            failMediaSession(rejection: rejection)
+        case .closed:
             iceGraceTask?.cancel()
             iceGraceTask = nil
             failMediaSession()
         }
     }
 
-    func failMediaSession() {
+    func failMediaSession(rejection: SessionRejected? = nil) {
         teardownMediaTransport()
-        pairingClient.handleMediaSessionFailed()
+        pairingClient.handleMediaSessionFailed(rejection: rejection)
         render()
     }
 

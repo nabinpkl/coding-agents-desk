@@ -34,6 +34,8 @@
 		A00000000000000000000A06 /* OwnedMediaFrameScaler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */; };
 		A00000000000000000000A08 /* ScrollDeltaEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A07 /* ScrollDeltaEngine.swift */; };
 		A00000000000000000000A09 /* ScrollDeltaEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A07 /* ScrollDeltaEngine.swift */; };
+		A00000000000000000000A0B /* ScrollDeltaProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A0A /* ScrollDeltaProbe.swift */; };
+		A00000000000000000000A0C /* ScrollDeltaProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A0A /* ScrollDeltaProbe.swift */; };
 		A00000000000000000000219 /* TestPatternFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000119 /* TestPatternFrameSource.swift */; };
 		A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */; };
 		A0000000000000000000021B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011B /* Assets.xcassets */; };
@@ -135,6 +137,7 @@
 		A00000000000000000000A02 /* OwnedMediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaTransport.swift; sourceTree = "<group>"; };
 		A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaFrameScaler.swift; sourceTree = "<group>"; };
 		A00000000000000000000A07 /* ScrollDeltaEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaEngine.swift; sourceTree = "<group>"; };
+		A00000000000000000000A0A /* ScrollDeltaProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaProbe.swift; sourceTree = "<group>"; };
 		A00000000000000000000119 /* TestPatternFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestPatternFrameSource.swift; sourceTree = "<group>"; };
 		A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureKitFrameSource.swift; sourceTree = "<group>"; };
 		A0000000000000000000011C /* InputDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcher.swift; sourceTree = "<group>"; };
@@ -251,6 +254,7 @@
 				A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */,
 				A00000000000000000000A02 /* OwnedMediaTransport.swift */,
 				A00000000000000000000A07 /* ScrollDeltaEngine.swift */,
+				A00000000000000000000A0A /* ScrollDeltaProbe.swift */,
 				A00000000000000000000119 /* TestPatternFrameSource.swift */,
 				A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */,
 				A0000000000000000000011C /* InputDispatcher.swift */,
@@ -451,6 +455,7 @@
 				A00000000000000000000A05 /* OwnedMediaFrameScaler.swift in Sources */,
 				A00000000000000000000A03 /* OwnedMediaTransport.swift in Sources */,
 				A00000000000000000000A08 /* ScrollDeltaEngine.swift in Sources */,
+				A00000000000000000000A0B /* ScrollDeltaProbe.swift in Sources */,
 				A00000000000000000000219 /* TestPatternFrameSource.swift in Sources */,
 				A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */,
 				A0000000000000000000021C /* InputDispatcher.swift in Sources */,
@@ -500,6 +505,7 @@
 				A00000000000000000000254 /* VideoFrameSource.swift in Sources */,
 				A00000000000000000000A06 /* OwnedMediaFrameScaler.swift in Sources */,
 				A00000000000000000000A09 /* ScrollDeltaEngine.swift in Sources */,
+				A00000000000000000000A0C /* ScrollDeltaProbe.swift in Sources */,
 				A00000000000000000000255 /* SessionRegistry.swift in Sources */,
 				A00000000000000000000256 /* InputChannelServer.swift in Sources */,
 				A0000000000000000000025D /* JsonlChildProcess.swift in Sources */,
