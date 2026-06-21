@@ -29,7 +29,6 @@ final class PairingSignalingServer: @unchecked Sendable {
         MediaCapabilityRefreshRequest,
         @escaping (Result<MediaCapabilityGrant, SessionRejectionReason>) -> Void
     ) -> Void
-    typealias PairingApprovedHandler = (Data) -> Void
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private let pairing: Pairing
@@ -41,7 +40,6 @@ final class PairingSignalingServer: @unchecked Sendable {
     private let inputChannelReadyHandler: InputChannelReadyHandler
     private let inputCapabilityRefreshHandler: InputCapabilityRefreshHandler
     private let mediaCapabilityRefreshHandler: MediaCapabilityRefreshHandler
-    private let pairingApprovedHandler: PairingApprovedHandler
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: ConnectionContext] = [:]
 
@@ -54,8 +52,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         inputChannelAuthorizeHandler: @escaping InputChannelAuthorizeHandler = { _, completion in completion(.rejected(.unauthorized)) },
         inputChannelReadyHandler: @escaping InputChannelReadyHandler = { _, _ in },
         inputCapabilityRefreshHandler: @escaping InputCapabilityRefreshHandler = { _, completion in completion(.failure(.unauthorized)) },
-        mediaCapabilityRefreshHandler: @escaping MediaCapabilityRefreshHandler = { _, completion in completion(.failure(.unauthorized)) },
-        pairingApprovedHandler: @escaping PairingApprovedHandler = { _ in }
+        mediaCapabilityRefreshHandler: @escaping MediaCapabilityRefreshHandler = { _, completion in completion(.failure(.unauthorized)) }
     ) {
         self.pairing = pairing
         self.approvalHandler = approvalHandler
@@ -66,7 +63,6 @@ final class PairingSignalingServer: @unchecked Sendable {
         self.inputChannelReadyHandler = inputChannelReadyHandler
         self.inputCapabilityRefreshHandler = inputCapabilityRefreshHandler
         self.mediaCapabilityRefreshHandler = mediaCapabilityRefreshHandler
-        self.pairingApprovedHandler = pairingApprovedHandler
     }
 
     func start(port: UInt16 = Config.signalingPort) throws {
@@ -304,7 +300,6 @@ final class PairingSignalingServer: @unchecked Sendable {
                     devicePublicKey: request.devicePublicKey,
                     oneTimeNonce: request.oneTimeNonce
                 )
-                self.pairingApprovedHandler(request.oneTimeNonce)
                 try self.pairing.markSeen(deviceFingerprint: token.deviceFingerprint)
                 self.send(pairResponse: PairingHandshakeResponse(type: "approved", token: token, error: nil), on: connection)
             } catch {

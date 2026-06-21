@@ -64,8 +64,6 @@
 		B0000000000000000000022E /* KeyboardSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000123 /* KeyboardSurfaceTests.swift */; };
 		B0000000000000000000022E1 /* InputChannelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000124 /* InputChannelTests.swift */; };
 		B0000000000000000000022F /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000114 /* SettingsStore.swift */; };
-		B00000000000000000000230 /* ICloudPairingDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000015B /* ICloudPairingDocument.swift */; };
-		B00000000000000000000231 /* ICloudPairingDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000015B /* ICloudPairingDocument.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -90,8 +88,6 @@
 		B00000000000000000000114 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		B00000000000000000000115 /* SettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
 		B00000000000000000000116 /* KeyboardSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSurface.swift; sourceTree = "<group>"; };
-		B0000000000000000000015B /* ICloudPairingDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudPairingDocument.swift; sourceTree = "<group>"; };
-		B0000000000000000000015C /* AgentDeskClient.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AgentDeskClient.entitlements; sourceTree = "<group>"; };
 		B00000000000000000000117 /* InputChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannel.swift; sourceTree = "<group>"; };
 		B00000000000000000000118 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B00000000000000000000125 /* ThumbnailStripViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailStripViewTests.swift; sourceTree = "<group>"; };
@@ -158,7 +154,6 @@
 				B00000000000000000000103 /* Config.swift */,
 				B00000000000000000000104 /* DeviceSigningKeyStore.swift */,
 				B00000000000000000000105 /* KeychainStore.swift */,
-				B0000000000000000000015B /* ICloudPairingDocument.swift */,
 				B00000000000000000000106 /* PairingClient.swift */,
 				B00000000000000000000107 /* PairingViewController.swift */,
 				B00000000000000000000108 /* SceneDelegate.swift */,
@@ -186,7 +181,6 @@
 				B000000000000000000009C2 /* CursorImageStore.swift */,
 				B0000000000000000000012D /* PairingViewController+Gestures.swift */,
 				B00000000000000000000118 /* Assets.xcassets */,
-				B0000000000000000000015C /* AgentDeskClient.entitlements */,
 				B0000000000000000000010A /* Info.plist */,
 			);
 			path = AgentDeskClient;
@@ -340,7 +334,6 @@
 				B000000000000000000009A1 /* CursorPointerView.swift in Sources */,
 				B000000000000000000009C1 /* CursorImageStore.swift in Sources */,
 				B0000000000000000000021E /* PairingViewController+Gestures.swift in Sources */,
-				B00000000000000000000230 /* ICloudPairingDocument.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -373,7 +366,6 @@
 				B0000000000000000000022F5 /* SpaceAgentLabelResolver.swift in Sources */,
 				B0000000000000000000022F4 /* EdgeFollow.swift in Sources */,
 				B0000000000000000000022E3 /* EdgeFollowTests.swift in Sources */,
-				B00000000000000000000231 /* ICloudPairingDocument.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -497,7 +489,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CODE_SIGN_ENTITLEMENTS = AgentDeskClient/AgentDeskClient.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = TEAMID0000;
@@ -523,7 +514,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CODE_SIGN_ENTITLEMENTS = AgentDeskClient/AgentDeskClient.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = TEAMID0000;

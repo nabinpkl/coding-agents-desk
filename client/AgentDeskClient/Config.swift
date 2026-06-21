@@ -6,14 +6,6 @@ enum Config {
     static let keychainService = "com.example.agentdesk.AgentDeskClient"
     static let keychainAccessGroup: String? = nil
     static let storedPairingAccount = "session-token"
-    static let iCloudPairingContainerIdentifier = string(
-        environmentKey: "AGENTDESK_ICLOUD_PAIRING_CONTAINER_ID",
-        defaultValue: "iCloud.com.example.agentdesk.AgentDesk"
-    )
-    static let iCloudPairingRelativePath = string(
-        environmentKey: "AGENTDESK_ICLOUD_PAIRING_PATH",
-        defaultValue: "AgentDesk/pairing/latest.json"
-    )
     static let ownedMediaRepairDeadlineMs = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_REPAIR_DEADLINE_MS",
         defaultValue: 50
@@ -47,15 +39,6 @@ enum Config {
             return defaultValue
         }
         return value
-    }
-
-    static func string(environmentKey: String, defaultValue: String) -> String {
-        guard let raw = ProcessInfo.processInfo.environment[environmentKey],
-              !raw.isEmpty
-        else {
-            return defaultValue
-        }
-        return raw
     }
 
     static func graphicsPort(environment: [String: String]) -> UInt16 {

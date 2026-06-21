@@ -61,4 +61,3 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0014 | QUIC datagram owned media | superseded by ADR-0015 | 2026-06-18 |
 | ADR-0015 | Owned single-surface media | superseded by ADR-0016 | 2026-06-19 |
 | ADR-0016 | Scroll-first hybrid retained graphics | accepted | 2026-06-20 |
-| ADR-0017 | iCloud Documents pairing handoff for TestFlight clients | accepted | 2026-06-21 |

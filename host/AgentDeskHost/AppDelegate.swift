@@ -83,18 +83,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private let popoverController = PopoverViewController()
     private let pairing = Pairing()
-    private let iCloudPairingPublisher = ICloudPairingPublisher(
-        containerIdentifier: Config.iCloudPairingContainerIdentifier,
-        relativePath: Config.iCloudPairingRelativePath,
-        ttl: Config.iCloudPairingTTL
-    )
-    // iCloud container resolution and document I/O can block for seconds while
-    // the ubiquity container provisions. Keep all of it off the main thread, and
-    // on one serial queue so publish, clear, and post-approval cleanup cannot race.
-    private let iCloudPairingQueue = DispatchQueue(
-        label: "\(Config.launchAgentLabel).icloud-pairing",
-        qos: .utility
-    )
     private let launchAgentLogger = Logger(subsystem: Config.launchAgentLabel, category: "launchAgent")
     private let signalingLogger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private var signalingServer: PairingSignalingServer?
@@ -142,7 +130,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
     private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()
     private var pairingSignalSource: DispatchSourceSignal?
-    private var clearICloudPairingSignalSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -153,7 +140,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bootstrapTLSIdentity()
         startSignalingServer()
         installPairingSignalHandler()
-        installClearICloudPairingSignalHandler()
         refreshConnectedState()
         installSpacesSwitchHandler()
         installSpacesChangeObserver()
@@ -205,33 +191,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         source.resume()
         pairingSignalSource = source
-    }
-
-    // SIGUSR2 clears the iCloud pairing document without touching the local
-    // allowlist. It gives Justfile a non-GUI cleanup path while keeping iCloud
-    // access inside the entitled host app.
-    private func installClearICloudPairingSignalHandler() {
-        signal(SIGUSR2, SIG_IGN)
-        let source = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
-        source.setEventHandler { [weak self] in
-            self?.signalingLogger.notice("SIGUSR2 received; clearing iCloud pairing")
-            self?.clearICloudPairingDocument()
-        }
-        source.resume()
-        clearICloudPairingSignalSource = source
-    }
-
-    private func clearICloudPairingDocument() {
-        iCloudPairingQueue.async { [iCloudPairingPublisher, signalingLogger] in
-            do {
-                try iCloudPairingPublisher.clear()
-                try? "cleared\n".write(to: Config.devLastICloudPairingStatusPath, atomically: true, encoding: .utf8)
-                signalingLogger.notice("iCloud pairing document cleared")
-            } catch {
-                try? "clear-failed\n".write(to: Config.devLastICloudPairingStatusPath, atomically: true, encoding: .utf8)
-                signalingLogger.error("iCloud pairing clear failed: \(String(describing: error), privacy: .public)")
-            }
-        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -380,18 +339,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         deviceFingerprint: request.deviceFingerprint,
                         sessionId: request.sessionId
                     ))
-                }
-            },
-            pairingApprovedHandler: { [weak self] nonce in
-                guard let self else { return }
-                self.iCloudPairingQueue.async { [iCloudPairingPublisher = self.iCloudPairingPublisher, signalingLogger = self.signalingLogger] in
-                    do {
-                        try iCloudPairingPublisher.clearIfMatches(oneTimeNonce: nonce)
-                        try? "cleared-after-approval\n".write(to: Config.devLastICloudPairingStatusPath, atomically: true, encoding: .utf8)
-                        signalingLogger.notice("iCloud pairing document cleared after approval")
-                    } catch {
-                        signalingLogger.error("iCloud pairing cleanup failed: \(String(describing: error), privacy: .public)")
-                    }
                 }
             }
         )
@@ -740,16 +687,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let url = try payload.pairingURL()
             signalingLogger.notice("pairing URL minted: \(url.absoluteString, privacy: .public)")
             try? url.absoluteString.write(to: Config.devLastPairURLPath, atomically: true, encoding: .utf8)
-            iCloudPairingQueue.async { [iCloudPairingPublisher, signalingLogger] in
-                do {
-                    _ = try iCloudPairingPublisher.publish(pairingURL: url)
-                    try? "published\n".write(to: Config.devLastICloudPairingStatusPath, atomically: true, encoding: .utf8)
-                    signalingLogger.notice("iCloud pairing document published")
-                } catch {
-                    try? "publish-failed\n".write(to: Config.devLastICloudPairingStatusPath, atomically: true, encoding: .utf8)
-                    signalingLogger.error("iCloud pairing publish failed: \(String(describing: error), privacy: .public)")
-                }
-            }
             applyIcon(.pairing)
             popoverController.render(.pairing(url, QRCodeRenderer.image(for: url)))
         } catch is TailscaleRequiredError {

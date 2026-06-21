@@ -13,7 +13,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     let pairingClient = PairingClient()
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
-    private let iCloudPairingButton = UIButton(type: .system)
     private let forgetButton = UIButton(type: .system)
     var captureSession: AVCaptureSession?
     var previewLayer: AVCaptureVideoPreviewLayer?
@@ -380,10 +379,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         actionButton.addTarget(self, action: #selector(startScanning), for: .touchUpInside)
         actionButton.translatesAutoresizingMaskIntoConstraints = false
 
-        iCloudPairingButton.setTitle("Use iCloud Pairing", for: .normal)
-        iCloudPairingButton.addTarget(self, action: #selector(useICloudPairing), for: .touchUpInside)
-        iCloudPairingButton.translatesAutoresizingMaskIntoConstraints = false
-
         forgetButton.setTitle("Forget host", for: .normal)
         forgetButton.setTitleColor(.systemRed, for: .normal)
         forgetButton.addTarget(self, action: #selector(forgetHost), for: .touchUpInside)
@@ -406,7 +401,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
         view.addSubview(statusLabel)
         view.addSubview(actionButton)
-        view.addSubview(iCloudPairingButton)
         view.addSubview(forgetButton)
         view.addSubview(agentSayBanner)
 
@@ -416,9 +410,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             statusLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -24),
             actionButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 18),
             actionButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            iCloudPairingButton.topAnchor.constraint(equalTo: actionButton.bottomAnchor, constant: 12),
-            iCloudPairingButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            forgetButton.topAnchor.constraint(equalTo: iCloudPairingButton.bottomAnchor, constant: 12),
+            forgetButton.topAnchor.constraint(equalTo: actionButton.bottomAnchor, constant: 12),
             forgetButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             agentSayBanner.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
             agentSayBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
@@ -437,13 +429,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     func render() {
         forgetButton.isHidden = true
-        iCloudPairingButton.isHidden = true
         statusLabel.isHidden = false
         switch pairingClient.state {
         case .unpaired:
             statusLabel.text = "AgentDesk"
             actionButton.isHidden = false
-            iCloudPairingButton.isHidden = false
         case .scanning:
             statusLabel.text = "Scanning"
             actionButton.isHidden = true
@@ -475,13 +465,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         case .revoked:
             statusLabel.text = "Revoked by host"
             actionButton.isHidden = false
-            iCloudPairingButton.isHidden = false
             forgetButton.isHidden = false
             stopCamera()
         case .rejected(let reason):
             statusLabel.text = "Pairing rejected: \(reason)"
             actionButton.isHidden = false
-            iCloudPairingButton.isHidden = false
             stopCamera()
         }
     }
@@ -526,38 +514,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         } catch {
             pairingClient.reject("\(error)")
             render()
-        }
-    }
-
-    @objc private func useICloudPairing() {
-        // Resolving the ubiquity container and reading the document is blocking
-        // I/O that can stall while iCloud provisions, so it must not run on the
-        // main thread. Read off-main, then route the result back for UI work.
-        let reader = ICloudPairingReader(
-            containerIdentifier: Config.iCloudPairingContainerIdentifier,
-            relativePath: Config.iCloudPairingRelativePath
-        )
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = Result { try reader.readPairingURL() }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                switch result {
-                case let .success(url):
-                    self.handleIncomingPairingURL(url)
-                case .failure(ICloudPairingReaderError.iCloudUnavailable):
-                    self.pairingClient.reject("iCloud unavailable")
-                    self.render()
-                case .failure(ICloudPairingReaderError.noPairingFile):
-                    self.pairingClient.reject("No iCloud pairing file")
-                    self.render()
-                case .failure(ICloudPairingReaderError.expired):
-                    self.pairingClient.reject("iCloud pairing expired")
-                    self.render()
-                case .failure:
-                    self.pairingClient.reject("Malformed iCloud pairing")
-                    self.render()
-                }
-            }
         }
     }
 
