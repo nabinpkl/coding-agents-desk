@@ -3,7 +3,7 @@ import Foundation
 
 enum HostPairingViewState {
     case idle
-    case pairing(URL, NSImage?, String?)
+    case pairing(URL, NSImage?)
     case pairedNoActiveSession(PairedDeviceRecord)
     case connecting(PairedDeviceRecord)
     case connected(PairedDeviceRecord)
@@ -47,7 +47,7 @@ final class PopoverViewController: NSViewController {
             label("AgentDesk Host", font: .boldSystemFont(ofSize: 16))
             label("No paired device", font: .systemFont(ofSize: 13))
             button(title: "Pair iPhone", action: #selector(startPairing))
-        case .pairing(let url, let image, let code):
+        case .pairing(let url, let image):
             label("Scan to pair", font: .boldSystemFont(ofSize: 16))
             if let image {
                 let imageView = NSImageView(image: image)
@@ -58,10 +58,6 @@ final class PopoverViewController: NSViewController {
                     imageView.widthAnchor.constraint(equalToConstant: 220),
                     imageView.heightAnchor.constraint(equalToConstant: 220)
                 ])
-            }
-            if let code {
-                label("or enter this code on iPhone", font: .systemFont(ofSize: 12))
-                label(code, font: .monospacedSystemFont(ofSize: 16, weight: .semibold))
             }
             label("\(url.absoluteString.utf8.count) bytes", font: .monospacedSystemFont(ofSize: 11, weight: .regular))
         case .pairedNoActiveSession(let record):

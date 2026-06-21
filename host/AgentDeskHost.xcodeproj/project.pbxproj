@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		A00000000000000000000201 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000101 /* AppDelegate.swift */; };
 		A00000000000000000000202 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* Base64URL.swift */; };
-		A00000000000000000000322 /* LocatorCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000321 /* LocatorCode.swift */; };
 		A00000000000000000000203 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Config.swift */; };
 		A00000000000000000000204 /* HostSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HostSigningKeyStore.swift */; };
 		A00000000000000000000205 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000105 /* KeychainStore.swift */; };
@@ -51,9 +50,7 @@
 		A00000000000000000000232 /* KeyCodeMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011E /* KeyCodeMap.swift */; };
 		A0000000000000000000022D /* SignalingFrameRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000116 /* SignalingFrameRouting.swift */; };
 		A0000000000000000000022E /* SignalingFrameRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000124 /* SignalingFrameRoutingTests.swift */; };
-		A00000000000000000000332 /* LocatorCodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000331 /* LocatorCodeTests.swift */; };
 		A00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* Base64URL.swift */; };
-		A00000000000000000000323 /* LocatorCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000321 /* LocatorCode.swift */; };
 		A00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Config.swift */; };
 		A00000000000000000000223 /* HostSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HostSigningKeyStore.swift */; };
 		A00000000000000000000224 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000105 /* KeychainStore.swift */; };
@@ -131,7 +128,6 @@
 /* Begin PBXFileReference section */
 		A00000000000000000000101 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A00000000000000000000102 /* Base64URL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Base64URL.swift; sourceTree = "<group>"; };
-		A00000000000000000000321 /* LocatorCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocatorCode.swift; sourceTree = "<group>"; };
 		A00000000000000000000103 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		A00000000000000000000104 /* HostSigningKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSigningKeyStore.swift; sourceTree = "<group>"; };
 		A00000000000000000000105 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
@@ -174,7 +170,6 @@
 		A000000000000000000009B0 /* CursorMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorMonitorTests.swift; sourceTree = "<group>"; };
 		A000000000000000000009D0 /* ScrollQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollQualityTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000124 /* SignalingFrameRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingFrameRoutingTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000331 /* LocatorCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocatorCodeTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000125 /* InputDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcherTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000122 /* LaunchAgentInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstallerTests.swift; sourceTree = "<group>"; };
@@ -253,7 +248,6 @@
 				A00000000000000000000101 /* AppDelegate.swift */,
 				A00000000000000000000134 /* AgentDeskHost.entitlements */,
 				A00000000000000000000102 /* Base64URL.swift */,
-				A00000000000000000000321 /* LocatorCode.swift */,
 				A00000000000000000000103 /* Config.swift */,
 				A0000000000000000000012E /* WAVEncoder.swift */,
 				A0000000000000000000012F /* MicRecorder.swift */,
@@ -340,7 +334,6 @@
 				A00000000000000000000122 /* LaunchAgentInstallerTests.swift */,
 				A00000000000000000000123 /* SessionAuthenticatorTests.swift */,
 				A00000000000000000000124 /* SignalingFrameRoutingTests.swift */,
-				A00000000000000000000331 /* LocatorCodeTests.swift */,
 				A00000000000000000000125 /* InputDispatcherTests.swift */,
 				A00000000000000000000153 /* GestureChildControllerTests.swift */,
 				A00000000000000000000157 /* JsonlChildProcessTests.swift */,
@@ -464,7 +457,6 @@
 			files = (
 				A00000000000000000000201 /* AppDelegate.swift in Sources */,
 				A00000000000000000000202 /* Base64URL.swift in Sources */,
-				A00000000000000000000322 /* LocatorCode.swift in Sources */,
 				A00000000000000000000203 /* Config.swift in Sources */,
 				A00000000000000000000204 /* HostSigningKeyStore.swift in Sources */,
 				A00000000000000000000205 /* KeychainStore.swift in Sources */,
@@ -524,7 +516,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				A00000000000000000000221 /* Base64URL.swift in Sources */,
-				A00000000000000000000323 /* LocatorCode.swift in Sources */,
 				A00000000000000000000222 /* Config.swift in Sources */,
 				A00000000000000000000223 /* HostSigningKeyStore.swift in Sources */,
 				A00000000000000000000224 /* KeychainStore.swift in Sources */,
@@ -552,7 +543,6 @@
 				A0000000000000000000025F /* VoiceChildController.swift in Sources */,
 				A0000000000000000000022D /* SignalingFrameRouting.swift in Sources */,
 				A0000000000000000000022E /* SignalingFrameRoutingTests.swift in Sources */,
-				A00000000000000000000332 /* LocatorCodeTests.swift in Sources */,
 				A0000000000000000000022F /* InputDispatcher.swift in Sources */,
 				A00000000000000000000230 /* InputDispatcherTests.swift in Sources */,
 				A00000000000000000000259 /* GestureChildControllerTests.swift in Sources */,

@@ -154,22 +154,6 @@ This scope opens only after R40 proves scroll-first retained graphics works or i
 
 ---
 
-## v0 Phase: code pairing for remote/TestFlight clients
-
-Phase goal: let a remote iPhone pair by typing a short code, with no QR, no Mac-side launch, and no Apple capability. Replaces the reverted iCloud handoff. Decisions in ADR-0018. Independent of the retained-scroll work above; shares the worktree only.
-
-- [x] R53.1. Revert the iCloud pairing handoff (commit) and clean the worktree `.env`, restoring a green clean base.
-- [x] R53.2. Add the shared `LocatorCode` codec (`host/.../LocatorCode.swift`, `client/.../LocatorCode.swift`, byte-identical): pack 22-bit CGNAT host part + 30-bit fetch token into 12 Crockford base32 chars with a check symbol; `formatted()` rejects non-CGNAT, `decode` rejects length/checksum/invalid-char and normalizes case + I/L/O. Wire both into app and test targets.
-- [x] R53.3. Host: add fetch-token store to `Pairing` (`mintLocatorPairing`, one-use TTL `consumeFetchToken`, per-minute rate limit), a `payload-fetch` first frame (router case + `PairingPayloadFetchRequest/Response` + handler returning the signed payload only on a valid token), and `Config` knobs `fetchTokenTTL`/`fetchRatePerMin`.
-- [x] R53.4. Client: `PairingClient.acceptLocatorCode` + `fetchPayload` (dial `wss://<ipv4>:port/pair`, pull the payload, route into the unchanged `performHandshake`), and `resolvedHostForLocator`.
-- [x] R53.5. UI: host popover shows the code under the QR; client replaces the removed iCloud button with an "Enter code" action and `handleLocatorCode`.
-- [x] R53.6. Tests: `LocatorCodeTests` (round-trip, CGNAT rejection, length/checksum/invalid-char, normalization, parity string) both targets; `PairingTests` (retain+consume-once, TTL expiry, rate limit); `payload-fetch` routing; client decode + malformed + parity. Green host signing-disabled and client simulator.
-- [x] R53.7. Production CGNAT-only `URLSessionDelegate` so the IP-literal fetch is trusted (FQDN dials keep default validation), leaning on the signed payload anchor.
-- [x] R53.8. Docs: ADR-0018, `.env.example` knobs, `just print-pair-code`.
-- [ ] R53.9. Acceptance (physical, HITL): iPhone + Mac on one tailnet; read the code from the menu-bar popover, type it on the phone (no QR, no launch), approve on the Mac, reach a live session. Exercises the production CGNAT TLS path.
-
----
-
 ## Promotion log
 
 ```
@@ -197,7 +181,4 @@ R46       pending     pending     physical comparison for sustained ownership
 D47-D49   2026-06-21  committed   active graphics channel identity, reset ACK state machine, and HEVC fallback valve
 D50       2026-06-21  committed   diagnostics summary and freeze fixture updated for reset and HEVC recovery
 R51       pending     pending     physical comparison for graphics reset and HEVC fallback freeze fix
-R53.1     2026-06-21  committed   reverted iCloud pairing handoff; clean base restored
-R53.2-R53.8 2026-06-21  committed   locator-code pairing: codec, host fetch-token store and payload-fetch frame, client enter-code path, CGNAT TLS trust, tests, ADR-0018, docs
-R53.9     pending     pending     physical TestFlight code-pairing acceptance
 ```

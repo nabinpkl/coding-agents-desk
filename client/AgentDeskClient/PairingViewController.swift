@@ -13,7 +13,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     let pairingClient = PairingClient()
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
-    private let enterCodeButton = UIButton(type: .system)
     private let forgetButton = UIButton(type: .system)
     var captureSession: AVCaptureSession?
     var previewLayer: AVCaptureVideoPreviewLayer?
@@ -380,11 +379,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         actionButton.addTarget(self, action: #selector(startScanning), for: .touchUpInside)
         actionButton.translatesAutoresizingMaskIntoConstraints = false
 
-        enterCodeButton.setTitle("Enter code", for: .normal)
-        enterCodeButton.addTarget(self, action: #selector(enterCode), for: .touchUpInside)
-        enterCodeButton.translatesAutoresizingMaskIntoConstraints = false
-        enterCodeButton.isHidden = true
-
         forgetButton.setTitle("Forget host", for: .normal)
         forgetButton.setTitleColor(.systemRed, for: .normal)
         forgetButton.addTarget(self, action: #selector(forgetHost), for: .touchUpInside)
@@ -407,7 +401,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
         view.addSubview(statusLabel)
         view.addSubview(actionButton)
-        view.addSubview(enterCodeButton)
         view.addSubview(forgetButton)
         view.addSubview(agentSayBanner)
 
@@ -417,9 +410,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             statusLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -24),
             actionButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 18),
             actionButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            enterCodeButton.topAnchor.constraint(equalTo: actionButton.bottomAnchor, constant: 12),
-            enterCodeButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            forgetButton.topAnchor.constraint(equalTo: enterCodeButton.bottomAnchor, constant: 12),
+            forgetButton.topAnchor.constraint(equalTo: actionButton.bottomAnchor, constant: 12),
             forgetButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             agentSayBanner.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
             agentSayBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
@@ -481,8 +472,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             actionButton.isHidden = false
             stopCamera()
         }
-        // The code-entry affordance lives wherever scan-to-pair does.
-        enterCodeButton.isHidden = actionButton.isHidden
     }
 
     func handleIncomingPairingURL(_ url: URL) {
@@ -505,60 +494,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             handshakeTask = Task { @MainActor [weak self] in
                 do {
                     try await self?.pairingClient.performHandshake(for: payload)
-                } catch {
-                    self?.pairingClient.reject("\(error)")
-                }
-                self?.render()
-                self?.triggerSessionIfPaired()
-            }
-        } catch {
-            pairingClient.reject("\(error)")
-            render()
-        }
-    }
-
-    @objc private func enterCode() {
-        let alert = UIAlertController(
-            title: "Enter pairing code",
-            message: "Type the code shown on your Mac.",
-            preferredStyle: .alert
-        )
-        alert.addTextField { field in
-            field.placeholder = "XXXX-XXXX-XXXX"
-            field.autocapitalizationType = .allCharacters
-            field.autocorrectionType = .no
-            field.returnKeyType = .done
-        }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Pair", style: .default) { [weak self, weak alert] _ in
-            guard let self, let raw = alert?.textFields?.first?.text else { return }
-            self.handleLocatorCode(raw)
-        })
-        present(alert, animated: true)
-    }
-
-    // ADR-0018 code pairing: decode the typed locator code, fetch the signed
-    // payload over the tailnet, then run the same handshake the QR path uses.
-    func handleLocatorCode(_ raw: String) {
-        sessionTask?.cancel()
-        handshakeTask?.cancel()
-        stopCamera()
-        pairingClient.clearStoredCredentials()
-        do {
-            try pairingClient.startScanning()
-        } catch {
-            pairingClient.reject("\(error)")
-            render()
-            return
-        }
-        do {
-            let code = try pairingClient.acceptLocatorCode(raw)
-            render()
-            handshakeTask = Task { @MainActor [weak self] in
-                do {
-                    guard let self else { return }
-                    let payload = try await self.pairingClient.fetchPayload(for: code)
-                    try await self.pairingClient.performHandshake(for: payload)
                 } catch {
                     self?.pairingClient.reject("\(error)")
                 }

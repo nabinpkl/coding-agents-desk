@@ -96,54 +96,6 @@ enum PairingPayloadError: Error {
     case missingPayload
 }
 
-// ADR-0018 code pairing. First frame on a signaling connection: a remote
-// client that decoded a locator code presents the fetch token to pull the
-// signed PairingPayload over the tailnet. Single request/response, then close.
-struct PairingPayloadFetchRequest: Codable {
-    let type: String
-    let fetchToken: Data
-
-    enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case fetchToken = "f"
-    }
-
-    init(fetchToken: Data) {
-        self.type = "payload-fetch"
-        self.fetchToken = fetchToken
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        type = try container.decode(String.self, forKey: .type)
-        fetchToken = try Data(base64URLEncoded: container.decode(String.self, forKey: .fetchToken))
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(type, forKey: .type)
-        try container.encode(fetchToken.base64URLEncodedString(), forKey: .fetchToken)
-    }
-}
-
-struct PairingPayloadFetchResponse: Codable {
-    let type: String
-    let payload: PairingPayload?
-    let error: String?
-
-    enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case payload = "p"
-        case error = "e"
-    }
-
-    init(payload: PairingPayload?, error: String?) {
-        self.type = payload != nil ? "ok" : "rejected"
-        self.payload = payload
-        self.error = error
-    }
-}
-
 struct SessionToken: Codable, Equatable {
     let hostFingerprint: String
     let deviceFingerprint: DeviceFingerprint

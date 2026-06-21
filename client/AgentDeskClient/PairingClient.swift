@@ -106,15 +106,7 @@ final class PairingClient {
             delegateQueue: nil
         )
         #else
-        // Production: trust the server cert when dialing a Tailscale CGNAT
-        // literal, since the locator-code fetch and the ipv4 fallback reach the
-        // host by IP where the FQDN cert fails hostname validation. FQDN dials
-        // still get default validation. See CGNATServerTrustDelegate.
-        return URLSession(
-            configuration: configuration,
-            delegate: CGNATServerTrustDelegate(),
-            delegateQueue: nil
-        )
+        return URLSession(configuration: configuration)
         #endif
     }
 
@@ -140,59 +132,6 @@ final class PairingClient {
             throw PairingClientError.malformedURL
         }
         let payload = try PairingPayload.decode(fromPairingURL: url)
-        state = .pairing(payload)
-        return payload
-    }
-
-    // ADR-0018 code pairing: decode a typed locator code into its tailnet IPv4
-    // and fetch token. State stays .scanning; fetchPayload advances it.
-    func acceptLocatorCode(_ raw: String) throws -> LocatorCode {
-        guard state == .scanning else {
-            throw PairingClientError.invalidState
-        }
-        do {
-            return try LocatorCode.decode(raw)
-        } catch {
-            state = .rejected("malformed-code")
-            throw error
-        }
-    }
-
-    // ADR-0018 code pairing: pull the signed payload from the host over the
-    // tailnet using the fetch token, then hand off to the unchanged
-    // performHandshake flow. Trust rests on the payload signature + host
-    // approval, not on TLS hostname validation of the CGNAT literal.
-    func fetchPayload(for code: LocatorCode) async throws -> PairingPayload {
-        let host = resolvedHostForLocator(ipv4: code.tailnetIPv4)
-        guard let url = URL(string: "wss://\(host):\(Config.signalingPort)/pair") else {
-            throw PairingClientError.malformedURL
-        }
-        let task = urlSession.webSocketTask(with: url)
-        task.resume()
-        let request = PairingPayloadFetchRequest(fetchToken: code.fetchToken)
-        let data = try JSONEncoder().encode(request)
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw PairingClientError.malformedURL
-        }
-        try await task.send(.string(text))
-        let message = try await task.receive()
-        task.cancel(with: .normalClosure, reason: nil)
-
-        let responseData: Data
-        switch message {
-        case .data(let data):
-            responseData = data
-        case .string(let string):
-            responseData = Data(string.utf8)
-        @unknown default:
-            throw PairingClientError.websocketRejected("unknown-response")
-        }
-
-        let response = try JSONDecoder().decode(PairingPayloadFetchResponse.self, from: responseData)
-        guard response.type == "ok", let payload = response.payload else {
-            state = .rejected(response.error ?? "fetch-rejected")
-            throw PairingClientError.websocketRejected(response.error ?? "fetch-rejected")
-        }
         state = .pairing(payload)
         return payload
     }
@@ -519,23 +458,6 @@ final class PairingClient {
         return ipv4
     }
 
-    // ADR-0018: a locator code carries only the tailnet IPv4 (no FQDN), so dial
-    // the literal directly. The simulator has no Tailscale, so honor the dev
-    // host override there, matching resolvedHost(fqdn:ipv4:).
-    func resolvedHostForLocator(ipv4: String) -> String {
-        #if targetEnvironment(simulator)
-        if let override = ProcessInfo.processInfo.environment["AGENTDESK_DEV_HOST_OVERRIDE"],
-           !override.isEmpty {
-            return override
-        }
-        if let stored = UserDefaults.standard.string(forKey: "agentDesk.dev.hostOverride"),
-           !stored.isEmpty {
-            return stored
-        }
-        #endif
-        return ipv4
-    }
-
     static func verify(token: SessionToken, hostPublicKey: Data) -> Bool {
         do {
             let publicKey = try P256.Signing.PublicKey(x963Representation: hostPublicKey)
@@ -586,39 +508,6 @@ final class PermissiveURLSessionDelegate: NSObject, URLSessionDelegate, @uncheck
         } else {
             completionHandler(.performDefaultHandling, nil)
         }
-    }
-}
-#else
-// Production: trust the server cert only when the connection host is a
-// Tailscale CGNAT literal (100.64.0.0/10). The locator-code fetch and the
-// ipv4 fallback dial the host by IP, where the FQDN-issued cert fails
-// hostname validation; Tailscale authenticates the peer at L3 and the signed
-// payload plus host approval are the trust anchors (ADR-0003, ADR-0018).
-// FQDN connections fall through to default validation.
-final class CGNATServerTrustDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
-    func urlSession(
-        _ session: URLSession,
-        didReceive challenge: URLAuthenticationChallenge,
-        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
-    ) {
-        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-           let trust = challenge.protectionSpace.serverTrust,
-           Self.isCGNAT(challenge.protectionSpace.host) {
-            completionHandler(.useCredential, URLCredential(trust: trust))
-        } else {
-            completionHandler(.performDefaultHandling, nil)
-        }
-    }
-
-    static func isCGNAT(_ host: String) -> Bool {
-        let parts = host.split(separator: ".")
-        guard parts.count == 4 else { return false }
-        var address: UInt32 = 0
-        for part in parts {
-            guard let octet = UInt8(part) else { return false }
-            address = (address << 8) | UInt32(octet)
-        }
-        return address & 0xFFC0_0000 == 0x6440_0000
     }
 }
 #endif
