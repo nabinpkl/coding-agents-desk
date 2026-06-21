@@ -392,6 +392,7 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
 
 final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private static let scrollHintFallbackGraceMs = 120
+    private static let resetStripeAckPollNs: UInt64 = 10_000_000
 
     static let mediaDatagramALPN = OwnedQuicListenerConfigurations.mediaDatagramALPN
     let connectionState: AsyncStream<MediaConnectionState>
@@ -777,8 +778,15 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         diagnostics: OwnedMediaHostDiagnostics
     ) async {
         var cadenceScheduler = OwnedMediaCadenceScheduler()
-        var scrollDeltaEngine = ScrollDeltaEngine()
+        var scrollDeltaEngine = ScrollDeltaEngine(
+            maxDecodedResetStripePayloadBytes: Config.hybridResetStripeMaxDecodedBytes
+        )
         var scrollHevcAdmission = HybridScrollHEVCAdmission()
+        var scrollCopyOwnership = ScrollCopyOwnership(config: ScrollCopyOwnershipConfig(
+            ownershipTTLMs: Config.hybridScrollOwnershipMs,
+            fallbackAfterMs: Config.hybridScrollFallbackAfterMs,
+            maxMisses: Config.hybridScrollOwnershipMaxMisses
+        ))
         var scrollIdleRefreshWakeTask: Task<Void, Never>?
         defer { scrollIdleRefreshWakeTask?.cancel() }
         for await _ in mailbox.stream {
@@ -840,8 +848,19 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     try? await Task.sleep(nanoseconds: intervalNs)
                     continue
                 }
-                let scrollHint = scrollActivityHintProvider()
-                let graphics = scrollDeltaEngine.evaluate(frame, scrollHint: scrollHint)
+                let nowBeforeProbe = DispatchTime.now().uptimeNanoseconds
+                if scrollCopyOwnership.releaseIfExpired(nowUptimeNs: nowBeforeProbe) {
+                    logger.notice("owned graphics scroll-ownership ownership=released reason=idle")
+                }
+                let inputScrollHint = scrollActivityHintProvider()
+                scrollCopyOwnership.observeInputHint(inputScrollHint)
+                let scrollHint = scrollCopyOwnership.hint(nowUptimeNs: nowBeforeProbe)
+                let allowBlindScan = scrollHint == nil
+                let graphics = scrollDeltaEngine.evaluate(
+                    frame,
+                    scrollHint: scrollHint,
+                    allowBlindScan: allowBlindScan
+                )
                 switch graphics.kind {
                 case .accepted:
                     if let envelope = graphics.envelope {
@@ -850,6 +869,21 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                             noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
                             scrollDeltaEngine.commitPendingSurface()
                             let nowNs = DispatchTime.now().uptimeNanoseconds
+                            if let scrollDiagnostics = graphics.diagnostics,
+                               let ownershipUpdate = Self.scrollOwnershipUpdate(
+                                diagnostics: scrollDiagnostics,
+                                frameId: envelope.header.frameId,
+                                nowUptimeNs: nowNs
+                               ) {
+                                scrollCopyOwnership.observeAccepted(
+                                    axis: ownershipUpdate.axis,
+                                    sign: ownershipUpdate.sign,
+                                    offsetPx: ownershipUpdate.offsetPx,
+                                    frameId: ownershipUpdate.frameId,
+                                    nowUptimeNs: ownershipUpdate.nowUptimeNs
+                                )
+                                logger.notice("owned graphics scroll-ownership ownership=accepted frame=\(ownershipUpdate.frameId, privacy: .public) axis=\(ownershipUpdate.axis.rawValue, privacy: .public) offset=\(ownershipUpdate.offsetPx, privacy: .public) ttlMs=\(Config.hybridScrollOwnershipMs, privacy: .public)")
+                            }
                             scrollHevcAdmission.noteAcceptedScroll(nowUptimeNs: nowNs)
                             scrollIdleRefreshWakeTask?.cancel()
                             scrollIdleRefreshWakeTask = Task { [mailbox] in
@@ -857,7 +891,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                                 _ = mailbox.wakeWithLatestFrame()
                             }
                             if let scrollDiagnostics = graphics.diagnostics {
-                                logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) dx=\(scrollDiagnostics.acceptedDx ?? 0, privacy: .public) dy=\(scrollDiagnostics.acceptedDy ?? 0, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) acceptedBy=\(scrollDiagnostics.acceptedBy ?? "unknown", privacy: .public) tieBreak=\(scrollDiagnostics.tieBreak ?? "none", privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) payloadBuildMs=\(scrollDiagnostics.payloadBuildMs ?? 0, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                                logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) dx=\(scrollDiagnostics.acceptedDx ?? 0, privacy: .public) dy=\(scrollDiagnostics.acceptedDy ?? 0, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) acceptedBy=\(scrollDiagnostics.acceptedBy ?? "unknown", privacy: .public) tieBreak=\(scrollDiagnostics.tieBreak ?? "none", privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) payloadBuildMs=\(scrollDiagnostics.payloadBuildMs ?? 0, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
                             } else {
                                 logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
                             }
@@ -880,14 +914,31 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                         }
                     }
                 case .reset:
-                    if let envelope = graphics.envelope {
+                    let envelopes = graphics.envelopes.isEmpty
+                        ? graphics.envelope.map { [$0] } ?? []
+                        : graphics.envelopes
+                    if !envelopes.isEmpty {
                         do {
-                            let encodedBytes = try await graphicsChannel.send(envelope)
-                            noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
+                            for (index, envelope) in envelopes.enumerated() {
+                                let encodedBytes = try await graphicsChannel.send(envelope)
+                                noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
+                                logger.notice("owned graphics reset stripe sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) stripe=\(index + 1, privacy: .public) stripes=\(envelopes.count, privacy: .public) commands=\(envelope.commands.count, privacy: .public) bytes=\(envelope.payload.count, privacy: .public) maxDecodedBytes=\(Config.hybridResetStripeMaxDecodedBytes, privacy: .public)")
+                                let acked = await waitForGraphicsAck(
+                                    updateId: envelope.header.updateId,
+                                    timeoutMs: Config.hybridResetStripeAckTimeoutMs
+                                )
+                                if !acked {
+                                    logger.error("owned graphics reset-stripe-ack-timeout frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) timeoutMs=\(Config.hybridResetStripeAckTimeoutMs, privacy: .public)")
+                                    graphicsChannel.close()
+                                    throw SessionRejected(reason: .unauthorized)
+                                }
+                            }
                             scrollDeltaEngine.commitPendingSurface()
                             clearPendingGraphicsResetRequest()
-                            logger.notice("owned graphics reset frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
-                            logger.notice("owned graphics reset sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public)")
+                            if let first = envelopes.first, let last = envelopes.last {
+                                logger.notice("owned graphics reset frame=\(first.header.frameId, privacy: .public) generation=\(first.header.surfaceGeneration, privacy: .public) stripes=\(envelopes.count, privacy: .public) lastFrame=\(last.header.frameId, privacy: .public)")
+                                logger.notice("owned graphics reset sent frame=\(last.header.frameId, privacy: .public) generation=\(last.header.surfaceGeneration, privacy: .public) stripes=\(envelopes.count, privacy: .public)")
+                            }
                         } catch {
                             logger.error("owned graphics reset send failed: \(String(describing: error), privacy: .public)")
                             hevcFallbackReason = .graphicsResetSendFailed
@@ -896,15 +947,29 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 case .timeout:
                     hevcFallbackReason = .scrollTimeout
                     if let scrollDiagnostics = graphics.diagnostics {
+                        if scrollHint != nil {
+                            scrollCopyOwnership.observeMiss(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
+                            logger.notice("owned graphics scroll-ownership ownership=miss source=\(scrollDiagnostics.hintSource ?? "unknown", privacy: .public) misses=\(scrollCopyOwnership.missCount, privacy: .public) fallbackAllowed=\(scrollCopyOwnership.allowsHevcFallback(nowUptimeNs: DispatchTime.now().uptimeNanoseconds), privacy: .public)")
+                        }
                         if scrollDiagnostics.hintActive {
-                            logger.notice("owned graphics scroll-hint-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
-                            if !scrollHevcAdmission.allowsHintTimeoutFallback(
-                                nowUptimeNs: DispatchTime.now().uptimeNanoseconds,
+                            logger.notice("owned graphics scroll-hint-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                            let nowNs = DispatchTime.now().uptimeNanoseconds
+                            let shouldSuppressForOwnership = !scrollCopyOwnership.allowsHevcFallback(nowUptimeNs: nowNs)
+                            let shouldSuppressForHintGrace = !scrollHevcAdmission.allowsHintTimeoutFallback(
+                                nowUptimeNs: nowNs,
                                 fallbackGraceMs: Self.scrollHintFallbackGraceMs
-                            ) {
-                                diagnostics.noteAdmissionHold(reason: "graphics-hint-timeout-suppressed-hevc", mode: currentAdmissionMode())
+                            )
+                            if shouldSuppressForOwnership || shouldSuppressForHintGrace {
+                                let reason = scrollDiagnostics.hintSource == ScrollActivityHintSource.scrollCopyOwnership.rawValue
+                                    ? "graphics-suppressed-by-ownership"
+                                    : "graphics-hint-timeout-suppressed-hevc"
+                                diagnostics.noteAdmissionHold(reason: reason, mode: currentAdmissionMode())
                                 continue
                             }
+                            if scrollDiagnostics.hintSource == ScrollActivityHintSource.scrollCopyOwnership.rawValue {
+                                logger.notice("owned graphics scroll-ownership ownership=released reason=hevc-fallback misses=\(scrollCopyOwnership.missCount, privacy: .public)")
+                            }
+                            scrollCopyOwnership.release()
                         } else {
                             logger.notice("owned graphics scroll-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
                         }
@@ -914,7 +979,22 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 case .rejected(let reason):
                     hevcFallbackReason = .rejectedMotion
                     if let scrollDiagnostics = graphics.diagnostics {
-                        logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                        if scrollHint != nil {
+                            scrollCopyOwnership.observeMiss(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
+                            logger.notice("owned graphics scroll-ownership ownership=miss source=\(scrollDiagnostics.hintSource ?? "unknown", privacy: .public) misses=\(scrollCopyOwnership.missCount, privacy: .public) fallbackAllowed=\(scrollCopyOwnership.allowsHevcFallback(nowUptimeNs: DispatchTime.now().uptimeNanoseconds), privacy: .public)")
+                        }
+                        logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                        if scrollDiagnostics.hintActive,
+                           !scrollCopyOwnership.allowsHevcFallback(nowUptimeNs: DispatchTime.now().uptimeNanoseconds) {
+                            diagnostics.noteAdmissionHold(reason: "graphics-suppressed-by-ownership", mode: currentAdmissionMode())
+                            continue
+                        }
+                        if scrollDiagnostics.hintActive {
+                            if scrollDiagnostics.hintSource == ScrollActivityHintSource.scrollCopyOwnership.rawValue {
+                                logger.notice("owned graphics scroll-ownership ownership=released reason=rejected-motion misses=\(scrollCopyOwnership.missCount, privacy: .public)")
+                            }
+                            scrollCopyOwnership.release()
+                        }
                     } else {
                         logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public)")
                     }
@@ -1019,6 +1099,49 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         let expectedAdmissionNs = lastAdmissionStartedAtUptimeNs &+ UInt64(max(intervalMs, 1)) * 1_000_000
         guard admissionUptimeNs > expectedAdmissionNs else { return 0 }
         return admissionUptimeNs - expectedAdmissionNs
+    }
+
+    private static func scrollOwnershipUpdate(
+        diagnostics: ScrollDeltaDiagnostics,
+        frameId: UInt64,
+        nowUptimeNs: UInt64
+    ) -> (
+        axis: ScrollActivityAxis,
+        sign: Int,
+        offsetPx: Int,
+        frameId: UInt64,
+        nowUptimeNs: UInt64
+    )? {
+        if let dy = diagnostics.acceptedDy, dy != 0 {
+            return (.vertical, dy < 0 ? -1 : 1, dy, frameId, nowUptimeNs)
+        }
+        if let dx = diagnostics.acceptedDx, dx != 0 {
+            return (.horizontal, dx < 0 ? -1 : 1, dx, frameId, nowUptimeNs)
+        }
+        return nil
+    }
+
+    private func waitForGraphicsAck(updateId: OwnedSurfaceUpdateId, timeoutMs: Int) async -> Bool {
+        let deadline = DispatchTime.now().uptimeNanoseconds &+ UInt64(max(1, timeoutMs)) * 1_000_000
+        while !Task.isCancelled {
+            if graphicsAckCovers(updateId) {
+                return true
+            }
+            let now = DispatchTime.now().uptimeNanoseconds
+            if now >= deadline {
+                return false
+            }
+            let remaining = deadline - now
+            try? await Task.sleep(nanoseconds: min(Self.resetStripeAckPollNs, remaining))
+        }
+        return false
+    }
+
+    private func graphicsAckCovers(_ updateId: OwnedSurfaceUpdateId) -> Bool {
+        lock.withLock {
+            guard let ack = graphicsAdmission.latestAck else { return false }
+            return ack.updateId >= updateId
+        }
     }
 
     private func resolvedKeyframeReason(

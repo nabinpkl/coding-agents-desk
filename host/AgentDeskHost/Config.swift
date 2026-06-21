@@ -278,6 +278,26 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_IDLE_REFRESH_MS",
         defaultValue: 250
     )
+    static let hybridScrollOwnershipMs = nonNegativeInt(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_OWNERSHIP_MS",
+        defaultValue: 500
+    )
+    static let hybridScrollFallbackAfterMs = nonNegativeInt(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_FALLBACK_AFTER_MS",
+        defaultValue: 300
+    )
+    static let hybridScrollOwnershipMaxMisses = nonNegativeInt(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_OWNERSHIP_MAX_MISSES",
+        defaultValue: 2
+    )
+    static let hybridResetStripeMaxDecodedBytes = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_RESET_STRIPE_MAX_DECODED_BYTES",
+        defaultValue: 2 * 1_024 * 1_024
+    )
+    static let hybridResetStripeAckTimeoutMs = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_RESET_STRIPE_ACK_TIMEOUT_MS",
+        defaultValue: 500
+    )
     static let graphicsNormalMaxUnackedFrames = positiveInt(
         environmentKey: "AGENTDESK_GRAPHICS_NORMAL_MAX_UNACKED_FRAMES",
         defaultValue: 2

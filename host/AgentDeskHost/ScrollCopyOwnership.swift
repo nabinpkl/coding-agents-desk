@@ -17,6 +17,8 @@ struct ScrollCopyOwnershipConfig: Equatable, Sendable {
 }
 
 struct ScrollCopyOwnership: Equatable {
+    private static let candidateDeltas = [-16, -8, -4, -2, -1, 0, 1, 2, 4, 8, 16]
+
     private let config: ScrollCopyOwnershipConfig
     private(set) var latestInputHint: ScrollActivityHint?
     private(set) var latestAcceptedAxis: ScrollActivityAxis?
@@ -70,6 +72,16 @@ struct ScrollCopyOwnership: Equatable {
         activeUntilUptimeNs = 0
     }
 
+    mutating func releaseIfExpired(nowUptimeNs: UInt64) -> Bool {
+        guard latestAcceptedFrameId != nil,
+              activeUntilUptimeNs > 0,
+              nowUptimeNs > activeUntilUptimeNs else {
+            return false
+        }
+        release()
+        return true
+    }
+
     func hint(nowUptimeNs: UInt64) -> ScrollActivityHint? {
         if let latestInputHint, latestInputHint.isActive(nowUptimeNs: nowUptimeNs) {
             return latestInputHint
@@ -85,7 +97,7 @@ struct ScrollCopyOwnership: Equatable {
             axis: axis,
             sign: sign,
             predictedOffsetPx: offsetPx,
-            candidateOffsets: [offsetPx],
+            candidateOffsets: candidateOffsets(around: offsetPx, sign: sign),
             activeUntilUptimeNs: activeUntilUptimeNs,
             eventCount: 1,
             source: .scrollCopyOwnership
@@ -105,6 +117,22 @@ struct ScrollCopyOwnership: Equatable {
 
     private func hasActiveOwnership(nowUptimeNs: UInt64) -> Bool {
         latestAcceptedFrameId != nil && nowUptimeNs <= activeUntilUptimeNs
+    }
+
+    private func candidateOffsets(around offsetPx: Int, sign: Int) -> [Int] {
+        var seen = Set<Int>()
+        var offsets: [Int] = []
+        func append(_ candidate: Int) {
+            guard candidate != 0, candidate.signum() == sign else { return }
+            if seen.insert(candidate).inserted {
+                offsets.append(candidate)
+            }
+        }
+        append(offsetPx)
+        for delta in Self.candidateDeltas {
+            append(offsetPx + delta)
+        }
+        return offsets
     }
 
     private static func elapsedNs(from start: UInt64, to end: UInt64) -> UInt64 {

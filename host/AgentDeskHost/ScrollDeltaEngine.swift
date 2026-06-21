@@ -13,15 +13,18 @@ enum ScrollDeltaKind: Equatable {
 struct ScrollDeltaResult {
     let kind: ScrollDeltaKind
     let envelope: OwnedGraphicsFrameEnvelope?
+    let envelopes: [OwnedGraphicsFrameEnvelope]
     let diagnostics: ScrollDeltaDiagnostics?
 
     init(
         kind: ScrollDeltaKind,
         envelope: OwnedGraphicsFrameEnvelope?,
-        diagnostics: ScrollDeltaDiagnostics? = nil
+        diagnostics: ScrollDeltaDiagnostics? = nil,
+        envelopes: [OwnedGraphicsFrameEnvelope]? = nil
     ) {
         self.kind = kind
         self.envelope = envelope
+        self.envelopes = envelopes ?? envelope.map { [$0] } ?? []
         self.diagnostics = diagnostics
     }
 }
@@ -44,6 +47,7 @@ struct ScrollDeltaDiagnostics: Equatable {
     let hintAxis: String?
     let hintPredictedOffset: Int?
     let hintCandidates: [Int]
+    let hintSource: String?
     let acceptedBy: String?
     let tieBreak: String?
 
@@ -65,6 +69,7 @@ struct ScrollDeltaDiagnostics: Equatable {
         hintAxis: String? = nil,
         hintPredictedOffset: Int? = nil,
         hintCandidates: [Int] = [],
+        hintSource: String? = nil,
         acceptedBy: String? = nil,
         tieBreak: String? = nil
     ) {
@@ -85,6 +90,7 @@ struct ScrollDeltaDiagnostics: Equatable {
         self.hintAxis = hintAxis
         self.hintPredictedOffset = hintPredictedOffset
         self.hintCandidates = hintCandidates
+        self.hintSource = hintSource
         self.acceptedBy = acceptedBy
         self.tieBreak = tieBreak
     }
@@ -94,6 +100,7 @@ struct ScrollDeltaEngine {
     private static let maxScrollOffset = 240
     private static let confidenceThreshold = 0.88
     private static let confidenceMargin = 0.06
+    static let defaultMaxDecodedResetStripePayloadBytes = 2 * 1024 * 1024
 
     private typealias Surface = ScrollDeltaSurface
     private typealias ScrollOffset = ScrollDeltaOffset
@@ -105,9 +112,14 @@ struct ScrollDeltaEngine {
     private var graphicsFrameId: UInt64 = 0
     private let ciContext = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any])
     private let detectionBudgetMs: Double
+    private let maxDecodedResetStripePayloadBytes: Int
 
-    init(detectionBudgetMs: Double = 4.0) {
+    init(
+        detectionBudgetMs: Double = 4.0,
+        maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes
+    ) {
         self.detectionBudgetMs = detectionBudgetMs
+        self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
     }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
@@ -137,7 +149,8 @@ struct ScrollDeltaEngine {
     mutating func evaluate(
         _ frame: CapturedVideoFrame,
         scrollHint: ScrollActivityHint? = nil,
-        detectionBudgetMs overrideDetectionBudgetMs: Double? = nil
+        detectionBudgetMs overrideDetectionBudgetMs: Double? = nil,
+        allowBlindScan: Bool = true
     ) -> ScrollDeltaResult {
         let detectionBudgetMs = overrideDetectionBudgetMs ?? self.detectionBudgetMs
         let startedAt = DispatchTime.now().uptimeNanoseconds
@@ -150,11 +163,22 @@ struct ScrollDeltaEngine {
             pendingSurface = current
             surfaceGeneration &+= 1
             graphicsFrameId &+= 1
+            let resetFrameId = graphicsFrameId
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
-            let envelope = makeResetEnvelope(surface: current, capturedAtUptimeNs: frame.capturedAtUptimeNs)
+            guard let stripedEnvelopes = makeStripedResetEnvelopes(
+                surface: current,
+                startingFrameId: resetFrameId,
+                capturedAtUptimeNs: frame.capturedAtUptimeNs
+            ), let firstEnvelope = stripedEnvelopes.first else {
+                pendingSurface = nil
+                return ScrollDeltaResult(kind: .rejected("reset-stripe-build-failed"), envelope: nil)
+            }
+            if let lastFrameId = stripedEnvelopes.last?.header.frameId {
+                graphicsFrameId = lastFrameId
+            }
             return ScrollDeltaResult(
                 kind: .reset,
-                envelope: envelope,
+                envelope: firstEnvelope,
                 diagnostics: ScrollDeltaDiagnostics(
                     probeMs: elapsedMs(since: startedAt),
                     payloadBuildMs: elapsedMs(since: payloadStartedAt),
@@ -163,7 +187,8 @@ struct ScrollDeltaEngine {
                     confidence: 1.0,
                     timeoutReason: nil,
                     sampledPixelCount: 0
-                )
+                ),
+                envelopes: stripedEnvelopes
             )
         }
         let currentWidth = CVPixelBufferGetWidth(frame.pixelBuffer)
@@ -176,11 +201,22 @@ struct ScrollDeltaEngine {
             pendingSurface = current
             surfaceGeneration &+= 1
             graphicsFrameId &+= 1
+            let resetFrameId = graphicsFrameId
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
-            let envelope = makeResetEnvelope(surface: current, capturedAtUptimeNs: frame.capturedAtUptimeNs)
+            guard let stripedEnvelopes = makeStripedResetEnvelopes(
+                surface: current,
+                startingFrameId: resetFrameId,
+                capturedAtUptimeNs: frame.capturedAtUptimeNs
+            ), let firstEnvelope = stripedEnvelopes.first else {
+                pendingSurface = nil
+                return ScrollDeltaResult(kind: .rejected("reset-stripe-build-failed"), envelope: nil)
+            }
+            if let lastFrameId = stripedEnvelopes.last?.header.frameId {
+                graphicsFrameId = lastFrameId
+            }
             return ScrollDeltaResult(
                 kind: .reset,
-                envelope: envelope,
+                envelope: firstEnvelope,
                 diagnostics: ScrollDeltaDiagnostics(
                     probeMs: elapsedMs(since: startedAt),
                     payloadBuildMs: elapsedMs(since: payloadStartedAt),
@@ -189,21 +225,43 @@ struct ScrollDeltaEngine {
                     confidence: 1.0,
                     timeoutReason: nil,
                     sampledPixelCount: 0
-                )
+                ),
+                envelopes: stripedEnvelopes
             )
         }
-        let probe = bestScrollOffset(
-            previous: previous,
-            currentPixelBuffer: frame.pixelBuffer,
-            startedAt: startedAt,
-            detectionBudgetMs: detectionBudgetMs,
-            scrollHint: activeHint
-        )
+        let probe: ProbeOutcome
+        if activeHint == nil && !allowBlindScan {
+            probe = ProbeOutcome(
+                offset: nil,
+                bestDx: nil,
+                bestDy: nil,
+                confidence: 0,
+                secondBestConfidence: 0,
+                sampledPixelCount: 0,
+                candidateCount: 0,
+                timedOut: true,
+                timeoutReason: "owned-scroll-miss",
+                timeoutPhase: "blind-scan-suppressed",
+                probeScale: 1,
+                hintCandidates: [],
+                tieBreak: nil
+            )
+        } else {
+            probe = bestScrollOffset(
+                previous: previous,
+                currentPixelBuffer: frame.pixelBuffer,
+                startedAt: startedAt,
+                detectionBudgetMs: detectionBudgetMs,
+                scrollHint: activeHint
+            )
+        }
         let probeMs = elapsedMs(since: startedAt)
         let acceptedOffset = probe.offset
         guard let offset = acceptedOffset else {
+            let ownedHintMiss = activeHint != nil && !allowBlindScan
+            let usedBlindScan = activeHint == nil && allowBlindScan
             return ScrollDeltaResult(
-                kind: probe.timedOut ? .timeout : .rejected("no-scroll-match"),
+                kind: probe.timedOut || ownedHintMiss ? .timeout : .rejected("no-scroll-match"),
                 envelope: nil,
                 diagnostics: makeDiagnostics(
                     probeMs: probeMs,
@@ -211,7 +269,9 @@ struct ScrollDeltaEngine {
                     acceptedOffset: nil,
                     probe: probe,
                     scrollHint: activeHint,
-                    acceptedBy: nil
+                    acceptedBy: nil,
+                    usedBlindScan: usedBlindScan,
+                    timeoutReasonOverride: ownedHintMiss ? "owned-scroll-miss" : nil
                 )
             )
         }
@@ -236,7 +296,8 @@ struct ScrollDeltaEngine {
                 acceptedOffset: offset,
                 probe: probe,
                 scrollHint: activeHint,
-                acceptedBy: activeHint == nil ? "blind" : "hint"
+                acceptedBy: activeHint == nil ? "blind" : "hint",
+                usedBlindScan: activeHint == nil && allowBlindScan
             )
         )
     }
@@ -327,7 +388,9 @@ struct ScrollDeltaEngine {
         acceptedOffset: ScrollOffset?,
         probe: ProbeOutcome,
         scrollHint: ScrollActivityHint?,
-        acceptedBy: String?
+        acceptedBy: String?,
+        usedBlindScan: Bool = false,
+        timeoutReasonOverride: String? = nil
     ) -> ScrollDeltaDiagnostics {
         ScrollDeltaDiagnostics(
             probeMs: probeMs,
@@ -335,7 +398,7 @@ struct ScrollDeltaEngine {
             acceptedDx: acceptedOffset?.dx,
             acceptedDy: acceptedOffset?.dy,
             confidence: probe.confidence,
-            timeoutReason: probe.timeoutReason,
+            timeoutReason: timeoutReasonOverride ?? probe.timeoutReason,
             sampledPixelCount: probe.sampledPixelCount,
             bestDx: probe.bestDx,
             bestDy: probe.bestDy,
@@ -347,6 +410,7 @@ struct ScrollDeltaEngine {
             hintAxis: scrollHint?.axis.rawValue,
             hintPredictedOffset: scrollHint?.predictedOffsetPx,
             hintCandidates: probe.hintCandidates,
+            hintSource: scrollHint?.source.rawValue ?? (usedBlindScan ? "blind" : nil),
             acceptedBy: acceptedBy,
             tieBreak: probe.tieBreak
         )
@@ -380,29 +444,67 @@ struct ScrollDeltaEngine {
         return .surface(ScrollDeltaSurfaceSampler(surface: surface))
     }
 
-    private func makeResetEnvelope(surface: Surface, capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
-        guard let compressed = compressLZFSE(surface.pixels) else { return nil }
-        return OwnedGraphicsFrameEnvelope(
-            header: OwnedGraphicsFrameHeader(
-                surfaceGeneration: surfaceGeneration,
-                frameId: graphicsFrameId,
-                capturedAtUptimeNs: capturedAtUptimeNs,
-                commandCount: 2,
-                payloadLength: compressed.count
-            ),
-            commands: [
-                .resetSurface(surfaceGeneration: surfaceGeneration, width: surface.width, height: surface.height, pixelFormat: .bgra),
-                .bitmapTile(
-                    x: 0,
-                    y: 0,
-                    width: surface.width,
-                    height: surface.height,
-                    compression: .lzfse,
-                    byteRange: OwnedGraphicsByteRange(offset: 0, length: compressed.count)
-                )
-            ],
-            payload: compressed
-        )
+    private func makeStripedResetEnvelopes(
+        surface: Surface,
+        startingFrameId: UInt64,
+        capturedAtUptimeNs: UInt64
+    ) -> [OwnedGraphicsFrameEnvelope]? {
+        let rowBytes = surface.width * 4
+        let stripeHeight = max(1, min(surface.height, maxDecodedResetStripePayloadBytes / rowBytes))
+        var envelopes: [OwnedGraphicsFrameEnvelope] = []
+        var y = 0
+        var frameId = startingFrameId
+        while y < surface.height {
+            let height = min(stripeHeight, surface.height - y)
+            guard let stripe = tileData(surface: surface, x: 0, y: y, width: surface.width, height: height),
+                  let compressed = compressLZFSE(stripe) else {
+                return nil
+            }
+            let commands: [OwnedGraphicsCommand]
+            if y == 0 {
+                commands = [
+                    .resetSurface(
+                        surfaceGeneration: surfaceGeneration,
+                        width: surface.width,
+                        height: surface.height,
+                        pixelFormat: .bgra
+                    ),
+                    .bitmapTile(
+                        x: 0,
+                        y: y,
+                        width: surface.width,
+                        height: height,
+                        compression: .lzfse,
+                        byteRange: OwnedGraphicsByteRange(offset: 0, length: compressed.count)
+                    )
+                ]
+            } else {
+                commands = [
+                    .bitmapTile(
+                        x: 0,
+                        y: y,
+                        width: surface.width,
+                        height: height,
+                        compression: .lzfse,
+                        byteRange: OwnedGraphicsByteRange(offset: 0, length: compressed.count)
+                    )
+                ]
+            }
+            envelopes.append(OwnedGraphicsFrameEnvelope(
+                header: OwnedGraphicsFrameHeader(
+                    surfaceGeneration: surfaceGeneration,
+                    frameId: frameId,
+                    capturedAtUptimeNs: capturedAtUptimeNs,
+                    commandCount: commands.count,
+                    payloadLength: compressed.count
+                ),
+                commands: commands,
+                payload: compressed
+            ))
+            y += height
+            frameId &+= 1
+        }
+        return envelopes
     }
 
     private func makeScrollEnvelope(

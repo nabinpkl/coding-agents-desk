@@ -110,7 +110,17 @@ Phase goal: make copyRect fire by using host scroll input as the classifier prio
 - [x] D41.5. Make active-hint timeout log `scroll-hint-timeout` and allow HEVC fallback only when no graphics update has been accepted for 120 ms.
 - [x] D41.6. Extend diagnostics and `tools/hybrid-graphics-diagnostics-summary.sh` to report hint-guided accepted frames, hint timeouts, blind timeouts, copyRects, HEVC fallback reason counts, and max probe ms.
 - [x] D41.7. Add host tests for signed candidate generation, hint expiry, hint-guided 1 px, 15 px, and 80 px vertical scroll acceptance, sequential latest-delta scroll acceptance with cumulative fallback candidates, predicted-offset tie break, zero-motion ambiguity rejection, bounded candidate counts, no-hint fallback behavior, and accepted-scroll copyRect payload construction.
-- [ ] R41.8. Acceptance: physical iPhone run shows `scroll accepted > 0`, `copyRects > 0`, hint-guided probe max mostly below 4 ms with `candidateCount <= 24`, timeout rate under 20 percent, and HEVC bytes near zero during accepted scroll until idle refresh.
+- [x] D41.8. Retire the R41 physical acceptance gate: the latest physical iPhone run activated retained scroll and produced copyRect evidence, but sustained ownership failed, so continuation is split into R42-R46.
+
+## v0 Phase 8: retained scroll ownership
+
+Phase goal: keep scroll motion owned by retained graphics after activation instead of falling back to blind scan or competing HEVC.
+
+- [x] D42. Add a scroll ownership latch in `host/AgentDeskHost/ScrollActivityTracker.swift` and `host/AgentDeskHost/OwnedMediaTransport.swift` that persists the accepted scroll axis, sign, and recent frame ownership until idle release, with diagnostics for `ownership=accepted`, `ownership=miss`, and `ownership=released`.
+- [x] D43. Replace the active-scroll blind-scan path in `host/AgentDeskHost/ScrollDeltaEngine.swift` with a no-blind-scan ownership candidate path that logs `hintSource=input`, `hintSource=ownership`, or `hintSource=blind` and keeps blind probing only outside an active ownership latch.
+- [x] D44. Gate HEVC fallback in `host/AgentDeskHost/OwnedMediaTransport.swift` so active retained ownership suppresses full-frame HEVC on transient ownership misses, logs suppressed-by-ownership counts, and releases to HEVC only after the ownership latch idles or explicitly fails.
+- [x] D45. Stripe retained graphics resets across bounded payloads in `host/AgentDeskHost/OwnedMediaTransport.swift` using the retained-surface reset and tile commands already consumed by the client compositor, with reset stripe count, reset stripe ACK timeout, and max reset stripe bytes exposed in diagnostics.
+- [ ] R46. Run a physical iPhone comparison with `just fresh-hybrid-consoled-run`, save `tools/hybrid-graphics-diagnostics-summary.sh` output, and classify whether sustained ownership, HEVC fallback gating, striped reset, compositor cost, or transport loss remains the blocker.
 
 ---
 
@@ -151,5 +161,10 @@ R39.5     pending     pending     physical fallback observability acceptance
 R40       2026-06-21  blocked     physical iPhone unavailable after devicectl tunnel reset; simulator console smoke launched but did not exercise scroll copyRect
 R40       pending     pending     physical iPhone comparison and blocker classification
 R41.1-R41.7 2026-06-21  committed   input-guided scroll hints, narrow probe candidates, diagnostics summary, and host tests
-R41.8     pending     pending     physical input-guided copyRect acceptance
+R41.8     2026-06-21  retired     physical run activated retained scroll but sustained ownership failed; continuation split into R42-R46
+D42       2026-06-21  committed   scroll ownership latch with accepted, miss, and idle release diagnostics
+D43       2026-06-21  committed   active ownership uses bounded candidates and labels blind scans explicitly
+D44       2026-06-21  committed   HEVC fallback waits for ownership miss budget or fallback delay
+D45       2026-06-21  committed   retained reset stripes are sent with ACK waits and bounded decoded payloads
+R46       pending     pending     physical comparison for sustained ownership
 ```

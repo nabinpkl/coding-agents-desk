@@ -85,6 +85,11 @@ struct ScrollQualityTests {
     @Test func hybridScrollConfigDefaultsToSuppressHevcDuringAcceptedScroll() {
         #expect(Config.hybridScrollHEVCFps == 0)
         #expect(Config.hybridScrollIdleRefreshMs == 250)
+        #expect(Config.hybridScrollOwnershipMs == 500)
+        #expect(Config.hybridScrollFallbackAfterMs == 300)
+        #expect(Config.hybridScrollOwnershipMaxMisses == 2)
+        #expect(Config.hybridResetStripeMaxDecodedBytes == 2 * 1_024 * 1_024)
+        #expect(Config.hybridResetStripeAckTimeoutMs == 500)
     }
 
     @Test func hybridScrollHevcAdmissionSuppressesAcceptedScrollAtZeroFps() {
@@ -1453,6 +1458,59 @@ struct ScrollQualityTests {
         }
     }
 
+    @Test func scrollDeltaEngineFullResetEmitsGenerationFrameAndDecodedCappedStripeFrames() throws {
+        let decodedStripeCap = 64 * 16 * 4
+        var engine = ScrollDeltaEngine(maxDecodedResetStripePayloadBytes: decodedStripeCap)
+        let frame = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+
+        let result = engine.evaluate(frame)
+
+        #expect(result.kind == ScrollDeltaKind.reset)
+        let frames = result.envelopes
+        #expect(frames.count == 4)
+        let firstStripe = try #require(frames.first)
+        #expect(result.envelope == firstStripe)
+        #expect(firstStripe.header.surfaceGeneration == 1)
+        #expect(firstStripe.header.frameId == 1)
+        #expect(firstStripe.header.commandCount == 2)
+        #expect(firstStripe.header.payloadLength == firstStripe.payload.count)
+        #expect(firstStripe.commands.count == 2)
+        #expect(firstStripe.commands[0] ==
+            OwnedGraphicsCommand.resetSurface(
+                surfaceGeneration: 1,
+                width: 64,
+                height: 64,
+                pixelFormat: .bgra
+            )
+        )
+
+        for (stripeIndex, stripe) in frames.enumerated() {
+            let y = stripeIndex * 16
+            #expect(stripe.header.surfaceGeneration == 1)
+            #expect(stripe.header.frameId == UInt64(stripeIndex + 1))
+            #expect(stripe.header.payloadLength == stripe.payload.count)
+            let tileCommandIndex = stripeIndex == 0 ? 1 : 0
+            guard case let .bitmapTile(x, tileY, width, height, compression, byteRange) = stripe.commands[tileCommandIndex] else {
+                Issue.record("expected reset stripe bitmapTile, got \(stripe.commands[tileCommandIndex])")
+                continue
+            }
+            #expect(x == 0)
+            #expect(tileY == y)
+            #expect(width == 64)
+            #expect(height == 16)
+            #expect(compression == .lzfse)
+            #expect(byteRange.offset == 0)
+            #expect(byteRange.length == stripe.payload.count)
+            let decoded = try Self.decompressLZFSE(stripe.payload, expectedCount: 64 * 16 * 4)
+            #expect(decoded.count <= decodedStripeCap)
+            #expect(decoded == Self.tileBytes(width: 64, height: 16) { x, row in
+                Self.pixel(x: x, y: y + row)
+            })
+        }
+    }
+
     @Test func scrollDeltaEngineEmitsVerticalCopyRectAndExposedStrip() throws {
         var engine = ScrollDeltaEngine()
         let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
@@ -1474,6 +1532,7 @@ struct ScrollQualityTests {
         #expect(diagnostics.sampledPixelCount > 0)
         #expect(diagnostics.payloadBuildMs != nil)
         let envelope = try #require(result.envelope)
+        #expect(result.envelopes == [envelope])
         #expect(envelope.commands.count == 2)
         #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(srcX: 0, srcY: 16, dstX: 0, dstY: 0, width: 64, height: 48))
         #expect(envelope.commands[1] == OwnedGraphicsCommand.bitmapTile(
@@ -1511,6 +1570,7 @@ struct ScrollQualityTests {
         #expect(diagnostics.sampledPixelCount > 0)
         #expect(diagnostics.payloadBuildMs != nil)
         let envelope = try #require(result.envelope)
+        #expect(result.envelopes == [envelope])
         #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(srcX: 0, srcY: 32, dstX: 0, dstY: 0, width: 320, height: 224))
     }
 
@@ -1538,10 +1598,13 @@ struct ScrollQualityTests {
         #expect(diagnostics.secondBestConfidence <= diagnostics.confidence)
         #expect(diagnostics.confidence - diagnostics.secondBestConfidence >= 0.06)
         #expect(diagnostics.candidateCount > 100)
+        #expect(diagnostics.hintSource == "blind")
+        #expect(diagnostics.acceptedBy == "blind")
         #expect(diagnostics.probeScale > 1)
         #expect(diagnostics.timeoutReason == nil)
         #expect(diagnostics.payloadBuildMs != nil)
         let envelope = try #require(result.envelope)
+        #expect(result.envelopes == [envelope])
         #expect(envelope.commands.contains { command in
             if case .copyRect = command { return true }
             return false
@@ -1721,6 +1784,7 @@ struct ScrollQualityTests {
         if case .rejected = result.kind {
             let diagnostics = try #require(result.diagnostics)
             #expect(!diagnostics.hintActive)
+            #expect(diagnostics.hintSource == "blind")
             #expect(diagnostics.acceptedBy == nil)
             #expect(diagnostics.candidateCount > 24)
             #expect(result.envelope == nil)
@@ -1750,6 +1814,7 @@ struct ScrollQualityTests {
         #expect(diagnostics.sampledPixelCount > 0)
         #expect(diagnostics.payloadBuildMs != nil)
         let envelope = try #require(result.envelope)
+        #expect(result.envelopes == [envelope])
         #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(srcX: 16, srcY: 0, dstX: 0, dstY: 0, width: 48, height: 64))
         #expect(envelope.commands[1] == OwnedGraphicsCommand.bitmapTile(
             x: 48,

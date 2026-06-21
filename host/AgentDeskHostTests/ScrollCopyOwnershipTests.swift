@@ -20,8 +20,15 @@ struct ScrollCopyOwnershipTests {
         #expect(activeHint.axis == .vertical)
         #expect(activeHint.sign == -1)
         #expect(activeHint.predictedOffsetPx == -24)
-        #expect(activeHint.candidateOffsets == [-24])
+        #expect(activeHint.candidateOffsets.first == -24)
+        #expect(activeHint.candidateOffsets.contains(-24))
+        #expect(activeHint.candidateOffsets.allSatisfy { $0 < 0 })
         #expect(ownership.hint(nowUptimeNs: 1_500_000_001) == nil)
+        let didRelease = ownership.releaseIfExpired(nowUptimeNs: 1_500_000_001)
+        #expect(didRelease)
+        #expect(ownership.latestAcceptedFrameId == nil)
+        let didReleaseAgain = ownership.releaseIfExpired(nowUptimeNs: 1_500_000_002)
+        #expect(!didReleaseAgain)
     }
 
     @Test func activeInputHintWinsUntilItExpiresThenOwnershipHintTakesOver() throws {

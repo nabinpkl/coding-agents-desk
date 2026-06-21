@@ -127,7 +127,37 @@ perl -ne '
     $scrollTimeout++ if /owned graphics scroll-timeout/;
     $scrollHintTimeout++ if /owned graphics scroll-hint-timeout/;
     $scrollBlindTimeout++ if /owned graphics scroll-timeout/;
+    if (/hintSource=([^[:space:]]+)/) {
+        my $source = $1;
+        if ($source eq "input") {
+            $hintSourceInput++;
+        } elsif ($source eq "ownership") {
+            $hintSourceOwnership++;
+        } elsif ($source eq "blind") {
+            $hintSourceBlind++;
+        } else {
+            $hintSourceOther++;
+        }
+    }
+    my $ownershipState = "";
+    if (/ownership=(accepted|miss|released)(?:[[:space:]]|$)/) {
+        $ownershipState = $1;
+    } elsif (/scroll-ownership[- ](accepted|miss|released)(?:[[:space:]]|$)/) {
+        $ownershipState = $1;
+    }
+    if ($ownershipState ne "") {
+        my $state = $ownershipState;
+        if ($state eq "accepted") {
+            $ownershipAccepted++;
+        } elsif ($state eq "miss") {
+            $ownershipMiss++;
+        } elsif ($state eq "released") {
+            $ownershipReleased++;
+        }
+    }
     $graphicsResetFrame++ if /owned graphics reset frame=/;
+    $graphicsResetStripe++ if /owned graphics reset[- ]stripe(?:[[:space:]]|$)/ || /resetStripe(?:[[:space:]]|=)/;
+    $graphicsResetStripeAckTimeout++ if /reset[- ]stripe[- ]ack[- ]timeout/i || /resetStripeAckTimeout(?:[[:space:]]|=)/;
     $graphicsResetQueued++ if /owned graphics reset queued/;
     $graphicsResetConsumed++ if /owned graphics reset consumed/;
     $graphicsResetFallbackReceived++ if /owned graphics reset fallback received/;
@@ -139,6 +169,9 @@ perl -ne '
     $hostFrame++ if /owned media host-frame frame=/;
     $hostAck++ if /owned media host-frame-ack/;
     $hevcFallback++ if /owned media hevc-fallback /;
+    $hevcSuppressedByOwnership++ if /suppressed-by-ownership/ ||
+        /owned media hevc-suppressed .*ownership/ ||
+        /owned media admission-hold .*reason=ownership-suppressed/;
     $drainEnter++ if /owned media drain-enter/;
     $drainExit++ if /owned media drain-exit/;
     $admissionHold++ if /owned media admission-hold/;
@@ -150,6 +183,17 @@ perl -ne '
     if (/owned graphics (?:scroll-accepted|reset) .*payloadBytes=([0-9]+)/) {
         $graphicsPayloadBytes += $1;
         max_value("graphicsPayloadBytes", $1);
+    }
+    my $resetStripeBytes = "";
+    if (/owned graphics reset[- ]stripe .*bytes=([0-9]+)/) {
+        $resetStripeBytes = $1;
+    } elsif (/resetStripe .*bytes=([0-9]+)/) {
+        $resetStripeBytes = $1;
+    } elsif (/resetStripeBytes=([0-9]+)/) {
+        $resetStripeBytes = $1;
+    }
+    if ($resetStripeBytes ne "") {
+        max_value("resetStripeBytes", $resetStripeBytes);
     }
     if (/owned media host-frame .*bytes=([0-9]+)/) {
         $hevcBytes += $1;
@@ -196,13 +240,18 @@ perl -ne '
             $scrollAccepted||0, $scrollAcceptedHint||0, $scrollAcceptedBlind||0, $scrollRejected||0,
             ($scrollTimeout||0) + ($scrollHintTimeout||0), $scrollHintTimeout||0, $scrollBlindTimeout||0,
             $max{"probeMs"}||0, $max{"candidateCount"}||0;
-        printf "host graphics resets=%d queued=%d consumed=%d sendFailed=%d reconnectHints=%d disconnectHints=%d fallbackReceived=%d acked=%d commands=%d maxCommands=%d payloadBytes=%d maxPayloadBytes=%d\n",
+        printf "host scroll hintSources input=%d ownership=%d blind=%d other=%d\n",
+            $hintSourceInput||0, $hintSourceOwnership||0, $hintSourceBlind||0, $hintSourceOther||0;
+        printf "host scroll ownership accepted=%d miss=%d released=%d\n",
+            $ownershipAccepted||0, $ownershipMiss||0, $ownershipReleased||0;
+        printf "host graphics resets=%d queued=%d consumed=%d sendFailed=%d reconnectHints=%d disconnectHints=%d fallbackReceived=%d acked=%d commands=%d maxCommands=%d payloadBytes=%d maxPayloadBytes=%d resetStripes=%d resetStripeAckTimeout=%d maxResetStripeBytes=%d\n",
             $graphicsResetFrame||0, $graphicsResetQueued||0, $graphicsResetConsumed||0, $graphicsResetSendFailed||0,
             $graphicsReconnect||0, $graphicsDisconnect||0, $graphicsResetFallbackReceived||0, $graphicsResetAcked||0,
-            $graphicsCommands||0, $max{"graphicsCommands"}||0, $graphicsPayloadBytes||0, $max{"graphicsPayloadBytes"}||0;
+            $graphicsCommands||0, $max{"graphicsCommands"}||0, $graphicsPayloadBytes||0, $max{"graphicsPayloadBytes"}||0,
+            $graphicsResetStripe||0, $graphicsResetStripeAckTimeout||0, $max{"resetStripeBytes"}||0;
         printf "host hevc frames=%d acks=%d bytes=%d maxBytes=%d packets=%d maxPackets=%d framesOver100Packets=%d\n",
             $hostFrame||0, $hostAck||0, $hevcBytes||0, $max{"hevcBytes"}||0, $hevcPackets||0, $max{"hevcPackets"}||0, $hevcPacketFramesOver100||0;
-        printf "host hevc fallbacks=%d\n", $hevcFallback||0;
+        printf "host hevc fallbacks=%d suppressedByOwnership=%d\n", $hevcFallback||0, $hevcSuppressedByOwnership||0;
         if (%fallbackReasons) {
             my @parts = map { "$_=$fallbackReasons{$_}" } sort keys %fallbackReasons;
             print "host hevcFallbackReasons " . join(" ", @parts) . "\n";
