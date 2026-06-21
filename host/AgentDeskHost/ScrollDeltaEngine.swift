@@ -13,9 +13,34 @@ enum ScrollDeltaKind: Equatable {
 struct ScrollDeltaResult {
     let kind: ScrollDeltaKind
     let envelope: OwnedGraphicsFrameEnvelope?
+    let diagnostics: ScrollDeltaDiagnostics?
+
+    init(
+        kind: ScrollDeltaKind,
+        envelope: OwnedGraphicsFrameEnvelope?,
+        diagnostics: ScrollDeltaDiagnostics? = nil
+    ) {
+        self.kind = kind
+        self.envelope = envelope
+        self.diagnostics = diagnostics
+    }
+}
+
+struct ScrollDeltaDiagnostics: Equatable {
+    let probeMs: Double
+    let payloadBuildMs: Double?
+    let acceptedDx: Int?
+    let acceptedDy: Int?
+    let confidence: Double
+    let timeoutReason: String?
+    let sampledPixelCount: Int
 }
 
 struct ScrollDeltaEngine {
+    private static let maxScrollOffset = 240
+    private static let offsetStride = 8
+    private static let confidenceThreshold = 0.92
+
     private struct Surface {
         let width: Int
         let height: Int
@@ -28,11 +53,36 @@ struct ScrollDeltaEngine {
         let dy: Int
     }
 
+    private struct ProbeOutcome {
+        let offset: ScrollOffset?
+        let confidence: Double
+        let sampledPixelCount: Int
+        let timedOut: Bool
+        let timeoutReason: String?
+    }
+
+    private struct MatchScore {
+        let confidence: Double
+        let samples: Int
+    }
+
+    private struct DirectBGRASampler {
+        let width: Int
+        let height: Int
+        let bytesPerRow: Int
+        let baseAddress: UnsafeRawPointer
+    }
+
     private var previous: Surface?
     private var pendingSurface: Surface?
     private var surfaceGeneration: UInt32 = 0
     private var graphicsFrameId: UInt64 = 0
     private let ciContext = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any])
+    private let detectionBudgetMs: Double
+
+    init(detectionBudgetMs: Double = 4.0) {
+        self.detectionBudgetMs = detectionBudgetMs
+    }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
         if surfaceGeneration == 0 {
@@ -48,47 +98,123 @@ struct ScrollDeltaEngine {
         self.pendingSurface = nil
     }
 
+    mutating func observeFallbackFrame(_ frame: CapturedVideoFrame) {
+        previous = makeSurface(frame.pixelBuffer)
+        pendingSurface = nil
+    }
+
     mutating func invalidateRetainedSurface() {
         previous = nil
         pendingSurface = nil
     }
 
-    mutating func evaluate(_ frame: CapturedVideoFrame) -> ScrollDeltaResult {
+    mutating func evaluate(
+        _ frame: CapturedVideoFrame,
+        detectionBudgetMs overrideDetectionBudgetMs: Double? = nil
+    ) -> ScrollDeltaResult {
+        let detectionBudgetMs = overrideDetectionBudgetMs ?? self.detectionBudgetMs
         let startedAt = DispatchTime.now().uptimeNanoseconds
+        guard let previous else {
+            guard let current = makeSurface(frame.pixelBuffer) else {
+                pendingSurface = nil
+                return ScrollDeltaResult(kind: .rejected("no-bgra-surface"), envelope: nil)
+            }
+            pendingSurface = current
+            surfaceGeneration &+= 1
+            graphicsFrameId &+= 1
+            let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
+            let envelope = makeResetEnvelope(surface: current, capturedAtUptimeNs: frame.capturedAtUptimeNs)
+            return ScrollDeltaResult(
+                kind: .reset,
+                envelope: envelope,
+                diagnostics: ScrollDeltaDiagnostics(
+                    probeMs: elapsedMs(since: startedAt),
+                    payloadBuildMs: elapsedMs(since: payloadStartedAt),
+                    acceptedDx: nil,
+                    acceptedDy: nil,
+                    confidence: 1.0,
+                    timeoutReason: nil,
+                    sampledPixelCount: 0
+                )
+            )
+        }
+        let currentWidth = CVPixelBufferGetWidth(frame.pixelBuffer)
+        let currentHeight = CVPixelBufferGetHeight(frame.pixelBuffer)
+        guard previous.width == currentWidth, previous.height == currentHeight else {
+            guard let current = makeSurface(frame.pixelBuffer) else {
+                pendingSurface = nil
+                return ScrollDeltaResult(kind: .rejected("no-bgra-surface"), envelope: nil)
+            }
+            pendingSurface = current
+            surfaceGeneration &+= 1
+            graphicsFrameId &+= 1
+            let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
+            let envelope = makeResetEnvelope(surface: current, capturedAtUptimeNs: frame.capturedAtUptimeNs)
+            return ScrollDeltaResult(
+                kind: .reset,
+                envelope: envelope,
+                diagnostics: ScrollDeltaDiagnostics(
+                    probeMs: elapsedMs(since: startedAt),
+                    payloadBuildMs: elapsedMs(since: payloadStartedAt),
+                    acceptedDx: nil,
+                    acceptedDy: nil,
+                    confidence: 1.0,
+                    timeoutReason: nil,
+                    sampledPixelCount: 0
+                )
+            )
+        }
+        let probe = bestScrollOffset(
+            previous: previous,
+            currentPixelBuffer: frame.pixelBuffer,
+            startedAt: startedAt,
+            detectionBudgetMs: detectionBudgetMs
+        )
+        let probeMs = elapsedMs(since: startedAt)
+        guard let offset = probe.offset else {
+            return ScrollDeltaResult(
+                kind: probe.timedOut ? .timeout : .rejected("no-scroll-match"),
+                envelope: nil,
+                diagnostics: ScrollDeltaDiagnostics(
+                    probeMs: probeMs,
+                    payloadBuildMs: nil,
+                    acceptedDx: nil,
+                    acceptedDy: nil,
+                    confidence: probe.confidence,
+                    timeoutReason: probe.timeoutReason,
+                    sampledPixelCount: probe.sampledPixelCount
+                )
+            )
+        }
+        let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
         guard let current = makeSurface(frame.pixelBuffer) else {
             pendingSurface = nil
             return ScrollDeltaResult(kind: .rejected("no-bgra-surface"), envelope: nil)
         }
         pendingSurface = current
-        guard let previous else {
-            surfaceGeneration &+= 1
-            graphicsFrameId &+= 1
-            return ScrollDeltaResult(
-                kind: .reset,
-                envelope: makeResetEnvelope(surface: current, capturedAtUptimeNs: frame.capturedAtUptimeNs)
-            )
-        }
-        guard previous.width == current.width, previous.height == current.height else {
-            surfaceGeneration &+= 1
-            graphicsFrameId &+= 1
-            return ScrollDeltaResult(
-                kind: .reset,
-                envelope: makeResetEnvelope(surface: current, capturedAtUptimeNs: frame.capturedAtUptimeNs)
-            )
-        }
-        guard let offset = bestScrollOffset(previous: previous, current: current, startedAt: startedAt) else {
-            let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds &- startedAt) / 1_000_000.0
-            return ScrollDeltaResult(kind: elapsedMs > 4 ? .timeout : .rejected("no-scroll-match"), envelope: nil)
-        }
         graphicsFrameId &+= 1
+        let envelope = makeScrollEnvelope(
+            current: current,
+            offset: offset,
+            capturedAtUptimeNs: frame.capturedAtUptimeNs
+        )
         return ScrollDeltaResult(
             kind: .accepted,
-            envelope: makeScrollEnvelope(
-                current: current,
-                offset: offset,
-                capturedAtUptimeNs: frame.capturedAtUptimeNs
+            envelope: envelope,
+            diagnostics: ScrollDeltaDiagnostics(
+                probeMs: probeMs,
+                payloadBuildMs: elapsedMs(since: payloadStartedAt),
+                acceptedDx: offset.dx,
+                acceptedDy: offset.dy,
+                confidence: probe.confidence,
+                timeoutReason: nil,
+                sampledPixelCount: probe.sampledPixelCount
             )
         )
+    }
+
+    private func elapsedMs(since startedAt: UInt64) -> Double {
+        Double(DispatchTime.now().uptimeNanoseconds &- startedAt) / 1_000_000.0
     }
 
     private func makeSurface(_ pixelBuffer: CVPixelBuffer) -> Surface? {
@@ -129,81 +255,114 @@ struct ScrollDeltaEngine {
         return Surface(width: width, height: height, bytesPerRow: bytesPerRow, pixels: pixels)
     }
 
-    private func bestScrollOffset(previous: Surface, current: Surface, startedAt: UInt64) -> ScrollOffset? {
+    private func bestScrollOffset(
+        previous: Surface,
+        currentPixelBuffer: CVPixelBuffer,
+        startedAt: UInt64,
+        detectionBudgetMs: Double
+    ) -> ProbeOutcome {
+        guard CVPixelBufferGetPixelFormatType(currentPixelBuffer) == kCVPixelFormatType_32BGRA else {
+            return ProbeOutcome(
+                offset: nil,
+                confidence: 0,
+                sampledPixelCount: 0,
+                timedOut: false,
+                timeoutReason: "unsupported-pixel-format"
+            )
+        }
+        CVPixelBufferLockBaseAddress(currentPixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(currentPixelBuffer, .readOnly) }
+        guard let baseAddress = CVPixelBufferGetBaseAddress(currentPixelBuffer) else {
+            return ProbeOutcome(offset: nil, confidence: 0, sampledPixelCount: 0, timedOut: false, timeoutReason: "no-base-address")
+        }
+        let sampler = DirectBGRASampler(
+            width: CVPixelBufferGetWidth(currentPixelBuffer),
+            height: CVPixelBufferGetHeight(currentPixelBuffer),
+            bytesPerRow: CVPixelBufferGetBytesPerRow(currentPixelBuffer),
+            baseAddress: baseAddress
+        )
         var bestOffset: ScrollOffset?
         var bestScore = 0.0
-        for offset in stride(from: -240, through: 240, by: 8) where offset != 0 {
-            if Double(DispatchTime.now().uptimeNanoseconds &- startedAt) / 1_000_000.0 > 4 {
-                return nil
+        var sampledPixelCount = 0
+        for offset in stride(from: -Self.maxScrollOffset, through: Self.maxScrollOffset, by: Self.offsetStride) where offset != 0 {
+            if elapsedMs(since: startedAt) >= detectionBudgetMs {
+                return ProbeOutcome(offset: nil, confidence: bestScore, sampledPixelCount: sampledPixelCount, timedOut: true, timeoutReason: "probe-budget-exceeded")
             }
-            let score = verticalMatchScore(previous: previous, current: current, offset: offset)
-            if score > bestScore {
-                bestScore = score
+            let score = verticalMatchScore(previous: previous, sampler: sampler, offset: offset)
+            sampledPixelCount += score.samples
+            if score.confidence > bestScore {
+                bestScore = score.confidence
                 bestOffset = ScrollOffset(dx: 0, dy: offset)
             }
         }
-        for offset in stride(from: -240, through: 240, by: 8) where offset != 0 {
-            if Double(DispatchTime.now().uptimeNanoseconds &- startedAt) / 1_000_000.0 > 4 {
-                return nil
+        for offset in stride(from: -Self.maxScrollOffset, through: Self.maxScrollOffset, by: Self.offsetStride) where offset != 0 {
+            if elapsedMs(since: startedAt) >= detectionBudgetMs {
+                return ProbeOutcome(offset: nil, confidence: bestScore, sampledPixelCount: sampledPixelCount, timedOut: true, timeoutReason: "probe-budget-exceeded")
             }
-            let score = horizontalMatchScore(previous: previous, current: current, offset: offset)
-            if score > bestScore {
-                bestScore = score
+            let score = horizontalMatchScore(previous: previous, sampler: sampler, offset: offset)
+            sampledPixelCount += score.samples
+            if score.confidence > bestScore {
+                bestScore = score.confidence
                 bestOffset = ScrollOffset(dx: offset, dy: 0)
             }
         }
-        guard bestScore >= 0.92 else { return nil }
-        return bestOffset
+        if elapsedMs(since: startedAt) >= detectionBudgetMs {
+            return ProbeOutcome(offset: nil, confidence: bestScore, sampledPixelCount: sampledPixelCount, timedOut: true, timeoutReason: "probe-budget-exceeded")
+        }
+        guard bestScore >= Self.confidenceThreshold else {
+            return ProbeOutcome(offset: nil, confidence: bestScore, sampledPixelCount: sampledPixelCount, timedOut: false, timeoutReason: nil)
+        }
+        return ProbeOutcome(offset: bestOffset, confidence: bestScore, sampledPixelCount: sampledPixelCount, timedOut: false, timeoutReason: nil)
     }
 
-    private func verticalMatchScore(previous: Surface, current: Surface, offset: Int) -> Double {
-        let overlapHeight = current.height - abs(offset)
-        guard overlapHeight > 16 else { return 0 }
+    private func verticalMatchScore(previous: Surface, sampler: DirectBGRASampler, offset: Int) -> MatchScore {
+        let overlapHeight = sampler.height - abs(offset)
+        guard overlapHeight > 16 else { return MatchScore(confidence: 0, samples: 0) }
         let stepY = max(8, overlapHeight / 80)
-        let stepX = max(16, current.width / 120)
+        let stepX = max(16, sampler.width / 120)
         var matches = 0
         var samples = 0
         for y in stride(from: 0, to: overlapHeight, by: stepY) {
             let previousY = offset > 0 ? y : y - offset
             let currentY = offset > 0 ? y + offset : y
-            for x in stride(from: 0, to: current.width, by: stepX) {
+            for x in stride(from: 0, to: sampler.width, by: stepX) {
                 let oldIndex = previousY * previous.bytesPerRow + x * 4
-                let newIndex = currentY * current.bytesPerRow + x * 4
-                if pixelDistance(previous.pixels, oldIndex, current.pixels, newIndex) <= 24 {
+                if pixelDistance(previous.pixels, oldIndex, sampler: sampler, x: x, y: currentY) <= 24 {
                     matches += 1
                 }
                 samples += 1
             }
         }
-        guard samples > 0 else { return 0 }
-        return Double(matches) / Double(samples)
+        guard samples > 0 else { return MatchScore(confidence: 0, samples: 0) }
+        return MatchScore(confidence: Double(matches) / Double(samples), samples: samples)
     }
 
-    private func horizontalMatchScore(previous: Surface, current: Surface, offset: Int) -> Double {
-        let overlapWidth = current.width - abs(offset)
-        guard overlapWidth > 16 else { return 0 }
-        let stepY = max(8, current.height / 80)
+    private func horizontalMatchScore(previous: Surface, sampler: DirectBGRASampler, offset: Int) -> MatchScore {
+        let overlapWidth = sampler.width - abs(offset)
+        guard overlapWidth > 16 else { return MatchScore(confidence: 0, samples: 0) }
+        let stepY = max(8, sampler.height / 80)
         let stepX = max(16, overlapWidth / 120)
         var matches = 0
         var samples = 0
-        for y in stride(from: 0, to: current.height, by: stepY) {
+        for y in stride(from: 0, to: sampler.height, by: stepY) {
             for x in stride(from: 0, to: overlapWidth, by: stepX) {
                 let previousX = offset > 0 ? x : x - offset
                 let currentX = offset > 0 ? x + offset : x
                 let oldIndex = y * previous.bytesPerRow + previousX * 4
-                let newIndex = y * current.bytesPerRow + currentX * 4
-                if pixelDistance(previous.pixels, oldIndex, current.pixels, newIndex) <= 24 {
+                if pixelDistance(previous.pixels, oldIndex, sampler: sampler, x: currentX, y: y) <= 24 {
                     matches += 1
                 }
                 samples += 1
             }
         }
-        guard samples > 0 else { return 0 }
-        return Double(matches) / Double(samples)
+        guard samples > 0 else { return MatchScore(confidence: 0, samples: 0) }
+        return MatchScore(confidence: Double(matches) / Double(samples), samples: samples)
     }
 
-    private func pixelDistance(_ lhs: Data, _ lhsIndex: Int, _ rhs: Data, _ rhsIndex: Int) -> Int {
-        abs(Int(lhs[lhsIndex]) - Int(rhs[rhsIndex])) +
+    private func pixelDistance(_ lhs: Data, _ lhsIndex: Int, sampler: DirectBGRASampler, x: Int, y: Int) -> Int {
+        let rhsIndex = y * sampler.bytesPerRow + x * 4
+        let rhs = sampler.baseAddress.assumingMemoryBound(to: UInt8.self)
+        return abs(Int(lhs[lhsIndex]) - Int(rhs[rhsIndex])) +
             abs(Int(lhs[lhsIndex + 1]) - Int(rhs[rhsIndex + 1])) +
             abs(Int(lhs[lhsIndex + 2]) - Int(rhs[rhsIndex + 2]))
     }

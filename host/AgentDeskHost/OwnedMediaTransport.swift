@@ -825,7 +825,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                                 try? await Task.sleep(nanoseconds: UInt64(Config.hybridScrollIdleRefreshMs) * 1_000_000)
                                 _ = mailbox.wakeWithLatestFrame()
                             }
-                            logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
+                            if let scrollDiagnostics = graphics.diagnostics {
+                                logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) dx=\(scrollDiagnostics.acceptedDx ?? 0, privacy: .public) dy=\(scrollDiagnostics.acceptedDy ?? 0, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) payloadBuildMs=\(scrollDiagnostics.payloadBuildMs ?? 0, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                            } else {
+                                logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
+                            }
                             let scrollHevcFps = Config.hybridScrollHEVCFps
                             if scrollHevcFps == 0 {
                                 diagnostics.noteAdmissionHold(reason: "graphics-scroll-suppressed-hevc", mode: currentAdmissionMode())
@@ -853,9 +857,17 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                         }
                     }
                 case .timeout:
-                    logger.notice("owned graphics scroll-timeout")
+                    if let scrollDiagnostics = graphics.diagnostics {
+                        logger.notice("owned graphics scroll-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                    } else {
+                        logger.notice("owned graphics scroll-timeout")
+                    }
                 case .rejected(let reason):
-                    logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public)")
+                    if let scrollDiagnostics = graphics.diagnostics {
+                        logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                    } else {
+                        logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public)")
+                    }
                 }
             }
 
@@ -933,7 +945,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             do {
                 diagnostics.setPhase(.sending)
                 let sendStats = try await channel.send(envelope)
-                scrollDeltaEngine.commitPendingSurface()
+                scrollDeltaEngine.observeFallbackFrame(frame)
                 diagnostics.noteSent(envelope: envelope, stats: sendStats, decision: decision)
                 noteAdmissionSent(envelope, decision: decision)
             } catch {

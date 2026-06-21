@@ -35,11 +35,12 @@ Phase goal: pin the current failure shape before changing behavior.
 
 Phase goal: make scroll detection finish within budget before building full exposed-strip payloads.
 
-- [ ] R35.1. Refactor `host/AgentDeskHost/ScrollDeltaEngine.swift` into a two-stage detector: sampled luma or downsampled probe first, full exposed-strip extraction only after an offset is accepted.
-- [ ] R35.2. Replace full-resolution BGRA comparison in `bestScrollOffset` with sampled bands that can evaluate vertical and horizontal offsets without copying the entire frame.
-- [ ] R35.3. Preserve the current acceptance contract: max offset 240 px, stride 8 px, confidence `>= 0.92`, timeout fallback to HEVC, and no graphics command on rejected motion.
-- [ ] R35.4. Add diagnostics for probe time, payload-build time, accepted offset, confidence, timeout reason, and sampled pixel count.
-- [ ] R35.5. Add tests proving accepted vertical and horizontal scroll build `copyRect` plus exposed-strip `bitmapTile` only after probe acceptance, non-scroll motion emits no command, and a forced probe timeout does not allocate exposed-strip payload.
+- [x] R35.1. Refactor `host/AgentDeskHost/ScrollDeltaEngine.swift` into a two-stage detector: sampled luma or downsampled probe first, full exposed-strip extraction only after an offset is accepted.
+- [x] R35.2. Replace full-resolution BGRA comparison in `bestScrollOffset` with sampled bands that can evaluate vertical and horizontal offsets without copying the entire frame.
+- [x] R35.3. Preserve the current acceptance contract: max offset 240 px, stride 8 px, confidence `>= 0.92`, timeout fallback to HEVC, and no graphics command on rejected motion.
+- [x] R35.4. Add diagnostics for probe time, payload-build time, accepted offset, confidence, timeout reason, and sampled pixel count.
+- [x] R35.5. Add tests proving accepted vertical and horizontal scroll build `copyRect` plus exposed-strip `bitmapTile` only after probe acceptance, non-scroll motion emits no command, and a forced probe timeout does not allocate exposed-strip payload.
+  - 2026-06-21 progress: direct BGRA probe, host diagnostic logs, and scroll unit coverage landed locally. Physical timeout-rate acceptance remains R35.6.
 - [ ] R35.6. Acceptance: physical scroll run shows scroll detector timeout rate below 20 percent of scroll frames and sustained `copyRects>0` on the client.
 
 ## v0 Phase 2: durable graphics stream

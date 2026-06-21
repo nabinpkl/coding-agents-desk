@@ -1226,6 +1226,12 @@ struct ScrollQualityTests {
         let result = engine.evaluate(current)
 
         #expect(result.kind == ScrollDeltaKind.accepted)
+        let diagnostics = try #require(result.diagnostics)
+        #expect(diagnostics.acceptedDx == 0)
+        #expect(diagnostics.acceptedDy == -16)
+        #expect(diagnostics.confidence >= 0.92)
+        #expect(diagnostics.sampledPixelCount > 0)
+        #expect(diagnostics.payloadBuildMs != nil)
         let envelope = try #require(result.envelope)
         #expect(envelope.commands.count == 2)
         #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(srcX: 0, srcY: 16, dstX: 0, dstY: 0, width: 64, height: 48))
@@ -1257,6 +1263,12 @@ struct ScrollQualityTests {
         let result = engine.evaluate(current)
 
         #expect(result.kind == ScrollDeltaKind.accepted)
+        let diagnostics = try #require(result.diagnostics)
+        #expect(diagnostics.acceptedDx == -16)
+        #expect(diagnostics.acceptedDy == 0)
+        #expect(diagnostics.confidence >= 0.92)
+        #expect(diagnostics.sampledPixelCount > 0)
+        #expect(diagnostics.payloadBuildMs != nil)
         let envelope = try #require(result.envelope)
         #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(srcX: 16, srcY: 0, dstX: 0, dstY: 0, width: 48, height: 64))
         #expect(envelope.commands[1] == OwnedGraphicsCommand.bitmapTile(
@@ -1284,9 +1296,80 @@ struct ScrollQualityTests {
 
         if case .rejected = result.kind {
             #expect(result.envelope == nil)
+            let diagnostics = try #require(result.diagnostics)
+            #expect(diagnostics.acceptedDx == nil)
+            #expect(diagnostics.acceptedDy == nil)
+            #expect(diagnostics.payloadBuildMs == nil)
+            #expect(diagnostics.sampledPixelCount > 0)
         } else {
             Issue.record("expected rejected motion")
         }
+    }
+
+    @Test func scrollDeltaEngineProbeTimeoutBuildsNoGraphicsPayload() throws {
+        var engine = ScrollDeltaEngine()
+        let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+        let current = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            y < 48 ? Self.pixel(x: x, y: y + 16) : Self.exposedPixel(x: x, y: y)
+        }
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let result = engine.evaluate(current, detectionBudgetMs: 0)
+
+        #expect(result.kind == ScrollDeltaKind.timeout)
+        #expect(result.envelope == nil)
+        let diagnostics = try #require(result.diagnostics)
+        #expect(diagnostics.timeoutReason == "probe-budget-exceeded")
+        #expect(diagnostics.payloadBuildMs == nil)
+        #expect(diagnostics.acceptedDx == nil)
+        #expect(diagnostics.acceptedDy == nil)
+    }
+
+    @Test func scrollDeltaEngineTimeoutDoesNotReplaceCommittedBaseline() throws {
+        var timeoutEngine = ScrollDeltaEngine()
+        let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+        let timedOut = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            y < 48 ? Self.pixel(x: x, y: y + 16) : Self.exposedPixel(x: x, y: y)
+        }
+        let currentFromOriginalBaseline = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            y < 40 ? Self.pixel(x: x, y: y + 24) : Self.exposedPixel(x: x, y: y)
+        }
+
+        #expect(timeoutEngine.evaluate(previous).kind == .reset)
+        timeoutEngine.commitPendingSurface()
+        #expect(timeoutEngine.evaluate(timedOut, detectionBudgetMs: 0).kind == .timeout)
+
+        var resumedEngine = timeoutEngine
+        let resumed = resumedEngine.evaluate(currentFromOriginalBaseline)
+
+        #expect(resumed.kind == .accepted)
+        #expect(resumed.diagnostics?.acceptedDy == -24)
+    }
+
+    @Test func scrollDeltaEngineFallbackObservationRealignsProbeBaseline() throws {
+        var engine = ScrollDeltaEngine()
+        let first = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+        let fallback = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            Self.pixel(x: x, y: y + 31)
+        }
+        let current = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            y < 48 ? Self.pixel(x: x, y: y + 47) : Self.exposedPixel(x: x, y: y)
+        }
+
+        #expect(engine.evaluate(first).kind == .reset)
+        engine.commitPendingSurface()
+        engine.observeFallbackFrame(fallback)
+        let result = engine.evaluate(current)
+
+        #expect(result.kind == .accepted)
+        #expect(result.diagnostics?.acceptedDy == -16)
     }
 
     @Test func scrollDeltaEngineResetsOnResizeAndReservesHevcIdsInSameGeneration() throws {
