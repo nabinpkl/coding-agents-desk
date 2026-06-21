@@ -1470,6 +1470,30 @@ struct ScrollQualityTests {
         })
     }
 
+    @Test func scrollDeltaEngineSamplesLumaBeforePayloadBuildFor420Scroll() throws {
+        var engine = ScrollDeltaEngine()
+        let previous = try Self.makeBGRAFrame(width: 320, height: 256) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+        let current = try Self.make420Frame(width: 320, height: 256) { x, y in
+            y < 224 ? Self.pixel(x: x, y: y + 32) : Self.exposedPixel(x: x, y: y)
+        }
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let result = engine.evaluate(current)
+
+        #expect(result.kind == ScrollDeltaKind.accepted)
+        let diagnostics = try #require(result.diagnostics)
+        #expect(diagnostics.acceptedDx == 0)
+        #expect(diagnostics.acceptedDy == -32)
+        #expect(diagnostics.confidence >= 0.92)
+        #expect(diagnostics.sampledPixelCount > 0)
+        #expect(diagnostics.payloadBuildMs != nil)
+        let envelope = try #require(result.envelope)
+        #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(srcX: 0, srcY: 32, dstX: 0, dstY: 0, width: 320, height: 224))
+    }
+
     @Test func scrollDeltaEngineEmitsHorizontalCopyRectAndExposedStrip() throws {
         var engine = ScrollDeltaEngine()
         let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
@@ -1767,6 +1791,61 @@ struct ScrollQualityTests {
         )
     }
 
+    private static func make420Frame(
+        width: Int,
+        height: Int,
+        pixel: (Int, Int) -> [UInt8]
+    ) throws -> CapturedVideoFrame {
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+            [
+                kCVPixelBufferIOSurfacePropertiesKey: [:],
+                kCVPixelBufferCGImageCompatibilityKey: true,
+                kCVPixelBufferCGBitmapContextCompatibilityKey: true
+            ] as CFDictionary,
+            &pixelBuffer
+        )
+        guard status == kCVReturnSuccess, let pixelBuffer else {
+            throw SessionRejected(reason: .malformed)
+        }
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
+        guard let yBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0),
+              let uvBase = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 1) else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let yBytesPerRow = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0)
+        let uvBytesPerRow = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 1)
+        let uvHeight = CVPixelBufferGetHeightOfPlane(pixelBuffer, 1)
+        let uvWidth = CVPixelBufferGetWidthOfPlane(pixelBuffer, 1)
+        for y in 0..<height {
+            for x in 0..<width {
+                yBase.storeBytes(
+                    of: luma(pixel(x, y)),
+                    toByteOffset: y * yBytesPerRow + x,
+                    as: UInt8.self
+                )
+            }
+        }
+        for y in 0..<uvHeight {
+            for x in 0..<uvWidth {
+                let offset = y * uvBytesPerRow + x * 2
+                uvBase.storeBytes(of: UInt8(128), toByteOffset: offset, as: UInt8.self)
+                uvBase.storeBytes(of: UInt8(128), toByteOffset: offset + 1, as: UInt8.self)
+            }
+        }
+        return CapturedVideoFrame(
+            pixelBuffer: pixelBuffer,
+            presentationTimeNs: 123_000_000,
+            capturedAtUptimeNs: 456_000_000,
+            rotation: ._0
+        )
+    }
+
     private static func pixel(x: Int, y: Int) -> [UInt8] {
         [
             UInt8((x * 3 + y * 5) & 0xff),
@@ -1774,6 +1853,13 @@ struct ScrollQualityTests {
             UInt8((x * 13 + y * 17) & 0xff),
             0xff
         ]
+    }
+
+    private static func luma(_ bgra: [UInt8]) -> UInt8 {
+        let blue = 29 * Int(bgra[0])
+        let green = 150 * Int(bgra[1])
+        let red = 77 * Int(bgra[2])
+        return UInt8((blue + green + red) >> 8)
     }
 
     private static func exposedPixel(x: Int, y: Int) -> [UInt8] {

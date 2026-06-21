@@ -41,6 +41,7 @@ Phase goal: make scroll detection finish within budget before building full expo
 - [x] R35.4. Add diagnostics for probe time, payload-build time, accepted offset, confidence, timeout reason, and sampled pixel count.
 - [x] R35.5. Add tests proving accepted vertical and horizontal scroll build `copyRect` plus exposed-strip `bitmapTile` only after probe acceptance, non-scroll motion emits no command, and a forced probe timeout does not allocate exposed-strip payload.
   - 2026-06-21 progress: direct BGRA probe, host diagnostic logs, and scroll unit coverage landed locally. Physical timeout-rate acceptance remains R35.6.
+  - 2026-06-21 progress: direct 420 luma probing now accepts a 32 px scroll before payload build, and the probe returns as soon as confidence crosses the threshold instead of timing out after a valid match.
 - [ ] R35.6. Acceptance: physical scroll run shows scroll detector timeout rate below 20 percent of scroll frames and sustained `copyRects>0` on the client.
 
 ## v0 Phase 2: durable graphics stream
@@ -49,7 +50,7 @@ Phase goal: make the reliable graphics channel recoverable enough to carry state
 
 - [x] R36.1. Extend `host/AgentDeskHost/OwnedMediaTransport.swift` and `client/AgentDeskClient/OwnedMediaTransport.swift` so graphics stream disconnect, timeout, receive failure, and send failure enter a reconnect state instead of permanently disabling retained graphics.
 - [x] R36.2. Route graphics reset requests through a live fallback control path when the graphics stream is disconnected, then force a graphics-stream reconnect and next-generation `resetSurface`.
-- [x] R36.3. Add a graphics handshake replay fence for reconnect attempts using the current session identity and fresh nonces.
+- [x] R36.3. Keep graphics reconnect validation scoped to the active session identity and fresh graphics hello/ready nonces, without marking the graphics capability stale after the first connection.
 - [x] R36.4. Add host diagnostics for graphics channel state: connected, disconnected, reconnecting, reconnect failed, reset queued, reset sent, reset acked.
 - [x] R36.5. Add client diagnostics for graphics receive errors, reconnect attempts, reset request path, and stale frame discard after reconnect.
 - [x] R36.6. Add tests proving a graphics stream receive error reconnects, reset request does not depend on the dead stream, stale pre-reconnect frames cannot overwrite the reset generation, and HEVC datagrams continue while graphics reconnects.
@@ -126,6 +127,7 @@ D27-D32   2026-06-20  archived    initial scroll-first hybrid retained graphics 
 R34       pending     pending     evidence gate and hybrid diagnostics summary
 R35       pending     pending     cheap scroll detection before full BGRA payload work
 R36       pending     pending     durable graphics stream reconnect and reset recovery
+R35/R36   2026-06-21  committed   420 luma scroll probes accept before timeout and graphics capability reconnects inside the active session
 R36.1-R36.6 2026-06-21  committed   durable graphics reconnect, fallback reset control, bounded retry policy, and contract tests
 R37.1-R37.5 2026-06-21  committed   accepted-scroll HEVC suppression and one idle refresh covered by host tests
 R37.6     pending     pending     physical accepted-scroll HEVC suppression acceptance

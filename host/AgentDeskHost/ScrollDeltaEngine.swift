@@ -73,6 +73,42 @@ struct ScrollDeltaEngine {
         let baseAddress: UnsafeRawPointer
     }
 
+    private struct DirectLumaSampler {
+        let width: Int
+        let height: Int
+        let bytesPerRow: Int
+        let baseAddress: UnsafeRawPointer
+    }
+
+    private struct SurfaceSampler {
+        let surface: Surface
+
+        var width: Int { surface.width }
+        var height: Int { surface.height }
+    }
+
+    private enum ProbeSampler {
+        case bgra(DirectBGRASampler)
+        case luma(DirectLumaSampler)
+        case surface(SurfaceSampler)
+
+        var width: Int {
+            switch self {
+            case .bgra(let sampler): sampler.width
+            case .luma(let sampler): sampler.width
+            case .surface(let sampler): sampler.width
+            }
+        }
+
+        var height: Int {
+            switch self {
+            case .bgra(let sampler): sampler.height
+            case .luma(let sampler): sampler.height
+            case .surface(let sampler): sampler.height
+            }
+        }
+    }
+
     private var previous: Surface?
     private var pendingSurface: Surface?
     private var surfaceGeneration: UInt32 = 0
@@ -261,26 +297,11 @@ struct ScrollDeltaEngine {
         startedAt: UInt64,
         detectionBudgetMs: Double
     ) -> ProbeOutcome {
-        guard CVPixelBufferGetPixelFormatType(currentPixelBuffer) == kCVPixelFormatType_32BGRA else {
-            return ProbeOutcome(
-                offset: nil,
-                confidence: 0,
-                sampledPixelCount: 0,
-                timedOut: false,
-                timeoutReason: "unsupported-pixel-format"
-            )
-        }
         CVPixelBufferLockBaseAddress(currentPixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(currentPixelBuffer, .readOnly) }
-        guard let baseAddress = CVPixelBufferGetBaseAddress(currentPixelBuffer) else {
-            return ProbeOutcome(offset: nil, confidence: 0, sampledPixelCount: 0, timedOut: false, timeoutReason: "no-base-address")
+        guard let sampler = makeProbeSampler(for: currentPixelBuffer) else {
+            return ProbeOutcome(offset: nil, confidence: 0, sampledPixelCount: 0, timedOut: false, timeoutReason: "no-probe-sampler")
         }
-        let sampler = DirectBGRASampler(
-            width: CVPixelBufferGetWidth(currentPixelBuffer),
-            height: CVPixelBufferGetHeight(currentPixelBuffer),
-            bytesPerRow: CVPixelBufferGetBytesPerRow(currentPixelBuffer),
-            baseAddress: baseAddress
-        )
         var bestOffset: ScrollOffset?
         var bestScore = 0.0
         var sampledPixelCount = 0
@@ -293,6 +314,15 @@ struct ScrollDeltaEngine {
             if score.confidence > bestScore {
                 bestScore = score.confidence
                 bestOffset = ScrollOffset(dx: 0, dy: offset)
+                if bestScore >= Self.confidenceThreshold {
+                    return ProbeOutcome(
+                        offset: bestOffset,
+                        confidence: bestScore,
+                        sampledPixelCount: sampledPixelCount,
+                        timedOut: false,
+                        timeoutReason: nil
+                    )
+                }
             }
         }
         for offset in stride(from: -Self.maxScrollOffset, through: Self.maxScrollOffset, by: Self.offsetStride) where offset != 0 {
@@ -304,6 +334,15 @@ struct ScrollDeltaEngine {
             if score.confidence > bestScore {
                 bestScore = score.confidence
                 bestOffset = ScrollOffset(dx: offset, dy: 0)
+                if bestScore >= Self.confidenceThreshold {
+                    return ProbeOutcome(
+                        offset: bestOffset,
+                        confidence: bestScore,
+                        sampledPixelCount: sampledPixelCount,
+                        timedOut: false,
+                        timeoutReason: nil
+                    )
+                }
             }
         }
         if elapsedMs(since: startedAt) >= detectionBudgetMs {
@@ -315,7 +354,35 @@ struct ScrollDeltaEngine {
         return ProbeOutcome(offset: bestOffset, confidence: bestScore, sampledPixelCount: sampledPixelCount, timedOut: false, timeoutReason: nil)
     }
 
-    private func verticalMatchScore(previous: Surface, sampler: DirectBGRASampler, offset: Int) -> MatchScore {
+    private func makeProbeSampler(for pixelBuffer: CVPixelBuffer) -> ProbeSampler? {
+        let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
+        if pixelFormat == kCVPixelFormatType_32BGRA {
+            guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+            return .bgra(DirectBGRASampler(
+                width: CVPixelBufferGetWidth(pixelBuffer),
+                height: CVPixelBufferGetHeight(pixelBuffer),
+                bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
+                baseAddress: baseAddress
+            ))
+        }
+        if pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ||
+            pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange {
+            guard CVPixelBufferGetPlaneCount(pixelBuffer) > 0,
+                  let baseAddress = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else {
+                return nil
+            }
+            return .luma(DirectLumaSampler(
+                width: CVPixelBufferGetWidthOfPlane(pixelBuffer, 0),
+                height: CVPixelBufferGetHeightOfPlane(pixelBuffer, 0),
+                bytesPerRow: CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0),
+                baseAddress: baseAddress
+            ))
+        }
+        guard let surface = makeSurface(pixelBuffer) else { return nil }
+        return .surface(SurfaceSampler(surface: surface))
+    }
+
+    private func verticalMatchScore(previous: Surface, sampler: ProbeSampler, offset: Int) -> MatchScore {
         let overlapHeight = sampler.height - abs(offset)
         guard overlapHeight > 16 else { return MatchScore(confidence: 0, samples: 0) }
         let stepY = max(8, overlapHeight / 80)
@@ -337,7 +404,7 @@ struct ScrollDeltaEngine {
         return MatchScore(confidence: Double(matches) / Double(samples), samples: samples)
     }
 
-    private func horizontalMatchScore(previous: Surface, sampler: DirectBGRASampler, offset: Int) -> MatchScore {
+    private func horizontalMatchScore(previous: Surface, sampler: ProbeSampler, offset: Int) -> MatchScore {
         let overlapWidth = sampler.width - abs(offset)
         guard overlapWidth > 16 else { return MatchScore(confidence: 0, samples: 0) }
         let stepY = max(8, sampler.height / 80)
@@ -359,12 +426,31 @@ struct ScrollDeltaEngine {
         return MatchScore(confidence: Double(matches) / Double(samples), samples: samples)
     }
 
-    private func pixelDistance(_ lhs: Data, _ lhsIndex: Int, sampler: DirectBGRASampler, x: Int, y: Int) -> Int {
-        let rhsIndex = y * sampler.bytesPerRow + x * 4
-        let rhs = sampler.baseAddress.assumingMemoryBound(to: UInt8.self)
-        return abs(Int(lhs[lhsIndex]) - Int(rhs[rhsIndex])) +
-            abs(Int(lhs[lhsIndex + 1]) - Int(rhs[rhsIndex + 1])) +
-            abs(Int(lhs[lhsIndex + 2]) - Int(rhs[rhsIndex + 2]))
+    private func pixelDistance(_ lhs: Data, _ lhsIndex: Int, sampler: ProbeSampler, x: Int, y: Int) -> Int {
+        switch sampler {
+        case .bgra(let sampler):
+            let rhsIndex = y * sampler.bytesPerRow + x * 4
+            let rhs = sampler.baseAddress.assumingMemoryBound(to: UInt8.self)
+            return abs(Int(lhs[lhsIndex]) - Int(rhs[rhsIndex])) +
+                abs(Int(lhs[lhsIndex + 1]) - Int(rhs[rhsIndex + 1])) +
+                abs(Int(lhs[lhsIndex + 2]) - Int(rhs[rhsIndex + 2]))
+        case .luma(let sampler):
+            let rhsIndex = y * sampler.bytesPerRow + x
+            let rhs = sampler.baseAddress.assumingMemoryBound(to: UInt8.self)
+            return abs(previousLuma(lhs, lhsIndex) - Int(rhs[rhsIndex]))
+        case .surface(let sampler):
+            let rhsIndex = y * sampler.surface.bytesPerRow + x * 4
+            return abs(Int(lhs[lhsIndex]) - Int(sampler.surface.pixels[rhsIndex])) +
+                abs(Int(lhs[lhsIndex + 1]) - Int(sampler.surface.pixels[rhsIndex + 1])) +
+                abs(Int(lhs[lhsIndex + 2]) - Int(sampler.surface.pixels[rhsIndex + 2]))
+        }
+    }
+
+    private func previousLuma(_ pixels: Data, _ index: Int) -> Int {
+        let b = Int(pixels[index])
+        let g = Int(pixels[index + 1])
+        let r = Int(pixels[index + 2])
+        return (29 * b + 150 * g + 77 * r) >> 8
     }
 
     private func makeResetEnvelope(surface: Surface, capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
