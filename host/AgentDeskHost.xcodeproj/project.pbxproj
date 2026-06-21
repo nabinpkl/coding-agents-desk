@@ -50,6 +50,7 @@
 		A00000000000000000000232 /* KeyCodeMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011E /* KeyCodeMap.swift */; };
 		A0000000000000000000022D /* SignalingFrameRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000116 /* SignalingFrameRouting.swift */; };
 		A0000000000000000000022E /* SignalingFrameRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000124 /* SignalingFrameRoutingTests.swift */; };
+		A00000000000000000000342 /* TailnetDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000341 /* TailnetDiscoveryTests.swift */; };
 		A00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* Base64URL.swift */; };
 		A00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Config.swift */; };
 		A00000000000000000000223 /* HostSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HostSigningKeyStore.swift */; };
@@ -170,6 +171,7 @@
 		A000000000000000000009B0 /* CursorMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorMonitorTests.swift; sourceTree = "<group>"; };
 		A000000000000000000009D0 /* ScrollQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollQualityTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000124 /* SignalingFrameRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingFrameRoutingTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000341 /* TailnetDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailnetDiscoveryTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000125 /* InputDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcherTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000122 /* LaunchAgentInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstallerTests.swift; sourceTree = "<group>"; };
@@ -334,6 +336,7 @@
 				A00000000000000000000122 /* LaunchAgentInstallerTests.swift */,
 				A00000000000000000000123 /* SessionAuthenticatorTests.swift */,
 				A00000000000000000000124 /* SignalingFrameRoutingTests.swift */,
+				A00000000000000000000341 /* TailnetDiscoveryTests.swift */,
 				A00000000000000000000125 /* InputDispatcherTests.swift */,
 				A00000000000000000000153 /* GestureChildControllerTests.swift */,
 				A00000000000000000000157 /* JsonlChildProcessTests.swift */,
@@ -543,6 +546,7 @@
 				A0000000000000000000025F /* VoiceChildController.swift in Sources */,
 				A0000000000000000000022D /* SignalingFrameRouting.swift in Sources */,
 				A0000000000000000000022E /* SignalingFrameRoutingTests.swift in Sources */,
+				A00000000000000000000342 /* TailnetDiscoveryTests.swift in Sources */,
 				A0000000000000000000022F /* InputDispatcher.swift in Sources */,
 				A00000000000000000000230 /* InputDispatcherTests.swift in Sources */,
 				A00000000000000000000259 /* GestureChildControllerTests.swift in Sources */,
