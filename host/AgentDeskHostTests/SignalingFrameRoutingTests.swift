@@ -12,6 +12,12 @@ struct SignalingFrameRoutingTests {
         #expect(SignalingFrameRouter.classifyFirstFrame(data) == .sessionInit)
     }
 
+    @Test func classifyFirstFramePayloadFetchRoutesToPayloadFetch() {
+        let request = PairingPayloadFetchRequest(fetchToken: Data([0x01, 0x02, 0x03, 0x04]))
+        let data = try! JSONEncoder().encode(request)
+        #expect(SignalingFrameRouter.classifyFirstFrame(data) == .payloadFetch)
+    }
+
     @Test func classifyFirstFrameMediaOfferBeforeSessionIsMalformed() {
         let data = Data(#"{"t":"media-offer","s":"v=0\r\n"}"#.utf8)
         #expect(SignalingFrameRouter.classifyFirstFrame(data) == .malformed)

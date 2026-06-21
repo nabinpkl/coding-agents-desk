@@ -13,6 +13,7 @@ iphone_console_log := env_var_or_default("AGENTDESK_IPHONE_CONSOLE_LOG", "/tmp/a
 sim_console_log := env_var_or_default("AGENTDESK_SIM_CONSOLE_LOG", "/tmp/agentdesk-sim-console.log")
 iphone_log_device_udid := env_var_or_default("AGENTDESK_IOS_DEVICE_UDID", "")
 last_pair_url_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.last-pair-url"
+last_locator_code_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.last-locator-code"
 derived_data := env_var_or_default("AGENTDESK_DERIVED_DATA_PATH", justfile_directory() + "/.build/DerivedData")
 host_app := derived_data + "/Build/Products/Debug/AgentDeskHost.app"
 client_app := derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
@@ -119,6 +120,17 @@ pair-iphone:
     @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     @echo "URL: $(cat '{{last_pair_url_path}}')"
     URL="$(cat '{{last_pair_url_path}}')"; xcrun devicectl device process launch --device {{ios_device}} --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\"}" com.example.agentdesk.AgentDeskClient "$URL"
+
+# Print a fresh locator code (ADR-0018) for the running host. Sends SIGUSR1 to
+# mint a pairing, then prints the short code the host wrote to disk. Type this
+# code into a remote/TestFlight client's "Enter code" field. No QR, no launch.
+print-pair-code:
+    @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
+    rm -f "{{last_locator_code_path}}"
+    kill -USR1 $(pgrep -f AgentDeskHost)
+    @i=0; while [ ! -s "{{last_locator_code_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    @test -s "{{last_locator_code_path}}" || { echo "host did not write a locator code (tailnet IPv4 may be outside CGNAT)"; exit 1; }
+    @echo "Pairing code: $(cat '{{last_locator_code_path}}')"
 
 # Pair-launch the physical iPhone client with stdio attached. This blocks
 # until the app exits, and mirrors stdout/stderr to the configured log file.

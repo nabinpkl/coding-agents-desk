@@ -90,6 +90,48 @@ struct PairingTests {
             )
         }
     }
+
+    @Test func mintLocatorPairingRetainsPayloadAndConsumesOnce() throws {
+        let fixture = try PairingFixture()
+        let (code, payload) = try fixture.pairing.mintLocatorPairing()
+
+        #expect(code.tailnetIPv4 == "100.64.0.10")
+        // The retained payload is the same one whose nonce the handshake consumes.
+        let fetched = try fixture.pairing.consumeFetchToken(code.fetchToken)
+        #expect(fetched == payload)
+        // One-use: the second fetch with the same token fails.
+        #expect(throws: PairingError.invalidFetchToken) {
+            _ = try fixture.pairing.consumeFetchToken(code.fetchToken)
+        }
+    }
+
+    @Test func fetchTokenExpiresAfterTTL() throws {
+        final class MutableClock {
+            var date = Date(timeIntervalSince1970: 1_800_000_000)
+        }
+        let clock = MutableClock()
+        let fixture = try PairingFixture(fetchTokenTTL: 300, now: { clock.date })
+        let (code, _) = try fixture.pairing.mintLocatorPairing()
+
+        clock.date = clock.date.addingTimeInterval(301)
+        #expect(throws: PairingError.expiredFetchToken) {
+            _ = try fixture.pairing.consumeFetchToken(code.fetchToken)
+        }
+    }
+
+    @Test func fetchRateLimitTrips() throws {
+        let fixture = try PairingFixture(fetchRatePerMin: 3)
+        // Each attempt counts whether or not the token is valid; the 4th trips.
+        let bogus = Data([0, 0, 0, 1])
+        for _ in 0..<3 {
+            #expect(throws: PairingError.invalidFetchToken) {
+                _ = try fixture.pairing.consumeFetchToken(bogus)
+            }
+        }
+        #expect(throws: PairingError.rateLimited) {
+            _ = try fixture.pairing.consumeFetchToken(bogus)
+        }
+    }
 }
 
 private struct PairingFixture {
@@ -98,7 +140,11 @@ private struct PairingFixture {
     let key: P256.Signing.PrivateKey
     let pairing: Pairing
 
-    init(now: @escaping () -> Date = Date.init) throws {
+    init(
+        fetchTokenTTL: TimeInterval = Config.fetchTokenTTL,
+        fetchRatePerMin: Int = Config.fetchRatePerMin,
+        now: @escaping () -> Date = Date.init
+    ) throws {
         tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
@@ -108,6 +154,8 @@ private struct PairingFixture {
             keyProvider: InMemoryHostSigningKeyProvider(key: key),
             tailnetDiscovery: StaticTailnetDiscovery(),
             pairedDevices: PairedDeviceStore(url: allowlistURL),
+            fetchTokenTTL: fetchTokenTTL,
+            fetchRatePerMin: fetchRatePerMin,
             now: now
         )
     }

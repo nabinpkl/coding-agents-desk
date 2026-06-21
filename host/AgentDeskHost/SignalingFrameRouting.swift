@@ -6,6 +6,7 @@ import Foundation
 
 enum FirstFrameRoute: Equatable {
     case pair
+    case payloadFetch
     case sessionInit
     case inputHello
     case malformed
@@ -44,6 +45,7 @@ enum SignalingFrameRouter {
         }
         switch envelope.type {
         case "pair": return .pair
+        case "payload-fetch": return .payloadFetch
         case "session-init": return .sessionInit
         case "input-hello": return .inputHello
         default: return .malformed

@@ -683,12 +683,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startPairing() {
         do {
-            let payload = try pairing.mintPairingPayload()
+            let (locator, payload) = try pairing.mintLocatorPairing()
             let url = try payload.pairingURL()
             signalingLogger.notice("pairing URL minted: \(url.absoluteString, privacy: .public)")
             try? url.absoluteString.write(to: Config.devLastPairURLPath, atomically: true, encoding: .utf8)
+            // The locator code is unavailable when the tailnet IPv4 is not a
+            // CGNAT address (unexpected); fall back to QR-only rather than failing.
+            let code = try? locator.formatted()
+            if let code {
+                try? code.write(to: Config.devLastLocatorCodePath, atomically: true, encoding: .utf8)
+                signalingLogger.notice("pairing code minted")
+            } else {
+                try? FileManager.default.removeItem(at: Config.devLastLocatorCodePath)
+                signalingLogger.error("tailnet IPv4 outside CGNAT; locator code unavailable, QR only")
+            }
             applyIcon(.pairing)
-            popoverController.render(.pairing(url, QRCodeRenderer.image(for: url)))
+            popoverController.render(.pairing(url, QRCodeRenderer.image(for: url), code))
         } catch is TailscaleRequiredError {
             signalingLogger.error("startPairing failed: tailscale required")
             applyIcon(.tailscaleRequired)

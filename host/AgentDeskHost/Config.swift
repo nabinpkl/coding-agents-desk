@@ -98,6 +98,16 @@ enum Config {
     static let signalingPort: UInt16 = 41888
     static let graphicsPort = graphicsPort(environment: ProcessInfo.processInfo.environment)
     static let nonceTTL: TimeInterval = 90
+    // ADR-0018 code pairing: how long a minted locator code can pull its payload,
+    // and how many fetch attempts per minute the host will answer before throttling.
+    static let fetchTokenTTL: TimeInterval = TimeInterval(positiveInt(
+        environmentKey: "AGENTDESK_FETCH_TOKEN_TTL_SECONDS",
+        defaultValue: 300
+    ))
+    static let fetchRatePerMin = positiveInt(
+        environmentKey: "AGENTDESK_FETCH_RATE_PER_MIN",
+        defaultValue: 10
+    )
     static let inputCapabilityTTL: TimeInterval = 60
     static let mediaCapabilityTTL: TimeInterval = 60
     static let ownedMediaCodec = OwnedMediaCodecChoice(
@@ -512,6 +522,8 @@ enum Config {
         .appendingPathComponent("ad-token", isDirectory: false)
     static let devLastPairURLPath = applicationSupportDirectory
         .appendingPathComponent(".last-pair-url", isDirectory: false)
+    static let devLastLocatorCodePath = applicationSupportDirectory
+        .appendingPathComponent(".last-locator-code", isDirectory: false)
     static let tlsCertURL = applicationSupportDirectory
         .appendingPathComponent("host.crt", isDirectory: false)
     static let tlsKeyURL = applicationSupportDirectory

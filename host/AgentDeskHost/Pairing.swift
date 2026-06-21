@@ -8,6 +8,9 @@ enum PairingError: Error {
     case nonceAlreadyUsed
     case invalidDevicePublicKey
     case randomGenerationFailed
+    case invalidFetchToken
+    case expiredFetchToken
+    case rateLimited
 }
 
 struct PairedDeviceRecord: Codable, Equatable {
@@ -44,24 +47,39 @@ struct PairedDeviceStore {
 }
 
 final class Pairing {
+    private struct RetainedPayload {
+        let payload: PairingPayload
+        let issuedAt: Date
+    }
+
     private let keyProvider: HostSigningKeyProviding
     private let tailnetDiscovery: TailnetDiscovering
     private let pairedDevices: PairedDeviceStore
     private let nonceTTL: TimeInterval
+    private let fetchTokenTTL: TimeInterval
+    private let fetchRatePerMin: Int
     private let now: () -> Date
     private var nonceIssuedAt: [String: Date] = [:]
+    // ADR-0018: token -> retained signed payload for code-pairing fetch.
+    private var fetchTokens: [String: RetainedPayload] = [:]
+    // Sliding one-minute window of fetch attempts (valid or not) for rate limiting.
+    private var fetchAttempts: [Date] = []
 
     init(
         keyProvider: HostSigningKeyProviding = HostSigningKeyStore(),
         tailnetDiscovery: TailnetDiscovering = TailscaleStatusDiscovery(),
         pairedDevices: PairedDeviceStore = PairedDeviceStore(),
         nonceTTL: TimeInterval = Config.nonceTTL,
+        fetchTokenTTL: TimeInterval = Config.fetchTokenTTL,
+        fetchRatePerMin: Int = Config.fetchRatePerMin,
         now: @escaping () -> Date = Date.init
     ) {
         self.keyProvider = keyProvider
         self.tailnetDiscovery = tailnetDiscovery
         self.pairedDevices = pairedDevices
         self.nonceTTL = nonceTTL
+        self.fetchTokenTTL = fetchTokenTTL
+        self.fetchRatePerMin = fetchRatePerMin
         self.now = now
     }
 
@@ -90,6 +108,37 @@ final class Pairing {
             oneTimeNonce: nonce,
             expiresAt: Int(issuedAt.addingTimeInterval(nonceTTL).timeIntervalSince1970)
         )
+    }
+
+    // ADR-0018: mint a fresh pairing payload, retain it under a one-time fetch
+    // token, and return a locator code carrying the tailnet IPv4 plus that token
+    // so a remote client can pull the payload over the tailnet.
+    func mintLocatorPairing() throws -> (code: LocatorCode, payload: PairingPayload) {
+        let payload = try mintPairingPayload()
+        let token = LocatorCode.makeFetchToken(from: try randomBytes(count: 4))
+        pruneExpiredFetchTokens()
+        fetchTokens[token.base64URLEncodedString()] = RetainedPayload(payload: payload, issuedAt: now())
+        let code = LocatorCode(tailnetIPv4: payload.tailnetIPv4, fetchToken: token)
+        return (code, payload)
+    }
+
+    // ADR-0018: validate and consume a fetch token, returning the retained
+    // payload exactly once. Rate-limited to bound online token guessing.
+    func consumeFetchToken(_ token: Data) throws -> PairingPayload {
+        try recordFetchAttempt()
+        // Look up before pruning so an expired token reports .expiredFetchToken
+        // rather than being silently swept and reported as invalid. Growth is
+        // bounded because mintLocatorPairing prunes on every mint.
+        let key = token.base64URLEncodedString()
+        guard let retained = fetchTokens[key] else {
+            throw PairingError.invalidFetchToken
+        }
+        guard now().timeIntervalSince(retained.issuedAt) <= fetchTokenTTL else {
+            fetchTokens.removeValue(forKey: key)
+            throw PairingError.expiredFetchToken
+        }
+        fetchTokens.removeValue(forKey: key)
+        return retained.payload
     }
 
     func approve(devicePublicKey: Data) throws {
@@ -226,6 +275,20 @@ final class Pairing {
     private func pruneExpiredNonces() {
         let current = now()
         nonceIssuedAt = nonceIssuedAt.filter { current.timeIntervalSince($0.value) <= nonceTTL }
+    }
+
+    private func pruneExpiredFetchTokens() {
+        let current = now()
+        fetchTokens = fetchTokens.filter { current.timeIntervalSince($0.value.issuedAt) <= fetchTokenTTL }
+    }
+
+    private func recordFetchAttempt() throws {
+        let current = now()
+        fetchAttempts = fetchAttempts.filter { current.timeIntervalSince($0) <= 60 }
+        fetchAttempts.append(current)
+        guard fetchAttempts.count <= fetchRatePerMin else {
+            throw PairingError.rateLimited
+        }
     }
 
     private func randomBytes(count: Int) throws -> Data {

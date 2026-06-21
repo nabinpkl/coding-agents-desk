@@ -73,6 +73,42 @@ struct PairingClientTests {
         #expect(rejectingClient.state == .rejected("signature-mismatch"))
     }
 
+    @Test func acceptLocatorCodeDecodesTailnetAndToken() throws {
+        let client = PairingClient(
+            tokenStore: InMemorySessionTokenStore(),
+            deviceKeyProvider: InMemoryDeviceSigningKeyProvider(),
+            resolver: StaticResolver()
+        )
+        let typed = try LocatorCode(tailnetIPv4: "100.64.0.10", fetchToken: Data([0, 0, 0, 0])).formatted()
+
+        try client.startScanning()
+        let code = try client.acceptLocatorCode(typed)
+        #expect(code.tailnetIPv4 == "100.64.0.10")
+        #expect(code.fetchToken == Data([0, 0, 0, 0]))
+        // Decode leaves state ready for the fetch; only fetchPayload advances it.
+        #expect(client.state == .scanning)
+    }
+
+    @Test func acceptLocatorCodeRejectsMalformed() throws {
+        let client = PairingClient(
+            tokenStore: InMemorySessionTokenStore(),
+            deviceKeyProvider: InMemoryDeviceSigningKeyProvider(),
+            resolver: StaticResolver()
+        )
+        try client.startScanning()
+        #expect(throws: LocatorCodeError.self) {
+            _ = try client.acceptLocatorCode("not-a-valid-code")
+        }
+        #expect(client.state == .rejected("malformed-code"))
+    }
+
+    // Parity guard against the host copy of LocatorCode: the same fixed input
+    // must encode to the same string in both targets (host asserts the same).
+    @Test func locatorCodeEncodesFixedInputToStableString() throws {
+        let code = LocatorCode(tailnetIPv4: "100.64.0.10", fetchToken: Data([0, 0, 0, 0]))
+        #expect(try code.formatted() == "0000-A000-000U")
+    }
+
     @Test func postReadySessionRejectedSurfacesThroughCapabilityRefresh() async throws {
         let channel = WebSocketSignalingChannel(
             capabilityRequestSender: { _ in },

@@ -163,6 +163,8 @@ final class PairingSignalingServer: @unchecked Sendable {
         switch SignalingFrameRouter.classifyFirstFrame(data) {
         case .pair:
             handlePair(data: data, on: connection)
+        case .payloadFetch:
+            handlePayloadFetch(data: data, on: connection)
         case .sessionInit:
             handleSessionInit(data: data, context: context, on: connection)
         case .inputHello:
@@ -305,6 +307,31 @@ final class PairingSignalingServer: @unchecked Sendable {
             } catch {
                 self.send(pairResponse: PairingHandshakeResponse(type: "rejected", token: nil, error: "\(error)"), on: connection)
             }
+        }
+    }
+
+    // ADR-0018 code pairing: a remote client presents the fetch token from its
+    // locator code; return the retained signed payload exactly once. The signed
+    // payload plus host approval remain the trust anchors, so a bad token only
+    // yields a rejected response. Single-shot connection, like the pair frame.
+    private func handlePayloadFetch(data: Data, on connection: NWConnection) {
+        do {
+            let request = try JSONDecoder().decode(PairingPayloadFetchRequest.self, from: data)
+            let payload = try pairing.consumeFetchToken(request.fetchToken)
+            send(payloadFetchResponse: PairingPayloadFetchResponse(payload: payload, error: nil), on: connection)
+        } catch {
+            logger.error("payload-fetch failed: \(String(describing: error), privacy: .public)")
+            send(payloadFetchResponse: PairingPayloadFetchResponse(payload: nil, error: "\(error)"), on: connection)
+        }
+    }
+
+    private func send(payloadFetchResponse: PairingPayloadFetchResponse, on connection: NWConnection) {
+        do {
+            let data = try JSONEncoder().encode(payloadFetchResponse)
+            sendWebSocket(data: data, identifier: "payload-fetch-response", on: connection)
+        } catch {
+            logger.error("payload-fetch response encode failed: \(String(describing: error), privacy: .public)")
+            connection.cancel()
         }
     }
 
