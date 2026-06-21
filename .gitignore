@@ -1,6 +1,7 @@
 # Env files (per-machine config). .env.example is checked in as documentation.
 .env
 .env.local
+*.p8
 
 # macOS atomic-write temp artifacts
 .!*

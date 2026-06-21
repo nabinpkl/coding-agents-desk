@@ -17,14 +17,17 @@ derived_data := env_var_or_default("AGENTDESK_DERIVED_DATA_PATH", justfile_direc
 host_app := derived_data + "/Build/Products/Debug/AgentDeskHost.app"
 client_app := derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
 client_sim_app := derived_data + "/Build/Products/Debug-iphonesimulator/AgentDeskClient.app"
-client_archive_path := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_PATH", "/tmp/AgentDeskClient.xcarchive")
+client_archive_path := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_PATH", justfile_directory() + "/.build/testflight/AgentDeskClient.xcarchive")
+client_export_path := env_var_or_default("AGENTDESK_CLIENT_EXPORT_PATH", justfile_directory() + "/.build/testflight/export")
+client_ipa_path := env_var_or_default("AGENTDESK_CLIENT_IPA_PATH", client_export_path + "/AgentDeskClient.ipa")
 client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.0")
-client_build_number := env_var_or_default("AGENTDESK_CLIENT_BUILD", "1")
+apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
 
 check:
     sh tools/media-architecture-guard.sh
     sh tools/launch-env-tests.sh
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
+    sh tools/testflight-upload-tests.sh
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -derivedDataPath '{{derived_data}}' build test
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
 
@@ -242,22 +245,66 @@ ui-flow flow:
         JAVA_HOME="$(brew --prefix openjdk)/libexec/openjdk.jdk/Contents/Home" \
         maestro --udid {{ios_sim_udid}} test ../{{flow}}.yaml
 
-# Build a signed iOS Release archive for Xcode Organizer upload to TestFlight.
-client-archive:
-    # Override per upload: AGENTDESK_CLIENT_VERSION=1.0 AGENTDESK_CLIENT_BUILD=2 just client-archive
-    xcodebuild -project client/AgentDeskClient.xcodeproj \
-        -scheme AgentDeskClient \
-        -derivedDataPath '{{derived_data}}' \
-        -configuration Release \
-        -destination 'generic/platform=iOS' \
-        -archivePath '{{client_archive_path}}' \
-        DEVELOPMENT_TEAM=TEAMID0000 \
-        MARKETING_VERSION='{{client_marketing_version}}' \
-        CURRENT_PROJECT_VERSION='{{client_build_number}}' \
-        -allowProvisioningUpdates \
-        clean archive
+# Print the client build number used by TestFlight recipes. Defaults to a UTC
+# timestamp so repeated uploads do not collide in App Store Connect.
+client-build-number:
+    @tools/testflight-upload.sh build-number
 
-# Open the generated archive in Xcode so Organizer can distribute it.
+# Build a signed iOS Release archive for TestFlight export/upload.
+client-archive-release:
+    # Override per upload: AGENTDESK_CLIENT_VERSION=1.0 AGENTDESK_CLIENT_BUILD=20260621173045 just client-archive-release
+    mkdir -p "$(dirname '{{client_archive_path}}')"
+    @BUILD_NUMBER="$(tools/testflight-upload.sh build-number)"; \
+        echo "Archiving AgentDeskClient {{client_marketing_version}} ($BUILD_NUMBER)"; \
+        xcodebuild -project client/AgentDeskClient.xcodeproj \
+            -scheme AgentDeskClient \
+            -derivedDataPath '{{derived_data}}' \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath '{{client_archive_path}}' \
+            DEVELOPMENT_TEAM='{{apple_team_id}}' \
+            MARKETING_VERSION='{{client_marketing_version}}' \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            -allowProvisioningUpdates \
+            clean archive
+
+# Export the signed Release archive to an App Store Connect IPA.
+client-export-ipa:
+    @test -d '{{client_archive_path}}' || { echo "archive missing: {{client_archive_path}}"; exit 1; }
+    rm -rf '{{client_export_path}}'
+    mkdir -p '{{client_export_path}}'
+    xcodebuild -exportArchive \
+        -archivePath '{{client_archive_path}}' \
+        -exportPath '{{client_export_path}}' \
+        -exportOptionsPlist tools/testflight-export-options.plist \
+        -allowProvisioningUpdates
+    @test -f '{{client_ipa_path}}' || { echo "IPA missing: {{client_ipa_path}}"; find '{{client_export_path}}' -maxdepth 2 -type f -print; exit 1; }
+    @echo "IPA: {{client_ipa_path}}"
+
+# Upload a signed IPA to App Store Connect for internal TestFlight processing.
+# Requires AGENTDESK_ASC_KEY_ID, AGENTDESK_ASC_ISSUER_ID, and
+# AGENTDESK_ASC_API_KEY_PATH in .env or the shell environment.
+testflight-upload:
+    tools/testflight-upload.sh require-upload-env
+    just client-archive-release
+    just client-export-ipa
+    tools/testflight-upload.sh upload '{{client_ipa_path}}'
+    @echo "Upload submitted. App Store Connect may still need processing time before the build appears in TestFlight."
+
+# Build/export locally without uploading, useful for signing or export checks.
+testflight-build:
+    just client-archive-release
+    just client-export-ipa
+
+# Open the generated archive in Xcode so Organizer can distribute it manually.
 client-open-archive:
-    just client-archive
+    just client-archive-release
     open -a Xcode '{{client_archive_path}}'
+
+# Open App Store Connect after an upload.
+testflight-open:
+    open 'https://appstoreconnect.apple.com/apps'
+
+# Short archive recipe kept as the local archive action.
+client-archive:
+    just client-archive-release
