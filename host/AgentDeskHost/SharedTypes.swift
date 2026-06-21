@@ -1432,6 +1432,44 @@ struct OwnedHybridHEVCScalePolicy {
     }
 }
 
+enum HybridScrollHEVCDecision: Equatable {
+    case allow
+    case suppress
+    case rateLimited
+}
+
+struct HybridScrollHEVCAdmission: Equatable {
+    private(set) var lastAcceptedScrollAtUptimeNs: UInt64?
+    private(set) var lastScrollHevcRefreshAtUptimeNs: UInt64?
+    private(set) var pendingIdleRefresh = false
+
+    mutating func noteAcceptedScroll(nowUptimeNs: UInt64) {
+        lastAcceptedScrollAtUptimeNs = nowUptimeNs
+        pendingIdleRefresh = true
+    }
+
+    mutating func idleRefreshDue(nowUptimeNs: UInt64, idleRefreshMs: Int) -> Bool {
+        guard pendingIdleRefresh,
+              let lastAcceptedScrollAtUptimeNs,
+              nowUptimeNs &- lastAcceptedScrollAtUptimeNs >= UInt64(idleRefreshMs) * 1_000_000 else {
+            return false
+        }
+        pendingIdleRefresh = false
+        return true
+    }
+
+    mutating func decisionAfterAcceptedScroll(nowUptimeNs: UInt64, scrollHEVCFps: Int) -> HybridScrollHEVCDecision {
+        guard scrollHEVCFps > 0 else { return .suppress }
+        let minRefreshIntervalNs = 1_000_000_000 / UInt64(scrollHEVCFps)
+        if let lastScrollHevcRefreshAtUptimeNs,
+           nowUptimeNs &- lastScrollHevcRefreshAtUptimeNs < minRefreshIntervalNs {
+            return .rateLimited
+        }
+        lastScrollHevcRefreshAtUptimeNs = nowUptimeNs
+        return .allow
+    }
+}
+
 struct OwnedMediaEncodeCadencePolicy: Equatable, Sendable {
     static func intervalMs(
         admissionIntervalMs: Int,

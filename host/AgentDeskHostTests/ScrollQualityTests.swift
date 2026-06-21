@@ -87,6 +87,50 @@ struct ScrollQualityTests {
         #expect(Config.hybridScrollIdleRefreshMs == 250)
     }
 
+    @Test func hybridScrollHevcAdmissionSuppressesAcceptedScrollAtZeroFps() {
+        var admission = HybridScrollHEVCAdmission()
+
+        admission.noteAcceptedScroll(nowUptimeNs: 1_000_000_000)
+
+        #expect(admission.pendingIdleRefresh)
+        #expect(admission.decisionAfterAcceptedScroll(
+            nowUptimeNs: 1_000_000_000,
+            scrollHEVCFps: 0
+        ) == .suppress)
+    }
+
+    @Test func hybridScrollHevcAdmissionRateLimitsNonzeroScrollFps() {
+        var admission = HybridScrollHEVCAdmission()
+
+        admission.noteAcceptedScroll(nowUptimeNs: 1_000_000_000)
+
+        #expect(admission.decisionAfterAcceptedScroll(
+            nowUptimeNs: 1_000_000_000,
+            scrollHEVCFps: 3
+        ) == .allow)
+        #expect(admission.decisionAfterAcceptedScroll(
+            nowUptimeNs: 1_100_000_000,
+            scrollHEVCFps: 3
+        ) == .rateLimited)
+        #expect(admission.decisionAfterAcceptedScroll(
+            nowUptimeNs: 1_334_000_000,
+            scrollHEVCFps: 3
+        ) == .allow)
+    }
+
+    @Test func hybridScrollHevcAdmissionEmitsExactlyOneIdleRefresh() {
+        var admission = HybridScrollHEVCAdmission()
+
+        admission.noteAcceptedScroll(nowUptimeNs: 2_000_000_000)
+        let beforeIdle = admission.idleRefreshDue(nowUptimeNs: 2_249_000_000, idleRefreshMs: 250)
+        let atIdle = admission.idleRefreshDue(nowUptimeNs: 2_250_000_000, idleRefreshMs: 250)
+        let afterConsumed = admission.idleRefreshDue(nowUptimeNs: 2_750_000_000, idleRefreshMs: 250)
+
+        #expect(!beforeIdle)
+        #expect(atIdle)
+        #expect(!afterConsumed)
+    }
+
     @Test func mediaListenerConfigurationStillUsesSignalingPortAndDatagrams() {
         let configuration = OwnedQuicListenerConfigurations.mediaDatagram()
 

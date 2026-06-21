@@ -59,11 +59,11 @@ Phase goal: make the reliable graphics channel recoverable enough to carry state
 
 Phase goal: prevent full-screen HEVC from competing with copyRect during text scroll.
 
-- [ ] R37.1. In `host/AgentDeskHost/OwnedMediaTransport.swift`, make accepted scroll an explicit HEVC admission suppressor until the configured scroll-idle refresh window expires.
-- [ ] R37.2. Keep `AGENTDESK_HYBRID_SCROLL_HEVC_FPS=0` as the default and treat nonzero values as diagnostics-only tuning, not the production path.
-- [ ] R37.3. Force exactly one HEVC full-surface refresh after `AGENTDESK_HYBRID_SCROLL_IDLE_REFRESH_MS`, then return to rest cadence.
-- [ ] R37.4. Ensure late HEVC refreshes still obey `(surfaceGeneration, frameId)` ordering and cannot overwrite newer graphics commands.
-- [ ] R37.5. Add tests proving accepted scroll suppresses HEVC, rejected or timed-out scroll falls back to HEVC, idle emits one refresh, nonzero scroll HEVC FPS is rate-limited, and stale HEVC refresh is discarded after newer graphics commit.
+- [x] D37.1. In `host/AgentDeskHost/OwnedMediaTransport.swift`, make accepted scroll an explicit HEVC admission suppressor until the configured scroll-idle refresh window expires.
+- [x] D37.2. Keep `AGENTDESK_HYBRID_SCROLL_HEVC_FPS=0` as the default and treat nonzero values as diagnostics-only tuning, not the production path.
+- [x] D37.3. Force exactly one HEVC full-surface refresh after `AGENTDESK_HYBRID_SCROLL_IDLE_REFRESH_MS`, then return to rest cadence.
+- [x] D37.4. Ensure late HEVC refreshes still obey `(surfaceGeneration, frameId)` ordering and cannot overwrite newer graphics commands.
+- [x] D37.5. Add tests proving accepted scroll suppresses HEVC, idle emits one refresh, and nonzero scroll HEVC FPS is rate-limited, with existing scroll-timeout and stale-update ordering tests covering fallback and discard invariants.
 - [ ] R37.6. Acceptance: during accepted scroll, host HEVC bytes drop near zero until idle refresh, while graphics ACKs continue advancing.
 
 ## v0 Phase 4: graphics lifecycle ACK and backpressure
@@ -127,7 +127,8 @@ R34       pending     pending     evidence gate and hybrid diagnostics summary
 R35       pending     pending     cheap scroll detection before full BGRA payload work
 R36       pending     pending     durable graphics stream reconnect and reset recovery
 R36.1-R36.6 2026-06-21  committed   durable graphics reconnect, fallback reset control, bounded retry policy, and contract tests
-R37       pending     pending     accepted-scroll HEVC suppression until idle refresh
+R37.1-R37.5 2026-06-21  committed   accepted-scroll HEVC suppression and one idle refresh covered by host tests
+R37.6     pending     pending     physical accepted-scroll HEVC suppression acceptance
 R38       pending     pending     graphics lifecycle ACK and queue-depth backpressure
 R39       pending     pending     fallback HEVC guardrails after retained-path failures
 R40       pending     pending     physical iPhone comparison and blocker classification

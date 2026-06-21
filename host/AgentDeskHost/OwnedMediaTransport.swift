@@ -759,9 +759,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     ) async {
         var cadenceScheduler = OwnedMediaCadenceScheduler()
         var scrollDeltaEngine = ScrollDeltaEngine()
-        var lastAcceptedScrollAtUptimeNs: UInt64?
-        var lastScrollHevcRefreshAtUptimeNs: UInt64?
-        var pendingScrollIdleRefresh = false
+        var scrollHevcAdmission = HybridScrollHEVCAdmission()
         var scrollIdleRefreshWakeTask: Task<Void, Never>?
         defer { scrollIdleRefreshWakeTask?.cancel() }
         for await _ in mailbox.stream {
@@ -770,11 +768,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             guard var frame = mailbox.takeLatest() else { continue }
             let pumpNowNs = DispatchTime.now().uptimeNanoseconds
 
-            if pendingScrollIdleRefresh,
-               let lastAcceptedScrollAtUptimeNs,
-               pumpNowNs &- lastAcceptedScrollAtUptimeNs >= UInt64(Config.hybridScrollIdleRefreshMs) * 1_000_000 {
+            if scrollHevcAdmission.idleRefreshDue(
+                nowUptimeNs: pumpNowNs,
+                idleRefreshMs: Config.hybridScrollIdleRefreshMs
+            ) {
                 requestKeyframe()
-                pendingScrollIdleRefresh = false
                 logger.notice("owned media scroll-idle-refresh requested idleMs=\(Config.hybridScrollIdleRefreshMs, privacy: .public)")
             }
 
@@ -822,8 +820,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                             try await graphicsChannel.send(envelope)
                             scrollDeltaEngine.commitPendingSurface()
                             let nowNs = DispatchTime.now().uptimeNanoseconds
-                            lastAcceptedScrollAtUptimeNs = nowNs
-                            pendingScrollIdleRefresh = true
+                            scrollHevcAdmission.noteAcceptedScroll(nowUptimeNs: nowNs)
                             scrollIdleRefreshWakeTask?.cancel()
                             scrollIdleRefreshWakeTask = Task { [mailbox] in
                                 try? await Task.sleep(nanoseconds: UInt64(Config.hybridScrollIdleRefreshMs) * 1_000_000)
@@ -834,18 +831,19 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                             } else {
                                 logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
                             }
-                            let scrollHevcFps = Config.hybridScrollHEVCFps
-                            if scrollHevcFps == 0 {
+                            switch scrollHevcAdmission.decisionAfterAcceptedScroll(
+                                nowUptimeNs: nowNs,
+                                scrollHEVCFps: Config.hybridScrollHEVCFps
+                            ) {
+                            case .suppress:
                                 diagnostics.noteAdmissionHold(reason: "graphics-scroll-suppressed-hevc", mode: currentAdmissionMode())
                                 continue
-                            }
-                            let minScrollRefreshIntervalNs = 1_000_000_000 / UInt64(max(scrollHevcFps, 1))
-                            if let lastScrollHevcRefreshAtUptimeNs,
-                               nowNs &- lastScrollHevcRefreshAtUptimeNs < minScrollRefreshIntervalNs {
+                            case .rateLimited:
                                 diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-cadence", mode: currentAdmissionMode())
                                 continue
+                            case .allow:
+                                break
                             }
-                            lastScrollHevcRefreshAtUptimeNs = nowNs
                         } catch {
                             logger.error("owned graphics scroll send failed: \(String(describing: error), privacy: .public)")
                         }
