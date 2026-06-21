@@ -100,6 +100,18 @@ enum Config {
     static let nonceTTL: TimeInterval = 90
     static let inputCapabilityTTL: TimeInterval = 60
     static let mediaCapabilityTTL: TimeInterval = 60
+    static let iCloudPairingContainerIdentifier = string(
+        environmentKey: "AGENTDESK_ICLOUD_PAIRING_CONTAINER_ID",
+        defaultValue: "iCloud.com.example.agentdesk.AgentDesk"
+    )
+    static let iCloudPairingRelativePath = string(
+        environmentKey: "AGENTDESK_ICLOUD_PAIRING_PATH",
+        defaultValue: "AgentDesk/pairing/latest.json"
+    )
+    static let iCloudPairingTTL: TimeInterval = TimeInterval(positiveInt(
+        environmentKey: "AGENTDESK_ICLOUD_PAIRING_TTL_SECONDS",
+        defaultValue: 300
+    ))
     static let ownedMediaCodec = OwnedMediaCodecChoice(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_CODEC"]
     )
@@ -418,6 +430,14 @@ enum Config {
             return defaultValue
         }
     }
+    static func string(environmentKey: String, defaultValue: String) -> String {
+        guard let raw = ProcessInfo.processInfo.environment[environmentKey],
+              !raw.isEmpty
+        else {
+            return defaultValue
+        }
+        return raw
+    }
     static let gestureChildExecutableURL: URL? = {
         guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_GESTURE_CHILD_PATH"],
               !raw.isEmpty
@@ -512,6 +532,8 @@ enum Config {
         .appendingPathComponent("ad-token", isDirectory: false)
     static let devLastPairURLPath = applicationSupportDirectory
         .appendingPathComponent(".last-pair-url", isDirectory: false)
+    static let devLastICloudPairingStatusPath = applicationSupportDirectory
+        .appendingPathComponent(".last-icloud-pairing-status", isDirectory: false)
     static let tlsCertURL = applicationSupportDirectory
         .appendingPathComponent("host.crt", isDirectory: false)
     static let tlsKeyURL = applicationSupportDirectory

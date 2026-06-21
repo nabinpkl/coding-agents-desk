@@ -13,6 +13,7 @@ iphone_console_log := env_var_or_default("AGENTDESK_IPHONE_CONSOLE_LOG", "/tmp/a
 sim_console_log := env_var_or_default("AGENTDESK_SIM_CONSOLE_LOG", "/tmp/agentdesk-sim-console.log")
 iphone_log_device_udid := env_var_or_default("AGENTDESK_IOS_DEVICE_UDID", "")
 last_pair_url_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.last-pair-url"
+last_icloud_pairing_status_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.last-icloud-pairing-status"
 derived_data := env_var_or_default("AGENTDESK_DERIVED_DATA_PATH", justfile_directory() + "/.build/DerivedData")
 host_app := derived_data + "/Build/Products/Debug/AgentDeskHost.app"
 client_app := derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
@@ -119,6 +120,38 @@ pair-iphone:
     @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     @echo "URL: $(cat '{{last_pair_url_path}}')"
     URL="$(cat '{{last_pair_url_path}}')"; xcrun devicectl device process launch --device {{ios_device}} --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\"}" com.example.agentdesk.AgentDeskClient "$URL"
+
+# Publish one short-lived iCloud pairing document for a TestFlight-installed
+# client to consume via the app's "Use iCloud Pairing" button. This deliberately
+# does not print the pairing URL.
+publish-icloud-pairing:
+    @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
+    rm -f "{{last_pair_url_path}}" "{{last_icloud_pairing_status_path}}"
+    kill -USR1 $(pgrep -f AgentDeskHost)
+    @i=0; while [ ! -s "{{last_icloud_pairing_status_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    @test -s "{{last_icloud_pairing_status_path}}" || { echo "host did not report iCloud pairing status"; exit 1; }
+    @status="$(cat '{{last_icloud_pairing_status_path}}')"; \
+        if [ "$status" = "published" ]; then \
+            echo "iCloud pairing published"; \
+        else \
+            echo "iCloud pairing failed: $status"; \
+            exit 1; \
+        fi
+
+# Remove the latest iCloud pairing document through the entitled host app.
+clear-icloud-pairing:
+    @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
+    rm -f "{{last_icloud_pairing_status_path}}"
+    kill -USR2 $(pgrep -f AgentDeskHost)
+    @i=0; while [ ! -s "{{last_icloud_pairing_status_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    @test -s "{{last_icloud_pairing_status_path}}" || { echo "host did not report iCloud clear status"; exit 1; }
+    @status="$(cat '{{last_icloud_pairing_status_path}}')"; \
+        if [ "$status" = "cleared" ]; then \
+            echo "iCloud pairing cleared"; \
+        else \
+            echo "iCloud pairing clear failed: $status"; \
+            exit 1; \
+        fi
 
 # Pair-launch the physical iPhone client with stdio attached. This blocks
 # until the app exits, and mirrors stdout/stderr to the configured log file.
@@ -290,6 +323,12 @@ testflight-upload:
     just client-export-ipa
     tools/testflight-upload.sh upload '{{client_ipa_path}}'
     @echo "Upload submitted. App Store Connect may still need processing time before the build appears in TestFlight."
+
+# Upload TestFlight build, then publish a fresh iCloud pairing document for
+# the installed client to consume. Keep host running before invoking.
+testflight-upload-and-publish-pairing:
+    just testflight-upload
+    just publish-icloud-pairing
 
 # Build/export locally without uploading, useful for signing or export checks.
 testflight-build:

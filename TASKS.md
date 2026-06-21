@@ -154,6 +154,24 @@ This scope opens only after R40 proves scroll-first retained graphics works or i
 
 ---
 
+## v0 Phase: iCloud pairing handoff for TestFlight clients
+
+Phase goal: let a TestFlight-installed client obtain the signed pairing URL without QR scanning or a Mac-side launch, reusing the existing approval flow. Decisions in ADR-0017. This slice is independent of the retained-scroll work above; it shares the worktree only.
+
+- [x] R52.1. Define `ICloudPairingDocument` (host and client copies) with schemaVersion, createdAt/expiresAt, hostName, pairingURL, SHA256 payloadHash, consumed, plus `validPairingURL(at:)` rejecting unsupported schema, consumed, expired, non-`agentdesk://pair` URLs, and hash mismatch.
+- [x] R52.2. Add `ICloudPairingPublisher` (host) writing `AgentDesk/pairing/latest.json` atomically into the ubiquity container, with `clear()` and nonce-matched `clearIfMatches(oneTimeNonce:)`. Container resolver, clock, hostName, and FileManager are injected for tests.
+- [x] R52.3. Add `ICloudPairingReader` (client) mapping iCloudUnavailable, noPairingFile, expired, and malformed to deterministic `ICloudPairingReaderError` cases, returning the validated URL otherwise.
+- [x] R52.4. Wire host publish into `AppDelegate.startPairing()` after `mintPairingPayload()`, write a non-secret status file for the Justfile, and clear on matching-nonce approval via `PairingSignalingServer`'s approved handler. Preserve QR/SIGUSR1 and `AGENTDESK_AUTO_APPROVE`.
+- [x] R52.5. Add the client "Use iCloud Pairing" action routing the read URL through the existing `handleIncomingPairingURL` path, with distinct on-screen failure states.
+- [x] R52.6. Add iCloud entitlements and `NSUbiquitousContainers` (private scope) to both targets, wire `CODE_SIGN_ENTITLEMENTS` and the new source files into both `.pbxproj`, and add `AGENTDESK_ICLOUD_PAIRING_*` to `Config` and `.env.example`.
+- [x] R52.7. Add `Justfile` recipes `publish-icloud-pairing`, `clear-icloud-pairing`, and `testflight-upload-and-publish-pairing`, mediated through the entitled host app and the non-secret status file, never printing the URL.
+- [x] R52.8. Tests: host asserts document round-trip, expiry and schema rejection, publisher write with 5 minute TTL and expected URL, and matching-nonce cleanup; client asserts reader mapping for unavailable/missing/expired/malformed/valid and that a valid document routes through the existing pairing URL flow. Green with signing disabled (host) and on simulator (client).
+- [x] R52.9. Move all iCloud container resolution and document I/O off the main thread (host serial `iCloudPairingQueue`; client background read with main hop), and make `clearIfMatches` delete a corrupt document instead of stranding it. Folded from correctness review.
+- [ ] R52.10. Acceptance (HITL gate): enable iCloud Documents for `com.example.agentdesk.AgentDeskHost` and `com.example.agentdesk.AgentDeskClient` in the Apple Developer account, refresh provisioning, and run full signed `just check` green.
+- [ ] R52.11. Acceptance (physical): `just testflight-upload-and-publish-pairing`, then "Use iCloud Pairing" on the installed client reaches approval and an active session.
+
+---
+
 ## Promotion log
 
 ```
@@ -181,4 +199,8 @@ R46       pending     pending     physical comparison for sustained ownership
 D47-D49   2026-06-21  committed   active graphics channel identity, reset ACK state machine, and HEVC fallback valve
 D50       2026-06-21  committed   diagnostics summary and freeze fixture updated for reset and HEVC recovery
 R51       pending     pending     physical comparison for graphics reset and HEVC fallback freeze fix
+R52.1-R52.8 2026-06-21  committed   iCloud Documents pairing handoff: document contract, publisher, reader, host/client wiring, entitlements, Justfile recipes, and tests (ADR-0017)
+R52.9     2026-06-21  committed   iCloud I/O moved off main thread and corrupt-document cleanup hardened from correctness review
+R52.10    pending     blocked     full signed just check blocked on Apple Developer iCloud capability for both bundle IDs
+R52.11    pending     pending     physical TestFlight iCloud pairing acceptance
 ```

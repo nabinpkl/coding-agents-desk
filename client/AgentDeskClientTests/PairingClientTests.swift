@@ -193,6 +193,94 @@ struct PairingClientTests {
         }
     }
 
+    @Test func iCloudPairingReaderReturnsValidPairingURL() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let relativePath = "AgentDesk/pairing/latest.json"
+        let fileURL = root.appendingPathComponent(relativePath)
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let pairingURL = URL(string: "agentdesk://pair?p=abc")!
+        let document = ICloudPairingDocument(
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000),
+            expiresAt: Date(timeIntervalSince1970: 1_800_000_300),
+            hostName: "MacBook",
+            pairingURL: pairingURL,
+            payloadHash: ICloudPairingDocument.payloadHash(for: pairingURL),
+            consumed: false
+        )
+        try JSONEncoder().encode(document).write(to: fileURL)
+        let reader = ICloudPairingReader(
+            containerIdentifier: "iCloud.com.example.agentdesk.AgentDesk",
+            relativePath: relativePath,
+            ubiquityContainer: { _ in root },
+            now: { Date(timeIntervalSince1970: 1_800_000_100) }
+        )
+
+        #expect(try reader.readPairingURL() == pairingURL)
+    }
+
+    @Test func iCloudPairingReaderMapsMissingUnavailableExpiredAndMalformedFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let relativePath = "AgentDesk/pairing/latest.json"
+
+        let unavailable = ICloudPairingReader(
+            containerIdentifier: "iCloud.com.example.agentdesk.AgentDesk",
+            relativePath: relativePath,
+            ubiquityContainer: { _ in nil },
+            now: { Date(timeIntervalSince1970: 1_800_000_100) }
+        )
+        #expect(throws: ICloudPairingReaderError.iCloudUnavailable) {
+            _ = try unavailable.readPairingURL()
+        }
+
+        let missing = ICloudPairingReader(
+            containerIdentifier: "iCloud.com.example.agentdesk.AgentDesk",
+            relativePath: relativePath,
+            ubiquityContainer: { _ in root },
+            now: { Date(timeIntervalSince1970: 1_800_000_100) }
+        )
+        #expect(throws: ICloudPairingReaderError.noPairingFile) {
+            _ = try missing.readPairingURL()
+        }
+
+        let fileURL = root.appendingPathComponent(relativePath)
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let expiredURL = URL(string: "agentdesk://pair?p=expired")!
+        let expired = ICloudPairingDocument(
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000),
+            expiresAt: Date(timeIntervalSince1970: 1_800_000_010),
+            hostName: "MacBook",
+            pairingURL: expiredURL,
+            payloadHash: ICloudPairingDocument.payloadHash(for: expiredURL),
+            consumed: false
+        )
+        try JSONEncoder().encode(expired).write(to: fileURL)
+        #expect(throws: ICloudPairingReaderError.expired) {
+            _ = try missing.readPairingURL()
+        }
+
+        try Data("not-json".utf8).write(to: fileURL)
+        #expect(throws: ICloudPairingReaderError.malformed) {
+            _ = try missing.readPairingURL()
+        }
+
+        let unsupportedSchemaURL = URL(string: "agentdesk://pair?p=unsupported")!
+        let unsupportedSchema = ICloudPairingDocument(
+            schemaVersion: 2,
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000),
+            expiresAt: Date(timeIntervalSince1970: 1_800_000_300),
+            hostName: "MacBook",
+            pairingURL: unsupportedSchemaURL,
+            payloadHash: ICloudPairingDocument.payloadHash(for: unsupportedSchemaURL),
+            consumed: false
+        )
+        try JSONEncoder().encode(unsupportedSchema).write(to: fileURL)
+        #expect(throws: ICloudPairingReaderError.malformed) {
+            _ = try missing.readPairingURL()
+        }
+    }
+
     private func signedToken(hostKey: P256.Signing.PrivateKey, deviceFingerprint: DeviceFingerprint) throws -> SessionToken {
         let issuedAt = 1_800_000_000
         let hostFingerprint = hostKey.publicKey.agentDeskFingerprint
