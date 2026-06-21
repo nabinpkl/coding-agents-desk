@@ -5,6 +5,11 @@ enum ScrollActivityAxis: String, Equatable, Sendable {
     case horizontal
 }
 
+enum ScrollActivityHintSource: String, Equatable, Sendable {
+    case input
+    case scrollCopyOwnership
+}
+
 struct ScrollActivityHint: Equatable, Sendable {
     let axis: ScrollActivityAxis
     let sign: Int
@@ -12,6 +17,25 @@ struct ScrollActivityHint: Equatable, Sendable {
     let candidateOffsets: [Int]
     let activeUntilUptimeNs: UInt64
     let eventCount: Int
+    let source: ScrollActivityHintSource
+
+    init(
+        axis: ScrollActivityAxis,
+        sign: Int,
+        predictedOffsetPx: Int,
+        candidateOffsets: [Int],
+        activeUntilUptimeNs: UInt64,
+        eventCount: Int,
+        source: ScrollActivityHintSource = .input
+    ) {
+        self.axis = axis
+        self.sign = sign
+        self.predictedOffsetPx = predictedOffsetPx
+        self.candidateOffsets = candidateOffsets
+        self.activeUntilUptimeNs = activeUntilUptimeNs
+        self.eventCount = eventCount
+        self.source = source
+    }
 
     func isActive(nowUptimeNs: UInt64) -> Bool {
         nowUptimeNs <= activeUntilUptimeNs
