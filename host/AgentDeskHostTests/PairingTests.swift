@@ -90,6 +90,42 @@ struct PairingTests {
             )
         }
     }
+
+    // ADR-0019: offer frame round-trips one whole offer.
+    @Test func offerFrameRoundTripsAPayload() throws {
+        let fixture = try PairingFixture()
+        let payload = try fixture.pairing.mintPairingPayload()
+        let frame = try PairingOfferFrame.encode(payload)
+
+        var parser = PairingOfferFrameParser()
+        let offers = try parser.append(frame)
+
+        #expect(offers == [payload])
+    }
+
+    // The parser must reassemble a frame delivered byte-by-byte, the normal
+    // case for a streamed TCP connection. Only the final chunk completes it.
+    @Test func offerFrameParserReassemblesAcrossChunks() throws {
+        let fixture = try PairingFixture()
+        let payload = try fixture.pairing.mintPairingPayload()
+        let frame = try PairingOfferFrame.encode(payload)
+
+        var parser = PairingOfferFrameParser()
+        var collected: [PairingPayload] = []
+        for byte in frame {
+            collected += try parser.append(Data([byte]))
+        }
+
+        #expect(collected == [payload])
+    }
+
+    // A zero-length frame is malformed and must be rejected, not yielded.
+    @Test func offerFrameParserRejectsZeroLengthFrame() throws {
+        var parser = PairingOfferFrameParser()
+        #expect(throws: PairingPayloadError.self) {
+            _ = try parser.append(Data([0, 0, 0, 0]))
+        }
+    }
 }
 
 private struct PairingFixture {

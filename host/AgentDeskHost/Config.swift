@@ -97,6 +97,10 @@ enum Config {
 
     static let signalingPort: UInt16 = 41888
     static let graphicsPort = graphicsPort(environment: ProcessInfo.processInfo.environment)
+    // ADR-0019: dedicated plain-TCP port the Mac dials to push a pairing offer
+    // to a chosen tailnet device. Separate from the TLS signaling port so the
+    // offer path never touches the IP-literal-cert problem.
+    static let offerPort = offerPort(environment: ProcessInfo.processInfo.environment)
     static let nonceTTL: TimeInterval = 90
     static let inputCapabilityTTL: TimeInterval = 60
     static let mediaCapabilityTTL: TimeInterval = 60
@@ -360,6 +364,15 @@ enum Config {
               value > 0
         else {
             return 41_889
+        }
+        return value
+    }
+    static func offerPort(environment: [String: String]) -> UInt16 {
+        guard let raw = environment["AGENTDESK_OFFER_PORT"],
+              let value = UInt16(raw),
+              value > 0
+        else {
+            return 41_890
         }
         return value
     }

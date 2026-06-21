@@ -94,6 +94,62 @@ struct PairingPayload: Codable, Equatable {
 enum PairingPayloadError: Error {
     case invalidURL
     case missingPayload
+    case malformedOffer
+}
+
+// Mac-initiated tailnet pairing (ADR-0019). The Mac pushes a pairing offer to
+// the iPhone over the tailnet on a dedicated plain-TCP port: a 4-byte
+// big-endian length prefix followed by the offer's compact JSON. WireGuard
+// encrypts the peer-to-peer hop, the host public key in the payload is public,
+// and the one-time nonce is pre-approval-gated, so plaintext on the wire is
+// acceptable. Mirror of the client definition.
+enum PairingOfferFrame {
+    static let fixedHeaderByteCount = 4
+    static let maxPayloadByteCount = 64 * 1024
+
+    static func encode(_ payload: PairingPayload) throws -> Data {
+        let body = try payload.compactJSONData()
+        guard body.count <= maxPayloadByteCount else {
+            throw PairingPayloadError.malformedOffer
+        }
+        var encoded = Data()
+        var length = UInt32(body.count).bigEndian
+        withUnsafeBytes(of: &length) { encoded.append(contentsOf: $0) }
+        encoded.append(body)
+        return encoded
+    }
+}
+
+// Accumulates inbound bytes and yields each complete offer. Tolerates a frame
+// split across multiple reads, the normal case for a streamed TCP connection.
+struct PairingOfferFrameParser {
+    private var buffer = Data()
+
+    mutating func append(_ chunk: Data) throws -> [PairingPayload] {
+        buffer.append(chunk)
+        guard buffer.count <= PairingOfferFrame.maxPayloadByteCount + PairingOfferFrame.fixedHeaderByteCount else {
+            throw PairingPayloadError.malformedOffer
+        }
+        var offers: [PairingPayload] = []
+        while buffer.count >= PairingOfferFrame.fixedHeaderByteCount {
+            let header = [UInt8](buffer.prefix(PairingOfferFrame.fixedHeaderByteCount))
+            let payloadLength = header.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+            guard payloadLength > 0,
+                  payloadLength <= UInt32(PairingOfferFrame.maxPayloadByteCount) else {
+                throw PairingPayloadError.malformedOffer
+            }
+            let frameLength = PairingOfferFrame.fixedHeaderByteCount + Int(payloadLength)
+            guard buffer.count >= frameLength else { break }
+            let body = Data(
+                buffer
+                    .dropFirst(PairingOfferFrame.fixedHeaderByteCount)
+                    .prefix(Int(payloadLength))
+            )
+            offers.append(try JSONDecoder().decode(PairingPayload.self, from: body))
+            buffer.removeFirst(frameLength)
+        }
+        return offers
+    }
 }
 
 struct SessionToken: Codable, Equatable {

@@ -3,6 +3,9 @@ import Foundation
 enum Config {
     static let signalingPort: UInt16 = 41888
     static let graphicsPort = graphicsPort(environment: ProcessInfo.processInfo.environment)
+    // ADR-0019: plain-TCP port the iPhone listens on for a Mac-pushed pairing
+    // offer. Must match the host's offer port.
+    static let offerPort = offerPort(environment: ProcessInfo.processInfo.environment)
     static let keychainService = "com.example.agentdesk.AgentDeskClient"
     static let keychainAccessGroup: String? = nil
     static let storedPairingAccount = "session-token"
@@ -47,6 +50,16 @@ enum Config {
               value > 0
         else {
             return 41_889
+        }
+        return value
+    }
+
+    static func offerPort(environment: [String: String]) -> UInt16 {
+        guard let raw = environment["AGENTDESK_OFFER_PORT"],
+              let value = UInt16(raw),
+              value > 0
+        else {
+            return 41_890
         }
         return value
     }
