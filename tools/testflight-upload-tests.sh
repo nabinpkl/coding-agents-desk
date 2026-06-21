@@ -20,7 +20,11 @@ assert_eq "20260621173045" "$fixed_build" "timestamp build number"
 override_build="$(AGENTDESK_CLIENT_BUILD=42 AGENTDESK_TESTFLIGHT_NOW_UTC=20260621173045 tools/testflight-upload.sh build-number)"
 assert_eq "42" "$override_build" "overridden build number"
 
-if tools/testflight-upload.sh require-upload-env 2>"$tmpdir/missing-env.err"; then
+# Scrub the credential vars for this negative check so it is deterministic even
+# when the surrounding environment supplies them (just runs with dotenv-load, so
+# a worktree .env carrying real ASC credentials would otherwise defeat it).
+if env -u AGENTDESK_ASC_KEY_ID -u AGENTDESK_ASC_ISSUER_ID -u AGENTDESK_ASC_API_KEY_PATH \
+    tools/testflight-upload.sh require-upload-env 2>"$tmpdir/missing-env.err"; then
     echo "require-upload-env succeeded without credentials" >&2
     exit 1
 fi
