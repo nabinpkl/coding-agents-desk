@@ -133,5 +133,6 @@ R38.1-R38.6 2026-06-21  committed   graphics ACK queue fields, host graphics adm
 R38.7     pending     pending     physical graphics ACK/backpressure acceptance
 R39.1-R39.4 2026-06-21  committed   HEVC fallback reasons, graphics-failure keyframe guardrail, and diagnostics summary coverage
 R39.5     pending     pending     physical fallback observability acceptance
+R40       2026-06-21  blocked     physical iPhone unavailable after devicectl tunnel reset; simulator console smoke launched but did not exercise scroll copyRect
 R40       pending     pending     physical iPhone comparison and blocker classification
 ```
