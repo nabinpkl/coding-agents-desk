@@ -766,18 +766,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             popoverController.render(.accessibilityRequired)
             return
         }
-        guard let record = try? pairing.approvedDevices().first else {
+        let approved = (try? pairing.approvedDevices()) ?? []
+        guard !approved.isEmpty else {
             applyIcon(.idle)
             popoverController.render(.idle)
             return
         }
-        if sessions.isActive(record.deviceFingerprint) {
+        // More than one device can be paired (a client reinstall mints a fresh
+        // device key and therefore a new record), so pick the device whose
+        // session is actually live instead of assuming a single record. Without
+        // this, the popover shows a stale record as "not connected" while the
+        // real device is streaming.
+        if let active = approved.first(where: { sessions.isActive($0.deviceFingerprint) }) {
             applyIcon(.connected)
-            popoverController.render(.connected(record))
-        } else if sessions.isAttempting(record.deviceFingerprint) {
+            popoverController.render(.connected(active))
+        } else if let attempting = approved.first(where: { sessions.isAttempting($0.deviceFingerprint) }) {
             applyIcon(.connecting)
-            popoverController.render(.connecting(record))
+            popoverController.render(.connecting(attempting))
         } else {
+            let record = approved.max(by: { $0.approvedAt < $1.approvedAt }) ?? approved[0]
             applyIcon(.pairedIdle)
             popoverController.render(.pairedNoActiveSession(record))
         }
