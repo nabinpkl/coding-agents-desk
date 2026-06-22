@@ -88,14 +88,19 @@ final class PairingOfferListener: @unchecked Sendable {
         }
     }
 
-    // The iPhone's own tailnet IPv4, shown on the unpaired screen so the user
-    // can match this device in the Mac picker. CGNAT range is 100.64/10; the
-    // 100. prefix is a sufficient display heuristic.
+    // The iPhone's own tailnet IPv4, shown on the unpaired screen so the user can
+    // match this device in the Mac picker. The 100.64/10 CGNAT range is shared:
+    // Tailscale uses it, but so does carrier-grade NAT on cellular and some
+    // Wi-Fi, so a bare "100." match can return the carrier address instead of the
+    // Tailscale one. Tailscale's address lives on a utun interface, so prefer a
+    // 100.x address on a utun interface and only fall back to any 100.x otherwise.
     static func ownTailnetIPv4() -> String? {
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&ifaddr) == 0 else { return nil }
         defer { freeifaddrs(ifaddr) }
 
+        var tailscaleAddress: String?
+        var fallbackAddress: String?
         var pointer = ifaddr
         while let current = pointer {
             defer { pointer = current.pointee.ifa_next }
@@ -105,6 +110,7 @@ final class PairingOfferListener: @unchecked Sendable {
                   addr.pointee.sa_family == UInt8(AF_INET) else {
                 continue
             }
+            let interfaceName = String(cString: current.pointee.ifa_name)
             var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
             let result = getnameinfo(
                 addr,
@@ -119,11 +125,14 @@ final class PairingOfferListener: @unchecked Sendable {
             let ip = host.withUnsafeBufferPointer { buffer in
                 buffer.baseAddress.map { String(cString: $0) } ?? ""
             }
-            if ip.hasPrefix("100.") {
-                return ip
+            guard ip.hasPrefix("100.") else { continue }
+            if interfaceName.hasPrefix("utun") {
+                tailscaleAddress = tailscaleAddress ?? ip
+            } else {
+                fallbackAddress = fallbackAddress ?? ip
             }
         }
-        return nil
+        return tailscaleAddress ?? fallbackAddress
     }
 }
 
