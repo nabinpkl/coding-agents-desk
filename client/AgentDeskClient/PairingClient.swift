@@ -427,11 +427,30 @@ final class PairingClient {
     }
 
     // This device's name for the host to display. iOS 16+ returns a generic
-    // "iPhone" here unless the app holds the user-assigned-device-name
-    // entitlement, but even that beats the tailnet "localhost".
+    // "iPhone" for UIDevice.name without the user-assigned-device-name
+    // entitlement, so when the name carries no information fall back to the
+    // hardware model identifier (e.g. "iPhone16,1"), and always append a short,
+    // stable per-device id (the device fingerprint prefix) so two same-model
+    // phones are distinguishable.
     private func localDeviceName() -> String {
-        let name = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? "iPhone" : name
+        let assigned = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = (assigned.isEmpty || assigned == "iPhone") ? Self.modelIdentifier() : assigned
+        if let fingerprint = try? deviceKeyProvider.publicKey.agentDeskFingerprint {
+            return "\(base) [\(fingerprint.prefix(6))]"
+        }
+        return base
+    }
+
+    // The hardware model identifier from uname, e.g. "iPhone16,1". Unmapped to a
+    // marketing name on purpose: a model-name table rots with every new device,
+    // and the identifier plus the per-device id already differentiates phones.
+    private static func modelIdentifier() -> String {
+        var info = utsname()
+        uname(&info)
+        let identifier = withUnsafeBytes(of: &info.machine) { buffer -> String in
+            String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self)
+        }
+        return identifier.isEmpty ? "iPhone" : identifier
     }
 
     func resolvedHost(for payload: PairingPayload) -> String {
