@@ -157,7 +157,10 @@ final class PopoverViewController: NSViewController {
     }
 
     private func deviceRow(_ device: TailnetDeviceOption) {
-        var title = "\(device.hostname) (\(device.os))"
+        // iOS reports its Tailscale hostname as "localhost", so the hostname
+        // alone is not identifiable. Include the tailnet IPv4, which matches the
+        // "This device:" line on the iPhone's own unpaired screen.
+        var title = "\(device.hostname) (\(device.os)) \(device.ipv4)"
         if !device.online {
             title += " (offline)"
         }
