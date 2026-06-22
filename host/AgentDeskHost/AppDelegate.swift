@@ -83,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
     private let popoverController = PopoverViewController()
     private let pairing = Pairing()
+    private let tailnetDiscovery = TailscaleStatusDiscovery()
     private let launchAgentLogger = Logger(subsystem: Config.launchAgentLabel, category: "launchAgent")
     private let signalingLogger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private var signalingServer: PairingSignalingServer?
@@ -246,7 +247,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentSize = NSSize(width: 300, height: 380)
         popover.contentViewController = popoverController
         popoverController.onStartPairing = { [weak self] in
-            self?.startPairing()
+            self?.showDevicePicker()
+        }
+        popoverController.onPairDevice = { [weak self] ipv4 in
+            self?.pairWithDevice(ipv4)
         }
         popoverController.onRevoke = { [weak self] fingerprint in
             self?.revokeDevice(fingerprint)
@@ -679,6 +683,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? pairing.revoke(deviceFingerprint: fingerprint)
         handleSessionEnded(fingerprint, closeSignaling: true)
         refreshConnectedState()
+    }
+
+    // ADR-0019: the menubar "Pair iPhone" button enumerates tailnet peers and
+    // shows the device picker. Picking a device is the host-side authorization.
+    // QR pairing stays reachable via SIGUSR1 -> startPairing.
+    private func showDevicePicker() {
+        do {
+            let devices = try tailnetDiscovery.peerDevices()
+            applyIcon(.pairing)
+            popoverController.render(.devicePicker(devices))
+        } catch is TailscaleRequiredError {
+            signalingLogger.error("device picker failed: tailscale required")
+            applyIcon(.tailscaleRequired)
+            popoverController.render(.tailscaleRequired)
+        } catch {
+            signalingLogger.error("device picker failed: \(String(describing: error), privacy: .public)")
+            applyIcon(.pairingFailed)
+            popoverController.render(.idle)
+        }
+    }
+
+    // ADR-0019: mint an offer, pre-approve its nonce (the pick is the
+    // authorization), and push it to the chosen device over the tailnet. The
+    // iPhone runs the unchanged handshake and the host auto-approves.
+    private func pairWithDevice(_ ipv4: String) {
+        do {
+            let payload = try pairing.mintPairingPayload()
+            pairing.markPreApproved(nonce: payload.oneTimeNonce)
+            applyIcon(.pairing)
+            popoverController.render(.pairingOffered(ipv4))
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await PairingOfferSender().send(offer: payload, toIPv4: ipv4)
+                    self.signalingLogger.notice("pairing offer pushed to \(ipv4, privacy: .public)")
+                } catch {
+                    self.signalingLogger.error("pairing offer send failed: \(String(describing: error), privacy: .public)")
+                    self.showDevicePicker()
+                }
+            }
+        } catch is TailscaleRequiredError {
+            applyIcon(.tailscaleRequired)
+            popoverController.render(.tailscaleRequired)
+        } catch {
+            signalingLogger.error("pairWithDevice failed: \(String(describing: error), privacy: .public)")
+            applyIcon(.pairingFailed)
+            popoverController.render(.idle)
+        }
     }
 
     private func startPairing() {

@@ -13,6 +13,7 @@
 		A00000000000000000000204 /* HostSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HostSigningKeyStore.swift */; };
 		A00000000000000000000205 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000105 /* KeychainStore.swift */; };
 		A00000000000000000000206 /* Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000106 /* Pairing.swift */; };
+		A00000000000000000000352 /* PairingOfferSender.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000351 /* PairingOfferSender.swift */; };
 		A00000000000000000000207 /* PairingSignalingServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000107 /* PairingSignalingServer.swift */; };
 		A00000000000000000000208 /* PopoverViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000108 /* PopoverViewController.swift */; };
 		A00000000000000000000209 /* QRCodeRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000109 /* QRCodeRenderer.swift */; };
@@ -56,6 +57,7 @@
 		A00000000000000000000223 /* HostSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HostSigningKeyStore.swift */; };
 		A00000000000000000000224 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000105 /* KeychainStore.swift */; };
 		A00000000000000000000225 /* Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000106 /* Pairing.swift */; };
+		A00000000000000000000353 /* PairingOfferSender.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000351 /* PairingOfferSender.swift */; };
 		A00000000000000000000226 /* SharedTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010A /* SharedTypes.swift */; };
 		A00000000000000000000227 /* TailnetDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010B /* TailnetDiscovery.swift */; };
 		A00000000000000000000228 /* PairingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000121 /* PairingTests.swift */; };
@@ -133,6 +135,7 @@
 		A00000000000000000000104 /* HostSigningKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSigningKeyStore.swift; sourceTree = "<group>"; };
 		A00000000000000000000105 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		A00000000000000000000106 /* Pairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pairing.swift; sourceTree = "<group>"; };
+		A00000000000000000000351 /* PairingOfferSender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingOfferSender.swift; sourceTree = "<group>"; };
 		A00000000000000000000107 /* PairingSignalingServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingSignalingServer.swift; sourceTree = "<group>"; };
 		A00000000000000000000108 /* PopoverViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopoverViewController.swift; sourceTree = "<group>"; };
 		A00000000000000000000109 /* QRCodeRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeRenderer.swift; sourceTree = "<group>"; };
@@ -259,6 +262,7 @@
 				A0000000000000000000010D /* LaunchAgentInstaller.swift */,
 				A0000000000000000000010E /* main.swift */,
 				A00000000000000000000106 /* Pairing.swift */,
+				A00000000000000000000351 /* PairingOfferSender.swift */,
 				A00000000000000000000107 /* PairingSignalingServer.swift */,
 				A00000000000000000000108 /* PopoverViewController.swift */,
 				A00000000000000000000109 /* QRCodeRenderer.swift */,
@@ -464,6 +468,7 @@
 				A00000000000000000000204 /* HostSigningKeyStore.swift in Sources */,
 				A00000000000000000000205 /* KeychainStore.swift in Sources */,
 				A00000000000000000000206 /* Pairing.swift in Sources */,
+				A00000000000000000000352 /* PairingOfferSender.swift in Sources */,
 				A00000000000000000000207 /* PairingSignalingServer.swift in Sources */,
 				A00000000000000000000208 /* PopoverViewController.swift in Sources */,
 				A00000000000000000000209 /* QRCodeRenderer.swift in Sources */,
@@ -523,6 +528,7 @@
 				A00000000000000000000223 /* HostSigningKeyStore.swift in Sources */,
 				A00000000000000000000224 /* KeychainStore.swift in Sources */,
 				A00000000000000000000225 /* Pairing.swift in Sources */,
+				A00000000000000000000353 /* PairingOfferSender.swift in Sources */,
 				A00000000000000000000226 /* SharedTypes.swift in Sources */,
 				A00000000000000000000227 /* TailnetDiscovery.swift in Sources */,
 				A00000000000000000000228 /* PairingTests.swift in Sources */,

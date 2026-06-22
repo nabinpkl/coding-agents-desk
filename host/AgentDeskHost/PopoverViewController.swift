@@ -3,6 +3,8 @@ import Foundation
 
 enum HostPairingViewState {
     case idle
+    case devicePicker([TailnetDeviceOption])
+    case pairingOffered(String)
     case pairing(URL, NSImage?)
     case pairedNoActiveSession(PairedDeviceRecord)
     case connecting(PairedDeviceRecord)
@@ -14,6 +16,7 @@ enum HostPairingViewState {
 
 final class PopoverViewController: NSViewController {
     var onStartPairing: (() -> Void)?
+    var onPairDevice: ((String) -> Void)?
     var onRevoke: ((DeviceFingerprint) -> Void)?
     var onRequestScreenRecording: (() -> Void)?
     var onRequestAccessibility: (() -> Void)?
@@ -21,6 +24,9 @@ final class PopoverViewController: NSViewController {
 
     private let stack = NSStackView()
     private var connectedFingerprint: DeviceFingerprint?
+    // ADR-0019: maps each device-picker button to the tailnet IPv4 it pairs, so
+    // a single action selector can route the tap to onPairDevice.
+    private var deviceIPv4ByButton: [ObjectIdentifier: String] = [:]
 
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 340))
@@ -41,12 +47,27 @@ final class PopoverViewController: NSViewController {
     func render(_ state: HostPairingViewState) {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         connectedFingerprint = nil
+        deviceIPv4ByButton.removeAll()
 
         switch state {
         case .idle:
             label("AgentDesk Host", font: .boldSystemFont(ofSize: 16))
             label("No paired device", font: .systemFont(ofSize: 13))
             button(title: "Pair iPhone", action: #selector(startPairing))
+        case .devicePicker(let devices):
+            label("Pair a device", font: .boldSystemFont(ofSize: 16))
+            if devices.isEmpty {
+                label("No tailnet devices found. Make sure the iPhone is on the same tailnet and AgentDesk is open on it.", font: .systemFont(ofSize: 12))
+            } else {
+                label("Pick the iPhone to pair. Open AgentDesk on it first.", font: .systemFont(ofSize: 12))
+                for device in devices {
+                    deviceRow(device)
+                }
+            }
+            button(title: "Refresh", action: #selector(startPairing))
+        case .pairingOffered(let ipv4):
+            label("Pairing offer sent", font: .boldSystemFont(ofSize: 16))
+            label("Sent to \(ipv4). Open AgentDesk on the iPhone if it is not already; it will connect automatically.", font: .systemFont(ofSize: 12))
         case .pairing(let url, let image):
             label("Scan to pair", font: .boldSystemFont(ofSize: 16))
             if let image {
@@ -107,6 +128,23 @@ final class PopoverViewController: NSViewController {
 
     @objc private func startPairing() {
         onStartPairing?()
+    }
+
+    @objc private func pairDeviceTapped(_ sender: NSButton) {
+        guard let ipv4 = deviceIPv4ByButton[ObjectIdentifier(sender)] else { return }
+        onPairDevice?(ipv4)
+    }
+
+    private func deviceRow(_ device: TailnetDeviceOption) {
+        var title = "\(device.hostname) (\(device.os))"
+        if !device.online {
+            title += " (offline)"
+        }
+        let button = NSButton(title: title, target: self, action: #selector(pairDeviceTapped(_:)))
+        button.bezelStyle = .rounded
+        button.isEnabled = device.online
+        deviceIPv4ByButton[ObjectIdentifier(button)] = device.ipv4
+        stack.addArrangedSubview(button)
     }
 
     @objc private func revoke() {
