@@ -154,6 +154,21 @@ This scope opens only after R40 proves scroll-first retained graphics works or i
 
 ---
 
+## v0 Phase: Mac-initiated tailnet pairing for remote/TestFlight clients
+
+Phase goal: let a remote iPhone pair with no typing and no QR by leaning on the Tailscale mesh both devices already share. The Mac lists tailnet peers, the user picks the iPhone (that pick is the host-side authorization), and the Mac pushes a signed pairing offer over a dedicated plain-TCP port; the iPhone runs the unchanged handshake and the host auto-approves the pre-approved nonce. Replaces the reverted locator-code path. Decisions in ADR-0019. Independent of the retained-scroll work above; shares the worktree only.
+
+- [x] R54.0. Revert the locator-code pairing (commit) to restore a green clean base: QR + SIGUSR1 + the original handshake intact.
+- [x] R54.1. Shared `PairingOfferFrame` length-prefixed codec + streaming parser in both `SharedTypes.swift` copies; `Config.offerPort` (default 41890, `AGENTDESK_OFFER_PORT`) in both targets; round-trip / chunked / zero-length tests.
+- [x] R54.2. Host: decode the `Peer` map in `TailnetDiscovery`, add `peerDevices()` returning `TailnetDeviceOption` (drops IPv4-less peers, orders online iOS first); extract a pure `TailscaleStatusParser` with `TailnetDiscoveryTests`.
+- [x] R54.3. Host: `Pairing` pre-approval (`markPreApproved`/`consumePreApproval`, swept with the nonce, no second consumption point); `PairingSignalingServer.handlePair` issues the token directly for a pre-approved nonce; `PairingTests` additions.
+- [x] R54.4. Host: `PairingOfferSender` (outbound plain TCP, length-prefixed offer) and the menu-bar device picker (`PopoverViewController.devicePicker`, `AppDelegate.showDevicePicker`/`pairWithDevice` mint+mark+push). QR stays on SIGUSR1.
+- [x] R54.5. Client: `PairingOfferListener` (inbound `NWListener` on the offer port) feeding the unchanged `handleIncomingPairingURL`; `NSLocalNetworkUsageDescription`; unpaired screen shows this device's tailnet IPv4; listener torn down on background.
+- [x] R54.6. Docs: ADR-0019, README index, this block.
+- [ ] R54.7. Acceptance (physical, HITL): iPhone + Mac on one tailnet; open AgentDesk on the phone, pick it in the Mac popover, reach a live session with no typing and no QR. Confirms the PRIMARY RISK (inbound TCP over utun); if it fails, fall back to iPhone-dials-Mac per ADR-0019.
+
+---
+
 ## Promotion log
 
 ```
@@ -181,4 +196,7 @@ R46       pending     pending     physical comparison for sustained ownership
 D47-D49   2026-06-21  committed   active graphics channel identity, reset ACK state machine, and HEVC fallback valve
 D50       2026-06-21  committed   diagnostics summary and freeze fixture updated for reset and HEVC recovery
 R51       pending     pending     physical comparison for graphics reset and HEVC fallback freeze fix
+R54.0     2026-06-21  committed   reverted locator-code pairing; clean QR/handshake base restored
+R54.1-R54.6 2026-06-22  committed   Mac-initiated tailnet pairing: offer codec, peer enumeration, host pre-approval, device picker + offer sender, client offer listener, ADR-0019
+R54.7     pending     pending     physical pick-to-pair acceptance (confirms inbound TCP over utun)
 ```
