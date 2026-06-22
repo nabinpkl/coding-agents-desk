@@ -15,6 +15,16 @@ struct PairedDeviceRecord: Codable, Equatable {
     let devicePublicKey: Data
     var approvedAt: Int
     var lastSeenAt: Int?
+    // ADR-0019: human-readable label from the tailnet pick, so the host can show
+    // which device it paired with instead of the opaque fingerprint. Optional and
+    // decode-tolerant: records written before this field decode with name == nil.
+    var name: String?
+}
+
+// ADR-0019: result of consuming a pre-approval. Distinguishes "was pre-approved"
+// (non-nil) from "not pre-approved" (nil), and carries the picked device name.
+struct PreApproval {
+    let name: String?
 }
 
 struct PairedDeviceStore {
@@ -50,10 +60,11 @@ final class Pairing {
     private let nonceTTL: TimeInterval
     private let now: () -> Date
     private var nonceIssuedAt: [String: Date] = [:]
-    // ADR-0019: nonces minted for a Mac-pushed pairing offer. The host-side
-    // device pick is the authorization, so a device that dials back with one of
-    // these nonces skips the approval prompt.
-    private var preApprovedNonces: Set<String> = []
+    // ADR-0019: nonces minted for a Mac-pushed pairing offer, mapped to the
+    // picked device's display name. The host-side pick is the authorization, so a
+    // device that dials back with one of these nonces skips the approval prompt.
+    // Key present means pre-approved; the value (optional) is the device name.
+    private var preApprovals: [String: String?] = [:]
 
     init(
         keyProvider: HostSigningKeyProviding = HostSigningKeyStore(),
@@ -107,7 +118,8 @@ final class Pairing {
                 deviceFingerprint: fingerprint,
                 devicePublicKey: devicePublicKey,
                 approvedAt: approvedAt,
-                lastSeenAt: nil
+                lastSeenAt: nil,
+                name: nil
             ))
         }
         try pairedDevices.save(records)
@@ -130,21 +142,35 @@ final class Pairing {
     }
 
     // ADR-0019: mark a freshly minted nonce as pre-approved because the user
-    // picked this device on the Mac. Called right after mintPairingPayload when
-    // the Mac pushes an offer.
-    func markPreApproved(nonce: Data) {
-        preApprovedNonces.insert(nonce.base64URLEncodedString())
+    // picked this device on the Mac, tagging it with the picked device name.
+    // Called right after mintPairingPayload when the Mac pushes an offer.
+    func markPreApproved(nonce: Data, name: String? = nil) {
+        preApprovals[nonce.base64URLEncodedString()] = name
     }
 
-    // Returns true exactly once if `nonce` was pre-approved and is still live.
-    // Does not consume the nonce itself; issueApprovedSessionToken stays the
-    // single consumption point so the offer path and the prompt path share one
-    // replay guard.
-    func consumePreApproval(nonce: Data) -> Bool {
+    // Returns a PreApproval exactly once if `nonce` was pre-approved and is still
+    // live, otherwise nil. Does not consume the nonce itself;
+    // issueApprovedSessionToken stays the single consumption point so the offer
+    // path and the prompt path share one replay guard.
+    func consumePreApproval(nonce: Data) -> PreApproval? {
         pruneExpiredNonces()
         let key = nonce.base64URLEncodedString()
-        let wasPreApproved = preApprovedNonces.remove(key) != nil
-        return wasPreApproved && nonceIssuedAt[key] != nil
+        guard let storedName = preApprovals.removeValue(forKey: key),
+              nonceIssuedAt[key] != nil else {
+            return nil
+        }
+        return PreApproval(name: storedName)
+    }
+
+    // ADR-0019: attach a display name to a paired record (from the tailnet pick),
+    // so the host can show which device it paired with.
+    func setName(_ name: String, for deviceFingerprint: DeviceFingerprint) throws {
+        var records = try pairedDevices.load()
+        guard let index = records.firstIndex(where: { $0.deviceFingerprint == deviceFingerprint }) else {
+            return
+        }
+        records[index].name = name
+        try pairedDevices.save(records)
     }
 
     func lookup(deviceFingerprint: DeviceFingerprint) throws -> PairedDeviceRecord? {
@@ -249,9 +275,9 @@ final class Pairing {
         let current = now()
         nonceIssuedAt = nonceIssuedAt.filter { current.timeIntervalSince($0.value) <= nonceTTL }
         // A pre-approval is only meaningful while its nonce is live; drop any
-        // whose nonce has expired or already been consumed so the set cannot
+        // whose nonce has expired or already been consumed so the map cannot
         // grow and an expired pre-approval cannot auto-approve.
-        preApprovedNonces.formIntersection(nonceIssuedAt.keys)
+        preApprovals = preApprovals.filter { nonceIssuedAt[$0.key] != nil }
     }
 
     private func randomBytes(count: Int) throws -> Data {

@@ -249,8 +249,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popoverController.onStartPairing = { [weak self] in
             self?.showDevicePicker()
         }
-        popoverController.onPairDevice = { [weak self] ipv4 in
-            self?.pairWithDevice(ipv4)
+        popoverController.onPairDevice = { [weak self] device in
+            self?.pairWithDevice(device)
         }
         popoverController.onRevoke = { [weak self] fingerprint in
             self?.revokeDevice(fingerprint)
@@ -704,15 +704,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // ADR-0019: mint an offer, pre-approve its nonce (the pick is the
-    // authorization), and push it to the chosen device over the tailnet. The
-    // iPhone runs the unchanged handshake and the host auto-approves.
-    private func pairWithDevice(_ ipv4: String) {
+    // ADR-0019: mint an offer, pre-approve its nonce tagged with the picked
+    // device name (the pick is the authorization), and push it to the chosen
+    // device over the tailnet. The iPhone runs the unchanged handshake and the
+    // host auto-approves, recording the device name so the popover shows it.
+    private func pairWithDevice(_ device: TailnetDeviceOption) {
+        let ipv4 = device.ipv4
         do {
             let payload = try pairing.mintPairingPayload()
-            pairing.markPreApproved(nonce: payload.oneTimeNonce)
+            pairing.markPreApproved(nonce: payload.oneTimeNonce, name: device.hostname)
             applyIcon(.pairing)
-            popoverController.render(.pairingOffered(ipv4))
+            popoverController.render(.pairingOffered(device.hostname))
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 do {

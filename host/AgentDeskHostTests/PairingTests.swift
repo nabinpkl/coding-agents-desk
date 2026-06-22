@@ -127,21 +127,23 @@ struct PairingTests {
         }
     }
 
-    // ADR-0019: a pre-approved nonce auto-approves exactly once.
+    // ADR-0019: a pre-approved nonce auto-approves exactly once and carries the
+    // picked device name.
     @Test func preApprovedNonceConsumesOnceThenFalse() throws {
         let fixture = try PairingFixture()
         let payload = try fixture.pairing.mintPairingPayload()
-        fixture.pairing.markPreApproved(nonce: payload.oneTimeNonce)
+        fixture.pairing.markPreApproved(nonce: payload.oneTimeNonce, name: "dev-iphone")
 
-        #expect(fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce))
-        #expect(!fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce))
+        let preApproval = fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce)
+        #expect(preApproval?.name == "dev-iphone")
+        #expect(fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce) == nil)
     }
 
     // A nonce that was never marked falls through to the prompt path.
     @Test func unmarkedNonceIsNotPreApproved() throws {
         let fixture = try PairingFixture()
         let payload = try fixture.pairing.mintPairingPayload()
-        #expect(!fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce))
+        #expect(fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce) == nil)
     }
 
     // An expired nonce must not auto-approve even if it was pre-approved.
@@ -153,11 +155,25 @@ struct PairingTests {
         let clock = MutableClock()
         let fixture = try PairingFixture(now: { clock.date })
         let payload = try fixture.pairing.mintPairingPayload()
-        fixture.pairing.markPreApproved(nonce: payload.oneTimeNonce)
+        fixture.pairing.markPreApproved(nonce: payload.oneTimeNonce, name: "dev-iphone")
 
         clock.date = clock.date.addingTimeInterval(91)
 
-        #expect(!fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce))
+        #expect(fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce) == nil)
+    }
+
+    // The picked device name is persisted onto the paired record so the host can
+    // show which device it paired with.
+    @Test func setNameStoresLabelOnPairedRecord() throws {
+        let fixture = try PairingFixture()
+        let deviceKey = P256.Signing.PrivateKey()
+        let fingerprint = DeviceFingerprint(deviceKey.publicKey.agentDeskFingerprint)
+
+        try fixture.pairing.approve(devicePublicKey: deviceKey.publicKey.x963Representation)
+        try fixture.pairing.setName("dev-iphone", for: fingerprint)
+
+        let record = try fixture.pairing.lookup(deviceFingerprint: fingerprint)
+        #expect(record?.name == "dev-iphone")
     }
 
     // Pre-approval leaves the nonce live so the token issue consumes it exactly
@@ -168,7 +184,7 @@ struct PairingTests {
         let deviceKey = P256.Signing.PrivateKey()
         fixture.pairing.markPreApproved(nonce: payload.oneTimeNonce)
 
-        #expect(fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce))
+        #expect(fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce) != nil)
         _ = try fixture.pairing.issueApprovedSessionToken(
             devicePublicKey: deviceKey.publicKey.x963Representation,
             oneTimeNonce: payload.oneTimeNonce

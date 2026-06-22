@@ -165,6 +165,7 @@ Phase goal: let a remote iPhone pair with no typing and no QR by leaning on the 
 - [x] R54.4. Host: `PairingOfferSender` (outbound plain TCP, length-prefixed offer) and the menu-bar device picker (`PopoverViewController.devicePicker`, `AppDelegate.showDevicePicker`/`pairWithDevice` mint+mark+push). QR stays on SIGUSR1.
 - [x] R54.5. Client: `PairingOfferListener` (inbound `NWListener` on the offer port) feeding the unchanged `handleIncomingPairingURL`; `NSLocalNetworkUsageDescription`; unpaired screen shows this device's tailnet IPv4; listener torn down on background.
 - [x] R54.6. Docs: ADR-0019, README index, this block.
+- [x] R54.8. Show which device the host paired with: carry the picked tailnet hostname through pre-approval (`markPreApproved(name:)` -> `consumePreApproval` -> `setName`), persist it on `PairedDeviceRecord.name`, and show it (with the fingerprint as a secondary line) in the host popover. The pick path never prompts (the pick is the authorization), independent of `AGENTDESK_AUTO_APPROVE`.
 - [ ] R54.7. Acceptance (physical, HITL): iPhone + Mac on one tailnet; open AgentDesk on the phone, pick it in the Mac popover, reach a live session with no typing and no QR. Confirms the PRIMARY RISK (inbound TCP over utun); if it fails, fall back to iPhone-dials-Mac per ADR-0019.
 
 ---
@@ -198,5 +199,6 @@ D50       2026-06-21  committed   diagnostics summary and freeze fixture updated
 R51       pending     pending     physical comparison for graphics reset and HEVC fallback freeze fix
 R54.0     2026-06-21  committed   reverted locator-code pairing; clean QR/handshake base restored
 R54.1-R54.6 2026-06-22  committed   Mac-initiated tailnet pairing: offer codec, peer enumeration, host pre-approval, device picker + offer sender, client offer listener, ADR-0019
-R54.7     pending     pending     physical pick-to-pair acceptance (confirms inbound TCP over utun)
+R54.7     2026-06-22  done        physical pick-to-pair worked: inbound TCP over utun confirmed, direct connection established
+R54.8     2026-06-22  committed   host shows the picked device name (persisted on the paired record) instead of the opaque fingerprint
 ```

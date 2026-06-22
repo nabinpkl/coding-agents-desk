@@ -291,13 +291,16 @@ final class PairingSignalingServer: @unchecked Sendable {
         // authorization (the user picked this device on the Mac), so a device
         // dialing back with that pre-approved nonce skips the approval prompt
         // and gets its token directly.
-        if pairing.consumePreApproval(nonce: request.oneTimeNonce) {
+        if let preApproval = pairing.consumePreApproval(nonce: request.oneTimeNonce) {
             logger.notice("pre-approved pairing for fingerprint=\(fingerprint.rawValue, privacy: .public)")
             do {
                 let token = try pairing.issueApprovedSessionToken(
                     devicePublicKey: request.devicePublicKey,
                     oneTimeNonce: request.oneTimeNonce
                 )
+                if let name = preApproval.name {
+                    try? pairing.setName(name, for: token.deviceFingerprint)
+                }
                 try pairing.markSeen(deviceFingerprint: token.deviceFingerprint)
                 send(pairResponse: PairingHandshakeResponse(type: "approved", token: token, error: nil), on: connection)
             } catch {
