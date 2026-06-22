@@ -500,7 +500,20 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             lines.append("")
             lines.append("This device: \(ip)")
         }
+        lines.append("")
+        lines.append(Self.appVersionLine())
         return lines.joined(separator: "\n")
+    }
+
+    // Human-readable build identity so it is obvious which TestFlight build is
+    // installed: marketing version, numeric build number, and the embedded short
+    // git sha (the actual commit, since the build number must stay numeric).
+    static func appVersionLine() -> String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        let sha = (info?["AgentDeskGitSHA"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "dev"
+        return "v\(short) (\(build)) \(sha)"
     }
 
     // ADR-0019: receive a Mac-pushed offer and run it through the same path as a

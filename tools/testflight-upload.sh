@@ -19,6 +19,14 @@ build_number() {
         printf '%s\n' "$AGENTDESK_TESTFLIGHT_NOW_UTC"
         return
     fi
+    # Default: the git commit count. A small monotonic integer that maps to a
+    # commit (git log to see what a build contains), so TestFlight builds read
+    # as 371, 372, ... instead of opaque UTC timestamps. Falls back to a UTC
+    # timestamp outside a git checkout.
+    if count="$(git rev-list --count HEAD 2>/dev/null)" && [ -n "$count" ]; then
+        printf '%s\n' "$count"
+        return
+    fi
     date -u +%Y%m%d%H%M%S
 }
 

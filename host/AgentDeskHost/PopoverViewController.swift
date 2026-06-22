@@ -114,8 +114,19 @@ final class PopoverViewController: NSViewController {
             button(title: "Open System Settings", action: #selector(requestAccessibility))
         }
 
+        versionFooter()
         separator()
         button(title: "Quit AgentDesk", action: #selector(quit))
+    }
+
+    // Build identity so it is obvious which host build is running: marketing
+    // version plus the embedded short git sha (the numeric build number stays
+    // reserved for App Store semantics on the client).
+    private func versionFooter() {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let sha = (info?["AgentDeskGitSHA"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "dev"
+        label("v\(short) \(sha)", font: .monospacedSystemFont(ofSize: 10, weight: .regular))
     }
 
     @objc private func requestScreenRecording() {
