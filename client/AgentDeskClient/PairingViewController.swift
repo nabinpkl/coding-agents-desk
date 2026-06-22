@@ -11,6 +11,9 @@ import UIKit
 
 final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate {
     let pairingClient = PairingClient()
+    // ADR-0019: listens for a Mac-pushed pairing offer while unpaired and
+    // foregrounded. Started/stopped from render() and the background hook.
+    var pairingOfferListener: PairingOfferListener?
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
     private let forgetButton = UIButton(type: .system)
@@ -212,6 +215,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         cursorTask = nil
         stopAgentSayForegroundPresentation()
         teardownMediaTransport()
+        // The offer listener only makes sense in the foreground; iOS would tear
+        // the NWListener down on suspend anyway, so stop it explicitly.
+        stopOfferListener()
         // Closes activeSignaling + activeInputChannel and flips state
         // .connected -> .pairedDisconnected. Idempotent for other
         // states.
@@ -244,6 +250,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         agentSaySpeechTask?.cancel()
         agentSayHideTask?.cancel()
         mediaTransport?.stop()
+        pairingOfferListener?.stop()
     }
 
     func startMediaTransportIfNeeded() {
@@ -432,7 +439,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         statusLabel.isHidden = false
         switch pairingClient.state {
         case .unpaired:
-            statusLabel.text = "AgentDesk"
+            statusLabel.text = unpairedStatusText()
             actionButton.isHidden = false
         case .scanning:
             statusLabel.text = "Scanning"
@@ -472,6 +479,54 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             actionButton.isHidden = false
             stopCamera()
         }
+
+        // The Mac can push a pairing offer only while this iPhone is unpaired
+        // and listening; run the listener in exactly those states.
+        switch pairingClient.state {
+        case .unpaired, .rejected:
+            startOfferListenerIfNeeded()
+        default:
+            stopOfferListener()
+        }
+    }
+
+    private func unpairedStatusText() -> String {
+        var lines = [
+            "AgentDesk",
+            "",
+            "Open AgentDesk on your Mac and pick this iPhone to pair."
+        ]
+        if let ip = PairingOfferListener.ownTailnetIPv4() {
+            lines.append("")
+            lines.append("This device: \(ip)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    // ADR-0019: receive a Mac-pushed offer and run it through the same path as a
+    // scanned QR code. The offer carries a PairingPayload; synthesizing its
+    // pairing URL lets handleIncomingPairingURL drive the unchanged handshake,
+    // which the host auto-approves because it pre-approved this nonce.
+    func startOfferListenerIfNeeded() {
+        guard pairingOfferListener == nil else { return }
+        let listener = PairingOfferListener()
+        listener.onOffer = { [weak self] payload in
+            Task { @MainActor in
+                guard let self else { return }
+                do {
+                    self.handleIncomingPairingURL(try payload.pairingURL())
+                } catch {
+                    // A malformed offer is ignored; the listener keeps running.
+                }
+            }
+        }
+        pairingOfferListener = listener
+        listener.start()
+    }
+
+    func stopOfferListener() {
+        pairingOfferListener?.stop()
+        pairingOfferListener = nil
     }
 
     func handleIncomingPairingURL(_ url: URL) {

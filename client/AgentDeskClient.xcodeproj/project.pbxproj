@@ -13,6 +13,7 @@
 		B00000000000000000000204 /* DeviceSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000104 /* DeviceSigningKeyStore.swift */; };
 		B00000000000000000000205 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000105 /* KeychainStore.swift */; };
 		B00000000000000000000206 /* PairingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000106 /* PairingClient.swift */; };
+		B00000000000000000000D02 /* PairingOfferListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000D01 /* PairingOfferListener.swift */; };
 		B00000000000000000000207 /* PairingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000107 /* PairingViewController.swift */; };
 		B00000000000000000000208 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000108 /* SceneDelegate.swift */; };
 		B00000000000000000000209 /* SharedTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000109 /* SharedTypes.swift */; };
@@ -52,6 +53,7 @@
 		B00000000000000000000223 /* DeviceSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000104 /* DeviceSigningKeyStore.swift */; };
 		B00000000000000000000224 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000105 /* KeychainStore.swift */; };
 		B00000000000000000000225 /* PairingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000106 /* PairingClient.swift */; };
+		B00000000000000000000D03 /* PairingOfferListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000D01 /* PairingOfferListener.swift */; };
 		B00000000000000000000226 /* SharedTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000109 /* SharedTypes.swift */; };
 		B00000000000000000000227 /* PairingClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000121 /* PairingClientTests.swift */; };
 		B00000000000000000000228 /* SessionDialer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010B /* SessionDialer.swift */; };
@@ -73,6 +75,7 @@
 		B00000000000000000000104 /* DeviceSigningKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSigningKeyStore.swift; sourceTree = "<group>"; };
 		B00000000000000000000105 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		B00000000000000000000106 /* PairingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClient.swift; sourceTree = "<group>"; };
+		B00000000000000000000D01 /* PairingOfferListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingOfferListener.swift; sourceTree = "<group>"; };
 		B00000000000000000000107 /* PairingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingViewController.swift; sourceTree = "<group>"; };
 		B00000000000000000000108 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		B00000000000000000000109 /* SharedTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedTypes.swift; sourceTree = "<group>"; };
@@ -155,6 +158,7 @@
 				B00000000000000000000104 /* DeviceSigningKeyStore.swift */,
 				B00000000000000000000105 /* KeychainStore.swift */,
 				B00000000000000000000106 /* PairingClient.swift */,
+				B00000000000000000000D01 /* PairingOfferListener.swift */,
 				B00000000000000000000107 /* PairingViewController.swift */,
 				B00000000000000000000108 /* SceneDelegate.swift */,
 				B00000000000000000000109 /* SharedTypes.swift */,
@@ -309,6 +313,7 @@
 				B00000000000000000000204 /* DeviceSigningKeyStore.swift in Sources */,
 				B00000000000000000000205 /* KeychainStore.swift in Sources */,
 				B00000000000000000000206 /* PairingClient.swift in Sources */,
+				B00000000000000000000D02 /* PairingOfferListener.swift in Sources */,
 				B00000000000000000000207 /* PairingViewController.swift in Sources */,
 				B00000000000000000000208 /* SceneDelegate.swift in Sources */,
 				B00000000000000000000209 /* SharedTypes.swift in Sources */,
@@ -346,6 +351,7 @@
 				B00000000000000000000223 /* DeviceSigningKeyStore.swift in Sources */,
 				B00000000000000000000224 /* KeychainStore.swift in Sources */,
 				B00000000000000000000225 /* PairingClient.swift in Sources */,
+				B00000000000000000000D03 /* PairingOfferListener.swift in Sources */,
 				B00000000000000000000226 /* SharedTypes.swift in Sources */,
 				B000000000000000000009C3 /* CursorImageStore.swift in Sources */,
 				B00000000000000000000227 /* PairingClientTests.swift in Sources */,

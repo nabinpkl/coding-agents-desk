@@ -47,6 +47,8 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>AgentDesk scans the Mac pairing QR code.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>AgentDesk receives a pairing offer from your Mac over the tailnet.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
