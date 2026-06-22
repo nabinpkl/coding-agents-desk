@@ -50,6 +50,10 @@ final class Pairing {
     private let nonceTTL: TimeInterval
     private let now: () -> Date
     private var nonceIssuedAt: [String: Date] = [:]
+    // ADR-0019: nonces minted for a Mac-pushed pairing offer. The host-side
+    // device pick is the authorization, so a device that dials back with one of
+    // these nonces skips the approval prompt.
+    private var preApprovedNonces: Set<String> = []
 
     init(
         keyProvider: HostSigningKeyProviding = HostSigningKeyStore(),
@@ -123,6 +127,24 @@ final class Pairing {
         let fingerprint = try deviceFingerprint(for: devicePublicKey)
         try approve(devicePublicKey: devicePublicKey, oneTimeNonce: oneTimeNonce)
         return try sessionToken(for: fingerprint)
+    }
+
+    // ADR-0019: mark a freshly minted nonce as pre-approved because the user
+    // picked this device on the Mac. Called right after mintPairingPayload when
+    // the Mac pushes an offer.
+    func markPreApproved(nonce: Data) {
+        preApprovedNonces.insert(nonce.base64URLEncodedString())
+    }
+
+    // Returns true exactly once if `nonce` was pre-approved and is still live.
+    // Does not consume the nonce itself; issueApprovedSessionToken stays the
+    // single consumption point so the offer path and the prompt path share one
+    // replay guard.
+    func consumePreApproval(nonce: Data) -> Bool {
+        pruneExpiredNonces()
+        let key = nonce.base64URLEncodedString()
+        let wasPreApproved = preApprovedNonces.remove(key) != nil
+        return wasPreApproved && nonceIssuedAt[key] != nil
     }
 
     func lookup(deviceFingerprint: DeviceFingerprint) throws -> PairedDeviceRecord? {
@@ -226,6 +248,10 @@ final class Pairing {
     private func pruneExpiredNonces() {
         let current = now()
         nonceIssuedAt = nonceIssuedAt.filter { current.timeIntervalSince($0.value) <= nonceTTL }
+        // A pre-approval is only meaningful while its nonce is live; drop any
+        // whose nonce has expired or already been consumed so the set cannot
+        // grow and an expired pre-approval cannot auto-approve.
+        preApprovedNonces.formIntersection(nonceIssuedAt.keys)
     }
 
     private func randomBytes(count: Int) throws -> Data {

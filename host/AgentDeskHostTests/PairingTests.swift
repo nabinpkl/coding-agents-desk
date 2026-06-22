@@ -126,6 +126,60 @@ struct PairingTests {
             _ = try parser.append(Data([0, 0, 0, 0]))
         }
     }
+
+    // ADR-0019: a pre-approved nonce auto-approves exactly once.
+    @Test func preApprovedNonceConsumesOnceThenFalse() throws {
+        let fixture = try PairingFixture()
+        let payload = try fixture.pairing.mintPairingPayload()
+        fixture.pairing.markPreApproved(nonce: payload.oneTimeNonce)
+
+        #expect(fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce))
+        #expect(!fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce))
+    }
+
+    // A nonce that was never marked falls through to the prompt path.
+    @Test func unmarkedNonceIsNotPreApproved() throws {
+        let fixture = try PairingFixture()
+        let payload = try fixture.pairing.mintPairingPayload()
+        #expect(!fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce))
+    }
+
+    // An expired nonce must not auto-approve even if it was pre-approved.
+    @Test func expiredPreApprovedNonceDoesNotAutoApprove() throws {
+        final class MutableClock {
+            var date = Date(timeIntervalSince1970: 1_800_000_000)
+        }
+
+        let clock = MutableClock()
+        let fixture = try PairingFixture(now: { clock.date })
+        let payload = try fixture.pairing.mintPairingPayload()
+        fixture.pairing.markPreApproved(nonce: payload.oneTimeNonce)
+
+        clock.date = clock.date.addingTimeInterval(91)
+
+        #expect(!fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce))
+    }
+
+    // Pre-approval leaves the nonce live so the token issue consumes it exactly
+    // once; a second issue with the same nonce is rejected as already used.
+    @Test func preApprovalLeavesNonceForSingleTokenIssue() throws {
+        let fixture = try PairingFixture()
+        let payload = try fixture.pairing.mintPairingPayload()
+        let deviceKey = P256.Signing.PrivateKey()
+        fixture.pairing.markPreApproved(nonce: payload.oneTimeNonce)
+
+        #expect(fixture.pairing.consumePreApproval(nonce: payload.oneTimeNonce))
+        _ = try fixture.pairing.issueApprovedSessionToken(
+            devicePublicKey: deviceKey.publicKey.x963Representation,
+            oneTimeNonce: payload.oneTimeNonce
+        )
+        #expect(throws: PairingError.self) {
+            _ = try fixture.pairing.issueApprovedSessionToken(
+                devicePublicKey: deviceKey.publicKey.x963Representation,
+                oneTimeNonce: payload.oneTimeNonce
+            )
+        }
+    }
 }
 
 private struct PairingFixture {

@@ -287,6 +287,24 @@ final class PairingSignalingServer: @unchecked Sendable {
             devicePublicKey: request.devicePublicKey,
             oneTimeNonce: request.oneTimeNonce
         )
+        // ADR-0019: a Mac-pushed offer already carries the host-side
+        // authorization (the user picked this device on the Mac), so a device
+        // dialing back with that pre-approved nonce skips the approval prompt
+        // and gets its token directly.
+        if pairing.consumePreApproval(nonce: request.oneTimeNonce) {
+            logger.notice("pre-approved pairing for fingerprint=\(fingerprint.rawValue, privacy: .public)")
+            do {
+                let token = try pairing.issueApprovedSessionToken(
+                    devicePublicKey: request.devicePublicKey,
+                    oneTimeNonce: request.oneTimeNonce
+                )
+                try pairing.markSeen(deviceFingerprint: token.deviceFingerprint)
+                send(pairResponse: PairingHandshakeResponse(type: "approved", token: token, error: nil), on: connection)
+            } catch {
+                send(pairResponse: PairingHandshakeResponse(type: "rejected", token: nil, error: "\(error)"), on: connection)
+            }
+            return
+        }
         logger.notice("invoking approval handler for fingerprint=\(fingerprint.rawValue, privacy: .public)")
         approvalHandler(fingerprint) { [weak self, weak connection] approved in
             self?.logger.notice("approval result=\(approved, privacy: .public)")
