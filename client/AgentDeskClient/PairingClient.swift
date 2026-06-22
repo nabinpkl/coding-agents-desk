@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import UIKit
 
 enum PairingClientState: Equatable {
     case unpaired
@@ -25,6 +26,9 @@ struct PairingHandshakeRequest: Codable {
     let type: String
     let devicePublicKey: Data
     let oneTimeNonce: Data
+    // ADR-0019: this device's self-reported name, so the host can label the pair
+    // with what the phone calls itself instead of the tailnet "localhost".
+    let deviceName: String?
 }
 
 struct PairingHandshakeResponse: Codable {
@@ -391,7 +395,8 @@ final class PairingClient {
         let request = PairingHandshakeRequest(
             type: "pair",
             devicePublicKey: try deviceKeyProvider.publicKey.x963Representation,
-            oneTimeNonce: payload.oneTimeNonce
+            oneTimeNonce: payload.oneTimeNonce,
+            deviceName: localDeviceName()
         )
         let data = try JSONEncoder().encode(request)
         guard let text = String(data: data, encoding: .utf8) else {
@@ -419,6 +424,14 @@ final class PairingClient {
         }
         try receiveApprovedToken(token, hostPublicKey: payload.hostPublicKey)
         try persistApprovedToken(payload: payload)
+    }
+
+    // This device's name for the host to display. iOS 16+ returns a generic
+    // "iPhone" here unless the app holds the user-assigned-device-name
+    // entitlement, but even that beats the tailnet "localhost".
+    private func localDeviceName() -> String {
+        let name = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "iPhone" : name
     }
 
     func resolvedHost(for payload: PairingPayload) -> String {

@@ -6,6 +6,10 @@ struct PairingHandshakeRequest: Codable {
     let type: String
     let devicePublicKey: Data
     let oneTimeNonce: Data
+    // ADR-0019: the client's self-reported device name, so the host can show a
+    // device-chosen label instead of the tailnet hostname (iOS registers as
+    // "localhost"). Optional and decode-tolerant for older clients.
+    let deviceName: String?
 }
 
 struct PairingHandshakeResponse: Codable {
@@ -279,6 +283,14 @@ final class PairingSignalingServer: @unchecked Sendable {
         }
     }
 
+    private func clientName(_ request: PairingHandshakeRequest) -> String? {
+        guard let name = request.deviceName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else {
+            return nil
+        }
+        return name
+    }
+
     private func handlePair(request: PairingHandshakeRequest, on connection: NWConnection) throws {
         guard request.type == "pair" else {
             throw PairingSignalError.unsupportedMessage
@@ -298,7 +310,9 @@ final class PairingSignalingServer: @unchecked Sendable {
                     devicePublicKey: request.devicePublicKey,
                     oneTimeNonce: request.oneTimeNonce
                 )
-                if let name = preApproval.name {
+                // Prefer the client's self-reported name over the tailnet pick
+                // label (the iPhone calls itself something better than "localhost").
+                if let name = clientName(request) ?? preApproval.name {
                     try? pairing.setName(name, for: token.deviceFingerprint)
                 }
                 try pairing.markSeen(deviceFingerprint: token.deviceFingerprint)
@@ -321,6 +335,9 @@ final class PairingSignalingServer: @unchecked Sendable {
                     devicePublicKey: request.devicePublicKey,
                     oneTimeNonce: request.oneTimeNonce
                 )
+                if let name = self.clientName(request) {
+                    try? self.pairing.setName(name, for: token.deviceFingerprint)
+                }
                 try self.pairing.markSeen(deviceFingerprint: token.deviceFingerprint)
                 self.send(pairResponse: PairingHandshakeResponse(type: "approved", token: token, error: nil), on: connection)
             } catch {
