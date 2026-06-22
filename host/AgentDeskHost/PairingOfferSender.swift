@@ -18,7 +18,7 @@ struct PairingOfferSender {
     var timeout: TimeInterval = 10
 
     func send(offer: PairingPayload, toIPv4 ipv4: String, port: UInt16 = Config.offerPort) async throws {
-        let frame = try PairingOfferFrame.encode(offer)
+        let frame = try OfferPortFrame.encode(offer.compactJSONData())
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
             throw PairingOfferSenderError.invalidEndpoint
         }

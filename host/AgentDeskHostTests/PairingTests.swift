@@ -91,16 +91,21 @@ struct PairingTests {
         }
     }
 
-    // ADR-0019: offer frame round-trips one whole offer.
+    // ADR-0019: an offer frame round-trips and classifies back to the payload.
     @Test func offerFrameRoundTripsAPayload() throws {
         let fixture = try PairingFixture()
         let payload = try fixture.pairing.mintPairingPayload()
-        let frame = try PairingOfferFrame.encode(payload)
+        let frame = try OfferPortFrame.encode(payload.compactJSONData())
 
-        var parser = PairingOfferFrameParser()
-        let offers = try parser.append(frame)
+        var parser = OfferPortFrameParser()
+        let bodies = try parser.append(frame)
 
-        #expect(offers == [payload])
+        #expect(bodies.count == 1)
+        guard case .offer(let decoded) = OfferPortMessage.classify(bodies[0]) else {
+            Issue.record("expected an offer message")
+            return
+        }
+        #expect(decoded == payload)
     }
 
     // The parser must reassemble a frame delivered byte-by-byte, the normal
@@ -108,23 +113,48 @@ struct PairingTests {
     @Test func offerFrameParserReassemblesAcrossChunks() throws {
         let fixture = try PairingFixture()
         let payload = try fixture.pairing.mintPairingPayload()
-        let frame = try PairingOfferFrame.encode(payload)
+        let frame = try OfferPortFrame.encode(payload.compactJSONData())
 
-        var parser = PairingOfferFrameParser()
-        var collected: [PairingPayload] = []
+        var parser = OfferPortFrameParser()
+        var collected: [Data] = []
         for byte in frame {
             collected += try parser.append(Data([byte]))
         }
 
-        #expect(collected == [payload])
+        #expect(collected.count == 1)
+        guard case .offer(let decoded) = OfferPortMessage.classify(collected[0]) else {
+            Issue.record("expected an offer message")
+            return
+        }
+        #expect(decoded == payload)
     }
 
     // A zero-length frame is malformed and must be rejected, not yielded.
     @Test func offerFrameParserRejectsZeroLengthFrame() throws {
-        var parser = PairingOfferFrameParser()
+        var parser = OfferPortFrameParser()
         #expect(throws: PairingPayloadError.self) {
             _ = try parser.append(Data([0, 0, 0, 0]))
         }
+    }
+
+    // whois and identity replies classify by their type tag, offers by absence.
+    @Test func offerPortMessageClassifiesEachKind() throws {
+        let whois = try OfferPortFrame.encode(JSONEncoder().encode(DeviceIdentityRequest()))
+        let identity = try OfferPortFrame.encode(JSONEncoder().encode(DeviceIdentity(displayName: "iPhone16,1 [abc123]")))
+
+        var parser = OfferPortFrameParser()
+        let bodies = try parser.append(whois + identity)
+        #expect(bodies.count == 2)
+
+        guard case .whois = OfferPortMessage.classify(bodies[0]) else {
+            Issue.record("expected whois")
+            return
+        }
+        guard case .identity(let id) = OfferPortMessage.classify(bodies[1]) else {
+            Issue.record("expected identity")
+            return
+        }
+        #expect(id.displayName == "iPhone16,1 [abc123]")
     }
 
     // ADR-0019: a pre-approved nonce auto-approves exactly once and carries the

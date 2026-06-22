@@ -523,6 +523,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     func startOfferListenerIfNeeded() {
         guard pairingOfferListener == nil else { return }
         let listener = PairingOfferListener()
+        // Snapshot this device's identity so the listener can answer host whois
+        // probes and the Mac picker can list this phone by name.
+        listener.localIdentity = DeviceIdentity(displayName: pairingClient.deviceDisplayName())
         listener.onOffer = { [weak self] payload in
             Task { @MainActor in
                 guard let self else { return }

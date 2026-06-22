@@ -18,6 +18,11 @@ final class PairingOfferListener: @unchecked Sendable {
     // Called on the main queue with each decoded offer.
     var onOffer: ((PairingPayload) -> Void)?
 
+    // ADR-0019: this device's display-only identity, replied to host whois probes
+    // so the Mac picker can list this device by name. Snapshotted by the owner
+    // when the listener starts.
+    var localIdentity: DeviceIdentity?
+
     func start(port: UInt16 = Config.offerPort) {
         guard listener == nil else { return }
         do {
@@ -67,15 +72,24 @@ final class PairingOfferListener: @unchecked Sendable {
             guard let self else { return }
             if let data, !data.isEmpty {
                 do {
-                    let offers = try state.parser.append(data)
-                    if let offer = offers.first {
-                        self.logger.notice("offer received")
-                        self.onOffer?(offer)
-                        connection.cancel()
-                        return
+                    for body in try state.parser.append(data) {
+                        switch OfferPortMessage.classify(body) {
+                        case .offer(let payload):
+                            self.logger.notice("offer received")
+                            self.onOffer?(payload)
+                            connection.cancel()
+                            return
+                        case .whois:
+                            self.logger.notice("whois received")
+                            self.respondToWhois(on: connection)
+                            return
+                        case .identity, .unknown:
+                            connection.cancel()
+                            return
+                        }
                     }
                 } catch {
-                    self.logger.error("offer parse failed: \(String(describing: error), privacy: .public)")
+                    self.logger.error("offer-port parse failed: \(String(describing: error), privacy: .public)")
                     connection.cancel()
                     return
                 }
@@ -85,6 +99,24 @@ final class PairingOfferListener: @unchecked Sendable {
                 return
             }
             self.receive(on: connection, state: state)
+        }
+    }
+
+    // ADR-0019: reply to a host whois probe with this device's display identity,
+    // then close. Lets the Mac picker list this device by name pre-pairing.
+    private func respondToWhois(on connection: NWConnection) {
+        guard let identity = localIdentity else {
+            connection.cancel()
+            return
+        }
+        do {
+            let frame = try OfferPortFrame.encode(try JSONEncoder().encode(identity))
+            connection.send(content: frame, completion: .contentProcessed { [weak self] _ in
+                self?.logger.notice("identity replied")
+                connection.cancel()
+            })
+        } catch {
+            connection.cancel()
         }
     }
 
@@ -141,7 +173,7 @@ final class PairingOfferListener: @unchecked Sendable {
 // on the listener's main queue, so unchecked-Sendable is safe.
 private final class OfferConnectionState: @unchecked Sendable {
     let connection: NWConnection
-    var parser = PairingOfferFrameParser()
+    var parser = OfferPortFrameParser()
 
     init(connection: NWConnection) {
         self.connection = connection

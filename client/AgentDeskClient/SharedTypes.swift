@@ -103,12 +103,11 @@ enum PairingPayloadError: Error {
 // encrypts the peer-to-peer hop, the host public key in the payload is public,
 // and the one-time nonce is pre-approval-gated, so plaintext on the wire is
 // acceptable. Mirror of the host definition.
-enum PairingOfferFrame {
+enum OfferPortFrame {
     static let fixedHeaderByteCount = 4
     static let maxPayloadByteCount = 64 * 1024
 
-    static func encode(_ payload: PairingPayload) throws -> Data {
-        let body = try payload.compactJSONData()
+    static func encode(_ body: Data) throws -> Data {
         guard body.count <= maxPayloadByteCount else {
             throw PairingPayloadError.malformedOffer
         }
@@ -120,35 +119,99 @@ enum PairingOfferFrame {
     }
 }
 
-// Accumulates inbound bytes and yields each complete offer. Tolerates a frame
-// split across multiple reads, the normal case for a streamed TCP connection.
-struct PairingOfferFrameParser {
+// Accumulates inbound bytes and yields each complete JSON body. Tolerates a
+// frame split across multiple reads, the normal case for a streamed TCP
+// connection. The caller routes each body via OfferPortMessage.classify.
+struct OfferPortFrameParser {
     private var buffer = Data()
 
-    mutating func append(_ chunk: Data) throws -> [PairingPayload] {
+    mutating func append(_ chunk: Data) throws -> [Data] {
         buffer.append(chunk)
-        guard buffer.count <= PairingOfferFrame.maxPayloadByteCount + PairingOfferFrame.fixedHeaderByteCount else {
+        guard buffer.count <= OfferPortFrame.maxPayloadByteCount + OfferPortFrame.fixedHeaderByteCount else {
             throw PairingPayloadError.malformedOffer
         }
-        var offers: [PairingPayload] = []
-        while buffer.count >= PairingOfferFrame.fixedHeaderByteCount {
-            let header = [UInt8](buffer.prefix(PairingOfferFrame.fixedHeaderByteCount))
+        var bodies: [Data] = []
+        while buffer.count >= OfferPortFrame.fixedHeaderByteCount {
+            let header = [UInt8](buffer.prefix(OfferPortFrame.fixedHeaderByteCount))
             let payloadLength = header.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
             guard payloadLength > 0,
-                  payloadLength <= UInt32(PairingOfferFrame.maxPayloadByteCount) else {
+                  payloadLength <= UInt32(OfferPortFrame.maxPayloadByteCount) else {
                 throw PairingPayloadError.malformedOffer
             }
-            let frameLength = PairingOfferFrame.fixedHeaderByteCount + Int(payloadLength)
+            let frameLength = OfferPortFrame.fixedHeaderByteCount + Int(payloadLength)
             guard buffer.count >= frameLength else { break }
             let body = Data(
                 buffer
-                    .dropFirst(PairingOfferFrame.fixedHeaderByteCount)
+                    .dropFirst(OfferPortFrame.fixedHeaderByteCount)
                     .prefix(Int(payloadLength))
             )
-            offers.append(try JSONDecoder().decode(PairingPayload.self, from: body))
+            bodies.append(body)
             buffer.removeFirst(frameLength)
         }
-        return offers
+        return bodies
+    }
+}
+
+// ADR-0019: pre-pairing device discovery over the offer port. The host probes
+// each tailnet peer with a whois request; an unpaired client replies with a
+// display-only identity, so the picker lists real devices instead of the
+// tailnet "localhost". Display-only and pre-auth: tailnet membership is the
+// trust boundary, and the signed handshake still gates actual pairing.
+struct DeviceIdentityRequest: Codable, Equatable {
+    let type: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+    }
+
+    init() {
+        self.type = "whois"
+    }
+}
+
+struct DeviceIdentity: Codable, Equatable {
+    let type: String
+    let displayName: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case displayName = "n"
+    }
+
+    init(displayName: String) {
+        self.type = "id"
+        self.displayName = displayName
+    }
+}
+
+// Routes a decoded offer-port body. A pairing offer (PairingPayload) carries no
+// "t" tag; whois and identity replies do.
+enum OfferPortMessage {
+    case offer(PairingPayload)
+    case whois
+    case identity(DeviceIdentity)
+    case unknown
+
+    private struct TypeTag: Decodable {
+        let t: String?
+    }
+
+    static func classify(_ body: Data) -> OfferPortMessage {
+        let tag = (try? JSONDecoder().decode(TypeTag.self, from: body))?.t
+        switch tag {
+        case "whois":
+            return .whois
+        case "id":
+            if let identity = try? JSONDecoder().decode(DeviceIdentity.self, from: body) {
+                return .identity(identity)
+            }
+            return .unknown
+        default:
+            if let payload = try? JSONDecoder().decode(PairingPayload.self, from: body) {
+                return .offer(payload)
+            }
+            return .unknown
+        }
     }
 }
 

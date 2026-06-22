@@ -396,7 +396,7 @@ final class PairingClient {
             type: "pair",
             devicePublicKey: try deviceKeyProvider.publicKey.x963Representation,
             oneTimeNonce: payload.oneTimeNonce,
-            deviceName: localDeviceName()
+            deviceName: deviceDisplayName()
         )
         let data = try JSONEncoder().encode(request)
         guard let text = String(data: data, encoding: .utf8) else {
@@ -432,7 +432,7 @@ final class PairingClient {
     // hardware model identifier (e.g. "iPhone16,1"), and always append a short,
     // stable per-device id (the device fingerprint prefix) so two same-model
     // phones are distinguishable.
-    private func localDeviceName() -> String {
+    func deviceDisplayName() -> String {
         let assigned = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let base = (assigned.isEmpty || assigned == "iPhone") ? Self.modelIdentifier() : assigned
         if let fingerprint = try? deviceKeyProvider.publicKey.agentDeskFingerprint {
