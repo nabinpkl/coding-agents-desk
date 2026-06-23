@@ -25,11 +25,12 @@ client_ipa_path := env_var_or_default("AGENTDESK_CLIENT_IPA_PATH", client_export
 # Host and client are versioned INDEPENDENTLY (separate release cadences); their
 # compatibility is the wire protocol version (Config.protocolVersion), not these
 # numbers. The build number is independent (git commit count) and the short git
-# sha is embedded, so a build reads as "v1.2.0 (380) f0c24cf". See AGENTS.md
+# sha is embedded, so a build reads as "v1.3.0 (382) c5b4fb2". See AGENTS.md
 # "Versioning". History: 1.1.0 = Mac-initiated pairing (ADR-0019); 1.2.0 = live
-# tailnet device discovery (R55).
-host_marketing_version := env_var_or_default("AGENTDESK_HOST_VERSION", "1.2.0")
-client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.2.0")
+# tailnet device discovery (R55); 1.3.0 = independent host/client versions +
+# protocol-version negotiation (ADR-0020, R56).
+host_marketing_version := env_var_or_default("AGENTDESK_HOST_VERSION", "1.3.0")
+client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.3.0")
 apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
 
 check:
