@@ -33,13 +33,19 @@ Chose **Option A** because only the Mac can enumerate the tailnet, and a host-si
 - Bad, because it requires the iPhone to accept an inbound TCP connection over the Tailscale `utun` interface, which is unproven for a foregrounded sandboxed iOS app (see PRIMARY RISK below).
 - Neutral, because a rogue tailnet peer could push an offer; tailnet membership is the trust boundary for the whole product, and the unpaired screen shows the offering host so a wrong host is visible. QR and SIGUSR1 pairing remain as fallbacks.
 
-### PRIMARY RISK
+### PRIMARY RISK (resolved)
 
-Inbound delivery over `utun` to a foregrounded, sandboxed iOS `NWListener` is unproven; iOS Local Network privacy is built around en0/Bonjour, not VPN tunnels. This must be confirmed on a physical device. If offers never arrive, the fallback keeps the Mac-side pick and pre-approval but inverts the transport: the iPhone dials the Mac (the proven outbound direction) using the host FQDN surfaced by the pick, dropping the listener, the `NSLocalNetworkUsageDescription` key, and own-IP enumeration.
+Inbound delivery over `utun` to a foregrounded, sandboxed iOS `NWListener` was unproven; iOS Local Network privacy is built around en0/Bonjour, not VPN tunnels. This was confirmed working on a physical device (pick-to-pair established a live session), so the iPhone-dials-Mac fallback is not needed.
+
+### Live device discovery (R55 refinement)
+
+The first cut built the picker from `tailscale status` and labeled each peer by its Tailscale hostname. That is unusable for iPhones: iOS registers its Tailscale node as `localhost`, so every iPhone reads "localhost". Naming had to come from the device itself.
+
+Tailscale carries no broadcast or multicast, so a client cannot announce itself for the Mac to overhear; discovery must be host-initiated unicast. The Mac enumerates online iOS peers, then probes each peer's offer port with a `whois` request; an unpaired client (whose listener is already running) replies with a display-only `DeviceIdentity` (its `UIDevice` name or hardware model identifier plus a short per-device id). The picker shows a Scanning state, then lists only the peers that answered, by their reported name. Nothing is persisted; the list is recomputed on every open/Refresh. A peer not running AgentDesk, or already paired (listener off), simply does not answer and is omitted, so the list is exactly "iPhones ready to pair". The identity reply is display-only and pre-auth: tailnet membership is the trust boundary and the signed handshake still gates the actual pairing. The client also repeats its name in the pairing handshake so the host labels the paired record without relying on the pick.
 
 ### Confirmation
 
-Host-side unit tests cover peer shaping (`TailnetDiscoveryTests`), the pre-approval lifecycle (`PairingTests`), and the offer-frame codec round-trip. The inbound-over-utun behavior and the end-to-end pick to pair flow are device-only and are verified on a physical iPhone (TestFlight build), with host unified logs and attached client logs captured together.
+Host-side unit tests cover peer shaping (`TailnetDiscoveryTests`), the pre-approval lifecycle (`PairingTests`), the offer-port frame codec, and the `OfferPortMessage` whois/identity/offer routing. The inbound-over-utun behavior, live discovery, and end-to-end pick to pair are device-only and verified on a physical iPhone (TestFlight build), with host unified logs and attached client logs captured together.
 
 ## Links
 

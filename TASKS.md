@@ -170,6 +170,18 @@ Phase goal: let a remote iPhone pair with no typing and no QR by leaning on the 
 
 ---
 
+## v0 Phase: live tailnet device discovery
+
+Phase goal: the device picker should list real iPhones by name, live, with no stored state. Tailscale carries no broadcast/multicast, so discovery is host-initiated unicast: the Mac probes online iOS peers and lists the ones that identify themselves. Replaces labeling peers by their Tailscale hostname (always "localhost" on iOS). Decisions folded into ADR-0019.
+
+- [x] R55.1. Generalize the offer-port framing to carry any JSON body (`OfferPortFrame`/`OfferPortFrameParser` yield `Data`); add `DeviceIdentityRequest` (whois), `DeviceIdentity`, and `OfferPortMessage.classify` routing; update the offer-frame tests.
+- [x] R55.2. Client answers a host whois on the offer port with its display-only identity; `PairingClient.deviceDisplayName()` reused for the handshake name; the listener snapshots `localIdentity` at start.
+- [x] R55.3. Host `TailnetIdentityProber` (dial peer offer port, whois, read identity, 1.5s timeout); `showDevicePicker` probes online iOS peers concurrently behind a Scanning state and lists only responders by reported name.
+- [x] R55.4. Docs: ADR-0019 live-discovery refinement, this block.
+- [ ] R55.5. Acceptance (physical, HITL): with AgentDesk open on the iPhone, the Mac picker shows it by name (not "localhost") within a couple of seconds; picking it pairs.
+
+---
+
 ## Promotion log
 
 ```
@@ -201,4 +213,7 @@ R54.0     2026-06-21  committed   reverted locator-code pairing; clean QR/handsh
 R54.1-R54.6 2026-06-22  committed   Mac-initiated tailnet pairing: offer codec, peer enumeration, host pre-approval, device picker + offer sender, client offer listener, ADR-0019
 R54.7     2026-06-22  done        physical pick-to-pair worked: inbound TCP over utun confirmed, direct connection established
 R54.8     2026-06-22  committed   host shows the picked device name (persisted on the paired record) instead of the opaque fingerprint
+R54.9-R54.11 2026-06-22  committed   show active device when multiple paired, picker IPv4 rows, Tailscale-vs-carrier-CGNAT own-IP fix, client reports model+id name
+R55.1-R55.4 2026-06-22  committed   live host-probe device discovery: offer-port identity protocol, client whois replies, iOS-peer prober + async picker, ADR-0019 refinement
+R55.5     pending     pending     physical acceptance: picker lists the iPhone by name live
 ```
