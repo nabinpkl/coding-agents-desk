@@ -1185,37 +1185,34 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                         if scrollDiagnostics.hintActive {
                             logger.notice("owned graphics scroll-hint-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
                             let nowNs = DispatchTime.now().uptimeNanoseconds
-                            let shouldSuppressForOwnership = !scrollCopyOwnership.allowsHevcFallback(nowUptimeNs: nowNs)
-                            let shouldSuppressForActiveScroll = scrollHevcAdmission.suppressesActiveScrollFallback(
-                                nowUptimeNs: nowNs,
-                                idleRefreshMs: Config.hybridScrollIdleRefreshMs
-                            )
-                            if shouldSuppressForOwnership || shouldSuppressForActiveScroll {
-                                let reason = scrollDiagnostics.hintSource == ScrollActivityHintSource.scrollCopyOwnership.rawValue
-                                    ? "graphics-suppressed-by-ownership"
-                                    : "graphics-hint-timeout-suppressed-hevc"
-                                diagnostics.noteAdmissionHold(reason: reason, mode: currentAdmissionMode())
+                            // Liveness floor: when a scroll is in progress, do not
+                            // hard-drop this frame. copyRect carries the motion when
+                            // it accepts; for the frames it cannot copy, the floor
+                            // admits a rate-limited full HEVC frame so the screen
+                            // never freezes (R74). The floor yields to recent
+                            // copyRect, so it only fills gaps.
+                            let scrollInProgress = scrollDiagnostics.hintActive
+                                || scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs)
+                            if scrollInProgress,
+                               !scrollHevcAdmission.admitScrollFloorHEVC(nowUptimeNs: nowNs, floorFps: Config.hybridScrollFallbackHEVCFps) {
+                                diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-floor", mode: currentAdmissionMode())
                                 continue
                             }
                         } else {
                             logger.notice("owned graphics scroll-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
                             let nowNs = DispatchTime.now().uptimeNanoseconds
-                            if scrollHevcAdmission.suppressesActiveScrollFallback(
-                                nowUptimeNs: nowNs,
-                                idleRefreshMs: Config.hybridScrollIdleRefreshMs
-                            ) {
-                                diagnostics.noteAdmissionHold(reason: "graphics-active-scroll-suppressed-hevc", mode: currentAdmissionMode())
+                            if scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs),
+                               !scrollHevcAdmission.admitScrollFloorHEVC(nowUptimeNs: nowNs, floorFps: Config.hybridScrollFallbackHEVCFps) {
+                                diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-floor", mode: currentAdmissionMode())
                                 continue
                             }
                         }
                     } else {
                         logger.notice("owned graphics scroll-timeout")
                         let nowNs = DispatchTime.now().uptimeNanoseconds
-                        if scrollHevcAdmission.suppressesActiveScrollFallback(
-                            nowUptimeNs: nowNs,
-                            idleRefreshMs: Config.hybridScrollIdleRefreshMs
-                        ) {
-                            diagnostics.noteAdmissionHold(reason: "graphics-active-scroll-suppressed-hevc", mode: currentAdmissionMode())
+                        if scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs),
+                           !scrollHevcAdmission.admitScrollFloorHEVC(nowUptimeNs: nowNs, floorFps: Config.hybridScrollFallbackHEVCFps) {
+                            diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-floor", mode: currentAdmissionMode())
                             continue
                         }
                     }
@@ -1231,42 +1228,35 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                             logger.notice("owned graphics scroll-ownership ownership=miss source=\(scrollDiagnostics.hintSource ?? "unknown", privacy: .public) misses=\(scrollCopyOwnership.missCount, privacy: .public) fallbackAllowed=\(scrollCopyOwnership.allowsHevcFallback(nowUptimeNs: DispatchTime.now().uptimeNanoseconds), privacy: .public)")
                         }
                         logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
-                        if scrollDiagnostics.hintActive,
-                           !scrollCopyOwnership.allowsHevcFallback(nowUptimeNs: DispatchTime.now().uptimeNanoseconds) {
-                            diagnostics.noteAdmissionHold(reason: "graphics-suppressed-by-ownership", mode: currentAdmissionMode())
-                            continue
-                        }
-                        let nowNs = DispatchTime.now().uptimeNanoseconds
-                        if scrollHevcAdmission.suppressesActiveScrollFallback(
-                            nowUptimeNs: nowNs,
-                            idleRefreshMs: Config.hybridScrollIdleRefreshMs
-                        ) {
-                            diagnostics.noteAdmissionHold(reason: "graphics-active-scroll-suppressed-hevc", mode: currentAdmissionMode())
-                            continue
-                        }
                         // The graphics path could not copyRect this frame, but a
-                        // scroll is in progress. Sending a full HEVC frame for every
-                        // such frame at capture rate floods the client while the
-                        // copyRect stream already carries the motion, so cap the
-                        // fallback to a low rate (periodic full-frame corrections).
-                        // This covers momentum: after the finger lifts the input
-                        // hint expires (~180ms) but content keeps moving, so gate on
-                        // a recent accepted scroll as well as a live input hint.
+                        // scroll may be in progress. A full HEVC frame for every such
+                        // frame at capture rate floods the client (the client cannot
+                        // composite copyRect plus a full HEVC frame inside the frame
+                        // budget), but hard-suppressing HEVC (the prior design) froze
+                        // the screen whenever copyRect could not carry the motion
+                        // either (R74). The liveness floor resolves both: it admits a
+                        // rate-limited full HEVC frame only when copyRect has not
+                        // refreshed the screen within the floor interval, so copyRect
+                        // carries motion when it can and HEVC fills the gaps. It also
+                        // subsumes the old ownership suppression: ownership means
+                        // copyRect should carry the region, but if it is not actually
+                        // refreshing, the floor still updates the screen. The floor
+                        // covers momentum because withinScrollHysteresis stays open
+                        // after the input hint expires.
+                        let nowNs = DispatchTime.now().uptimeNanoseconds
                         let scrollInProgress = scrollDiagnostics.hintActive
                             || scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs)
                         if scrollInProgress,
-                           !scrollHevcAdmission.admitScrollFallbackHEVC(nowUptimeNs: nowNs, maxFps: Config.hybridScrollFallbackHEVCFps) {
-                            diagnostics.noteAdmissionHold(reason: "graphics-active-scroll-hevc-rate-limited", mode: currentAdmissionMode())
+                           !scrollHevcAdmission.admitScrollFloorHEVC(nowUptimeNs: nowNs, floorFps: Config.hybridScrollFallbackHEVCFps) {
+                            diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-floor", mode: currentAdmissionMode())
                             continue
                         }
                     } else {
                         logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public)")
                         let nowNs = DispatchTime.now().uptimeNanoseconds
-                        if scrollHevcAdmission.suppressesActiveScrollFallback(
-                            nowUptimeNs: nowNs,
-                            idleRefreshMs: Config.hybridScrollIdleRefreshMs
-                        ) {
-                            diagnostics.noteAdmissionHold(reason: "graphics-active-scroll-suppressed-hevc", mode: currentAdmissionMode())
+                        if scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs),
+                           !scrollHevcAdmission.admitScrollFloorHEVC(nowUptimeNs: nowNs, floorFps: Config.hybridScrollFallbackHEVCFps) {
+                            diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-floor", mode: currentAdmissionMode())
                             continue
                         }
                     }

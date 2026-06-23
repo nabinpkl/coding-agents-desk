@@ -150,24 +150,37 @@ struct ScrollQualityTests {
         ) == .allow)
     }
 
-    @Test func hybridScrollFallbackHevcRateLimitsDuringActiveScroll() {
+    @Test func hybridScrollFloorHevcFillsGapsButYieldsToCopyRect() {
+        // The floor admits a full HEVC frame only when copyRect has not refreshed
+        // the screen within the floor interval (~83ms at 12 fps). copyRect updates
+        // therefore suppress the floor, and the floor fills the gaps when copyRect
+        // stalls. Calls mutate the admission, so they run outside #expect.
         var admission = HybridScrollHEVCAdmission()
 
-        // 12 fps is a ~83ms minimum interval. The first fallback frame admits, a
-        // frame within the interval is held (so non-translatable scroll frames
-        // cannot flood the client), and a frame past the interval admits again.
-        // The calls mutate the admission, so they run outside #expect.
-        let first = admission.admitScrollFallbackHEVC(nowUptimeNs: 1_000_000_000, maxFps: 12)
-        let withinInterval = admission.admitScrollFallbackHEVC(nowUptimeNs: 1_040_000_000, maxFps: 12)
-        let pastInterval = admission.admitScrollFallbackHEVC(nowUptimeNs: 1_084_000_000, maxFps: 12)
+        // No recent copyRect: the first floor frame admits.
+        let first = admission.admitScrollFloorHEVC(nowUptimeNs: 1_000_000_000, floorFps: 12)
+        // Within the floor interval the floor is held (no flooding).
+        let withinInterval = admission.admitScrollFloorHEVC(nowUptimeNs: 1_040_000_000, floorFps: 12)
+        // Past the interval the floor fills the next gap.
+        let pastInterval = admission.admitScrollFloorHEVC(nowUptimeNs: 1_084_000_000, floorFps: 12)
         #expect(first)
         #expect(!withinInterval)
         #expect(pastInterval)
 
-        // maxFps 0 suppresses the fallback entirely while scrolling.
-        var suppressed = HybridScrollHEVCAdmission()
-        let suppressedAdmit = suppressed.admitScrollFallbackHEVC(nowUptimeNs: 5_000_000_000, maxFps: 0)
-        #expect(!suppressedAdmit)
+        // A copyRect accepted within the floor interval suppresses the floor: the
+        // screen was just refreshed by graphics, so no HEVC fill is needed.
+        var carrying = HybridScrollHEVCAdmission()
+        carrying.noteAcceptedScroll(nowUptimeNs: 2_000_000_000)
+        let suppressedByCopyRect = carrying.admitScrollFloorHEVC(nowUptimeNs: 2_050_000_000, floorFps: 12)
+        // Once copyRect stalls past the interval, the floor takes over.
+        let fillsAfterStall = carrying.admitScrollFloorHEVC(nowUptimeNs: 2_090_000_000, floorFps: 12)
+        #expect(!suppressedByCopyRect)
+        #expect(fillsAfterStall)
+
+        // floorFps 0 disables the floor entirely.
+        var disabled = HybridScrollHEVCAdmission()
+        let disabledAdmit = disabled.admitScrollFloorHEVC(nowUptimeNs: 9_000_000_000, floorFps: 0)
+        #expect(!disabledAdmit)
     }
 
     @Test func hybridScrollHysteresisCoversMomentumAfterLastInput() {

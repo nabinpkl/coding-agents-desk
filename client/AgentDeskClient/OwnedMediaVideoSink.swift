@@ -210,6 +210,13 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 to: DispatchTime.now().uptimeNanoseconds
             )
             surfaceLayer.isHidden = false
+            // A graphics (copyRect/tile) frame refreshes the same surfaceLayer the
+            // HEVC path draws to, so it counts as a screen update. Stamp the shared
+            // render clock here too, otherwise renderGapMs (and the backlog estimate
+            // derived from it) measures only HEVC-to-HEVC spacing and reports a
+            // multi-second freeze whenever copyRect is carrying the motion between
+            // HEVC frames, which is exactly when the screen is NOT frozen (R74).
+            lastRenderUptimeNs = DispatchTime.now().uptimeNanoseconds
             ownedMediaStderrTrace("graphics-frame frame=\(envelope.header.frameId) generation=\(envelope.header.surfaceGeneration) commands=\(envelope.commands.count) bytes=\(envelope.payload.count) action=\(stats.action) compositorMs=\(Self.formatDouble(stats.compositorMs)) copyRectMs=\(Self.formatDouble(stats.copyRectMs)) tileDecodeMs=\(Self.formatDouble(stats.tileDecodeMs)) tilePaintMs=\(Self.formatDouble(stats.tilePaintMs)) makeImageMs=\(Self.formatDouble(makeImageMs)) stale=\(stats.staleDiscardCount) copyRects=\(stats.copyRectCount) tileBytes=\(stats.tileBytes) queuedFrames=\(queueDepth.queuedFrames) queueDepthBytes=\(queueDepth.queueDepthBytes) totalGraphicsApplied=\(stats.totalGraphicsFramesApplied)")
             return OwnedGraphicsFrameAck(
                 surfaceGeneration: envelope.header.surfaceGeneration,

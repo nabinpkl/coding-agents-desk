@@ -1698,16 +1698,27 @@ struct HybridScrollHEVCAdmission: Equatable {
         return .allow
     }
 
-    // Rate-limit the full-frame HEVC fallback during an active scroll. Frames the
-    // graphics path cannot copyRect (new content, momentum, redraws) otherwise
-    // each send a full HEVC frame at capture rate and flood the client while the
-    // copyRect stream is already carrying the translatable motion. Returns true if
-    // this fallback frame may send. maxFps == 0 suppresses it entirely.
-    mutating func admitScrollFallbackHEVC(nowUptimeNs: UInt64, maxFps: Int) -> Bool {
-        guard maxFps > 0 else { return false }
-        let minIntervalNs = 1_000_000_000 / UInt64(maxFps)
+    // Liveness floor for active scroll. The copyRect stream carries motion when it
+    // accepts, but the frames it cannot copy (new content on a fast flick, momentum
+    // redraws) must still refresh the screen or it freezes for the whole scroll.
+    // The prior design hard-suppressed HEVC for idleRefreshMs after every accepted
+    // copyRect, so during continuous scrolling HEVC was off almost permanently and
+    // any frame copyRect could not carry was dropped, freezing the screen (R74:
+    // 7.3s gaps with only ~6 surface updates). This admits a full HEVC frame only
+    // when copyRect has NOT updated the screen within the floor interval, and caps
+    // it at floorFps so it never floods the client while copyRect is keeping up.
+    // copyRect updates therefore suppress the floor (copyRect IS the floor when it
+    // is accepting); HEVC fills only the gaps. Returns true if this floor frame may
+    // send. floorFps == 0 disables the floor (full suppression).
+    mutating func admitScrollFloorHEVC(nowUptimeNs: UInt64, floorFps: Int) -> Bool {
+        guard floorFps > 0 else { return false }
+        let floorIntervalNs = 1_000_000_000 / UInt64(floorFps)
+        if let lastAcceptedScrollAtUptimeNs,
+           nowUptimeNs &- lastAcceptedScrollAtUptimeNs < floorIntervalNs {
+            return false
+        }
         if let lastScrollHevcRefreshAtUptimeNs,
-           nowUptimeNs &- lastScrollHevcRefreshAtUptimeNs < minIntervalNs {
+           nowUptimeNs &- lastScrollHevcRefreshAtUptimeNs < floorIntervalNs {
             return false
         }
         lastScrollHevcRefreshAtUptimeNs = nowUptimeNs
@@ -1717,14 +1728,6 @@ struct HybridScrollHEVCAdmission: Equatable {
     func allowsHintTimeoutFallback(nowUptimeNs: UInt64, fallbackGraceMs: Int) -> Bool {
         guard let lastAcceptedScrollAtUptimeNs else { return true }
         return nowUptimeNs &- lastAcceptedScrollAtUptimeNs >= UInt64(max(0, fallbackGraceMs)) * 1_000_000
-    }
-
-    func suppressesActiveScrollFallback(nowUptimeNs: UInt64, idleRefreshMs: Int) -> Bool {
-        guard pendingIdleRefresh,
-              let lastAcceptedScrollAtUptimeNs else {
-            return false
-        }
-        return nowUptimeNs &- lastAcceptedScrollAtUptimeNs < UInt64(max(0, idleRefreshMs)) * 1_000_000
     }
 
     // True when the graphics path accepted a scroll update within the window, i.e.
