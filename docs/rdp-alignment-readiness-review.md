@@ -19,6 +19,8 @@ The available-but-unused damage signal is the spine of this entire review. Every
 
 ## RDP and OS principles
 
+The full, durable RDP architecture reference (all principles, codecs, caching, the macOS damage-signal mapping, and the source index) now lives in `references/rdp-graphics-architecture.md`. That file is the canonical source so future alignment work does not re-research. The principles below are the subset this review scores against.
+
 These are the distilled, citation-backed principles RDP uses to move on-screen content without re-sending pixels, plus the macOS-native source for each "what changed" signal. Each principle carries at least one dated citation. Citations are load-bearing; do not strip them when this document is summarized.
 
 ### P1. Retained surfaces, not a single framebuffer
