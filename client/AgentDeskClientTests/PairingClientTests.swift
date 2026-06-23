@@ -269,3 +269,23 @@ private func waitUntil(
         try await Task.sleep(nanoseconds: 5_000_000)
     }
 }
+
+// ADR-0019: the Release TLS delegate only relaxes the hostname check for tailnet
+// CGNAT IPv4 literals; everything else (FQDNs, public IPs) gets strict default
+// validation.
+struct TailnetServerTrustDelegateTests {
+    @Test func recognizesTailnetCGNATLiterals() {
+        #expect(TailnetServerTrustDelegate.isTailnetCGNAT("100.64.0.10"))
+        #expect(TailnetServerTrustDelegate.isTailnetCGNAT("100.100.1.1"))
+        #expect(TailnetServerTrustDelegate.isTailnetCGNAT("100.127.255.255"))
+    }
+
+    @Test func rejectsNonTailnetHosts() {
+        #expect(!TailnetServerTrustDelegate.isTailnetCGNAT("mac.tail000000.ts.net"))
+        #expect(!TailnetServerTrustDelegate.isTailnetCGNAT("100.63.0.1"))
+        #expect(!TailnetServerTrustDelegate.isTailnetCGNAT("100.128.0.1"))
+        #expect(!TailnetServerTrustDelegate.isTailnetCGNAT("10.0.0.1"))
+        #expect(!TailnetServerTrustDelegate.isTailnetCGNAT("100.64.0"))
+        #expect(!TailnetServerTrustDelegate.isTailnetCGNAT("192.168.1.1"))
+    }
+}

@@ -218,4 +218,5 @@ R55.1-R55.4 2026-06-22  committed   live host-probe device discovery: offer-port
 R55.5     pending     pending     physical acceptance: picker lists the iPhone by name live
 R56.1     2026-06-22  committed   host and client marketing versions decoupled (independent semver per release)
 R56.2     2026-06-22  committed   protocol version negotiated at session handshake (ADR-0020); incompatible peer rejected as update-required
+R57       2026-06-22  committed   fix on-device TLS failure: Release delegate accepts host cert chain on tailnet CGNAT IP literals (hostname check skipped), FQDN dials stay strict (ADR-0019)
 ```

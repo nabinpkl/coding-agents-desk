@@ -110,7 +110,19 @@ final class PairingClient {
             delegateQueue: nil
         )
         #else
-        return URLSession(configuration: configuration)
+        // ADR-0019: production dials the host over the tailnet. When MagicDNS
+        // resolves, we dial the FQDN and default (strict) TLS validates the
+        // Let's Encrypt cert. When it does not, we fall back to the tailnet IPv4
+        // literal, whose connection the FQDN-only cert cannot pass a hostname
+        // check for. TailnetServerTrustDelegate accepts that case for CGNAT
+        // literals only, still validating the cert chain and leaning on the L3
+        // WireGuard authentication of the peer plus the ADR-0003 app-layer P-256
+        // mutual challenge as the real host authentication.
+        return URLSession(
+            configuration: configuration,
+            delegate: TailnetServerTrustDelegate(),
+            delegateQueue: nil
+        )
         #endif
     }
 
@@ -547,6 +559,48 @@ final class PermissiveURLSessionDelegate: NSObject, URLSessionDelegate, @uncheck
     }
 }
 #endif
+
+// ADR-0019: scoped TLS trust for production. Default (strict) validation applies
+// to every host except a tailnet CGNAT IPv4 literal (100.64.0.0/10), which we
+// reach only when MagicDNS could not resolve the host FQDN. For that case the
+// host's Let's Encrypt cert is issued for the FQDN, so the hostname check cannot
+// pass; we validate the cert CHAIN (still rejecting a self-signed or untrusted
+// cert) but skip the hostname match. Safe because the tailnet authenticates the
+// peer at L3 (WireGuard, the IP cannot be spoofed to another machine) and the
+// ADR-0003 challenge-response cryptographically authenticates the host before
+// any session is granted; TLS here is transport encryption over the already
+// encrypted tailnet.
+final class TailnetServerTrustDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust,
+              Self.isTailnetCGNAT(challenge.protectionSpace.host) else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        // Hostname-less SSL policy: enforce the chain to a trusted anchor, skip
+        // the hostname match for the IP literal.
+        SecTrustSetPolicies(trust, SecPolicyCreateSSL(true, nil))
+        if SecTrustEvaluateWithError(trust, nil) {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
+    }
+
+    // True for an IPv4 literal in Tailscale's CGNAT range 100.64.0.0/10.
+    static func isTailnetCGNAT(_ host: String) -> Bool {
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return false }
+        let octets = parts.compactMap { Int($0) }
+        guard octets.count == 4, octets.allSatisfy({ (0...255).contains($0) }) else { return false }
+        return octets[0] == 100 && (64...127).contains(octets[1])
+    }
+}
 
 extension P256.Signing.PublicKey {
     var agentDeskFingerprint: String {
