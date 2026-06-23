@@ -24,6 +24,19 @@ import Foundation
 // froze). Restricting to changed pixels excludes the static background, and a
 // minimum changed-pixel fraction rejects near-static frames that would otherwise
 // accept a coincidental shift.
+//
+// A clean scroll clears the strict bar on the surface alone. A fast flick does
+// not: a large fraction of the band is newly-revealed content (or the shift is
+// subpixel), so the surface-best shift explains well under the strict threshold
+// even at the true offset, and the frame fell to HEVC. When HEVC was then
+// suppressed during scroll the screen froze (R74). So a second, input-corroborated
+// path drives copyRect from the device's own scroll delta: when the strict bar is
+// missed, the hint's predicted candidate offsets are scored against the surface
+// and the best-explaining one is accepted at a lower bar. The offset applied is
+// always the surface-validated candidate, never the raw hint magnitude (R76); the
+// input only relaxes acceptance of an offset the surface confirms, so a
+// wrong-direction or wrong-axis hint cannot force a torn copy. The exposed
+// remainder is carried by the scroll envelope's tile.
 
 struct PixelRect: Equatable, Sendable {
     let x: Int
@@ -116,6 +129,18 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
     // confidence=0.96 static=0.92 rejected). Measuring only the pixels that
     // actually moved excludes the static background by construction.
     let acceptConfidence: Double
+    // Relaxed acceptance bar for an offset the input scroll independently
+    // corroborates. The strict acceptConfidence rejects fast-flick frames where a
+    // large fraction of the band is newly-revealed content (or the shift is
+    // subpixel), even though copyRect-plus-exposed-tile is still the right call:
+    // those frames fell to HEVC, and when HEVC was suppressed the screen froze
+    // (R74). When the input hint's predicted offset (the device's own scroll
+    // delta) explains a clear majority of the changed pixels, a lower bar is
+    // trustworthy because the input and the surface agree; the unexplained
+    // remainder is the exposed strip the scroll envelope tiles. The offset applied
+    // is always the surface-validated one, never the raw hint (R76): the input
+    // only relaxes acceptance of an offset the surface confirms.
+    let acceptConfidenceWithPrior: Double
     // The band must have at least this fraction of changed pixels to be a
     // confident scroll, so a near-static frame (nothing moved) cannot be accepted
     // on a coincidental shift match.
@@ -147,6 +172,7 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
         minScrollExtentPx: 120,
         minCrossExtentPx: 64,
         acceptConfidence: 0.7,
+        acceptConfidenceWithPrior: 0.55,
         minChangedFraction: 0.05,
         sampleStep: 8,
         lumaTolerance: 24,
@@ -319,13 +345,50 @@ struct DamageScrollClassifier {
         guard bestOffset != 0 else {
             return OffsetSearch(offset: nil, gatePassed: true, bestOffset: nil, bestConfidence: 0, staticConfidence: 0)
         }
-        let accepted = bestExplained >= config.acceptConfidence
-            && bestChangedFraction >= config.minChangedFraction
-        let resolved: ScrollDeltaOffset? = accepted
-            ? (axis == .vertical ? ScrollDeltaOffset(dx: 0, dy: bestOffset) : ScrollDeltaOffset(dx: bestOffset, dy: 0))
-            : nil
-        // staticConfidence carries the changed-pixel fraction for the device log.
-        return OffsetSearch(offset: resolved, gatePassed: true, bestOffset: bestOffset, bestConfidence: bestExplained, staticConfidence: bestChangedFraction)
+
+        // High-confidence path: the surface-best shift cleanly explains the changed
+        // pixels on its own, no input corroboration needed (a clean scroll, full
+        // overlap). Unchanged behavior.
+        if bestExplained >= config.acceptConfidence,
+           bestChangedFraction >= config.minChangedFraction {
+            let resolved = axis == .vertical
+                ? ScrollDeltaOffset(dx: 0, dy: bestOffset)
+                : ScrollDeltaOffset(dx: bestOffset, dy: 0)
+            return OffsetSearch(offset: resolved, gatePassed: true, bestOffset: bestOffset, bestConfidence: bestExplained, staticConfidence: bestChangedFraction)
+        }
+
+        // Input-corroborated path: the surface-best shift did not clear the strict
+        // bar (fast flick with newly-revealed content, or a subpixel shift). Drive
+        // copyRect from the input scroll delta directly: evaluate the hint's
+        // predicted candidate offsets (the device's own scroll deltas) against the
+        // surface and accept the best-explaining one at the relaxed bar. The offset
+        // applied is the surface-validated candidate, not the raw hint magnitude
+        // (R76), so a wrong-direction or wrong-axis hint cannot force a torn copy:
+        // its candidates simply will not explain the changed pixels.
+        var inputBestOffset = 0
+        var inputBestExplained = -1.0
+        var inputBestChanged = 0.0
+        for candidate in hint.candidateOffsets where candidate != 0 && abs(candidate) <= maxMagnitude {
+            let m = match(forOffset: candidate)
+            if m.explainedFraction > inputBestExplained {
+                inputBestExplained = m.explainedFraction
+                inputBestChanged = m.changedFraction
+                inputBestOffset = candidate
+            }
+        }
+        if inputBestOffset != 0,
+           inputBestExplained >= config.acceptConfidenceWithPrior,
+           inputBestChanged >= config.minChangedFraction {
+            let resolved = axis == .vertical
+                ? ScrollDeltaOffset(dx: 0, dy: inputBestOffset)
+                : ScrollDeltaOffset(dx: inputBestOffset, dy: 0)
+            // Trace reflects the accepted input-corroborated offset.
+            return OffsetSearch(offset: resolved, gatePassed: true, bestOffset: inputBestOffset, bestConfidence: inputBestExplained, staticConfidence: inputBestChanged)
+        }
+
+        // Neither path qualified: reject to HEVC. Carry the surface-best for the
+        // device log. staticConfidence carries the changed-pixel fraction.
+        return OffsetSearch(offset: nil, gatePassed: true, bestOffset: bestOffset, bestConfidence: bestExplained, staticConfidence: bestChangedFraction)
     }
 
     // A thin stripe centered in the band along the axis of motion. Verifying a

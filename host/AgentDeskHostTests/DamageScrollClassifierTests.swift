@@ -196,6 +196,104 @@ struct DamageScrollClassifierTests {
         #expect(result == .scroll(region: band, dx: 0, dy: dy))
     }
 
+    // Per-pixel hash so a wrong offset yields uncorrelated luma. Varying in both x
+    // and y gives ~1250 samples across the band, so the explained fraction
+    // concentrates tightly (8-bit luma within tolerance matches ~19% of random
+    // pairs by chance; a row-only pattern has too few samples to average that out
+    // and the strict bar then accepts a partial scroll the relaxed test needs to
+    // sit below).
+    private static func pixelPattern(_ x: Int, _ y: Int) -> UInt8 {
+        var h = UInt32(truncatingIfNeeded: (y &* 73_856_093) ^ (x &* 19_349_663))
+        h ^= (h >> 15)
+        h = h &* 2_246_822_519
+        h ^= (h >> 13)
+        return UInt8(truncatingIfNeeded: h >> 24)
+    }
+
+    private static func surface2D(width: Int, height: Int, value: (Int, Int) -> UInt8) -> ScrollDeltaSurface {
+        let bytesPerRow = width * 4
+        var pixels = Data(count: bytesPerRow * height)
+        pixels.withUnsafeMutableBytes { buffer in
+            guard let base = buffer.baseAddress else { return }
+            for y in 0..<height {
+                for x in 0..<width {
+                    let v = value(x, y)
+                    let offset = y * bytesPerRow + x * 4
+                    base.storeBytes(of: v, toByteOffset: offset, as: UInt8.self)
+                    base.storeBytes(of: v, toByteOffset: offset + 1, as: UInt8.self)
+                    base.storeBytes(of: v, toByteOffset: offset + 2, as: UInt8.self)
+                    base.storeBytes(of: UInt8(255), toByteOffset: offset + 3, as: UInt8.self)
+                }
+            }
+        }
+        return ScrollDeltaSurface(width: width, height: height, bytesPerRow: bytesPerRow, pixels: pixels)
+    }
+
+    // Current surface: inside the band the top dy rows are newly-revealed content
+    // (unshiftable) and the rest is previous shifted down by dy. With dy half the
+    // band height, the true offset explains ~0.6 of the changed pixels: below the
+    // strict 0.7 bar but above the relaxed 0.55 input-corroborated bar. Outside the
+    // band the content is unchanged.
+    private static func partialOverlapCurrent(width: Int, height: Int, band: PixelRect, dy: Int) -> ScrollDeltaSurface {
+        Self.surface2D(width: width, height: height) { x, y in
+            guard y >= band.y, y < band.maxY else { return Self.pixelPattern(x, y) }
+            let local = y - band.y
+            return local < dy ? Self.pixelPattern(x, y &+ 100_000) : Self.pixelPattern(x, y - dy)
+        }
+    }
+
+    @Test func acceptsPartialOverlapScrollWhenInputCorroborates() {
+        // A fast flick: only ~60% of the band is a clean shift, the rest is
+        // newly-revealed content, so the surface-best shift scores below the strict
+        // bar. Because the input hint's predicted offset corroborates the true
+        // offset, copyRect must still fire (the exposed remainder is tiled) instead
+        // of falling to HEVC, which froze when suppressed (R74).
+        let width = 640
+        let height = 480
+        let dy = 100
+        let band = PixelRect(x: 100, y: 100, width: 400, height: 200)
+        let previous = Self.surface2D(width: width, height: height, value: Self.pixelPattern)
+        let current = Self.partialOverlapCurrent(width: width, height: height, band: band, dy: dy)
+        let classifier = DamageScrollClassifier()
+
+        let result = classifier.classify(
+            damageRects: [band],
+            contentRect: PixelRect(x: 0, y: 0, width: width, height: height),
+            previous: previous,
+            current: current,
+            hint: Self.verticalHint(candidateOffsets: [92, 100, 108], sign: 1)
+        )
+
+        #expect(result == .scroll(region: band, dx: 0, dy: dy))
+    }
+
+    @Test func rejectsPartialOverlapScrollWhenInputDisagrees() {
+        // Same partial-overlap surface (the surface clearly shifted down by 24),
+        // but the input hint points the wrong way. The relaxed bar must require
+        // input corroboration: when the device's own scroll delta disagrees with
+        // the surface, the frame is not copyRect'd (it falls to the HEVC floor),
+        // so a contradictory hint can never force a torn copy.
+        let width = 640
+        let height = 480
+        let dy = 100
+        let band = PixelRect(x: 100, y: 100, width: 400, height: 200)
+        let previous = Self.surface2D(width: width, height: height, value: Self.pixelPattern)
+        let current = Self.partialOverlapCurrent(width: width, height: height, band: band, dy: dy)
+        let classifier = DamageScrollClassifier()
+
+        let result = classifier.classify(
+            damageRects: [band],
+            contentRect: PixelRect(x: 0, y: 0, width: width, height: height),
+            previous: previous,
+            current: current,
+            hint: Self.verticalHint(candidateOffsets: [-92, -100, -108], sign: -1)
+        )
+
+        if case .scroll = result {
+            Issue.record("must not accept a partial-overlap scroll the input contradicts")
+        }
+    }
+
     @Test func rejectsScrollWhenHintAxisContradictsContent() {
         let width = 640
         let height = 480
