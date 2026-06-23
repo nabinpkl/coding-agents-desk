@@ -20,12 +20,15 @@ client_sim_app := derived_data + "/Build/Products/Debug-iphonesimulator/AgentDes
 client_archive_path := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_PATH", justfile_directory() + "/.build/testflight/AgentDeskClient.xcarchive")
 client_export_path := env_var_or_default("AGENTDESK_CLIENT_EXPORT_PATH", justfile_directory() + "/.build/testflight/export")
 client_ipa_path := env_var_or_default("AGENTDESK_CLIENT_IPA_PATH", client_export_path + "/AgentDeskClient.ipa")
-# Bump this per shipped feature so each TestFlight build shows a distinct
-# version (1.1.0 = Mac-initiated tailnet pairing, ADR-0019). The numeric build
-# number is the git commit count (App Store requires a numeric CFBundleVersion),
+# Single source of truth for the marketing version (CFBundleShortVersionString),
+# shared by the client archive and the host build. Semantic versioning, bumped
+# PER RELEASE not per build: MAJOR = incompatible change, MINOR = new feature,
+# PATCH = bug fix. The build number is independent (the git commit count, since
+# App Store requires a numeric CFBundleVersion) and differentiates every upload,
 # and the short git sha is embedded and shown in-app, so a build reads as
-# "v1.1.0 (371) 89f40ba".
-client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.1.0")
+# "v1.2.0 (380) f0c24cf". History: 1.1.0 = Mac-initiated pairing (ADR-0019);
+# 1.2.0 = live tailnet device discovery (R55).
+client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.2.0")
 apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
 
 check:
@@ -89,7 +92,7 @@ iphone-log-collect:
 # AGENTDESK_GRAPHICS_PORT and AGENTDESK_HYBRID_* in .env.example; those
 # knobs become active when the graphics stream and cadence wiring land.
 host-run:
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{client_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
     sleep 1
     AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
