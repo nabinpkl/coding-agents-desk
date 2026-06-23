@@ -278,43 +278,44 @@ full-surface reset.
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
-### Task H5: Delete the HEVC encoder, datagram channel, admission and probe types
+### Task H5: Make the damage path unconditional, delete the probe subsystem, HEVC, datagram, and admission
+
+**Scope correction (option A).** The damage path was added (ADR-0021) as an opt-in alongside the live brute-force probe (`useDamageClassifier` defaults to false). H1-H4 made the damage path correct, but the probe path is still live as the non-damage branch, and ~20 scroll-quality tests drive it through the default `ScrollDeltaEngine()` constructor. The approved design deletes `ScrollDeltaProbe`/`ScrollViewportTracker` outright, so this task makes the damage path the ONLY path and removes the probe subsystem and its tests, then deletes HEVC/datagram/admission. This is a large task; multiple commits are acceptable as long as the host scheme is green at the end of each commit.
+
+**Keep (do NOT delete):** `ScrollActivityTracker` / `ScrollActivityHint` (the input-hint source the damage classifier consumes via `hint.candidateOffsets`), `DamageScrollClassifier`, the damage-path tests added in H1-H4 (`ScrollDeltaEngineDamageRoutingTests`, `TileGridEmissionTests`, `UnackedFrameCapTests`, `ResetPolicyTests`), `DamageScrollClassifierTests`, `GraphicsBackpressure`.
 
 **Files:**
-- Modify: `host/AgentDeskHost/OwnedMediaTransport.swift` (delete `VideoToolboxOwnedMediaEncoder` ~1813-2099; `startQuicDatagramListener` ~522-546 and its connection handlers; the HEVC fallback blocks left in the pump ~1273-1450; HEVC-only diagnostics)
-- Modify: `host/AgentDeskHost/SharedTypes.swift` (delete `HybridScrollHEVCAdmission`, `HybridHEVCFallbackPolicy`, `HybridGraphicsRecoveryHEVCGate`, `OwnedHybridHEVCFallbackReason`, the datagram media envelope types if host-only)
-- Delete: `host/AgentDeskHost/ScrollDeltaProbe.swift`, `host/AgentDeskHost/ScrollViewportTracker.swift`, `host/AgentDeskHost/ScrollCopyOwnership.swift` (confirm no surviving references first)
-- Modify: `host/AgentDeskHost/Config.swift` (remove now-dead HEVC/admission/viewport/floor/hysteresis constants and the `hybridDamageDrivenScroll` flag, now unconditionally on)
-- Modify: `host/AgentDeskHost/MediaStack.swift` (drop the datagram listener wiring and the HEVC encoder factory)
-- Test: existing `ScrollQualityTests.swift` (remove HEVC-floor tests), the suite must stay green.
+- Modify: `host/AgentDeskHost/ScrollDeltaEngine.swift` — make `evaluate` always route through `evaluateWithDamage`; remove the probe branch and its helpers (`bestScrollOffset`, `makeDiagnostics`, `makeProbeSampler`, `isWholeWindowCopyRect`), the `viewportTracker` member and `ScrollViewportConfig` usage, and the `useDamageClassifier` parameter (now unconditional).
+- Modify: `host/AgentDeskHost/OwnedMediaTransport.swift` — stop constructing `ScrollViewportConfig` and `ScrollCopyOwnership` and threading probe/viewport/region state through the pump; delete `VideoToolboxOwnedMediaEncoder`, `startQuicDatagramListener` and its connection handlers, and any leftover HEVC fallback blocks in the pump; remove the now-dead `graphicsAdmission` plumbing (`reset` calls and the type if unused).
+- Modify: `host/AgentDeskHost/SharedTypes.swift` — delete `HybridScrollHEVCAdmission`, `HybridHEVCFallbackPolicy`, `HybridGraphicsRecoveryHEVCGate`, `OwnedHybridHEVCFallbackReason`, the `OwnedGraphicsAdmission` type if now unused, and host-only datagram media envelope types.
+- Delete files (after confirming zero surviving references): `host/AgentDeskHost/ScrollDeltaProbe.swift`, `host/AgentDeskHost/ScrollViewportTracker.swift`, `host/AgentDeskHost/ScrollCopyOwnership.swift`, and `host/AgentDeskHost/ScrollRegionTracker.swift` if it becomes dead. Remove their `project.pbxproj` entries.
+- Modify: `host/AgentDeskHost/Config.swift` — remove the `hybridDamageDrivenScroll` flag and now-dead HEVC/admission/viewport/floor/hysteresis/reset-stripe-ack constants.
+- Modify: `host/AgentDeskHost/MediaStack.swift` — drop the datagram listener wiring and the HEVC encoder factory.
+- Test: `host/AgentDeskHostTests/ScrollQualityTests.swift` — delete the HEVC-admission tests AND the ~20 probe-based tests that drive the deleted probe path (every test that constructs the default `ScrollDeltaEngine()` to exercise probe/viewport behavior, e.g. the `Hint*`, `Probe*`, `Viewport*`, `Region*`, baseline-realign, and timeout tests the H5 blocker enumerated). Remove the file if nothing meaningful remains; keep any test that exercises the surviving damage path.
 
 **Interfaces:**
 - Consumes: nothing new.
-- Produces: a host target that compiles with only the reliable graphics path. `tools/media-architecture-guard.sh` (run by `just check`) must still pass; update it if it asserts on now-deleted symbols.
+- Produces: a host target with exactly one media path (reliable damage-driven graphics). `tools/media-architecture-guard.sh` is a forbidden-pattern grep and does not assert on HEVC/datagram symbols, so deletion will not break it; adding a single-channel invariant assertion there is optional.
 
-- [ ] **Step 1: Remove references, then delete files** — comment-compile loop: delete `VideoToolboxOwnedMediaEncoder` and the datagram listener, fix every resulting compile error by removing the calling code (the pump's HEVC blocks), then delete the three scroll files, then delete the dead `SharedTypes` types, then prune `Config` constants. Work until the host scheme compiles.
+- [ ] **Step 1: Make the damage path unconditional** — in `ScrollDeltaEngine`, force `evaluate` through `evaluateWithDamage` and delete the probe branch + helpers + viewport member + `useDamageClassifier` param. Fix `OwnedMediaTransport` callers (drop the `useDamageClassifier:` argument and the `ScrollViewportConfig`/`ScrollCopyOwnership` construction). Compile the host scheme. Commit "refactor(host): make damage path the only scroll path".
 
-- [ ] **Step 2: Update tests** — delete `hybridScrollFloorHevcFillsGapsButYieldsToCopyRect` and any other HEVC-admission tests in `ScrollQualityTests.swift`. Keep the scroll-quality copyRect tests.
+- [ ] **Step 2: Delete the probe-based tests** — remove from `ScrollQualityTests.swift` every test that drove the now-deleted probe/viewport path (the enumerated ~20). Keep damage-path coverage. Run the host scheme `build test` green. Commit "test(host): drop probe-path scroll-quality tests".
 
-- [ ] **Step 3: Run the full host suite**
+- [ ] **Step 3: Delete the probe files** — delete `ScrollDeltaProbe.swift`, `ScrollViewportTracker.swift`, `ScrollCopyOwnership.swift` (and `ScrollRegionTracker.swift` if dead), remove `project.pbxproj` entries. Compile. Commit "refactor(host): delete dead probe/viewport files".
 
-Run: `xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -derivedDataPath build/dd build test`
-Expected: PASS, no warnings about unused HEVC symbols.
+- [ ] **Step 4: Delete HEVC, datagram, admission** — delete `VideoToolboxOwnedMediaEncoder`, the datagram listener + handlers, leftover pump HEVC blocks, the `SharedTypes` admission/fallback types, the `MediaStack` datagram/encoder wiring, and prune dead `Config` constants and the `hybridDamageDrivenScroll` flag. Comment-compile loop until the host scheme builds.
 
-- [ ] **Step 4: Run the architecture guard**
+- [ ] **Step 5: Run the full host suite + guard, commit**
 
-Run: `sh tools/media-architecture-guard.sh`
-Expected: PASS (update the guard if it referenced datagram/HEVC as required).
-
-- [ ] **Step 5: Commit**
+Run: `xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -derivedDataPath build/dd build test` then `sh tools/media-architecture-guard.sh`. Expected: both PASS.
 
 ```bash
-git add -A host/ tools/media-architecture-guard.sh
-git commit -m "refactor(host): delete HEVC encoder, datagram channel, admission and probe
+git add host/AgentDeskHost host/AgentDeskHostTests host/AgentDeskHost.xcodeproj/project.pbxproj
+git commit -m "refactor(host): delete HEVC encoder, datagram channel, and admission
 
 Single reliable graphics path only. Removes VideoToolboxOwnedMediaEncoder,
-the datagram media listener, HybridScrollHEVCAdmission/FallbackPolicy/
-RecoveryGate, ScrollDeltaProbe, ScrollViewportTracker, ScrollCopyOwnership.
+the datagram media listener, and HybridScrollHEVCAdmission/FallbackPolicy/
+RecoveryGate, completing the collapse to the damage-driven graphics path.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
