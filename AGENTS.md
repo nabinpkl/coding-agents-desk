@@ -86,6 +86,13 @@ The two iOS/macOS version fields are independent by design; do not conflate them
 - For physical-device media regressions, preserve host logs and attached client logs in the same run. Host-only logs are not enough to judge motion behavior.
 - When collecting host unified logs from an agent shell, invoke `/usr/bin/log` explicitly. Do not run bare `log`, because zsh can resolve that as the shell builtin and fail with `too many arguments`.
 
+## Simulator automation (Maestro)
+
+- An end-to-end simulator path validates the owned-media graphics pipeline without a physical phone: bring up the Mac host, install and pair the iPhone simulator client, then drive it with Maestro. Recipes: `just fresh-sim-consoled-run` (host + sim client + attached console; blocks; tees client owned-media traces to `/tmp/agentdesk-sim-console.log`) or `just pair-sim` (non-blocking paired launch) plus `just ui-flow <flow>` to run a Maestro YAML from `client/maestro/`. Screenshots land in `client/maestro/screenshots/`. A non-blocking launch plus a flow that does not `launchApp` lets you screenshot and drive gestures while the app stays paired.
+- `client/maestro/scroll-strip-test.yaml` positively exercises the copyRect scroll path. It moves the Mac cursor over a maximized scrollable window, then drives the client right-edge scroll strip. Two preconditions are load-bearing: the scroll must be client-originated (the host scroll hint is fed only by client input, `scrollActivityHints.record(input)`), and the Mac screen must be otherwise calm so the scrolled window is an isolatable damage band. Scrolling the Mac directly does not trigger copyRect, and a busy multi-region screen collapses to full-frame tiles.
+- Reading the host log (subsystem `com.example.agentdesk.AgentDeskHost`, category `owned-media`): `acceptedBy=damage` with `commands=2` and a small payload is a copyRect scroll frame (copyRect plus exposed strip); `acceptedBy=damage-tiles` is a small non-scroll change; `acceptedBy=damage-fullframe-tiles` is a whole-surface resend (multi-MB) and is the bandwidth signal to watch.
+- Policy: run the simulator drive and the physical-device run ONLY when the user explicitly asks. Do not fire a manual simulator drive or a physical launch for every small change. Default to `just check` for correctness. Reach for the simulator or physical feel runs only on explicit request, or for a media, scroll, decode, or gesture regression that unit tests cannot judge.
+
 ## ADRs
 
 - Filename: `NNNN-kebab-case-title.md`. Numbers never reuse.

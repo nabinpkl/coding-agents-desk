@@ -1,0 +1,23 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- extendedWaitUntil:
+    visible: "Trackpad"
+    timeout: 20000
+# Move the Mac cursor into the center of the screen (over TextEdit) via the main trackpad area.
+- swipe:
+    start: 50%, 80%
+    end: 50%, 72%
+    duration: 300
+- swipe:
+    start: 45%, 78%
+    end: 55%, 74%
+    duration: 300
+# Now drive the right-edge scroll strip (vertical) several times to emit .scroll input.
+- repeat:
+    times: 6
+    commands:
+      - swipe:
+          start: 92%, 82%
+          end: 92%, 66%
+          duration: 350
+- takeScreenshot: after-scroll-strip
