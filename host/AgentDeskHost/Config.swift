@@ -305,15 +305,6 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_IDLE_REFRESH_MS",
         defaultValue: 250
     )
-    // ADR-0021: drive scroll detection from the OS damage region (dirtyRects)
-    // and the damage classifier instead of the brute-force pixel-diff probe.
-    // The damage path is now the only path. This flag stays as a kill-switch
-    // for one more cycle, then is removed in H5.
-    static let hybridDamageDrivenScroll = enabledFlag(
-        environmentKey: "AGENTDESK_HYBRID_DAMAGE_DRIVEN_SCROLL",
-        defaultValue: true,
-        environment: ProcessInfo.processInfo.environment
-    )
     // ADR-0021: damage is emitted as tiles snapped to a fixed grid in surface
     // pixel space. A fixed cell size bounds per-tile bytes and gives each tile a
     // stable identity for a future content-hash cache, instead of one

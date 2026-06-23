@@ -8,7 +8,7 @@ import Testing
 // result with no envelope and no fallback flag.
 struct ScrollDeltaEngineDamageRoutingTests {
     @Test func fullFrameOutcomeProducesTileEnvelopeNotRejection() throws {
-        var engine = ScrollDeltaEngine(useDamageClassifier: true)
+        var engine = ScrollDeltaEngine()
         let width = 256
         let height = 256
 

@@ -49,6 +49,21 @@ enum TileGrid {
     }
 }
 
+// Retained surface snapshot and scroll offset. These were defined alongside the
+// deleted brute-force probe; the damage path and DamageScrollClassifier still
+// use them, so they live here now.
+struct ScrollDeltaSurface {
+    let width: Int
+    let height: Int
+    let bytesPerRow: Int
+    let pixels: Data
+}
+
+struct ScrollDeltaOffset {
+    let dx: Int
+    let dy: Int
+}
+
 enum ScrollDeltaKind: Equatable {
     case reset
     case accepted
@@ -213,48 +228,34 @@ struct ScrollDeltaDiagnostics: Equatable {
 }
 
 struct ScrollDeltaEngine {
-    private static let maxScrollOffset = 240
-    private static let confidenceThreshold = 0.88
-    private static let confidenceMargin = 0.06
     static let defaultMaxDecodedResetStripePayloadBytes = 2 * 1024 * 1024
     static let defaultMaxWireResetStripeBytes = 196_608
 
     private typealias Surface = ScrollDeltaSurface
     private typealias ScrollOffset = ScrollDeltaOffset
-    private typealias ProbeOutcome = ScrollDeltaProbeOutcome
 
     private var previous: Surface?
     private var pendingSurface: Surface?
     private var surfaceGeneration: UInt32 = 0
     private var graphicsFrameId: UInt64 = 0
-    private var viewportTracker: ScrollViewportTracker
     private let ciContext = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any])
-    private let detectionBudgetMs: Double
     private let maxDecodedResetStripePayloadBytes: Int
     private let maxWireResetStripeBytes: Int
-    // ADR-0021 damage-driven detection. When enabled, evaluate() classifies the
-    // OS damage region instead of running the brute-force pixel-diff probe and
-    // the 2-frame viewport streak. Off by default so the proven probe path stays
-    // live until a device run validates this one.
-    private let useDamageClassifier: Bool
+    // ADR-0021 damage-driven detection is now the only path. evaluate()
+    // classifies the OS damage region; there is no brute-force pixel-diff probe
+    // and no viewport streak.
     private let damageClassifier: DamageScrollClassifier
     // Fixed grid cell size in surface pixels for damage tile emission (H2).
     private let tileGridPx: Int
 
     init(
-        detectionBudgetMs: Double = 4.0,
         maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes,
         maxWireResetStripeBytes: Int = Self.defaultMaxWireResetStripeBytes,
-        viewportConfig: ScrollViewportConfig = .default,
-        useDamageClassifier: Bool = false,
         damageClassifier: DamageScrollClassifier = DamageScrollClassifier(),
         tileGridPx: Int = Config.hybridTileGridPx
     ) {
-        self.detectionBudgetMs = detectionBudgetMs
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
-        self.viewportTracker = ScrollViewportTracker(config: viewportConfig)
-        self.useDamageClassifier = useDamageClassifier
         self.damageClassifier = damageClassifier
         self.tileGridPx = max(1, tileGridPx)
     }
@@ -273,32 +274,15 @@ struct ScrollDeltaEngine {
         self.pendingSurface = nil
     }
 
-    mutating func observeFallbackFrame(_ frame: CapturedVideoFrame) {
-        previous = makeSurface(frame.pixelBuffer)
-        pendingSurface = nil
-        viewportTracker.release()
-    }
-
     mutating func invalidateRetainedSurface() {
         previous = nil
         pendingSurface = nil
-        viewportTracker.release()
-    }
-
-    var hasStableViewport: Bool {
-        viewportTracker.stableViewport != nil
     }
 
     mutating func evaluate(
         _ frame: CapturedVideoFrame,
-        scrollHint: ScrollActivityHint? = nil,
-        scrollRegion: ScrollRegion? = nil,
-        scrollRegionIsStable: Bool = true,
-        emitGraphicsBeforeRegionLock: Bool = true,
-        detectionBudgetMs overrideDetectionBudgetMs: Double? = nil,
-        allowBlindScan: Bool = true
+        scrollHint: ScrollActivityHint? = nil
     ) -> ScrollDeltaResult {
-        let detectionBudgetMs = overrideDetectionBudgetMs ?? self.detectionBudgetMs
         let startedAt = DispatchTime.now().uptimeNanoseconds
         let activeHint = scrollHint?.isActive(nowUptimeNs: startedAt) == true ? scrollHint : nil
         guard let previous else {
@@ -375,152 +359,13 @@ struct ScrollDeltaEngine {
                 envelopes: stripedEnvelopes
             )
         }
-        if useDamageClassifier {
-            return evaluateWithDamage(
-                frame,
-                previous: previous,
-                scrollHint: activeHint,
-                startedAt: startedAt,
-                surfaceWidth: currentWidth,
-                surfaceHeight: currentHeight
-            )
-        }
-        let probe: ProbeOutcome
-        if activeHint == nil && !allowBlindScan {
-            probe = ProbeOutcome(
-                offset: nil,
-                bestDx: nil,
-                bestDy: nil,
-                confidence: 0,
-                secondBestConfidence: 0,
-                sampledPixelCount: 0,
-                candidateCount: 0,
-                timedOut: true,
-                timeoutReason: "owned-scroll-miss",
-                timeoutPhase: "blind-scan-suppressed",
-                probeScale: 1,
-                hintCandidates: [],
-                tieBreak: nil
-            )
-        } else {
-            probe = bestScrollOffset(
-                previous: previous,
-                currentPixelBuffer: frame.pixelBuffer,
-                startedAt: startedAt,
-                detectionBudgetMs: detectionBudgetMs,
-                scrollHint: activeHint,
-                scrollRegion: scrollRegion
-            )
-        }
-        let probeMs = elapsedMs(since: startedAt)
-        let acceptedOffset = probe.offset
-        guard let offset = acceptedOffset else {
-            let ownedHintMiss = activeHint != nil && !allowBlindScan
-            let usedBlindScan = activeHint == nil && allowBlindScan
-            return ScrollDeltaResult(
-                kind: probe.timedOut || ownedHintMiss ? .timeout : .rejected("no-scroll-match"),
-                envelope: nil,
-                diagnostics: makeDiagnostics(
-                    probeMs: probeMs,
-                    payloadBuildMs: nil,
-                    acceptedOffset: nil,
-                    probe: probe,
-                    scrollHint: activeHint,
-                    acceptedBy: nil,
-                    usedBlindScan: usedBlindScan,
-                    timeoutReasonOverride: ownedHintMiss ? "owned-scroll-miss" : nil,
-                    scrollRegion: scrollRegion,
-                    regionStable: scrollRegionIsStable && scrollRegion != nil,
-                    surfaceWidth: currentWidth,
-                    surfaceHeight: currentHeight
-                )
-            )
-        }
-        let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
-        guard let current = makeSurface(frame.pixelBuffer) else {
-            pendingSurface = nil
-            return ScrollDeltaResult(kind: .rejected("no-bgra-surface"), envelope: nil)
-        }
-        pendingSurface = current
-        graphicsFrameId &+= 1
-        let viewportCandidate = scrollRegion.flatMap {
-            viewportTracker.candidate(
-                previous: previous,
-                current: current,
-                outerRegion: $0,
-                offset: offset
-            )
-        }
-        let stableViewport = emitGraphicsBeforeRegionLock && scrollRegionIsStable
-            ? viewportTracker.observeValidation(candidate: viewportCandidate, accepted: viewportCandidate != nil)
-            : nil
-        let shouldEmitGraphics = stableViewport != nil
-        if !shouldEmitGraphics {
-            return ScrollDeltaResult(
-                kind: .accepted,
-                envelope: nil,
-                diagnostics: makeDiagnostics(
-                    probeMs: probeMs,
-                    payloadBuildMs: elapsedMs(since: payloadStartedAt),
-                    acceptedOffset: offset,
-                    probe: probe,
-                    scrollHint: activeHint,
-                    acceptedBy: activeHint == nil ? "blind" : "hint",
-                    usedBlindScan: activeHint == nil && allowBlindScan,
-                    scrollRegion: scrollRegion,
-                    regionStable: scrollRegionIsStable && scrollRegion != nil,
-                    scrollViewport: viewportCandidate?.viewport,
-                    viewportStable: false,
-                    surfaceWidth: currentWidth,
-                    surfaceHeight: currentHeight
-                )
-            )
-        }
-        guard let viewport = stableViewport,
-              let envelope = makeScrollEnvelope(
-                current: current,
-                offset: offset,
-                region: PixelRect(x: viewport.x, y: viewport.y, width: viewport.width, height: viewport.height),
-                capturedAtUptimeNs: frame.capturedAtUptimeNs
-              ) else {
-            return ScrollDeltaResult(
-                kind: .rejected("scroll-envelope-build-failed"),
-                envelope: nil,
-                diagnostics: makeDiagnostics(
-                    probeMs: probeMs,
-                    payloadBuildMs: elapsedMs(since: payloadStartedAt),
-                    acceptedOffset: offset,
-                    probe: probe,
-                    scrollHint: activeHint,
-                    acceptedBy: activeHint == nil ? "blind" : "hint",
-                    usedBlindScan: activeHint == nil && allowBlindScan,
-                    scrollRegion: scrollRegion,
-                    regionStable: true,
-                    scrollViewport: stableViewport,
-                    viewportStable: true,
-                    surfaceWidth: currentWidth,
-                    surfaceHeight: currentHeight
-                )
-            )
-        }
-        return ScrollDeltaResult(
-            kind: .accepted,
-            envelope: envelope,
-            diagnostics: makeDiagnostics(
-                probeMs: probeMs,
-                payloadBuildMs: elapsedMs(since: payloadStartedAt),
-                acceptedOffset: offset,
-                probe: probe,
-                scrollHint: activeHint,
-                acceptedBy: activeHint == nil ? "blind" : "hint",
-                usedBlindScan: activeHint == nil && allowBlindScan,
-                scrollRegion: scrollRegion,
-                regionStable: true,
-                scrollViewport: stableViewport,
-                viewportStable: stableViewport != nil,
-                surfaceWidth: currentWidth,
-                surfaceHeight: currentHeight
-            )
+        return evaluateWithDamage(
+            frame,
+            previous: previous,
+            scrollHint: activeHint,
+            startedAt: startedAt,
+            surfaceWidth: currentWidth,
+            surfaceHeight: currentHeight
         )
     }
 
@@ -564,140 +409,6 @@ struct ScrollDeltaEngine {
             )
         }
         return Surface(width: width, height: height, bytesPerRow: bytesPerRow, pixels: pixels)
-    }
-
-    private func bestScrollOffset(
-        previous: Surface,
-        currentPixelBuffer: CVPixelBuffer,
-        startedAt: UInt64,
-        detectionBudgetMs: Double,
-        scrollHint: ScrollActivityHint?,
-        scrollRegion: ScrollRegion?
-    ) -> ProbeOutcome {
-        CVPixelBufferLockBaseAddress(currentPixelBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(currentPixelBuffer, .readOnly) }
-        guard let sampler = makeProbeSampler(for: currentPixelBuffer) else {
-            return ProbeOutcome(
-                offset: nil,
-                bestDx: nil,
-                bestDy: nil,
-                confidence: 0,
-                secondBestConfidence: 0,
-                sampledPixelCount: 0,
-                candidateCount: 0,
-                timedOut: false,
-                timeoutReason: "no-probe-sampler",
-                timeoutPhase: nil,
-                probeScale: 1,
-                hintCandidates: [],
-                tieBreak: nil
-            )
-        }
-        return ScrollDeltaProbe(
-            previous: previous,
-            sampler: sampler,
-            maxScrollOffset: Self.maxScrollOffset,
-            confidenceThreshold: Self.confidenceThreshold,
-            confidenceMargin: Self.confidenceMargin,
-            startedAt: startedAt,
-            detectionBudgetMs: detectionBudgetMs,
-            elapsedMs: elapsedMs(since:),
-            region: scrollRegion
-        ).bestOffset(scrollHint: scrollHint)
-    }
-
-    private func makeDiagnostics(
-        probeMs: Double,
-        payloadBuildMs: Double?,
-        acceptedOffset: ScrollOffset?,
-        probe: ProbeOutcome,
-        scrollHint: ScrollActivityHint?,
-        acceptedBy: String?,
-        usedBlindScan: Bool = false,
-        timeoutReasonOverride: String? = nil,
-        scrollRegion: ScrollRegion? = nil,
-        regionStable: Bool = false,
-        scrollViewport: ScrollViewport? = nil,
-        viewportStable: Bool = false,
-        surfaceWidth: Int,
-        surfaceHeight: Int
-    ) -> ScrollDeltaDiagnostics {
-        ScrollDeltaDiagnostics(
-            probeMs: probeMs,
-            payloadBuildMs: payloadBuildMs,
-            acceptedDx: acceptedOffset?.dx,
-            acceptedDy: acceptedOffset?.dy,
-            confidence: probe.confidence,
-            timeoutReason: timeoutReasonOverride ?? probe.timeoutReason,
-            sampledPixelCount: probe.sampledPixelCount,
-            bestDx: probe.bestDx,
-            bestDy: probe.bestDy,
-            secondBestConfidence: probe.secondBestConfidence,
-            candidateCount: probe.candidateCount,
-            timeoutPhase: probe.timeoutPhase,
-            probeScale: probe.probeScale,
-            hintActive: scrollHint != nil,
-            hintAxis: scrollHint?.axis.rawValue,
-            hintPredictedOffset: scrollHint?.predictedOffsetPx,
-            hintCandidates: probe.hintCandidates,
-            hintSource: scrollHint?.source.rawValue ?? (usedBlindScan ? "blind" : nil),
-            acceptedBy: acceptedBy,
-            tieBreak: probe.tieBreak,
-            regionStable: regionStable,
-            regionSource: scrollRegion?.source.diagnosticName,
-            regionX: scrollRegion?.x,
-            regionY: scrollRegion?.y,
-            regionWidth: scrollRegion?.width,
-            regionHeight: scrollRegion?.height,
-            fullSurfaceCopyRect: false,
-            viewportStable: viewportStable,
-            viewportSource: scrollViewport?.source,
-            viewportX: scrollViewport?.x,
-            viewportY: scrollViewport?.y,
-            viewportWidth: scrollViewport?.width,
-            viewportHeight: scrollViewport?.height,
-            outerRegionX: scrollRegion?.x,
-            outerRegionY: scrollRegion?.y,
-            outerRegionWidth: scrollRegion?.width,
-            outerRegionHeight: scrollRegion?.height,
-            wholeWindowCopyRect: viewportStable && isWholeWindowCopyRect(viewport: scrollViewport, outerRegion: scrollRegion)
-        )
-    }
-
-    private func isWholeWindowCopyRect(viewport: ScrollViewport?, outerRegion: ScrollRegion?) -> Bool {
-        guard let viewport, let outerRegion else { return false }
-        return viewport.x == outerRegion.x &&
-            viewport.y == outerRegion.y &&
-            viewport.width == outerRegion.width &&
-            viewport.height == outerRegion.height
-    }
-
-    private func makeProbeSampler(for pixelBuffer: CVPixelBuffer) -> ScrollDeltaProbeSampler? {
-        let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
-        if pixelFormat == kCVPixelFormatType_32BGRA {
-            guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
-            return .bgra(ScrollDeltaDirectBGRASampler(
-                width: CVPixelBufferGetWidth(pixelBuffer),
-                height: CVPixelBufferGetHeight(pixelBuffer),
-                bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
-                baseAddress: baseAddress
-            ))
-        }
-        if pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ||
-            pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange {
-            guard CVPixelBufferGetPlaneCount(pixelBuffer) > 0,
-                  let baseAddress = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0) else {
-                return nil
-            }
-            return .luma(ScrollDeltaDirectLumaSampler(
-                width: CVPixelBufferGetWidthOfPlane(pixelBuffer, 0),
-                height: CVPixelBufferGetHeightOfPlane(pixelBuffer, 0),
-                bytesPerRow: CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0),
-                baseAddress: baseAddress
-            ))
-        }
-        guard let surface = makeSurface(pixelBuffer) else { return nil }
-        return .surface(ScrollDeltaSurfaceSampler(surface: surface))
     }
 
     private func makeStripedResetEnvelopes(

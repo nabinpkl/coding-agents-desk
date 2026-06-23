@@ -9,7 +9,7 @@ import Testing
 // surface on every churned frame.
 struct ResetPolicyTests {
     @Test func resetFiresOnlyOnFirstFrameAndResize() throws {
-        var engine = ScrollDeltaEngine(useDamageClassifier: true)
+        var engine = ScrollDeltaEngine()
         let width = 256
         let height = 256
         let fullSquare = PixelRect(x: 0, y: 0, width: width, height: height)
