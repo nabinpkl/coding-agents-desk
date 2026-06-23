@@ -3,6 +3,7 @@ import Foundation
 
 enum HostPairingViewState {
     case idle
+    case scanning
     case devicePicker([TailnetDeviceOption])
     case pairingOffered(String)
     case pairing(URL, NSImage?)
@@ -54,6 +55,15 @@ final class PopoverViewController: NSViewController {
             label("AgentDesk Host", font: .boldSystemFont(ofSize: 16))
             label("No paired device", font: .systemFont(ofSize: 13))
             button(title: "Pair iPhone", action: #selector(startPairing))
+        case .scanning:
+            label("Scanning for devices", font: .boldSystemFont(ofSize: 16))
+            let spinner = NSProgressIndicator()
+            spinner.style = .spinning
+            spinner.controlSize = .small
+            spinner.startAnimation(nil)
+            spinner.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(spinner)
+            label("Looking for iPhones running AgentDesk on your tailnet. Open AgentDesk on the iPhone if it is not already.", font: .systemFont(ofSize: 12))
         case .devicePicker(let devices):
             label("Pair a device", font: .boldSystemFont(ofSize: 16))
             if devices.isEmpty {

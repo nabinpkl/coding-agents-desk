@@ -689,18 +689,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // shows the device picker. Picking a device is the host-side authorization.
     // QR pairing stays reachable via SIGUSR1 -> startPairing.
     private func showDevicePicker() {
+        let candidates: [TailnetDeviceOption]
         do {
-            let devices = try tailnetDiscovery.peerDevices()
-            applyIcon(.pairing)
-            popoverController.render(.devicePicker(devices))
+            // ADR-0019: probe online iOS peers and list only those that identify
+            // themselves, so the picker shows real AgentDesk clients by name
+            // (no storage, no tailnet "localhost").
+            candidates = try tailnetDiscovery.peerDevices().filter { $0.isIOS && $0.online }
         } catch is TailscaleRequiredError {
             signalingLogger.error("device picker failed: tailscale required")
             applyIcon(.tailscaleRequired)
             popoverController.render(.tailscaleRequired)
+            return
         } catch {
             signalingLogger.error("device picker failed: \(String(describing: error), privacy: .public)")
             applyIcon(.pairingFailed)
             popoverController.render(.idle)
+            return
+        }
+
+        applyIcon(.pairing)
+        popoverController.render(.scanning)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let prober = TailnetIdentityProber()
+            let responders = await withTaskGroup(of: TailnetDeviceOption?.self) { group in
+                for peer in candidates {
+                    group.addTask {
+                        guard let identity = await prober.identify(ipv4: peer.ipv4) else {
+                            return nil
+                        }
+                        return TailnetDeviceOption(
+                            hostname: identity.displayName,
+                            os: peer.os,
+                            ipv4: peer.ipv4,
+                            online: true
+                        )
+                    }
+                }
+                var found: [TailnetDeviceOption] = []
+                for await result in group where result != nil {
+                    found.append(result!)
+                }
+                return found
+            }
+            let sorted = responders.sorted {
+                $0.hostname.localizedCaseInsensitiveCompare($1.hostname) == .orderedAscending
+            }
+            self.popoverController.render(.devicePicker(sorted))
         }
     }
 
