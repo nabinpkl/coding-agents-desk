@@ -489,6 +489,29 @@ struct InputChannelTests {
         #expect(ack.staleDiscardCount == 0)
     }
 
+    @MainActor
+    @Test func graphicsOnlyClientRendersResetAndTile() throws {
+        // With the HEVC decode path and datagram channel deleted, a graphics
+        // envelope (reset + one bitmap tile) is the only thing that paints the
+        // surface. It must ack the frame and produce a non-nil composited image.
+        let sink = OwnedMediaVideoSink()
+        let pixels = Data(repeating: 0x7F, count: 64 * 64 * 4)
+        let envelope = try Self.makeSeedSurfaceEnvelope(
+            surfaceGeneration: 1,
+            frameId: 7,
+            width: 64,
+            height: 64,
+            pixels: pixels
+        )
+
+        let ack = sink.renderOwnedGraphicsFrame(envelope)
+
+        #expect(ack.frameId == 7)
+        #expect(ack.surfaceGeneration == 1)
+        #expect(ack.totalGraphicsFramesApplied == 1)
+        #expect(sink.debugCurrentImage() != nil)
+    }
+
     @Test func ownedMediaUpdateOrderingIgnoresCaptureTimestampDiagnostics() {
         let committed = OwnedSurfaceUpdateId(surfaceGeneration: 5, frameId: 10)
         let staleCaptureNewerFrame = OwnedMediaFrameHeader(

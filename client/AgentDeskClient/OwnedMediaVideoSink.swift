@@ -1,12 +1,8 @@
-import AVFoundation
 import Compression
-import CoreMedia
 import UIKit
-import VideoToolbox
 import os
 
 protocol OwnedMediaFrameSink: VideoFrameSink {
-    @MainActor func renderOwnedMediaFrame(_ envelope: OwnedMediaFrameEnvelope) -> OwnedMediaRenderStats?
     @MainActor func renderOwnedGraphicsFrame(
         _ envelope: OwnedGraphicsFrameEnvelope,
         queueDepth: OwnedGraphicsQueueDepth
@@ -19,16 +15,10 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
 @MainActor
 final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     let view: UIView
-    private let displayLayer = AVSampleBufferDisplayLayer()
     private let surfaceLayer = CALayer()
     private let debugLabel = UILabel()
     private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "owned-media")
-    private var formatDescription: CMVideoFormatDescription?
-    private var hevcDecoder: OwnedHEVCFrameDecoder?
     private var compositor = OwnedSurfaceCompositor()
-    private var loggedFirstRenderedFrame = false
-    private var renderCount = 0
-    private var flushCount = 0
     private var lastRenderUptimeNs: UInt64?
     private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?
 
@@ -36,9 +26,6 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         let container = LayerBackedVideoContainerView()
         container.backgroundColor = .black
         view = container
-        displayLayer.videoGravity = .resizeAspect
-        displayLayer.backgroundColor = UIColor.black.cgColor
-        container.layer.addSublayer(displayLayer)
         surfaceLayer.contentsGravity = .resizeAspect
         surfaceLayer.backgroundColor = UIColor.black.cgColor
         surfaceLayer.isHidden = true
@@ -59,141 +46,14 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         ])
         container.layoutHandler = { [weak self, weak container] in
             guard let self, let bounds = container?.bounds else { return }
-            self.displayLayer.frame = bounds
             self.surfaceLayer.frame = bounds
         }
     }
 
-    func renderOwnedMediaFrame(_ envelope: OwnedMediaFrameEnvelope) -> OwnedMediaRenderStats? {
-        let renderStartNs = DispatchTime.now().uptimeNanoseconds
-        let renderGapNs = lastRenderUptimeNs.map { renderStartNs &- $0 }
-        let renderGapMs = renderGapNs.map { Double($0) / 1_000_000.0 }
-        do {
-            if let parameterSets = envelope.header.parameterSets {
-                formatDescription = try Self.makeFormatDescription(
-                    codec: envelope.header.codec,
-                    parameterSets: parameterSets
-                )
-                hevcDecoder = nil
-            }
-            guard let formatDescription else {
-                logger.error("owned media frame dropped without format description")
-                ownedMediaStderrTrace("render-drop-no-format frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) codec=\(envelope.header.codec.rawValue) bytes=\(envelope.payload.count)")
-                return nil
-            }
-            let preEnqueueStatus = Self.displayStatusCode(displayLayer)
-            let readyBeforeEnqueue = displayLayer.isReadyForMoreMediaData
-            let requiresFlushToResumeDecoding = displayLayer.requiresFlushToResumeDecoding
-            let displayQueueAction = OwnedMediaDisplayQueuePolicy.action(
-                displayStatus: preEnqueueStatus,
-                requiresFlushToResumeDecoding: requiresFlushToResumeDecoding,
-                isKeyframe: envelope.header.isKeyframe,
-                renderGapMs: renderGapMs
-            )
-            if displayQueueAction == .flushAndRemoveImage {
-                displayLayer.flushAndRemoveImage()
-                flushCount += 1
-            }
-            let sampleBuildStartNs = DispatchTime.now().uptimeNanoseconds
-            let sampleBuffer = try Self.makeSampleBuffer(
-                envelope: envelope,
-                formatDescription: formatDescription
-            )
-            let sampleBuildEndNs = DispatchTime.now().uptimeNanoseconds
-            let enqueueStartNs = DispatchTime.now().uptimeNanoseconds
-            displayLayer.enqueue(sampleBuffer)
-            do {
-                if hevcDecoder == nil {
-                    hevcDecoder = try OwnedHEVCFrameDecoder(formatDescription: formatDescription)
-                }
-                if let pixelBuffer = try hevcDecoder?.decode(sampleBuffer) {
-                    _ = try compositor.applyFullRefresh(
-                        pixelBuffer: pixelBuffer,
-                        updateId: envelope.header.updateId
-                    )
-                    surfaceLayer.contents = compositor.makeImage()
-                    surfaceLayer.isHidden = false
-                }
-            } catch {
-                hevcDecoder = nil
-                surfaceLayer.isHidden = true
-                pendingGraphicsResetRequest = currentGraphicsResetRequest(reason: "retained-hevc-\(String(describing: error))")
-                ownedMediaStderrTrace("retained-hevc-failed frame=\(envelope.header.frameId) generation=\(envelope.header.surfaceGeneration) error=\(String(describing: error)) fallback=display-layer reset=queued")
-            }
-            let enqueueEndNs = DispatchTime.now().uptimeNanoseconds
-            let postEnqueueStatus = Self.displayStatus(displayLayer)
-            let readyAfterEnqueue = displayLayer.isReadyForMoreMediaData
-            let requiresFlushAfterEnqueue = displayLayer.requiresFlushToResumeDecoding
-            renderCount += 1
-            let renderEndNs = DispatchTime.now().uptimeNanoseconds
-            lastRenderUptimeNs = renderEndNs
-            let sampleBuildMs = OwnedMediaRenderTiming.elapsedMs(
-                from: sampleBuildStartNs,
-                to: sampleBuildEndNs
-            )
-            let enqueueMs = OwnedMediaRenderTiming.elapsedMs(
-                from: enqueueStartNs,
-                to: enqueueEndNs
-            )
-            let renderWorkMs = OwnedMediaRenderTiming.elapsedMs(
-                from: renderStartNs,
-                to: renderEndNs
-            )
-            let status = preEnqueueStatus
-            let backlog = OwnedMediaRenderBacklog.estimate(
-                renderGapMs: renderGapMs,
-                payloadBytes: envelope.payload.count
-            )
-            if renderCount == 1 ||
-                renderCount.isMultiple(of: 30) ||
-                envelope.header.isKeyframe ||
-                displayQueueAction == .flushAndRemoveImage ||
-                renderWorkMs > 8 {
-                ownedMediaStderrTrace("render count=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) renderGapMs=\(Self.formatOptionalMilliseconds(renderGapNs)) sampleMs=\(Self.formatDouble(sampleBuildMs)) enqueueMs=\(Self.formatDouble(enqueueMs)) workMs=\(Self.formatDouble(renderWorkMs)) ready=\(readyBeforeEnqueue) requiresFlush=\(requiresFlushToResumeDecoding) postReady=\(readyAfterEnqueue) postRequiresFlush=\(requiresFlushAfterEnqueue) action=\(displayQueueAction.rawValue) backlogFrames=\(backlog.frames) backlogBytes=\(backlog.bytes) bytes=\(envelope.payload.count) display=\(status) postDisplay=\(postEnqueueStatus) displayPresentation=estimated")
-            }
-            setOwnedMediaDebugStatus(
-                "rendered=\(renderCount) flushed=\(flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(postEnqueueStatus) action=\(displayQueueAction.rawValue)"
-            )
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 150_000_000)
-                guard let self else { return }
-                self.setOwnedMediaDebugStatus(
-                    "rendered=\(self.renderCount) flushed=\(self.flushCount) frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) bytes=\(envelope.payload.count)\ncodec=\(envelope.header.codec.rawValue) \(envelope.header.width)x\(envelope.header.height) display=\(Self.displayStatus(self.displayLayer))"
-                )
-            }
-            if !loggedFirstRenderedFrame {
-                loggedFirstRenderedFrame = true
-                logger.notice("owned first rendered frame codec=\(envelope.header.codec.rawValue, privacy: .public) size=\(envelope.header.width, privacy: .public)x\(envelope.header.height, privacy: .public) view=\(Int(self.view.bounds.width), privacy: .public)x\(Int(self.view.bounds.height), privacy: .public) bytes=\(envelope.payload.count, privacy: .public)")
-                ownedMediaStderrTrace("first-rendered codec=\(envelope.header.codec.rawValue) size=\(envelope.header.width)x\(envelope.header.height) view=\(Int(self.view.bounds.width))x\(Int(self.view.bounds.height)) bytes=\(envelope.payload.count)")
-            }
-            return OwnedMediaRenderStats(
-                frameId: envelope.header.frameId,
-                totalFramesDecoded: UInt64(renderCount),
-                renderGapMs: renderGapMs,
-                renderStartUptimeNs: renderStartNs,
-                renderEndUptimeNs: renderEndNs,
-                payloadBytes: envelope.payload.count,
-                flushCount: flushCount,
-                displayStatus: status,
-                displayReadyBeforeEnqueue: readyBeforeEnqueue,
-                requiresFlushToResumeDecoding: requiresFlushToResumeDecoding,
-                displayStatusAfterEnqueue: postEnqueueStatus,
-                displayReadyAfterEnqueue: readyAfterEnqueue,
-                requiresFlushAfterEnqueue: requiresFlushAfterEnqueue,
-                displayPresentation: "estimated",
-                sampleBuildMs: sampleBuildMs,
-                enqueueMs: enqueueMs,
-                renderWorkMs: renderWorkMs,
-                displayQueueAction: displayQueueAction,
-                clientBacklogFrames: backlog.frames,
-                clientBacklogBytes: backlog.bytes
-            )
-        } catch {
-            setOwnedMediaDebugStatus("render failed frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) error=\(String(describing: error))\ndisplay=\(Self.displayStatus(displayLayer))")
-            logger.error("owned media render failed: \(String(describing: error), privacy: .public)")
-            ownedMediaStderrTrace("render-failed frame=\(envelope.header.frameId) key=\(envelope.header.isKeyframe) error=\(String(describing: error)) display=\(Self.displayStatus(displayLayer))")
-            return nil
-        }
+    /// Test hook: the most recently composited surface image, used to assert a
+    /// graphics envelope rendered to a non-nil surface without driving UIKit.
+    func debugCurrentImage() -> CGImage? {
+        compositor.makeImage()
     }
 
     func renderOwnedGraphicsFrame(
@@ -210,12 +70,9 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 to: DispatchTime.now().uptimeNanoseconds
             )
             surfaceLayer.isHidden = false
-            // A graphics (copyRect/tile) frame refreshes the same surfaceLayer the
-            // HEVC path draws to, so it counts as a screen update. Stamp the shared
-            // render clock here too, otherwise renderGapMs (and the backlog estimate
-            // derived from it) measures only HEVC-to-HEVC spacing and reports a
-            // multi-second freeze whenever copyRect is carrying the motion between
-            // HEVC frames, which is exactly when the screen is NOT frozen (R74).
+            // A graphics (copyRect/tile) frame is the only thing that refreshes
+            // surfaceLayer now, so every applied frame is a screen update. Stamp
+            // the render clock here so renderGapMs reflects real frame spacing.
             lastRenderUptimeNs = DispatchTime.now().uptimeNanoseconds
             ownedMediaStderrTrace("graphics-frame frame=\(envelope.header.frameId) generation=\(envelope.header.surfaceGeneration) commands=\(envelope.commands.count) bytes=\(envelope.payload.count) action=\(stats.action) compositorMs=\(Self.formatDouble(stats.compositorMs)) copyRectMs=\(Self.formatDouble(stats.copyRectMs)) tileDecodeMs=\(Self.formatDouble(stats.tileDecodeMs)) tilePaintMs=\(Self.formatDouble(stats.tilePaintMs)) makeImageMs=\(Self.formatDouble(makeImageMs)) stale=\(stats.staleDiscardCount) copyRects=\(stats.copyRectCount) tileBytes=\(stats.tileBytes) queuedFrames=\(queueDepth.queuedFrames) queueDepthBytes=\(queueDepth.queueDepthBytes) totalGraphicsApplied=\(stats.totalGraphicsFramesApplied)")
             return OwnedGraphicsFrameAck(
@@ -260,144 +117,6 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     func setOwnedMediaDebugStatus(_ status: String) {
         debugLabel.text = "owned media\n\(status)"
     }
-
-    private static func displayStatus(_ layer: AVSampleBufferDisplayLayer) -> String {
-        let status = displayStatusCode(layer)
-        if let error = layer.error {
-            return "\(status) \(String(describing: error))"
-        }
-        return status
-    }
-
-    private static func displayStatusCode(_ layer: AVSampleBufferDisplayLayer) -> String {
-        let status: String
-        switch layer.status {
-        case .unknown:
-            status = "unknown"
-        case .rendering:
-            status = "rendering"
-        case .failed:
-            status = "failed"
-        @unknown default:
-            status = "other"
-        }
-        return status
-    }
-
-    private static func makeFormatDescription(
-        codec: OwnedMediaCodec,
-        parameterSets: OwnedMediaParameterSets
-    ) throws -> CMVideoFormatDescription {
-        var formatDescription: CMVideoFormatDescription?
-        let status: OSStatus
-        switch codec {
-        case .h264:
-            var sps = [UInt8](parameterSets.sps)
-            var pps = [UInt8](parameterSets.pps)
-            status = sps.withUnsafeMutableBufferPointer { spsBuffer in
-                pps.withUnsafeMutableBufferPointer { ppsBuffer in
-                    let pointers: [UnsafePointer<UInt8>] = [
-                        UnsafePointer(spsBuffer.baseAddress!),
-                        UnsafePointer(ppsBuffer.baseAddress!)
-                    ]
-                    let sizes = [spsBuffer.count, ppsBuffer.count]
-                    return CMVideoFormatDescriptionCreateFromH264ParameterSets(
-                        allocator: kCFAllocatorDefault,
-                        parameterSetCount: 2,
-                        parameterSetPointers: pointers,
-                        parameterSetSizes: sizes,
-                        nalUnitHeaderLength: 4,
-                        formatDescriptionOut: &formatDescription
-                    )
-                }
-            }
-        case .hevc:
-            guard let vpsData = parameterSets.vps else {
-                throw SessionRejected(reason: .malformed)
-            }
-            var vps = [UInt8](vpsData)
-            var sps = [UInt8](parameterSets.sps)
-            var pps = [UInt8](parameterSets.pps)
-            status = vps.withUnsafeMutableBufferPointer { vpsBuffer in
-                sps.withUnsafeMutableBufferPointer { spsBuffer in
-                    pps.withUnsafeMutableBufferPointer { ppsBuffer in
-                        let pointers: [UnsafePointer<UInt8>] = [
-                            UnsafePointer(vpsBuffer.baseAddress!),
-                            UnsafePointer(spsBuffer.baseAddress!),
-                            UnsafePointer(ppsBuffer.baseAddress!)
-                        ]
-                        let sizes = [vpsBuffer.count, spsBuffer.count, ppsBuffer.count]
-                        return CMVideoFormatDescriptionCreateFromHEVCParameterSets(
-                            allocator: kCFAllocatorDefault,
-                            parameterSetCount: 3,
-                            parameterSetPointers: pointers,
-                            parameterSetSizes: sizes,
-                            nalUnitHeaderLength: 4,
-                            extensions: nil,
-                            formatDescriptionOut: &formatDescription
-                        )
-                    }
-                }
-            }
-        }
-        guard status == noErr, let formatDescription else {
-            throw SessionRejected(reason: .malformed)
-        }
-        return formatDescription
-    }
-
-    private static func makeSampleBuffer(
-        envelope: OwnedMediaFrameEnvelope,
-        formatDescription: CMVideoFormatDescription
-    ) throws -> CMSampleBuffer {
-        var blockBuffer: CMBlockBuffer?
-        let payload = envelope.payload as NSData
-        let blockStatus = CMBlockBufferCreateWithMemoryBlock(
-            allocator: kCFAllocatorDefault,
-            memoryBlock: UnsafeMutableRawPointer(mutating: payload.bytes),
-            blockLength: payload.length,
-            blockAllocator: kCFAllocatorNull,
-            customBlockSource: nil,
-            offsetToData: 0,
-            dataLength: payload.length,
-            flags: 0,
-            blockBufferOut: &blockBuffer
-        )
-        guard blockStatus == noErr, let blockBuffer else {
-            throw SessionRejected(reason: .malformed)
-        }
-
-        var timing = CMSampleTimingInfo(
-            duration: .invalid,
-            presentationTimeStamp: .invalid,
-            decodeTimeStamp: .invalid
-        )
-        var sampleSize = payload.length
-        var sampleBuffer: CMSampleBuffer?
-        let sampleStatus = CMSampleBufferCreateReady(
-            allocator: kCFAllocatorDefault,
-            dataBuffer: blockBuffer,
-            formatDescription: formatDescription,
-            sampleCount: 1,
-            sampleTimingEntryCount: 1,
-            sampleTimingArray: &timing,
-            sampleSizeEntryCount: 1,
-            sampleSizeArray: &sampleSize,
-            sampleBufferOut: &sampleBuffer
-        )
-        guard sampleStatus == noErr, let sampleBuffer else {
-            throw SessionRejected(reason: .malformed)
-        }
-        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true) {
-            let attachment = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
-            CFDictionarySetValue(
-                attachment,
-                Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
-                Unmanaged.passUnretained(kCFBooleanTrue).toOpaque()
-            )
-        }
-        return sampleBuffer
-    }
 }
 
 private func ownedMediaStderrTrace(_ message: String) {
@@ -409,74 +128,8 @@ private func ownedMediaStderrTrace(_ message: String) {
 }
 
 private extension OwnedMediaVideoSink {
-    static func formatOptionalMilliseconds(_ ns: UInt64?) -> String {
-        guard let ns else { return "nil" }
-        return formatDouble(Double(ns) / 1_000_000.0)
-    }
-
     static func formatDouble(_ value: Double) -> String {
         String(format: "%.1f", value)
-    }
-}
-
-private final class OwnedHEVCFrameDecoder {
-    private var session: VTDecompressionSession?
-    private var lastDecodedPixelBuffer: CVPixelBuffer?
-
-    init(formatDescription: CMVideoFormatDescription) throws {
-        var callback = VTDecompressionOutputCallbackRecord(
-            decompressionOutputCallback: { refcon, _, status, _, imageBuffer, _, _ in
-                guard status == noErr,
-                      let refcon,
-                      let imageBuffer else { return }
-                let decoder = Unmanaged<OwnedHEVCFrameDecoder>
-                    .fromOpaque(refcon)
-                    .takeUnretainedValue()
-                decoder.lastDecodedPixelBuffer = imageBuffer
-            },
-            decompressionOutputRefCon: Unmanaged.passUnretained(self).toOpaque()
-        )
-        let attributes: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferIOSurfacePropertiesKey: [:]
-        ]
-        var session: VTDecompressionSession?
-        let status = VTDecompressionSessionCreate(
-            allocator: kCFAllocatorDefault,
-            formatDescription: formatDescription,
-            decoderSpecification: nil,
-            imageBufferAttributes: attributes as CFDictionary,
-            outputCallback: &callback,
-            decompressionSessionOut: &session
-        )
-        guard status == noErr, let session else {
-            throw SessionRejected(reason: .malformed)
-        }
-        self.session = session
-    }
-
-    deinit {
-        if let session {
-            VTDecompressionSessionInvalidate(session)
-        }
-    }
-
-    func decode(_ sampleBuffer: CMSampleBuffer) throws -> CVPixelBuffer? {
-        guard let session else { return nil }
-        lastDecodedPixelBuffer = nil
-        var flagsOut = VTDecodeInfoFlags()
-        let status = VTDecompressionSessionDecodeFrame(
-            session,
-            sampleBuffer: sampleBuffer,
-            flags: [._EnableAsynchronousDecompression],
-            frameRefcon: nil,
-            infoFlagsOut: &flagsOut
-        )
-        guard status == noErr else {
-            throw SessionRejected(reason: .malformed)
-        }
-        VTDecompressionSessionWaitForAsynchronousFrames(session)
-        return lastDecodedPixelBuffer
     }
 }
 
@@ -516,42 +169,6 @@ struct OwnedSurfaceCompositor {
     private var height = 0
     private var bytesPerRow = 0
     private var pixels = Data()
-
-    mutating func applyFullRefresh(
-        pixelBuffer: CVPixelBuffer,
-        updateId: OwnedSurfaceUpdateId
-    ) throws -> OwnedSurfaceCompositorStats {
-        let startNs = DispatchTime.now().uptimeNanoseconds
-        guard updateId.isStrictlyNewer(than: committedUpdateId) else {
-            staleDiscardCount += 1
-            return stats(action: "stale-hevc", startNs: startNs, timing: .init(), copyRects: 0, tileBytes: 0)
-        }
-        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-        guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA,
-              let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else {
-            throw SessionRejected(reason: .malformed)
-        }
-        let sourceWidth = CVPixelBufferGetWidth(pixelBuffer)
-        let sourceHeight = CVPixelBufferGetHeight(pixelBuffer)
-        let sourceBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
-        let targetBytesPerRow = sourceWidth * 4
-        var nextPixels = Data(count: targetBytesPerRow * sourceHeight)
-        nextPixels.withUnsafeMutableBytes { destination in
-            guard let destinationBase = destination.baseAddress else { return }
-            for y in 0..<sourceHeight {
-                let source = baseAddress.advanced(by: y * sourceBytesPerRow)
-                let target = destinationBase.advanced(by: y * targetBytesPerRow)
-                target.copyMemory(from: source, byteCount: targetBytesPerRow)
-            }
-        }
-        width = sourceWidth
-        height = sourceHeight
-        bytesPerRow = targetBytesPerRow
-        pixels = nextPixels
-        committedUpdateId = updateId
-        return stats(action: "hevc-refresh", startNs: startNs, timing: .init(), copyRects: 0, tileBytes: targetBytesPerRow * sourceHeight)
-    }
 
     mutating func applyGraphicsFrame(_ envelope: OwnedGraphicsFrameEnvelope) throws -> OwnedSurfaceCompositorStats {
         let startNs = DispatchTime.now().uptimeNanoseconds
