@@ -70,6 +70,13 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 to: DispatchTime.now().uptimeNanoseconds
             )
             surfaceLayer.isHidden = false
+            // Graphics frames are the only render path now, so reflect liveness
+            // in the debug overlay here. The old datagram/HEVC path used to drive
+            // setOwnedMediaDebugStatus; without this the label stayed on its
+            // initial "waiting" text forever even while frames flowed. Only
+            // assign on change to avoid per-frame label layout churn.
+            let liveStatus = "owned media: live gen \(envelope.header.surfaceGeneration)"
+            if debugLabel.text != liveStatus { debugLabel.text = liveStatus }
             // A graphics (copyRect/tile) frame is the only thing that refreshes
             // surfaceLayer now, so every applied frame is a screen update. Stamp
             // the render clock here so renderGapMs reflects real frame spacing.
