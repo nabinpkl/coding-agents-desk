@@ -6,6 +6,11 @@ enum Config {
     // ADR-0019: plain-TCP port the iPhone listens on for a Mac-pushed pairing
     // offer. Must match the host's offer port.
     static let offerPort = offerPort(environment: ProcessInfo.processInfo.environment)
+    // ADR-0020: wire protocol version negotiated at the session handshake. Bumped
+    // only on a breaking wire change, independent of the marketing version. The
+    // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
+    static let protocolVersion = 1
+    static let minCompatibleProtocolVersion = 1
     static let keychainService = "com.example.agentdesk.AgentDeskClient"
     static let keychainAccessGroup: String? = nil
     static let storedPairingAccount = "session-token"

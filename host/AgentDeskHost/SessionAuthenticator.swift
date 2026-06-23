@@ -36,6 +36,13 @@ final class SessionAuthenticator {
         }
         seenClientNonces.insert(message.clientNonce)
 
+        // ADR-0020: reject a client whose wire protocol predates what this host
+        // still supports. The returned SessionChallenge carries the host's
+        // protocol version so the client can apply the symmetric check.
+        guard message.protocolVersion >= Config.minCompatibleProtocolVersion else {
+            throw SessionRejected(reason: .incompatibleProtocol)
+        }
+
         guard let record = try pairing.lookup(deviceFingerprint: message.deviceFingerprint) else {
             throw SessionRejected(reason: .unknownDevice)
         }

@@ -49,6 +49,11 @@ final class SessionDialer {
         try await send(initMessage, on: task)
 
         let challenge = try await receive(SessionChallenge.self, expectedType: "session-challenge", on: task)
+        // ADR-0020: reject a host whose wire protocol predates what this client
+        // still supports (the host applied the symmetric check on session-init).
+        guard challenge.protocolVersion >= Config.minCompatibleProtocolVersion else {
+            throw SessionRejected(reason: .incompatibleProtocol)
+        }
         let signingInput = SessionSigning.canonicalInput(
             clientNonce: clientNonce,
             hostNonce: challenge.hostNonce,

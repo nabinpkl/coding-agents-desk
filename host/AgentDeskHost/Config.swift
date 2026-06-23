@@ -101,6 +101,11 @@ enum Config {
     // to a chosen tailnet device. Separate from the TLS signaling port so the
     // offer path never touches the IP-literal-cert problem.
     static let offerPort = offerPort(environment: ProcessInfo.processInfo.environment)
+    // ADR-0020: wire protocol version negotiated at the session handshake. Bumped
+    // only on a breaking wire change, independent of the marketing version. The
+    // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
+    static let protocolVersion = 1
+    static let minCompatibleProtocolVersion = 1
     static let nonceTTL: TimeInterval = 90
     static let inputCapabilityTTL: TimeInterval = 60
     static let mediaCapabilityTTL: TimeInterval = 60

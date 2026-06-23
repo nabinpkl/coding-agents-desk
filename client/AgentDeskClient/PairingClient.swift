@@ -302,6 +302,10 @@ final class PairingClient {
         case .replay, .malformed, .expiredInputCapability, .staleInputCapability,
              .expiredMediaCapability, .staleMediaCapability:
             state = .pairedDisconnected
+        case .incompatibleProtocol:
+            // Not recoverable by retrying; keep the token but surface that an app
+            // update is needed. ADR-0020.
+            state = .rejected("update required (incompatible version)")
         }
     }
 

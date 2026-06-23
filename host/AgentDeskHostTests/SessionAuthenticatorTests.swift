@@ -48,6 +48,29 @@ struct SessionAuthenticatorTests {
         }
     }
 
+    // ADR-0020: a client whose wire protocol predates the host's minimum is
+    // rejected as incompatible, before any auth work.
+    @Test func clientBelowMinProtocolVersionIsRejected() throws {
+        let fixture = try Fixture()
+        let staleInit = SessionInit(
+            deviceFingerprint: fixture.deviceFingerprint,
+            sessionToken: fixture.sessionToken,
+            clientNonce: fixture.clientNonce,
+            protocolVersion: Config.minCompatibleProtocolVersion - 1
+        )
+        #expect(throws: SessionRejected(reason: .incompatibleProtocol)) {
+            try fixture.authenticator.processInit(staleInit)
+        }
+    }
+
+    // The challenge advertises the host's protocol version for the client's
+    // symmetric check.
+    @Test func challengeCarriesHostProtocolVersion() throws {
+        let fixture = try Fixture()
+        let challenge = try fixture.authenticator.processInit(fixture.makeSessionInit(clientNonce: fixture.clientNonce))
+        #expect(challenge.protocolVersion == Config.protocolVersion)
+    }
+
     @Test func garbageClientSignatureReturnsBadSignatureRejection() throws {
         let fixture = try Fixture()
         _ = try fixture.authenticator.processInit(fixture.makeSessionInit(clientNonce: fixture.clientNonce))

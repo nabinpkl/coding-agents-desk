@@ -216,4 +216,6 @@ R54.8     2026-06-22  committed   host shows the picked device name (persisted o
 R54.9-R54.11 2026-06-22  committed   show active device when multiple paired, picker IPv4 rows, Tailscale-vs-carrier-CGNAT own-IP fix, client reports model+id name
 R55.1-R55.4 2026-06-22  committed   live host-probe device discovery: offer-port identity protocol, client whois replies, iOS-peer prober + async picker, ADR-0019 refinement
 R55.5     pending     pending     physical acceptance: picker lists the iPhone by name live
+R56.1     2026-06-22  committed   host and client marketing versions decoupled (independent semver per release)
+R56.2     2026-06-22  committed   protocol version negotiated at session handshake (ADR-0020); incompatible peer rejected as update-required
 ```

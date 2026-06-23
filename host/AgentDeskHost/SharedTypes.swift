@@ -261,19 +261,24 @@ struct SessionInit: Codable, Equatable {
     let deviceFingerprint: DeviceFingerprint
     let sessionToken: SessionToken
     let clientNonce: Data
+    // ADR-0020: client's wire protocol version. Decode-tolerant (older peers omit
+    // it and read as 1).
+    let protocolVersion: Int
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case deviceFingerprint = "d"
         case sessionToken = "s"
         case clientNonce = "n"
+        case protocolVersion = "pv"
     }
 
-    init(deviceFingerprint: DeviceFingerprint, sessionToken: SessionToken, clientNonce: Data) {
+    init(deviceFingerprint: DeviceFingerprint, sessionToken: SessionToken, clientNonce: Data, protocolVersion: Int = Config.protocolVersion) {
         self.type = "session-init"
         self.deviceFingerprint = deviceFingerprint
         self.sessionToken = sessionToken
         self.clientNonce = clientNonce
+        self.protocolVersion = protocolVersion
     }
 
     init(from decoder: Decoder) throws {
@@ -282,6 +287,7 @@ struct SessionInit: Codable, Equatable {
         deviceFingerprint = try container.decode(DeviceFingerprint.self, forKey: .deviceFingerprint)
         sessionToken = try container.decode(SessionToken.self, forKey: .sessionToken)
         clientNonce = try Data(base64URLEncoded: container.decode(String.self, forKey: .clientNonce))
+        protocolVersion = try container.decodeIfPresent(Int.self, forKey: .protocolVersion) ?? 1
     }
 
     func encode(to encoder: Encoder) throws {
@@ -290,6 +296,7 @@ struct SessionInit: Codable, Equatable {
         try container.encode(deviceFingerprint, forKey: .deviceFingerprint)
         try container.encode(sessionToken, forKey: .sessionToken)
         try container.encode(clientNonce.base64URLEncodedString(), forKey: .clientNonce)
+        try container.encode(protocolVersion, forKey: .protocolVersion)
     }
 }
 
@@ -297,17 +304,22 @@ struct SessionChallenge: Codable, Equatable {
     let type: String
     let hostNonce: Data
     let hostSignature: Data
+    // ADR-0020: host's wire protocol version, so the client can detect a host too
+    // old for it. Decode-tolerant (older peers omit it and read as 1).
+    let protocolVersion: Int
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case hostNonce = "n"
         case hostSignature = "s"
+        case protocolVersion = "pv"
     }
 
-    init(hostNonce: Data, hostSignature: Data) {
+    init(hostNonce: Data, hostSignature: Data, protocolVersion: Int = Config.protocolVersion) {
         self.type = "session-challenge"
         self.hostNonce = hostNonce
         self.hostSignature = hostSignature
+        self.protocolVersion = protocolVersion
     }
 
     init(from decoder: Decoder) throws {
@@ -315,6 +327,7 @@ struct SessionChallenge: Codable, Equatable {
         type = try container.decode(String.self, forKey: .type)
         hostNonce = try Data(base64URLEncoded: container.decode(String.self, forKey: .hostNonce))
         hostSignature = try Data(base64URLEncoded: container.decode(String.self, forKey: .hostSignature))
+        protocolVersion = try container.decodeIfPresent(Int.self, forKey: .protocolVersion) ?? 1
     }
 
     func encode(to encoder: Encoder) throws {
@@ -322,6 +335,7 @@ struct SessionChallenge: Codable, Equatable {
         try container.encode(type, forKey: .type)
         try container.encode(hostNonce.base64URLEncodedString(), forKey: .hostNonce)
         try container.encode(hostSignature.base64URLEncodedString(), forKey: .hostSignature)
+        try container.encode(protocolVersion, forKey: .protocolVersion)
     }
 }
 
@@ -494,6 +508,9 @@ enum SessionRejectionReason: String, Codable, Equatable, Error {
     case staleInputCapability = "stale-input-capability"
     case expiredMediaCapability = "expired-media-capability"
     case staleMediaCapability = "stale-media-capability"
+    // ADR-0020: peer's wire protocol version is incompatible; the user must
+    // update the older app. Not recoverable by retrying.
+    case incompatibleProtocol = "incompatible-protocol"
 }
 
 struct SessionRejected: Codable, Equatable, Error {
