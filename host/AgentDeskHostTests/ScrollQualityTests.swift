@@ -2284,7 +2284,10 @@ struct ScrollQualityTests {
         #expect(!hasCopyRect)
     }
 
-    @Test func damageDrivenLargeDamageWithoutHintFallsBackToHEVC() throws {
+    @Test func damageDrivenLargeDamageWithoutHintEmitsTiles() throws {
+        // H1: large unstructured change no longer falls back to HEVC. The
+        // classifier returns .fullFrame and the engine routes it to a tile
+        // envelope over the reliable graphics channel.
         var engine = ScrollDeltaEngine(useDamageClassifier: true)
         let width = 240
         let height = 200
@@ -2303,12 +2306,10 @@ struct ScrollQualityTests {
         }
         let result = engine.evaluate(frame1, scrollHint: nil)
 
-        if case .rejected(let reason) = result.kind {
-            #expect(reason.hasPrefix("damage-fullframe"))
-        } else {
-            Issue.record("expected fullFrame damage to map to rejected, got \(result.kind)")
-        }
-        #expect(result.envelope == nil)
+        #expect(result.kind == ScrollDeltaKind.accepted)
+        #expect(result.fellBackToHEVC == false)
+        let envelope = try #require(result.envelope)
+        #expect(envelope.commands.contains { $0.kindIsBitmapTile })
     }
 
     @Test func scrollDeltaEngineHintGuidedProbeAcceptsBoundedVerticalOffsets() throws {

@@ -1213,6 +1213,16 @@ enum OwnedGraphicsCommand: Equatable {
         case byteRange = "br"
     }
 
+    var kindIsBitmapTile: Bool {
+        if case .bitmapTile = self { return true }
+        return false
+    }
+
+    var kindIsReset: Bool {
+        if case .resetSurface = self { return true }
+        return false
+    }
+
     func validateForCurrentScope(payloadLength: Int = Int.max) throws {
         switch self {
         case let .resetSurface(_, width, height, _):

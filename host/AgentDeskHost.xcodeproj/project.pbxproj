@@ -86,6 +86,7 @@
 		A000000000000000000009B1 /* CursorMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009B0 /* CursorMonitorTests.swift */; };
 		A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009D0 /* ScrollQualityTests.swift */; };
 		A00000000000000000000DA4 /* DamageScrollClassifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DA3 /* DamageScrollClassifierTests.swift */; };
+		A00000000000000000000DB4 /* ScrollDeltaEngineDamageRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */; };
 		A00000000000000000000237 /* SpacesProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000126 /* SpacesProviderTests.swift */; };
 		A00000000000000000000238 /* SpaceThumbnailProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000127 /* SpaceThumbnailProvider.swift */; };
 		A00000000000000000000239 /* SpaceAgentModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000128 /* SpaceAgentModel.swift */; };
@@ -191,6 +192,7 @@
 		A000000000000000000009B0 /* CursorMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorMonitorTests.swift; sourceTree = "<group>"; };
 		A000000000000000000009D0 /* ScrollQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollQualityTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DA3 /* DamageScrollClassifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DamageScrollClassifierTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaEngineDamageRoutingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000124 /* SignalingFrameRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingFrameRoutingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000341 /* TailnetDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailnetDiscoveryTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000125 /* InputDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcherTests.swift; sourceTree = "<group>"; };
@@ -372,6 +374,7 @@
 				A000000000000000000009B0 /* CursorMonitorTests.swift */,
 				A000000000000000000009D0 /* ScrollQualityTests.swift */,
 				A00000000000000000000DA3 /* DamageScrollClassifierTests.swift */,
+				A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */,
 				A00000000000000000000A10 /* ScrollActivityTrackerTests.swift */,
 				A00000000000000000000A15 /* ScrollCopyOwnershipTests.swift */,
 				A00000000000000000000A1A /* ScrollRegionTrackerTests.swift */,
@@ -600,6 +603,7 @@
 				A000000000000000000009B1 /* CursorMonitorTests.swift in Sources */,
 				A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */,
 				A00000000000000000000DA4 /* DamageScrollClassifierTests.swift in Sources */,
+				A00000000000000000000DB4 /* ScrollDeltaEngineDamageRoutingTests.swift in Sources */,
 				A00000000000000000000A11 /* ScrollActivityTrackerTests.swift in Sources */,
 				A00000000000000000000A16 /* ScrollCopyOwnershipTests.swift in Sources */,
 				A00000000000000000000A1B /* ScrollRegionTrackerTests.swift in Sources */,

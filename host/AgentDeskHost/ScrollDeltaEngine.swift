@@ -8,6 +8,9 @@ enum ScrollDeltaKind: Equatable {
     case accepted
     case rejected(String)
     case timeout
+    // The damage classifier saw no change worth sending. Distinct from
+    // .rejected: there is nothing to send and no HEVC fallback to take.
+    case noChange
 }
 
 struct ScrollDeltaResult {
@@ -15,6 +18,19 @@ struct ScrollDeltaResult {
     let envelope: OwnedGraphicsFrameEnvelope?
     let envelopes: [OwnedGraphicsFrameEnvelope]
     let diagnostics: ScrollDeltaDiagnostics?
+
+    // True only when the result is a genuine HEVC fallback signal. The damage
+    // path's tile envelopes (.accepted) and its "nothing to send" outcome
+    // (.noChange) never fall back; only .rejected and .timeout do. H5 deletes
+    // the HEVC plumbing this still names.
+    var fellBackToHEVC: Bool {
+        switch kind {
+        case .rejected, .timeout:
+            return true
+        case .reset, .accepted, .noChange:
+            return false
+        }
+    }
 
     init(
         kind: ScrollDeltaKind,
@@ -857,16 +873,32 @@ struct ScrollDeltaEngine {
                 diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
             )
         case .fullFrame(let reason):
-            pendingSurface = nil
+            // H1: large or unstructured change is no longer an HEVC fallback.
+            // Emit the whole content region as tiles over the reliable channel.
+            // The classifier reason is preserved in diagnostics via acceptedBy.
+            let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
+            pendingSurface = current
+            graphicsFrameId &+= 1
+            let region = content.clamped(toWidth: current.width, height: current.height)
+            guard let envelope = makeTileEnvelope(current: current, rects: [region], capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
+                pendingSurface = nil
+                return ScrollDeltaResult(
+                    kind: .rejected("damage-fullframe-tile-build-failed-\(reason)"),
+                    envelope: nil,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage-fullframe-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                )
+            }
             return ScrollDeltaResult(
-                kind: .rejected("damage-fullframe-\(reason)"),
-                envelope: nil,
-                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: nil, offset: nil, region: nil, scrollHint: scrollHint, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                kind: .accepted,
+                envelope: envelope,
+                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage-fullframe-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
             )
         case .noChange:
-            pendingSurface = nil
+            // Nothing changed worth sending. Hold the surface (current equals
+            // previous outside the empty damage) and send nothing. No fallback.
+            pendingSurface = current
             return ScrollDeltaResult(
-                kind: .rejected("damage-nochange"),
+                kind: .noChange,
                 envelope: nil,
                 diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: nil, offset: nil, region: nil, scrollHint: scrollHint, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
             )

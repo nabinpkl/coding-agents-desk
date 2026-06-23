@@ -307,11 +307,11 @@ enum Config {
     )
     // ADR-0021: drive scroll detection from the OS damage region (dirtyRects)
     // and the damage classifier instead of the brute-force pixel-diff probe.
-    // Default off so the proven probe path stays live until a device run
-    // validates the damage path; flip on to exercise the new path.
+    // The damage path is now the only path. This flag stays as a kill-switch
+    // for one more cycle, then is removed in H5.
     static let hybridDamageDrivenScroll = enabledFlag(
         environmentKey: "AGENTDESK_HYBRID_DAMAGE_DRIVEN_SCROLL",
-        defaultValue: false,
+        defaultValue: true,
         environment: ProcessInfo.processInfo.environment
     )
     static let hybridScrollOwnershipMs = nonNegativeInt(

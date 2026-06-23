@@ -1268,6 +1268,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                                 continue
                             }
                         }
+                    case .noChange:
+                        // The damage classifier saw nothing worth sending. Send
+                        // nothing and take no HEVC fallback: the retained
+                        // surface already matches the screen.
+                        diagnostics.noteAdmissionHold(reason: "graphics-damage-nochange", mode: currentAdmissionMode())
+                        continue
                     }
                 } // end graphicsDecision.shouldBuildCommands
             } else {
