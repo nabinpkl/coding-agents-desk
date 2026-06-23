@@ -990,207 +990,268 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 }
                 let graphicsDecision = graphicsAdmissionDecision(allowsReset: pendingReset != nil)
                 if !graphicsDecision.shouldBuildCommands {
+                    // The reliable graphics channel is backpressured: a large frame
+                    // is in flight unacked (a full-surface tile or reset push), so the
+                    // severe fence holds further graphics commands. Do NOT skip the
+                    // frame. HEVC is an independent datagram channel; falling through
+                    // to it keeps the screen alive while the reliable channel drains.
+                    // The prior `continue` froze BOTH channels for as long as the
+                    // unacked graphics frame took to ack, which on a 668KB tile was
+                    // tens of seconds (R74: 30s renderGaps with the screen frozen).
                     diagnostics.noteAdmissionHold(reason: graphicsDecision.reason, mode: currentAdmissionMode())
-                    logger.notice("owned graphics admission-hold mode=\(String(describing: graphicsDecision.mode), privacy: .public) reason=\(graphicsDecision.reason ?? "unknown", privacy: .public) unackedFrames=\(graphicsDecision.unackedFrames, privacy: .public) unackedBytes=\(graphicsDecision.unackedBytes, privacy: .public)")
-                    try? await Task.sleep(nanoseconds: intervalNs)
-                    continue
-                }
-                let nowBeforeProbe = DispatchTime.now().uptimeNanoseconds
-                let probeInputScrollHint = scrollActivityHintProvider()
-                scrollCopyOwnership.observeInputHint(probeInputScrollHint)
-                if probeInputScrollHint?.isActive(nowUptimeNs: nowBeforeProbe) == true ||
-                    scrollCopyOwnership.isActive(nowUptimeNs: nowBeforeProbe) {
-                    scrollHevcAdmission.noteActiveScroll(nowUptimeNs: nowBeforeProbe)
-                }
-                if scrollCopyOwnership.releaseIfExpired(nowUptimeNs: nowBeforeProbe) {
-                    logger.notice("owned graphics scroll-ownership ownership=released reason=idle")
-                }
-                let scrollHint = scrollCopyOwnership.hint(nowUptimeNs: nowBeforeProbe)
-                // Never blind-scan in the live path. A frame with no usable offset
-                // hint emits no graphics commands and falls back to HEVC for that
-                // frame, instead of triggering the full -240..240 candidate sweep
-                // that blocked the encode pump for tens of ms and starved HEVC
-                // admission. Hinted detection stays bounded to the hint candidates.
-                let allowBlindScan = false
-                let regionHint = scrollRegionHintProvider()
-                let scrollRegionCandidate = regionHint.flatMap {
-                    scrollRegionTracker.candidate(
-                        from: $0,
-                        surfaceWidth: CVPixelBufferGetWidth(frame.pixelBuffer),
-                        surfaceHeight: CVPixelBufferGetHeight(frame.pixelBuffer),
-                        nowUptimeNs: nowBeforeProbe
-                    )
-                }
-                if scrollRegionTracker.releaseIfMissingCandidate(scrollRegionCandidate) {
-                    logger.notice("owned graphics scroll-region source=none stable=false rect=0,0,0,0 overlap=0 reason=missing-focus")
-                }
-                let regionLocked = scrollRegionTracker.isStable(candidate: scrollRegionCandidate)
-                scrollRegionLockPending = scrollRegionCandidate != nil && !regionLocked
-                let probeRegion = scrollRegionCandidate?.region
-                let graphics = scrollDeltaEngine.evaluate(
-                    frame,
-                    scrollHint: scrollHint,
-                    scrollRegion: probeRegion,
-                    scrollRegionIsStable: regionLocked,
-                    emitGraphicsBeforeRegionLock: regionLocked,
-                    allowBlindScan: allowBlindScan
-                )
-                switch graphics.kind {
-                case .accepted:
-                    if let scrollRegionCandidate {
-                        let locked = scrollRegionTracker.observeValidation(
-                            candidate: scrollRegionCandidate,
-                            accepted: true
+                    logger.notice("owned graphics admission-hold mode=\(String(describing: graphicsDecision.mode), privacy: .public) reason=\(graphicsDecision.reason ?? "unknown", privacy: .public) unackedFrames=\(graphicsDecision.unackedFrames, privacy: .public) unackedBytes=\(graphicsDecision.unackedBytes, privacy: .public) hevcFallthrough=true")
+                    hevcFallbackReason = .graphicsSendFailed
+                    retainedGraphicsAvailable = false
+                } else {
+                    let nowBeforeProbe = DispatchTime.now().uptimeNanoseconds
+                    let probeInputScrollHint = scrollActivityHintProvider()
+                    scrollCopyOwnership.observeInputHint(probeInputScrollHint)
+                    if probeInputScrollHint?.isActive(nowUptimeNs: nowBeforeProbe) == true ||
+                        scrollCopyOwnership.isActive(nowUptimeNs: nowBeforeProbe) {
+                        scrollHevcAdmission.noteActiveScroll(nowUptimeNs: nowBeforeProbe)
+                    }
+                    if scrollCopyOwnership.releaseIfExpired(nowUptimeNs: nowBeforeProbe) {
+                        logger.notice("owned graphics scroll-ownership ownership=released reason=idle")
+                    }
+                    let scrollHint = scrollCopyOwnership.hint(nowUptimeNs: nowBeforeProbe)
+                    // Never blind-scan in the live path. A frame with no usable offset
+                    // hint emits no graphics commands and falls back to HEVC for that
+                    // frame, instead of triggering the full -240..240 candidate sweep
+                    // that blocked the encode pump for tens of ms and starved HEVC
+                    // admission. Hinted detection stays bounded to the hint candidates.
+                    let allowBlindScan = false
+                    let regionHint = scrollRegionHintProvider()
+                    let scrollRegionCandidate = regionHint.flatMap {
+                        scrollRegionTracker.candidate(
+                            from: $0,
+                            surfaceWidth: CVPixelBufferGetWidth(frame.pixelBuffer),
+                            surfaceHeight: CVPixelBufferGetHeight(frame.pixelBuffer),
+                            nowUptimeNs: nowBeforeProbe
                         )
-                        logger.notice("owned graphics scroll-region source=\(scrollRegionCandidate.region.source.diagnosticName, privacy: .public) stable=\(locked != nil, privacy: .public) rect=\(scrollRegionCandidate.region.x, privacy: .public),\(scrollRegionCandidate.region.y, privacy: .public),\(scrollRegionCandidate.region.width, privacy: .public),\(scrollRegionCandidate.region.height, privacy: .public) accepts=\(scrollRegionCandidate.region.stability.stableFrameCount, privacy: .public) reason=validated")
                     }
-                    if let envelope = graphics.envelope {
-                        do {
-                            let encodedBytes = try await graphicsChannel.send(envelope)
-                            noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
-                            scrollDeltaEngine.commitPendingSurface()
-                            let nowNs = DispatchTime.now().uptimeNanoseconds
-                            if let scrollDiagnostics = graphics.diagnostics,
-                               let ownershipUpdate = Self.scrollOwnershipUpdate(
-                                diagnostics: scrollDiagnostics,
-                                frameId: envelope.header.frameId,
-                                nowUptimeNs: nowNs
-                               ) {
-                                scrollCopyOwnership.observeAccepted(
-                                    axis: ownershipUpdate.axis,
-                                    sign: ownershipUpdate.sign,
-                                    offsetPx: ownershipUpdate.offsetPx,
-                                    frameId: ownershipUpdate.frameId,
-                                    nowUptimeNs: ownershipUpdate.nowUptimeNs
-                                )
-                                logger.notice("owned graphics scroll-ownership ownership=accepted frame=\(ownershipUpdate.frameId, privacy: .public) axis=\(ownershipUpdate.axis.rawValue, privacy: .public) offset=\(ownershipUpdate.offsetPx, privacy: .public) ttlMs=\(Config.hybridScrollOwnershipMs, privacy: .public)")
-                            }
-                            scrollHevcAdmission.noteAcceptedScroll(nowUptimeNs: nowNs)
-                            // An accepted scroll is also a scroll signal: it keeps
-                            // the fallback-HEVC hysteresis open through momentum,
-                            // when the input hint has expired but copyRects are
-                            // still landing between the rejected frames.
-                            scrollHevcAdmission.noteScrollSignal(nowUptimeNs: nowNs)
-                            scrollIdleRefreshWakeTask?.cancel()
-                            scrollIdleRefreshWakeTask = Task { [mailbox] in
-                                try? await Task.sleep(nanoseconds: UInt64(Config.hybridScrollIdleRefreshMs) * 1_000_000)
-                                _ = mailbox.wakeWithLatestFrame()
-                            }
-                            if let scrollDiagnostics = graphics.diagnostics {
-                                logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) dx=\(scrollDiagnostics.acceptedDx ?? 0, privacy: .public) dy=\(scrollDiagnostics.acceptedDy ?? 0, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) acceptedBy=\(scrollDiagnostics.acceptedBy ?? "unknown", privacy: .public) tieBreak=\(scrollDiagnostics.tieBreak ?? "none", privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) payloadBuildMs=\(scrollDiagnostics.payloadBuildMs ?? 0, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public) regionStable=\(scrollDiagnostics.regionStable, privacy: .public) regionSource=\(scrollDiagnostics.regionSource ?? "none", privacy: .public) regionRect=\(scrollDiagnostics.regionX ?? 0, privacy: .public),\(scrollDiagnostics.regionY ?? 0, privacy: .public),\(scrollDiagnostics.regionWidth ?? 0, privacy: .public),\(scrollDiagnostics.regionHeight ?? 0, privacy: .public) viewportStable=\(scrollDiagnostics.viewportStable, privacy: .public) viewportSource=\(scrollDiagnostics.viewportSource ?? "none", privacy: .public) viewportRect=\(scrollDiagnostics.viewportX ?? 0, privacy: .public),\(scrollDiagnostics.viewportY ?? 0, privacy: .public),\(scrollDiagnostics.viewportWidth ?? 0, privacy: .public),\(scrollDiagnostics.viewportHeight ?? 0, privacy: .public) outerRegionRect=\(scrollDiagnostics.outerRegionX ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionY ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionWidth ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionHeight ?? 0, privacy: .public) fullSurfaceCopyRect=\(scrollDiagnostics.fullSurfaceCopyRect, privacy: .public) wholeWindowCopyRect=\(scrollDiagnostics.wholeWindowCopyRect, privacy: .public)")
-                            } else {
-                                logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
-                            }
-                            switch scrollHevcAdmission.decisionAfterAcceptedScroll(
-                                nowUptimeNs: nowNs,
-                                scrollHEVCFps: Config.hybridScrollHEVCFps
-                            ) {
-                            case .suppress:
-                                diagnostics.noteAdmissionHold(reason: "graphics-scroll-suppressed-hevc", mode: currentAdmissionMode())
-                                continue
-                            case .rateLimited:
-                                diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-cadence", mode: currentAdmissionMode())
-                                continue
-                            case .allow:
-                                break
-                            }
-                        } catch {
-                            logger.error("owned graphics scroll send failed: \(String(describing: error), privacy: .public)")
-                            if isActiveGraphicsConnection(ObjectIdentifier(graphicsChannel.connection)) {
-                                graphicsChannel.close()
-                                setGraphicsRecoveryState(.failedCoolingDown, reason: "scroll-send-failed")
-                            }
-                            hevcFallbackReason = .graphicsSendFailed
-                        }
-                    } else {
-                        hevcFallbackReason = .scrollRegionBeforeLock
-                        if let scrollDiagnostics = graphics.diagnostics {
-                            logger.notice("owned graphics scroll-region fallback=hevc reason=before-lock regionStable=\(scrollDiagnostics.regionStable, privacy: .public) regionSource=\(scrollDiagnostics.regionSource ?? "none", privacy: .public) regionRect=\(scrollDiagnostics.regionX ?? 0, privacy: .public),\(scrollDiagnostics.regionY ?? 0, privacy: .public),\(scrollDiagnostics.regionWidth ?? 0, privacy: .public),\(scrollDiagnostics.regionHeight ?? 0, privacy: .public) viewportStable=\(scrollDiagnostics.viewportStable, privacy: .public) viewportSource=\(scrollDiagnostics.viewportSource ?? "none", privacy: .public) viewportRect=\(scrollDiagnostics.viewportX ?? 0, privacy: .public),\(scrollDiagnostics.viewportY ?? 0, privacy: .public),\(scrollDiagnostics.viewportWidth ?? 0, privacy: .public),\(scrollDiagnostics.viewportHeight ?? 0, privacy: .public) outerRegionRect=\(scrollDiagnostics.outerRegionX ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionY ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionWidth ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionHeight ?? 0, privacy: .public) wholeWindowCopyRect=\(scrollDiagnostics.wholeWindowCopyRect, privacy: .public)")
-                        } else {
-                            logger.notice("owned graphics scroll-region fallback=hevc reason=before-lock regionStable=false regionSource=none regionRect=0,0,0,0")
-                        }
+                    if scrollRegionTracker.releaseIfMissingCandidate(scrollRegionCandidate) {
+                        logger.notice("owned graphics scroll-region source=none stable=false rect=0,0,0,0 overlap=0 reason=missing-focus")
                     }
-                case .reset:
-                    let envelopes = graphics.envelopes.isEmpty
-                        ? graphics.envelope.map { [$0] } ?? []
-                        : graphics.envelopes
-                    if !envelopes.isEmpty {
-                        let resetConnectionId = ObjectIdentifier(graphicsChannel.connection)
-                        do {
-                            setGraphicsRecoveryState(.resetting, reason: "reset-start")
-                            for (index, envelope) in envelopes.enumerated() {
-                                guard isActiveGraphicsConnection(resetConnectionId) else {
-                                    logger.notice("owned graphics reset abandoned reason=stale-channel frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public)")
-                                    throw OwnedGraphicsResetSendError.staleChannel(envelope.header.updateId)
-                                }
+                    let regionLocked = scrollRegionTracker.isStable(candidate: scrollRegionCandidate)
+                    scrollRegionLockPending = scrollRegionCandidate != nil && !regionLocked
+                    let probeRegion = scrollRegionCandidate?.region
+                    let graphics = scrollDeltaEngine.evaluate(
+                        frame,
+                        scrollHint: scrollHint,
+                        scrollRegion: probeRegion,
+                        scrollRegionIsStable: regionLocked,
+                        emitGraphicsBeforeRegionLock: regionLocked,
+                        allowBlindScan: allowBlindScan
+                    )
+                    switch graphics.kind {
+                    case .accepted:
+                        if let scrollRegionCandidate {
+                            let locked = scrollRegionTracker.observeValidation(
+                                candidate: scrollRegionCandidate,
+                                accepted: true
+                            )
+                            logger.notice("owned graphics scroll-region source=\(scrollRegionCandidate.region.source.diagnosticName, privacy: .public) stable=\(locked != nil, privacy: .public) rect=\(scrollRegionCandidate.region.x, privacy: .public),\(scrollRegionCandidate.region.y, privacy: .public),\(scrollRegionCandidate.region.width, privacy: .public),\(scrollRegionCandidate.region.height, privacy: .public) accepts=\(scrollRegionCandidate.region.stability.stableFrameCount, privacy: .public) reason=validated")
+                        }
+                        if let envelope = graphics.envelope {
+                            do {
                                 let encodedBytes = try await graphicsChannel.send(envelope)
                                 noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
-                                logger.notice("owned graphics reset stripe sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) stripe=\(index + 1, privacy: .public) stripes=\(envelopes.count, privacy: .public) commands=\(envelope.commands.count, privacy: .public) bytes=\(envelope.payload.count, privacy: .public) maxDecodedBytes=\(Config.hybridResetStripeMaxDecodedBytes, privacy: .public)")
-                                let acked = await graphicsAckWaiter.wait(
-                                    for: envelope.header.updateId,
-                                    timeoutMs: Config.hybridResetStripeAckTimeoutMs
-                                )
-                                if acked {
-                                    logger.notice("owned graphics reset-stripe-ack frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) stripe=\(index + 1, privacy: .public) stripes=\(envelopes.count, privacy: .public)")
-                                } else if !isActiveGraphicsConnection(resetConnectionId) {
-                                    logger.notice("owned graphics reset wait abandoned reason=stale-channel frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public)")
-                                    throw OwnedGraphicsResetSendError.staleChannel(envelope.header.updateId)
+                                scrollDeltaEngine.commitPendingSurface()
+                                let nowNs = DispatchTime.now().uptimeNanoseconds
+                                if let scrollDiagnostics = graphics.diagnostics,
+                                   let ownershipUpdate = Self.scrollOwnershipUpdate(
+                                    diagnostics: scrollDiagnostics,
+                                    frameId: envelope.header.frameId,
+                                    nowUptimeNs: nowNs
+                                   ) {
+                                    scrollCopyOwnership.observeAccepted(
+                                        axis: ownershipUpdate.axis,
+                                        sign: ownershipUpdate.sign,
+                                        offsetPx: ownershipUpdate.offsetPx,
+                                        frameId: ownershipUpdate.frameId,
+                                        nowUptimeNs: ownershipUpdate.nowUptimeNs
+                                    )
+                                    logger.notice("owned graphics scroll-ownership ownership=accepted frame=\(ownershipUpdate.frameId, privacy: .public) axis=\(ownershipUpdate.axis.rawValue, privacy: .public) offset=\(ownershipUpdate.offsetPx, privacy: .public) ttlMs=\(Config.hybridScrollOwnershipMs, privacy: .public)")
+                                }
+                                scrollHevcAdmission.noteAcceptedScroll(nowUptimeNs: nowNs)
+                                // An accepted scroll is also a scroll signal: it keeps
+                                // the fallback-HEVC hysteresis open through momentum,
+                                // when the input hint has expired but copyRects are
+                                // still landing between the rejected frames.
+                                scrollHevcAdmission.noteScrollSignal(nowUptimeNs: nowNs)
+                                scrollIdleRefreshWakeTask?.cancel()
+                                scrollIdleRefreshWakeTask = Task { [mailbox] in
+                                    try? await Task.sleep(nanoseconds: UInt64(Config.hybridScrollIdleRefreshMs) * 1_000_000)
+                                    _ = mailbox.wakeWithLatestFrame()
+                                }
+                                if let scrollDiagnostics = graphics.diagnostics {
+                                    logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) dx=\(scrollDiagnostics.acceptedDx ?? 0, privacy: .public) dy=\(scrollDiagnostics.acceptedDy ?? 0, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) acceptedBy=\(scrollDiagnostics.acceptedBy ?? "unknown", privacy: .public) tieBreak=\(scrollDiagnostics.tieBreak ?? "none", privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) payloadBuildMs=\(scrollDiagnostics.payloadBuildMs ?? 0, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public) regionStable=\(scrollDiagnostics.regionStable, privacy: .public) regionSource=\(scrollDiagnostics.regionSource ?? "none", privacy: .public) regionRect=\(scrollDiagnostics.regionX ?? 0, privacy: .public),\(scrollDiagnostics.regionY ?? 0, privacy: .public),\(scrollDiagnostics.regionWidth ?? 0, privacy: .public),\(scrollDiagnostics.regionHeight ?? 0, privacy: .public) viewportStable=\(scrollDiagnostics.viewportStable, privacy: .public) viewportSource=\(scrollDiagnostics.viewportSource ?? "none", privacy: .public) viewportRect=\(scrollDiagnostics.viewportX ?? 0, privacy: .public),\(scrollDiagnostics.viewportY ?? 0, privacy: .public),\(scrollDiagnostics.viewportWidth ?? 0, privacy: .public),\(scrollDiagnostics.viewportHeight ?? 0, privacy: .public) outerRegionRect=\(scrollDiagnostics.outerRegionX ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionY ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionWidth ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionHeight ?? 0, privacy: .public) fullSurfaceCopyRect=\(scrollDiagnostics.fullSurfaceCopyRect, privacy: .public) wholeWindowCopyRect=\(scrollDiagnostics.wholeWindowCopyRect, privacy: .public)")
                                 } else {
-                                    throw OwnedGraphicsResetSendError.ackTimeout(envelope.header.updateId)
+                                    logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
+                                }
+                                switch scrollHevcAdmission.decisionAfterAcceptedScroll(
+                                    nowUptimeNs: nowNs,
+                                    scrollHEVCFps: Config.hybridScrollHEVCFps
+                                ) {
+                                case .suppress:
+                                    diagnostics.noteAdmissionHold(reason: "graphics-scroll-suppressed-hevc", mode: currentAdmissionMode())
+                                    continue
+                                case .rateLimited:
+                                    diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-cadence", mode: currentAdmissionMode())
+                                    continue
+                                case .allow:
+                                    break
+                                }
+                            } catch {
+                                logger.error("owned graphics scroll send failed: \(String(describing: error), privacy: .public)")
+                                if isActiveGraphicsConnection(ObjectIdentifier(graphicsChannel.connection)) {
+                                    graphicsChannel.close()
+                                    setGraphicsRecoveryState(.failedCoolingDown, reason: "scroll-send-failed")
+                                }
+                                hevcFallbackReason = .graphicsSendFailed
+                            }
+                        } else {
+                            hevcFallbackReason = .scrollRegionBeforeLock
+                            if let scrollDiagnostics = graphics.diagnostics {
+                                logger.notice("owned graphics scroll-region fallback=hevc reason=before-lock regionStable=\(scrollDiagnostics.regionStable, privacy: .public) regionSource=\(scrollDiagnostics.regionSource ?? "none", privacy: .public) regionRect=\(scrollDiagnostics.regionX ?? 0, privacy: .public),\(scrollDiagnostics.regionY ?? 0, privacy: .public),\(scrollDiagnostics.regionWidth ?? 0, privacy: .public),\(scrollDiagnostics.regionHeight ?? 0, privacy: .public) viewportStable=\(scrollDiagnostics.viewportStable, privacy: .public) viewportSource=\(scrollDiagnostics.viewportSource ?? "none", privacy: .public) viewportRect=\(scrollDiagnostics.viewportX ?? 0, privacy: .public),\(scrollDiagnostics.viewportY ?? 0, privacy: .public),\(scrollDiagnostics.viewportWidth ?? 0, privacy: .public),\(scrollDiagnostics.viewportHeight ?? 0, privacy: .public) outerRegionRect=\(scrollDiagnostics.outerRegionX ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionY ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionWidth ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionHeight ?? 0, privacy: .public) wholeWindowCopyRect=\(scrollDiagnostics.wholeWindowCopyRect, privacy: .public)")
+                            } else {
+                                logger.notice("owned graphics scroll-region fallback=hevc reason=before-lock regionStable=false regionSource=none regionRect=0,0,0,0")
+                            }
+                        }
+                    case .reset:
+                        let envelopes = graphics.envelopes.isEmpty
+                            ? graphics.envelope.map { [$0] } ?? []
+                            : graphics.envelopes
+                        if !envelopes.isEmpty {
+                            let resetConnectionId = ObjectIdentifier(graphicsChannel.connection)
+                            do {
+                                setGraphicsRecoveryState(.resetting, reason: "reset-start")
+                                for (index, envelope) in envelopes.enumerated() {
+                                    guard isActiveGraphicsConnection(resetConnectionId) else {
+                                        logger.notice("owned graphics reset abandoned reason=stale-channel frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public)")
+                                        throw OwnedGraphicsResetSendError.staleChannel(envelope.header.updateId)
+                                    }
+                                    let encodedBytes = try await graphicsChannel.send(envelope)
+                                    noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
+                                    logger.notice("owned graphics reset stripe sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) stripe=\(index + 1, privacy: .public) stripes=\(envelopes.count, privacy: .public) commands=\(envelope.commands.count, privacy: .public) bytes=\(envelope.payload.count, privacy: .public) maxDecodedBytes=\(Config.hybridResetStripeMaxDecodedBytes, privacy: .public)")
+                                    let acked = await graphicsAckWaiter.wait(
+                                        for: envelope.header.updateId,
+                                        timeoutMs: Config.hybridResetStripeAckTimeoutMs
+                                    )
+                                    if acked {
+                                        logger.notice("owned graphics reset-stripe-ack frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) stripe=\(index + 1, privacy: .public) stripes=\(envelopes.count, privacy: .public)")
+                                    } else if !isActiveGraphicsConnection(resetConnectionId) {
+                                        logger.notice("owned graphics reset wait abandoned reason=stale-channel frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public)")
+                                        throw OwnedGraphicsResetSendError.staleChannel(envelope.header.updateId)
+                                    } else {
+                                        throw OwnedGraphicsResetSendError.ackTimeout(envelope.header.updateId)
+                                    }
+                                }
+                                scrollDeltaEngine.commitPendingSurface()
+                                clearPendingGraphicsResetRequest()
+                                setGraphicsRecoveryState(.idle, reason: "reset-complete")
+                                if let first = envelopes.first, let last = envelopes.last {
+                                    logger.notice("owned graphics reset frame=\(first.header.frameId, privacy: .public) generation=\(first.header.surfaceGeneration, privacy: .public) stripes=\(envelopes.count, privacy: .public) lastFrame=\(last.header.frameId, privacy: .public)")
+                                    logger.notice("owned graphics reset sent frame=\(last.header.frameId, privacy: .public) generation=\(last.header.surfaceGeneration, privacy: .public) stripes=\(envelopes.count, privacy: .public)")
+                                }
+                                continue
+                            } catch let error as OwnedGraphicsResetSendError {
+                                logger.error("owned graphics reset send failed: \(String(describing: error), privacy: .public)")
+                                switch error {
+                                case .ackTimeout(let updateId):
+                                    logger.error("owned graphics reset-stripe-ack-timeout frame=\(updateId.frameId, privacy: .public) generation=\(updateId.surfaceGeneration, privacy: .public) timeoutMs=\(Config.hybridResetStripeAckTimeoutMs, privacy: .public)")
+                                case .staleChannel(let updateId):
+                                    logger.notice("owned graphics reset stale-channel ignored frame=\(updateId.frameId, privacy: .public) generation=\(updateId.surfaceGeneration, privacy: .public)")
+                                }
+                                guard isActiveGraphicsConnection(resetConnectionId) else {
+                                    continue
+                                }
+                                graphicsChannel.close()
+                                setGraphicsRecoveryState(.failedCoolingDown, reason: "reset-ack-timeout")
+                                hevcFallbackReason = .graphicsResetSendFailed
+                            } catch {
+                                logger.error("owned graphics reset send failed: \(String(describing: error), privacy: .public)")
+                                guard isActiveGraphicsConnection(resetConnectionId) else {
+                                    continue
+                                }
+                                graphicsChannel.close()
+                                setGraphicsRecoveryState(.failedCoolingDown, reason: "reset-send-failed")
+                                hevcFallbackReason = .graphicsResetSendFailed
+                            }
+                        }
+                    case .timeout:
+                        hevcFallbackReason = .scrollTimeout
+                        if let scrollRegionCandidate {
+                            _ = scrollRegionTracker.observeValidation(candidate: scrollRegionCandidate, accepted: false)
+                            logger.notice("owned graphics scroll-region source=\(scrollRegionCandidate.region.source.diagnosticName, privacy: .public) stable=false rect=\(scrollRegionCandidate.region.x, privacy: .public),\(scrollRegionCandidate.region.y, privacy: .public),\(scrollRegionCandidate.region.width, privacy: .public),\(scrollRegionCandidate.region.height, privacy: .public) reason=timeout")
+                        }
+                        if let scrollDiagnostics = graphics.diagnostics {
+                            if scrollHint != nil {
+                                scrollCopyOwnership.observeMiss(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
+                                logger.notice("owned graphics scroll-ownership ownership=miss source=\(scrollDiagnostics.hintSource ?? "unknown", privacy: .public) misses=\(scrollCopyOwnership.missCount, privacy: .public) fallbackAllowed=\(scrollCopyOwnership.allowsHevcFallback(nowUptimeNs: DispatchTime.now().uptimeNanoseconds), privacy: .public)")
+                            }
+                            if scrollDiagnostics.hintActive {
+                                logger.notice("owned graphics scroll-hint-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                                let nowNs = DispatchTime.now().uptimeNanoseconds
+                                // Liveness floor: when a scroll is in progress, do not
+                                // hard-drop this frame. copyRect carries the motion when
+                                // it accepts; for the frames it cannot copy, the floor
+                                // admits a rate-limited full HEVC frame so the screen
+                                // never freezes (R74). The floor yields to recent
+                                // copyRect, so it only fills gaps.
+                                let scrollInProgress = scrollDiagnostics.hintActive
+                                    || scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs)
+                                if scrollInProgress,
+                                   !scrollHevcAdmission.admitScrollFloorHEVC(nowUptimeNs: nowNs, floorFps: Config.hybridScrollFallbackHEVCFps) {
+                                    diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-floor", mode: currentAdmissionMode())
+                                    continue
+                                }
+                            } else {
+                                logger.notice("owned graphics scroll-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                                let nowNs = DispatchTime.now().uptimeNanoseconds
+                                if scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs),
+                                   !scrollHevcAdmission.admitScrollFloorHEVC(nowUptimeNs: nowNs, floorFps: Config.hybridScrollFallbackHEVCFps) {
+                                    diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-floor", mode: currentAdmissionMode())
+                                    continue
                                 }
                             }
-                            scrollDeltaEngine.commitPendingSurface()
-                            clearPendingGraphicsResetRequest()
-                            setGraphicsRecoveryState(.idle, reason: "reset-complete")
-                            if let first = envelopes.first, let last = envelopes.last {
-                                logger.notice("owned graphics reset frame=\(first.header.frameId, privacy: .public) generation=\(first.header.surfaceGeneration, privacy: .public) stripes=\(envelopes.count, privacy: .public) lastFrame=\(last.header.frameId, privacy: .public)")
-                                logger.notice("owned graphics reset sent frame=\(last.header.frameId, privacy: .public) generation=\(last.header.surfaceGeneration, privacy: .public) stripes=\(envelopes.count, privacy: .public)")
-                            }
-                            continue
-                        } catch let error as OwnedGraphicsResetSendError {
-                            logger.error("owned graphics reset send failed: \(String(describing: error), privacy: .public)")
-                            switch error {
-                            case .ackTimeout(let updateId):
-                                logger.error("owned graphics reset-stripe-ack-timeout frame=\(updateId.frameId, privacy: .public) generation=\(updateId.surfaceGeneration, privacy: .public) timeoutMs=\(Config.hybridResetStripeAckTimeoutMs, privacy: .public)")
-                            case .staleChannel(let updateId):
-                                logger.notice("owned graphics reset stale-channel ignored frame=\(updateId.frameId, privacy: .public) generation=\(updateId.surfaceGeneration, privacy: .public)")
-                            }
-                            guard isActiveGraphicsConnection(resetConnectionId) else {
-                                continue
-                            }
-                            graphicsChannel.close()
-                            setGraphicsRecoveryState(.failedCoolingDown, reason: "reset-ack-timeout")
-                            hevcFallbackReason = .graphicsResetSendFailed
-                        } catch {
-                            logger.error("owned graphics reset send failed: \(String(describing: error), privacy: .public)")
-                            guard isActiveGraphicsConnection(resetConnectionId) else {
-                                continue
-                            }
-                            graphicsChannel.close()
-                            setGraphicsRecoveryState(.failedCoolingDown, reason: "reset-send-failed")
-                            hevcFallbackReason = .graphicsResetSendFailed
-                        }
-                    }
-                case .timeout:
-                    hevcFallbackReason = .scrollTimeout
-                    if let scrollRegionCandidate {
-                        _ = scrollRegionTracker.observeValidation(candidate: scrollRegionCandidate, accepted: false)
-                        logger.notice("owned graphics scroll-region source=\(scrollRegionCandidate.region.source.diagnosticName, privacy: .public) stable=false rect=\(scrollRegionCandidate.region.x, privacy: .public),\(scrollRegionCandidate.region.y, privacy: .public),\(scrollRegionCandidate.region.width, privacy: .public),\(scrollRegionCandidate.region.height, privacy: .public) reason=timeout")
-                    }
-                    if let scrollDiagnostics = graphics.diagnostics {
-                        if scrollHint != nil {
-                            scrollCopyOwnership.observeMiss(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
-                            logger.notice("owned graphics scroll-ownership ownership=miss source=\(scrollDiagnostics.hintSource ?? "unknown", privacy: .public) misses=\(scrollCopyOwnership.missCount, privacy: .public) fallbackAllowed=\(scrollCopyOwnership.allowsHevcFallback(nowUptimeNs: DispatchTime.now().uptimeNanoseconds), privacy: .public)")
-                        }
-                        if scrollDiagnostics.hintActive {
-                            logger.notice("owned graphics scroll-hint-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                        } else {
+                            logger.notice("owned graphics scroll-timeout")
                             let nowNs = DispatchTime.now().uptimeNanoseconds
-                            // Liveness floor: when a scroll is in progress, do not
-                            // hard-drop this frame. copyRect carries the motion when
-                            // it accepts; for the frames it cannot copy, the floor
-                            // admits a rate-limited full HEVC frame so the screen
-                            // never freezes (R74). The floor yields to recent
-                            // copyRect, so it only fills gaps.
+                            if scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs),
+                               !scrollHevcAdmission.admitScrollFloorHEVC(nowUptimeNs: nowNs, floorFps: Config.hybridScrollFallbackHEVCFps) {
+                                diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-floor", mode: currentAdmissionMode())
+                                continue
+                            }
+                        }
+                    case .rejected(let reason):
+                        hevcFallbackReason = .rejectedMotion
+                        if let scrollRegionCandidate {
+                            _ = scrollRegionTracker.observeValidation(candidate: scrollRegionCandidate, accepted: false)
+                            logger.notice("owned graphics scroll-region source=\(scrollRegionCandidate.region.source.diagnosticName, privacy: .public) stable=false rect=\(scrollRegionCandidate.region.x, privacy: .public),\(scrollRegionCandidate.region.y, privacy: .public),\(scrollRegionCandidate.region.width, privacy: .public),\(scrollRegionCandidate.region.height, privacy: .public) reason=rejected")
+                        }
+                        if let scrollDiagnostics = graphics.diagnostics {
+                            if scrollHint != nil {
+                                scrollCopyOwnership.observeMiss(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
+                                logger.notice("owned graphics scroll-ownership ownership=miss source=\(scrollDiagnostics.hintSource ?? "unknown", privacy: .public) misses=\(scrollCopyOwnership.missCount, privacy: .public) fallbackAllowed=\(scrollCopyOwnership.allowsHevcFallback(nowUptimeNs: DispatchTime.now().uptimeNanoseconds), privacy: .public)")
+                            }
+                            logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                            // The graphics path could not copyRect this frame, but a
+                            // scroll may be in progress. A full HEVC frame for every such
+                            // frame at capture rate floods the client (the client cannot
+                            // composite copyRect plus a full HEVC frame inside the frame
+                            // budget), but hard-suppressing HEVC (the prior design) froze
+                            // the screen whenever copyRect could not carry the motion
+                            // either (R74). The liveness floor resolves both: it admits a
+                            // rate-limited full HEVC frame only when copyRect has not
+                            // refreshed the screen within the floor interval, so copyRect
+                            // carries motion when it can and HEVC fills the gaps. It also
+                            // subsumes the old ownership suppression: ownership means
+                            // copyRect should carry the region, but if it is not actually
+                            // refreshing, the floor still updates the screen. The floor
+                            // covers momentum because withinScrollHysteresis stays open
+                            // after the input hint expires.
+                            let nowNs = DispatchTime.now().uptimeNanoseconds
                             let scrollInProgress = scrollDiagnostics.hintActive
                                 || scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs)
                             if scrollInProgress,
@@ -1199,7 +1260,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                                 continue
                             }
                         } else {
-                            logger.notice("owned graphics scroll-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                            logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public)")
                             let nowNs = DispatchTime.now().uptimeNanoseconds
                             if scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs),
                                !scrollHevcAdmission.admitScrollFloorHEVC(nowUptimeNs: nowNs, floorFps: Config.hybridScrollFallbackHEVCFps) {
@@ -1207,60 +1268,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                                 continue
                             }
                         }
-                    } else {
-                        logger.notice("owned graphics scroll-timeout")
-                        let nowNs = DispatchTime.now().uptimeNanoseconds
-                        if scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs),
-                           !scrollHevcAdmission.admitScrollFloorHEVC(nowUptimeNs: nowNs, floorFps: Config.hybridScrollFallbackHEVCFps) {
-                            diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-floor", mode: currentAdmissionMode())
-                            continue
-                        }
                     }
-                case .rejected(let reason):
-                    hevcFallbackReason = .rejectedMotion
-                    if let scrollRegionCandidate {
-                        _ = scrollRegionTracker.observeValidation(candidate: scrollRegionCandidate, accepted: false)
-                        logger.notice("owned graphics scroll-region source=\(scrollRegionCandidate.region.source.diagnosticName, privacy: .public) stable=false rect=\(scrollRegionCandidate.region.x, privacy: .public),\(scrollRegionCandidate.region.y, privacy: .public),\(scrollRegionCandidate.region.width, privacy: .public),\(scrollRegionCandidate.region.height, privacy: .public) reason=rejected")
-                    }
-                    if let scrollDiagnostics = graphics.diagnostics {
-                        if scrollHint != nil {
-                            scrollCopyOwnership.observeMiss(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
-                            logger.notice("owned graphics scroll-ownership ownership=miss source=\(scrollDiagnostics.hintSource ?? "unknown", privacy: .public) misses=\(scrollCopyOwnership.missCount, privacy: .public) fallbackAllowed=\(scrollCopyOwnership.allowsHevcFallback(nowUptimeNs: DispatchTime.now().uptimeNanoseconds), privacy: .public)")
-                        }
-                        logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
-                        // The graphics path could not copyRect this frame, but a
-                        // scroll may be in progress. A full HEVC frame for every such
-                        // frame at capture rate floods the client (the client cannot
-                        // composite copyRect plus a full HEVC frame inside the frame
-                        // budget), but hard-suppressing HEVC (the prior design) froze
-                        // the screen whenever copyRect could not carry the motion
-                        // either (R74). The liveness floor resolves both: it admits a
-                        // rate-limited full HEVC frame only when copyRect has not
-                        // refreshed the screen within the floor interval, so copyRect
-                        // carries motion when it can and HEVC fills the gaps. It also
-                        // subsumes the old ownership suppression: ownership means
-                        // copyRect should carry the region, but if it is not actually
-                        // refreshing, the floor still updates the screen. The floor
-                        // covers momentum because withinScrollHysteresis stays open
-                        // after the input hint expires.
-                        let nowNs = DispatchTime.now().uptimeNanoseconds
-                        let scrollInProgress = scrollDiagnostics.hintActive
-                            || scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs)
-                        if scrollInProgress,
-                           !scrollHevcAdmission.admitScrollFloorHEVC(nowUptimeNs: nowNs, floorFps: Config.hybridScrollFallbackHEVCFps) {
-                            diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-floor", mode: currentAdmissionMode())
-                            continue
-                        }
-                    } else {
-                        logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public)")
-                        let nowNs = DispatchTime.now().uptimeNanoseconds
-                        if scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs),
-                           !scrollHevcAdmission.admitScrollFloorHEVC(nowUptimeNs: nowNs, floorFps: Config.hybridScrollFallbackHEVCFps) {
-                            diagnostics.noteAdmissionHold(reason: "graphics-scroll-hevc-floor", mode: currentAdmissionMode())
-                            continue
-                        }
-                    }
-                }
+                } // end graphicsDecision.shouldBuildCommands
             } else {
                 hevcFallbackReason = .graphicsDisconnected
             }
