@@ -314,6 +314,14 @@ enum Config {
         defaultValue: true,
         environment: ProcessInfo.processInfo.environment
     )
+    // ADR-0021: damage is emitted as tiles snapped to a fixed grid in surface
+    // pixel space. A fixed cell size bounds per-tile bytes and gives each tile a
+    // stable identity for a future content-hash cache, instead of one
+    // variable-size tile over the whole damage union.
+    static let hybridTileGridPx = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_TILE_GRID_PX",
+        defaultValue: 128
+    )
     static let hybridScrollOwnershipMs = nonNegativeInt(
         environmentKey: "AGENTDESK_HYBRID_SCROLL_OWNERSHIP_MS",
         defaultValue: 500

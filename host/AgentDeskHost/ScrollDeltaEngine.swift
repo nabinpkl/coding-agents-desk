@@ -3,6 +3,52 @@ import CoreImage
 import CoreVideo
 import Foundation
 
+// Snaps a damage rect list to a fixed grid in surface pixel space (H2). Each
+// grid cell overlapped by any damage rect becomes one tile, clipped to the
+// surface bounds. Fixed cells bound per-tile size and give a stable tile
+// identity for a future content-hash cache, instead of one variable-size tile
+// over the damage union.
+enum TileGrid {
+    static func cells(
+        covering damage: [PixelRect],
+        surfaceWidth: Int,
+        surfaceHeight: Int,
+        gridPx: Int
+    ) -> [PixelRect] {
+        guard gridPx > 0, surfaceWidth > 0, surfaceHeight > 0 else { return [] }
+        let columns = surfaceWidth / gridPx + 1
+        var seen = Set<Int>()
+        var out: [PixelRect] = []
+        for rect in damage {
+            let cx0 = (max(0, rect.x) / gridPx) * gridPx
+            let cy0 = (max(0, rect.y) / gridPx) * gridPx
+            let cx1 = min(surfaceWidth, rect.maxX)
+            let cy1 = min(surfaceHeight, rect.maxY)
+            var gy = cy0
+            while gy < cy1 {
+                var gx = cx0
+                while gx < cx1 {
+                    let key = (gy / gridPx) * columns + (gx / gridPx)
+                    if seen.insert(key).inserted {
+                        // Clip the cell to the overlapped damage extent (cx1/cy1),
+                        // which is already bounded by the surface. A partial edge
+                        // cell carries only the damaged pixels, not the whole
+                        // grid square of unchanged content.
+                        let w = min(gx + gridPx, cx1) - gx
+                        let h = min(gy + gridPx, cy1) - gy
+                        if w > 0 && h > 0 {
+                            out.append(PixelRect(x: gx, y: gy, width: w, height: h))
+                        }
+                    }
+                    gx += gridPx
+                }
+                gy += gridPx
+            }
+        }
+        return out
+    }
+}
+
 enum ScrollDeltaKind: Equatable {
     case reset
     case accepted
@@ -192,6 +238,8 @@ struct ScrollDeltaEngine {
     // live until a device run validates this one.
     private let useDamageClassifier: Bool
     private let damageClassifier: DamageScrollClassifier
+    // Fixed grid cell size in surface pixels for damage tile emission (H2).
+    private let tileGridPx: Int
 
     init(
         detectionBudgetMs: Double = 4.0,
@@ -199,7 +247,8 @@ struct ScrollDeltaEngine {
         maxWireResetStripeBytes: Int = Self.defaultMaxWireResetStripeBytes,
         viewportConfig: ScrollViewportConfig = .default,
         useDamageClassifier: Bool = false,
-        damageClassifier: DamageScrollClassifier = DamageScrollClassifier()
+        damageClassifier: DamageScrollClassifier = DamageScrollClassifier(),
+        tileGridPx: Int = Config.hybridTileGridPx
     ) {
         self.detectionBudgetMs = detectionBudgetMs
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
@@ -207,6 +256,7 @@ struct ScrollDeltaEngine {
         self.viewportTracker = ScrollViewportTracker(config: viewportConfig)
         self.useDamageClassifier = useDamageClassifier
         self.damageClassifier = damageClassifier
+        self.tileGridPx = max(1, tileGridPx)
     }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
@@ -905,35 +955,50 @@ struct ScrollDeltaEngine {
         }
     }
 
-    // Single bitmap tile covering the union of the damage rects. Sub-rect,
+    // One bitmap tile per fixed grid cell overlapped by the damage rects (H2).
+    // Snapping to a fixed grid bounds per-tile size and gives each tile a stable
+    // identity for a future content-hash cache, instead of one variable-size
+    // tile over the damage union. Each cell's BGRA is LZFSE-compressed and
+    // appended to a single envelope payload with its own byteRange. Sub-rect,
     // non-full-width tiles are already exercised by the scroll exposed-strip
-    // path, so this stays within proven wire semantics. The union may include
-    // unchanged pixels between scattered rects, but those equal the current
-    // frame anyway, so the client surface is still correct.
+    // path, so this stays within proven wire semantics.
     private func makeTileEnvelope(current: Surface, rects: [PixelRect], capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
-        guard let union = PixelRect.union(of: rects)?.clamped(toWidth: current.width, height: current.height),
-              union.area > 0,
-              let tile = tileData(surface: current, x: union.x, y: union.y, width: union.width, height: union.height),
-              let compressed = compressLZFSE(tile) else { return nil }
+        let cells = TileGrid.cells(
+            covering: rects,
+            surfaceWidth: current.width,
+            surfaceHeight: current.height,
+            gridPx: tileGridPx
+        )
+        guard !cells.isEmpty else { return nil }
+        var commands: [OwnedGraphicsCommand] = []
+        var payload = Data()
+        for cell in cells {
+            guard cell.area > 0,
+                  let tile = tileData(surface: current, x: cell.x, y: cell.y, width: cell.width, height: cell.height),
+                  let compressed = compressLZFSE(tile) else { return nil }
+            commands.append(
+                .bitmapTile(
+                    x: cell.x,
+                    y: cell.y,
+                    width: cell.width,
+                    height: cell.height,
+                    compression: .lzfse,
+                    byteRange: OwnedGraphicsByteRange(offset: payload.count, length: compressed.count)
+                )
+            )
+            payload.append(compressed)
+        }
+        guard !commands.isEmpty else { return nil }
         return OwnedGraphicsFrameEnvelope(
             header: OwnedGraphicsFrameHeader(
                 surfaceGeneration: surfaceGeneration,
                 frameId: graphicsFrameId,
                 capturedAtUptimeNs: capturedAtUptimeNs,
-                commandCount: 1,
-                payloadLength: compressed.count
+                commandCount: commands.count,
+                payloadLength: payload.count
             ),
-            commands: [
-                .bitmapTile(
-                    x: union.x,
-                    y: union.y,
-                    width: union.width,
-                    height: union.height,
-                    compression: .lzfse,
-                    byteRange: OwnedGraphicsByteRange(offset: 0, length: compressed.count)
-                )
-            ],
-            payload: compressed
+            commands: commands,
+            payload: payload
         )
     }
 
