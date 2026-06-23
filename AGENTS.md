@@ -68,6 +68,16 @@ When in doubt about which direction a code path should produce, the test is: fin
 - Tests are written for **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView** (see `SPEC.md` for why these five). `SpacesProvider`'s smoke test runs against the live SkyLight binding and is the canary for private-API surface drift across macOS versions. Other modules get tests when a bug demands one.
 - Domain glossary terms (`Space`, `Display`, `NormalizedInput`, `DesktopState`, `SessionToken`, `PairingPayload`) are stable. Renames require an ADR.
 
+## Versioning
+
+The two iOS/macOS version fields are independent by design; do not conflate them.
+
+- **Marketing version** (`CFBundleShortVersionString`, `x.x.x`) is the user-facing **semver** label. Bump it **per release, not per build**: MAJOR for an incompatible change, MINOR for a new feature, PATCH for a bug fix. The recurring mistake is leaving it pinned across several distinct shipped changes, so the rule is: **before any TestFlight upload that ships a change, bump the marketing version** (fix -> patch, feature -> minor). It lives in one place (`client_marketing_version` in the `Justfile`); edit that, do not hardcode versions in Info.plist.
+- **Build number** (`CFBundleVersion`) is an independent incrementing integer with no relationship to the marketing version. It is the git commit count (`git rev-list --count HEAD`), which auto-increments per upload and maps to a commit. App Store requires it to be numeric and strictly increasing, so a hex sha cannot live here.
+- **Exact build identity** is the short git sha, embedded via the `AgentDeskGitSHA` Info.plist key (injected as a build setting) and shown in-app (host popover footer, client unpaired screen). A build reads as `v1.2.0 (380) f0c24cf`: semver version, build number, commit.
+- **Host and client version independently.** They are separate apps on separate release cadences (the Mac host is local, the iOS client ships via TestFlight); a host change does not require a client bump or vice versa. The compatibility contract between them is the **wire protocol, not the app version**: a breaking wire change is governed by an explicit protocol version negotiated at the handshake (advertise supported versions, agree on one or fail with a clear "update required"), bumped only on breaking changes. Matching marketing versions across host and client is not a compatibility signal and must not be relied on as one.
+- History: `1.1.0` = Mac-initiated pairing (ADR-0019); `1.2.0` = live tailnet device discovery (R55).
+
 ## Agent-run device sessions
 
 - When an agent launches the physical iPhone for exploratory media, transport, scroll, decode, or gesture feel work, use an attached console launch by default: `just iphone-console-run`.
