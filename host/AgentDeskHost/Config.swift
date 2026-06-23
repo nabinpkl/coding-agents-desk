@@ -322,6 +322,14 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_TILE_GRID_PX",
         defaultValue: 128
     )
+    // ADR-0021: backpressure is a simple in-flight cap. The producer holds at
+    // most this many unacked graphics frames before it stalls. Stalled frames
+    // coalesce in the mailbox, so the next produced frame carries the freshest
+    // damage. This replaces the admission/floor/hysteresis/severe-mode layer.
+    static let hybridMaxUnackedFrames = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_MAX_UNACKED_FRAMES",
+        defaultValue: 2
+    )
     static let hybridScrollOwnershipMs = nonNegativeInt(
         environmentKey: "AGENTDESK_HYBRID_SCROLL_OWNERSHIP_MS",
         defaultValue: 500

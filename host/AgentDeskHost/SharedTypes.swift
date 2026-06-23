@@ -1991,6 +1991,36 @@ final class OwnedGraphicsAckWaiter: @unchecked Sendable {
     }
 }
 
+// ADR-0021: single-channel backpressure. The producer holds at most
+// `maxUnacked` graphics frames in flight (sent but not yet acked). In flight is
+// the gap between the highest sent frameId and the highest acked frameId. Acks
+// can arrive out of order or be dropped, so both watermarks only advance, never
+// retreat. When at the cap the pump stalls and the mailbox coalesces dirtyRects
+// into the next frame. This replaces the admission/floor/hysteresis/severe-mode
+// layer (the OwnedGraphicsAdmission types are deleted in a later task).
+struct GraphicsBackpressure {
+    let maxUnacked: Int
+    private var lastSent: UInt64 = 0
+    private var lastAcked: UInt64 = 0
+
+    init(maxUnacked: Int) {
+        self.maxUnacked = max(maxUnacked, 1)
+    }
+
+    var inFlight: Int { Int(lastSent &- lastAcked) }
+    func canProduce() -> Bool { inFlight < maxUnacked }
+    mutating func noteSent(frameId: UInt64) { lastSent = max(lastSent, frameId) }
+    mutating func noteAck(frameId: UInt64) { lastAcked = max(lastAcked, frameId) }
+
+    // A new connection or a surface reset drops every prior in-flight frame on
+    // the floor: it will never be acked. Collapse both watermarks so the cap
+    // starts clean instead of staying stuck above the limit forever.
+    mutating func reset() {
+        lastSent = 0
+        lastAcked = 0
+    }
+}
+
 enum OwnedGraphicsAdmissionMode: Equatable {
     case normal
     case behind

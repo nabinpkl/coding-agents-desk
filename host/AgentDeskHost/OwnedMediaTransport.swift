@@ -444,6 +444,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var encodePumpTask: Task<Void, Never>?
     private var admission = OwnedMediaEncodeAdmission()
     private var graphicsAdmission = OwnedGraphicsAdmission()
+    private var graphicsBackpressure = GraphicsBackpressure(maxUnacked: Config.hybridMaxUnackedFrames)
     private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?
     private var graphicsRecoveryState: HybridGraphicsRecoveryState = .idle
     private var graphicsRecoveryHEVCGate = HybridGraphicsRecoveryHEVCGate()
@@ -749,6 +750,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             if wasActive {
                 activeGraphicsConnectionId = nil
                 graphicsAdmission.reset(config: Self.graphicsAdmissionConfig())
+                graphicsBackpressure.reset()
                 if graphicsRecoveryState != .failedCoolingDown {
                     graphicsRecoveryState = .reconnecting
                 }
@@ -774,6 +776,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             latestPendingGraphicsConnectionId = nil
             activeGraphicsConnectionId = id
             graphicsAdmission.reset(config: Self.graphicsAdmissionConfig())
+            graphicsBackpressure.reset()
             graphicsRecoveryState = pendingGraphicsResetRequest == nil ? .idle : .reconnecting
             return (previousChannels, previousConnections)
         }
@@ -988,20 +991,15 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     hevcFallbackReason = .graphicsReset
                     logger.notice("owned graphics reset consumed by encode pump")
                 }
-                let graphicsDecision = graphicsAdmissionDecision(allowsReset: pendingReset != nil)
-                if !graphicsDecision.shouldBuildCommands {
-                    // The reliable graphics channel is backpressured: a large frame
-                    // is in flight unacked (a full-surface tile or reset push), so the
-                    // severe fence holds further graphics commands. Do NOT skip the
-                    // frame. HEVC is an independent datagram channel; falling through
-                    // to it keeps the screen alive while the reliable channel drains.
-                    // The prior `continue` froze BOTH channels for as long as the
-                    // unacked graphics frame took to ack, which on a 668KB tile was
-                    // tens of seconds (R74: 30s renderGaps with the screen frozen).
-                    diagnostics.noteAdmissionHold(reason: graphicsDecision.reason, mode: currentAdmissionMode())
-                    logger.notice("owned graphics admission-hold mode=\(String(describing: graphicsDecision.mode), privacy: .public) reason=\(graphicsDecision.reason ?? "unknown", privacy: .public) unackedFrames=\(graphicsDecision.unackedFrames, privacy: .public) unackedBytes=\(graphicsDecision.unackedBytes, privacy: .public) hevcFallthrough=true")
-                    hevcFallbackReason = .graphicsSendFailed
-                    retainedGraphicsAvailable = false
+                if !graphicsBackpressureCanProduce() {
+                    // ADR-0021: at the unacked-frame cap. Hold this frame entirely.
+                    // The mailbox coalesces dirtyRects while stalled, so the next
+                    // produced frame carries the freshest damage. The single
+                    // reliable channel provides backpressure; there is no HEVC
+                    // channel to fall through to.
+                    diagnostics.noteAdmissionHold(reason: "backpressure-cap", mode: currentAdmissionMode())
+                    logger.notice("owned graphics backpressure-hold reason=unacked-cap maxUnacked=\(Config.hybridMaxUnackedFrames, privacy: .public)")
+                    continue
                 } else {
                     let nowBeforeProbe = DispatchTime.now().uptimeNanoseconds
                     let probeInputScrollHint = scrollActivityHintProvider()
@@ -1685,52 +1683,45 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         }
     }
 
-    private func graphicsAdmissionDecision(allowsReset: Bool) -> OwnedGraphicsAdmissionDecision {
+    private func graphicsBackpressureCanProduce() -> Bool {
         lock.withLock {
-            graphicsAdmission.decision(allowsReset: allowsReset, config: Self.graphicsAdmissionConfig())
+            graphicsBackpressure.canProduce()
         }
     }
 
     private func noteGraphicsFrameSent(_ envelope: OwnedGraphicsFrameEnvelope, encodedBytes: Int) {
-        let snapshot = lock.withLock {
-            graphicsAdmission.noteSent(
-                updateId: envelope.header.updateId,
-                encodedBytes: encodedBytes,
-                config: Self.graphicsAdmissionConfig()
-            )
-            return (
-                mode: graphicsAdmission.mode,
-                unackedFrames: graphicsAdmission.unackedFrameCount,
-                unackedBytes: graphicsAdmission.unackedByteCount
-            )
+        let inFlight = lock.withLock { () -> Int in
+            graphicsBackpressure.noteSent(frameId: envelope.header.frameId)
+            return graphicsBackpressure.inFlight
         }
-        logger.notice("owned graphics in-flight-sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) bytes=\(encodedBytes, privacy: .public) mode=\(String(describing: snapshot.mode), privacy: .public) unackedFrames=\(snapshot.unackedFrames, privacy: .public) unackedBytes=\(snapshot.unackedBytes, privacy: .public)")
+        logger.notice("owned graphics in-flight-sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) bytes=\(encodedBytes, privacy: .public) inFlight=\(inFlight, privacy: .public) maxUnacked=\(Config.hybridMaxUnackedFrames, privacy: .public)")
     }
 
     private func noteGraphicsFrameAck(_ ack: OwnedGraphicsFrameAck, connectionId: ObjectIdentifier) {
-        let snapshot = lock.withLock {
+        let result = lock.withLock { () -> (inFlight: Int, mailbox: LatestCapturedFrameMailbox?)? in
             guard activeGraphicsConnectionId == connectionId else {
-                return nil as (mode: OwnedGraphicsAdmissionMode, unackedFrames: Int, unackedBytes: Int)?
+                return nil
             }
             graphicsAckWaiter.noteAck(ack)
-            graphicsAdmission.noteAck(ack, config: Self.graphicsAdmissionConfig())
-            return (
-                mode: graphicsAdmission.mode,
-                unackedFrames: graphicsAdmission.unackedFrameCount,
-                unackedBytes: graphicsAdmission.unackedByteCount
-            )
+            graphicsBackpressure.noteAck(frameId: ack.frameId)
+            return (graphicsBackpressure.inFlight, frameMailbox)
         }
-        guard let snapshot else {
+        guard let result else {
             logger.notice("owned graphics stale-ack-ignored frame=\(ack.frameId, privacy: .public) generation=\(ack.surfaceGeneration, privacy: .public)")
             return
         }
-        logger.notice("owned graphics ack-applied frame=\(ack.frameId, privacy: .public) generation=\(ack.surfaceGeneration, privacy: .public) mode=\(String(describing: snapshot.mode), privacy: .public) unackedFrames=\(snapshot.unackedFrames, privacy: .public) unackedBytes=\(snapshot.unackedBytes, privacy: .public) queuedFrames=\(ack.queuedFrames, privacy: .public) queueBytes=\(ack.queueDepthBytes, privacy: .public) compositorMs=\(ack.compositorMs, privacy: .public)")
+        // An ack frees a slot in the unacked-frame cap. Wake the pump with the
+        // latest frame so a held (coalesced) frame is produced immediately
+        // instead of waiting for the next capture callback.
+        _ = result.mailbox?.wakeWithLatestFrame()
+        logger.notice("owned graphics ack-applied frame=\(ack.frameId, privacy: .public) generation=\(ack.surfaceGeneration, privacy: .public) inFlight=\(result.inFlight, privacy: .public) queuedFrames=\(ack.queuedFrames, privacy: .public) queueBytes=\(ack.queueDepthBytes, privacy: .public) compositorMs=\(ack.compositorMs, privacy: .public)")
     }
 
     private func handleGraphicsResetRequest(_ request: OwnedGraphicsResetRequest) {
         lock.withLock {
             pendingGraphicsResetRequest = request
             graphicsAdmission.reset(config: Self.graphicsAdmissionConfig())
+            graphicsBackpressure.reset()
         }
         logger.notice("owned graphics reset queued reason=\(request.reason, privacy: .public) generation=\(request.lastCommittedSurfaceGeneration, privacy: .public) frame=\(request.lastCommittedFrameId, privacy: .public)")
     }
