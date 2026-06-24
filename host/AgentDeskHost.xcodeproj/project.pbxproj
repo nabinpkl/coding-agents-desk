@@ -120,6 +120,9 @@
 		A00000000000000000000262 /* AgentSayLocalServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000159 /* AgentSayLocalServer.swift */; };
 		A00000000000000000000263 /* AgentSayLocalServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000159 /* AgentSayLocalServer.swift */; };
 		A00000000000000000000264 /* AgentSayLocalServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000015A /* AgentSayLocalServerTests.swift */; };
+		A00000000000000000000DF1 /* TileContentCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DF0 /* TileContentCache.swift */; };
+		A00000000000000000000DF2 /* TileContentCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DF0 /* TileContentCache.swift */; };
+		A00000000000000000000DF4 /* TileContentCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DF3 /* TileContentCacheTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -210,6 +213,8 @@
 		A00000000000000000000158 /* VoiceChildControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChildControllerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000159 /* AgentSayLocalServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSayLocalServer.swift; sourceTree = "<group>"; };
 		A0000000000000000000015A /* AgentSayLocalServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSayLocalServerTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000DF0 /* TileContentCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileContentCache.swift; sourceTree = "<group>"; };
+		A00000000000000000000DF3 /* TileContentCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileContentCacheTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000133 /* WAVEncoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVEncoderTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000134 /* AgentDeskHost.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AgentDeskHost.entitlements; sourceTree = "<group>"; };
 		A00000000000000000000141 /* AgentDeskHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -305,6 +310,7 @@
 				A00000000000000000000120 /* SpacesProvider.swift */,
 				A000000000000000000009A0 /* CursorMonitor.swift */,
 				A00000000000000000000127 /* SpaceThumbnailProvider.swift */,
+				A00000000000000000000DF0 /* TileContentCache.swift */,
 				A0000000000000000000011B /* Assets.xcassets */,
 				A0000000000000000000010C /* Info.plist */,
 			);
@@ -363,6 +369,7 @@
 				A00000000000000000000DD3 /* UnackedFrameCapTests.swift */,
 				A00000000000000000000DE3 /* ResetPolicyTests.swift */,
 				A00000000000000000000A10 /* ScrollActivityTrackerTests.swift */,
+				A00000000000000000000DF3 /* TileContentCacheTests.swift */,
 				A0000000000000000000012B /* SpaceAgentModelTests.swift */,
 				A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */,
 			);
@@ -528,6 +535,7 @@
 				A0000000000000000000025A /* GesturePortalController.swift in Sources */,
 				A0000000000000000000025E /* VoiceChildController.swift in Sources */,
 				A00000000000000000000262 /* AgentSayLocalServer.swift in Sources */,
+				A00000000000000000000DF1 /* TileContentCache.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -593,6 +601,8 @@
 				A00000000000000000000243 /* SpaceAgentLabelResolver.swift in Sources */,
 				A00000000000000000000249 /* WAVEncoder.swift in Sources */,
 				A0000000000000000000024A /* WAVEncoderTests.swift in Sources */,
+				A00000000000000000000DF2 /* TileContentCache.swift in Sources */,
+				A00000000000000000000DF4 /* TileContentCacheTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
