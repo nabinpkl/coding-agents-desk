@@ -462,6 +462,18 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_GRAPHICS_FALLBACK_MIN_INTERVAL_MS",
         defaultValue: 1_500
     )
+    // Content tile cache: number of host/client-mirrored slots. Memory is
+    // slots * maxCellBytes on each side; at 512 * 64*64*4 that is ~8 MB.
+    static let hybridTileCacheSlots: Int = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_TILE_CACHE_SLOTS",
+        defaultValue: 512
+    )
+    // Kill switch; false falls back to rung-1 baseline skip only.
+    static let hybridTileCacheEnabled: Bool = enabledFlag(
+        environmentKey: "AGENTDESK_HYBRID_TILE_CACHE_ENABLED",
+        defaultValue: true,
+        environment: ProcessInfo.processInfo.environment
+    )
     static let graphicsNormalMaxUnackedFrames = positiveInt(
         environmentKey: "AGENTDESK_GRAPHICS_NORMAL_MAX_UNACKED_FRAMES",
         defaultValue: 2
