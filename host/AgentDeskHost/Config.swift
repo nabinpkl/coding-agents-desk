@@ -435,26 +435,6 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_STRIP_LOSSY_THRESHOLD_BYTES",
         defaultValue: 524_288
     )
-    static let hybridScrollViewportMinWidth = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_SCROLL_VIEWPORT_MIN_WIDTH",
-        defaultValue: 320
-    )
-    static let hybridScrollViewportMinHeight = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_SCROLL_VIEWPORT_MIN_HEIGHT",
-        defaultValue: 240
-    )
-    static let hybridScrollViewportConfidence = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_SCROLL_VIEWPORT_CONFIDENCE",
-        defaultValue: 0.88
-    )
-    static let hybridScrollViewportMinInsetPx = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_SCROLL_VIEWPORT_MIN_INSET_PX",
-        defaultValue: 24
-    )
-    static let hybridScrollViewportOverlap = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_SCROLL_VIEWPORT_OVERLAP",
-        defaultValue: 0.80
-    )
     static let hybridResetStripeMaxDecodedBytes = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_RESET_STRIPE_MAX_DECODED_BYTES",
         defaultValue: 2 * 1_024 * 1_024
