@@ -232,9 +232,6 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
     private var coalescedAdmissionHold = 0
     private var coalescedEncodeBusy = 0
     private var coalescedNetworkBackpressure = 0
-    private var hevcVisualOnlyFallbacks = 0
-    private var hevcBaselineRealignments = 0
-
     func setPhase(_ phase: OwnedMediaPipelinePhase) {
         lock.withLock {
             self.phase = phase
@@ -273,22 +270,6 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
     func noteAdmissionHold(reason: String?, mode: OwnedMediaCadenceMode) {
         setPhase(.admissionHold)
         logger.notice("owned media admission-hold-diagnostic mode=\(String(describing: mode), privacy: .public) reason=\(reason ?? "unknown", privacy: .public)")
-    }
-
-    func noteHEVCVisualOnly(frameId: UInt64, fallbackReason: OwnedHybridHEVCFallbackReason?, reason: String) {
-        let total = lock.withLock {
-            hevcVisualOnlyFallbacks += 1
-            return hevcVisualOnlyFallbacks
-        }
-        logger.notice("owned media hevc-visual-only frame=\(frameId, privacy: .public) fallbackReason=\(fallbackReason?.rawValue ?? "none", privacy: .public) reason=\(reason, privacy: .public) total=\(total, privacy: .public)")
-    }
-
-    func noteHEVCBaselineRealignment(frameId: UInt64, fallbackReason: OwnedHybridHEVCFallbackReason?) {
-        let total = lock.withLock {
-            hevcBaselineRealignments += 1
-            return hevcBaselineRealignments
-        }
-        logger.notice("owned media hevc-baseline-realigned frame=\(frameId, privacy: .public) fallbackReason=\(fallbackReason?.rawValue ?? "none", privacy: .public) total=\(total, privacy: .public)")
     }
 
     func noteAdmitted(
@@ -441,7 +422,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var graphicsBackpressure = GraphicsBackpressure(maxUnacked: Config.hybridMaxUnackedFrames)
     private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?
     private var graphicsRecoveryState: HybridGraphicsRecoveryState = .idle
-    private var graphicsRecoveryHEVCGate = HybridGraphicsRecoveryHEVCGate()
     private let graphicsAckWaiter = OwnedGraphicsAckWaiter()
     private var motionBudgetState = OwnedMediaMotionBudgetState()
     private var diagnostics = OwnedMediaHostDiagnostics()
@@ -829,22 +809,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         }
         if previous != state {
             logger.notice("owned graphics recovery state=\(state.rawValue, privacy: .public) previous=\(previous.rawValue, privacy: .public) reason=\(reason, privacy: .public)")
-        }
-    }
-
-    private func graphicsRecoveryHEVCDecision(
-        reason: OwnedHybridHEVCFallbackReason?,
-        nowUptimeNs: UInt64
-    ) -> (HybridGraphicsRecoveryState, HybridGraphicsRecoveryHEVCDecision) {
-        lock.withLock {
-            let state = graphicsRecoveryState
-            let decision = graphicsRecoveryHEVCGate.decision(
-                reason: reason,
-                recoveryState: state,
-                nowUptimeNs: nowUptimeNs,
-                minIntervalMs: Config.hybridGraphicsFallbackMinIntervalMs
-            )
-            return (state, decision)
         }
     }
 
