@@ -359,6 +359,70 @@ struct DamageScrollClassifierTests {
         #expect(PixelRect.clampedPixels(from: .null, width: 200, height: 200).area == 0)
     }
 
+    // Real scroll-down: content moves down by dy and a dy-tall strip of brand-new
+    // content appears at the TOP surface edge. The reveal strip's source is off the
+    // previous surface, so it can never be explained by a shift; scoring it against
+    // the changed pixels dragged the strict confidence below the bar even though the
+    // overlap is a clean shift, and the frame fell to fullframe (the device freeze:
+    // 119 scroll-miss frames at 460-707KB each). The classifier must score the
+    // OVERLAP only (the reveal strip is tiled by the scroll envelope) and copyRect.
+    @Test func acceptsEdgeRevealScrollWhereRevealStripDilutesStrictScore() {
+        let width = 640
+        let height = 480
+        // Reveal is 80 of the 150-row band (53%), so the legacy whole-stripe metric
+        // scored the true offset at ~0.47 (below both the 0.7 strict and 0.55
+        // relaxed bars) and rejected to fullframe. dy is a multiple of the coarse
+        // search step so the surface search lands on it directly; the hint's
+        // candidates deliberately exclude it, proving acceptance comes from the
+        // overlap-only surface score, not a matching candidate.
+        let dy = 80
+        let band = PixelRect(x: 0, y: 0, width: width, height: 150)
+        let previous = Self.surface2D(width: width, height: height, value: Self.pixelPattern)
+        let current = Self.surface2D(width: width, height: height) { x, y in
+            guard y >= band.y, y < band.maxY else { return Self.pixelPattern(x, y) }
+            // Top dy rows are newly revealed at the surface edge; the rest is
+            // previous shifted down by dy.
+            return y < dy ? Self.pixelPattern(x, y &+ 500_000) : Self.pixelPattern(x, y - dy)
+        }
+        let classifier = DamageScrollClassifier()
+
+        let result = classifier.classify(
+            damageRects: [band],
+            contentRect: PixelRect(x: 0, y: 0, width: width, height: height),
+            previous: previous,
+            current: current,
+            hint: Self.verticalHint(candidateOffsets: [8, 16], sign: 1)
+        )
+
+        #expect(result == .scroll(region: band, dx: 0, dy: dy))
+    }
+
+    // A fast momentum flick scrolls more than the legacy 200px search cap in one
+    // frame (scroll acceleration amplifies the input delta past the input range).
+    // The directed search must reach the true offset; capping it lower finds only a
+    // wrong partial offset and the frame wrongly falls to fullframe.
+    @Test func recoversFastFlickOffsetBeyondLegacySearchCap() {
+        let width = 640
+        let height = 640
+        let dy = 260
+        let band = PixelRect(x: 0, y: 0, width: width, height: height)
+        let previous = Self.surface2D(width: width, height: height, value: Self.pixelPattern)
+        let current = Self.surface2D(width: width, height: height) { x, y in
+            y < dy ? Self.pixelPattern(x, y &+ 500_000) : Self.pixelPattern(x, y - dy)
+        }
+        let classifier = DamageScrollClassifier()
+
+        let result = classifier.classify(
+            damageRects: [band],
+            contentRect: PixelRect(x: 0, y: 0, width: width, height: height),
+            previous: previous,
+            current: current,
+            hint: Self.verticalHint(candidateOffsets: [240, 260, 280], sign: 1)
+        )
+
+        #expect(result == .scroll(region: band, dx: 0, dy: dy))
+    }
+
     @Test func pixelRectUnionCoversAllRects() {
         let rects = [
             PixelRect(x: 10, y: 20, width: 30, height: 40),

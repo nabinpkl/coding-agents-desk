@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 enum ScrollActivityAxis: String, Equatable, Sendable {
     case vertical
@@ -166,6 +167,17 @@ final class ScrollActivityHintStore: @unchecked Sendable {
     private let lock = NSLock()
     private var tracker: ScrollActivityTracker
 
+    // Temporary, env-gated (AGENTDESK_SCROLL_HINT_DEBUG=1). Lets a device run
+    // show whether client scroll input reaches the hint store with usable
+    // deltas and whether it resolves to an active hint. Remove once the
+    // physical no-copyRect freeze is root-caused.
+    private static let debugEnabled =
+        ProcessInfo.processInfo.environment["AGENTDESK_SCROLL_HINT_DEBUG"] == "1"
+    private static let debugLogger = Logger(
+        subsystem: Config.launchAgentLabel,
+        category: "owned-media"
+    )
+
     init(tracker: ScrollActivityTracker = ScrollActivityTracker(
         activeWindowMs: Config.hybridScrollActiveWindowMs,
         inputPixelScale: Config.hybridScrollInputPixelScale
@@ -174,8 +186,12 @@ final class ScrollActivityHintStore: @unchecked Sendable {
     }
 
     func record(_ input: NormalizedInput, nowUptimeNs: UInt64 = DispatchTime.now().uptimeNanoseconds) {
-        lock.withLock {
+        let resolved: ScrollActivityHint? = lock.withLock {
             tracker.record(input, nowUptimeNs: nowUptimeNs)
+            return Self.debugEnabled ? tracker.hint(nowUptimeNs: nowUptimeNs) : nil
+        }
+        if Self.debugEnabled, case let .scroll(dx, dy, phase) = input {
+            Self.debugLogger.notice("scroll-hint-debug record dx=\(dx, privacy: .public) dy=\(dy, privacy: .public) phase=\(phase.rawValue, privacy: .public) resolved=\(resolved != nil, privacy: .public) axis=\(resolved?.axis.rawValue ?? "none", privacy: .public) predicted=\(resolved?.predictedOffsetPx ?? 0, privacy: .public)")
         }
     }
 

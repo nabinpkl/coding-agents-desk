@@ -177,7 +177,12 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
         sampleStep: 8,
         lumaTolerance: 24,
         coarseStep: 8,
-        maxSearchOffsetPx: 200,
+        // Scroll acceleration amplifies a momentum flick well past the raw input
+        // delta, so one captured frame can move content more than 200px. A 200px
+        // cap left the search unable to reach the true offset on fast flicks, which
+        // then fell to fullframe. The hinted search is bounded (band extent caps it
+        // and the gate rejects non-scroll bands), so a higher ceiling is cheap.
+        maxSearchOffsetPx: 400,
         verifyExtent: 256,
         maxTileCoverageRatio: 0.15
     )
@@ -451,17 +456,27 @@ struct DamageScrollClassifier {
                         var x = region.x
                         while x < region.maxX {
                             if x >= 0, x < current.width {
-                                samples += 1
-                                // previous and current share dimensions, so the
-                                // offset-0 read at (x, y) is always in bounds.
-                                let currentLuma = Self.luma(currentBase, currentRow: y, currentColumn: x, bytesPerRow: current.bytesPerRow)
-                                let staticLuma = Self.luma(previousBase, currentRow: y, currentColumn: x, bytesPerRow: previous.bytesPerRow)
-                                if abs(Int(currentLuma) - Int(staticLuma)) > tolerance {
-                                    changed += 1
-                                    let previousX = x - dx
-                                    let previousY = y - dy
-                                    if previousX >= 0, previousX < previous.width,
-                                       previousY >= 0, previousY < previous.height {
+                                let previousX = x - dx
+                                let previousY = y - dy
+                                // Overlap-only scoring. A pixel whose shift source
+                                // falls off the previous surface is in the newly
+                                // revealed strip a scroll necessarily produces at the
+                                // leading edge. No shift can explain it (the scroll
+                                // envelope tiles it separately), so counting it as an
+                                // unexplained changed pixel dragged the strict
+                                // confidence below the accept bar and rejected real
+                                // edge-reveal scrolls to fullframe (the device freeze).
+                                // Measure the shift against the overlap region alone by
+                                // sampling only pixels whose source is on-surface.
+                                if previousX >= 0, previousX < previous.width,
+                                   previousY >= 0, previousY < previous.height {
+                                    samples += 1
+                                    // previous and current share dimensions, so the
+                                    // offset-0 read at (x, y) is always in bounds.
+                                    let currentLuma = Self.luma(currentBase, currentRow: y, currentColumn: x, bytesPerRow: current.bytesPerRow)
+                                    let staticLuma = Self.luma(previousBase, currentRow: y, currentColumn: x, bytesPerRow: previous.bytesPerRow)
+                                    if abs(Int(currentLuma) - Int(staticLuma)) > tolerance {
+                                        changed += 1
                                         let shiftedLuma = Self.luma(previousBase, currentRow: previousY, currentColumn: previousX, bytesPerRow: previous.bytesPerRow)
                                         if abs(Int(currentLuma) - Int(shiftedLuma)) <= tolerance {
                                             explained += 1
