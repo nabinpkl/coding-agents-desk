@@ -418,7 +418,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var frameMailbox: LatestCapturedFrameMailbox?
     private var encodePumpTask: Task<Void, Never>?
     private var admission = OwnedMediaEncodeAdmission()
-    private var graphicsAdmission = OwnedGraphicsAdmission()
     private var graphicsBackpressure = GraphicsBackpressure(maxUnacked: Config.hybridMaxUnackedFrames)
     private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?
     private var graphicsRecoveryState: HybridGraphicsRecoveryState = .idle
@@ -718,7 +717,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             let channel = graphicsChannels.removeValue(forKey: id)
             if wasActive {
                 activeGraphicsConnectionId = nil
-                graphicsAdmission.reset(config: Self.graphicsAdmissionConfig())
                 graphicsBackpressure.reset()
                 if graphicsRecoveryState != .failedCoolingDown {
                     graphicsRecoveryState = .reconnecting
@@ -744,7 +742,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             graphicsConnections = [id: channel.connection]
             latestPendingGraphicsConnectionId = nil
             activeGraphicsConnectionId = id
-            graphicsAdmission.reset(config: Self.graphicsAdmissionConfig())
             graphicsBackpressure.reset()
             graphicsRecoveryState = pendingGraphicsResetRequest == nil ? .idle : .reconnecting
             return (previousChannels, previousConnections)
@@ -1334,7 +1331,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private func handleGraphicsResetRequest(_ request: OwnedGraphicsResetRequest) {
         lock.withLock {
             pendingGraphicsResetRequest = request
-            graphicsAdmission.reset(config: Self.graphicsAdmissionConfig())
             graphicsBackpressure.reset()
         }
         logger.notice("owned graphics reset queued reason=\(request.reason, privacy: .public) generation=\(request.lastCommittedSurfaceGeneration, privacy: .public) frame=\(request.lastCommittedFrameId, privacy: .public)")
@@ -1350,20 +1346,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         lock.withLock {
             pendingGraphicsResetRequest = nil
         }
-    }
-
-    private static func graphicsAdmissionConfig() -> OwnedGraphicsAdmissionConfig {
-        OwnedGraphicsAdmissionConfig(
-            normalMaxUnackedFrames: Config.graphicsNormalMaxUnackedFrames,
-            behindMaxUnackedFrames: Config.graphicsBehindMaxUnackedFrames,
-            maxUnackedBytes: Config.graphicsMaxUnackedBytes,
-            behindQueuedFrames: Config.graphicsBehindQueuedFrames,
-            severeQueuedFrames: Config.graphicsSevereQueuedFrames,
-            behindQueueDepthBytes: Config.graphicsBehindQueueDepthBytes,
-            severeQueueDepthBytes: Config.graphicsSevereQueueDepthBytes,
-            behindCompositorMs: Config.graphicsBehindCompositorMs,
-            severeCompositorMs: Config.graphicsSevereCompositorMs
-        )
     }
 
 }
