@@ -1,4 +1,5 @@
 import Compression
+import ImageIO
 import UIKit
 import os
 
@@ -342,7 +343,7 @@ struct OwnedSurfaceCompositor {
                 validated.append(.copyRect(srcX: srcX, srcY: srcY, dstX: dstX, dstY: dstY, width: width, height: height))
             case let .bitmapTile(x, y, width, height, compression, byteRange):
                 guard updateId.isStrictlyNewer(than: candidateCommittedUpdateId),
-                      compression == .lzfse else {
+                      compression == .lzfse || compression == .jpeg else {
                     throw SessionRejected(reason: .malformed)
                 }
                 try Self.validateRect(
@@ -363,7 +364,16 @@ struct OwnedSurfaceCompositor {
                 }
                 let decodeStartNs = DispatchTime.now().uptimeNanoseconds
                 let compressed = envelope.payload[byteRange.offset..<end]
-                let decoded = try decompressLZFSE(Data(compressed), expectedCount: width * height * 4)
+                // The fullframe fallback arrives as one lossy JPEG; small tiles
+                // stay lossless LZFSE. Both decode to width*height*4 BGRA so the
+                // compositor paints them identically.
+                let decoded: Data
+                switch compression {
+                case .lzfse:
+                    decoded = try decompressLZFSE(Data(compressed), expectedCount: width * height * 4)
+                case .jpeg:
+                    decoded = try Self.decodeJPEG(Data(compressed), width: width, height: height)
+                }
                 timing.tileDecodeMs += OwnedMediaRenderTiming.elapsedMs(
                     from: decodeStartNs,
                     to: DispatchTime.now().uptimeNanoseconds
@@ -451,6 +461,38 @@ struct OwnedSurfaceCompositor {
                 }
             }
         }
+    }
+
+    // Decode the fullframe JPEG fallback back to width*height*4 BGRA so the
+    // compositor paints it like an LZFSE tile. CoreGraphics is symmetric with the
+    // host CGImage encoder: both use the top-down row-0-is-top convention, so the
+    // decoded buffer aligns with the surface without a vertical flip.
+    private static func decodeJPEG(_ data: Data, width: Int, height: Int) throws -> Data {
+        guard width > 0, height > 0,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              image.width == width, image.height == height else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let bytesPerRow = width * 4
+        var pixels = Data(count: bytesPerRow * height)
+        let bitmapInfo = CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        let drew = pixels.withUnsafeMutableBytes { raw -> Bool in
+            guard let base = raw.baseAddress,
+                  let context = CGContext(
+                    data: base,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: bytesPerRow,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: bitmapInfo
+                  ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drew else { throw SessionRejected(reason: .malformed) }
+        return pixels
     }
 
     private func decompressLZFSE(_ data: Data, expectedCount: Int) throws -> Data {

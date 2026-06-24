@@ -104,7 +104,11 @@ perl -ne '
                 max_value("copyRectBytes", $bytes);
             } elsif ($kind eq "damage-tiles") {
                 $damageTiles++;
-            } elsif ($kind eq "damage-fullframe-tiles") {
+            } elsif ($kind eq "damage-fullframe-tiles" || $kind eq "damage-fullframe-jpeg") {
+                # damage-fullframe-jpeg is the lossy single-JPEG fullframe fallback;
+                # damage-fullframe-tiles is the older raw-LZFSE form. Both are the
+                # whole-screen fallback whose payload size is the link-saturation
+                # signal, so they share one counter.
                 $fullframeTiles++;
                 $fullframeBytesTotal += $bytes;
                 max_value("fullframeBytes", $bytes);

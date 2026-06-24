@@ -1220,6 +1220,11 @@ enum OwnedGraphicsPixelFormat: String, Codable, Equatable {
 
 enum OwnedGraphicsTileCompression: String, Codable, Equatable {
     case lzfse
+    // Lossy JPEG for the fullframe fallback. See the host SharedTypes copy for
+    // the rationale: a whole-screen change is multi-MB as raw LZFSE and froze
+    // the reliable graphics channel; JPEG cuts it ~10x. Decoded back to BGRA on
+    // receipt so the compositor paints it like any other bitmap tile.
+    case jpeg
 }
 
 struct OwnedGraphicsByteRange: Codable, Equatable {

@@ -1172,6 +1172,12 @@ enum OwnedGraphicsPixelFormat: String, Codable, Equatable {
 
 enum OwnedGraphicsTileCompression: String, Codable, Equatable {
     case lzfse
+    // Lossy JPEG for the fullframe fallback. A whole-screen change (video, a
+    // page load, or a scroll that could not be copyRect'd) is multi-MB as raw
+    // LZFSE and saturated the single reliable graphics channel, freezing the
+    // screen. JPEG cuts it ~10x. Small text changes stay .lzfse (lossless); the
+    // lossy path is reserved for large motion the way RDP mixes codecs by region.
+    case jpeg
 }
 
 struct OwnedGraphicsByteRange: Codable, Equatable {

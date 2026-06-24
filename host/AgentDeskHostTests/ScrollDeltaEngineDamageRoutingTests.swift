@@ -1,4 +1,6 @@
+import CoreGraphics
 import CoreVideo
+import ImageIO
 import Testing
 @testable import AgentDeskHost
 
@@ -39,14 +41,14 @@ struct ScrollDeltaEngineDamageRoutingTests {
         #expect(result.fellBackToHEVC == false)
     }
 
-    // B1: a .fullFrame classification must tile only the OS-reported damage
-    // rects, not the entire surface. Damage limited to the top half (50%
-    // coverage, above the small-tiles threshold so the classifier returns
-    // .fullFrame) on a 256x256 / 128px grid must emit exactly the 2 top-row
-    // cells, not all 4. Before this fix the fullframe path re-tiled the whole
-    // content region (4 cells, multi-MB on a real display), which starved the
-    // link and froze scrolling on device.
-    @Test func fullFrameTilesOnlyDamagedCellsNotWholeSurface() throws {
+    // A .fullFrame classification ships ONE lossy JPEG tile bounded to the
+    // OS-reported damage union, not the entire surface and not N raw LZFSE cells.
+    // Damage limited to the top half (50% coverage, above the small-tiles
+    // threshold so the classifier returns .fullFrame) must emit a single jpeg tile
+    // covering exactly the top half (height 128), leaving the unchanged bottom
+    // half untouched. Per-cell raw LZFSE of a whole-screen change was multi-MB and
+    // froze the link on device; one JPEG over the damage region is ~10x smaller.
+    @Test func fullFrameEmitsSingleJpegTileBoundedToDamageNotWholeSurface() throws {
         var engine = ScrollDeltaEngine()
         let width = 256
         let height = 256
@@ -75,8 +77,88 @@ struct ScrollDeltaEngineDamageRoutingTests {
         let result = engine.evaluate(changed, scrollHint: nil)
 
         #expect(result.fellBackToHEVC == false)
-        let tileCount = result.envelope?.commands.filter { $0.kindIsBitmapTile }.count ?? 0
-        #expect(tileCount == 2)
+        let tiles = result.envelope?.commands.compactMap { command -> (PixelRect, OwnedGraphicsTileCompression)? in
+            guard case let .bitmapTile(x, y, w, h, compression, _) = command else { return nil }
+            return (PixelRect(x: x, y: y, width: w, height: h), compression)
+        } ?? []
+        #expect(tiles.count == 1)
+        #expect(tiles.first?.0 == topHalf)
+        #expect(tiles.first?.1 == .jpeg)
+    }
+
+    // The fullframe JPEG must survive the round trip without a vertical flip. Prime
+    // a surface, deliver a fullframe whose top half is bright and bottom half dark,
+    // then decode the emitted JPEG exactly as the client does (CGImageSource into a
+    // top-down BGRA context). The decoded top must stay bright and the bottom dark:
+    // a flipped encode would swap them, tearing every fullframe on device.
+    @Test func fullFrameJpegRoundTripPreservesOrientation() throws {
+        var engine = ScrollDeltaEngine()
+        let width = 256
+        let height = 256
+
+        let first = try Self.makeBGRAFrame(width: width, height: height) { _, _ in
+            [10, 10, 10, 0xff]
+        }
+        #expect(engine.evaluate(first).kind == .reset)
+        engine.commitPendingSurface()
+
+        let full = PixelRect(x: 0, y: 0, width: width, height: height)
+        let gradient = try Self.makeBGRAFrame(
+            width: width,
+            height: height,
+            damageRects: [full],
+            contentRectPixels: full
+        ) { _, y in
+            // Gray, so channel order is irrelevant: top half white, bottom black.
+            let v: UInt8 = y < height / 2 ? 240 : 16
+            return [v, v, v, 0xff]
+        }
+        let result = engine.evaluate(gradient, scrollHint: nil)
+
+        guard case let .bitmapTile(_, _, tileWidth, tileHeight, compression, byteRange)? =
+                result.envelope?.commands.first(where: { $0.kindIsBitmapTile }),
+              let payload = result.envelope?.payload else {
+            Issue.record("fullframe must emit a bitmap tile")
+            return
+        }
+        #expect(compression == .jpeg)
+
+        let jpeg = payload[byteRange.offset..<(byteRange.offset + byteRange.length)]
+        let decoded = try Self.decodeJPEGForTest(Data(jpeg), width: tileWidth, height: tileHeight)
+        let topLuma = Self.luma(decoded, x: 8, y: 8, width: tileWidth)
+        let bottomLuma = Self.luma(decoded, x: 8, y: tileHeight - 8, width: tileWidth)
+        #expect(topLuma > 180)
+        #expect(bottomLuma < 80)
+    }
+
+    // Mirrors the client's OwnedMediaVideoSink JPEG decode so the host test
+    // validates the exact round trip the device runs.
+    private static func decodeJPEGForTest(_ data: Data, width: Int, height: Int) throws -> Data {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let bytesPerRow = width * 4
+        var pixels = Data(count: bytesPerRow * height)
+        let bitmapInfo = CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        pixels.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress,
+                  let context = CGContext(
+                    data: base, width: width, height: height,
+                    bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: bitmapInfo
+                  ) else { return }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        return pixels
+    }
+
+    private static func luma(_ bgra: Data, x: Int, y: Int, width: Int) -> Int {
+        let offset = y * width * 4 + x * 4
+        let b = Int(bgra[offset])
+        let g = Int(bgra[offset + 1])
+        let r = Int(bgra[offset + 2])
+        return (77 * r + 150 * g + 29 * b) >> 8
     }
 
     private static func makeBGRAFrame(

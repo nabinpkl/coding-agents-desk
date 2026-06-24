@@ -2,6 +2,8 @@ import Compression
 import CoreImage
 import CoreVideo
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 // Snaps a damage rect list to a fixed grid in surface pixel space (H2). Each
 // grid cell overlapped by any damage rect becomes one tile, clipped to the
@@ -247,17 +249,21 @@ struct ScrollDeltaEngine {
     private let damageClassifier: DamageScrollClassifier
     // Fixed grid cell size in surface pixels for damage tile emission (H2).
     private let tileGridPx: Int
+    // Lossy quality for the fullframe JPEG fallback (0...1).
+    private let fullframeJpegQuality: Double
 
     init(
         maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes,
         maxWireResetStripeBytes: Int = Self.defaultMaxWireResetStripeBytes,
         damageClassifier: DamageScrollClassifier = DamageScrollClassifier(),
-        tileGridPx: Int = Config.hybridTileGridPx
+        tileGridPx: Int = Config.hybridTileGridPx,
+        fullframeJpegQuality: Double = Config.hybridFullframeJpegQuality
     ) {
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
         self.damageClassifier = damageClassifier
         self.tileGridPx = max(1, tileGridPx)
+        self.fullframeJpegQuality = min(1, max(0.1, fullframeJpegQuality))
     }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
@@ -634,30 +640,33 @@ struct ScrollDeltaEngine {
                 diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
             )
         case .fullFrame(let reason):
-            // H1: large or unstructured change is no longer an HEVC fallback; it
-            // is emitted as tiles over the reliable channel. B1: tile only the
-            // OS-reported damage rects, not the whole surface, so a "fullframe"
-            // classification re-sends just what actually changed. A whole-surface
-            // resend is multi-MB and starves the link (the device-run freeze).
-            // Fall back to the full content region only when the OS supplied no
-            // damage geometry, where we genuinely do not know what changed.
+            // A large or unstructured change ships as ONE lossy JPEG over the
+            // damage bounding region, not N raw LZFSE cells. Per-cell LZFSE of a
+            // whole-screen change was multi-MB and saturated the reliable channel
+            // (the device-run freeze: a single 2.88MB frame stalled everything
+            // behind it). JPEG cuts that ~10x. The region is the OS damage union
+            // when known, else the full content region (no damage geometry, so we
+            // do not know what changed). Lossless LZFSE still serves the small
+            // .tiles path, so lossy only ever covers large motion.
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
             pendingSurface = current
             graphicsFrameId &+= 1
-            let region = content.clamped(toWidth: current.width, height: current.height)
-            let tileRects = frame.damageRects.isEmpty ? [region] : frame.damageRects
-            guard let envelope = makeTileEnvelope(current: current, rects: tileRects, capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
+            let contentRegion = content.clamped(toWidth: current.width, height: current.height)
+            let region = frame.damageRects.isEmpty
+                ? contentRegion
+                : (PixelRect.union(of: frame.damageRects)?.clamped(toWidth: current.width, height: current.height) ?? contentRegion)
+            guard let envelope = makeJPEGFrameEnvelope(current: current, region: region, capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
                 pendingSurface = nil
                 return ScrollDeltaResult(
-                    kind: .rejected("damage-fullframe-tile-build-failed-\(reason)"),
+                    kind: .rejected("damage-fullframe-jpeg-build-failed-\(reason)"),
                     envelope: nil,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage-fullframe-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage-fullframe-jpeg", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
                 )
             }
             return ScrollDeltaResult(
                 kind: .accepted,
                 envelope: envelope,
-                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage-fullframe-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage-fullframe-jpeg", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
             )
         case .noChange:
             // Nothing changed worth sending. Hold the surface (current equals
@@ -716,6 +725,79 @@ struct ScrollDeltaEngine {
             commands: commands,
             payload: payload
         )
+    }
+
+    // The fullframe fallback as ONE lossy JPEG tile over the damage region,
+    // instead of N raw LZFSE cells. A whole-screen change is contiguous and large,
+    // so a single JPEG both compresses far better than per-cell LZFSE (cross-tile
+    // redundancy, no per-cell header) and is the only thing small enough not to
+    // saturate the reliable channel and freeze the screen. The region is clamped
+    // to the surface; the client decodes the JPEG back to BGRA and paints it like
+    // any other bitmap tile.
+    private func makeJPEGFrameEnvelope(current: Surface, region: PixelRect, capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
+        let clamped = region.clamped(toWidth: current.width, height: current.height)
+        guard clamped.width > 0, clamped.height > 0,
+              let bgra = tileData(surface: current, x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height),
+              let jpeg = compressJPEG(bgra, width: clamped.width, height: clamped.height) else { return nil }
+        let command = OwnedGraphicsCommand.bitmapTile(
+            x: clamped.x,
+            y: clamped.y,
+            width: clamped.width,
+            height: clamped.height,
+            compression: .jpeg,
+            byteRange: OwnedGraphicsByteRange(offset: 0, length: jpeg.count)
+        )
+        return OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: surfaceGeneration,
+                frameId: graphicsFrameId,
+                capturedAtUptimeNs: capturedAtUptimeNs,
+                commandCount: 1,
+                payloadLength: jpeg.count
+            ),
+            commands: [command],
+            payload: jpeg
+        )
+    }
+
+    // BGRA (32-bit little-endian, alpha ignored) -> JPEG via CoreGraphics. Kept
+    // symmetric with the client's CGImage decoder (both top-down, row 0 is top) so
+    // the round trip never introduces a vertical flip.
+    private func compressJPEG(_ bgra: Data, width: Int, height: Int) -> Data? {
+        let bytesPerRow = width * 4
+        guard bgra.count >= bytesPerRow * height,
+              let provider = CGDataProvider(data: bgra as CFData),
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let bitmapInfo = CGBitmapInfo(
+            rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        )
+        guard let image = CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo,
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        ) else { return nil }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            output as CFMutableData,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else { return nil }
+        CGImageDestinationAddImage(
+            destination,
+            image,
+            [kCGImageDestinationLossyCompressionQuality: fullframeJpegQuality] as CFDictionary
+        )
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
     }
 
     private func damageDiagnostics(

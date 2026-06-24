@@ -348,6 +348,15 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_ACTIVE_WINDOW_MS",
         defaultValue: 600
     )
+    // JPEG quality for the fullframe fallback tile. A whole-screen change ships
+    // as one lossy JPEG instead of multi-MB raw LZFSE, the fix for the link
+    // saturation that froze the screen. 0.82 keeps text legible while cutting the
+    // payload ~10x; small text-only changes still go lossless LZFSE, so this lossy
+    // path only ever covers large motion that a lossless codec cannot afford.
+    static let hybridFullframeJpegQuality = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_FULLFRAME_JPEG_QUALITY",
+        defaultValue: 0.82
+    )
     static let hybridScrollViewportMinWidth = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_SCROLL_VIEWPORT_MIN_WIDTH",
         defaultValue: 320
