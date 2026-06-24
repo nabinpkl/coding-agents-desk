@@ -2000,24 +2000,38 @@ final class OwnedGraphicsAckWaiter: @unchecked Sendable {
 // layer (the OwnedGraphicsAdmission types are deleted in a later task).
 struct GraphicsBackpressure {
     let maxUnacked: Int
-    private var lastSent: UInt64 = 0
-    private var lastAcked: UInt64 = 0
+    private var inFlightCount = 0
+    private var lastAckedFrameId: UInt64 = 0
 
     init(maxUnacked: Int) {
         self.maxUnacked = max(maxUnacked, 1)
     }
 
-    var inFlight: Int { Int(lastSent &- lastAcked) }
-    func canProduce() -> Bool { inFlight < maxUnacked }
-    mutating func noteSent(frameId: UInt64) { lastSent = max(lastSent, frameId) }
-    mutating func noteAck(frameId: UInt64) { lastAcked = max(lastAcked, frameId) }
+    var inFlight: Int { inFlightCount }
+    func canProduce() -> Bool { inFlightCount < maxUnacked }
+    mutating func noteSent(frameId: UInt64) { inFlightCount += 1 }
 
-    // A new connection or a surface reset drops every prior in-flight frame on
-    // the floor: it will never be acked. Collapse both watermarks so the cap
-    // starts clean instead of staying stuck above the limit forever.
+    // Acks carry the highest applied frameId and arrive about 1:1 with sends.
+    // Count only forward progress so a duplicate or stale ack cannot double
+    // decrement, and clamp at zero so a late ack arriving after a reset cannot
+    // drive the count negative. B2: this is a plain in-flight COUNT, not a
+    // lastSent-minus-lastAcked frameId delta. The frameId counter keeps climbing
+    // across reconnects while reset() zeroed the watermarks, so the old delta
+    // spiked inFlight to the full frameId value (about 141 on the device run)
+    // right after a reconnect and stalled or thrashed the cap. A count is immune
+    // to the frameId numbering.
+    mutating func noteAck(frameId: UInt64) {
+        guard frameId > lastAckedFrameId else { return }
+        lastAckedFrameId = frameId
+        inFlightCount = max(0, inFlightCount - 1)
+    }
+
+    // A new connection or a surface reset abandons every prior in-flight frame:
+    // it will never be acked. Drop the count to zero so the cap starts clean.
+    // The frameId watermark is intentionally left alone (it never resets) so the
+    // monotonic ack guard above stays valid across the reconnect.
     mutating func reset() {
-        lastSent = 0
-        lastAcked = 0
+        inFlightCount = 0
     }
 }
 

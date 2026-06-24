@@ -634,14 +634,19 @@ struct ScrollDeltaEngine {
                 diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
             )
         case .fullFrame(let reason):
-            // H1: large or unstructured change is no longer an HEVC fallback.
-            // Emit the whole content region as tiles over the reliable channel.
-            // The classifier reason is preserved in diagnostics via acceptedBy.
+            // H1: large or unstructured change is no longer an HEVC fallback; it
+            // is emitted as tiles over the reliable channel. B1: tile only the
+            // OS-reported damage rects, not the whole surface, so a "fullframe"
+            // classification re-sends just what actually changed. A whole-surface
+            // resend is multi-MB and starves the link (the device-run freeze).
+            // Fall back to the full content region only when the OS supplied no
+            // damage geometry, where we genuinely do not know what changed.
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
             pendingSurface = current
             graphicsFrameId &+= 1
             let region = content.clamped(toWidth: current.width, height: current.height)
-            guard let envelope = makeTileEnvelope(current: current, rects: [region], capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
+            let tileRects = frame.damageRects.isEmpty ? [region] : frame.damageRects
+            guard let envelope = makeTileEnvelope(current: current, rects: tileRects, capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
                 pendingSurface = nil
                 return ScrollDeltaResult(
                     kind: .rejected("damage-fullframe-tile-build-failed-\(reason)"),

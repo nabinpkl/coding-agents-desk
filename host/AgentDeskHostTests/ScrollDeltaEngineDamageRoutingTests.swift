@@ -39,6 +39,46 @@ struct ScrollDeltaEngineDamageRoutingTests {
         #expect(result.fellBackToHEVC == false)
     }
 
+    // B1: a .fullFrame classification must tile only the OS-reported damage
+    // rects, not the entire surface. Damage limited to the top half (50%
+    // coverage, above the small-tiles threshold so the classifier returns
+    // .fullFrame) on a 256x256 / 128px grid must emit exactly the 2 top-row
+    // cells, not all 4. Before this fix the fullframe path re-tiled the whole
+    // content region (4 cells, multi-MB on a real display), which starved the
+    // link and froze scrolling on device.
+    @Test func fullFrameTilesOnlyDamagedCellsNotWholeSurface() throws {
+        var engine = ScrollDeltaEngine()
+        let width = 256
+        let height = 256
+
+        let first = try Self.makeBGRAFrame(width: width, height: height) { _, _ in
+            [10, 10, 10, 0xff]
+        }
+        #expect(engine.evaluate(first).kind == .reset)
+        engine.commitPendingSurface()
+
+        let topHalf = PixelRect(x: 0, y: 0, width: width, height: 128)
+        let full = PixelRect(x: 0, y: 0, width: width, height: height)
+        let changed = try Self.makeBGRAFrame(
+            width: width,
+            height: height,
+            damageRects: [topHalf],
+            contentRectPixels: full
+        ) { x, y in
+            if y < 128 {
+                let v = UInt8((x * 37 + y * 101) & 0xff)
+                return [v, v, v, 0xff]
+            }
+            // Bottom half is unchanged from the primed surface.
+            return [10, 10, 10, 0xff]
+        }
+        let result = engine.evaluate(changed, scrollHint: nil)
+
+        #expect(result.fellBackToHEVC == false)
+        let tileCount = result.envelope?.commands.filter { $0.kindIsBitmapTile }.count ?? 0
+        #expect(tileCount == 2)
+    }
+
     private static func makeBGRAFrame(
         width: Int,
         height: Int,
