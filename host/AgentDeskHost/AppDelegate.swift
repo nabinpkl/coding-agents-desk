@@ -89,7 +89,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var signalingServer: PairingSignalingServer?
     private let sessions = SessionRegistry()
     private let scrollActivityHints = ScrollActivityHintStore()
-    private let scrollRegionHints = ScrollRegionHintStore()
     private lazy var mediaFactory: MediaTransportFactory = MediaStack.makeFactory(
         ownedDatagramAuthorizer: { [weak self] hello in
             await MainActor.run {
@@ -115,9 +114,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         },
         scrollActivityHintProvider: { [scrollActivityHints] in
             scrollActivityHints.hint()
-        },
-        scrollRegionHintProvider: { [scrollRegionHints] in
-            scrollRegionHints.hint()
         }
     )
     private let inputDispatcher = InputDispatcher()
@@ -472,19 +468,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let dispatcher = inputDispatcher
         let scrollActivityHints = scrollActivityHints
-        let scrollRegionHints = scrollRegionHints
         let logger = signalingLogger
 	        sessions.attachInputTask(
-	            Task { [server, dispatcher, scrollActivityHints, scrollRegionHints, logger] in
+	            Task { [server, dispatcher, scrollActivityHints, logger] in
 	                for await input in server.events {
 	                    scrollActivityHints.record(input)
-	                    dispatcher.dispatch(input) { event, focus in
-	                        scrollRegionHints.record(
-	                            event,
-	                            focusPoint: focus.focusPoint,
-	                            displayBounds: focus.displayBounds
-	                        )
-	                    }
+	                    dispatcher.dispatch(input)
 	                }
 	                logger.notice("input event stream finished")
 	            },

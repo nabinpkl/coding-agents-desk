@@ -2149,17 +2149,6 @@ struct ScrollQualityTests {
         )
     }
 
-    private static func fullSurfaceRegion(width: Int, height: Int) -> ScrollRegion {
-        ScrollRegion(
-            x: 0,
-            y: 0,
-            width: width,
-            height: height,
-            source: .cursorFallback,
-            stability: ScrollRegionStability(stableFrameCount: 2, overlapRatioWithPrevious: 1)
-        )
-    }
-
     private static func expectSingleCopyRectAndTile(_ envelope: OwnedGraphicsFrameEnvelope) {
         var copyRectCount = 0
         var bitmapTileCount = 0

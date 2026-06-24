@@ -122,22 +122,19 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
     private let authorizer: OwnedMediaDatagramAuthorizer
     private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
     private let scrollActivityHintProvider: @Sendable () -> ScrollActivityHint?
-    private let scrollRegionHintProvider: @Sendable () -> ScrollRegionFocusHint?
 
     init(
         codec: OwnedMediaCodec,
         configuration: OwnedMediaEncodingConfiguration = .default,
         authorizer: @escaping OwnedMediaDatagramAuthorizer,
         graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer,
-        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil },
-        scrollRegionHintProvider: @escaping @Sendable () -> ScrollRegionFocusHint? = { nil }
+        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
     ) {
         self.codec = codec
         self.configuration = configuration
         self.authorizer = authorizer
         self.graphicsAuthorizer = graphicsAuthorizer
         self.scrollActivityHintProvider = scrollActivityHintProvider
-        self.scrollRegionHintProvider = scrollRegionHintProvider
     }
 
     func make() -> MediaTransport {
@@ -146,8 +143,7 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
             configuration: configuration,
             authorizer: authorizer,
             graphicsAuthorizer: graphicsAuthorizer,
-            scrollActivityHintProvider: scrollActivityHintProvider,
-            scrollRegionHintProvider: scrollRegionHintProvider
+            scrollActivityHintProvider: scrollActivityHintProvider
         )
     }
 }
@@ -428,7 +424,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let authorizer: OwnedMediaDatagramAuthorizer
     private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
     private let scrollActivityHintProvider: @Sendable () -> ScrollActivityHint?
-    private let scrollRegionHintProvider: @Sendable () -> ScrollRegionFocusHint?
     private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic")
     private let lock = NSLock()
     private var mediaDatagramListener: NWListener?
@@ -458,15 +453,13 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         configuration: OwnedMediaEncodingConfiguration = .default,
         authorizer: @escaping OwnedMediaDatagramAuthorizer,
         graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer,
-        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil },
-        scrollRegionHintProvider: @escaping @Sendable () -> ScrollRegionFocusHint? = { nil }
+        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
     ) {
         self.codec = codec
         self.configuration = configuration
         self.authorizer = authorizer
         self.graphicsAuthorizer = graphicsAuthorizer
         self.scrollActivityHintProvider = scrollActivityHintProvider
-        self.scrollRegionHintProvider = scrollRegionHintProvider
         var continuation: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { continuation = $0 }
         self.stateContinuation = continuation
