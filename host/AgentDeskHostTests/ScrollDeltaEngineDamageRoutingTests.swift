@@ -515,6 +515,81 @@ struct ScrollDeltaEngineDamageRoutingTests {
         return (77 * r + 150 * g + 29 * b) >> 8
     }
 
+    // Rung 1 (Task 5): macOS reports the same dirty rect twice in a row, but the
+    // pixels equal the retained baseline on the second frame. The engine must
+    // omit every tile and return .noChange instead of re-sending the identical
+    // bytes and saturating the link.
+    @Test func identicalTilesFrameSecondTimeIsNoChange() throws {
+        var engine = ScrollDeltaEngine()
+        let width = 256
+        let height = 256
+        let full = PixelRect(x: 0, y: 0, width: width, height: height)
+
+        // Prime with a solid surface (reset path seeds the baseline).
+        let first = try Self.makeBGRAFrame(width: width, height: height) { _, _ in
+            [0x20, 0x20, 0x20, 0xff]
+        }
+        #expect(engine.evaluate(first).kind == .reset)
+        engine.commitPendingSurface()
+
+        // Deliver a frame with a real change in the top-left 64x64 cell.
+        let damageRect = PixelRect(x: 0, y: 0, width: 64, height: 64)
+        let changed = try Self.makeBGRAFrame(
+            width: width,
+            height: height,
+            damageRects: [damageRect],
+            contentRectPixels: full
+        ) { x, y in
+            if x < 64 && y < 64 { return [0x80, 0x80, 0x80, 0xff] }
+            return [0x20, 0x20, 0x20, 0xff]
+        }
+        let r1 = engine.evaluate(changed)
+        #expect(r1.kind == .accepted)
+        engine.commitPendingSurface()
+
+        // Re-send the exact same frame. The OS reports the same dirty rect but
+        // the pixels now equal the retained baseline, so nothing should be sent.
+        let r2 = engine.evaluate(changed)
+        #expect(r2.kind == .noChange)
+    }
+
+    // Rung 1 (Task 5): two dirty cells are reported, but only one differs from
+    // the retained baseline. The engine must send exactly one bitmapTile command
+    // (the truly changed cell) and omit the unchanged cell entirely.
+    @Test func partialTilesChangeSendsOnlyChangedCells() throws {
+        var engine = ScrollDeltaEngine()
+        let width = 256
+        let height = 256
+        let full = PixelRect(x: 0, y: 0, width: width, height: height)
+
+        // Prime with a solid surface.
+        let base = try Self.makeBGRAFrame(width: width, height: height) { _, _ in
+            [0x20, 0x20, 0x20, 0xff]
+        }
+        #expect(engine.evaluate(base).kind == .reset)
+        engine.commitPendingSurface()
+
+        // Report two dirty cells, but only the first cell (0,0)-(64,64) actually
+        // changes. The second cell (128,128)-(192,192) stays at the baseline fill.
+        let cell1 = PixelRect(x: 0, y: 0, width: 64, height: 64)
+        let cell2 = PixelRect(x: 128, y: 128, width: 64, height: 64)
+        let frame = try Self.makeBGRAFrame(
+            width: width,
+            height: height,
+            damageRects: [cell1, cell2],
+            contentRectPixels: full
+        ) { x, y in
+            if x < 64 && y < 64 { return [0x90, 0x90, 0x90, 0xff] }
+            return [0x20, 0x20, 0x20, 0xff]
+        }
+        let r = engine.evaluate(frame)
+        #expect(r.kind == .accepted)
+        let tiles = r.envelope?.commands.filter { $0.kindIsBitmapTile } ?? []
+        // Only the changed cell at (0,0) must be sent; the unchanged cell at
+        // (128,128) is omitted because its pixels equal the retained baseline.
+        #expect(tiles.count == 1)
+    }
+
     private static func makeBGRAFrame(
         width: Int,
         height: Int,

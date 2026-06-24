@@ -1791,13 +1791,20 @@ struct ScrollQualityTests {
         }
         #expect(engine.evaluate(frame0).kind == .reset)
         engine.commitPendingSurface()
+        // frame1 carries the same damage rect but with different pixels in the
+        // damaged region so the retained-baseline compare does not absorb the change.
         let damage = PixelRect(x: 10, y: 10, width: 40, height: 40)
         let frame1 = try Self.makeBGRAFrame(
             width: width, height: height,
             damageRects: [damage],
             contentRectPixels: PixelRect(x: 0, y: 0, width: width, height: height)
         ) { x, y in
-            Self.scrollProbePixel(x: x, y: y)
+            if x >= 10 && x < 50 && y >= 10 && y < 50 {
+                // Invert the probe value so the damaged cell is detectably different.
+                let base = Self.scrollProbePixel(x: x, y: y)
+                return [~base[0], ~base[1], ~base[2], 0xff]
+            }
+            return Self.scrollProbePixel(x: x, y: y)
         }
         let result = engine.evaluate(frame1, scrollHint: nil)
 

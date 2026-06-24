@@ -652,8 +652,22 @@ struct ScrollDeltaEngine {
         case .tiles(let rects):
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
             pendingSurface = current
-            graphicsFrameId &+= 1
-            guard let envelope = makeTileEnvelope(current: current, rects: rects, capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
+            switch makeTileEnvelope(current: current, previous: previous, rects: rects, capturedAtUptimeNs: frame.capturedAtUptimeNs) {
+            case .built(let envelope):
+                return ScrollDeltaResult(
+                    kind: .accepted,
+                    envelope: envelope,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                )
+            case .allUnchanged:
+                // pendingSurface = current is already set above; current equals previous
+                // on the unchanged cells and outside the damage, matching .noChange semantics.
+                return ScrollDeltaResult(
+                    kind: .noChange,
+                    envelope: nil,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                )
+            case .failed:
                 pendingSurface = nil
                 return ScrollDeltaResult(
                     kind: .rejected("damage-tile-envelope-build-failed"),
@@ -661,11 +675,6 @@ struct ScrollDeltaEngine {
                     diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
                 )
             }
-            return ScrollDeltaResult(
-                kind: .accepted,
-                envelope: envelope,
-                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
-            )
         case .fullFrame(let reason):
             // A large or unstructured change ships as ONE lossy JPEG over the
             // damage bounding region, not N raw LZFSE cells. Per-cell LZFSE of a
@@ -714,6 +723,16 @@ struct ScrollDeltaEngine {
         }
     }
 
+    // Outcome of a tile envelope build attempt.
+    private enum TileBuild {
+        // At least one cell changed; the envelope is ready to send.
+        case built(OwnedGraphicsFrameEnvelope)
+        // Every dirty cell compared equal to the retained baseline; nothing to send.
+        case allUnchanged
+        // A cell extraction or compression step failed; the frame is undeliverable.
+        case failed
+    }
+
     // One bitmap tile per fixed grid cell overlapped by the damage rects (H2).
     // Snapping to a fixed grid bounds per-tile size and gives each tile a stable
     // identity for the content tile cache (see the content-tile-cache design and
@@ -722,24 +741,39 @@ struct ScrollDeltaEngine {
     // with its own byteRange. Sub-rect, non-full-width tiles are already
     // exercised by the scroll exposed-strip path, so this stays within proven
     // wire semantics.
-    private func makeTileEnvelope(current: Surface, rects: [PixelRect], capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
+    //
+    // Rung 1 (Task 5): before encoding, compare each cell to the retained
+    // baseline (previous). macOS dirtyRects often report a redraw that produced
+    // identical pixels; an exact byte compare absorbs those redraws for free.
+    // If every dirty cell is unchanged the whole frame becomes .allUnchanged
+    // (zero bytes on the wire). graphicsFrameId increments only when a frame is
+    // actually built, so the client sequence counter stays tight.
+    private mutating func makeTileEnvelope(current: Surface, previous: Surface, rects: [PixelRect], capturedAtUptimeNs: UInt64) -> TileBuild {
         let cells = TileGrid.cells(
             covering: rects,
             surfaceWidth: current.width,
             surfaceHeight: current.height,
             gridPx: tileGridPx
         )
-        guard !cells.isEmpty else { return nil }
+        guard !cells.isEmpty else { return .allUnchanged }
         var commands: [OwnedGraphicsCommand] = []
         var payload = Data()
         for cell in cells {
             guard cell.area > 0,
-                  let built = buildTile(surface: current, rect: cell, encoding: .lzfse, payloadOffset: payload.count) else { return nil }
+                  let tile = tileData(surface: current, x: cell.x, y: cell.y, width: cell.width, height: cell.height) else { return .failed }
+            // Rung 1: the client already shows these exact pixels here (the retained
+            // baseline mirrors previous), so omit the tile. macOS dirtyRects often
+            // report a redraw that produced identical pixels; this absorbs them.
+            if let prior = tileData(surface: previous, x: cell.x, y: cell.y, width: cell.width, height: cell.height), prior == tile {
+                continue
+            }
+            guard let built = buildTile(surface: current, rect: cell, encoding: .lzfse, payloadOffset: payload.count) else { return .failed }
             commands.append(built.command)
             payload.append(built.payload)
         }
-        guard !commands.isEmpty else { return nil }
-        return OwnedGraphicsFrameEnvelope(
+        guard !commands.isEmpty else { return .allUnchanged }
+        graphicsFrameId &+= 1
+        return .built(OwnedGraphicsFrameEnvelope(
             header: OwnedGraphicsFrameHeader(
                 surfaceGeneration: surfaceGeneration,
                 frameId: graphicsFrameId,
@@ -749,7 +783,7 @@ struct ScrollDeltaEngine {
             ),
             commands: commands,
             payload: payload
-        )
+        ))
     }
 
     // Monotonic quality: the rest or motion baseline at level 0, lerped down to the
