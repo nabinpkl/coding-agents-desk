@@ -215,10 +215,6 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES",
         defaultValue: 120
     )
-    static let ownedMediaRepairDeadlineMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_REPAIR_DEADLINE_MS",
-        defaultValue: 50
-    )
     static let ownedMediaResendRingFrames = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_RESEND_RING_FRAMES",
         defaultValue: 8

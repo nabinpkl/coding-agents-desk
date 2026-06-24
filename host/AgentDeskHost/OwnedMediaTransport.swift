@@ -488,32 +488,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         stateContinuation.finish()
     }
 
-    private func startQuicDatagramListener() throws {
-        lock.lock()
-        let existing = mediaDatagramListener
-        lock.unlock()
-        guard existing == nil else { return }
-        let configuration = Self.mediaDatagramListenerConfiguration()
-        guard let port = NWEndpoint.Port(rawValue: configuration.port) else {
-            throw SessionRejected(reason: .malformed)
-        }
-        let listener = try NWListener(using: Self.makeQuicParameters(configuration: configuration), on: port)
-        listener.newConnectionHandler = { [weak self] connection in
-            self?.handleQuicDatagramConnection(connection)
-        }
-        listener.stateUpdateHandler = { [weak self] state in
-            self?.logger.notice("owned media quic datagram listener state=\(String(describing: state), privacy: .public) port=\(Int(configuration.port), privacy: .public)")
-            if case .failed(let error) = state {
-                self?.logger.error("owned media quic datagram listener failed: \(String(describing: error), privacy: .public)")
-                self?.stateContinuation.yield(.failed)
-            }
-        }
-        lock.lock()
-        self.mediaDatagramListener = listener
-        lock.unlock()
-        listener.start(queue: queue)
-    }
-
     private func startGraphicsListener() throws {
         lock.lock()
         let existing = graphicsListener
@@ -564,66 +538,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         }
         sec_protocol_options_set_local_identity(options.securityProtocolOptions, secIdentity)
         return NWParameters(quic: options)
-    }
-
-    private func handleQuicDatagramConnection(_ connection: NWConnection) {
-        connection.start(queue: queue)
-        connection.receiveMessage { [weak self, weak connection] data, _, _, error in
-            guard let self, let connection else { return }
-            if let error {
-                self.logger.error("owned media quic hello receive failed: \(String(describing: error), privacy: .public)")
-                connection.cancel()
-                return
-            }
-            guard let data else {
-                connection.cancel()
-                return
-            }
-            Task { [weak self, weak connection] in
-                await self?.acceptDatagramHello(data, on: connection)
-            }
-        }
-    }
-
-    private func acceptDatagramHello(_ data: Data, on connection: NWConnection?) async {
-        guard let connection else { return }
-        do {
-            let hello = try JSONDecoder().decode(MediaChannelHello.self, from: data)
-            guard !hello.clientNonce.isEmpty else {
-                throw SessionRejected(reason: .malformed)
-            }
-            let result = await authorizer(hello)
-            switch result {
-            case .accepted(let fingerprint):
-                let serverNonce = try Self.randomBytes(count: 32)
-                let key = MediaDatagramCrypto.key(
-                    mediaCapability: hello.mediaCapability,
-                    clientNonce: hello.clientNonce,
-                    serverNonce: serverNonce
-                )
-                let ready = MediaChannelReady(sessionId: hello.sessionId, serverNonce: serverNonce)
-                let readyData = try JSONEncoder().encode(ready)
-                try await sendReady(readyData, on: connection)
-                let channel = OwnedMediaChannelServer(
-                    connection: connection,
-                    fingerprint: fingerprint,
-                    key: key,
-                    onControlMessage: { [weak self] message in
-                        self?.handleControlMessage(message)
-                    }
-                )
-                installChannel(channel)
-                logger.notice("owned media quic accepted fp=\(fingerprint.rawValue, privacy: .public)")
-                try await startIfReady()
-            case .rejected(let reason):
-                logger.error("owned media quic rejected reason=\(reason.rawValue, privacy: .public) fp=\(hello.deviceFingerprint.rawValue, privacy: .public)")
-                connection.cancel()
-            }
-        } catch {
-            logger.error("owned media quic hello failed: \(String(describing: error), privacy: .public)")
-            connection.cancel()
-            stateContinuation.yield(.failed)
-        }
     }
 
     private func handleGraphicsConnection(_ connection: NWConnection) {
