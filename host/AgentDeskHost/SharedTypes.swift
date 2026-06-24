@@ -1194,13 +1194,11 @@ enum OwnedGraphicsCommand: Equatable {
     case resetSurface(surfaceGeneration: UInt32, width: Int, height: Int, pixelFormat: OwnedGraphicsPixelFormat)
     case copyRect(srcX: Int, srcY: Int, dstX: Int, dstY: Int, width: Int, height: Int)
     case bitmapTile(x: Int, y: Int, width: Int, height: Int, compression: OwnedGraphicsTileCompression, byteRange: OwnedGraphicsByteRange)
-    case codecTile
 
     enum Kind: String, Codable {
         case resetSurface
         case copyRect
         case bitmapTile
-        case codecTile
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1248,8 +1246,6 @@ enum OwnedGraphicsCommand: Equatable {
             else {
                 throw SessionRejected(reason: .malformed)
             }
-        case .codecTile:
-            throw SessionRejected(reason: .malformed)
         }
     }
 }
@@ -1283,8 +1279,6 @@ extension OwnedGraphicsCommand: Codable {
                 compression: try container.decode(OwnedGraphicsTileCompression.self, forKey: .compression),
                 byteRange: try container.decode(OwnedGraphicsByteRange.self, forKey: .byteRange)
             )
-        case .codecTile:
-            throw SessionRejected(reason: .malformed)
         }
     }
 
@@ -1313,8 +1307,6 @@ extension OwnedGraphicsCommand: Codable {
             try container.encode(height, forKey: .height)
             try container.encode(compression, forKey: .compression)
             try container.encode(byteRange, forKey: .byteRange)
-        case .codecTile:
-            try container.encode(Kind.codecTile, forKey: .kind)
         }
     }
 }

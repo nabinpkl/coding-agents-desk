@@ -2172,7 +2172,7 @@ struct ScrollQualityTests {
                 #expect(compression == .lzfse)
                 #expect(byteRange.offset == 0)
                 #expect(byteRange.length == envelope.payload.count)
-            case .resetSurface, .codecTile:
+            case .resetSurface:
                 break
             }
         }

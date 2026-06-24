@@ -379,8 +379,6 @@ struct OwnedSurfaceCompositor {
                     to: DispatchTime.now().uptimeNanoseconds
                 )
                 validated.append(.bitmapTile(x: x, y: y, width: width, height: height, decoded: decoded))
-            case .codecTile:
-                throw SessionRejected(reason: .malformed)
             }
         }
         return validated

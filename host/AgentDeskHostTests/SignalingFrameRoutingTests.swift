@@ -463,38 +463,6 @@ struct SignalingFrameRoutingTests {
             _ = try mismatched.encode()
         }
 
-        struct TestMetadata: Codable {
-            let header: OwnedGraphicsFrameHeader
-            let commands: [OwnedGraphicsCommand]
-
-            enum CodingKeys: String, CodingKey {
-                case header = "h"
-                case commands = "c"
-            }
-        }
-
-        let codecTileHeader = OwnedGraphicsFrameHeader(
-            surfaceGeneration: 1,
-            frameId: 3,
-            capturedAtUptimeNs: 30,
-            commandCount: 1,
-            payloadLength: 0
-        )
-        let codecTileMetadata = try JSONEncoder().encode(TestMetadata(
-            header: codecTileHeader,
-            commands: [.codecTile]
-        ))
-        var codecTileFrame = Data(OwnedGraphicsFrameEnvelope.magic)
-        codecTileFrame.append(OwnedGraphicsFrameEnvelope.version)
-        var metadataLength = UInt32(codecTileMetadata.count).bigEndian
-        var payloadLength = UInt32(0).bigEndian
-        withUnsafeBytes(of: &metadataLength) { codecTileFrame.append(contentsOf: $0) }
-        withUnsafeBytes(of: &payloadLength) { codecTileFrame.append(contentsOf: $0) }
-        codecTileFrame.append(codecTileMetadata)
-        #expect(throws: SessionRejected(reason: .malformed)) {
-            _ = try OwnedGraphicsFrameEnvelope.decode(codecTileFrame)
-        }
-
         let invalidTile = OwnedGraphicsFrameEnvelope(
             header: OwnedGraphicsFrameHeader(
                 surfaceGeneration: 1,
@@ -550,7 +518,7 @@ struct SignalingFrameRoutingTests {
         #expect(!staleGraphics.updateId.isStrictlyNewer(than: committed))
     }
 
-    @Test func graphicsCommandsRoundTripAndRejectReservedCodecTile() throws {
+    @Test func graphicsCommandsRoundTrip() throws {
         let commands: [OwnedGraphicsCommand] = [
             .resetSurface(surfaceGeneration: 3, width: 1920, height: 1080, pixelFormat: .bgra),
             .copyRect(srcX: 0, srcY: 8, dstX: 0, dstY: 0, width: 1920, height: 1072),
@@ -573,11 +541,6 @@ struct SignalingFrameRoutingTests {
         try commands[0].validateForCurrentScope()
         try commands[1].validateForCurrentScope()
         try commands[2].validateForCurrentScope()
-
-        let codecTileData = try JSONEncoder().encode(OwnedGraphicsCommand.codecTile)
-        #expect(throws: SessionRejected(reason: .malformed)) {
-            _ = try JSONDecoder().decode(OwnedGraphicsCommand.self, from: codecTileData)
-        }
     }
 
     @Test func graphicsAckAndResetRequestRoundTripThroughCodable() throws {
