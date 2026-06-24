@@ -999,7 +999,21 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     let encodedBytes = try await graphicsChannel.send(envelope)
                     noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
                     scrollDeltaEngine.commitPendingSurface()
-                    logger.notice("owned graphics accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) acceptedBy=\(graphics.diagnostics?.acceptedBy ?? "unknown", privacy: .public) decision=\(graphics.diagnostics?.timeoutReason ?? "none", privacy: .public) confidence=\(graphics.diagnostics?.confidence ?? 0, privacy: .public) hintActive=\(graphics.diagnostics?.hintActive ?? false, privacy: .public) hintAxis=\(graphics.diagnostics?.hintAxis ?? "none", privacy: .public)")
+                    // Content tile cache decisions for this frame: cacheStores is rung 3
+                    // (cacheTile, pixels sent and a slot stored); cacheHits is rung 2
+                    // (drawCachedTile, the client already holds the content so zero pixel
+                    // bytes go on the wire). Rung 1 omits a cell entirely, so it never
+                    // appears as a command and is visible only as a lower command count.
+                    var cacheStores = 0
+                    var cacheHits = 0
+                    for command in envelope.commands {
+                        switch command {
+                        case .cacheTile: cacheStores += 1
+                        case .drawCachedTile: cacheHits += 1
+                        default: break
+                        }
+                    }
+                    logger.notice("owned graphics accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) cacheStores=\(cacheStores, privacy: .public) cacheHits=\(cacheHits, privacy: .public) acceptedBy=\(graphics.diagnostics?.acceptedBy ?? "unknown", privacy: .public) decision=\(graphics.diagnostics?.timeoutReason ?? "none", privacy: .public) confidence=\(graphics.diagnostics?.confidence ?? 0, privacy: .public) hintActive=\(graphics.diagnostics?.hintActive ?? false, privacy: .public) hintAxis=\(graphics.diagnostics?.hintAxis ?? "none", privacy: .public)")
                 } catch {
                     logger.error("owned graphics send failed: \(String(describing: error), privacy: .public)")
                     if isActiveGraphicsConnection(ObjectIdentifier(graphicsChannel.connection)) {
