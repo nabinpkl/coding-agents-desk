@@ -2165,6 +2165,10 @@ struct ScrollQualityTests {
                 #expect(byteRange.length == envelope.payload.count)
             case .resetSurface:
                 break
+            case .cacheTile:
+                break
+            case .drawCachedTile:
+                break
             }
         }
         #expect(envelope.commands.count == 2)

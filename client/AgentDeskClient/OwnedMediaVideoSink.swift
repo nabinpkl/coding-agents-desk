@@ -163,6 +163,8 @@ private enum OwnedSurfaceValidatedCommand {
     case resetSurface(surfaceGeneration: UInt32, width: Int, height: Int, baseline: OwnedSurfaceUpdateId)
     case copyRect(srcX: Int, srcY: Int, dstX: Int, dstY: Int, width: Int, height: Int)
     case bitmapTile(x: Int, y: Int, width: Int, height: Int, decoded: Data)
+    case cacheTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int, decoded: Data)
+    case drawCachedTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int)
 }
 
 private enum OwnedSurfaceCompositorValidationError: Error {
@@ -177,6 +179,7 @@ struct OwnedSurfaceCompositor {
     private var height = 0
     private var bytesPerRow = 0
     private var pixels = Data()
+    private var slotBitmaps: [UInt16: (width: Int, height: Int, pixels: Data)] = [:]
 
     mutating func applyGraphicsFrame(_ envelope: OwnedGraphicsFrameEnvelope) throws -> OwnedSurfaceCompositorStats {
         let startNs = DispatchTime.now().uptimeNanoseconds
@@ -206,6 +209,7 @@ struct OwnedSurfaceCompositor {
                 self.height = height
                 bytesPerRow = width * 4
                 pixels = Data(count: bytesPerRow * height)
+                slotBitmaps.removeAll()
                 committedUpdateId = baseline
             case let .copyRect(srcX, srcY, dstX, dstY, width, height):
                 let copyStartNs = DispatchTime.now().uptimeNanoseconds
@@ -223,6 +227,25 @@ struct OwnedSurfaceCompositor {
                     to: DispatchTime.now().uptimeNanoseconds
                 )
                 tileBytes += decoded.count
+            case let .cacheTile(slot, x, y, width, height, decoded):
+                let paintStartNs = DispatchTime.now().uptimeNanoseconds
+                try paintTile(decoded, x: x, y: y, width: width, height: height)
+                slotBitmaps[slot] = (width, height, decoded)
+                timing.tilePaintMs += OwnedMediaRenderTiming.elapsedMs(
+                    from: paintStartNs,
+                    to: DispatchTime.now().uptimeNanoseconds
+                )
+                tileBytes += decoded.count
+            case let .drawCachedTile(slot, x, y, width, height):
+                guard let cached = slotBitmaps[slot], cached.width == width, cached.height == height else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                let paintStartNs = DispatchTime.now().uptimeNanoseconds
+                try paintTile(cached.pixels, x: x, y: y, width: width, height: height)
+                timing.tilePaintMs += OwnedMediaRenderTiming.elapsedMs(
+                    from: paintStartNs,
+                    to: DispatchTime.now().uptimeNanoseconds
+                )
             }
         }
         if updateId.isStrictlyNewer(than: committedUpdateId) {
@@ -379,6 +402,56 @@ struct OwnedSurfaceCompositor {
                     to: DispatchTime.now().uptimeNanoseconds
                 )
                 validated.append(.bitmapTile(x: x, y: y, width: width, height: height, decoded: decoded))
+            case let .cacheTile(slot, x, y, width, height, compression, byteRange):
+                guard updateId.isStrictlyNewer(than: candidateCommittedUpdateId),
+                      compression == .lzfse || compression == .jpeg else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                try Self.validateRect(
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height,
+                    surfaceWidth: candidateWidth,
+                    surfaceHeight: candidateHeight,
+                    bytesPerRow: candidateBytesPerRow,
+                    pixelCount: candidatePixelCount
+                )
+                let cacheEnd = byteRange.offset + byteRange.length
+                guard byteRange.offset >= 0,
+                      byteRange.length > 0,
+                      cacheEnd <= envelope.payload.count else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                let cacheDecodeStartNs = DispatchTime.now().uptimeNanoseconds
+                let cacheCompressed = Data(envelope.payload[byteRange.offset..<cacheEnd])
+                let cacheDecoded: Data
+                switch compression {
+                case .lzfse:
+                    cacheDecoded = try decompressLZFSE(cacheCompressed, expectedCount: width * height * 4)
+                case .jpeg:
+                    cacheDecoded = try Self.decodeJPEG(cacheCompressed, width: width, height: height)
+                }
+                timing.tileDecodeMs += OwnedMediaRenderTiming.elapsedMs(
+                    from: cacheDecodeStartNs,
+                    to: DispatchTime.now().uptimeNanoseconds
+                )
+                validated.append(.cacheTile(slot: slot, x: x, y: y, width: width, height: height, decoded: cacheDecoded))
+            case let .drawCachedTile(slot, x, y, width, height):
+                guard updateId.isStrictlyNewer(than: candidateCommittedUpdateId) else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                try Self.validateRect(
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height,
+                    surfaceWidth: candidateWidth,
+                    surfaceHeight: candidateHeight,
+                    bytesPerRow: candidateBytesPerRow,
+                    pixelCount: candidatePixelCount
+                )
+                validated.append(.drawCachedTile(slot: slot, x: x, y: y, width: width, height: height))
             }
         }
         return validated

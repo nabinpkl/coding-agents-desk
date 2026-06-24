@@ -1241,11 +1241,15 @@ enum OwnedGraphicsCommand: Equatable {
     case resetSurface(surfaceGeneration: UInt32, width: Int, height: Int, pixelFormat: OwnedGraphicsPixelFormat)
     case copyRect(srcX: Int, srcY: Int, dstX: Int, dstY: Int, width: Int, height: Int)
     case bitmapTile(x: Int, y: Int, width: Int, height: Int, compression: OwnedGraphicsTileCompression, byteRange: OwnedGraphicsByteRange)
+    case cacheTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int, compression: OwnedGraphicsTileCompression, byteRange: OwnedGraphicsByteRange)
+    case drawCachedTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int)
 
     enum Kind: String, Codable {
         case resetSurface
         case copyRect
         case bitmapTile
+        case cacheTile
+        case drawCachedTile
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1262,6 +1266,7 @@ enum OwnedGraphicsCommand: Equatable {
         case y
         case compression = "comp"
         case byteRange = "br"
+        case slot = "sl"
     }
 
     func validateForCurrentScope(payloadLength: Int = Int.max) throws {
@@ -1283,6 +1288,14 @@ enum OwnedGraphicsCommand: Equatable {
             else {
                 throw SessionRejected(reason: .malformed)
             }
+        case let .cacheTile(_, x, y, width, height, _, byteRange):
+            guard x >= 0, y >= 0, width > 0, height > 0,
+                  byteRange.offset >= 0, byteRange.length > 0,
+                  byteRange.offset <= payloadLength,
+                  byteRange.length <= payloadLength - byteRange.offset
+            else { throw SessionRejected(reason: .malformed) }
+        case let .drawCachedTile(_, x, y, width, height):
+            guard x >= 0, y >= 0, width > 0, height > 0 else { throw SessionRejected(reason: .malformed) }
         }
     }
 }
@@ -1316,6 +1329,24 @@ extension OwnedGraphicsCommand: Codable {
                 compression: try container.decode(OwnedGraphicsTileCompression.self, forKey: .compression),
                 byteRange: try container.decode(OwnedGraphicsByteRange.self, forKey: .byteRange)
             )
+        case .cacheTile:
+            self = .cacheTile(
+                slot: try container.decode(UInt16.self, forKey: .slot),
+                x: try container.decode(Int.self, forKey: .x),
+                y: try container.decode(Int.self, forKey: .y),
+                width: try container.decode(Int.self, forKey: .width),
+                height: try container.decode(Int.self, forKey: .height),
+                compression: try container.decode(OwnedGraphicsTileCompression.self, forKey: .compression),
+                byteRange: try container.decode(OwnedGraphicsByteRange.self, forKey: .byteRange)
+            )
+        case .drawCachedTile:
+            self = .drawCachedTile(
+                slot: try container.decode(UInt16.self, forKey: .slot),
+                x: try container.decode(Int.self, forKey: .x),
+                y: try container.decode(Int.self, forKey: .y),
+                width: try container.decode(Int.self, forKey: .width),
+                height: try container.decode(Int.self, forKey: .height)
+            )
         }
     }
 
@@ -1344,6 +1375,22 @@ extension OwnedGraphicsCommand: Codable {
             try container.encode(height, forKey: .height)
             try container.encode(compression, forKey: .compression)
             try container.encode(byteRange, forKey: .byteRange)
+        case let .cacheTile(slot, x, y, width, height, compression, byteRange):
+            try container.encode(Kind.cacheTile, forKey: .kind)
+            try container.encode(slot, forKey: .slot)
+            try container.encode(x, forKey: .x)
+            try container.encode(y, forKey: .y)
+            try container.encode(width, forKey: .width)
+            try container.encode(height, forKey: .height)
+            try container.encode(compression, forKey: .compression)
+            try container.encode(byteRange, forKey: .byteRange)
+        case let .drawCachedTile(slot, x, y, width, height):
+            try container.encode(Kind.drawCachedTile, forKey: .kind)
+            try container.encode(slot, forKey: .slot)
+            try container.encode(x, forKey: .x)
+            try container.encode(y, forKey: .y)
+            try container.encode(width, forKey: .width)
+            try container.encode(height, forKey: .height)
         }
     }
 }
