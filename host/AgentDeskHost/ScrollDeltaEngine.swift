@@ -776,7 +776,10 @@ struct ScrollDeltaEngine {
             if Config.hybridTileCacheEnabled {
                 let h = TileContentCache.hash(tile)
                 // Rung 2: client already holds this content in a slot; reference it.
+                // Touch the slot so its recency refreshes on commit and the hot
+                // content the cache exists to keep resident is not evicted first.
                 if let slot = tileCache.lookup(hash: h, bytes: tile) {
+                    tileCache.touch(slot: slot)
                     commands.append(.drawCachedTile(slot: slot, x: cell.x, y: cell.y, width: cell.width, height: cell.height))
                     continue
                 }
