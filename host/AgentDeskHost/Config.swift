@@ -307,8 +307,8 @@ enum Config {
     )
     // ADR-0021: damage is emitted as tiles snapped to a fixed grid in surface
     // pixel space. A fixed cell size bounds per-tile bytes and gives each tile a
-    // stable identity for a future content-hash cache, instead of one
-    // variable-size tile over the whole damage union.
+    // stable identity for the content tile cache (see the content-tile-cache
+    // design and its ADR), instead of one variable-size tile over the damage union.
     static let hybridTileGridPx = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_TILE_GRID_PX",
         defaultValue: 128

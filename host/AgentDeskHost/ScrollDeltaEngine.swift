@@ -8,9 +8,9 @@ import UniformTypeIdentifiers
 
 // Snaps a damage rect list to a fixed grid in surface pixel space (H2). Each
 // grid cell overlapped by any damage rect becomes one tile, clipped to the
-// surface bounds. Fixed cells bound per-tile size and give a stable tile
-// identity for a future content-hash cache, instead of one variable-size tile
-// over the damage union.
+// surface bounds. Fixed cells bound per-tile size and give each tile a stable
+// identity for the content tile cache (see the content-tile-cache design and
+// its ADR), instead of one variable-size tile over the damage union.
 enum TileGrid {
     static func cells(
         covering damage: [PixelRect],
@@ -567,32 +567,15 @@ struct ScrollDeltaEngine {
         // is congested; otherwise lossless LZFSE keeps a small, slow-scroll strip
         // crisp. JPEG reuses the fullframe tile builder (motion quality, ramped
         // downscale), and the client decodes it like any other bitmap tile.
+        let stripRect = PixelRect(x: tileX, y: tileY, width: tileWidth, height: tileHeight)
         let stripRawBytes = tileWidth * tileHeight * 4
         let useLossy = congestionLevel > 0 || stripRawBytes >= Config.hybridScrollStripLossyThresholdBytes
-        let stripCommand: OwnedGraphicsCommand
-        let payload: Data
-        if useLossy,
-           let tile = makeJpegTile(
-               current: current,
-               rect: PixelRect(x: tileX, y: tileY, width: tileWidth, height: tileHeight),
-               quality: fullframeQuality(forLevel: congestionLevel, motion: motion),
-               scale: fullframeScale(forLevel: congestionLevel)
-           ) {
-            stripCommand = tile.command
-            payload = tile.payload
-        } else {
-            guard let exposed = tileData(surface: current, x: tileX, y: tileY, width: tileWidth, height: tileHeight),
-                  let compressed = compressLZFSE(exposed) else { return nil }
-            stripCommand = .bitmapTile(
-                x: tileX,
-                y: tileY,
-                width: tileWidth,
-                height: tileHeight,
-                compression: .lzfse,
-                byteRange: OwnedGraphicsByteRange(offset: 0, length: compressed.count)
-            )
-            payload = compressed
-        }
+        let encoding: TileEncoding = useLossy
+            ? .jpeg(quality: fullframeQuality(forLevel: congestionLevel, motion: motion), scale: fullframeScale(forLevel: congestionLevel))
+            : .lzfse
+        guard let strip = buildTile(surface: current, rect: stripRect, encoding: encoding, payloadOffset: 0) else { return nil }
+        let stripCommand = strip.command
+        let payload = strip.payload
         return OwnedGraphicsFrameEnvelope(
             header: OwnedGraphicsFrameHeader(
                 surfaceGeneration: surfaceGeneration,
@@ -733,11 +716,12 @@ struct ScrollDeltaEngine {
 
     // One bitmap tile per fixed grid cell overlapped by the damage rects (H2).
     // Snapping to a fixed grid bounds per-tile size and gives each tile a stable
-    // identity for a future content-hash cache, instead of one variable-size
-    // tile over the damage union. Each cell's BGRA is LZFSE-compressed and
-    // appended to a single envelope payload with its own byteRange. Sub-rect,
-    // non-full-width tiles are already exercised by the scroll exposed-strip
-    // path, so this stays within proven wire semantics.
+    // identity for the content tile cache (see the content-tile-cache design and
+    // its ADR), instead of one variable-size tile over the damage union. Each
+    // cell's BGRA is LZFSE-compressed and appended to a single envelope payload
+    // with its own byteRange. Sub-rect, non-full-width tiles are already
+    // exercised by the scroll exposed-strip path, so this stays within proven
+    // wire semantics.
     private func makeTileEnvelope(current: Surface, rects: [PixelRect], capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
         let cells = TileGrid.cells(
             covering: rects,
@@ -750,19 +734,9 @@ struct ScrollDeltaEngine {
         var payload = Data()
         for cell in cells {
             guard cell.area > 0,
-                  let tile = tileData(surface: current, x: cell.x, y: cell.y, width: cell.width, height: cell.height),
-                  let compressed = compressLZFSE(tile) else { return nil }
-            commands.append(
-                .bitmapTile(
-                    x: cell.x,
-                    y: cell.y,
-                    width: cell.width,
-                    height: cell.height,
-                    compression: .lzfse,
-                    byteRange: OwnedGraphicsByteRange(offset: payload.count, length: compressed.count)
-                )
-            )
-            payload.append(compressed)
+                  let built = buildTile(surface: current, rect: cell, encoding: .lzfse, payloadOffset: payload.count) else { return nil }
+            commands.append(built.command)
+            payload.append(built.payload)
         }
         guard !commands.isEmpty else { return nil }
         return OwnedGraphicsFrameEnvelope(
@@ -804,7 +778,7 @@ struct ScrollDeltaEngine {
     // to the surface; the client decodes the JPEG back to BGRA and paints it like
     // any other bitmap tile.
     private func makeJPEGFrameEnvelope(current: Surface, region: PixelRect, quality: Double, scale: Double, capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
-        guard let tile = makeJpegTile(current: current, rect: region, quality: quality, scale: scale) else { return nil }
+        guard let tile = buildTile(surface: current, rect: region, encoding: .jpeg(quality: quality, scale: scale), payloadOffset: 0) else { return nil }
         return OwnedGraphicsFrameEnvelope(
             header: OwnedGraphicsFrameHeader(
                 surfaceGeneration: surfaceGeneration,
@@ -816,6 +790,41 @@ struct ScrollDeltaEngine {
             commands: [tile.command],
             payload: tile.payload
         )
+    }
+
+    // Encoding choice for buildTile. LZFSE keeps text crisp; JPEG carries the
+    // congestion quality and downscale for the fullframe fallback and the large
+    // exposed scroll strip.
+    private enum TileEncoding {
+        case lzfse
+        case jpeg(quality: Double, scale: Double)
+    }
+
+    // One tile builder for every path. Extracts the cell BGRA once, compresses per
+    // the requested encoding, and returns the command plus payload. The lossless
+    // LZFSE path keeps text crisp; the JPEG path carries the congestion quality and
+    // downscale for the fullframe fallback and the large exposed scroll strip.
+    private func buildTile(surface: Surface, rect: PixelRect, encoding: TileEncoding, payloadOffset: Int) -> (command: OwnedGraphicsCommand, payload: Data)? {
+        switch encoding {
+        case .lzfse:
+            guard let bgra = tileData(surface: surface, x: rect.x, y: rect.y, width: rect.width, height: rect.height),
+                  let compressed = compressLZFSE(bgra) else { return nil }
+            let command = OwnedGraphicsCommand.bitmapTile(
+                x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+                compression: .lzfse,
+                byteRange: OwnedGraphicsByteRange(offset: payloadOffset, length: compressed.count)
+            )
+            return (command, compressed)
+        case let .jpeg(quality, scale):
+            guard let tile = makeJpegTile(current: surface, rect: rect, quality: quality, scale: scale) else { return nil }
+            // makeJpegTile emits byteRange offset 0; re-stamp the real offset.
+            guard case let .bitmapTile(x, y, w, h, comp, range) = tile.command else { return nil }
+            let command = OwnedGraphicsCommand.bitmapTile(
+                x: x, y: y, width: w, height: h, compression: comp,
+                byteRange: OwnedGraphicsByteRange(offset: payloadOffset, length: range.length)
+            )
+            return (command, tile.payload)
+        }
     }
 
     // One lossy JPEG bitmap tile over a rect. The tile command carries the full

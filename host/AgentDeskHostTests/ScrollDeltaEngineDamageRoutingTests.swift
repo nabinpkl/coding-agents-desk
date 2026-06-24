@@ -421,6 +421,64 @@ struct ScrollDeltaEngineDamageRoutingTests {
         #expect(compression == .jpeg)
     }
 
+    // Pins the LZFSE tile path before the buildTile seam refactor (Task 4 TDD
+    // anchor). A .tiles classification must emit one .lzfse bitmapTile per grid
+    // cell with a byteRange whose length equals the tile's slice of the payload.
+    // If buildTile changes the encoding or breaks byteRange accounting, this
+    // test fails before the wire contract changes.
+    @Test func tilesPathEmitsLzfseTilesWithCorrectByteRanges() throws {
+        var engine = ScrollDeltaEngine()
+        let width = 256
+        let height = 256
+
+        let first = try Self.makeBGRAFrame(width: width, height: height) { _, _ in
+            [10, 10, 10, 0xff]
+        }
+        #expect(engine.evaluate(first).kind == .reset)
+        engine.commitPendingSurface()
+
+        // Change a small region so the damage classifier returns .tiles (small,
+        // non-scroll, below the fullFrame threshold). A single 64x64 rect in a
+        // 256x256 surface is 6.25% coverage; the classifier treats this as .tiles.
+        let damageRect = PixelRect(x: 0, y: 0, width: 64, height: 64)
+        let full = PixelRect(x: 0, y: 0, width: width, height: height)
+        let changed = try Self.makeBGRAFrame(
+            width: width,
+            height: height,
+            damageRects: [damageRect],
+            contentRectPixels: full
+        ) { x, y in
+            if x < 64 && y < 64 {
+                let v = UInt8((x * 13 + y * 7) & 0xff)
+                return [v, v, v, 0xff]
+            }
+            return [10, 10, 10, 0xff]
+        }
+        let result = engine.evaluate(changed, scrollHint: nil)
+
+        #expect(result.fellBackToHEVC == false)
+        guard let envelope = result.envelope else {
+            Issue.record("expected a tile envelope from the .tiles path")
+            return
+        }
+        // All bitmap tiles must be LZFSE.
+        let tiles = envelope.commands.compactMap { cmd -> (PixelRect, OwnedGraphicsByteRange)? in
+            guard case let .bitmapTile(x, y, w, h, compression, range) = cmd else { return nil }
+            #expect(compression == .lzfse, "tile at (\(x),\(y)) must be lzfse, got \(compression)")
+            return (PixelRect(x: x, y: y, width: w, height: h), range)
+        }
+        #expect(!tiles.isEmpty)
+        // Each tile's byteRange must slice the real payload without gaps or overlaps.
+        var cursor = 0
+        for (rect, range) in tiles.sorted(by: { $0.1.offset < $1.1.offset }) {
+            #expect(range.offset == cursor, "gap or overlap at tile \(rect): expected offset \(cursor), got \(range.offset)")
+            #expect(range.length > 0, "tile \(rect) has zero-length payload")
+            #expect(range.offset + range.length <= envelope.payload.count)
+            cursor += range.length
+        }
+        #expect(cursor == envelope.payload.count, "payload has trailing bytes: cursor=\(cursor) payloadCount=\(envelope.payload.count)")
+    }
+
     private static func jpegPixelWidth(_ data: Data) -> Int? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
