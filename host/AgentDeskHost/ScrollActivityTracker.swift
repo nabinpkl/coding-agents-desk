@@ -166,7 +166,10 @@ final class ScrollActivityHintStore: @unchecked Sendable {
     private let lock = NSLock()
     private var tracker: ScrollActivityTracker
 
-    init(tracker: ScrollActivityTracker = ScrollActivityTracker(inputPixelScale: Config.hybridScrollInputPixelScale)) {
+    init(tracker: ScrollActivityTracker = ScrollActivityTracker(
+        activeWindowMs: Config.hybridScrollActiveWindowMs,
+        inputPixelScale: Config.hybridScrollInputPixelScale
+    )) {
         self.tracker = tracker
     }
 

@@ -337,6 +337,17 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_INPUT_PIXEL_SCALE",
         defaultValue: 24
     )
+    // How long a scroll input keeps the scroll hint active. The hint is what
+    // lets the damage classifier attempt a copyRect instead of dumping the
+    // frame to fullframe tiles. At 180 ms the hint expired between input events
+    // and during post-gesture settling, so most frames of a real scroll saw no
+    // hint and classified fullframe (device-run finding). Widen it to bridge the
+    // whole gesture plus brief settling; surface validation still gates copyRect
+    // so a stale-but-active hint cannot force a wrong copy.
+    static let hybridScrollActiveWindowMs = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_ACTIVE_WINDOW_MS",
+        defaultValue: 600
+    )
     static let hybridScrollViewportMinWidth = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_SCROLL_VIEWPORT_MIN_WIDTH",
         defaultValue: 320

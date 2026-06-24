@@ -988,7 +988,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     let encodedBytes = try await graphicsChannel.send(envelope)
                     noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
                     scrollDeltaEngine.commitPendingSurface()
-                    logger.notice("owned graphics accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) acceptedBy=\(graphics.diagnostics?.acceptedBy ?? "unknown", privacy: .public)")
+                    logger.notice("owned graphics accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) acceptedBy=\(graphics.diagnostics?.acceptedBy ?? "unknown", privacy: .public) decision=\(graphics.diagnostics?.timeoutReason ?? "none", privacy: .public) confidence=\(graphics.diagnostics?.confidence ?? 0, privacy: .public) hintActive=\(graphics.diagnostics?.hintActive ?? false, privacy: .public) hintAxis=\(graphics.diagnostics?.hintAxis ?? "none", privacy: .public)")
                 } catch {
                     logger.error("owned graphics send failed: \(String(describing: error), privacy: .public)")
                     if isActiveGraphicsConnection(ObjectIdentifier(graphicsChannel.connection)) {
