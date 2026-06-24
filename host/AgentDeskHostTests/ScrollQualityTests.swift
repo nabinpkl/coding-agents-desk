@@ -1810,7 +1810,12 @@ struct ScrollQualityTests {
 
         #expect(result.kind == ScrollDeltaKind.accepted)
         let envelope = try #require(result.envelope)
-        let hasTile = envelope.commands.contains { if case .bitmapTile = $0 { return true } else { return false } }
+        // A tile that carries pixels is bitmapTile (cache disabled) or cacheTile
+        // (cache enabled, first appearance). Either satisfies the contract: pixels
+        // reach the client without a copyRect.
+        let hasTile = envelope.commands.contains {
+            switch $0 { case .bitmapTile, .cacheTile: return true; default: return false }
+        }
         let hasCopyRect = envelope.commands.contains { if case .copyRect = $0 { return true } else { return false } }
         #expect(hasTile)
         #expect(!hasCopyRect)

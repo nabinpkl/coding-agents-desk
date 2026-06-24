@@ -241,6 +241,7 @@ struct ScrollDeltaEngine {
     private var pendingSurface: Surface?
     private var surfaceGeneration: UInt32 = 0
     private var graphicsFrameId: UInt64 = 0
+    private var tileCache = TileContentCache(slotCount: Config.hybridTileCacheSlots)
     private let ciContext = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any])
     private let maxDecodedResetStripePayloadBytes: Int
     private let maxWireResetStripeBytes: Int
@@ -296,11 +297,13 @@ struct ScrollDeltaEngine {
         guard let pendingSurface else { return }
         previous = pendingSurface
         self.pendingSurface = nil
+        tileCache.commitPending()
     }
 
     mutating func invalidateRetainedSurface() {
         previous = nil
         pendingSurface = nil
+        tileCache.reset()
     }
 
     mutating func evaluate(
@@ -317,6 +320,7 @@ struct ScrollDeltaEngine {
             }
             pendingSurface = current
             surfaceGeneration &+= 1
+            tileCache.reset()
             graphicsFrameId &+= 1
             let resetFrameId = graphicsFrameId
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
@@ -355,6 +359,7 @@ struct ScrollDeltaEngine {
             }
             pendingSurface = current
             surfaceGeneration &+= 1
+            tileCache.reset()
             graphicsFrameId &+= 1
             let resetFrameId = graphicsFrameId
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
@@ -603,6 +608,7 @@ struct ScrollDeltaEngine {
         surfaceWidth: Int,
         surfaceHeight: Int
     ) -> ScrollDeltaResult {
+        tileCache.discardPending()
         guard let current = makeSurface(frame.pixelBuffer) else {
             pendingSurface = nil
             return ScrollDeltaResult(kind: .rejected("no-bgra-surface"), envelope: nil)
@@ -767,9 +773,26 @@ struct ScrollDeltaEngine {
             if let prior = tileData(surface: previous, x: cell.x, y: cell.y, width: cell.width, height: cell.height), prior == tile {
                 continue
             }
-            guard let built = buildTile(surface: current, rect: cell, encoding: .lzfse, payloadOffset: payload.count) else { return .failed }
-            commands.append(built.command)
-            payload.append(built.payload)
+            if Config.hybridTileCacheEnabled {
+                let h = TileContentCache.hash(tile)
+                // Rung 2: client already holds this content in a slot; reference it.
+                if let slot = tileCache.lookup(hash: h, bytes: tile) {
+                    commands.append(.drawCachedTile(slot: slot, x: cell.x, y: cell.y, width: cell.width, height: cell.height))
+                    continue
+                }
+                // Rung 3: send the pixels and stage the slot (committed on send success).
+                guard let compressed = compressLZFSE(tile) else { return .failed }
+                let slot = tileCache.assign(hash: h, bytes: tile)
+                commands.append(.cacheTile(
+                    slot: slot, x: cell.x, y: cell.y, width: cell.width, height: cell.height,
+                    compression: .lzfse, byteRange: OwnedGraphicsByteRange(offset: payload.count, length: compressed.count)
+                ))
+                payload.append(compressed)
+            } else {
+                guard let built = buildTile(surface: current, rect: cell, encoding: .lzfse, payloadOffset: payload.count) else { return .failed }
+                commands.append(built.command)
+                payload.append(built.payload)
+            }
         }
         guard !commands.isEmpty else { return .allUnchanged }
         graphicsFrameId &+= 1

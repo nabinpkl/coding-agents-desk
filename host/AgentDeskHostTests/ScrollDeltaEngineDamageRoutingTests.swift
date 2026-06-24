@@ -461,11 +461,19 @@ struct ScrollDeltaEngineDamageRoutingTests {
             Issue.record("expected a tile envelope from the .tiles path")
             return
         }
-        // All bitmap tiles must be LZFSE.
+        // All tiles that carry pixels (bitmapTile or cacheTile) must be LZFSE.
+        // drawCachedTile carries no payload so it is excluded from byteRange checks.
         let tiles = envelope.commands.compactMap { cmd -> (PixelRect, OwnedGraphicsByteRange)? in
-            guard case let .bitmapTile(x, y, w, h, compression, range) = cmd else { return nil }
-            #expect(compression == .lzfse, "tile at (\(x),\(y)) must be lzfse, got \(compression)")
-            return (PixelRect(x: x, y: y, width: w, height: h), range)
+            switch cmd {
+            case let .bitmapTile(x, y, w, h, compression, range):
+                #expect(compression == .lzfse, "bitmapTile at (\(x),\(y)) must be lzfse, got \(compression)")
+                return (PixelRect(x: x, y: y, width: w, height: h), range)
+            case let .cacheTile(_, x, y, w, h, compression, range):
+                #expect(compression == .lzfse, "cacheTile at (\(x),\(y)) must be lzfse, got \(compression)")
+                return (PixelRect(x: x, y: y, width: w, height: h), range)
+            default:
+                return nil
+            }
         }
         #expect(!tiles.isEmpty)
         // Each tile's byteRange must slice the real payload without gaps or overlaps.
@@ -584,10 +592,119 @@ struct ScrollDeltaEngineDamageRoutingTests {
         }
         let r = engine.evaluate(frame)
         #expect(r.kind == .accepted)
-        let tiles = r.envelope?.commands.filter { $0.kindIsBitmapTile } ?? []
+        // Count all commands that carry pixels: bitmapTile or cacheTile (first seen
+        // content). drawCachedTile references a slot but sends no pixels; it counts
+        // as a tile send for this purpose. Rung 1 must have dropped the unchanged
+        // cell at (128,128), so exactly one tile-bearing command must be present.
+        let tiles = r.envelope?.commands.filter {
+            switch $0 {
+            case .bitmapTile, .cacheTile, .drawCachedTile: return true
+            default: return false
+            }
+        } ?? []
         // Only the changed cell at (0,0) must be sent; the unchanged cell at
         // (128,128) is omitted because its pixels equal the retained baseline.
         #expect(tiles.count == 1)
+    }
+
+    // Rung 2 (Task 10): content that was seen at (0,0) and cached must be
+    // recognized via drawCachedTile when it appears at (128,128). The first
+    // appearance must emit cacheTile (sends pixels); the second appearance
+    // of the same pixels at a new position must emit drawCachedTile (no pixels).
+    @Test func repeatedContentAtNewPositionUsesDrawCachedTile() throws {
+        var engine = ScrollDeltaEngine()
+        let width = 256
+        let height = 256
+        let full = PixelRect(x: 0, y: 0, width: width, height: height)
+
+        // Prime a solid background.
+        let base = try Self.makeBGRAFrame(width: width, height: height) { _, _ in
+            [0x20, 0x20, 0x20, 0xff]
+        }
+        #expect(engine.evaluate(base).kind == .reset)
+        engine.commitPendingSurface()
+
+        // First appearance of 0xAA content at (0,0)-(64,64): must emit cacheTile.
+        let damage1 = PixelRect(x: 0, y: 0, width: 64, height: 64)
+        let f1 = try Self.makeBGRAFrame(
+            width: width, height: height,
+            damageRects: [damage1], contentRectPixels: full
+        ) { x, y in
+            if x < 64 && y < 64 { return [0xAA, 0xAA, 0xAA, 0xff] }
+            return [0x20, 0x20, 0x20, 0xff]
+        }
+        let r1 = engine.evaluate(f1)
+        engine.commitPendingSurface()
+        #expect(r1.envelope!.commands.contains { if case .cacheTile = $0 { return true }; return false },
+                "first appearance must emit cacheTile")
+
+        // Second appearance: same 0xAA content at (128,128)-(192,192); (0,0) reverts.
+        // Report both rects as damaged so the engine's grid sees both cells.
+        let damage2a = PixelRect(x: 0, y: 0, width: 64, height: 64)
+        let damage2b = PixelRect(x: 128, y: 128, width: 64, height: 64)
+        let f2 = try Self.makeBGRAFrame(
+            width: width, height: height,
+            damageRects: [damage2a, damage2b], contentRectPixels: full
+        ) { x, y in
+            if x >= 128 && x < 192 && y >= 128 && y < 192 { return [0xAA, 0xAA, 0xAA, 0xff] }
+            return [0x20, 0x20, 0x20, 0xff]
+        }
+        let r2 = engine.evaluate(f2)
+        engine.commitPendingSurface()
+        #expect(r2.envelope!.commands.contains { if case .drawCachedTile = $0 { return true }; return false },
+                "second appearance of same content at new position must emit drawCachedTile")
+    }
+
+    // Rung 2 (Task 10): after invalidateRetainedSurface the cache must be cleared,
+    // forcing the same content to be re-sent as cacheTile, never drawCachedTile.
+    @Test func generationResetClearsCache() throws {
+        var engine = ScrollDeltaEngine()
+        let width = 256
+        let height = 256
+        let full = PixelRect(x: 0, y: 0, width: width, height: height)
+
+        // Prime and commit a baseline.
+        let base = try Self.makeBGRAFrame(width: width, height: height) { _, _ in
+            [0x20, 0x20, 0x20, 0xff]
+        }
+        #expect(engine.evaluate(base).kind == .reset)
+        engine.commitPendingSurface()
+
+        // First appearance of 0xAA at (0,0): cached.
+        let damage1 = PixelRect(x: 0, y: 0, width: 64, height: 64)
+        let f1 = try Self.makeBGRAFrame(
+            width: width, height: height,
+            damageRects: [damage1], contentRectPixels: full
+        ) { x, y in
+            if x < 64 && y < 64 { return [0xAA, 0xAA, 0xAA, 0xff] }
+            return [0x20, 0x20, 0x20, 0xff]
+        }
+        _ = engine.evaluate(f1)
+        engine.commitPendingSurface()
+
+        // Invalidate: forces a reset on the next evaluate.
+        engine.invalidateRetainedSurface()
+
+        // Re-seed after the reset (reset path).
+        let reseed = try Self.makeBGRAFrame(width: width, height: height) { _, _ in
+            [0x20, 0x20, 0x20, 0xff]
+        }
+        _ = engine.evaluate(reseed)
+        engine.commitPendingSurface()
+
+        // Same 0xAA content now at (128,128): the cache was cleared on reset,
+        // so the engine must emit cacheTile, not drawCachedTile.
+        let damage2 = PixelRect(x: 128, y: 128, width: 64, height: 64)
+        let f2 = try Self.makeBGRAFrame(
+            width: width, height: height,
+            damageRects: [damage2], contentRectPixels: full
+        ) { x, y in
+            if x >= 128 && x < 192 && y >= 128 && y < 192 { return [0xAA, 0xAA, 0xAA, 0xff] }
+            return [0x20, 0x20, 0x20, 0xff]
+        }
+        let r = engine.evaluate(f2)
+        #expect(!r.envelope!.commands.contains { if case .drawCachedTile = $0 { return true }; return false },
+                "after reset, same content must be re-sent as cacheTile, not drawCachedTile")
     }
 
     private static func makeBGRAFrame(
