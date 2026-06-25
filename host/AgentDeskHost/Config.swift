@@ -128,41 +128,9 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_CROSS_EXTENT_PX",
         defaultValue: 64
     )
-    static let hybridClassifierAcceptConfidence = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_ACCEPT_CONFIDENCE",
-        defaultValue: 0.7
-    )
-    static let hybridClassifierAcceptConfidenceWithPrior = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_ACCEPT_CONFIDENCE_WITH_PRIOR",
-        defaultValue: 0.55
-    )
-    static let hybridClassifierMinChangedFraction = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_CHANGED_FRACTION",
-        defaultValue: 0.05
-    )
-    static let hybridClassifierCertainConfidence = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_CERTAIN_CONFIDENCE",
-        defaultValue: 0.97
-    )
-    static let hybridClassifierMinCertainExplainedSamples = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_CERTAIN_EXPLAINED_SAMPLES",
-        defaultValue: 24
-    )
-    static let hybridClassifierSampleStep = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_SAMPLE_STEP",
-        defaultValue: 8
-    )
     static let hybridClassifierLumaTolerance = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_LUMA_TOLERANCE",
         defaultValue: 24
-    )
-    static let hybridClassifierCoarseStep = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_COARSE_STEP",
-        defaultValue: 8
-    )
-    static let hybridClassifierMaxSearchOffsetPx = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MAX_SEARCH_OFFSET_PX",
-        defaultValue: 400
     )
     static let hybridClassifierVerifyExtent = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_VERIFY_EXTENT",
@@ -226,35 +194,7 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_BUSY_RESOLUTION_SCALE_FLOOR",
         defaultValue: 0.5
     )
-    // JPEG quality for the fullframe fallback, motion-adaptive. A whole-screen
-    // change ships as one lossy JPEG instead of multi-MB raw LZFSE (the fix for
-    // the link saturation that froze the screen); small text-only changes still go
-    // lossless LZFSE, so this lossy path only ever covers large motion.
-    //
-    // Rest quality is high so a settled screen is crisp. Motion quality is low: a
-    // fullframe emitted while the scroll hint is active is mid-flick, where the eye
-    // cannot resolve detail and a smaller frame holds cadence (less stepping). The
-    // moment scrolling stops the hint lapses and the next settling frame lands at
-    // rest quality, so the resting image self-sharpens.
-    static let hybridFullframeJpegQuality = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_FULLFRAME_JPEG_QUALITY",
-        defaultValue: 0.65
-    )
-    static let hybridFullframeJpegQualityMotion = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_FULLFRAME_JPEG_QUALITY_MOTION",
-        defaultValue: 0.3
-    )
-    // Congestion quality: when the encode pump is backed up against the unacked
-    // cap (a hard flick flooding fullframes faster than the link drains), encode at
-    // this floor so each frame is tiny and drains fast, keeping cadence instead of
-    // stalling into a freeze. This is RDP's P9 lesson, drop quality to hold cadence
-    // under constrained bandwidth, applied as a congestion signal rather than a
-    // fixed motion/rest split. Restored to motion/rest quality once the link drains.
-    static let hybridFullframeJpegQualityCongested = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_FULLFRAME_JPEG_QUALITY_CONGESTED",
-        defaultValue: 0.15
-    )
-    // Hard ceiling on a single fullframe JPEG's wire size. A whole-screen change at
+    // Hard ceiling on a single JPEG tile's wire size. A whole-screen change at
     // Retina resolution was 0.9-2.0MB even as JPEG; one such frame clogged the
     // reliable channel long enough that a reset stripe's ack timed out, and the
     // resulting full-surface resync clogged it again, a self-feeding freeze
@@ -266,49 +206,12 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_FULLFRAME_MAX_WIRE_BYTES",
         defaultValue: 450_000
     )
-    // Congestion resolution scale: when the pump is backed up, the fullframe JPEG is
-    // encoded at this fraction of the damage region's native size and the client
-    // upscales it into the full destination rect. On a thin link JPEG quality alone
-    // bottoms out (a whole-band JPEG of a Retina desktop is ~200KB even at the q0.15
-    // floor), so halving the resolution cuts the encoded pixels ~4x and the wire
-    // bytes with them, which is what actually lifts the frame rate when the link, not
-    // the codec, is the limit. Softer during motion only; rest/motion fullframes stay
-    // full resolution and the image re-sharpens the moment the link drains. 1.0
-    // disables the downscale.
-    static let hybridFullframeCongestedScale = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_FULLFRAME_CONGESTED_SCALE",
-        defaultValue: 0.5
-    )
-    // Number of pump holds-since-last-produce that maps the instantaneous congestion
-    // signal to 1.0 (fully saturated, encode at the floor). A device run showed the
-    // pump holds ~2-3 frames per produce during a fullframe burst on a saturated
-    // link, so this must be small: at 2, one held frame ramps the level to 0.5 (a
-    // gentle quality dip, no downscale) and two or more piled-up frames reach the
-    // floor, matching working-version-11's aggressive congestion response without
-    // its cliff. A larger value (the first attempt used 8) left the level stuck near
-    // 0.3, so fullframes stayed near rest quality and ballooned to ~370KB.
-    static let hybridCongestionSaturationHolds = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_CONGESTION_SATURATION_HOLDS",
-        defaultValue: 2
-    )
-    // EWMA smoothing for the congestion level so a single held frame does not jump the
-    // level to maximum (the binary cliff that the macroblock regression came from).
-    // new = alpha * instantaneous + (1 - alpha) * previous.
-    static let hybridCongestionEwmaAlpha = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_CONGESTION_EWMA_ALPHA",
-        defaultValue: 0.5
-    )
-    // Congestion level below which fullframe resolution stays full (scale 1.0). Above
-    // it, scale ramps toward the congested floor. Resolution is the heavy hammer,
-    // reserved for sustained congestion; quality does the gentle early work.
-    static let hybridCongestionScaleRampThreshold = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_CONGESTION_SCALE_RAMP_THRESHOLD",
-        defaultValue: 0.5
-    )
     // Raw byte size (width*height*4) above which an exposed scroll strip is sent as
     // lossy JPEG instead of lossless LZFSE. A fast flick reveals a tall band that is a
     // large lossless blob (device run: ~133KB LZFSE strips); a slow scroll reveals a
-    // thin strip that stays crisp and is small anyway. Congestion also forces lossy.
+    // thin strip that stays crisp and is small anyway. The decision is size-only:
+    // backpressure is absorbed by the governor's cadence cap, not by smearing a small
+    // readable strip.
     static let hybridScrollStripLossyThresholdBytes = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_SCROLL_STRIP_LOSSY_THRESHOLD_BYTES",
         defaultValue: 524_288

@@ -238,17 +238,8 @@ struct ScrollDeltaEngine {
     private let frameComposer: FrameComposer
     // Fixed grid cell size in surface pixels for damage tile emission (H2).
     private let tileGridPx: Int
-    // Lossy quality for the fullframe JPEG fallback (0...1). Rest is crisp; motion
-    // is low so a mid-scroll fullframe stays small and holds cadence.
-    private let fullframeJpegQualityRest: Double
-    private let fullframeJpegQualityMotion: Double
-    private let fullframeJpegQualityCongested: Double
-    // Hard wire-byte ceiling for a fullframe JPEG; quality steps down to fit it.
+    // Hard wire-byte ceiling for a JPEG tile; quality steps down to fit it.
     private let fullframeMaxWireBytes: Int
-    // Resolution scale for a congested fullframe JPEG (0.1...1). The client upscales
-    // the decoded image into the full destination rect, so halving this cuts encoded
-    // pixels ~4x when the link, not the codec, is the limit.
-    private let fullframeCongestedScale: Double
     // Rung-3 busy threshold: LZFSE compressed bytes / raw pixel count. A cell that
     // compresses poorly (photo/gradient, above the threshold) is re-encoded as JPEG
     // to save wire bytes. Text and solid-fill cells compress well and stay LZFSE.
@@ -263,11 +254,7 @@ struct ScrollDeltaEngine {
         maxWireResetStripeBytes: Int = Self.defaultMaxWireResetStripeBytes,
         frameComposer: FrameComposer = FrameComposer(),
         tileGridPx: Int = Config.hybridTileGridPx,
-        fullframeJpegQuality: Double = Config.hybridFullframeJpegQuality,
-        fullframeJpegQualityMotion: Double = Config.hybridFullframeJpegQualityMotion,
-        fullframeJpegQualityCongested: Double = Config.hybridFullframeJpegQualityCongested,
         fullframeMaxWireBytes: Int = Config.hybridFullframeMaxWireBytes,
-        fullframeCongestedScale: Double = Config.hybridFullframeCongestedScale,
         hybridTileBusyBytesPerPixel: Double = Config.hybridTileBusyBytesPerPixel,
         hybridFrameByteBudget: Int = Config.hybridFrameByteBudget
     ) {
@@ -275,11 +262,7 @@ struct ScrollDeltaEngine {
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
         self.frameComposer = frameComposer
         self.tileGridPx = max(1, tileGridPx)
-        self.fullframeJpegQualityRest = min(1, max(0.1, fullframeJpegQuality))
-        self.fullframeJpegQualityMotion = min(1, max(0.1, fullframeJpegQualityMotion))
-        self.fullframeJpegQualityCongested = min(1, max(0.1, fullframeJpegQualityCongested))
         self.fullframeMaxWireBytes = max(1, fullframeMaxWireBytes)
-        self.fullframeCongestedScale = min(1, max(0.1, fullframeCongestedScale))
         self.hybridTileBusyBytesPerPixel = max(0, hybridTileBusyBytesPerPixel)
         self.hybridFrameByteBudget = max(1, hybridFrameByteBudget)
     }
@@ -851,27 +834,9 @@ struct ScrollDeltaEngine {
         ))
     }
 
-    // Monotonic quality: the rest or motion baseline at level 0, lerped down to the
-    // congested floor at level 1. A light backlog costs a little sharpness, not all.
-    func fullframeQuality(forLevel level: Double, motion: Bool) -> Double {
-        let l = min(1, max(0, level))
-        let baseline = motion ? fullframeJpegQualityMotion : fullframeJpegQualityRest
-        return baseline + (fullframeJpegQualityCongested - baseline) * l
-    }
-
-    // Monotonic scale: full resolution until the ramp threshold, then lerp toward the
-    // congested floor at level 1. Never below the floor.
-    func fullframeScale(forLevel level: Double) -> Double {
-        let l = min(1, max(0, level))
-        let threshold = min(0.999, max(0, Config.hybridCongestionScaleRampThreshold))
-        guard l > threshold else { return 1.0 }
-        let t = (l - threshold) / (1 - threshold)
-        return 1.0 + (fullframeCongestedScale - 1.0) * t
-    }
-
     // Encoding choice for buildTile. LZFSE keeps text crisp; JPEG carries the
-    // congestion quality and downscale for the fullframe fallback and the large
-    // exposed scroll strip.
+    // governor's readable quality and the content-gated downscale for busy cells
+    // and the large exposed scroll strip.
     private enum TileEncoding {
         case lzfse
         case jpeg(quality: Double, scale: Double)
@@ -879,8 +844,8 @@ struct ScrollDeltaEngine {
 
     // One tile builder for every path. Extracts the cell BGRA once, compresses per
     // the requested encoding, and returns the command plus payload. The lossless
-    // LZFSE path keeps text crisp; the JPEG path carries the congestion quality and
-    // downscale for the fullframe fallback and the large exposed scroll strip.
+    // LZFSE path keeps text crisp; the JPEG path carries the governor's readable
+    // quality and content-gated downscale.
     private func buildTile(surface: Surface, rect: PixelRect, encoding: TileEncoding, payloadOffset: Int) -> (command: OwnedGraphicsCommand, payload: Data)? {
         switch encoding {
         case .lzfse:

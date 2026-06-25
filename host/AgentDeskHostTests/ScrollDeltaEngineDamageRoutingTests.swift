@@ -47,31 +47,6 @@ struct ScrollDeltaEngineDamageRoutingTests {
         #expect(hasTile)
     }
 
-
-    // The congestion ramp replaces the binary congested cliff: quality drops
-    // smoothly from the rest/motion baseline to the congested floor as the level
-    // climbs, and resolution stays full until a mid threshold before ramping to the
-    // floor. Neither ever crosses the working-version-11 floor (q0.15, scale 0.5).
-    @Test func congestionQualityRampIsMonotonicBaselineToFloor() {
-        let engine = ScrollDeltaEngine()
-        let rest = engine.fullframeQuality(forLevel: 0, motion: false)
-        let mid = engine.fullframeQuality(forLevel: 0.5, motion: false)
-        let full = engine.fullframeQuality(forLevel: 1, motion: false)
-        #expect(rest > mid)
-        #expect(mid > full)
-        #expect(abs(full - 0.15) < 1e-9)            // exactly the congested floor
-        #expect(abs(rest - 0.65) < 1e-9)            // exactly the rest baseline
-    }
-
-    @Test func congestionScaleStaysFullUntilThresholdThenRampsToFloor() {
-        let engine = ScrollDeltaEngine()
-        #expect(engine.fullframeScale(forLevel: 0) == 1.0)
-        #expect(engine.fullframeScale(forLevel: 0.5) == 1.0)   // at threshold, still full
-        let mid = engine.fullframeScale(forLevel: 0.75)
-        #expect(mid < 1.0 && mid > 0.5)                         // ramping
-        #expect(abs(engine.fullframeScale(forLevel: 1) - 0.5) < 1e-9)  // floor, never below
-    }
-
     // Per-row luma hash so a vertical shift is detectable and a scroll classifies
     // cleanly (mirrors the classifier test surfaces).
     private static func scrollRowValue(_ y: Int) -> UInt8 {
