@@ -249,6 +249,10 @@ struct ScrollDeltaEngine {
     // the decoded image into the full destination rect, so halving this cuts encoded
     // pixels ~4x when the link, not the codec, is the limit.
     private let fullframeCongestedScale: Double
+    // Rung-3 busy threshold: LZFSE compressed bytes / raw pixel count. A cell that
+    // compresses poorly (photo/gradient, above the threshold) is re-encoded as JPEG
+    // to save wire bytes. Text and solid-fill cells compress well and stay LZFSE.
+    private let hybridTileBusyBytesPerPixel: Double
 
     init(
         maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes,
@@ -259,7 +263,8 @@ struct ScrollDeltaEngine {
         fullframeJpegQualityMotion: Double = Config.hybridFullframeJpegQualityMotion,
         fullframeJpegQualityCongested: Double = Config.hybridFullframeJpegQualityCongested,
         fullframeMaxWireBytes: Int = Config.hybridFullframeMaxWireBytes,
-        fullframeCongestedScale: Double = Config.hybridFullframeCongestedScale
+        fullframeCongestedScale: Double = Config.hybridFullframeCongestedScale,
+        hybridTileBusyBytesPerPixel: Double = Config.hybridTileBusyBytesPerPixel
     ) {
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
@@ -270,6 +275,7 @@ struct ScrollDeltaEngine {
         self.fullframeJpegQualityCongested = min(1, max(0.1, fullframeJpegQualityCongested))
         self.fullframeMaxWireBytes = max(1, fullframeMaxWireBytes)
         self.fullframeCongestedScale = min(1, max(0.1, fullframeCongestedScale))
+        self.hybridTileBusyBytesPerPixel = max(0, hybridTileBusyBytesPerPixel)
     }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
@@ -645,7 +651,7 @@ struct ScrollDeltaEngine {
         case .tiles(let rects):
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
             pendingSurface = current
-            switch makeTileEnvelope(current: current, previous: previous, rects: rects, capturedAtUptimeNs: frame.capturedAtUptimeNs) {
+            switch makeTileEnvelope(current: current, previous: previous, rects: rects, congestionLevel: congestionLevel, motion: scrollHint != nil, capturedAtUptimeNs: frame.capturedAtUptimeNs) {
             case .built(let envelope):
                 return ScrollDeltaResult(
                     kind: .accepted,
@@ -741,7 +747,7 @@ struct ScrollDeltaEngine {
     // If every dirty cell is unchanged the whole frame becomes .allUnchanged
     // (zero bytes on the wire). graphicsFrameId increments only when a frame is
     // actually built, so the client sequence counter stays tight.
-    private mutating func makeTileEnvelope(current: Surface, previous: Surface, rects: [PixelRect], capturedAtUptimeNs: UInt64) -> TileBuild {
+    private mutating func makeTileEnvelope(current: Surface, previous: Surface, rects: [PixelRect], congestionLevel: Double, motion: Bool, capturedAtUptimeNs: UInt64) -> TileBuild {
         let cells = TileGrid.cells(
             covering: rects,
             surfaceWidth: current.width,
@@ -771,13 +777,44 @@ struct ScrollDeltaEngine {
                     continue
                 }
                 // Rung 3: send the pixels and stage the slot (committed on send success).
-                guard let compressed = compressLZFSE(tile) else { return .failed }
+                // The cache slot is always keyed on source (unencoded) bytes, so
+                // TileContentCache.assign(hash:bytes:) always receives the raw BGRA tile
+                // regardless of the encoding chosen below. This is the coherence
+                // guarantee: same source -> same hash -> same slot on every peer.
+                guard let lzfseCompressed = compressLZFSE(tile) else { return .failed }
                 let slot = tileCache.assign(hash: h, bytes: tile)
-                commands.append(.cacheTile(
-                    slot: slot, x: cell.x, y: cell.y, width: cell.width, height: cell.height,
-                    compression: .lzfse, byteRange: OwnedGraphicsByteRange(offset: payload.count, length: compressed.count)
-                ))
-                payload.append(compressed)
+                // Decide encoding: if the LZFSE output is "busy" (bytes-per-pixel
+                // above the threshold), re-encode as JPEG at the current congestion
+                // quality and scale. Poorly-compressible content (photo, gradient) is
+                // where JPEG quality is already acceptable; text and solid-fill stay
+                // lossless. The threshold is ~2.0 bpp by default, which cleanly
+                // separates text (well under 0.5 bpp LZFSE) from near-raw photo content
+                // (LZFSE approaches 3-4 bpp on random per-pixel noise).
+                let pixelCount = cell.width * cell.height
+                let lzfseBytesPerPixel = pixelCount > 0 ? Double(lzfseCompressed.count) / Double(pixelCount) : 0
+                let isBusy = lzfseBytesPerPixel > hybridTileBusyBytesPerPixel
+                if isBusy, let jpegBuilt = buildTile(
+                    surface: current,
+                    rect: cell,
+                    encoding: .jpeg(
+                        quality: fullframeQuality(forLevel: congestionLevel, motion: motion),
+                        scale: fullframeScale(forLevel: congestionLevel)
+                    ),
+                    payloadOffset: payload.count
+                ) {
+                    // buildTile emits a bitmapTile command; rewrap as cacheTile with slot.
+                    commands.append(.cacheTile(
+                        slot: slot, x: cell.x, y: cell.y, width: cell.width, height: cell.height,
+                        compression: .jpeg, byteRange: OwnedGraphicsByteRange(offset: payload.count, length: jpegBuilt.payload.count)
+                    ))
+                    payload.append(jpegBuilt.payload)
+                } else {
+                    commands.append(.cacheTile(
+                        slot: slot, x: cell.x, y: cell.y, width: cell.width, height: cell.height,
+                        compression: .lzfse, byteRange: OwnedGraphicsByteRange(offset: payload.count, length: lzfseCompressed.count)
+                    ))
+                    payload.append(lzfseCompressed)
+                }
             } else {
                 guard let built = buildTile(surface: current, rect: cell, encoding: .lzfse, payloadOffset: payload.count) else { return .failed }
                 commands.append(built.command)

@@ -426,6 +426,27 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_TILE_CACHE_SLOTS",
         defaultValue: 512
     )
+    // Rung-3 busy-tile threshold. After LZFSE-compressing a new cache-miss cell,
+    // divide the compressed byte count by the cell's pixel count (width * height).
+    // If the result exceeds this value, the cell is "busy": photo or gradient
+    // content that LZFSE cannot shrink, where JPEG costs far fewer bytes.
+    // The cell is then re-encoded as JPEG at the current congestion quality/scale
+    // and emitted as a cacheTile with compression: .jpeg instead of .lzfse.
+    //
+    // Calibration: each BGRA pixel is 4 raw bytes, so a completely uncompressed
+    // LZFSE output is about 4 bytes/pixel. Random per-pixel noise approaches this
+    // ceiling (LZFSE inflates by ~5% for incompressible data). Solid-color and
+    // text content compresses well under 1 byte/pixel. Setting the threshold at
+    // 2.0 bpp sits cleanly between these poles: text and UI tiles stay LZFSE
+    // (well under 1 bpp), and near-incompressible photo/gradient tiles exceed
+    // 2 bpp and cross over to JPEG. 2.0 is a safe conservative choice: no real
+    // text tile reaches it, and any photo that compresses poorly is already in
+    // the regime where lossy JPEG quality is accepted (same path as the
+    // fullframe fallback). Override with AGENTDESK_HYBRID_TILE_BUSY_BYTES_PER_PIXEL.
+    static let hybridTileBusyBytesPerPixel: Double = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_TILE_BUSY_BYTES_PER_PIXEL",
+        defaultValue: 2.0
+    )
     // Kill switch; false falls back to rung-1 baseline skip only.
     static let hybridTileCacheEnabled: Bool = enabledFlag(
         environmentKey: "AGENTDESK_HYBRID_TILE_CACHE_ENABLED",
