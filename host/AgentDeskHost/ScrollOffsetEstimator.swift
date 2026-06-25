@@ -2,13 +2,15 @@ import Foundation
 
 // Measures the exact pixel offset of a scroll that input has already DECLARED.
 //
-// Input tells the host that a scroll is happening and on which axis and in which
-// direction (the phone caused it); this unit measures only the magnitude. The
-// search is a 1-D projection correlation along the declared axis, scanning the
-// full band extent in the declared sign direction. There is no offset cap: a
-// fast Retina flick of more than 400 native px per frame is found here where the
-// old brute-force probe (capped at 400) could not, and because the sign is given
-// there is no direction ambiguity to resolve.
+// Input tells the host that a scroll is happening and on which axis (the phone
+// caused it); this unit measures the signed magnitude. The search is a 1-D
+// projection correlation along the declared axis, scanning the full band extent
+// in both directions. There is no offset cap: a fast Retina flick of more than
+// 400 native px per frame is found here where the old brute-force probe (capped
+// at 400) could not. The direction is recovered from the surface rather than
+// trusted from the input delta, whose mapping to on-screen content direction
+// depends on the OS scroll-direction setting; the verify floor below makes the
+// both-direction search safe, so a wrong direction simply fails to verify.
 //
 // The projection nominates the most likely offsets; a thin 2-D overlap verify
 // disposes of them. A non-translating repaint, or two regions moving
@@ -74,17 +76,15 @@ struct ScrollOffsetEstimator {
         band: PixelRect,
         previous: ScrollDeltaSurface,
         current: ScrollDeltaSurface,
-        axis: ScrollActivityAxis,
-        sign: Int
+        axis: ScrollActivityAxis
     ) -> Int? {
         guard previous.width == current.width, previous.height == current.height else { return nil }
-        guard sign == 1 || sign == -1 else { return nil }
         let clamped = band.clamped(toWidth: current.width, height: current.height)
         let alongExtent = axis == .vertical ? clamped.height : clamped.width
         let crossExtent = axis == .vertical ? clamped.width : clamped.height
         guard alongExtent >= config.minScrollExtentPx, crossExtent >= config.minCrossExtentPx else { return nil }
 
-        let candidates = projectionCandidates(band: clamped, previous: previous, current: current, axis: axis, sign: sign)
+        let candidates = projectionCandidates(band: clamped, previous: previous, current: current, axis: axis)
         for candidate in candidates {
             if verify(offset: candidate, band: clamped, previous: previous, current: current, axis: axis) {
                 return candidate
@@ -94,15 +94,14 @@ struct ScrollOffsetEstimator {
     }
 
     // Build the 1-D luma projection of the band along the axis for both surfaces,
-    // then score every offset in the declared sign direction by the fraction of
-    // CHANGED projection rows the shift explains. Returns the top signed offsets
-    // by score (descending), at most candidateCount.
+    // then score every offset in BOTH directions by the fraction of CHANGED
+    // projection rows the shift explains. Returns the top signed offsets by score
+    // (descending), at most candidateCount, which the 2-D verify then confirms.
     private func projectionCandidates(
         band: PixelRect,
         previous: ScrollDeltaSurface,
         current: ScrollDeltaSurface,
-        axis: ScrollActivityAxis,
-        sign: Int
+        axis: ScrollActivityAxis
     ) -> [Int] {
         let previousProjection = projection(band: band, surface: previous, axis: axis)
         let currentProjection = projection(band: band, surface: current, axis: axis)
@@ -120,24 +119,26 @@ struct ScrollOffsetEstimator {
         guard !changed.isEmpty else { return [] }
 
         let maxShift = n - 1
+        let minOverlap = max(2, changed.count / 4)
         var scored = [(offset: Int, score: Double)]()
-        scored.reserveCapacity(maxShift)
-        for magnitude in 1...maxShift {
-            let signedOffset = sign * magnitude
-            var total = 0
-            var matched = 0
-            for i in changed {
-                let source = i - signedOffset
-                guard source >= 0, source < n else { continue }
-                total += 1
-                if abs(Int(currentProjection[i]) - Int(previousProjection[source])) <= tolerance {
-                    matched += 1
+        scored.reserveCapacity(2 * maxShift)
+        for sign in [1, -1] {
+            for magnitude in 1...maxShift {
+                let signedOffset = sign * magnitude
+                var total = 0
+                var matched = 0
+                for i in changed {
+                    let source = i - signedOffset
+                    guard source >= 0, source < n else { continue }
+                    total += 1
+                    if abs(Int(currentProjection[i]) - Int(previousProjection[source])) <= tolerance {
+                        matched += 1
+                    }
                 }
+                // Require a non-trivial overlap so a 1-row coincidence cannot win.
+                guard total >= minOverlap else { continue }
+                scored.append((signedOffset, Double(matched) / Double(total)))
             }
-            // Require a non-trivial overlap so a 1-row coincidence cannot win.
-            guard total >= max(2, changed.count / 4) else { continue }
-            let score = Double(matched) / Double(total)
-            scored.append((signedOffset, score))
         }
         return scored
             .sorted { $0.score > $1.score }

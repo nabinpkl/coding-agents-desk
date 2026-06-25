@@ -72,7 +72,7 @@ struct ScrollOffsetEstimatorTests {
         let band = PixelRect(x: 100, y: 50, width: 400, height: 400)
 
         let result = ScrollOffsetEstimator().measure(
-            band: band, previous: previous, current: current, axis: .vertical, sign: 1
+            band: band, previous: previous, current: current, axis: .vertical
         )
         #expect(result == dy)
     }
@@ -84,7 +84,7 @@ struct ScrollOffsetEstimatorTests {
         let band = PixelRect(x: 100, y: 50, width: 400, height: 400)
 
         let result = ScrollOffsetEstimator().measure(
-            band: band, previous: previous, current: current, axis: .vertical, sign: -1
+            band: band, previous: previous, current: current, axis: .vertical
         )
         #expect(result == dy)
     }
@@ -96,7 +96,7 @@ struct ScrollOffsetEstimatorTests {
         let band = PixelRect(x: 50, y: 50, width: 600, height: 300)
 
         let result = ScrollOffsetEstimator().measure(
-            band: band, previous: previous, current: current, axis: .horizontal, sign: 1
+            band: band, previous: previous, current: current, axis: .horizontal
         )
         #expect(result == dx)
     }
@@ -110,7 +110,7 @@ struct ScrollOffsetEstimatorTests {
         let band = PixelRect(x: 40, y: 40, width: 360, height: 800)
 
         let result = ScrollOffsetEstimator().measure(
-            band: band, previous: previous, current: current, axis: .vertical, sign: 1
+            band: band, previous: previous, current: current, axis: .vertical
         )
         #expect(result == dy)
     }
@@ -127,7 +127,7 @@ struct ScrollOffsetEstimatorTests {
         let band = PixelRect(x: 0, y: 0, width: 500, height: 460)
 
         let result = ScrollOffsetEstimator().measure(
-            band: band, previous: previous, current: current, axis: .vertical, sign: 1
+            band: band, previous: previous, current: current, axis: .vertical
         )
         #expect(result == dy)
     }
@@ -144,7 +144,7 @@ struct ScrollOffsetEstimatorTests {
         let band = PixelRect(x: 0, y: 0, width: 500, height: 460)
 
         let result = ScrollOffsetEstimator().measure(
-            band: band, previous: previous, current: current, axis: .vertical, sign: 1
+            band: band, previous: previous, current: current, axis: .vertical
         )
         #expect(result == dy)
     }
@@ -157,7 +157,7 @@ struct ScrollOffsetEstimatorTests {
         let band = PixelRect(x: 100, y: 50, width: 400, height: 400)
 
         let result = ScrollOffsetEstimator().measure(
-            band: band, previous: previous, current: current, axis: .vertical, sign: 1
+            band: band, previous: previous, current: current, axis: .vertical
         )
         #expect(result == nil)
     }
@@ -168,24 +168,25 @@ struct ScrollOffsetEstimatorTests {
         let band = PixelRect(x: 100, y: 50, width: 400, height: 400)
 
         let result = ScrollOffsetEstimator().measure(
-            band: band, previous: surface, current: surface, axis: .vertical, sign: 1
+            band: band, previous: surface, current: surface, axis: .vertical
         )
         #expect(result == nil)
     }
 
-    // Searching only the declared sign direction: a downward scroll probed with
-    // the wrong sign finds nothing and fails safe to nil (caller tiles) rather
-    // than applying a torn copy.
-    @Test func rejectsWrongSignSearch() {
+    // The direction is recovered from the surface, not the input: the same
+    // downward scroll is measured to +dy whether or not the input sign agreed,
+    // because the search scans both directions and the verify floor confirms only
+    // the real translation. This removes the fragile input-to-content sign mapping.
+    @Test func measuresDirectionFromSurfaceNotInput() {
         let dy = 30
         let previous = Self.verticalSurface(width: 640, height: 600, rowValue: Self.pattern)
         let current = Self.verticalSurface(width: 640, height: 600) { Self.pattern($0 - dy) }
         let band = PixelRect(x: 100, y: 50, width: 400, height: 400)
 
         let result = ScrollOffsetEstimator().measure(
-            band: band, previous: previous, current: current, axis: .vertical, sign: -1
+            band: band, previous: previous, current: current, axis: .vertical
         )
-        #expect(result == nil)
+        #expect(result == dy)
     }
 
     // Band too small along the axis to be a confident scroll: returns nil.
@@ -196,7 +197,7 @@ struct ScrollOffsetEstimatorTests {
         let band = PixelRect(x: 10, y: 10, width: 40, height: 40)
 
         let result = ScrollOffsetEstimator().measure(
-            band: band, previous: previous, current: current, axis: .vertical, sign: 1
+            band: band, previous: previous, current: current, axis: .vertical
         )
         #expect(result == nil)
     }
