@@ -8,7 +8,6 @@ enum ScrollActivityAxis: String, Equatable, Sendable {
 
 enum ScrollActivityHintSource: String, Equatable, Sendable {
     case input
-    case scrollCopyOwnership = "ownership"
 }
 
 struct ScrollActivityHint: Equatable, Sendable {

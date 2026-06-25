@@ -275,32 +275,6 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_STALE_UNACKED_MS",
         defaultValue: 350
     )
-    static let hybridScrollHEVCFps = nonNegativeInt(
-        environmentKey: "AGENTDESK_HYBRID_SCROLL_HEVC_FPS",
-        defaultValue: 0
-    )
-    // Cap on full-frame HEVC fallback frames per second while a scroll is active.
-    // Scroll frames the graphics path cannot copyRect otherwise each emit a full
-    // HEVC frame at capture rate and flood the client (R77: backlog 327, 10.9s
-    // freeze). The copyRect stream carries the translatable motion; these are
-    // periodic full-frame corrections, so a low rate suffices. 0 suppresses them.
-    static let hybridScrollFallbackHEVCFps = nonNegativeInt(
-        environmentKey: "AGENTDESK_HYBRID_SCROLL_FALLBACK_HEVC_FPS",
-        defaultValue: 12
-    )
-    // How long after the last scroll input the HEVC fallback stays rate-limited.
-    // A flick's momentum keeps generating damage after the input hint expires and
-    // those frames usually cannot be copyRect'd; without hysteresis they reject to
-    // full-frame HEVC and flood (R77b: 435 rejected, only 11 rate-limited). Covers
-    // the momentum tail of a flick.
-    static let hybridScrollFallbackHysteresisMs = nonNegativeInt(
-        environmentKey: "AGENTDESK_HYBRID_SCROLL_FALLBACK_HYSTERESIS_MS",
-        defaultValue: 1500
-    )
-    static let hybridScrollIdleRefreshMs = nonNegativeInt(
-        environmentKey: "AGENTDESK_HYBRID_SCROLL_IDLE_REFRESH_MS",
-        defaultValue: 250
-    )
     // ADR-0021: damage is emitted as tiles snapped to a fixed grid in surface
     // pixel space. A fixed cell size bounds per-tile bytes and gives each tile a
     // stable identity for the content tile cache (see the content-tile-cache
@@ -315,18 +289,6 @@ enum Config {
     // damage. This replaces the admission/floor/hysteresis/severe-mode layer.
     static let hybridMaxUnackedFrames = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_MAX_UNACKED_FRAMES",
-        defaultValue: 2
-    )
-    static let hybridScrollOwnershipMs = nonNegativeInt(
-        environmentKey: "AGENTDESK_HYBRID_SCROLL_OWNERSHIP_MS",
-        defaultValue: 500
-    )
-    static let hybridScrollFallbackAfterMs = nonNegativeInt(
-        environmentKey: "AGENTDESK_HYBRID_SCROLL_FALLBACK_AFTER_MS",
-        defaultValue: 300
-    )
-    static let hybridScrollOwnershipMaxMisses = nonNegativeInt(
-        environmentKey: "AGENTDESK_HYBRID_SCROLL_OWNERSHIP_MAX_MISSES",
         defaultValue: 2
     )
     static let hybridScrollInputPixelScale = positiveDouble(

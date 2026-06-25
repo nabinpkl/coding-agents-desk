@@ -38,7 +38,6 @@ struct ScrollDeltaEngineDamageRoutingTests {
 
         #expect(result.envelope != nil)
         #expect(result.envelope?.commands.contains { $0.kindIsBitmapTile } == true)
-        #expect(result.fellBackToHEVC == false)
     }
 
     // A .fullFrame classification ships ONE lossy JPEG tile bounded to the
@@ -76,7 +75,6 @@ struct ScrollDeltaEngineDamageRoutingTests {
         }
         let result = engine.evaluate(changed, scrollHint: nil)
 
-        #expect(result.fellBackToHEVC == false)
         let tiles = result.envelope?.commands.compactMap { command -> (PixelRect, OwnedGraphicsTileCompression)? in
             guard case let .bitmapTile(x, y, w, h, compression, _) = command else { return nil }
             return (PixelRect(x: x, y: y, width: w, height: h), compression)
@@ -456,7 +454,6 @@ struct ScrollDeltaEngineDamageRoutingTests {
         }
         let result = engine.evaluate(changed, scrollHint: nil)
 
-        #expect(result.fellBackToHEVC == false)
         guard let envelope = result.envelope else {
             Issue.record("expected a tile envelope from the .tiles path")
             return

@@ -83,19 +83,6 @@ struct ScrollDeltaResult {
     let envelopes: [OwnedGraphicsFrameEnvelope]
     let diagnostics: ScrollDeltaDiagnostics?
 
-    // True only when the result is a genuine HEVC fallback signal. The damage
-    // path's tile envelopes (.accepted) and its "nothing to send" outcome
-    // (.noChange) never fall back; only .rejected and .timeout do. H5 deletes
-    // the HEVC plumbing this still names.
-    var fellBackToHEVC: Bool {
-        switch kind {
-        case .rejected, .timeout:
-            return true
-        case .reset, .accepted, .noChange:
-            return false
-        }
-    }
-
     init(
         kind: ScrollDeltaKind,
         envelope: OwnedGraphicsFrameEnvelope?,

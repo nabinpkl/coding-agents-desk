@@ -394,8 +394,6 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
 }
 
 final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
-    private static let scrollHintFallbackGraceMs = 120
-
     static let mediaDatagramALPN = OwnedQuicListenerConfigurations.mediaDatagramALPN
     let connectionState: AsyncStream<MediaConnectionState>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
@@ -988,26 +986,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         let expectedAdmissionNs = lastAdmissionStartedAtUptimeNs &+ UInt64(max(intervalMs, 1)) * 1_000_000
         guard admissionUptimeNs > expectedAdmissionNs else { return 0 }
         return admissionUptimeNs - expectedAdmissionNs
-    }
-
-    private static func scrollOwnershipUpdate(
-        diagnostics: ScrollDeltaDiagnostics,
-        frameId: UInt64,
-        nowUptimeNs: UInt64
-    ) -> (
-        axis: ScrollActivityAxis,
-        sign: Int,
-        offsetPx: Int,
-        frameId: UInt64,
-        nowUptimeNs: UInt64
-    )? {
-        if let dy = diagnostics.acceptedDy, dy != 0 {
-            return (.vertical, dy < 0 ? -1 : 1, dy, frameId, nowUptimeNs)
-        }
-        if let dx = diagnostics.acceptedDx, dx != 0 {
-            return (.horizontal, dx < 0 ? -1 : 1, dx, frameId, nowUptimeNs)
-        }
-        return nil
     }
 
     private func resolvedKeyframeReason(

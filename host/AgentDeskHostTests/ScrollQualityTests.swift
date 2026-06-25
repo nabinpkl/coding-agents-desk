@@ -82,12 +82,7 @@ struct ScrollQualityTests {
         #expect(configuration.maxDatagramFrameSize == nil)
     }
 
-    @Test func hybridScrollConfigDefaultsToSuppressHevcDuringAcceptedScroll() {
-        #expect(Config.hybridScrollHEVCFps == 0)
-        #expect(Config.hybridScrollIdleRefreshMs == 250)
-        #expect(Config.hybridScrollOwnershipMs == 500)
-        #expect(Config.hybridScrollFallbackAfterMs == 300)
-        #expect(Config.hybridScrollOwnershipMaxMisses == 2)
+    @Test func hybridGraphicsConfigDefaults() {
         #expect(Config.hybridResetStripeMaxDecodedBytes == 2 * 1_024 * 1_024)
         #expect(Config.hybridResetStripeMaxWireBytes == 196_608)
         #expect(Config.hybridResetStripeAckTimeoutMs == 1_000)
@@ -1474,7 +1469,6 @@ struct ScrollQualityTests {
         let result = engine.evaluate(frame1, scrollHint: nil)
 
         #expect(result.kind == ScrollDeltaKind.accepted)
-        #expect(result.fellBackToHEVC == false)
         let envelope = try #require(result.envelope)
         #expect(envelope.commands.contains { $0.kindIsBitmapTile })
     }
