@@ -249,7 +249,15 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var videoSource: VideoFrameSource?
     private var frameMailbox: LatestCapturedFrameMailbox?
     private var encodePumpTask: Task<Void, Never>?
-    private var graphicsBackpressure = GraphicsBackpressure(maxUnacked: Config.hybridMaxUnackedFrames)
+    private var graphicsBackpressure = GraphicsBackpressure(
+        maxUnacked: Config.hybridMaxUnackedFrames,
+        maxUnackedBytes: Config.hybridMaxUnackedBytes
+    )
+    // A1: token-bucket pacer keeping the average wire send-rate near the link budget.
+    private var graphicsSendPacer = GraphicsSendPacer(
+        bytesPerSecond: Double(Config.hybridLinkBytesPerSecond),
+        burstBytes: Double(Config.hybridSendPacerBurstBytes)
+    )
     private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?
     private var graphicsRecoveryState: HybridGraphicsRecoveryState = .idle
     private let graphicsAckWaiter = OwnedGraphicsAckWaiter()
@@ -643,6 +651,16 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 diagnostics.noteAdmissionHold(reason: "cadence-cap")
                 continue
             }
+            // A1 byte-rate pacer: hold when the link budget is spent. Unlike the
+            // unacked-frame cap, this sees real link saturation even when the client
+            // drains frames fast, so sustained fast scroll (100KB+ strips) paces to
+            // the link instead of over-filling the send buffer until a reset stripe
+            // ack times out. The mailbox coalesces the freshest damage for the next
+            // admitted produce, so a held frame costs cadence, not content.
+            if !lock.withLock({ graphicsSendPacer.canSend(nowNs: nowBeforeProbe) }) {
+                diagnostics.noteAdmissionHold(reason: "rate-cap")
+                continue
+            }
             heldSinceLastProduce = 0
             lastProduceUptimeNs = nowBeforeProbe
             let graphics = scrollDeltaEngine.evaluate(frame, motion: motion, policy: policy)
@@ -789,7 +807,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
     private func noteGraphicsFrameSent(_ envelope: OwnedGraphicsFrameEnvelope, encodedBytes: Int) {
         let inFlight = lock.withLock { () -> Int in
-            graphicsBackpressure.noteSent(frameId: envelope.header.frameId)
+            graphicsBackpressure.noteSent(frameId: envelope.header.frameId, bytes: encodedBytes)
+            // Debit the pacer by the real wire size (A1). Reset-stripe sends route
+            // here too, so their bytes are paced like any other link traffic.
+            graphicsSendPacer.consume(bytes: encodedBytes, nowNs: DispatchTime.now().uptimeNanoseconds)
             return graphicsBackpressure.inFlight
         }
         logger.notice("owned graphics in-flight-sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) bytes=\(encodedBytes, privacy: .public) inFlight=\(inFlight, privacy: .public) maxUnacked=\(Config.hybridMaxUnackedFrames, privacy: .public)")

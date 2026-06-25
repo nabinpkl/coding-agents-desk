@@ -98,6 +98,35 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_MAX_UNACKED_FRAMES",
         defaultValue: 2
     )
+    // In-flight BYTE ceiling for graphics backpressure (A2). The frame-count cap
+    // above lets two ~120KB fast-scroll frames buffer at once (~240KB), deep enough
+    // that a client-requested reset stripe's ack waits seconds behind them on the
+    // ~2Mbps link, the freeze cascade. Gating on in-flight bytes too keeps the
+    // reliable send buffer shallow so a reset drains fast. The first frame is always
+    // admitted, so a single large frame is never permanently stalled. Tune on device.
+    static let hybridMaxUnackedBytes = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_MAX_UNACKED_BYTES",
+        defaultValue: 131_072
+    )
+    // Token-bucket send pacer budget (A1). The reliable graphics channel sustains
+    // ~2Mbps ~= 256KB/s. The pacer refills at this rate and is debited each frame's
+    // wire size, so sustained fast scroll (100KB+ exposed strips) paces to the link
+    // instead of running ~4x over budget until the send buffer saturates. This makes
+    // cadence track the actual link; the unacked-frame count cannot, because the
+    // client drains frames too fast to ever signal real link saturation. Tune on device.
+    static let hybridLinkBytesPerSecond = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_LINK_BYTES_PER_SECOND",
+        defaultValue: 262_144
+    )
+    // Burst capacity (and max debt) of the send pacer. A full bucket lets an
+    // idle->active transition send immediately; once drained, a big frame repays its
+    // overshoot as a longer inter-frame wait. Bounding the debt at this size caps the
+    // recovery delay after one oversized frame so it cannot stall for many seconds.
+    // ~1 second of budget.
+    static let hybridSendPacerBurstBytes = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_SEND_PACER_BURST_BYTES",
+        defaultValue: 262_144
+    )
     // How long a scroll input keeps the motion signal active (scrolling). It bridges
     // the gap between input bursts within one gesture plus brief post-gesture
     // settling, so a bursty flick reads as one continuous scroll and the frame after
