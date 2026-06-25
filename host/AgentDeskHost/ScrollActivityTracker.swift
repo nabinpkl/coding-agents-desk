@@ -42,6 +42,16 @@ struct ScrollActivityHint: Equatable, Sendable {
     }
 }
 
+// What input DECLARES about content motion, the macOS-native substitute for the
+// OS scroll order RDP gets on Windows: the phone caused the scroll, so the host
+// is told the axis and direction directly. The magnitude is deliberately absent;
+// ScrollOffsetEstimator measures it from the surface. A nil signal means rest (no
+// active scroll within the debounce window). Presence means scrolling.
+struct MotionSignal: Equatable, Sendable {
+    let axis: ScrollActivityAxis
+    let sign: Int
+}
+
 struct ScrollActivityTracker: Equatable {
     private static let candidateDeltas = [-16, -8, -4, -2, -1, 0, 1, 2, 4, 8, 16]
 
@@ -110,6 +120,16 @@ struct ScrollActivityTracker: Equatable {
             activeUntilUptimeNs: activeUntilUptimeNs,
             eventCount: eventCount
         )
+    }
+
+    // The input-declared motion signal: scrolling (axis + sign) while a scroll is
+    // active within the debounce window, else nil (rest). Magnitude-free by
+    // design; the surface estimator measures the offset. Shares the axis/sign and
+    // active-window debounce the hint uses, so a bursty flick stays "scrolling"
+    // across the gap between input bursts and settles only once the window lapses.
+    func motionSignal(nowUptimeNs: UInt64) -> MotionSignal? {
+        guard let axis, let sign, nowUptimeNs <= activeUntilUptimeNs else { return nil }
+        return MotionSignal(axis: axis, sign: sign)
     }
 
     private func dominantSample(dx: Float, dy: Float) -> (axis: ScrollActivityAxis, sign: Int, delta: Double)? {
@@ -197,6 +217,12 @@ final class ScrollActivityHintStore: @unchecked Sendable {
     func hint(nowUptimeNs: UInt64 = DispatchTime.now().uptimeNanoseconds) -> ScrollActivityHint? {
         lock.withLock {
             tracker.hint(nowUptimeNs: nowUptimeNs)
+        }
+    }
+
+    func motionSignal(nowUptimeNs: UInt64 = DispatchTime.now().uptimeNanoseconds) -> MotionSignal? {
+        lock.withLock {
+            tracker.motionSignal(nowUptimeNs: nowUptimeNs)
         }
     }
 }
