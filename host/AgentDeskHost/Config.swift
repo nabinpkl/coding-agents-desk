@@ -113,14 +113,13 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_ACTIVE_WINDOW_MS",
         defaultValue: 600
     )
-    // Damage-scroll classifier thresholds (ADR-0021). These were inlined in
-    // DamageScrollClassifierConfig.default; they are central, env-overridable
-    // config like every other tunable. The rationale for each lives on the
-    // matching field in DamageScrollClassifier.swift; the values here are the
-    // calibrated defaults. minScrollExtentPx/minCrossExtentPx gate the band
-    // geometry; acceptConfidence and acceptConfidenceWithPrior are the strict
-    // and input-corroborated acceptance bars; the rest tune the offset search
-    // and verify stripe.
+    // Damage-scroll thresholds (ADR-0021), central and env-overridable. The band
+    // geometry gates (minScrollExtentPx/minCrossExtentPx), lumaTolerance, and
+    // verifyExtent feed ScrollOffsetEstimatorConfig.default; maxTileCoverageRatio
+    // feeds FrameComposer. The remaining confidence/search knobs below belonged to
+    // the deleted guess-and-adjudicate classifier and are pruned in the cleanup
+    // phase; they are inert now that input declares the scroll and the estimator
+    // measures the offset.
     static let hybridClassifierMinScrollExtentPx = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_SCROLL_EXTENT_PX",
         defaultValue: 120

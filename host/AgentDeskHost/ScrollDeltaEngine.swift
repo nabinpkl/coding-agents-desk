@@ -53,8 +53,8 @@ enum TileGrid {
 }
 
 // Retained surface snapshot and scroll offset. These were defined alongside the
-// deleted brute-force probe; the damage path and DamageScrollClassifier still
-// use them, so they live here now.
+// deleted brute-force probe; the damage path and FrameComposer still use them, so
+// they live here now.
 struct ScrollDeltaSurface {
     let width: Int
     let height: Int
@@ -235,7 +235,7 @@ struct ScrollDeltaEngine {
     // ADR-0021 damage-driven detection is now the only path. evaluate()
     // classifies the OS damage region; there is no brute-force pixel-diff probe
     // and no viewport streak.
-    private let damageClassifier: DamageScrollClassifier
+    private let frameComposer: FrameComposer
     // Fixed grid cell size in surface pixels for damage tile emission (H2).
     private let tileGridPx: Int
     // Lossy quality for the fullframe JPEG fallback (0...1). Rest is crisp; motion
@@ -261,7 +261,7 @@ struct ScrollDeltaEngine {
     init(
         maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes,
         maxWireResetStripeBytes: Int = Self.defaultMaxWireResetStripeBytes,
-        damageClassifier: DamageScrollClassifier = DamageScrollClassifier(),
+        frameComposer: FrameComposer = FrameComposer(),
         tileGridPx: Int = Config.hybridTileGridPx,
         fullframeJpegQuality: Double = Config.hybridFullframeJpegQuality,
         fullframeJpegQualityMotion: Double = Config.hybridFullframeJpegQualityMotion,
@@ -273,7 +273,7 @@ struct ScrollDeltaEngine {
     ) {
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
-        self.damageClassifier = damageClassifier
+        self.frameComposer = frameComposer
         self.tileGridPx = max(1, tileGridPx)
         self.fullframeJpegQualityRest = min(1, max(0.1, fullframeJpegQuality))
         self.fullframeJpegQualityMotion = min(1, max(0.1, fullframeJpegQualityMotion))
@@ -612,14 +612,15 @@ struct ScrollDeltaEngine {
             pendingSurface = nil
             return ScrollDeltaResult(kind: .rejected("no-bgra-surface"), envelope: nil)
         }
-        let content = frame.contentRectPixels
-            ?? PixelRect(x: 0, y: 0, width: current.width, height: current.height)
-        let (classification, trace) = damageClassifier.classifyTraced(
+        // Input declares the motion (axis + that a scroll is active); the composer
+        // measures the offset and builds the frame. The sign is recovered from the
+        // surface, so only the axis is taken from the hint here.
+        let motion = scrollHint.map { MotionSignal(axis: $0.axis, sign: $0.sign) }
+        let (classification, trace) = frameComposer.composeTraced(
             damageRects: frame.damageRects,
-            contentRect: content,
             previous: previous,
             current: current,
-            hint: scrollHint
+            motion: motion
         )
         let probeMs = elapsedMs(since: startedAt)
 
@@ -1048,23 +1049,22 @@ struct ScrollDeltaEngine {
         surfaceWidth: Int,
         surfaceHeight: Int
     ) -> ScrollDeltaDiagnostics {
-        // Honest values from the classifier trace: confidence is the real best
-        // shifted match, secondBestConfidence carries the no-shift (static)
-        // match, and bestDx/bestDy carry the best offset the search found even
-        // when it was rejected. acceptedBy carries the decision string so the
-        // device log shows exactly why a scroll was or was not taken.
+        // Honest values from the composer trace: the measured offset (the copyRect
+        // the estimator confirmed, or nil), the decision string (why the frame
+        // composed the way it did), and the band geometry. acceptedBy carries the
+        // decision so the device log shows exactly how each frame was built.
         let axisVertical = scrollHint?.axis != .horizontal
         return ScrollDeltaDiagnostics(
             probeMs: probeMs,
             payloadBuildMs: payloadBuildMs,
             acceptedDx: offset?.dx,
             acceptedDy: offset?.dy,
-            confidence: trace.bestConfidence,
+            confidence: trace.measuredOffset != nil ? 1.0 : 0.0,
             timeoutReason: trace.decision,
             sampledPixelCount: 0,
-            bestDx: axisVertical ? nil : trace.bestOffset,
-            bestDy: axisVertical ? trace.bestOffset : nil,
-            secondBestConfidence: trace.staticConfidence,
+            bestDx: axisVertical ? nil : trace.measuredOffset,
+            bestDy: axisVertical ? trace.measuredOffset : nil,
+            secondBestConfidence: 0,
             hintActive: scrollHint != nil,
             hintAxis: scrollHint?.axis.rawValue,
             hintPredictedOffset: scrollHint?.predictedOffsetPx,

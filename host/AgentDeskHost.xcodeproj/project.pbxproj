@@ -35,8 +35,8 @@
 		A00000000000000000000A06 /* OwnedMediaFrameScaler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */; };
 		A00000000000000000000A08 /* ScrollDeltaEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A07 /* ScrollDeltaEngine.swift */; };
 		A00000000000000000000A09 /* ScrollDeltaEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A07 /* ScrollDeltaEngine.swift */; };
-		A00000000000000000000DA1 /* DamageScrollClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DA0 /* DamageScrollClassifier.swift */; };
-		A00000000000000000000DA2 /* DamageScrollClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DA0 /* DamageScrollClassifier.swift */; };
+		A00000000000000000000DA1 /* FrameComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DA0 /* FrameComposer.swift */; };
+		A00000000000000000000DA2 /* FrameComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DA0 /* FrameComposer.swift */; };
 		A00000000000000000000A0E /* ScrollActivityTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A0D /* ScrollActivityTracker.swift */; };
 		A00000000000000000000A0F /* ScrollActivityTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A0D /* ScrollActivityTracker.swift */; };
 		A00000000000000000000E11 /* ScrollOffsetEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E10 /* ScrollOffsetEstimator.swift */; };
@@ -79,7 +79,7 @@
 		A000000000000000000009A2 /* CursorMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009A0 /* CursorMonitor.swift */; };
 		A000000000000000000009B1 /* CursorMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009B0 /* CursorMonitorTests.swift */; };
 		A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009D0 /* ScrollQualityTests.swift */; };
-		A00000000000000000000DA4 /* DamageScrollClassifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DA3 /* DamageScrollClassifierTests.swift */; };
+		A00000000000000000000DA4 /* FrameComposerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DA3 /* FrameComposerTests.swift */; };
 		A00000000000000000000DB4 /* ScrollDeltaEngineDamageRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */; };
 		A00000000000000000000DC4 /* TileGridEmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DC3 /* TileGridEmissionTests.swift */; };
 		A00000000000000000000DD4 /* UnackedFrameCapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DD3 /* UnackedFrameCapTests.swift */; };
@@ -174,7 +174,7 @@
 		A00000000000000000000A02 /* OwnedMediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaTransport.swift; sourceTree = "<group>"; };
 		A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaFrameScaler.swift; sourceTree = "<group>"; };
 		A00000000000000000000A07 /* ScrollDeltaEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaEngine.swift; sourceTree = "<group>"; };
-		A00000000000000000000DA0 /* DamageScrollClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DamageScrollClassifier.swift; sourceTree = "<group>"; };
+		A00000000000000000000DA0 /* FrameComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameComposer.swift; sourceTree = "<group>"; };
 		A00000000000000000000A0D /* ScrollActivityTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollActivityTracker.swift; sourceTree = "<group>"; };
 		A00000000000000000000E10 /* ScrollOffsetEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollOffsetEstimator.swift; sourceTree = "<group>"; };
 		A00000000000000000000E13 /* ScrollOffsetEstimatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollOffsetEstimatorTests.swift; sourceTree = "<group>"; };
@@ -192,7 +192,7 @@
 		A000000000000000000009A0 /* CursorMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorMonitor.swift; sourceTree = "<group>"; };
 		A000000000000000000009B0 /* CursorMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorMonitorTests.swift; sourceTree = "<group>"; };
 		A000000000000000000009D0 /* ScrollQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollQualityTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000DA3 /* DamageScrollClassifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DamageScrollClassifierTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000DA3 /* FrameComposerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameComposerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaEngineDamageRoutingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DC3 /* TileGridEmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileGridEmissionTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DD3 /* UnackedFrameCapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnackedFrameCapTests.swift; sourceTree = "<group>"; };
@@ -311,7 +311,7 @@
 				A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */,
 				A00000000000000000000A02 /* OwnedMediaTransport.swift */,
 				A00000000000000000000A07 /* ScrollDeltaEngine.swift */,
-				A00000000000000000000DA0 /* DamageScrollClassifier.swift */,
+				A00000000000000000000DA0 /* FrameComposer.swift */,
 				A00000000000000000000A0D /* ScrollActivityTracker.swift */,
 				A00000000000000000000E10 /* ScrollOffsetEstimator.swift */,
 				A00000000000000000000E20 /* MotionGovernor.swift */,
@@ -382,7 +382,7 @@
 				A00000000000000000000126 /* SpacesProviderTests.swift */,
 				A000000000000000000009B0 /* CursorMonitorTests.swift */,
 				A000000000000000000009D0 /* ScrollQualityTests.swift */,
-				A00000000000000000000DA3 /* DamageScrollClassifierTests.swift */,
+				A00000000000000000000DA3 /* FrameComposerTests.swift */,
 				A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */,
 				A00000000000000000000DC3 /* TileGridEmissionTests.swift */,
 				A00000000000000000000DD3 /* UnackedFrameCapTests.swift */,
@@ -533,7 +533,7 @@
 				A00000000000000000000A05 /* OwnedMediaFrameScaler.swift in Sources */,
 				A00000000000000000000A03 /* OwnedMediaTransport.swift in Sources */,
 				A00000000000000000000A08 /* ScrollDeltaEngine.swift in Sources */,
-				A00000000000000000000DA1 /* DamageScrollClassifier.swift in Sources */,
+				A00000000000000000000DA1 /* FrameComposer.swift in Sources */,
 				A00000000000000000000A0E /* ScrollActivityTracker.swift in Sources */,
 				A00000000000000000000E11 /* ScrollOffsetEstimator.swift in Sources */,
 				A00000000000000000000E21 /* MotionGovernor.swift in Sources */,
@@ -589,7 +589,7 @@
 				A00000000000000000000254 /* VideoFrameSource.swift in Sources */,
 				A00000000000000000000A06 /* OwnedMediaFrameScaler.swift in Sources */,
 				A00000000000000000000A09 /* ScrollDeltaEngine.swift in Sources */,
-				A00000000000000000000DA2 /* DamageScrollClassifier.swift in Sources */,
+				A00000000000000000000DA2 /* FrameComposer.swift in Sources */,
 				A00000000000000000000A0F /* ScrollActivityTracker.swift in Sources */,
 				A00000000000000000000E12 /* ScrollOffsetEstimator.swift in Sources */,
 				A00000000000000000000E22 /* MotionGovernor.swift in Sources */,
@@ -615,7 +615,7 @@
 				A000000000000000000009A2 /* CursorMonitor.swift in Sources */,
 				A000000000000000000009B1 /* CursorMonitorTests.swift in Sources */,
 				A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */,
-				A00000000000000000000DA4 /* DamageScrollClassifierTests.swift in Sources */,
+				A00000000000000000000DA4 /* FrameComposerTests.swift in Sources */,
 				A00000000000000000000DB4 /* ScrollDeltaEngineDamageRoutingTests.swift in Sources */,
 				A00000000000000000000DC4 /* TileGridEmissionTests.swift in Sources */,
 				A00000000000000000000DD4 /* UnackedFrameCapTests.swift in Sources */,

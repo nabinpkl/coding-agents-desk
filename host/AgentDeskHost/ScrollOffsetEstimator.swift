@@ -23,9 +23,8 @@ import Foundation
 // the previous classifier: a scrolled band is mostly uniform background that
 // matches at any offset, and the newly-revealed leading strip has no on-surface
 // source, so both are excluded and only the moved content drives the measurement.
-// Tuning for ScrollOffsetEstimator. Top-level (not nested) to match the
-// DamageScrollClassifierConfig convention and to avoid shadowing the global
-// Config from which its defaults are sourced.
+// Tuning for ScrollOffsetEstimator. Top-level (not nested) to avoid shadowing the
+// global Config from which its defaults are sourced.
 struct ScrollOffsetEstimatorConfig: Equatable, Sendable {
     // Band geometry gates, measured on the band itself (never relative to the
     // full, possibly multi-monitor surface): a scroll band is long along the
