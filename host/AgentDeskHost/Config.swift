@@ -195,6 +195,38 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_OFFSET_VERIFY_FLOOR",
         defaultValue: 0.8
     )
+    // MotionGovernor policy table. These few knobs replace the deleted
+    // congestion-EWMA trio and the three fullframe-quality knobs with one
+    // cadence-first ladder (see MotionGovernor).
+    // Lossy-cell quality at rest (crisp; text still rides lossless LZFSE, so this
+    // only covers busy cells) and the readable floor while scrolling (the moved
+    // bulk rides copyRect at full fidelity; only the exposed strip uses this).
+    static let hybridRestJpegQuality = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_REST_JPEG_QUALITY",
+        defaultValue: 0.85
+    )
+    static let hybridScrollExposedReadableQuality = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_EXPOSED_READABLE_QUALITY",
+        defaultValue: 0.5
+    )
+    // Cadence release valve: each held (unacked-capped) frame widens the minimum
+    // produce interval by this step, capped at the max. heldCount 0 imposes no
+    // throttle. Defaults drop roughly 60fps -> 30fps at one held frame and toward
+    // ~10fps under sustained backpressure.
+    static let hybridMotionFrameIntervalStepNs = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_MOTION_FRAME_INTERVAL_STEP_NS",
+        defaultValue: 33_000_000
+    )
+    static let hybridMotionFrameIntervalMaxNs = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_MOTION_FRAME_INTERVAL_MAX_NS",
+        defaultValue: 120_000_000
+    )
+    // Resolution scale applied to BUSY (photo) cells only under backpressure; text
+    // cells never downscale (downscaling blurs glyphs worse than a quality drop).
+    static let hybridBusyResolutionScaleFloor = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_BUSY_RESOLUTION_SCALE_FLOOR",
+        defaultValue: 0.5
+    )
     // JPEG quality for the fullframe fallback, motion-adaptive. A whole-screen
     // change ships as one lossy JPEG instead of multi-MB raw LZFSE (the fix for
     // the link saturation that froze the screen); small text-only changes still go
