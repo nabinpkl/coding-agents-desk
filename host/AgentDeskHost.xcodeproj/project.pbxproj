@@ -125,6 +125,7 @@
 		A00000000000000000000DF4 /* TileContentCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DF3 /* TileContentCacheTests.swift */; };
 		A00000000000000000000E02 /* OwnedGraphicsCommandCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E01 /* OwnedGraphicsCommandCodecTests.swift */; };
 		A00000000000000000000E04 /* HybridTileEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E03 /* HybridTileEncodingTests.swift */; };
+		A00000000000000000000E06 /* FullFrameTilerRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E05 /* FullFrameTilerRoutingTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -219,6 +220,7 @@
 		A00000000000000000000DF3 /* TileContentCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileContentCacheTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000E01 /* OwnedGraphicsCommandCodecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedGraphicsCommandCodecTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000E03 /* HybridTileEncodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HybridTileEncodingTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000E05 /* FullFrameTilerRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullFrameTilerRoutingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000133 /* WAVEncoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVEncoderTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000134 /* AgentDeskHost.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AgentDeskHost.entitlements; sourceTree = "<group>"; };
 		A00000000000000000000141 /* AgentDeskHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -376,6 +378,7 @@
 				A00000000000000000000DF3 /* TileContentCacheTests.swift */,
 				A00000000000000000000E01 /* OwnedGraphicsCommandCodecTests.swift */,
 				A00000000000000000000E03 /* HybridTileEncodingTests.swift */,
+				A00000000000000000000E05 /* FullFrameTilerRoutingTests.swift */,
 				A0000000000000000000012B /* SpaceAgentModelTests.swift */,
 				A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */,
 			);
@@ -611,6 +614,7 @@
 				A00000000000000000000DF4 /* TileContentCacheTests.swift in Sources */,
 				A00000000000000000000E02 /* OwnedGraphicsCommandCodecTests.swift in Sources */,
 				A00000000000000000000E04 /* HybridTileEncodingTests.swift in Sources */,
+				A00000000000000000000E06 /* FullFrameTilerRoutingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

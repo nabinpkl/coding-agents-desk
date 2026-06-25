@@ -38,7 +38,16 @@ struct ResetPolicyTests {
         )
         let r2 = engine.evaluate(b)
         #expect(r2.envelope?.commands.contains { $0.kindIsReset } == false)
-        #expect(r2.envelope?.commands.contains { $0.kindIsBitmapTile } == true)
+        // Content churn now routes the whole surface through the tile cache ladder
+        // (Task 2), so it emits cache tiles (cacheTile / drawCachedTile), not a
+        // single whole-frame bitmap. Busy noise cells encode as JPEG cacheTiles.
+        let r2HasTile = r2.envelope?.commands.contains {
+            switch $0 {
+            case .bitmapTile, .cacheTile, .drawCachedTile: return true
+            default: return false
+            }
+        } == true
+        #expect(r2HasTile)
         engine.commitPendingSurface()
 
         // Width change: a genuine surface-dimension change re-baselines, so reset.

@@ -1470,7 +1470,16 @@ struct ScrollQualityTests {
 
         #expect(result.kind == ScrollDeltaKind.accepted)
         let envelope = try #require(result.envelope)
-        #expect(envelope.commands.contains { $0.kindIsBitmapTile })
+        // Task 2: a fullframe-classified change now tiles the whole surface through
+        // the cache ladder, so it emits cache tiles (cacheTile / drawCachedTile),
+        // not a single whole-frame bitmapTile.
+        let hasTile = envelope.commands.contains {
+            switch $0 {
+            case .bitmapTile, .cacheTile, .drawCachedTile: return true
+            default: return false
+            }
+        }
+        #expect(hasTile)
     }
 
     @Test func scrollDeltaEngineResetsOnResizeAndReservesHevcIdsInSameGeneration() throws {

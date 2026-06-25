@@ -675,41 +675,45 @@ struct ScrollDeltaEngine {
                 )
             }
         case .fullFrame(let reason):
-            // A large or unstructured change ships as ONE lossy JPEG over the
-            // damage bounding region, not N raw LZFSE cells. Per-cell LZFSE of a
-            // whole-screen change was multi-MB and saturated the reliable channel
-            // (the device-run freeze: a single 2.88MB frame stalled everything
-            // behind it). JPEG cuts that ~10x. The region is the OS damage union
-            // when known, else the full content region (no damage geometry, so we
-            // do not know what changed). Lossless LZFSE still serves the small
-            // .tiles path, so lossy only ever covers large motion.
+            // A large or unstructured change tiles the WHOLE surface through the
+            // same rung 1/2/3 cache ladder as .tiles, instead of shipping one
+            // whole-frame JPEG that never consulted the cache. The freeze-relevant
+            // win: a fullframe whose cells are all byte-identical to the retained
+            // baseline now returns .noChange and ships zero bytes, where the old
+            // whole-frame JPEG re-sent ~338KB every frame and saturated the reliable
+            // channel (the device-run freeze). Cached cells reference slots
+            // (drawCachedTile, zero payload); only genuinely-new cells carry pixels,
+            // and per-cell encoding (Task 1) picks LZFSE for text and JPEG for busy
+            // photo content. The dirty region is the whole surface; the tiler grids
+            // it into cells. The reason string is carried into diagnostics so the
+            // device log still shows why the classifier chose fullframe.
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
             pendingSurface = current
-            graphicsFrameId &+= 1
-            let contentRegion = content.clamped(toWidth: current.width, height: current.height)
-            let region = frame.damageRects.isEmpty
-                ? contentRegion
-                : (PixelRect.union(of: frame.damageRects)?.clamped(toWidth: current.width, height: current.height) ?? contentRegion)
-            // Congestion- and motion-adaptive quality, ramped not cliffed. The level
-            // (smoothed in the pump) lerps quality from the rest/motion baseline down
-            // to the congested floor, and lerps resolution from full down to the floor
-            // only above a mid threshold, so a light backlog costs a little sharpness
-            // and the image re-sharpens smoothly as the link drains.
-            let quality = fullframeQuality(forLevel: congestionLevel, motion: scrollHint != nil)
-            let scale = fullframeScale(forLevel: congestionLevel)
-            guard let envelope = makeJPEGFrameEnvelope(current: current, region: region, quality: quality, scale: scale, capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
+            let region = PixelRect(x: 0, y: 0, width: current.width, height: current.height)
+            switch makeTileEnvelope(current: current, previous: previous, rects: [region], congestionLevel: congestionLevel, motion: scrollHint != nil, capturedAtUptimeNs: frame.capturedAtUptimeNs) {
+            case .built(let envelope):
+                return ScrollDeltaResult(
+                    kind: .accepted,
+                    envelope: envelope,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage-fullframe-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                )
+            case .allUnchanged:
+                // pendingSurface = current is already set above; current equals previous
+                // on the unchanged cells and outside the damage, matching .noChange semantics.
+                // This is the freeze fix: an all-cached fullframe ships nothing.
+                return ScrollDeltaResult(
+                    kind: .noChange,
+                    envelope: nil,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                )
+            case .failed:
                 pendingSurface = nil
                 return ScrollDeltaResult(
-                    kind: .rejected("damage-fullframe-jpeg-build-failed-\(reason)"),
+                    kind: .rejected("damage-fullframe-tile-envelope-build-failed-\(reason)"),
                     envelope: nil,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage-fullframe-jpeg", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage-fullframe-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
                 )
             }
-            return ScrollDeltaResult(
-                kind: .accepted,
-                envelope: envelope,
-                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage-fullframe-jpeg", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
-            )
         case .noChange:
             // Nothing changed worth sending. Hold the surface (current equals
             // previous outside the empty damage) and send nothing. No fallback.
@@ -852,28 +856,6 @@ struct ScrollDeltaEngine {
         guard l > threshold else { return 1.0 }
         let t = (l - threshold) / (1 - threshold)
         return 1.0 + (fullframeCongestedScale - 1.0) * t
-    }
-
-    // The fullframe fallback as ONE lossy JPEG tile over the damage region,
-    // instead of N raw LZFSE cells. A whole-screen change is contiguous and large,
-    // so a single JPEG both compresses far better than per-cell LZFSE (cross-tile
-    // redundancy, no per-cell header) and is the only thing small enough not to
-    // saturate the reliable channel and freeze the screen. The region is clamped
-    // to the surface; the client decodes the JPEG back to BGRA and paints it like
-    // any other bitmap tile.
-    private func makeJPEGFrameEnvelope(current: Surface, region: PixelRect, quality: Double, scale: Double, capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
-        guard let tile = buildTile(surface: current, rect: region, encoding: .jpeg(quality: quality, scale: scale), payloadOffset: 0) else { return nil }
-        return OwnedGraphicsFrameEnvelope(
-            header: OwnedGraphicsFrameHeader(
-                surfaceGeneration: surfaceGeneration,
-                frameId: graphicsFrameId,
-                capturedAtUptimeNs: capturedAtUptimeNs,
-                commandCount: 1,
-                payloadLength: tile.payload.count
-            ),
-            commands: [tile.command],
-            payload: tile.payload
-        )
     }
 
     // Encoding choice for buildTile. LZFSE keeps text crisp; JPEG carries the
