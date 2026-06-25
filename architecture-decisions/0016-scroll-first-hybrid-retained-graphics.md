@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0021
 date: 2026-06-20
 supersedes: ADR-0015
 scope: codex/scroll-hybrid-retained-graphics branch

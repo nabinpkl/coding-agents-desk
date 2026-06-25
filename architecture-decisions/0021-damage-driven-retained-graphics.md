@@ -1,12 +1,10 @@
 ---
-status: proposed
+status: accepted
 date: 2026-06-22
 supersedes: ADR-0016 (scroll-first hybrid retained graphics), and transitively ADR-0015
 ---
 
 # ADR-0021: Damage-driven retained graphics
-
-Status is proposed, not accepted. On acceptance this supersedes ADR-0016 (scroll-first hybrid retained graphics), which itself superseded ADR-0015. Update the superseded ADRs' frontmatter at that point.
 
 ## Context and Problem Statement
 

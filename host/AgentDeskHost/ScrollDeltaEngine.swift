@@ -73,7 +73,7 @@ enum ScrollDeltaKind: Equatable {
     case rejected(String)
     case timeout
     // The damage classifier saw no change worth sending. Distinct from
-    // .rejected: there is nothing to send and no HEVC fallback to take.
+    // .rejected: there is nothing to send and the pump drops the frame.
     case noChange
 }
 
@@ -582,10 +582,10 @@ struct ScrollDeltaEngine {
     }
 
     // ADR-0021 damage-driven detection. Classify the OS damage region and map
-    // the result onto the existing envelope builders and the unchanged pump
-    // contract: .scroll/.tiles -> .accepted (pump sends, then commits the
-    // surface), .fullFrame/.noChange -> .rejected (pump falls back to HEVC and
-    // realigns the retained baseline). There is no probe, no viewport streak.
+    // the result onto the existing envelope builders and the pump contract:
+    // .scroll/.tiles -> .accepted (pump sends, then commits the surface),
+    // .fullFrame/.noChange -> .rejected (pump drops the frame, no HEVC path).
+    // There is no probe, no viewport streak.
     private mutating func evaluateWithDamage(
         _ frame: CapturedVideoFrame,
         previous: Surface,

@@ -20,16 +20,17 @@ import Foundation
 // at offset 0) that the shift explains, not a whole-band match. On real desktop
 // content a scrolled band is mostly uniform background that matches at any offset,
 // so a best-vs-static margin is structurally unsatisfiable (R76: the search found
-// bestDy=68 at 0.96 but static was 0.92, every frame rejected to HEVC, which then
-// froze). Restricting to changed pixels excludes the static background, and a
+// bestDy=68 at 0.96 but static was 0.92, every frame rejected to fullFrame, which
+// then froze). Restricting to changed pixels excludes the static background, and a
 // minimum changed-pixel fraction rejects near-static frames that would otherwise
 // accept a coincidental shift.
 //
 // A clean scroll clears the strict bar on the surface alone. A fast flick does
 // not: a large fraction of the band is newly-revealed content (or the shift is
 // subpixel), so the surface-best shift explains well under the strict threshold
-// even at the true offset, and the frame fell to HEVC. When HEVC was then
-// suppressed during scroll the screen froze (R74). So a second, input-corroborated
+// even at the true offset, and the frame fell to fullFrame (dropped by the pump).
+// When that fallback was suppressed during scroll the screen froze (R74). So a
+// second, input-corroborated
 // path drives copyRect from the device's own scroll delta: when the strict bar is
 // missed, the hint's predicted candidate offsets are scored against the surface
 // and the best-explaining one is accepted at a lower bar. The offset applied is
@@ -133,8 +134,9 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
     // corroborates. The strict acceptConfidence rejects fast-flick frames where a
     // large fraction of the band is newly-revealed content (or the shift is
     // subpixel), even though copyRect-plus-exposed-tile is still the right call:
-    // those frames fell to HEVC, and when HEVC was suppressed the screen froze
-    // (R74). When the input hint's predicted offset (the device's own scroll
+    // those frames fell to fullFrame (dropped by the pump), and when that path was
+    // suppressed the screen froze (R74). When the input hint's predicted offset
+    // (the device's own scroll
     // delta) explains a clear majority of the changed pixels, a lower bar is
     // trustworthy because the input and the surface agree; the unexplained
     // remainder is the exposed strip the scroll envelope tiles. The offset applied
@@ -180,8 +182,8 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
     // maxTileCoverageRatio is deliberately small: an un-scrolled tile is a raw
     // LZFSE bitmap sent over the RELIABLE graphics channel, so a near-full-frame
     // tile (~600KB) saturates the single-unacked-frame fence and freezes the
-    // pump. Anything bigger than this fraction must go to HEVC instead, which is
-    // built for full-frame motion. R75 device run confirmed 0.6 froze.
+    // pump. Anything bigger than this fraction is rejected to fullFrame (the pump
+    // drops it; there is no HEVC path). R75 device run confirmed 0.6 froze.
     static let `default` = DamageScrollClassifierConfig(
         minScrollExtentPx: 120,
         minCrossExtentPx: 64,
@@ -263,8 +265,8 @@ struct DamageScrollClassifier {
                 return (.scroll(region: scrollBand, dx: offset.dx, dy: offset.dy),
                         DamageScrollTrace(bandWidth: scrollBand.width, bandHeight: scrollBand.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "scroll"))
             }
-            // Scroll attempt failed: tile if small enough, else HEVC. Carry the
-            // real confidences so the device log shows why scroll was rejected.
+            // Scroll attempt failed: tile if small enough, else reject to fullFrame.
+            // Carry the real confidences so the device log shows why scroll was rejected.
             if coverage <= config.maxTileCoverageRatio {
                 return (.tiles(clamped),
                         DamageScrollTrace(bandWidth: scrollBand.width, bandHeight: scrollBand.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "tiles-scroll-miss"))
@@ -273,7 +275,7 @@ struct DamageScrollClassifier {
                     DamageScrollTrace(bandWidth: scrollBand.width, bandHeight: scrollBand.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "fullframe-scroll-miss"))
         }
 
-        // No hint: tile small damage, else HEVC. Summed rect area (not the union
+        // No hint: tile small damage, else reject to fullFrame. Summed rect area (not the union
         // bounding box) so scattered rects are not penalised; capped at surface.
         if coverage <= config.maxTileCoverageRatio {
             return (.tiles(clamped),
@@ -419,7 +421,7 @@ struct DamageScrollClassifier {
             return OffsetSearch(offset: resolved, gatePassed: true, bestOffset: inputBestOffset, bestConfidence: inputBestExplained, staticConfidence: inputBestChanged)
         }
 
-        // Neither path qualified: reject to HEVC. Carry the surface-best for the
+        // Neither path qualified: reject to fullFrame. Carry the surface-best for the
         // device log. staticConfidence carries the changed-pixel fraction.
         return OffsetSearch(offset: nil, gatePassed: true, bestOffset: bestOffset, bestConfidence: bestExplained, staticConfidence: bestChangedFraction)
     }
