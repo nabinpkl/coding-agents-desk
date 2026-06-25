@@ -101,8 +101,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return self.sessions.validateGraphicsCapability(hello)
             }
         },
-        scrollActivityHintProvider: { [scrollActivityHints] in
-            scrollActivityHints.hint()
+        motionSignalProvider: { [scrollActivityHints] in
+            scrollActivityHints.motionSignal()
         }
     )
     private let inputDispatcher = InputDispatcher()

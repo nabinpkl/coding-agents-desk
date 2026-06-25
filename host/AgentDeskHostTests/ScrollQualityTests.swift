@@ -321,11 +321,7 @@ struct ScrollQualityTests {
 
         #expect(engine.evaluate(previous).kind == .reset)
         engine.commitPendingSurface()
-        let hint = ScrollActivityHint(
-            axis: .vertical, sign: 1, predictedOffsetPx: dy,
-            candidateOffsets: [dy], activeUntilUptimeNs: .max, eventCount: 4
-        )
-        let result = engine.evaluate(current, scrollHint: hint)
+        let result = engine.evaluate(current, motion: MotionSignal(axis: .vertical, sign: 1))
 
         #expect(result.kind == ScrollDeltaKind.accepted)
         let envelope = try #require(result.envelope)
@@ -359,7 +355,7 @@ struct ScrollQualityTests {
             }
             return Self.scrollProbePixel(x: x, y: y)
         }
-        let result = engine.evaluate(frame1, scrollHint: nil)
+        let result = engine.evaluate(frame1)
 
         #expect(result.kind == ScrollDeltaKind.accepted)
         let envelope = try #require(result.envelope)
@@ -394,7 +390,7 @@ struct ScrollQualityTests {
         ) { x, y in
             Self.pixel(x: x, y: y)
         }
-        let result = engine.evaluate(frame1, scrollHint: nil)
+        let result = engine.evaluate(frame1)
 
         #expect(result.kind == ScrollDeltaKind.accepted)
         let envelope = try #require(result.envelope)

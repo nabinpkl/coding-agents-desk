@@ -42,7 +42,7 @@ struct FullFrameTilerRoutingTests {
             let v = UInt8((x * 37 + y * 101) & 0xff)
             return [v, v, v, 0xff]
         }
-        let result = engine.evaluate(identical, scrollHint: nil)
+        let result = engine.evaluate(identical)
 
         #expect(result.kind == .noChange)
         #expect(result.envelope == nil)
@@ -75,7 +75,7 @@ struct FullFrameTilerRoutingTests {
             let v = UInt8((x * 37 + y * 101) & 0xff)
             return [v, v, v, 0xff]
         }
-        let result = engine.evaluate(churned, scrollHint: nil)
+        let result = engine.evaluate(churned)
 
         #expect(result.kind == .accepted)
         guard let commands = result.envelope?.commands else {
@@ -127,7 +127,7 @@ struct FullFrameTilerRoutingTests {
 
         // Frame A: brand-new content, stored into cache slots.
         let a = try churnedFrame(seed: 0)
-        let rA = engine.evaluate(a, scrollHint: nil)
+        let rA = engine.evaluate(a)
         #expect(rA.kind == .accepted)
         let bytesA = rA.envelope?.payload.count ?? 0
         #expect(bytesA > 0)
@@ -137,12 +137,12 @@ struct FullFrameTilerRoutingTests {
         // Frame C re-shows A's exact content. First push a different frame to move
         // the surface off A.
         let b = try churnedFrame(seed: 99)
-        _ = engine.evaluate(b, scrollHint: nil)
+        _ = engine.evaluate(b)
         engine.commitPendingSurface()
 
         // Frame C: same content as A. Cells match cached slots -> rung 2 hits.
         let c = try churnedFrame(seed: 0)
-        let rC = engine.evaluate(c, scrollHint: nil)
+        let rC = engine.evaluate(c)
         engine.commitPendingSurface()
 
         let bytesC = rC.envelope?.payload.count ?? 0

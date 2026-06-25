@@ -117,23 +117,23 @@ final class OwnedGraphicsChannelServer: @unchecked Sendable {
 final class OwnedMediaTransportFactory: MediaTransportFactory {
     private let configuration: OwnedMediaEncodingConfiguration
     private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
-    private let scrollActivityHintProvider: @Sendable () -> ScrollActivityHint?
+    private let motionSignalProvider: @Sendable () -> MotionSignal?
 
     init(
         configuration: OwnedMediaEncodingConfiguration = .default,
         graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer,
-        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
+        motionSignalProvider: @escaping @Sendable () -> MotionSignal? = { nil }
     ) {
         self.configuration = configuration
         self.graphicsAuthorizer = graphicsAuthorizer
-        self.scrollActivityHintProvider = scrollActivityHintProvider
+        self.motionSignalProvider = motionSignalProvider
     }
 
     func make() -> MediaTransport {
         OwnedMediaTransport(
             configuration: configuration,
             graphicsAuthorizer: graphicsAuthorizer,
-            scrollActivityHintProvider: scrollActivityHintProvider
+            motionSignalProvider: motionSignalProvider
         )
     }
 }
@@ -238,7 +238,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
     private let configuration: OwnedMediaEncodingConfiguration
     private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
-    private let scrollActivityHintProvider: @Sendable () -> ScrollActivityHint?
+    private let motionSignalProvider: @Sendable () -> MotionSignal?
     private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic")
     private let lock = NSLock()
     private var graphicsListener: NWListener?
@@ -260,11 +260,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     init(
         configuration: OwnedMediaEncodingConfiguration = .default,
         graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer,
-        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
+        motionSignalProvider: @escaping @Sendable () -> MotionSignal? = { nil }
     ) {
         self.configuration = configuration
         self.graphicsAuthorizer = graphicsAuthorizer
-        self.scrollActivityHintProvider = scrollActivityHintProvider
+        self.motionSignalProvider = motionSignalProvider
         var continuation: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { continuation = $0 }
         self.stateContinuation = continuation
@@ -593,16 +593,14 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             maxDecodedResetStripePayloadBytes: Config.hybridResetStripeMaxDecodedBytes,
             maxWireResetStripeBytes: Config.hybridResetStripeMaxWireBytes
         )
-        // Congestion signal for adaptive fullframe quality: how many frames were
-        // held at the unacked cap since the last one was produced. A non-zero count
-        // means the link could not drain the last frame before the next arrived (a
-        // hard flick flooding fullframes), so the next produce encodes at the
-        // congested floor to keep cadence. Reset to 0 each time we produce.
+        // Backpressure signal for the MotionGovernor: how many frames were held at
+        // the unacked cap since the last produce. A non-zero count means the link
+        // could not drain the last frame before the next arrived (a flick the link
+        // cannot keep up with), which widens the governor's minimum produce interval.
         var heldSinceLastProduce = 0
-        // Smoothed congestion level in [0,1]. The raw held count is mapped to an
-        // instantaneous level and EWMA-smoothed so the encode quality ramps instead
-        // of cliffing to the floor on a single held frame.
-        var congestionLevelEwma = 0.0
+        // Uptime of the last produced frame, for the governor's cadence cap.
+        var lastProduceUptimeNs: UInt64?
+        let motionGovernor = MotionGovernor()
         for await _ in mailbox.stream {
             guard !Task.isCancelled else { return }
             diagnostics.setPhase(.idle)
@@ -630,18 +628,24 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 continue
             }
             let nowBeforeProbe = DispatchTime.now().uptimeNanoseconds
-            let inputScrollHint = scrollActivityHintProvider()
-            let scrollHint = inputScrollHint?.isActive(nowUptimeNs: nowBeforeProbe) == true
-                ? inputScrollHint
-                : nil
-            // Map held frames to an instantaneous congestion level and EWMA-smooth it,
-            // so the encode quality and resolution ramp with sustained backpressure
-            // instead of cliffing on the first held frame.
-            let instantaneousCongestion = min(1.0, Double(heldSinceLastProduce) / Double(Config.hybridCongestionSaturationHolds))
-            congestionLevelEwma = Config.hybridCongestionEwmaAlpha * instantaneousCongestion
-                + (1 - Config.hybridCongestionEwmaAlpha) * congestionLevelEwma
+            // Input declares the motion (nil = rest); the store already applies the
+            // active-window debounce, so a lapsed scroll reads as rest.
+            let motion = motionSignalProvider()
+            let policy = motionGovernor.policy(
+                state: motion == nil ? .rest : .scrolling,
+                heldCount: heldSinceLastProduce
+            )
+            // Cadence cap: under backpressure the governor widens the minimum produce
+            // interval, so we reject/coalesce this frame instead of generating one the
+            // link cannot drain. The mailbox keeps the freshest damage for the next
+            // produce; readability is preserved by spending cadence, not quality.
+            if let last = lastProduceUptimeNs, nowBeforeProbe &- last < policy.minFrameIntervalNs {
+                diagnostics.noteAdmissionHold(reason: "cadence-cap")
+                continue
+            }
             heldSinceLastProduce = 0
-            let graphics = scrollDeltaEngine.evaluate(frame, scrollHint: scrollHint, congestionLevel: congestionLevelEwma)
+            lastProduceUptimeNs = nowBeforeProbe
+            let graphics = scrollDeltaEngine.evaluate(frame, motion: motion, policy: policy)
             switch graphics.kind {
             case .accepted:
                 guard let envelope = graphics.envelope else {

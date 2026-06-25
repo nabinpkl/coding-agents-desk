@@ -37,7 +37,7 @@ struct HybridTileEncodingTests {
             if x < 64 && y < 64 { return [0x80, 0x80, 0x80, 0xff] }
             return [10, 10, 10, 0xff]
         }
-        let result = engine.evaluate(solid, scrollHint: nil, congestionLevel: 0)
+        let result = engine.evaluate(solid)
 
         // Must emit cacheTile (rung 3), not bitmapTile (rung 0 / non-cache path).
         let cacheTiles = result.envelope?.commands.compactMap { cmd -> OwnedGraphicsTileCompression? in
@@ -84,7 +84,7 @@ struct HybridTileEncodingTests {
             let v3 = UInt8(truncatingIfNeeded: seed)
             return [v, v2, v3, 0xff]
         }
-        let result = engine.evaluate(noisy, scrollHint: nil, congestionLevel: 0)
+        let result = engine.evaluate(noisy)
 
         let cacheTiles = result.envelope?.commands.compactMap { cmd -> OwnedGraphicsTileCompression? in
             guard case let .cacheTile(_, x, y, _, _, compression, _) = cmd, x == 0, y == 0 else { return nil }
@@ -123,7 +123,7 @@ struct HybridTileEncodingTests {
             let v3 = UInt8(truncatingIfNeeded: seed)
             return [v, v2, v3, 0xff]
         }
-        let result = engine.evaluate(noisy, scrollHint: nil, congestionLevel: 0)
+        let result = engine.evaluate(noisy)
 
         for cmd in result.envelope?.commands ?? [] {
             if case let .cacheTile(_, _, _, _, _, compression, _) = cmd {
@@ -156,7 +156,7 @@ struct HybridTileEncodingTests {
             if x < 64 && y < 64 { return [0x60, 0x60, 0x60, 0xff] }
             return [10, 10, 10, 0xff]
         }
-        let result = engine.evaluate(solid, scrollHint: nil, congestionLevel: 0)
+        let result = engine.evaluate(solid)
 
         for cmd in result.envelope?.commands ?? [] {
             if case let .cacheTile(_, _, _, _, _, compression, _) = cmd {
@@ -192,7 +192,7 @@ struct HybridTileEncodingTests {
             if x < 64 && y < 64 { return [0xCC, 0xCC, 0xCC, 0xff] }
             return [10, 10, 10, 0xff]
         }
-        let r1 = engine.evaluate(f1, scrollHint: nil, congestionLevel: 0)
+        let r1 = engine.evaluate(f1)
         // Must be a cacheTile (rung 3, JPEG in this case).
         let r1HasCacheTile = r1.envelope?.commands.contains {
             if case .cacheTile = $0 { return true }; return false
@@ -210,7 +210,7 @@ struct HybridTileEncodingTests {
             if x >= 128 && x < 192 && y >= 128 && y < 192 { return [0xCC, 0xCC, 0xCC, 0xff] }
             return [10, 10, 10, 0xff]
         }
-        let r2 = engine.evaluate(f2, scrollHint: nil, congestionLevel: 0)
+        let r2 = engine.evaluate(f2)
         let r2HasDrawCachedTile = r2.envelope?.commands.contains {
             if case .drawCachedTile = $0 { return true }; return false
         } ?? false

@@ -4,12 +4,12 @@ import Foundation
 enum MediaStack {
     static func makeFactory(
         ownedGraphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer = { _ in .rejected(.unauthorized) },
-        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
+        motionSignalProvider: @escaping @Sendable () -> MotionSignal? = { nil }
     ) -> MediaTransportFactory {
         OwnedMediaTransportFactory(
             configuration: .fromConfig(),
             graphicsAuthorizer: ownedGraphicsAuthorizer,
-            scrollActivityHintProvider: scrollActivityHintProvider
+            motionSignalProvider: motionSignalProvider
         )
     }
 

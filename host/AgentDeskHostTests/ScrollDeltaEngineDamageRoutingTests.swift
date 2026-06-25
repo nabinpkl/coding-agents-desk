@@ -33,7 +33,7 @@ struct ScrollDeltaEngineDamageRoutingTests {
             let v = UInt8((x * 37 + y * 101) & 0xff)
             return [v, v, v, 0xff]
         }
-        let result = engine.evaluate(churned, scrollHint: nil)
+        let result = engine.evaluate(churned)
 
         #expect(result.envelope != nil)
         // Task 2: fullframe routes through the tile cache ladder, so it emits cache
@@ -83,7 +83,7 @@ struct ScrollDeltaEngineDamageRoutingTests {
     // Drive a real downward scroll through the engine so the classifier returns
     // .scroll and makeScrollEnvelope runs, then report the exposed strip tile's
     // compression.
-    private static func stripCompressionForDownScroll(dy: Int, width: Int, height: Int, congestionLevel: Double) throws -> OwnedGraphicsTileCompression {
+    private static func stripCompressionForDownScroll(dy: Int, width: Int, height: Int) throws -> OwnedGraphicsTileCompression {
         var engine = ScrollDeltaEngine()
         let first = try makeBGRAFrame(width: width, height: height) { _, y in
             let v = scrollRowValue(y); return [v, v, v, 0xff]
@@ -94,8 +94,7 @@ struct ScrollDeltaEngineDamageRoutingTests {
         let scrolled = try makeBGRAFrame(width: width, height: height, damageRects: [band], contentRectPixels: band) { _, y in
             let v = scrollRowValue(y - dy); return [v, v, v, 0xff]
         }
-        let hint = ScrollActivityHint(axis: .vertical, sign: 1, predictedOffsetPx: dy, candidateOffsets: [dy], activeUntilUptimeNs: .max, eventCount: 4)
-        let result = engine.evaluate(scrolled, scrollHint: hint, congestionLevel: congestionLevel)
+        let result = engine.evaluate(scrolled, motion: MotionSignal(axis: .vertical, sign: 1))
         guard let strip = result.envelope?.commands.first(where: { $0.kindIsBitmapTile }),
               case let .bitmapTile(_, _, _, _, compression, _) = strip else {
             Issue.record("expected a scroll strip bitmap tile, acceptedBy=\(String(describing: result.diagnostics?.acceptedBy))")
@@ -107,21 +106,17 @@ struct ScrollDeltaEngineDamageRoutingTests {
     // A fast flick reveals a tall band: 640*240*4 = 614400 bytes >= the 524288
     // threshold, so the strip ships lossy JPEG instead of a large lossless blob.
     @Test func largeFlickScrollStripIsLossyJpeg() throws {
-        let compression = try Self.stripCompressionForDownScroll(dy: 240, width: 640, height: 480, congestionLevel: 0)
+        let compression = try Self.stripCompressionForDownScroll(dy: 240, width: 640, height: 480)
         #expect(compression == .jpeg)
     }
 
-    // A slow scroll on a calm link reveals a thin strip (640*8*4 = 20480 bytes, well
-    // under threshold) and stays lossless so revealed text is crisp.
-    @Test func slowCalmScrollStripStaysLossless() throws {
-        let compression = try Self.stripCompressionForDownScroll(dy: 8, width: 640, height: 480, congestionLevel: 0)
+    // A slow scroll reveals a thin strip (640*8*4 = 20480 bytes, well under
+    // threshold) and stays lossless so revealed text is crisp. The strip lossy
+    // decision is size-only now: backpressure is absorbed by cadence, not by
+    // smearing a small readable strip (a small strip stays lossless regardless).
+    @Test func slowScrollStripStaysLossless() throws {
+        let compression = try Self.stripCompressionForDownScroll(dy: 8, width: 640, height: 480)
         #expect(compression == .lzfse)
-    }
-
-    // The same small strip goes lossy when the link is congested.
-    @Test func congestedSmallScrollStripIsLossyJpeg() throws {
-        let compression = try Self.stripCompressionForDownScroll(dy: 8, width: 640, height: 480, congestionLevel: 1.0)
-        #expect(compression == .jpeg)
     }
 
     // Pins the LZFSE tile path before the buildTile seam refactor (Task 4 TDD
@@ -157,7 +152,7 @@ struct ScrollDeltaEngineDamageRoutingTests {
             }
             return [10, 10, 10, 0xff]
         }
-        let result = engine.evaluate(changed, scrollHint: nil)
+        let result = engine.evaluate(changed)
 
         guard let envelope = result.envelope else {
             Issue.record("expected a tile envelope from the .tiles path")

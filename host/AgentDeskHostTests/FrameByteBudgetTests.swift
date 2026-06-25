@@ -51,7 +51,7 @@ struct FrameByteBudgetTests {
             let v = UInt8((x &+ y &* 3 &+ cellX &* 40 &+ cellY &* 80) & 0xff)
             return [v, v, v, 0xff]
         }
-        let result = engine.evaluate(churned, scrollHint: nil)
+        let result = engine.evaluate(churned)
         #expect(result.kind == .accepted)
 
         // Collect cache tiles in payload-offset order; the order cells are appended
@@ -104,7 +104,7 @@ struct FrameByteBudgetTests {
             let v = UInt8((x &+ y &* 3 &+ cellX &* 40 &+ cellY &* 80) & 0xff)
             return [v, v, v, 0xff]
         }
-        let result = engine.evaluate(churned, scrollHint: nil)
+        let result = engine.evaluate(churned)
         #expect(result.kind == .accepted)
 
         for cmd in result.envelope?.commands ?? [] {
@@ -150,7 +150,7 @@ struct FrameByteBudgetTests {
             }
             return [10, 10, 10, 0xff]
         }
-        _ = engine.evaluate(frameA, scrollHint: nil)
+        _ = engine.evaluate(frameA)
         engine.commitPendingSurface()
 
         // Frame B: revert the cached columns to background (so they are no longer on
@@ -162,7 +162,7 @@ struct FrameByteBudgetTests {
             width: width, height: height,
             damageRects: [full], contentRectPixels: full
         ) { _, _ in [10, 10, 10, 0xff] }
-        _ = engine.evaluate(frameB, scrollHint: nil)
+        _ = engine.evaluate(frameB)
         engine.commitPendingSurface()
 
         // Frame C: re-show frame A's cached content in the left three columns, plus
@@ -184,7 +184,7 @@ struct FrameByteBudgetTests {
             }
             return [10, 10, 10, 0xff]
         }
-        let rC = engine.evaluate(frameC, scrollHint: nil)
+        let rC = engine.evaluate(frameC)
         #expect(rC.kind == .accepted)
 
         // The cached columns must reference slots via drawCachedTile (zero payload).

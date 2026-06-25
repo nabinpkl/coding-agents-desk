@@ -41,7 +41,7 @@ struct PerTileJpegRoundTripTests {
             }
             return [10, 10, 10, 0xff]
         }
-        let result = engine.evaluate(changed, scrollHint: nil, congestionLevel: 0)
+        let result = engine.evaluate(changed)
 
         guard case let .cacheTile(_, _, _, tileWidth, tileHeight, compression, byteRange)? =
                 result.envelope?.commands.first(where: { if case .cacheTile = $0 { return true }; return false }),
@@ -88,7 +88,7 @@ struct PerTileJpegRoundTripTests {
                 }
                 return [10, 10, 10, 0xff]
             }
-            let result = engine.evaluate(changed, scrollHint: nil, congestionLevel: congested ? 1.0 : 0.0)
+            let result = engine.evaluate(changed, policy: MotionGovernor().policy(state: .scrolling, heldCount: congested ? 1 : 0))
             guard case let .cacheTile(_, _, _, tileWidth, _, .jpeg, byteRange)? =
                     result.envelope?.commands.first(where: { if case .cacheTile = $0 { return true }; return false }),
                   let payload = result.envelope?.payload else {

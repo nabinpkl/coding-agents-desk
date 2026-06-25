@@ -307,11 +307,10 @@ struct ScrollDeltaEngine {
 
     mutating func evaluate(
         _ frame: CapturedVideoFrame,
-        scrollHint: ScrollActivityHint? = nil,
-        congestionLevel: Double = 0
+        motion: MotionSignal? = nil,
+        policy: MotionGovernor.Policy = MotionGovernor().policy(state: .rest, heldCount: 0)
     ) -> ScrollDeltaResult {
         let startedAt = DispatchTime.now().uptimeNanoseconds
-        let activeHint = scrollHint?.isActive(nowUptimeNs: startedAt) == true ? scrollHint : nil
         guard let previous else {
             guard let current = makeSurface(frame.pixelBuffer) else {
                 pendingSurface = nil
@@ -391,8 +390,8 @@ struct ScrollDeltaEngine {
         return evaluateWithDamage(
             frame,
             previous: previous,
-            scrollHint: activeHint,
-            congestionLevel: congestionLevel,
+            motion: motion,
+            policy: policy,
             startedAt: startedAt,
             surfaceWidth: currentWidth,
             surfaceHeight: currentHeight
@@ -532,8 +531,7 @@ struct ScrollDeltaEngine {
         current: Surface,
         offset: ScrollOffset,
         region rect: PixelRect,
-        congestionLevel: Double,
-        motion: Bool,
+        policy: MotionGovernor.Policy,
         capturedAtUptimeNs: UInt64
     ) -> OwnedGraphicsFrameEnvelope? {
         let copyCommand: OwnedGraphicsCommand
@@ -566,16 +564,17 @@ struct ScrollDeltaEngine {
             tileWidth = exposedWidth
             tileHeight = rect.height
         }
-        // The exposed strip is lossy JPEG when it is large (a fast flick reveals a
-        // tall band that is a big lossless blob, the ~133KB device tail) or the link
-        // is congested; otherwise lossless LZFSE keeps a small, slow-scroll strip
-        // crisp. JPEG reuses the fullframe tile builder (motion quality, ramped
-        // downscale), and the client decodes it like any other bitmap tile.
+        // The exposed strip is lossy JPEG only when it is large (a fast flick reveals
+        // a tall band that is a big lossless blob); otherwise lossless LZFSE keeps a
+        // small, slow-scroll strip crisp. The strip is the scrolled-in content and
+        // may be text, so it stays at native resolution (scale 1.0); backpressure is
+        // absorbed by cadence, not by smearing the strip. Quality is the governor's
+        // readable floor while scrolling.
         let stripRect = PixelRect(x: tileX, y: tileY, width: tileWidth, height: tileHeight)
         let stripRawBytes = tileWidth * tileHeight * 4
-        let useLossy = congestionLevel > 0 || stripRawBytes >= Config.hybridScrollStripLossyThresholdBytes
+        let useLossy = stripRawBytes >= Config.hybridScrollStripLossyThresholdBytes
         let encoding: TileEncoding = useLossy
-            ? .jpeg(quality: fullframeQuality(forLevel: congestionLevel, motion: motion), scale: fullframeScale(forLevel: congestionLevel))
+            ? .jpeg(quality: policy.exposedStripQuality, scale: 1.0)
             : .lzfse
         guard let strip = buildTile(surface: current, rect: stripRect, encoding: encoding, payloadOffset: 0) else { return nil }
         let stripCommand = strip.command
@@ -601,8 +600,8 @@ struct ScrollDeltaEngine {
     private mutating func evaluateWithDamage(
         _ frame: CapturedVideoFrame,
         previous: Surface,
-        scrollHint: ScrollActivityHint?,
-        congestionLevel: Double,
+        motion: MotionSignal?,
+        policy: MotionGovernor.Policy,
         startedAt: UInt64,
         surfaceWidth: Int,
         surfaceHeight: Int
@@ -612,10 +611,6 @@ struct ScrollDeltaEngine {
             pendingSurface = nil
             return ScrollDeltaResult(kind: .rejected("no-bgra-surface"), envelope: nil)
         }
-        // Input declares the motion (axis + that a scroll is active); the composer
-        // measures the offset and builds the frame. The sign is recovered from the
-        // surface, so only the axis is taken from the hint here.
-        let motion = scrollHint.map { MotionSignal(axis: $0.axis, sign: $0.sign) }
         let (classification, trace) = frameComposer.composeTraced(
             damageRects: frame.damageRects,
             previous: previous,
@@ -639,31 +634,30 @@ struct ScrollDeltaEngine {
                 current: current,
                 offset: offset,
                 region: region,
-                congestionLevel: congestionLevel,
-                motion: scrollHint != nil,
+                policy: policy,
                 capturedAtUptimeNs: frame.capturedAtUptimeNs
             ) else {
                 pendingSurface = nil
                 return ScrollDeltaResult(
                     kind: .rejected("damage-scroll-envelope-build-failed"),
                     envelope: nil,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: offset, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: offset, region: region, motion: motion, trace: trace, acceptedBy: "damage", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
                 )
             }
             return ScrollDeltaResult(
                 kind: .accepted,
                 envelope: envelope,
-                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: offset, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: offset, region: region, motion: motion, trace: trace, acceptedBy: "damage", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
             )
         case .tiles(let rects):
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
             pendingSurface = current
-            switch makeTileEnvelope(current: current, previous: previous, rects: rects, congestionLevel: congestionLevel, motion: scrollHint != nil, capturedAtUptimeNs: frame.capturedAtUptimeNs) {
+            switch makeTileEnvelope(current: current, previous: previous, rects: rects, policy: policy, capturedAtUptimeNs: frame.capturedAtUptimeNs) {
             case .built(let envelope):
                 return ScrollDeltaResult(
                     kind: .accepted,
                     envelope: envelope,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), motion: motion, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
                 )
             case .allUnchanged:
                 // pendingSurface = current is already set above; current equals previous
@@ -671,14 +665,14 @@ struct ScrollDeltaEngine {
                 return ScrollDeltaResult(
                     kind: .noChange,
                     envelope: nil,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), motion: motion, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
                 )
             case .failed:
                 pendingSurface = nil
                 return ScrollDeltaResult(
                     kind: .rejected("damage-tile-envelope-build-failed"),
                     envelope: nil,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), motion: motion, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
                 )
             }
         case .fullFrame(let reason):
@@ -697,12 +691,12 @@ struct ScrollDeltaEngine {
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
             pendingSurface = current
             let region = PixelRect(x: 0, y: 0, width: current.width, height: current.height)
-            switch makeTileEnvelope(current: current, previous: previous, rects: [region], congestionLevel: congestionLevel, motion: scrollHint != nil, capturedAtUptimeNs: frame.capturedAtUptimeNs) {
+            switch makeTileEnvelope(current: current, previous: previous, rects: [region], policy: policy, capturedAtUptimeNs: frame.capturedAtUptimeNs) {
             case .built(let envelope):
                 return ScrollDeltaResult(
                     kind: .accepted,
                     envelope: envelope,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage-fullframe-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, motion: motion, trace: trace, acceptedBy: "damage-fullframe-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
                 )
             case .allUnchanged:
                 // pendingSurface = current is already set above; current equals previous
@@ -711,14 +705,14 @@ struct ScrollDeltaEngine {
                 return ScrollDeltaResult(
                     kind: .noChange,
                     envelope: nil,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, motion: motion, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
                 )
             case .failed:
                 pendingSurface = nil
                 return ScrollDeltaResult(
                     kind: .rejected("damage-fullframe-tile-envelope-build-failed-\(reason)"),
                     envelope: nil,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage-fullframe-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: region, motion: motion, trace: trace, acceptedBy: "damage-fullframe-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
                 )
             }
         case .noChange:
@@ -728,7 +722,7 @@ struct ScrollDeltaEngine {
             return ScrollDeltaResult(
                 kind: .noChange,
                 envelope: nil,
-                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: nil, offset: nil, region: nil, scrollHint: scrollHint, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: nil, offset: nil, region: nil, motion: motion, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
             )
         }
     }
@@ -758,7 +752,7 @@ struct ScrollDeltaEngine {
     // If every dirty cell is unchanged the whole frame becomes .allUnchanged
     // (zero bytes on the wire). graphicsFrameId increments only when a frame is
     // actually built, so the client sequence counter stays tight.
-    private mutating func makeTileEnvelope(current: Surface, previous: Surface, rects: [PixelRect], congestionLevel: Double, motion: Bool, capturedAtUptimeNs: UInt64) -> TileBuild {
+    private mutating func makeTileEnvelope(current: Surface, previous: Surface, rects: [PixelRect], policy: MotionGovernor.Policy, capturedAtUptimeNs: UInt64) -> TileBuild {
         let cells = TileGrid.cells(
             covering: rects,
             surfaceWidth: current.width,
@@ -815,8 +809,11 @@ struct ScrollDeltaEngine {
                     surface: current,
                     rect: cell,
                     encoding: .jpeg(
-                        quality: fullframeQuality(forLevel: congestionLevel, motion: motion),
-                        scale: fullframeScale(forLevel: congestionLevel)
+                        quality: policy.exposedStripQuality,
+                        // Content-gated resolution: only busy (photo) cells downscale
+                        // under backpressure; text cells stay native (downscaling blurs
+                        // glyphs worse than a quality drop).
+                        scale: isBusy ? policy.busyResolutionScale : 1.0
                     ),
                     payloadOffset: payload.count
                 ) {
@@ -1043,7 +1040,7 @@ struct ScrollDeltaEngine {
         payloadBuildMs: Double?,
         offset: ScrollOffset?,
         region: PixelRect?,
-        scrollHint: ScrollActivityHint?,
+        motion: MotionSignal?,
         trace: DamageScrollTrace,
         acceptedBy: String?,
         surfaceWidth: Int,
@@ -1053,7 +1050,7 @@ struct ScrollDeltaEngine {
         // the estimator confirmed, or nil), the decision string (why the frame
         // composed the way it did), and the band geometry. acceptedBy carries the
         // decision so the device log shows exactly how each frame was built.
-        let axisVertical = scrollHint?.axis != .horizontal
+        let axisVertical = motion?.axis != .horizontal
         return ScrollDeltaDiagnostics(
             probeMs: probeMs,
             payloadBuildMs: payloadBuildMs,
@@ -1065,11 +1062,11 @@ struct ScrollDeltaEngine {
             bestDx: axisVertical ? nil : trace.measuredOffset,
             bestDy: axisVertical ? trace.measuredOffset : nil,
             secondBestConfidence: 0,
-            hintActive: scrollHint != nil,
-            hintAxis: scrollHint?.axis.rawValue,
-            hintPredictedOffset: scrollHint?.predictedOffsetPx,
-            hintCandidates: scrollHint?.candidateOffsets ?? [],
-            hintSource: scrollHint?.source.rawValue ?? "damage",
+            hintActive: motion != nil,
+            hintAxis: motion?.axis.rawValue,
+            hintPredictedOffset: nil,
+            hintCandidates: [],
+            hintSource: motion != nil ? "input" : "damage",
             acceptedBy: acceptedBy ?? trace.decision,
             regionStable: region != nil,
             regionSource: "damage",
