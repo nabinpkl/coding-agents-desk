@@ -184,6 +184,17 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MAX_TILE_COVERAGE_RATIO",
         defaultValue: 0.6
     )
+    // Single correctness gate for ScrollOffsetEstimator: the fraction of the
+    // verify stripe's changed pixels a measured offset must explain (overlap-only)
+    // before copyRect is applied. Input declares the scroll; this confirms the
+    // measured magnitude is a real translation, not a coincidental shift on a
+    // repaint. Replaces the old confidence-knob cluster (acceptConfidence,
+    // acceptConfidenceWithPrior, certainConfidence, minChangedFraction,
+    // minCertainExplainedSamples).
+    static let hybridScrollOffsetVerifyFloor = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_OFFSET_VERIFY_FLOOR",
+        defaultValue: 0.8
+    )
     // JPEG quality for the fullframe fallback, motion-adaptive. A whole-screen
     // change ships as one lossy JPEG instead of multi-MB raw LZFSE (the fix for
     // the link saturation that froze the screen); small text-only changes still go
