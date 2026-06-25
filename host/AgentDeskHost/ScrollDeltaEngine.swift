@@ -547,17 +547,24 @@ struct ScrollDeltaEngine {
             tileWidth = exposedWidth
             tileHeight = rect.height
         }
-        // The exposed strip is lossy JPEG only when it is large (a fast flick reveals
-        // a tall band that is a big lossless blob); otherwise lossless LZFSE keeps a
-        // small, slow-scroll strip crisp. The strip is the scrolled-in content and
-        // may be text, so it stays at native resolution (scale 1.0); backpressure is
-        // absorbed by cadence, not by smearing the strip. Quality is the governor's
-        // readable floor while scrolling.
+        // The exposed strip is lossy JPEG when it is large (a fast flick reveals a tall
+        // band that is a big lossless blob) or when the scroll is fast; otherwise
+        // lossless LZFSE keeps a small, slow-scroll strip crisp. Workstream B: above
+        // hybridScrollFastVelocityPx the strip is also DOWNSCALED. The strip height is
+        // the per-frame offset, so a fast flick's strip is large and motion-blurred
+        // (unreadable at speed), making the lower resolution perceptually free while it
+        // bounds the per-frame cost at the source. Velocity-gated, not content-gated:
+        // the strip may be text, but fast-moving text is unreadable, so it downscales
+        // too. Slow scrolls stay native and crisp; the settle pass re-renders on stop.
+        // Quality is the governor's readable floor while scrolling.
         let stripRect = PixelRect(x: tileX, y: tileY, width: tileWidth, height: tileHeight)
+        let velocityPx = abs(offset.dy != 0 ? offset.dy : offset.dx)
+        let isFast = velocityPx >= Config.hybridScrollFastVelocityPx
         let stripRawBytes = tileWidth * tileHeight * 4
-        let useLossy = stripRawBytes >= Config.hybridScrollStripLossyThresholdBytes
+        let useLossy = isFast || stripRawBytes >= Config.hybridScrollStripLossyThresholdBytes
+        let stripScale = isFast ? Config.hybridScrollFastStripScale : 1.0
         let encoding: TileEncoding = useLossy
-            ? .jpeg(quality: policy.exposedStripQuality, scale: 1.0)
+            ? .jpeg(quality: policy.exposedStripQuality, scale: stripScale)
             : .lzfse
         guard let strip = buildTile(surface: current, rect: stripRect, encoding: encoding, payloadOffset: 0) else { return nil }
         let stripCommand = strip.command

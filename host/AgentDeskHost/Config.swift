@@ -239,6 +239,23 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_STRIP_LOSSY_THRESHOLD_BYTES",
         defaultValue: 524_288
     )
+    // Velocity-aware exposed-strip downscale (Workstream B). The exposed strip on a
+    // scroll frame is as tall as the per-frame scroll offset, so a fast flick's strip
+    // is both large and motion-blurred (text is unreadable at speed). Above this
+    // measured offset the strip is JPEG-encoded at hybridScrollFastStripScale instead
+    // of native resolution, bounding the per-frame cost at the source so a flick does
+    // not run the link ~4x over budget. Slow-scroll strips stay native and crisp; the
+    // settle pass re-renders crisp once motion stops. This is velocity-gated, not
+    // content-gated: all fast-moving content is unreadable, so unlike the at-rest busy
+    // resolution gate it intentionally downscales text strips too. Tune on device.
+    static let hybridScrollFastVelocityPx = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_FAST_VELOCITY_PX",
+        defaultValue: 600
+    )
+    static let hybridScrollFastStripScale = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_FAST_STRIP_SCALE",
+        defaultValue: 0.5
+    )
     static let hybridResetStripeMaxDecodedBytes = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_RESET_STRIPE_MAX_DECODED_BYTES",
         defaultValue: 2 * 1_024 * 1_024

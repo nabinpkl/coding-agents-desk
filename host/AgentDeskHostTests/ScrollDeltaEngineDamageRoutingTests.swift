@@ -1,5 +1,6 @@
 import CoreGraphics
 import CoreVideo
+import ImageIO
 import Testing
 @testable import AgentDeskHost
 
@@ -92,6 +93,60 @@ struct ScrollDeltaEngineDamageRoutingTests {
     @Test func slowScrollStripStaysLossless() throws {
         let compression = try Self.stripCompressionForDownScroll(dy: 8, width: 640, height: 480)
         #expect(compression == .lzfse)
+    }
+
+    // Workstream B: drive a real downward scroll, then decode the exposed strip's JPEG
+    // to its TRUE encoded pixel width. The bitmapTile command always carries the
+    // destination width (the client upscales), so a velocity downscale is only visible
+    // in the encoded image dimensions, not the command.
+    private static func stripEncodedAndDestWidthForDownScroll(
+        dy: Int, width: Int, height: Int
+    ) throws -> (encodedWidth: Int, destWidth: Int)? {
+        var engine = ScrollDeltaEngine()
+        let first = try makeBGRAFrame(width: width, height: height) { _, y in
+            let v = scrollRowValue(y); return [v, v, v, 0xff]
+        }
+        #expect(engine.evaluate(first).kind == .reset)
+        engine.commitPendingSurface()
+        let band = PixelRect(x: 0, y: 0, width: width, height: height)
+        let scrolled = try makeBGRAFrame(width: width, height: height, damageRects: [band], contentRectPixels: band) { _, y in
+            let v = scrollRowValue(y - dy); return [v, v, v, 0xff]
+        }
+        let result = engine.evaluate(scrolled, motion: MotionSignal(axis: .vertical, sign: 1))
+        guard let envelope = result.envelope,
+              let strip = envelope.commands.first(where: { $0.kindIsBitmapTile }),
+              case let .bitmapTile(_, _, destWidth, _, .jpeg, byteRange) = strip else {
+            return nil
+        }
+        let jpeg = Data(envelope.payload[byteRange.offset..<(byteRange.offset + byteRange.length)])
+        guard let source = CGImageSourceCreateWithData(jpeg as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        return (image.width, destWidth)
+    }
+
+    // A fast flick (measured offset over hybridScrollFastVelocityPx, default 600)
+    // downscales the exposed strip: the encoded JPEG is materially narrower than the
+    // destination, which the client upscales. The bulk still rides copyRect at full
+    // fidelity; only the thin motion-blurred strip trades resolution for cost.
+    @Test func fastFlickScrollStripDownscalesBelowDestination() throws {
+        guard let dims = try Self.stripEncodedAndDestWidthForDownScroll(dy: 640, width: 640, height: 900) else {
+            Issue.record("expected a jpeg scroll strip for a fast flick")
+            return
+        }
+        #expect(dims.destWidth == 640)
+        #expect(dims.encodedWidth < dims.destWidth)   // downscaled
+        #expect(dims.encodedWidth <= 360)             // ~0.5x with rounding/clamp slack
+    }
+
+    // A moderate flick that is lossy JPEG but below the fast-velocity threshold keeps
+    // the strip at native resolution (encoded width == destination), so ordinary
+    // scrolling stays crisp; only genuinely fast flicks trade resolution for cost.
+    @Test func moderateFlickScrollStripStaysNativeResolution() throws {
+        guard let dims = try Self.stripEncodedAndDestWidthForDownScroll(dy: 240, width: 640, height: 480) else {
+            Issue.record("expected a jpeg scroll strip for a moderate flick")
+            return
+        }
+        #expect(dims.encodedWidth == dims.destWidth)  // native, not downscaled
     }
 
     // Pins the LZFSE tile path before the buildTile seam refactor (Task 4 TDD
