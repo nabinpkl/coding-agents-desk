@@ -1,45 +1,8 @@
 import Foundation
-import os
 
 enum ScrollActivityAxis: String, Equatable, Sendable {
     case vertical
     case horizontal
-}
-
-enum ScrollActivityHintSource: String, Equatable, Sendable {
-    case input
-}
-
-struct ScrollActivityHint: Equatable, Sendable {
-    let axis: ScrollActivityAxis
-    let sign: Int
-    let predictedOffsetPx: Int
-    let candidateOffsets: [Int]
-    let activeUntilUptimeNs: UInt64
-    let eventCount: Int
-    let source: ScrollActivityHintSource
-
-    init(
-        axis: ScrollActivityAxis,
-        sign: Int,
-        predictedOffsetPx: Int,
-        candidateOffsets: [Int],
-        activeUntilUptimeNs: UInt64,
-        eventCount: Int,
-        source: ScrollActivityHintSource = .input
-    ) {
-        self.axis = axis
-        self.sign = sign
-        self.predictedOffsetPx = predictedOffsetPx
-        self.candidateOffsets = candidateOffsets
-        self.activeUntilUptimeNs = activeUntilUptimeNs
-        self.eventCount = eventCount
-        self.source = source
-    }
-
-    func isActive(nowUptimeNs: UInt64) -> Bool {
-        nowUptimeNs <= activeUntilUptimeNs
-    }
 }
 
 // What input DECLARES about content motion, the macOS-native substitute for the
@@ -52,23 +15,20 @@ struct MotionSignal: Equatable, Sendable {
     let sign: Int
 }
 
+// Tracks whether content is scrolling, and on which axis and in which direction,
+// from the client's scroll input. It deliberately does NOT predict a pixel
+// magnitude: the previous design's predicted offset and candidate list were a
+// fragile input-to-pixel mapping, and the surface estimator measures the offset
+// directly. The active-window debounce keeps a bursty flick reading as scrolling
+// across the gap between input bursts and settles to rest once the window lapses.
 struct ScrollActivityTracker: Equatable {
-    private static let candidateDeltas = [-16, -8, -4, -2, -1, 0, 1, 2, 4, 8, 16]
-
     private let activeWindowNs: UInt64
-    private let maxOffsetPx: Int
-    private let inputPixelScale: Double
     private var axis: ScrollActivityAxis?
     private var sign: Int?
-    private var accumulatedOffset: Double = 0
-    private var latestOffset: Double = 0
     private var activeUntilUptimeNs: UInt64 = 0
-    private var eventCount: Int = 0
 
-    init(activeWindowMs: Int = 180, maxOffsetPx: Int = 240, inputPixelScale: Double = 1) {
+    init(activeWindowMs: Int = 180) {
         self.activeWindowNs = UInt64(max(0, activeWindowMs)) * 1_000_000
-        self.maxOffsetPx = max(1, maxOffsetPx)
-        self.inputPixelScale = max(1, inputPixelScale)
     }
 
     mutating func record(_ input: NormalizedInput, nowUptimeNs: UInt64) {
@@ -79,144 +39,48 @@ struct ScrollActivityTracker: Equatable {
             if axis != sample.axis || sign != sample.sign || phase == .began || phase == .momentumBegan {
                 axis = sample.axis
                 sign = sample.sign
-                accumulatedOffset = 0
-                latestOffset = 0
-                eventCount = 0
             }
-            accumulatedOffset += sample.delta
-            latestOffset = sample.delta
         } else if phase == .began || phase == .momentumBegan {
             axis = nil
             sign = nil
-            accumulatedOffset = 0
-            latestOffset = 0
-            eventCount = 0
         }
         if sample != nil || isTerminalPhase {
-            eventCount += 1
             activeUntilUptimeNs = nowUptimeNs &+ activeWindowNs
         }
     }
 
-    func hint(nowUptimeNs: UInt64) -> ScrollActivityHint? {
-        guard let axis,
-              let sign,
-              nowUptimeNs <= activeUntilUptimeNs,
-              latestOffset != 0
-        else {
-            return nil
-        }
-        let predictedOffsetPx = signedOffset(latestOffset * inputPixelScale, sign: sign)
-        let accumulatedOffsetPx = signedOffset(accumulatedOffset * inputPixelScale, sign: sign)
-        return ScrollActivityHint(
-            axis: axis,
-            sign: sign,
-            predictedOffsetPx: predictedOffsetPx,
-            candidateOffsets: candidateOffsets(
-                primaryOffset: predictedOffsetPx,
-                secondaryOffset: accumulatedOffsetPx,
-                sign: sign
-            ),
-            activeUntilUptimeNs: activeUntilUptimeNs,
-            eventCount: eventCount
-        )
-    }
-
-    // The input-declared motion signal: scrolling (axis + sign) while a scroll is
-    // active within the debounce window, else nil (rest). Magnitude-free by
-    // design; the surface estimator measures the offset. Shares the axis/sign and
-    // active-window debounce the hint uses, so a bursty flick stays "scrolling"
-    // across the gap between input bursts and settles only once the window lapses.
+    // Scrolling (axis + sign) while a scroll is active within the debounce window,
+    // else nil (rest).
     func motionSignal(nowUptimeNs: UInt64) -> MotionSignal? {
         guard let axis, let sign, nowUptimeNs <= activeUntilUptimeNs else { return nil }
         return MotionSignal(axis: axis, sign: sign)
     }
 
-    private func dominantSample(dx: Float, dy: Float) -> (axis: ScrollActivityAxis, sign: Int, delta: Double)? {
+    private func dominantSample(dx: Float, dy: Float) -> (axis: ScrollActivityAxis, sign: Int)? {
         let horizontal = Double(dx)
         let vertical = Double(dy)
         if abs(vertical) >= abs(horizontal), vertical != 0 {
-            let sign = vertical < 0 ? -1 : 1
-            return (.vertical, sign, vertical)
+            return (.vertical, vertical < 0 ? -1 : 1)
         }
         if horizontal != 0 {
-            let sign = horizontal < 0 ? -1 : 1
-            return (.horizontal, sign, horizontal)
+            return (.horizontal, horizontal < 0 ? -1 : 1)
         }
         return nil
     }
-
-    private func signedOffset(_ value: Double, sign: Int) -> Int {
-        let magnitude = min(
-            maxOffsetPx,
-            max(1, Int(abs(value).rounded(.toNearestOrAwayFromZero)))
-        )
-        return sign * magnitude
-    }
-
-    private func candidateOffsets(primaryOffset: Int, secondaryOffset: Int, sign: Int) -> [Int] {
-        var seen = Set<Int>()
-        var offsets: [Int] = []
-        func append(_ offset: Int) {
-            guard offset.signum() == sign,
-                  abs(offset) >= 1,
-                  abs(offset) <= maxOffsetPx else {
-                return
-            }
-            if seen.insert(offset).inserted {
-                offsets.append(offset)
-            }
-        }
-        func appendNeighborhood(around offset: Int) {
-            append(offset)
-            for delta in Self.candidateDeltas {
-                append(offset + delta)
-            }
-        }
-        appendNeighborhood(around: primaryOffset)
-        appendNeighborhood(around: secondaryOffset)
-        if offsets.count > 24 {
-            offsets = Array(offsets.prefix(24))
-        }
-        return offsets
-    }
 }
 
-final class ScrollActivityHintStore: @unchecked Sendable {
+// Thread-safe holder the input path writes and the encode pump reads.
+final class ScrollActivityStore: @unchecked Sendable {
     private let lock = NSLock()
     private var tracker: ScrollActivityTracker
 
-    // Temporary, env-gated (AGENTDESK_SCROLL_HINT_DEBUG=1). Lets a device run
-    // show whether client scroll input reaches the hint store with usable
-    // deltas and whether it resolves to an active hint. Remove once the
-    // physical no-copyRect freeze is root-caused.
-    private static let debugEnabled =
-        ProcessInfo.processInfo.environment["AGENTDESK_SCROLL_HINT_DEBUG"] == "1"
-    private static let debugLogger = Logger(
-        subsystem: Config.launchAgentLabel,
-        category: "owned-media"
-    )
-
-    init(tracker: ScrollActivityTracker = ScrollActivityTracker(
-        activeWindowMs: Config.hybridScrollActiveWindowMs,
-        inputPixelScale: Config.hybridScrollInputPixelScale
-    )) {
+    init(tracker: ScrollActivityTracker = ScrollActivityTracker(activeWindowMs: Config.hybridScrollActiveWindowMs)) {
         self.tracker = tracker
     }
 
     func record(_ input: NormalizedInput, nowUptimeNs: UInt64 = DispatchTime.now().uptimeNanoseconds) {
-        let resolved: ScrollActivityHint? = lock.withLock {
-            tracker.record(input, nowUptimeNs: nowUptimeNs)
-            return Self.debugEnabled ? tracker.hint(nowUptimeNs: nowUptimeNs) : nil
-        }
-        if Self.debugEnabled, case let .scroll(dx, dy, phase) = input {
-            Self.debugLogger.notice("scroll-hint-debug record dx=\(dx, privacy: .public) dy=\(dy, privacy: .public) phase=\(phase.rawValue, privacy: .public) resolved=\(resolved != nil, privacy: .public) axis=\(resolved?.axis.rawValue ?? "none", privacy: .public) predicted=\(resolved?.predictedOffsetPx ?? 0, privacy: .public)")
-        }
-    }
-
-    func hint(nowUptimeNs: UInt64 = DispatchTime.now().uptimeNanoseconds) -> ScrollActivityHint? {
         lock.withLock {
-            tracker.hint(nowUptimeNs: nowUptimeNs)
+            tracker.record(input, nowUptimeNs: nowUptimeNs)
         }
     }
 

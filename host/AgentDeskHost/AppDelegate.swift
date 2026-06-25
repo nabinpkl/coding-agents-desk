@@ -88,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let signalingLogger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private var signalingServer: PairingSignalingServer?
     private let sessions = SessionRegistry()
-    private let scrollActivityHints = ScrollActivityHintStore()
+    private let scrollActivityHints = ScrollActivityStore()
     private lazy var mediaFactory: MediaTransportFactory = MediaStack.makeFactory(
         ownedGraphicsAuthorizer: { [weak self] hello in
             await MainActor.run {

@@ -645,27 +645,6 @@ struct ScrollQualityTests {
         return data
     }
 
-    private static func scrollHint(axis: ScrollActivityAxis, predictedOffset: Int) -> ScrollActivityHint {
-        let sign = predictedOffset < 0 ? -1 : 1
-        let candidates = [
-            predictedOffset,
-            predictedOffset - sign,
-            predictedOffset + sign,
-            predictedOffset - 2 * sign,
-            predictedOffset + 2 * sign,
-            predictedOffset - 4 * sign,
-            predictedOffset + 4 * sign
-        ].filter { $0 != 0 }
-        return ScrollActivityHint(
-            axis: axis,
-            sign: sign,
-            predictedOffsetPx: predictedOffset,
-            candidateOffsets: candidates,
-            activeUntilUptimeNs: UInt64.max,
-            eventCount: 1
-        )
-    }
-
     private static func expectSingleCopyRectAndTile(_ envelope: OwnedGraphicsFrameEnvelope) {
         var copyRectCount = 0
         var bitmapTileCount = 0
