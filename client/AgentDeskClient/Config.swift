@@ -2,10 +2,10 @@ import Foundation
 
 enum Config {
     static let signalingPort: UInt16 = 41888
-    static let graphicsPort = graphicsPort(environment: ProcessInfo.processInfo.environment)
+    static let graphicsPort = port(environmentKey: "AGENTDESK_GRAPHICS_PORT", defaultValue: 41_889)
     // ADR-0019: plain-TCP port the iPhone listens on for a Mac-pushed pairing
     // offer. Must match the host's offer port.
-    static let offerPort = offerPort(environment: ProcessInfo.processInfo.environment)
+    static let offerPort = port(environmentKey: "AGENTDESK_OFFER_PORT", defaultValue: 41_890)
     // ADR-0020: wire protocol version negotiated at the session handshake. Bumped
     // only on a breaking wire change, independent of the marketing version. The
     // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
@@ -55,7 +55,7 @@ enum Config {
     // renders only the retained-tile path. On: it accepts the HEVC datagram motion
     // stream and swaps to the video layer while scrolling.
     static let ownedMediaVideoMotionEnabled: Bool = {
-        switch ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED"]?.lowercased() {
+        switch resolvedEnvValue("AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED")?.lowercased() {
         case "1", "true", "yes", "on": return true
         default: return false
         }
@@ -72,8 +72,35 @@ enum Config {
         defaultValue: 41_891
     )
 
+    // MARK: - Durable env config
+    //
+    // A value injected via the process environment (a recipe / devicectl dev launch)
+    // is persisted to UserDefaults, so a later launch from the home-screen icon, which
+    // carries no environment, reapplies the same config instead of snapping back to
+    // defaults. This is the bug behind "reopened the app and motion was gone": with no
+    // env, ownedMediaVideoMotionEnabled fell back to false and the client stopped
+    // accepting the carrier even while the host kept producing it.
+    //
+    // Resolution order: env (wins, and refreshes the stored value) -> last persisted
+    // value -> hardcoded default. UserDefaults is per-bundle-id, so the dev variant's
+    // persistence never leaks into the stable daily driver. The pairing / launch URL is
+    // read straight from the environment elsewhere (SceneDelegate), not through here,
+    // so it stays a one-shot and is never persisted.
+    private static let durableKeyPrefix = "config.durable."
+
+    static func resolvedEnvValue(_ key: String) -> String? {
+        // UserDefaults.standard is thread-safe and accessed inline (not held as a
+        // static, which Swift 6 rejects as non-Sendable shared mutable state).
+        let store = UserDefaults.standard
+        if let raw = ProcessInfo.processInfo.environment[key] {
+            store.set(raw, forKey: durableKeyPrefix + key)
+            return raw
+        }
+        return store.string(forKey: durableKeyPrefix + key)
+    }
+
     static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
-        guard let raw = ProcessInfo.processInfo.environment[environmentKey],
+        guard let raw = resolvedEnvValue(environmentKey),
               let value = Int(raw),
               value > 0
         else {
@@ -83,7 +110,7 @@ enum Config {
     }
 
     static func port(environmentKey: String, defaultValue: UInt16) -> UInt16 {
-        guard let raw = ProcessInfo.processInfo.environment[environmentKey],
+        guard let raw = resolvedEnvValue(environmentKey),
               let value = UInt16(raw),
               value > 0
         else {
@@ -92,23 +119,4 @@ enum Config {
         return value
     }
 
-    static func graphicsPort(environment: [String: String]) -> UInt16 {
-        guard let raw = environment["AGENTDESK_GRAPHICS_PORT"],
-              let value = UInt16(raw),
-              value > 0
-        else {
-            return 41_889
-        }
-        return value
-    }
-
-    static func offerPort(environment: [String: String]) -> UInt16 {
-        guard let raw = environment["AGENTDESK_OFFER_PORT"],
-              let value = UInt16(raw),
-              value > 0
-        else {
-            return 41_890
-        }
-        return value
-    }
 }
