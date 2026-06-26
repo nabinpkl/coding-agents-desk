@@ -853,12 +853,15 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             heldSinceLastProduce = 0
             lastProduceUptimeNs = nowBeforeProbe
 
-            // ADR-0025 motion fork. While scrolling, encode the frame as HEVC and
-            // measure it (the carrier send lands next); the tile path is skipped so
-            // the surface is not also retiled. On scroll->rest, invalidate the
-            // retained surface so the tile path re-syncs the full surface after the
-            // video gap (the post-motion refresh), matching the handoff contract.
-            if let videoEncoder, motion != nil {
+            // ADR-0025 motion fork. tilesMotion forks to HEVC only while scrolling;
+            // the tile path is skipped so the surface is not also retiled, and on
+            // scroll->rest the retained surface is invalidated so tiles re-sync the
+            // full surface after the video gap (the post-motion refresh), matching the
+            // handoff contract. alwaysVideo runs the carrier on every produced frame,
+            // rest included, and never falls to the tile path: a pure-video stream
+            // whose first frame is the only forced keyframe (then periodic).
+            let alwaysVideo = Config.ownedMediaMotionMode == .alwaysVideo
+            if let videoEncoder, motion != nil || alwaysVideo {
                 let forceKeyframe = !wasScrollingForVideo
                 wasScrollingForVideo = true
                 videoFrameId &+= 1

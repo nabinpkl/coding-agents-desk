@@ -18,6 +18,28 @@ enum Config {
         }
     }
 
+    // ADR-0025 motion carrier mode, layered on the video carrier (only meaningful
+    // when ownedMediaVideoMotionEnabled is on). `.tilesMotion` is the device-validated
+    // default: scrolling forks to the HEVC datagram carrier, rest paints crisp tiles.
+    // `.alwaysVideo` runs the carrier on every produced frame (rest included) and never
+    // falls to the tile path, the pure-video A/B lever to measure whether video alone
+    // holds text and stays responsive without the tile-repair layer. No combo/repair
+    // mode exists yet, so an unknown value falls back to `.tilesMotion` and never
+    // regresses the daily driver. Set AGENTDESK_OWNED_MEDIA_MOTION_MODE = always_video.
+    enum OwnedMediaMotionMode: String {
+        case tilesMotion
+        case alwaysVideo
+
+        init(rawEnvironmentValue: String?) {
+            switch rawEnvironmentValue?.trimmingCharacters(in: .whitespaces).lowercased() {
+            case "always_video", "always", "video":
+                self = .alwaysVideo
+            default:
+                self = .tilesMotion
+            }
+        }
+    }
+
     enum SpaceSwitchMode: String {
         case dockSwipe = "dock-swipe"
         case directSet = "direct-set"
@@ -100,6 +122,11 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED",
         defaultValue: false,
         environment: ProcessInfo.processInfo.environment
+    )
+    // Which motion-carrier mode the encode pump runs in. tilesMotion (default) =
+    // video on scroll, tiles at rest; alwaysVideo = continuous video, no tiles.
+    static let ownedMediaMotionMode = OwnedMediaMotionMode(
+        rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_MOTION_MODE"]
     )
     // QUIC DATAGRAM frame size advertised on the graphics group when the motion
     // carrier is on. Packets are sized under this (MediaDatagramFramePacket caps
