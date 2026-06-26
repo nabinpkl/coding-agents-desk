@@ -11,6 +11,12 @@ iphone_log_archive := env_var_or_default("AGENTDESK_IPHONE_LOG_ARCHIVE", "/tmp/a
 iphone_log_minutes := env_var_or_default("AGENTDESK_IPHONE_LOG_MINUTES", "5")
 iphone_console_log := env_var_or_default("AGENTDESK_IPHONE_CONSOLE_LOG", "/tmp/agentdesk-client-console.log")
 sim_console_log := env_var_or_default("AGENTDESK_SIM_CONSOLE_LOG", "/tmp/agentdesk-sim-console.log")
+# One-shot motion-verify capture files (see the `motion-verify` recipe). Each leg
+# of the round-trip writes to its own durable /tmp file so a run is reproducible
+# and needs no live stream to read.
+motion_host_oslog := env_var_or_default("AGENTDESK_MOTION_HOST_OSLOG", "/tmp/agentdesk-motion-host-oslog.log")
+motion_host_stdio := env_var_or_default("AGENTDESK_MOTION_HOST_STDIO", "/tmp/agentdesk-motion-host-stdio.log")
+motion_client_log := env_var_or_default("AGENTDESK_MOTION_CLIENT_LOG", "/tmp/agentdesk-motion-client.log")
 iphone_log_device_udid := env_var_or_default("AGENTDESK_IOS_DEVICE_UDID", "")
 last_pair_url_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.last-pair-url"
 derived_data := env_var_or_default("AGENTDESK_DERIVED_DATA_PATH", justfile_directory() + "/.build/DerivedData")
@@ -217,6 +223,90 @@ client-reinstall-dev:
 
 iphone-console-run-dev:
     just iphone-console-run dev
+
+# One-shot, deterministic motion-carrier device verification (ADR-0025). Rebuilds
+# and reinstalls host + client, launches both with the motion flag on, records
+# every leg of the round-trip to its own durable /tmp file, holds a fixed window
+# for you to scroll, then tears the capture down. No live stream to babysit and no
+# launchctl: the host GUI app gets its env and stdio straight from
+# `open --env/--stdout/--stderr`, and its os_log diagnostics are recorded to a file
+# by a recipe-managed `log stream` started before launch (so "datagram server
+# started" is captured) and killed at the end. Config comes from .env (dotenv-load)
+# plus the inline flags below.
+#
+#   variant : stable (default) | dev   which client bundle to drive
+#   video   : 1 (default) | 0          AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED on both ends
+#   seconds : 60 (default)             capture window; scroll a window during it
+#
+# Durable logs (overridable via env):
+#   {{motion_host_oslog}}   host os_log (owned-media diagnostics)
+#   {{motion_host_stdio}}   host stdout + stderr (prints, crashes)
+#   {{motion_client_log}}   attached client console (stderr traces)
+# One-shot motion-carrier device verification: rebuild+reinstall both ends, scroll, durable /tmp logs.
+motion-verify variant="stable" video="1" seconds="60":
+    #!/usr/bin/env bash
+    set -uo pipefail
+    HOST_BIN_PAT="Contents/MacOS/AgentDeskHost"
+    LOG_PID=""; CONSOLE_PID=""
+    cleanup() {
+        [ -n "$LOG_PID" ] && kill "$LOG_PID" 2>/dev/null || true
+        [ -n "$CONSOLE_PID" ] && kill "$CONSOLE_PID" 2>/dev/null || true
+        pkill -f "devicectl device process launch" 2>/dev/null || true
+    }
+    trap cleanup EXIT INT TERM
+
+    : > "{{motion_host_oslog}}"; : > "{{motion_host_stdio}}"; : > "{{motion_client_log}}"
+    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; else BID='{{client_bundle_id}}'; fi
+
+    echo "== [1/5] build host =="
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
+
+    echo "== [2/5] build + install client ($BID) =="
+    just client-install {{variant}}
+
+    echo "== [3/5] launch host (motion={{video}}), capture stdio + os_log =="
+    # Clear a stale host and any leftover capture stream from a crashed prior run.
+    pkill -f "$HOST_BIN_PAT" 2>/dev/null || true
+    pkill -f 'log stream.*dev[.]dev[.]AgentDeskHost' 2>/dev/null || true
+    sleep 1
+    # Start the os_log capture BEFORE launch so the listener/server-started lines land.
+    log stream --predicate 'subsystem == "com.example.agentdesk.AgentDeskHost"' --info --debug --style compact >"{{motion_host_oslog}}" 2>&1 &
+    LOG_PID=$!
+    sleep 1
+    # `open --env` delivers config to the GUI app directly (no launchctl); --stdout/--stderr
+    # capture its stdio. Other knobs come from .env; add --env lines here if a run needs them.
+    open --stdout "{{motion_host_stdio}}" --stderr "{{motion_host_stdio}}" \
+        --env AGENTDESK_AUTO_APPROVE=1 \
+        --env AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 \
+        --env AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED={{video}} \
+        "{{host_app}}"
+    HOST_PID=""; i=0
+    while [ -z "$HOST_PID" ] && [ $i -lt 100 ]; do HOST_PID="$(pgrep -f "$HOST_BIN_PAT" | head -1)"; sleep 0.1; i=$((i+1)); done
+    test -n "$HOST_PID" || { echo "host did not start"; exit 1; }
+    echo "host pid=$HOST_PID  os_log-stream pid=$LOG_PID"
+
+    echo "== [4/5] pair + attach client console ($BID) =="
+    rm -f "{{last_pair_url_path}}"
+    kill -USR1 "$HOST_PID"
+    i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
+    URL="$(cat "{{last_pair_url_path}}")"
+    echo "pair URL: $URL"
+    xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing \
+        --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\",\"AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED\":\"{{video}}\"}" \
+        "$BID" "$URL" >"{{motion_client_log}}" 2>&1 &
+    CONSOLE_PID=$!
+
+    echo "== [5/5] capturing for {{seconds}}s -- SCROLL A WINDOW NOW =="
+    sleep {{seconds}}
+
+    cleanup
+    trap - EXIT INT TERM
+    echo ""
+    echo "== done. host left running (pid $HOST_PID). durable logs: =="
+    echo "  host os_log : {{motion_host_oslog}}"
+    echo "  host stdio  : {{motion_host_stdio}}"
+    echo "  client      : {{motion_client_log}}"
 
 iphone-log-collect-dev:
     just iphone-log-collect dev
