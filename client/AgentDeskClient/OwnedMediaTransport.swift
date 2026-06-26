@@ -41,6 +41,7 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     private let plan: ClientGraphicsConnectionPlan
     private let active: ActiveSession
     private let mediaCapability: MediaCapabilityGrant
+    private var group: NWConnectionGroup?
     private var connection: NWConnection?
     private var controlConnection: NWConnection?
     private var pendingConnection: NWConnection?
@@ -73,34 +74,58 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         guard let endpointPort = NWEndpoint.Port(rawValue: self.plan.port) else {
             throw SessionRejected(reason: .malformed)
         }
-        let endpointHost = NWEndpoint.Host(self.plan.host)
-        // ADR-0022: two independent QUIC connections per session. Frames ride the
-        // graphics connection; acks and reset-requests ride the interactive one, so a
-        // large frame cannot head-of-line-block the control path.
-        let graphics = NWConnection(host: endpointHost, port: endpointPort, using: Self.makeReliableQuicParameters(alpn: self.plan.alpn))
-        let interactive = NWConnection(host: endpointHost, port: endpointPort, using: Self.makeReliableQuicParameters(alpn: self.plan.alpn))
-        self.pendingConnection = graphics
-        self.pendingControlConnection = interactive
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(self.plan.host), port: endpointPort)
+        // ADR-0022: ONE QUIC connection (an NWConnectionGroup) carrying two streams.
+        // Frames ride the graphics stream; acks and reset-requests ride the
+        // interactive stream, so a large frame cannot head-of-line-block control.
+        let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: Self.makeReliableQuicParameters(alpn: self.plan.alpn))
+        self.group = group
         var didStart = false
         defer {
             if !didStart {
-                if self.pendingConnection === graphics { self.pendingConnection = nil }
+                self.group = nil
+                self.pendingConnection = nil
                 self.pendingControlConnection = nil
                 self.pendingResetRequest = nil
-                graphics.cancel()
-                interactive.cancel()
+                group.cancel()
             }
         }
-        graphics.stateUpdateHandler = { [weak self] state in
-            self?.logger.notice("owned graphics quic state=\(String(describing: state), privacy: .public)")
+        // Bring the QUIC connection up before opening streams.
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            // The group state handler is serialized on `self.queue`, so a plain flag
+            // is safe here; mark it unsafe to satisfy the concurrency checker.
+            nonisolated(unsafe) var resumed = false
+            group.stateUpdateHandler = { [weak self] state in
+                self?.logger.notice("owned graphics quic group state=\(String(describing: state), privacy: .public)")
+                switch state {
+                case .ready:
+                    if !resumed { resumed = true; cont.resume() }
+                case .failed(let error):
+                    if !resumed { resumed = true; cont.resume(throwing: error) }
+                case .cancelled:
+                    if !resumed { resumed = true; cont.resume(throwing: CancellationError()) }
+                default:
+                    break
+                }
+            }
+            group.start(queue: self.queue)
         }
-        interactive.stateUpdateHandler = { [weak self] state in
-            self?.logger.notice("owned graphics control quic state=\(String(describing: state), privacy: .public)")
+        // Steady-state group handler: tear the session down if the connection fails.
+        group.stateUpdateHandler = { [weak self] state in
+            self?.logger.notice("owned graphics quic group state=\(String(describing: state), privacy: .public)")
+            if case .failed = state { self?.onDisconnected("group-failed") }
+        }
+
+        // Graphics stream: role 'G' + hello, then ready. (Every app stream is created
+        // explicitly; the group's implicit stream 0 is not used.)
+        guard let graphics = NWConnection(from: group) else {
+            throw SessionRejected(reason: .malformed)
+        }
+        graphics.stateUpdateHandler = { [weak self] state in
+            self?.logger.notice("owned graphics quic stream state=\(String(describing: state), privacy: .public)")
         }
         graphics.start(queue: self.queue)
-        interactive.start(queue: self.queue)
-
-        // Graphics connection: role tag + hello, then ready.
+        self.pendingConnection = graphics
         let hello = ClientGraphicsChannelHandshake.makeHello(
             active: self.active,
             mediaCapability: self.mediaCapability,
@@ -109,15 +134,17 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         try await self.send(Data([OwnedGraphicsStreamRole.graphics.rawValue]) + (try JSONEncoder().encode(hello)), on: graphics)
         _ = try await self.receiveReady(expectedSessionId: self.active.sessionId, on: graphics)
 
-        // Interactive connection: role tag + hello (authenticates the same session),
-        // then ready.
-        let controlHello = ClientGraphicsChannelHandshake.makeHello(
-            active: self.active,
-            mediaCapability: self.mediaCapability,
-            clientNonce: try Self.randomBytes(count: 32)
-        )
-        try await self.send(Data([OwnedGraphicsStreamRole.interactive.rawValue]) + (try JSONEncoder().encode(controlHello)), on: interactive)
-        _ = try await self.receiveReady(expectedSessionId: self.active.sessionId, on: interactive)
+        // Interactive stream: role 'I' only. Trusted as a sibling on the same
+        // authenticated QUIC connection; no second hello.
+        guard let interactive = NWConnection(from: group) else {
+            throw SessionRejected(reason: .malformed)
+        }
+        interactive.stateUpdateHandler = { [weak self] state in
+            self?.logger.notice("owned graphics control quic stream state=\(String(describing: state), privacy: .public)")
+        }
+        interactive.start(queue: self.queue)
+        self.pendingControlConnection = interactive
+        try await self.send(Data([OwnedGraphicsStreamRole.interactive.rawValue]), on: interactive)
 
         self.pendingConnection = nil
         self.pendingControlConnection = nil
@@ -158,6 +185,8 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         self.connection = nil
         self.controlConnection?.cancel()
         self.controlConnection = nil
+        self.group?.cancel()
+        self.group = nil
     }
 
     func sendResetRequest(_ request: OwnedGraphicsResetRequest) async {
@@ -225,10 +254,12 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
                 logger.error("owned graphics quic receive failed: \(String(describing: error), privacy: .public)")
                 connection.cancel()
                 self.connection = nil
-                // Tear down the sibling interactive connection too: a session is
-                // both streams, so recovery re-establishes the pair.
+                // Tear down the sibling interactive stream and the group: a session
+                // is the whole connection, so recovery re-establishes the pair.
                 self.controlConnection?.cancel()
                 self.controlConnection = nil
+                self.group?.cancel()
+                self.group = nil
                 onDisconnected("receive-failed")
                 return
             }
@@ -311,6 +342,10 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         let options = NWProtocolQUIC.Options(alpn: [alpn])
         options.direction = .bidirectional
         options.isDatagram = false
+        // ADR-0022: two app streams per connection (plus the group's implicit
+        // stream 0). Allow several streams; the default is too small.
+        options.initialMaxStreamsBidirectional = 8
+        options.initialMaxStreamsUnidirectional = 8
         #if DEBUG
         sec_protocol_options_set_verify_block(options.securityProtocolOptions, { _, _, complete in
             complete(true)

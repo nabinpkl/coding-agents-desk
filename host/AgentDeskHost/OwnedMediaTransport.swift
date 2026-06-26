@@ -10,6 +10,18 @@ import os
 
 typealias OwnedGraphicsChannelAuthorizer = @Sendable (GraphicsChannelHello) async -> MediaCapabilityValidationResult
 
+// A QUIC connection (NWConnectionGroup) still assembling its two streams. The
+// client opens the graphics stream (role 'G' + hello) and the interactive stream
+// (role 'I', trusted as a sibling). The channel installs once the graphics stream
+// has authenticated and the interactive stream has arrived.
+private final class PendingGraphicsGroup {
+    let group: NWConnectionGroup
+    var graphicsStream: NWConnection?
+    var interactiveStream: NWConnection?
+    var graphicsAuthed = false
+    init(group: NWConnectionGroup) { self.group = group }
+}
+
 final class OwnedGraphicsChannelServer: @unchecked Sendable {
     // The graphics-stream connection: frames are sent on it and its identity keys
     // the active channel. The interactive-stream connection carries inbound control.
@@ -248,16 +260,22 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic")
     private let lock = NSLock()
     private var graphicsListener: NWListener?
-    private var graphicsConnections: [ObjectIdentifier: NWConnection] = [:]
+    // ADR-0022: one QUIC connection per client is an NWConnectionGroup carrying two
+    // streams (graphics frames + interactive control). Live groups are tracked for
+    // teardown; a group still assembling its two streams sits in pendingGraphicsGroups
+    // keyed by group identity; streamGroupId maps a stream back to its group so a
+    // stream failure can tear the whole session down.
+    private var graphicsGroups: [ObjectIdentifier: NWConnectionGroup] = [:]
+    private var pendingGraphicsGroups: [ObjectIdentifier: PendingGraphicsGroup] = [:]
+    private var streamGroupId: [ObjectIdentifier: ObjectIdentifier] = [:]
+    private var latestPendingGroupId: ObjectIdentifier?
     private var graphicsChannels: [ObjectIdentifier: OwnedGraphicsChannelServer] = [:]
-    private var latestPendingGraphicsConnectionId: ObjectIdentifier?
     private var activeGraphicsConnectionId: ObjectIdentifier?
     // ADR-0022: the graphics path is two QUIC connections per session. A graphics
     // connection that authenticated but has not yet been paired with its sibling
     // interactive connection waits here, keyed by session id. Any connection (either
     // role) maps back to the graphics-connection id that keys its installed channel,
     // so dropping either tears the whole session down.
-    private var graphicsAwaitingInteractive: [String: NWConnection] = [:]
     private var connectionToChannelKey: [ObjectIdentifier: ObjectIdentifier] = [:]
     private var videoSource: VideoFrameSource?
     private var frameMailbox: LatestCapturedFrameMailbox?
@@ -304,11 +322,14 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         started = false
         let graphicsListener = self.graphicsListener
         self.graphicsListener = nil
-        let graphicsConnections = Array(self.graphicsConnections.values)
-        self.graphicsConnections.removeAll()
+        let graphicsGroups = Array(self.graphicsGroups.values)
+        self.graphicsGroups.removeAll()
+        self.pendingGraphicsGroups.removeAll()
+        self.streamGroupId.removeAll()
+        self.latestPendingGroupId = nil
+        self.connectionToChannelKey.removeAll()
         let graphicsChannels = Array(self.graphicsChannels.values)
         self.graphicsChannels.removeAll()
-        self.latestPendingGraphicsConnectionId = nil
         self.activeGraphicsConnectionId = nil
         self.graphicsRecoveryState = .idle
         let source = self.videoSource
@@ -322,8 +343,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         mailbox?.finish()
         source?.stop()
         graphicsListener?.cancel()
-        graphicsConnections.forEach { $0.cancel() }
         graphicsChannels.forEach { $0.close() }
+        graphicsGroups.forEach { $0.cancel() }
         graphicsAckWaiter.reset()
         stateContinuation.yield(.closed)
         stateContinuation.finish()
@@ -339,8 +360,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             throw SessionRejected(reason: .malformed)
         }
         let listener = try NWListener(using: Self.makeQuicParameters(configuration: configuration), on: port)
-        listener.newConnectionHandler = { [weak self] connection in
-            self?.handleGraphicsConnection(connection)
+        // Each inbound QUIC connection is delivered as an NWConnectionGroup; its
+        // streams arrive via the group's own newConnectionHandler.
+        listener.newConnectionGroupHandler = { [weak self] group in
+            self?.handleGraphicsGroup(group)
         }
         listener.stateUpdateHandler = { [weak self] state in
             self?.logger.notice("owned graphics quic listener state=\(String(describing: state), privacy: .public) port=\(Int(configuration.port), privacy: .public)")
@@ -373,194 +396,218 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         if let maxDatagramFrameSize = configuration.maxDatagramFrameSize {
             options.maxDatagramFrameSize = maxDatagramFrameSize
         }
+        // ADR-0022: the client opens two streams (graphics + interactive) per QUIC
+        // connection, plus the group's implicit stream 0. Allow several inbound
+        // bidirectional streams; the default is too small.
+        options.initialMaxStreamsBidirectional = 8
+        options.initialMaxStreamsUnidirectional = 8
         sec_protocol_options_set_local_identity(options.securityProtocolOptions, secIdentity)
         return NWParameters(quic: options)
     }
 
-    private func handleGraphicsConnection(_ connection: NWConnection) {
-        let identifier = ObjectIdentifier(connection)
+    private func handleGraphicsGroup(_ group: NWConnectionGroup) {
+        let groupId = ObjectIdentifier(group)
         lock.withLock {
-            graphicsConnections[identifier] = connection
+            graphicsGroups[groupId] = group
+            pendingGraphicsGroups[groupId] = PendingGraphicsGroup(group: group)
+            latestPendingGroupId = groupId
         }
-        connection.stateUpdateHandler = { [weak self, weak connection] state in
-            self?.logger.notice("owned graphics quic connection state=\(String(describing: state), privacy: .public)")
+        group.newConnectionHandler = { [weak self] stream in
+            self?.handleGraphicsStream(stream, groupId: groupId)
+        }
+        group.stateUpdateHandler = { [weak self] state in
+            self?.logger.notice("owned graphics quic group state=\(String(describing: state), privacy: .public)")
             switch state {
-            case .ready:
-                self?.logger.notice("owned graphics channel-connected")
             case .cancelled, .failed:
-                self?.logger.notice("owned graphics channel-disconnected state=\(String(describing: state), privacy: .public)")
-                if let connection {
-                    self?.removeGraphicsConnection(connection, reason: String(describing: state))
+                self?.removeGraphicsGroup(groupId, reason: "group-\(String(describing: state))")
+            default:
+                break
+            }
+        }
+        group.start(queue: queue)
+    }
+
+    // Each inbound stream is routed by its 1-byte role tag. The group owns an
+    // implicit stream 0 that never sends a role byte, so a stream that yields no
+    // valid role is ignored and must NOT tear the group down.
+    private func handleGraphicsStream(_ stream: NWConnection, groupId: ObjectIdentifier) {
+        let streamId = ObjectIdentifier(stream)
+        lock.withLock { streamGroupId[streamId] = groupId }
+        stream.stateUpdateHandler = { [weak self, weak stream] state in
+            switch state {
+            case .cancelled, .failed:
+                if let stream {
+                    self?.handleGraphicsStreamDown(ObjectIdentifier(stream), groupId: groupId, reason: String(describing: state))
                 }
             default:
                 break
             }
         }
-        connection.start(queue: queue)
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self, weak connection] data, _, _, error in
-            guard let self, let connection else { return }
+        stream.start(queue: queue)
+        stream.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self, weak stream] data, _, _, error in
+            guard let self, let stream else { return }
             if let error {
-                self.logger.error("owned graphics quic hello receive failed: \(String(describing: error), privacy: .public)")
-                self.removeGraphicsConnection(connection, reason: "hello-receive-failed")
-                connection.cancel()
+                self.handleGraphicsStreamDown(ObjectIdentifier(stream), groupId: groupId, reason: "stream-receive-failed")
                 return
             }
-            // ADR-0022: each stream opens with a 1-byte role tag, then the hello.
             guard let data, let roleByte = data.first,
                   let role = OwnedGraphicsStreamRole(rawValue: roleByte) else {
-                self.logger.error("owned graphics quic hello failed: missing role/data")
-                self.removeGraphicsConnection(connection, reason: "missing-hello")
-                connection.cancel()
+                // Implicit stream 0 or a stray stream: ignore without teardown.
+                self.logger.notice("owned graphics quic stream-ignored (no role tag)")
                 return
             }
-            let helloData = Data(data.dropFirst())
-            if role == .graphics {
-                self.lock.withLock { self.latestPendingGraphicsConnectionId = ObjectIdentifier(connection) }
-            }
-            Task { [weak self, weak connection] in
-                switch role {
-                case .graphics: await self?.acceptGraphicsHello(helloData, on: connection)
-                case .interactive: await self?.acceptInteractiveHello(helloData, on: connection)
+            switch role {
+            case .graphics:
+                let helloData = Data(data.dropFirst())
+                Task { [weak self, weak stream] in
+                    await self?.acceptGraphicsHello(helloData, on: stream, groupId: groupId)
                 }
+            case .interactive:
+                // Trusted sibling on the same authenticated QUIC connection: no hello.
+                self.pairInteractiveStream(stream, groupId: groupId)
             }
         }
     }
 
-    // The graphics connection authenticates, sends ready, then waits for its sibling
-    // interactive connection (same session) before the channel is installed and the
-    // pump can send frames.
-    private func acceptGraphicsHello(_ data: Data, on connection: NWConnection?) async {
-        guard let connection else { return }
+    // The graphics stream authenticates and sends ready, then the group waits for
+    // its interactive sibling before the channel is installed and the pump can send.
+    private func acceptGraphicsHello(_ data: Data, on stream: NWConnection?, groupId: ObjectIdentifier) async {
+        guard let stream else { return }
         do {
             let hello = try OwnedGraphicsHandshake.validateHelloData(data)
             let result = await graphicsAuthorizer(hello)
             switch result {
             case .accepted(let fingerprint):
-                guard consumePendingGraphicsConnection(connection) else {
+                let stale = lock.withLock { latestPendingGroupId != groupId || pendingGraphicsGroups[groupId] == nil }
+                if stale {
                     logger.notice("owned graphics stale-hello-ignored session=\(hello.sessionId, privacy: .public)")
-                    connection.cancel()
+                    removeGraphicsGroup(groupId, reason: "stale-hello")
                     return
                 }
                 let serverNonce = try Self.randomBytes(count: 32)
                 let ready = GraphicsChannelReady(sessionId: hello.sessionId, serverNonce: serverNonce)
-                let readyData = try JSONEncoder().encode(ready)
-                try await sendReady(readyData, on: connection)
-                lock.withLock { graphicsAwaitingInteractive[hello.sessionId] = connection }
+                try await sendReady(try JSONEncoder().encode(ready), on: stream)
+                lock.withLock {
+                    pendingGraphicsGroups[groupId]?.graphicsStream = stream
+                    pendingGraphicsGroups[groupId]?.graphicsAuthed = true
+                }
                 logger.notice("owned graphics quic accepted-awaiting-interactive fp=\(fingerprint.rawValue, privacy: .public) session=\(hello.sessionId, privacy: .public)")
+                tryInstallGraphicsChannel(groupId: groupId)
             case .rejected(let reason):
                 logger.error("owned graphics quic rejected reason=\(reason.rawValue, privacy: .public) fp=\(hello.deviceFingerprint.rawValue, privacy: .public)")
-                removeGraphicsConnection(connection, reason: "rejected-\(reason.rawValue)")
-                connection.cancel()
+                removeGraphicsGroup(groupId, reason: "rejected-\(reason.rawValue)")
             }
         } catch {
             logger.error("owned graphics quic hello failed: \(String(describing: error), privacy: .public)")
-            removeGraphicsConnection(connection, reason: "hello-failed")
-            connection.cancel()
+            removeGraphicsGroup(groupId, reason: "hello-failed")
         }
     }
 
-    // The interactive connection authenticates, then pairs with the graphics
-    // connection of the same session and installs the two-stream channel.
-    private func acceptInteractiveHello(_ data: Data, on connection: NWConnection?) async {
-        guard let connection else { return }
-        do {
-            let hello = try OwnedGraphicsHandshake.validateHelloData(data)
-            let result = await graphicsAuthorizer(hello)
-            switch result {
-            case .accepted(let fingerprint):
-                let ready = GraphicsChannelReady(sessionId: hello.sessionId, serverNonce: try Self.randomBytes(count: 32))
-                try await sendReady(try JSONEncoder().encode(ready), on: connection)
-                let graphics: NWConnection? = lock.withLock {
-                    graphicsAwaitingInteractive.removeValue(forKey: hello.sessionId)
-                }
-                guard let graphicsConnection = graphics else {
-                    logger.notice("owned graphics interactive-without-graphics session=\(hello.sessionId, privacy: .public)")
-                    removeGraphicsConnection(connection, reason: "interactive-unpaired")
-                    connection.cancel()
-                    return
-                }
-                let key = ObjectIdentifier(graphicsConnection)
-                lock.withLock {
-                    connectionToChannelKey[ObjectIdentifier(graphicsConnection)] = key
-                    connectionToChannelKey[ObjectIdentifier(connection)] = key
-                }
-                installGraphicsChannel(OwnedGraphicsChannelServer(
-                    graphicsConnection: graphicsConnection,
-                    controlConnection: connection,
-                    onFrameAck: { [weak self] connectionId, ack in
-                        self?.noteGraphicsFrameAck(ack, connectionId: connectionId)
-                    },
-                    onResetRequest: { [weak self] request in
-                        self?.handleGraphicsResetRequest(request)
+    private func pairInteractiveStream(_ stream: NWConnection, groupId: ObjectIdentifier) {
+        lock.withLock { pendingGraphicsGroups[groupId]?.interactiveStream = stream }
+        logger.notice("owned graphics quic interactive-stream-arrived")
+        tryInstallGraphicsChannel(groupId: groupId)
+    }
+
+    // Install once the group has BOTH an authenticated graphics stream and an
+    // interactive stream. The interactive stream is trusted as a sibling on the
+    // same authenticated QUIC connection (ADR-0022 auth: hello on first stream).
+    private func tryInstallGraphicsChannel(groupId: ObjectIdentifier) {
+        let pair: (graphics: NWConnection, interactive: NWConnection)? = lock.withLock {
+            guard let pending = pendingGraphicsGroups[groupId],
+                  pending.graphicsAuthed,
+                  let graphics = pending.graphicsStream,
+                  let interactive = pending.interactiveStream else { return nil }
+            pendingGraphicsGroups.removeValue(forKey: groupId)
+            let key = ObjectIdentifier(graphics)
+            connectionToChannelKey[ObjectIdentifier(graphics)] = key
+            connectionToChannelKey[ObjectIdentifier(interactive)] = key
+            return (graphics, interactive)
+        }
+        guard let pair else { return }
+        installGraphicsChannel(OwnedGraphicsChannelServer(
+            graphicsConnection: pair.graphics,
+            controlConnection: pair.interactive,
+            onFrameAck: { [weak self] connectionId, ack in
+                self?.noteGraphicsFrameAck(ack, connectionId: connectionId)
+            },
+            onResetRequest: { [weak self] request in
+                self?.handleGraphicsResetRequest(request)
+            }
+        ))
+        logger.notice("owned graphics quic interactive-paired channel-installed")
+    }
+
+    // A stream going down tears the whole session down if it is part of the active
+    // channel or a pending group's graphics/interactive stream. The implicit stream
+    // 0 is in neither, so its drop is ignored.
+    private func handleGraphicsStreamDown(_ streamId: ObjectIdentifier, groupId: ObjectIdentifier, reason: String) {
+        let shouldTearDown = lock.withLock { () -> Bool in
+            streamGroupId.removeValue(forKey: streamId)
+            if connectionToChannelKey[streamId] != nil { return true }
+            if let pending = pendingGraphicsGroups[groupId] {
+                if let g = pending.graphicsStream, ObjectIdentifier(g) == streamId { return true }
+                if let i = pending.interactiveStream, ObjectIdentifier(i) == streamId { return true }
+            }
+            return false
+        }
+        if shouldTearDown {
+            removeGraphicsGroup(groupId, reason: "stream-down-\(reason)")
+        }
+    }
+
+    // Tear down a whole QUIC connection (group): its channel (if installed), its
+    // streams, and its bookkeeping; run the recovery path if it was the active one.
+    private func removeGraphicsGroup(_ groupId: ObjectIdentifier, reason: String) {
+        let result = lock.withLock { () -> (wasActive: Bool, channel: OwnedGraphicsChannelServer?, group: NWConnectionGroup?) in
+            let group = graphicsGroups.removeValue(forKey: groupId)
+            pendingGraphicsGroups.removeValue(forKey: groupId)
+            if latestPendingGroupId == groupId { latestPendingGroupId = nil }
+            let groupStreamIds = streamGroupId.filter { $0.value == groupId }.map(\.key)
+            let channelKey = groupStreamIds.compactMap { connectionToChannelKey[$0] }.first
+            for sid in groupStreamIds {
+                streamGroupId.removeValue(forKey: sid)
+                connectionToChannelKey.removeValue(forKey: sid)
+            }
+            var channel: OwnedGraphicsChannelServer?
+            var wasActive = false
+            if let channelKey {
+                channel = graphicsChannels.removeValue(forKey: channelKey)
+                if activeGraphicsConnectionId == channelKey {
+                    wasActive = true
+                    activeGraphicsConnectionId = nil
+                    graphicsBackpressure.reset()
+                    if graphicsRecoveryState != .failedCoolingDown {
+                        graphicsRecoveryState = .reconnecting
                     }
-                ), controlConnection: connection)
-                logger.notice("owned graphics quic interactive-paired fp=\(fingerprint.rawValue, privacy: .public) session=\(hello.sessionId, privacy: .public)")
-            case .rejected(let reason):
-                logger.error("owned graphics interactive rejected reason=\(reason.rawValue, privacy: .public)")
-                removeGraphicsConnection(connection, reason: "interactive-rejected-\(reason.rawValue)")
-                connection.cancel()
-            }
-        } catch {
-            logger.error("owned graphics interactive hello failed: \(String(describing: error), privacy: .public)")
-            removeGraphicsConnection(connection, reason: "interactive-hello-failed")
-            connection.cancel()
-        }
-    }
-
-    private func removeGraphicsConnection(_ connection: NWConnection, reason: String) {
-        let removed = lock.withLock { () -> (Bool, OwnedGraphicsChannelServer?) in
-            let id = ObjectIdentifier(connection)
-            // Either role resolves to the graphics-connection id that keys the channel.
-            let channelKey = connectionToChannelKey[id] ?? id
-            let wasActive = activeGraphicsConnectionId == channelKey
-            if latestPendingGraphicsConnectionId == id {
-                latestPendingGraphicsConnectionId = nil
-            }
-            // Drop any unpaired graphics connection awaiting an interactive sibling.
-            for (session, conn) in graphicsAwaitingInteractive where ObjectIdentifier(conn) == id {
-                graphicsAwaitingInteractive.removeValue(forKey: session)
-            }
-            graphicsConnections.removeValue(forKey: id)
-            connectionToChannelKey.removeValue(forKey: id)
-            let channel = graphicsChannels.removeValue(forKey: channelKey)
-            if wasActive {
-                activeGraphicsConnectionId = nil
-                connectionToChannelKey = connectionToChannelKey.filter { $0.value != channelKey }
-                graphicsBackpressure.reset()
-                if graphicsRecoveryState != .failedCoolingDown {
-                    graphicsRecoveryState = .reconnecting
                 }
             }
-            return (wasActive, channel)
+            return (wasActive, channel, group)
         }
-        removed.1?.close()
-        if removed.0 {
+        result.channel?.close()
+        result.group?.cancel()
+        if result.wasActive {
             graphicsAckWaiter.reset()
             logger.notice("owned graphics active-channel-disconnected reason=\(reason, privacy: .public) recoveryState=\(self.currentGraphicsRecoveryState().rawValue, privacy: .public)")
         } else {
-            logger.notice("owned graphics stale-channel-disconnected reason=\(reason, privacy: .public)")
+            logger.notice("owned graphics group-removed reason=\(reason, privacy: .public)")
         }
     }
 
-    private func installGraphicsChannel(_ channel: OwnedGraphicsChannelServer, controlConnection: NWConnection) {
-        let replaced = lock.withLock { () -> ([OwnedGraphicsChannelServer], [NWConnection]) in
+    private func installGraphicsChannel(_ channel: OwnedGraphicsChannelServer) {
+        let previousChannels = lock.withLock { () -> [OwnedGraphicsChannelServer] in
             let id = ObjectIdentifier(channel.connection)
-            let keep: Set<ObjectIdentifier> = [id, ObjectIdentifier(controlConnection)]
-            let previousChannels = graphicsChannels.filter { key, _ in key != id }.map(\.value)
-            let previousConnections = graphicsConnections.filter { key, _ in !keep.contains(key) }.map(\.value)
+            let previous = graphicsChannels.filter { key, _ in key != id }.map(\.value)
             graphicsChannels = [id: channel]
-            graphicsConnections = [id: channel.connection, ObjectIdentifier(controlConnection): controlConnection]
-            latestPendingGraphicsConnectionId = nil
             activeGraphicsConnectionId = id
             graphicsBackpressure.reset()
             graphicsRecoveryState = pendingGraphicsResetRequest == nil ? .idle : .reconnecting
-            return (previousChannels, previousConnections)
+            return previous
         }
         graphicsAckWaiter.reset()
-        replaced.0.forEach { $0.close() }
-        replaced.1.forEach { $0.cancel() }
-        if !replaced.0.isEmpty || !replaced.1.isEmpty {
-            logger.notice("owned graphics active-channel-replaced oldChannels=\(replaced.0.count, privacy: .public) oldConnections=\(replaced.1.count, privacy: .public)")
+        previousChannels.forEach { $0.close() }
+        if !previousChannels.isEmpty {
+            logger.notice("owned graphics active-channel-replaced oldChannels=\(previousChannels.count, privacy: .public)")
         }
         // The graphics channel is the only media path, so the capture pump
         // starts once the first graphics channel is installed and a source is
@@ -583,18 +630,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 return nil
             }
             return channel
-        }
-    }
-
-    private func consumePendingGraphicsConnection(_ connection: NWConnection) -> Bool {
-        lock.withLock {
-            let id = ObjectIdentifier(connection)
-            guard latestPendingGraphicsConnectionId == id,
-                  graphicsConnections[id] != nil else {
-                return false
-            }
-            latestPendingGraphicsConnectionId = nil
-            return true
         }
     }
 
