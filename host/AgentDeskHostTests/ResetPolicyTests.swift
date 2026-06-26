@@ -63,6 +63,24 @@ struct ResetPolicyTests {
         #expect(r3.envelope?.commands.contains { $0.kindIsReset } == true)
     }
 
+    // C2: the reset-ack grace scales with the stripe size but is bounded. Small
+    // stripes get the configured floor; a stripe far larger than the link can drain in
+    // the floor window earns more rounds, saturating at the ceiling. This replaces the
+    // fixed attempt count that the device freeze's 6.6s drain exceeded.
+    @Test func resetAckGraceRespectsFloorAndCeiling() {
+        let small = Config.resetStripeAckGraceAttempts(stripeBytes: 0)
+        #expect(small >= Config.hybridResetStripeAckMaxAttempts)        // never below floor
+        #expect(small <= Config.hybridResetStripeAckCeilingAttempts)    // never above ceiling
+        let huge = Config.resetStripeAckGraceAttempts(stripeBytes: 100_000_000)
+        #expect(huge == Config.hybridResetStripeAckCeilingAttempts)     // saturates at ceiling
+    }
+
+    @Test func resetAckGraceGrowsWithStripeSize() {
+        let small = Config.resetStripeAckGraceAttempts(stripeBytes: 0)
+        let large = Config.resetStripeAckGraceAttempts(stripeBytes: 4_000_000)
+        #expect(large > small)
+    }
+
     private static func makeNoiseFrame(
         width: Int,
         height: Int,

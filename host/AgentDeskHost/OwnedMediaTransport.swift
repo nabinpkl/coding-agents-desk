@@ -622,11 +622,18 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 diagnostics.noteAdmissionHold(reason: "graphics-disconnected")
                 continue
             }
-            if peekPendingGraphicsResetRequest() != nil {
+            // C3: a pending reset is the recovery path and must own the link. It
+            // bypasses the backpressure, cadence, and rate gates below so the caps
+            // (especially the byte-rate pacer, which can sit in debt after a fast
+            // scroll) cannot starve the reset stripe and re-create the freeze the
+            // reset exists to break. handleGraphicsResetRequest already cleared the
+            // unacked tracker, so the surface is re-synced at full priority.
+            let resetPending = peekPendingGraphicsResetRequest() != nil
+            if resetPending {
                 scrollDeltaEngine.invalidateRetainedSurface()
                 logger.notice("owned graphics reset consumed by encode pump")
             }
-            if !graphicsBackpressureCanProduce() {
+            if !resetPending, !graphicsBackpressureCanProduce() {
                 // At the unacked-frame cap. Hold this frame entirely. The mailbox
                 // coalesces dirtyRects while stalled, so the next produced frame
                 // carries the freshest damage.
@@ -647,7 +654,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             // interval, so we reject/coalesce this frame instead of generating one the
             // link cannot drain. The mailbox keeps the freshest damage for the next
             // produce; readability is preserved by spending cadence, not quality.
-            if let last = lastProduceUptimeNs, nowBeforeProbe &- last < policy.minFrameIntervalNs {
+            if !resetPending, let last = lastProduceUptimeNs, nowBeforeProbe &- last < policy.minFrameIntervalNs {
                 diagnostics.noteAdmissionHold(reason: "cadence-cap")
                 continue
             }
@@ -657,7 +664,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             // the link instead of over-filling the send buffer until a reset stripe
             // ack times out. The mailbox coalesces the freshest damage for the next
             // admitted produce, so a held frame costs cadence, not content.
-            if !lock.withLock({ graphicsSendPacer.canSend(nowNs: nowBeforeProbe) }) {
+            if !resetPending, !lock.withLock({ graphicsSendPacer.canSend(nowNs: nowBeforeProbe) }) {
                 diagnostics.noteAdmissionHold(reason: "rate-cap")
                 continue
             }
@@ -719,6 +726,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                         // slow link worse (the freeze cascade). A genuinely dead
                         // channel still aborts within one timeout (connection goes
                         // inactive); only a truly stuck ack hits the full grace.
+                        // C2: grace scaled to the configured link rate and this stripe's
+                        // size, floored at the prior fixed attempts. A slower link (or a
+                        // larger stripe) gets proportionally longer to drain its ack
+                        // before the channel is declared dead, instead of a fixed count
+                        // the device freeze's 6.6s drain exceeded.
+                        let graceAttempts = Config.resetStripeAckGraceAttempts(stripeBytes: envelope.payload.count)
                         var ackAttempt = 0
                         while true {
                             if await graphicsAckWaiter.wait(
@@ -733,10 +746,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                                 throw OwnedGraphicsResetSendError.staleChannel(envelope.header.updateId)
                             }
                             ackAttempt += 1
-                            if ackAttempt >= Config.hybridResetStripeAckMaxAttempts {
+                            if ackAttempt >= graceAttempts {
                                 throw OwnedGraphicsResetSendError.ackTimeout(envelope.header.updateId)
                             }
-                            logger.notice("owned graphics reset-stripe-ack-slow frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) attempt=\(ackAttempt, privacy: .public) maxAttempts=\(Config.hybridResetStripeAckMaxAttempts, privacy: .public)")
+                            logger.notice("owned graphics reset-stripe-ack-slow frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) attempt=\(ackAttempt, privacy: .public) maxAttempts=\(graceAttempts, privacy: .public)")
                         }
                     }
                     scrollDeltaEngine.commitPendingSurface()

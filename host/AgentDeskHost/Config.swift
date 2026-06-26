@@ -279,6 +279,29 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_RESET_STRIPE_ACK_MAX_ATTEMPTS",
         defaultValue: 6
     )
+    // C2: hard ceiling on the adaptive reset-ack grace (see resetStripeAckGraceAttempts).
+    // A misconfigured tiny link budget would otherwise compute an unbounded wait; this
+    // bounds it. A genuinely dead channel still aborts within one round via the
+    // per-round connection-alive check regardless of this ceiling.
+    static let hybridResetStripeAckCeilingAttempts = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_RESET_STRIPE_ACK_CEILING_ATTEMPTS",
+        defaultValue: 30
+    )
+    // C2: how many hybridResetStripeAckTimeoutMs rounds to wait for a reset stripe's
+    // ack before declaring the channel dead. A reset stripe queues behind at most the
+    // in-flight byte ceiling (A2 keeps the send buffer shallow) plus its own bytes, so
+    // the time to drain to its ack is ~ (ceiling + stripe) / linkBytesPerSecond. Grant
+    // grace covering that drain plus a margin, floored at hybridResetStripeAckMaxAttempts
+    // (the prior fixed value, so a normal link is unchanged) and ceilinged so the wait
+    // is bounded. The device freeze hit a 6.6s drain that the fixed 6-round (6s) grace
+    // just missed; scaling with the configured link rate gives a slower link more grace.
+    static func resetStripeAckGraceAttempts(stripeBytes: Int) -> Int {
+        let backlogBytes = hybridMaxUnackedBytes + max(0, stripeBytes)
+        let drainMs = Double(backlogBytes) / Double(max(1, hybridLinkBytesPerSecond)) * 1_000
+        let perRoundMs = Double(max(1, hybridResetStripeAckTimeoutMs))
+        let neededRounds = Int((drainMs / perRoundMs).rounded(.up)) + 2
+        return min(max(neededRounds, hybridResetStripeAckMaxAttempts), hybridResetStripeAckCeilingAttempts)
+    }
     static let hybridGraphicsFallbackMinIntervalMs = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_GRAPHICS_FALLBACK_MIN_INTERVAL_MS",
         defaultValue: 1_500
