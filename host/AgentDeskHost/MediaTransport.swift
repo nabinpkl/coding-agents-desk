@@ -88,17 +88,30 @@ struct OwnedQuicListenerConfiguration: Equatable, Sendable {
 
 enum OwnedQuicListenerConfigurations {
     static let graphicsALPN = "agentdesk-owned-graphics"
+    static let mediaDatagramALPN = "agentdesk-owned-media-datagram"
 
     static func graphics() -> OwnedQuicListenerConfiguration {
-        // ADR-0025: when the motion carrier is on, advertise QUIC DATAGRAM frames so
-        // the video stream can ride the same group as the reliable tile streams.
-        // isDatagram stays false, so the streams are unaffected. When the flag is off
-        // the parameters are identical to before, so the daily-driver path is untouched.
+        // The reliable tile path. Datagrams never ride this group: ADR-0025's first
+        // wiring tried that and Network.framework canceled every send. The HEVC motion
+        // carrier is a separate isDatagram listener, see mediaDatagram().
         OwnedQuicListenerConfiguration(
             alpn: graphicsALPN,
             port: Config.graphicsPort,
             usesDatagrams: false,
-            maxDatagramFrameSize: Config.ownedMediaVideoMotionEnabled ? Config.ownedMediaMaxDatagramFrameSize : nil
+            maxDatagramFrameSize: nil
+        )
+    }
+
+    // ADR-0025 motion carrier: a dedicated QUIC connection that carries ONLY datagrams
+    // (isDatagram = true). The HEVC video frames and the client's keyframe requests ride
+    // this, leaving the reliable graphics group untouched. Opened only when the motion
+    // carrier flag is on; off by default, so no second listener exists on the daily driver.
+    static func mediaDatagram() -> OwnedQuicListenerConfiguration {
+        OwnedQuicListenerConfiguration(
+            alpn: mediaDatagramALPN,
+            port: Config.ownedMediaDatagramPort,
+            usesDatagrams: true,
+            maxDatagramFrameSize: Config.ownedMediaMaxDatagramFrameSize
         )
     }
 }

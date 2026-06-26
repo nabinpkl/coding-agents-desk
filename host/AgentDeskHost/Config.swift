@@ -115,6 +115,24 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_VIDEO_KEYFRAME_INTERVAL_FRAMES",
         defaultValue: 30
     )
+    // ADR-0025 motion carrier: the dedicated QUIC datagram listener's port, distinct
+    // from graphicsPort (41889) and offerPort (41890). Only bound when the motion
+    // carrier flag is on.
+    static let ownedMediaDatagramPort = port(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_PORT",
+        defaultValue: 41_891
+    )
+    // ADR-0025 motion carrier: a frame's HEVC packets are sent in paced bursts so a
+    // large frame (170+ packets) does not flood the QUIC datagram send buffer in one
+    // tight loop. burstPacketCount packets go back-to-back, then a burstPauseUs gap.
+    static let ownedMediaDatagramBurstPacketCount = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PACKET_COUNT",
+        defaultValue: 16
+    )
+    static let ownedMediaDatagramBurstPauseUs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PAUSE_US",
+        defaultValue: 200
+    )
     // ADR-0021: damage is emitted as tiles snapped to a fixed grid in surface
     // pixel space. A fixed cell size bounds per-tile bytes and gives each tile a
     // stable identity for the content tile cache (see the content-tile-cache
@@ -354,6 +372,15 @@ enum Config {
     static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
         guard let raw = ProcessInfo.processInfo.environment[environmentKey],
               let value = Int(raw),
+              value > 0
+        else {
+            return defaultValue
+        }
+        return value
+    }
+    static func port(environmentKey: String, defaultValue: UInt16) -> UInt16 {
+        guard let raw = ProcessInfo.processInfo.environment[environmentKey],
+              let value = UInt16(raw),
               value > 0
         else {
             return defaultValue

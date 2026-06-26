@@ -286,13 +286,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         serverNonce: Data()
     )
     private var videoEncoder: VideoToolboxOwnedMediaEncoder?
-    // ADR-0025 diagnostics for the datagram carrier send path. A nil group means the
-    // active-connection/group lookup failed, so every send no-ops silently; a send
-    // error is reported by Network.framework's completion (otherwise ignored). Both
-    // counters are read/reset by the encode pump's per-frame log, all on `queue`.
-    private var videoDatagramGroupMisses = 0
-    private var videoDatagramSendErrors = 0
-    private var lastVideoDatagramSendError: String?
+    // ADR-0025 motion carrier: the dedicated isDatagram transport that carries the HEVC
+    // video (host -> client) and the keyframe requests (client -> host). nil when the
+    // carrier flag is off. Its diagnosticsSnapshot() feeds the encode pump's per-frame log.
+    private var videoDatagramServer: OwnedMediaVideoDatagramServer?
 
     init(
         configuration: OwnedMediaEncodingConfiguration = .default,
@@ -310,9 +307,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     func start(videoSource: VideoFrameSource?, videoSink: VideoFrameSink?) async throws {
         self.videoSource = videoSource
         stateContinuation.yield(.connecting)
-        // Single reliable media path: only the graphics channel is served. The
-        // datagram media listener is not started.
         try startGraphicsListener()
+        // ADR-0025 motion carrier: the dedicated datagram listener is started only when
+        // the carrier flag is on. Off by default, so the daily driver serves only the
+        // reliable graphics channel, exactly as before.
+        startVideoDatagramServer()
     }
 
     func stop() {
@@ -336,10 +335,13 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         self.frameMailbox = nil
         let pumpTask = self.encodePumpTask
         self.encodePumpTask = nil
+        let videoDatagramServer = self.videoDatagramServer
+        self.videoDatagramServer = nil
         lock.unlock()
         pumpTask?.cancel()
         mailbox?.finish()
         source?.stop()
+        videoDatagramServer?.stop()
         graphicsListener?.cancel()
         graphicsChannels.forEach { $0.close() }
         graphicsGroups.forEach { $0.cancel() }
@@ -379,6 +381,53 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         OwnedQuicListenerConfigurations.graphics()
     }
 
+    static func mediaDatagramListenerConfiguration() -> OwnedQuicListenerConfiguration {
+        OwnedQuicListenerConfigurations.mediaDatagram()
+    }
+
+    // ADR-0025 motion carrier: stand up the dedicated isDatagram listener. Gated on the
+    // flag; the encoder it requests keyframes for is created lazily by the encode pump,
+    // so the control closure reads it under the lock at message time.
+    private func startVideoDatagramServer() {
+        guard Config.ownedMediaVideoMotionEnabled else { return }
+        let alreadyRunning = lock.withLock { videoDatagramServer != nil }
+        guard !alreadyRunning else { return }
+        let configuration = Self.mediaDatagramListenerConfiguration()
+        guard let port = NWEndpoint.Port(rawValue: configuration.port) else {
+            logger.error("owned media datagram listener invalid port=\(configuration.port, privacy: .public)")
+            return
+        }
+        let parameters: NWParameters
+        do {
+            parameters = try Self.makeQuicParameters(configuration: configuration)
+        } catch {
+            logger.error("owned media datagram listener params failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        let server = OwnedMediaVideoDatagramServer(
+            parameters: parameters,
+            port: port,
+            queue: queue,
+            pacer: OwnedMediaDatagramSendPacer(
+                burstPacketCount: Config.ownedMediaDatagramBurstPacketCount,
+                burstPauseUs: Config.ownedMediaDatagramBurstPauseUs
+            ),
+            onControlMessage: { [weak self] message in
+                guard let self, message.kind == .keyframeRequest else { return }
+                let encoder = self.lock.withLock { self.videoEncoder }
+                encoder?.requestKeyframe()
+                self.logger.notice("owned media video keyframe-request from client frame=\(message.frameId, privacy: .public)")
+            }
+        )
+        do {
+            try server.start()
+            lock.withLock { videoDatagramServer = server }
+            logger.notice("owned media datagram server started port=\(configuration.port, privacy: .public)")
+        } catch {
+            logger.error("owned media datagram server start failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     private static func makeQuicParameters(configuration: OwnedQuicListenerConfiguration) throws -> NWParameters {
         let identity = try TLSIdentityLoader(
             certURL: Config.tlsCertURL,
@@ -413,15 +462,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         group.newConnectionHandler = { [weak self] stream in
             self?.handleGraphicsStream(stream, groupId: groupId)
         }
-        // ADR-0025: inbound QUIC datagrams on this group are owned-media control
-        // (client -> host), currently the keyframe request. Video frames flow the
-        // other way (host -> client) and are not received here.
-        if Config.ownedMediaVideoMotionEnabled {
-            group.setReceiveHandler(maximumMessageSize: 64 * 1024, rejectOversizedMessages: false) { [weak self] _, content, _ in
-                guard let self, let content, !content.isEmpty else { return }
-                self.handleVideoControlDatagram(content)
-            }
-        }
+        // The reliable graphics group carries only streams. The motion carrier's
+        // datagrams ride a separate isDatagram connection (OwnedMediaVideoDatagramServer),
+        // never this group.
         group.stateUpdateHandler = { [weak self] state in
             self?.logger.notice("owned graphics quic group state=\(String(describing: state), privacy: .public)")
             switch state {
@@ -432,40 +475,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             }
         }
         group.start(queue: queue)
-    }
-
-    // ADR-0025 motion carrier helpers.
-    private func handleVideoControlDatagram(_ data: Data) {
-        guard let message = try? JSONDecoder().decode(OwnedMediaControlMessage.self, from: data) else { return }
-        switch message.kind {
-        case .keyframeRequest:
-            let encoder = lock.withLock { videoEncoder }
-            encoder?.requestKeyframe()
-            logger.notice("owned media video keyframe-request from client frame=\(message.frameId, privacy: .public)")
-        default:
-            break
-        }
-    }
-
-    private func sendVideoDatagram(_ data: Data) {
-        guard let group = latestVideoGroup() else {
-            lock.withLock { videoDatagramGroupMisses &+= 1 }
-            return
-        }
-        group.send(content: data, completion: { [weak self] error in
-            guard let self, let error else { return }
-            self.lock.withLock {
-                self.videoDatagramSendErrors &+= 1
-                self.lastVideoDatagramSendError = String(describing: error)
-            }
-        })
-    }
-
-    private func latestVideoGroup() -> NWConnectionGroup? {
-        lock.withLock {
-            guard let id = activeGraphicsConnectionId, let groupId = streamGroupId[id] else { return nil }
-            return graphicsGroups[groupId]
-        }
     }
 
     // Each inbound stream is routed by its 1-byte role tag. The group owns an
@@ -866,13 +875,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     payload: data,
                     key: Self.videoDatagramKey
                 ) {
-                    for packet in packets { sendVideoDatagram(packet) }
+                    let server = lock.withLock { videoDatagramServer }
+                    server?.send(packets)
                     let shouldLog = envelope.header.isKeyframe || videoFrameId.isMultiple(of: 30)
                     if shouldLog {
-                        let (misses, errors, lastError) = lock.withLock {
-                            (videoDatagramGroupMisses, videoDatagramSendErrors, lastVideoDatagramSendError)
-                        }
-                        logger.notice("owned media video sent frame=\(videoFrameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(Config.ownedMediaBitrateKbps, privacy: .public) groupMisses=\(misses, privacy: .public) sendErrors=\(errors, privacy: .public) lastErr=\(lastError ?? "none", privacy: .public)")
+                        let diag = server?.diagnosticsSnapshot()
+                        logger.notice("owned media video sent frame=\(videoFrameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(Config.ownedMediaBitrateKbps, privacy: .public) connMisses=\(diag?.connectionMisses ?? -1, privacy: .public) sendErrors=\(diag?.sendErrors ?? -1, privacy: .public) lastErr=\(diag?.lastError ?? "none", privacy: .public)")
                     }
                 }
                 continue
