@@ -354,6 +354,28 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_FRAME_BYTE_BUDGET",
         defaultValue: 300_000
     )
+    // Per-frame wire-size ceiling (the 2 MB-fullframe freeze fix). hybridFrameByteBudget
+    // above only flips encoding to JPEG once crossed; it never bounds the SUM or the
+    // resolution, so a whole-surface repaint (444 native-res tiles, device run) summed
+    // to ~1.8 MB = ~7s of transit on the ~2Mbps link, which monopolises the in-order
+    // reliable channel and re-triggers the divergence -> reset cascade. To bound a
+    // single frame, makeTileEnvelope picks ONE frame-global resolution scale from the
+    // damage area: estimated full-res bytes = damageArea * assumedBytesPerPixel; if that
+    // exceeds the ceiling, scale = sqrt(ceiling / estimated), floored. All genuinely-new
+    // cells (text included) encode at that scale, so no single frame exceeds ~one second
+    // of link budget. Incremental frames (small area) stay scale 1.0 and lossless. This
+    // is rate control at the frame level, the same idea video keyframes use; the settle
+    // pass restores crisp once motion stops. Tune the ceiling to the link on device.
+    static let hybridFrameWireCeilingBytes: Int = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_FRAME_WIRE_CEILING_BYTES",
+        defaultValue: 262_144
+    )
+    // Floor resolution for cells emitted after the wire ceiling is crossed, so a huge
+    // repaint degrades to readable, not unreadable. 0.3 linear ~= 0.09 area.
+    static let hybridFrameScaleFloor: Double = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_FRAME_SCALE_FLOOR",
+        defaultValue: 0.3
+    )
     // Kill switch; false falls back to rung-1 baseline skip only.
     static let hybridTileCacheEnabled: Bool = enabledFlag(
         environmentKey: "AGENTDESK_HYBRID_TILE_CACHE_ENABLED",

@@ -204,6 +204,54 @@ struct FrameByteBudgetTests {
                 "the only new cell must stay LZFSE because cached/omitted cells did not consume the budget")
     }
 
+    // Workstream D: the per-frame wire-size ceiling. A whole-surface repaint of
+    // incompressible content that would be multi-MB at native resolution is bounded:
+    // once the ACCUMULATED payload crosses the ceiling, the remaining new cells drop to
+    // the floor resolution so a single frame cannot monopolise the in-order reliable
+    // channel. The same repaint with an unbounded ceiling stays full-res LZFSE; with a
+    // tight ceiling it is materially smaller and its tail cells are downscaled JPEG. A
+    // normal-encoded prefix before the crossing is expected (the ceiling is content-
+    // aware: it acts on real bytes, not an upfront estimate, so a cheap frame is never
+    // touched and never made larger).
+    @Test func frameWireCeilingShrinksLargeRepaint() throws {
+        func encodeLargeRepaint(ceiling: Int) throws -> (bytes: Int, jpegCount: Int) {
+            var engine = ScrollDeltaEngine(
+                hybridTileBusyBytesPerPixel: 99.0,        // busy test never trips
+                hybridFrameByteBudget: 100_000_000,       // byte budget never trips
+                hybridFrameWireCeilingBytes: ceiling
+            )
+            let width = 1024
+            let height = 768
+            let full = PixelRect(x: 0, y: 0, width: width, height: height)
+            let first = try Self.makeBGRAFrame(width: width, height: height) { _, _ in [10, 10, 10, 0xff] }
+            #expect(engine.evaluate(first).kind == .reset)
+            engine.commitPendingSurface()
+            // Per-pixel hash noise so LZFSE cannot shrink it; only the resolution
+            // downscale the ceiling triggers reduces the wire cost.
+            let churned = try Self.makeBGRAFrame(
+                width: width, height: height, damageRects: [full], contentRectPixels: full
+            ) { x, y in
+                var h = UInt32(truncatingIfNeeded: x &* 73_856_093 ^ y &* 19_349_663)
+                h ^= h >> 13; h = h &* 0x5bd1_e995; h ^= h >> 15
+                let v = UInt8(truncatingIfNeeded: h)
+                return [v, v, v, 0xff]
+            }
+            let result = engine.evaluate(churned)
+            #expect(result.kind == .accepted)
+            let jpegCount = (result.envelope?.commands ?? []).filter {
+                if case .cacheTile(_, _, _, _, _, .jpeg, _) = $0 { return true }
+                return false
+            }.count
+            return (result.envelope?.payload.count ?? 0, jpegCount)
+        }
+
+        let unbounded = try encodeLargeRepaint(ceiling: 100_000_000)
+        let bounded = try encodeLargeRepaint(ceiling: 50_000)
+        #expect(unbounded.jpegCount == 0, "with no ceiling the incompressible cells stay full-res LZFSE")
+        #expect(bounded.jpegCount >= 1, "cells after the ceiling crosses downscale to JPEG")
+        #expect(bounded.bytes < unbounded.bytes, "the per-frame ceiling must shrink a large incompressible repaint")
+    }
+
     private static func makeBGRAFrame(
         width: Int,
         height: Int,

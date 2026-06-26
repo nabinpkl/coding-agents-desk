@@ -248,6 +248,11 @@ struct ScrollDeltaEngine {
     // many payload bytes, remaining rung-3 cells force JPEG regardless of the busy
     // test, bounding a brand-new busy fullframe to roughly one JPEG's cost.
     private let hybridFrameByteBudget: Int
+    // Per-frame wire-size ceiling and the frame-global downscale it drives (see
+    // makeTileEnvelope). A frame whose estimated full-res cost exceeds the ceiling is
+    // scaled down uniformly so it cannot monopolise the in-order reliable channel.
+    private let hybridFrameWireCeilingBytes: Int
+    private let hybridFrameScaleFloor: Double
 
     init(
         maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes,
@@ -256,7 +261,9 @@ struct ScrollDeltaEngine {
         tileGridPx: Int = Config.hybridTileGridPx,
         fullframeMaxWireBytes: Int = Config.hybridFullframeMaxWireBytes,
         hybridTileBusyBytesPerPixel: Double = Config.hybridTileBusyBytesPerPixel,
-        hybridFrameByteBudget: Int = Config.hybridFrameByteBudget
+        hybridFrameByteBudget: Int = Config.hybridFrameByteBudget,
+        hybridFrameWireCeilingBytes: Int = Config.hybridFrameWireCeilingBytes,
+        hybridFrameScaleFloor: Double = Config.hybridFrameScaleFloor
     ) {
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
@@ -265,6 +272,8 @@ struct ScrollDeltaEngine {
         self.fullframeMaxWireBytes = max(1, fullframeMaxWireBytes)
         self.hybridTileBusyBytesPerPixel = max(0, hybridTileBusyBytesPerPixel)
         self.hybridFrameByteBudget = max(1, hybridFrameByteBudget)
+        self.hybridFrameWireCeilingBytes = max(1, hybridFrameWireCeilingBytes)
+        self.hybridFrameScaleFloor = min(1.0, max(0.01, hybridFrameScaleFloor))
     }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
@@ -795,15 +804,24 @@ struct ScrollDeltaEngine {
                 // JPEG on every remaining new cell regardless of the busy test, so a
                 // genuinely-new busy fullframe cannot sum past roughly one JPEG.
                 let budgetExceeded = payload.count >= hybridFrameByteBudget
-                if isBusy || budgetExceeded, let jpegBuilt = buildTile(
+                // Per-frame wire-size ceiling (the multi-MB fullframe freeze fix). This is
+                // content-aware: it acts on the ACTUAL accumulated payload, not an upfront
+                // area estimate (which cannot tell compressible text from incompressible
+                // photo and would force-downscale a cheap frame into a larger lossy one).
+                // Once the real payload crosses the ceiling the frame is genuinely too big
+                // for the link, so every remaining new cell, text included, drops to the
+                // floor resolution. A whole-surface repaint therefore cannot be a multi-MB
+                // single frame that monopolises the in-order reliable channel; a cheap
+                // frame never reaches the ceiling and is untouched. The settle pass
+                // restores crisp once motion stops.
+                let ceilingExceeded = payload.count >= hybridFrameWireCeilingBytes
+                let cellScale = ceilingExceeded ? hybridFrameScaleFloor : (isBusy ? policy.busyResolutionScale : 1.0)
+                if isBusy || budgetExceeded || ceilingExceeded, let jpegBuilt = buildTile(
                     surface: current,
                     rect: cell,
                     encoding: .jpeg(
                         quality: policy.exposedStripQuality,
-                        // Content-gated resolution: only busy (photo) cells downscale
-                        // under backpressure; text cells stay native (downscaling blurs
-                        // glyphs worse than a quality drop).
-                        scale: isBusy ? policy.busyResolutionScale : 1.0
+                        scale: cellScale
                     ),
                     payloadOffset: payload.count
                 ) {
