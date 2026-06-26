@@ -148,7 +148,9 @@ final class OwnedMediaVideoDatagramServer: @unchecked Sendable {
     // Inbound datagrams on this connection are client -> host control (keyframe request),
     // sent as raw JSON. Re-arm after each so the receive loop continues for the session.
     private func receiveControl(on connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, _, error in
+        // Keyframe requests arrive as one JSON datagram each; receiveMessage delivers a
+        // whole datagram per call (the stream-oriented receive does not frame datagrams).
+        connection.receiveMessage { [weak self] data, _, _, error in
             guard let self else { return }
             if let data, !data.isEmpty,
                let message = try? JSONDecoder().decode(OwnedMediaControlMessage.self, from: data) {

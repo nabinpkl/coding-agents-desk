@@ -333,7 +333,11 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     // Inbound datagrams on the carrier connection are host -> client HEVC packets.
     // Re-arm after each so the loop runs for the session.
     private func receiveVideoDatagram(on connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, _, error in
+        // QUIC datagrams are message-framed: receiveMessage delivers exactly one datagram
+        // per call. The stream-oriented receive(minimumIncompleteLength:maximumLength:)
+        // does not surface datagram boundaries and never fires here, so rx stays 0 even
+        // though the host's sends succeed. receiveMessage is the proven datagram receive.
+        connection.receiveMessage { [weak self] data, _, _, error in
             guard let self else { return }
             if let data, !data.isEmpty {
                 self.handleVideoDatagram(data)

@@ -243,7 +243,7 @@ iphone-console-run-dev:
 #   {{motion_host_stdio}}   host stdout + stderr (prints, crashes)
 #   {{motion_client_log}}   attached client console (stderr traces)
 # One-shot motion-carrier device verification: rebuild+reinstall both ends, scroll, durable /tmp logs.
-motion-verify variant="stable" video="1" seconds="60":
+motion-verify variant="dev" video="1" seconds="60":
     #!/usr/bin/env bash
     set -uo pipefail
     HOST_BIN_PAT="Contents/MacOS/AgentDeskHost"
@@ -274,15 +274,25 @@ motion-verify variant="stable" video="1" seconds="60":
     LOG_PID=$!
     sleep 1
     # `open --env` delivers config to the GUI app directly (no launchctl); --stdout/--stderr
-    # capture its stdio. Other knobs come from .env; add --env lines here if a run needs them.
-    open --stdout "{{motion_host_stdio}}" --stderr "{{motion_host_stdio}}" \
-        --env AGENTDESK_AUTO_APPROVE=1 \
-        --env AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 \
-        --env AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED={{video}} \
-        "{{host_app}}"
+    # capture its stdio. Forward EVERY AGENTDESK_* var from this recipe's environment
+    # (.env via dotenv-load, plus the three defaults below), so the host sees the same
+    # config the current code expects, not a hand-picked subset.
+    export AGENTDESK_AUTO_APPROVE=1
+    export AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1
+    export AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED={{video}}
+    HOST_ENV_ARGS=()
+    while IFS= read -r kv; do HOST_ENV_ARGS+=( --env "$kv" ); done < <(env | grep '^AGENTDESK_')
+    echo "forwarding $(env | grep -c '^AGENTDESK_') AGENTDESK_* vars to host"
+    open --stdout "{{motion_host_stdio}}" --stderr "{{motion_host_stdio}}" "${HOST_ENV_ARGS[@]}" "{{host_app}}"
     HOST_PID=""; i=0
     while [ -z "$HOST_PID" ] && [ $i -lt 100 ]; do HOST_PID="$(pgrep -f "$HOST_BIN_PAT" | head -1)"; sleep 0.1; i=$((i+1)); done
     test -n "$HOST_PID" || { echo "host did not start"; exit 1; }
+    # Wait until the host finishes launching before signaling it. SIGUSR1's default
+    # disposition is terminate, so signaling before the host installs its handler kills
+    # it. installPairingSignalHandler() runs early in applicationDidFinishLaunching,
+    # well before "signaling server started" is logged, so that line is a safe gate.
+    i=0; while ! grep -q "signaling server started" "{{motion_host_oslog}}" 2>/dev/null && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    grep -q "signaling server started" "{{motion_host_oslog}}" 2>/dev/null || { echo "host did not finish launching"; exit 1; }
     echo "host pid=$HOST_PID  os_log-stream pid=$LOG_PID"
 
     echo "== [4/5] pair + attach client console ($BID) =="
@@ -292,8 +302,17 @@ motion-verify variant="stable" video="1" seconds="60":
     test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     URL="$(cat "{{last_pair_url_path}}")"
     echo "pair URL: $URL"
+    # Build the client env JSON: launch URL + stderr trace + motion flag, plus every
+    # AGENTDESK_OWNED_MEDIA_* knob from .env so the on-device client matches current code.
+    CJSON="{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\",\"AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED\":\"{{video}}\""
+    while IFS='=' read -r k v; do
+        case "$k" in AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED|AGENTDESK_OWNED_MEDIA_STDERR_TRACE) continue;; esac
+        CJSON="$CJSON,\"$k\":\"$v\""
+    done < <(env | grep '^AGENTDESK_OWNED_MEDIA_')
+    CJSON="$CJSON}"
+    echo "client env JSON: $CJSON"
     xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing \
-        --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\",\"AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED\":\"{{video}}\"}" \
+        --environment-variables "$CJSON" \
         "$BID" "$URL" >"{{motion_client_log}}" 2>&1 &
     CONSOLE_PID=$!
 
