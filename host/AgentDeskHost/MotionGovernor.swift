@@ -41,9 +41,9 @@ struct MotionGovernorConfig: Equatable, Sendable {
 //  - Lever 3, resolution: busy (photo) cells may downscale under backpressure;
 //    text cells never do (the caller gates this on the busy classification).
 //
-// The moved content itself rides copyRect (a pixel copy, zero re-encode), so the
-// bulk of visible text stays crisp during scroll regardless of these levers; only
-// the thin newly-exposed strip is encoded at the readable quality.
+// Under ADR-0022 every change tiles (no copyRect), so a fast scroll tiles the
+// damage at the readable floor and the content cache suppresses re-exposed tiles;
+// progressive repaint (later slice) carries the rest back to crisp.
 struct MotionGovernor {
     struct Policy: Equatable, Sendable {
         // JPEG quality for lossy cells and the scroll exposed strip.

@@ -80,7 +80,10 @@ struct FrameComposerTests {
         #expect(result == .fullFrame(reason: "no-damage-info"))
     }
 
-    @Test func scrollingMotionWithCleanScrollReturnsScroll() {
+    @Test func scrollingMotionTilesTheDamageBand() {
+        // ADR-0022: there is no offset estimation or copyRect. A declared scroll
+        // whose damage is within the coverage ceiling tiles the damage band like
+        // any other change; motion only labels the trace.
         let dy = 24
         let previous = Self.verticalSurface(width: 640, height: 480, rowValue: Self.pattern)
         let current = Self.verticalSurface(width: 640, height: 480) { Self.pattern($0 - dy) }
@@ -89,10 +92,10 @@ struct FrameComposerTests {
         let result = FrameComposer().compose(
             damageRects: [band], previous: previous, current: current, motion: Self.vertical
         )
-        #expect(result == .scroll(region: band, dx: 0, dy: dy))
+        #expect(result == .tiles([band]))
     }
 
-    @Test func horizontalScrollingMotionReturnsHorizontalOffset() {
+    @Test func horizontalScrollingMotionTilesTheDamageBand() {
         let dx = 36
         let previous = Self.horizontalSurface(width: 800, height: 400, colValue: Self.pattern)
         let current = Self.horizontalSurface(width: 800, height: 400) { Self.pattern($0 - dx) }
@@ -101,12 +104,13 @@ struct FrameComposerTests {
         let result = FrameComposer().compose(
             damageRects: [band], previous: previous, current: current, motion: Self.horizontal
         )
-        #expect(result == .scroll(region: band, dx: dx, dy: 0))
+        #expect(result == .tiles([band]))
     }
 
-    @Test func scrollWinsOverCoverageCeiling() {
-        // A clean scroll over a near-full-surface band is a scroll, not a fullframe,
-        // because the offset is measured before the coverage gate is consulted.
+    @Test func scrollingMotionAboveCoverageCeilingFullFrames() {
+        // ADR-0022: a near-full-surface damage band is a fullFrame regardless of
+        // motion, since there is no scroll copy to amortize it. The coverage gate,
+        // not a measured offset, governs.
         let dy = 30
         let previous = Self.verticalSurface(width: 640, height: 480, rowValue: Self.pattern)
         let current = Self.verticalSurface(width: 640, height: 480) { Self.pattern($0 - dy) }
@@ -115,13 +119,12 @@ struct FrameComposerTests {
         let result = FrameComposer().compose(
             damageRects: [band], previous: previous, current: current, motion: Self.vertical
         )
-        #expect(result == .scroll(region: band, dx: 0, dy: dy))
+        #expect(result == .fullFrame(reason: "damage-too-large"))
     }
 
     @Test func scrollingMotionThatDoesNotTranslateTilesTheRegion() {
-        // Input says scrolling but the band is an unrelated repaint: the estimator
-        // returns nil and the small-coverage region tiles (still readable), never a
-        // torn copy.
+        // Input says scrolling but every change tiles (ADR-0022): the small-coverage
+        // band tiles regardless of whether it translated.
         let previous = Self.verticalSurface(width: 640, height: 480, rowValue: Self.pattern)
         let current = Self.verticalSurface(width: 640, height: 480, rowValue: Self.pattern2)
         let band = PixelRect(x: 100, y: 60, width: 240, height: 200)
@@ -144,8 +147,7 @@ struct FrameComposerTests {
     }
 
     @Test func restHugeDamageReturnsFullFrame() {
-        // Rest with damage above the coverage ceiling tiles the whole surface
-        // (fullFrame); no scroll is attempted because motion is nil.
+        // Damage above the coverage ceiling tiles the whole surface (fullFrame).
         let previous = Self.verticalSurface(width: 640, height: 480, rowValue: Self.pattern)
         let current = Self.verticalSurface(width: 640, height: 480, rowValue: Self.pattern2)
         let damage = PixelRect(x: 0, y: 0, width: 600, height: 360)
@@ -153,6 +155,6 @@ struct FrameComposerTests {
         let result = FrameComposer().compose(
             damageRects: [damage], previous: previous, current: current, motion: nil
         )
-        #expect(result == .fullFrame(reason: "damage-too-large-no-scroll"))
+        #expect(result == .fullFrame(reason: "damage-too-large"))
     }
 }

@@ -130,36 +130,13 @@ enum Config {
     // How long a scroll input keeps the motion signal active (scrolling). It bridges
     // the gap between input bursts within one gesture plus brief post-gesture
     // settling, so a bursty flick reads as one continuous scroll and the frame after
-    // it settles to rest. Surface validation still gates copyRect, so a stale-but-
-    // active signal cannot force a wrong copy.
+    // it settles to rest. The signal only selects the readable-floor quality for
+    // fast-scroll tiles, so a stale-but-active signal cannot corrupt the surface.
     static let hybridScrollActiveWindowMs = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_SCROLL_ACTIVE_WINDOW_MS",
         defaultValue: 600
     )
-    // Damage-scroll thresholds (ADR-0021), central and env-overridable. The band
-    // geometry gates (minScrollExtentPx/minCrossExtentPx), lumaTolerance, and
-    // verifyExtent feed ScrollOffsetEstimatorConfig.default; maxTileCoverageRatio
-    // feeds FrameComposer. The remaining confidence/search knobs below belonged to
-    // the deleted guess-and-adjudicate classifier and are pruned in the cleanup
-    // phase; they are inert now that input declares the scroll and the estimator
-    // measures the offset.
-    static let hybridClassifierMinScrollExtentPx = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_SCROLL_EXTENT_PX",
-        defaultValue: 120
-    )
-    static let hybridClassifierMinCrossExtentPx = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_CROSS_EXTENT_PX",
-        defaultValue: 64
-    )
-    static let hybridClassifierLumaTolerance = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_LUMA_TOLERANCE",
-        defaultValue: 24
-    )
-    static let hybridClassifierVerifyExtent = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_VERIFY_EXTENT",
-        defaultValue: 256
-    )
-    // Coverage above which a non-scroll change is gridded as a whole-surface
+    // Coverage above which a damage change is gridded as a whole-surface
     // fullframe instead of damage-only tiles. This was 0.15 when an un-scrolled
     // tile was a raw LZFSE bitmap on the reliable channel and a near-full tile
     // (~600KB) froze the pump (R75 confirmed 0.6 froze). That premise is gone:
@@ -174,23 +151,12 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MAX_TILE_COVERAGE_RATIO",
         defaultValue: 0.6
     )
-    // Single correctness gate for ScrollOffsetEstimator: the fraction of the
-    // verify stripe's changed pixels a measured offset must explain (overlap-only)
-    // before copyRect is applied. Input declares the scroll; this confirms the
-    // measured magnitude is a real translation, not a coincidental shift on a
-    // repaint. Replaces the old confidence-knob cluster (acceptConfidence,
-    // acceptConfidenceWithPrior, certainConfidence, minChangedFraction,
-    // minCertainExplainedSamples).
-    static let hybridScrollOffsetVerifyFloor = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_SCROLL_OFFSET_VERIFY_FLOOR",
-        defaultValue: 0.8
-    )
     // MotionGovernor policy table. These few knobs replace the deleted
     // congestion-EWMA trio and the three fullframe-quality knobs with one
     // cadence-first ladder (see MotionGovernor).
     // Lossy-cell quality at rest (crisp; text still rides lossless LZFSE, so this
-    // only covers busy cells) and the readable floor while scrolling (the moved
-    // bulk rides copyRect at full fidelity; only the exposed strip uses this).
+    // only covers busy cells) and the readable floor while scrolling (a fast scroll
+    // tiles the damage at this floor; slow scrolls and rest stay crisp).
     static let hybridRestJpegQuality = positiveDouble(
         environmentKey: "AGENTDESK_HYBRID_REST_JPEG_QUALITY",
         defaultValue: 0.85

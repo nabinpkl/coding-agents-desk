@@ -1,27 +1,19 @@
 import CoreGraphics
 import Foundation
 
-// Composes a frame from input-DECLARED motion (ADR-0021, redesigned).
+// Composes a frame from the OS damage signal (ADR-0022).
 //
-// The previous model inspected pixels to GUESS whether a scroll happened, then a
-// cluster of confidence/search knobs adjudicated the guess, with the offset search
-// capped at 400px. That left fast Retina flicks (more than 400px/frame)
-// unrecoverable, so they fell to whole-region tile repaints and the screen could
-// not keep up. macOS gives no OS scroll order to lean on, but the phone CAUSES
-// every scroll, so the host is simply told the axis and that a scroll is active
-// (MotionSignal). Composition is then deterministic:
+// macOS ScreenCaptureKit hands us per-frame dirty rects but no scroll/move vector
+// (Apple obsoleted the CGDisplayStream moved-rects API in macOS 15), and no
+// production system reconstructs scroll from pixels. So there is no offset
+// estimation and no copyRect: every change, scroll or not, routes through the
+// damage tile ladder. Input still declares motion (MotionSignal) for the quality
+// policy (readable floor while scrolling), but it no longer drives geometry.
 //
-//  - scrolling: measure the exact offset with ScrollOffsetEstimator (no cap, both
-//    directions, one verify floor). On a measured offset the frame is a copyRect
-//    over the band plus a tiled exposed strip; the moved content rides the copy at
-//    full fidelity. If the band does not actually translate, the estimator returns
-//    nil and the frame tiles the region (still readable), never a torn copy.
-//  - rest, or a scroll that did not translate: tile the damage rects through the
-//    cache ladder, or, above the coverage ceiling, tile the whole surface.
-//
-// fullFrame is no longer a scroll fallback: it is only the safe whole-surface
-// refresh when the OS gave no usable damage, or a high-coverage non-scroll repaint
-// that the tile ladder grids anyway.
+//  - damage within the coverage ceiling: tile the damage rects through the cache
+//    ladder.
+//  - damage above the ceiling, or absent/degenerate damage: fullFrame, the safe
+//    whole-surface refresh that the tile ladder grids anyway.
 
 struct PixelRect: Equatable, Sendable {
     let x: Int
@@ -73,7 +65,6 @@ struct PixelRect: Equatable, Sendable {
 }
 
 enum DamageScrollClassification: Equatable {
-    case scroll(region: PixelRect, dx: Int, dy: Int)
     case tiles([PixelRect])
     case fullFrame(reason: String)
     case noChange
@@ -86,25 +77,21 @@ struct DamageScrollTrace: Equatable {
     let bandWidth: Int
     let bandHeight: Int
     let coverage: Double
-    let measuredOffset: Int?
     let decision: String
 
     static let empty = DamageScrollTrace(
-        bandWidth: 0, bandHeight: 0, coverage: 0, measuredOffset: nil, decision: "none"
+        bandWidth: 0, bandHeight: 0, coverage: 0, decision: "none"
     )
 }
 
 struct FrameComposer {
-    private let estimator: ScrollOffsetEstimator
-    // Coverage above which a non-scroll change tiles the whole surface (through the
+    // Coverage above which a damage change tiles the whole surface (through the
     // same cache ladder) instead of just the damage rects.
     private let maxTileCoverageRatio: Double
 
     init(
-        estimator: ScrollOffsetEstimator = ScrollOffsetEstimator(),
         maxTileCoverageRatio: Double = Config.hybridClassifierMaxTileCoverageRatio
     ) {
-        self.estimator = estimator
         self.maxTileCoverageRatio = maxTileCoverageRatio
     }
 
@@ -141,42 +128,30 @@ struct FrameComposer {
         let damageArea = min(surfaceArea, clamped.reduce(0) { $0 + $1.area })
         let coverage = Double(damageArea) / Double(surfaceArea)
 
-        // The scroll band is the dominant damage, not the bounding box of every
-        // rect. Scattered incidental damage (cursor, a clock, a badge elsewhere)
-        // balloons the union to the whole multi-monitor surface, so a copyRect would
-        // shift everything. Keep only rects that are a significant fraction of the
-        // largest and union those.
+        // The dominant damage band, not the bounding box of every rect. Scattered
+        // incidental damage (cursor, a clock, a badge elsewhere) balloons the union
+        // to the whole multi-monitor surface and inflates the coverage estimate.
+        // Keep only rects that are a significant fraction of the largest and union
+        // those.
         let largestArea = clamped.map(\.area).max() ?? 0
         let scrollBand = PixelRect.union(of: clamped.filter { Double($0.area) >= 0.5 * Double(largestArea) }) ?? union
 
-        // Input declares a scroll: measure the exact offset. The estimator returns
-        // nil when the band does not actually translate, in which case the frame
-        // falls through to the tile path (still readable), never a torn copy.
-        if let motion,
-           let offset = estimator.measure(band: scrollBand, previous: previous, current: current, axis: motion.axis) {
-            let dx = motion.axis == .horizontal ? offset : 0
-            let dy = motion.axis == .vertical ? offset : 0
-            return (.scroll(region: scrollBand, dx: dx, dy: dy),
-                    trace(band: scrollBand, coverage: coverage, measuredOffset: offset, decision: "scroll"))
-        }
-
-        // Not a scroll (rest, or a scroll the surface did not confirm): tile the
-        // damage if it is small enough, else tile the whole surface. Both ride the
-        // cache ladder; fullFrame here is a coverage decision, not a scroll miss.
-        let missDecision = motion != nil ? "scroll-miss" : "rest"
+        // Tile the damage if it is small enough, else tile the whole surface. Both
+        // ride the cache ladder; fullFrame here is a coverage decision. The motion
+        // signal only labels the trace (scrolling vs rest) for device logs.
+        let phase = motion != nil ? "scrolling" : "rest"
         if coverage <= maxTileCoverageRatio {
-            return (.tiles(clamped), trace(band: scrollBand, coverage: coverage, decision: "tiles-\(missDecision)"))
+            return (.tiles(clamped), trace(band: scrollBand, coverage: coverage, decision: "tiles-\(phase)"))
         }
-        return (.fullFrame(reason: "damage-too-large-no-scroll"),
-                trace(band: scrollBand, coverage: coverage, decision: "fullframe-\(missDecision)"))
+        return (.fullFrame(reason: "damage-too-large"),
+                trace(band: scrollBand, coverage: coverage, decision: "fullframe-\(phase)"))
     }
 
-    private func trace(band: PixelRect? = nil, coverage: Double = 0, measuredOffset: Int? = nil, decision: String) -> DamageScrollTrace {
+    private func trace(band: PixelRect? = nil, coverage: Double = 0, decision: String) -> DamageScrollTrace {
         DamageScrollTrace(
             bandWidth: band?.width ?? 0,
             bandHeight: band?.height ?? 0,
             coverage: coverage,
-            measuredOffset: measuredOffset,
             decision: decision
         )
     }

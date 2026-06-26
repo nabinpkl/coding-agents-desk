@@ -978,8 +978,8 @@ enum OwnedGraphicsPixelFormat: String, Codable, Equatable {
 enum OwnedGraphicsTileCompression: String, Codable, Equatable {
     case lzfse
     // Lossy JPEG for the fullframe fallback. A whole-screen change (video, a
-    // page load, or a scroll that could not be copyRect'd) is multi-MB as raw
-    // LZFSE and saturated the single reliable graphics channel, freezing the
+    // page load, or a fast scroll) is multi-MB as raw LZFSE and saturated the
+    // single reliable graphics channel, freezing the
     // screen. JPEG cuts it ~10x. Small text changes stay .lzfse (lossless); the
     // lossy path is reserved for large motion the way RDP mixes codecs by region.
     case jpeg
@@ -997,14 +997,12 @@ struct OwnedGraphicsByteRange: Codable, Equatable {
 
 enum OwnedGraphicsCommand: Equatable {
     case resetSurface(surfaceGeneration: UInt32, width: Int, height: Int, pixelFormat: OwnedGraphicsPixelFormat)
-    case copyRect(srcX: Int, srcY: Int, dstX: Int, dstY: Int, width: Int, height: Int)
     case bitmapTile(x: Int, y: Int, width: Int, height: Int, compression: OwnedGraphicsTileCompression, byteRange: OwnedGraphicsByteRange)
     case cacheTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int, compression: OwnedGraphicsTileCompression, byteRange: OwnedGraphicsByteRange)
     case drawCachedTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int)
 
     enum Kind: String, Codable {
         case resetSurface
-        case copyRect
         case bitmapTile
         case cacheTile
         case drawCachedTile
@@ -1043,10 +1041,6 @@ enum OwnedGraphicsCommand: Equatable {
             guard width > 0, height > 0 else {
                 throw SessionRejected(reason: .malformed)
             }
-        case let .copyRect(srcX, srcY, dstX, dstY, width, height):
-            guard srcX >= 0, srcY >= 0, dstX >= 0, dstY >= 0, width > 0, height > 0 else {
-                throw SessionRejected(reason: .malformed)
-            }
         case let .bitmapTile(x, y, width, height, _, byteRange):
             guard x >= 0, y >= 0, width > 0, height > 0,
                   byteRange.offset >= 0,
@@ -1078,15 +1072,6 @@ extension OwnedGraphicsCommand: Codable {
                 width: try container.decode(Int.self, forKey: .width),
                 height: try container.decode(Int.self, forKey: .height),
                 pixelFormat: try container.decode(OwnedGraphicsPixelFormat.self, forKey: .pixelFormat)
-            )
-        case .copyRect:
-            self = .copyRect(
-                srcX: try container.decode(Int.self, forKey: .srcX),
-                srcY: try container.decode(Int.self, forKey: .srcY),
-                dstX: try container.decode(Int.self, forKey: .dstX),
-                dstY: try container.decode(Int.self, forKey: .dstY),
-                width: try container.decode(Int.self, forKey: .width),
-                height: try container.decode(Int.self, forKey: .height)
             )
         case .bitmapTile:
             self = .bitmapTile(
@@ -1127,14 +1112,6 @@ extension OwnedGraphicsCommand: Codable {
             try container.encode(width, forKey: .width)
             try container.encode(height, forKey: .height)
             try container.encode(pixelFormat, forKey: .pixelFormat)
-        case let .copyRect(srcX, srcY, dstX, dstY, width, height):
-            try container.encode(Kind.copyRect, forKey: .kind)
-            try container.encode(srcX, forKey: .srcX)
-            try container.encode(srcY, forKey: .srcY)
-            try container.encode(dstX, forKey: .dstX)
-            try container.encode(dstY, forKey: .dstY)
-            try container.encode(width, forKey: .width)
-            try container.encode(height, forKey: .height)
         case let .bitmapTile(x, y, width, height, compression, byteRange):
             try container.encode(Kind.bitmapTile, forKey: .kind)
             try container.encode(x, forKey: .x)

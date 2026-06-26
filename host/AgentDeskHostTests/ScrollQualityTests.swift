@@ -301,7 +301,10 @@ struct ScrollQualityTests {
         return UInt8(truncatingIfNeeded: h >> 24)
     }
 
-    @Test func damageDrivenScrollEmitsCopyRect() throws {
+    @Test func damageDrivenScrollEmitsTilesNotCopyRect() throws {
+        // ADR-0022: a declared scroll no longer reconstructs an offset or emits a
+        // copyRect. The damage band routes through the tile ladder (here a
+        // full-surface band, so the fullFrame coverage path tiles it).
         var engine = ScrollDeltaEngine()
         let width = 240
         let height = 200
@@ -325,10 +328,10 @@ struct ScrollQualityTests {
 
         #expect(result.kind == ScrollDeltaKind.accepted)
         let envelope = try #require(result.envelope)
-        let hasCopyRect = envelope.commands.contains { if case .copyRect = $0 { return true } else { return false } }
-        #expect(hasCopyRect)
-        #expect(result.diagnostics?.acceptedDy == dy)
-        #expect(result.diagnostics?.acceptedBy == "damage")
+        let hasTile = envelope.commands.contains {
+            switch $0 { case .bitmapTile, .cacheTile, .drawCachedTile: return true; default: return false }
+        }
+        #expect(hasTile)
     }
 
     @Test func damageDrivenSmallDamageEmitsTileWithoutCopyRect() throws {
@@ -361,13 +364,11 @@ struct ScrollQualityTests {
         let envelope = try #require(result.envelope)
         // A tile that carries pixels is bitmapTile (cache disabled) or cacheTile
         // (cache enabled, first appearance). Either satisfies the contract: pixels
-        // reach the client without a copyRect.
+        // reach the client as tiles (ADR-0022 has no copyRect).
         let hasTile = envelope.commands.contains {
             switch $0 { case .bitmapTile, .cacheTile: return true; default: return false }
         }
-        let hasCopyRect = envelope.commands.contains { if case .copyRect = $0 { return true } else { return false } }
         #expect(hasTile)
-        #expect(!hasCopyRect)
     }
 
     @Test func damageDrivenLargeDamageWithoutHintEmitsTiles() throws {
@@ -643,31 +644,6 @@ struct ScrollQualityTests {
             }
         }
         return data
-    }
-
-    private static func expectSingleCopyRectAndTile(_ envelope: OwnedGraphicsFrameEnvelope) {
-        var copyRectCount = 0
-        var bitmapTileCount = 0
-        for command in envelope.commands {
-            switch command {
-            case .copyRect:
-                copyRectCount += 1
-            case let .bitmapTile(_, _, _, _, compression, byteRange):
-                bitmapTileCount += 1
-                #expect(compression == .lzfse)
-                #expect(byteRange.offset == 0)
-                #expect(byteRange.length == envelope.payload.count)
-            case .resetSurface:
-                break
-            case .cacheTile:
-                break
-            case .drawCachedTile:
-                break
-            }
-        }
-        #expect(envelope.commands.count == 2)
-        #expect(copyRectCount == 1)
-        #expect(bitmapTileCount == 1)
     }
 
     private static func bitmapTileCommand(_ command: OwnedGraphicsCommand) -> (

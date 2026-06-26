@@ -192,7 +192,7 @@ struct SignalingFrameRoutingTests {
                 payloadLength: payload.count
             ),
             commands: [
-                .copyRect(srcX: 0, srcY: 8, dstX: 0, dstY: 0, width: 100, height: 92),
+                .drawCachedTile(slot: 0, x: 0, y: 0, width: 100, height: 92),
                 .bitmapTile(
                     x: 0,
                     y: 92,
@@ -298,7 +298,7 @@ struct SignalingFrameRoutingTests {
                 payloadLength: payload.count
             ),
             commands: [
-                .copyRect(srcX: -1, srcY: 0, dstX: 0, dstY: 0, width: 1, height: 1)
+                .drawCachedTile(slot: 0, x: -1, y: 0, width: 1, height: 1)
             ],
             payload: payload
         )
@@ -323,7 +323,7 @@ struct SignalingFrameRoutingTests {
     @Test func graphicsCommandsRoundTrip() throws {
         let commands: [OwnedGraphicsCommand] = [
             .resetSurface(surfaceGeneration: 3, width: 1920, height: 1080, pixelFormat: .bgra),
-            .copyRect(srcX: 0, srcY: 8, dstX: 0, dstY: 0, width: 1920, height: 1072),
+            .drawCachedTile(slot: 1, x: 0, y: 0, width: 1920, height: 1072),
             .bitmapTile(
                 x: 0,
                 y: 1072,
