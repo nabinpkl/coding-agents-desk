@@ -64,10 +64,27 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_DATAGRAM_FRAME_SIZE",
         defaultValue: 1300
     )
+    // ADR-0025 motion carrier: the host's dedicated QUIC datagram listener port. The
+    // client opens an isDatagram connection here for the HEVC video. Must match the
+    // host's AGENTDESK_OWNED_MEDIA_DATAGRAM_PORT.
+    static let ownedMediaDatagramPort = port(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_PORT",
+        defaultValue: 41_891
+    )
 
     static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
         guard let raw = ProcessInfo.processInfo.environment[environmentKey],
               let value = Int(raw),
+              value > 0
+        else {
+            return defaultValue
+        }
+        return value
+    }
+
+    static func port(environmentKey: String, defaultValue: UInt16) -> UInt16 {
+        guard let raw = ProcessInfo.processInfo.environment[environmentKey],
+              let value = UInt16(raw),
               value > 0
         else {
             return defaultValue

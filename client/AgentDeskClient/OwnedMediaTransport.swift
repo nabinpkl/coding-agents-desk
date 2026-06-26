@@ -42,6 +42,10 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     private let active: ActiveSession
     private let mediaCapability: MediaCapabilityGrant
     private var group: NWConnectionGroup?
+    // ADR-0025 motion carrier: a dedicated isDatagram QUIC connection to the host's
+    // datagram listener, carrying the HEVC video (host -> client) and keyframe requests
+    // (client -> host). nil when the carrier flag is off.
+    private var videoDatagramConnection: NWConnection?
     private var connection: NWConnection?
     private var controlConnection: NWConnection?
     private var pendingConnection: NWConnection?
@@ -143,13 +147,6 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
             self?.logger.notice("owned graphics quic group state=\(String(describing: state), privacy: .public)")
             if case .failed = state { self?.onDisconnected("group-failed") }
         }
-        // ADR-0025: receive the HEVC motion datagrams on the group (host -> client).
-        if Config.ownedMediaVideoMotionEnabled {
-            group.setReceiveHandler(maximumMessageSize: 64 * 1024, rejectOversizedMessages: false) { [weak self] _, content, _ in
-                guard let self, let content, !content.isEmpty else { return }
-                self.handleVideoDatagram(content)
-            }
-        }
 
         // Graphics stream: role 'G' + hello, then ready. (Every app stream is created
         // explicitly; the group's implicit stream 0 is not used.) Now that the group is
@@ -221,10 +218,45 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
                 throw error
             }
         }
+        // ADR-0025 motion carrier: open the dedicated isDatagram connection for HEVC
+        // video once the reliable channel is up. Gated on the flag; off by default, so
+        // the daily driver opens only the reliable group.
+        startVideoDatagramConnection()
         didStart = true
         self.logger.notice("owned graphics quic ready port=\(Int(self.plan.port), privacy: .public)")
         receiveTask = Task { [weak self, graphics] in
             await self?.receiveFrames(on: graphics)
+        }
+    }
+
+    // ADR-0025 motion carrier: stand up the client's datagram connection to the host's
+    // datagram listener. The receive loop hands inbound video datagrams to the repair
+    // buffer; keyframe requests are sent back on the same connection. Failures here do
+    // not fail the session, the reliable tile path stays the source of truth.
+    private func startVideoDatagramConnection() {
+        guard Config.ownedMediaVideoMotionEnabled else { return }
+        guard let port = NWEndpoint.Port(rawValue: Config.ownedMediaDatagramPort) else { return }
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(self.plan.host), port: port)
+        let connection = NWConnection(to: endpoint, using: Self.makeDatagramQuicParameters(alpn: ClientGraphicsChannelHandshake.datagramALPN))
+        self.videoDatagramConnection = connection
+        connection.stateUpdateHandler = { [weak self] state in
+            self?.logger.notice("owned media datagram connection state=\(String(describing: state), privacy: .public)")
+        }
+        connection.start(queue: self.queue)
+        receiveVideoDatagram(on: connection)
+    }
+
+    // Inbound datagrams on the carrier connection are host -> client HEVC packets.
+    // Re-arm after each so the loop runs for the session.
+    private func receiveVideoDatagram(on connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, _, error in
+            guard let self else { return }
+            if let data, !data.isEmpty {
+                self.handleVideoDatagram(data)
+            }
+            if error == nil {
+                self.receiveVideoDatagram(on: connection)
+            }
         }
     }
 
@@ -240,6 +272,8 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         self.connection = nil
         self.controlConnection?.cancel()
         self.controlConnection = nil
+        self.videoDatagramConnection?.cancel()
+        self.videoDatagramConnection = nil
         self.group?.cancel()
         self.group = nil
     }
@@ -423,24 +457,36 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     }
 
     private func sendVideoControl(_ message: OwnedMediaControlMessage) {
-        guard let group, let data = try? JSONEncoder().encode(message) else { return }
-        group.send(content: data, completion: { _ in })
+        guard let connection = videoDatagramConnection, let data = try? JSONEncoder().encode(message) else { return }
+        connection.send(content: data, completion: .contentProcessed { _ in })
     }
 
     private static func makeReliableQuicParameters(alpn: String) -> NWParameters {
         let options = NWProtocolQUIC.Options(alpn: [alpn])
         options.direction = .bidirectional
         options.isDatagram = false
-        // ADR-0025: advertise QUIC DATAGRAM frames when the motion carrier is on, so
-        // the HEVC video stream rides this group; isDatagram stays false so the
-        // reliable streams are unaffected. Off by default, identical to before.
-        if Config.ownedMediaVideoMotionEnabled {
-            options.maxDatagramFrameSize = Config.ownedMediaMaxDatagramFrameSize
-        }
+        // The reliable graphics group carries only streams. The motion carrier's
+        // datagrams ride a separate isDatagram connection, never this group.
         // ADR-0022: two app streams per connection (plus the group's implicit
         // stream 0). Allow several streams; the default is too small.
         options.initialMaxStreamsBidirectional = 8
         options.initialMaxStreamsUnidirectional = 8
+        #if DEBUG
+        sec_protocol_options_set_verify_block(options.securityProtocolOptions, { _, _, complete in
+            complete(true)
+        }, DispatchQueue.main)
+        #endif
+        return NWParameters(quic: options)
+    }
+
+    // ADR-0025 motion carrier: parameters for the dedicated datagram connection.
+    // isDatagram = true carries QUIC DATAGRAM frames only; maxDatagramFrameSize must be
+    // advertised so the host can send them (the host advertises the mirror).
+    private static func makeDatagramQuicParameters(alpn: String) -> NWParameters {
+        let options = NWProtocolQUIC.Options(alpn: [alpn])
+        options.direction = .bidirectional
+        options.isDatagram = true
+        options.maxDatagramFrameSize = Config.ownedMediaMaxDatagramFrameSize
         #if DEBUG
         sec_protocol_options_set_verify_block(options.securityProtocolOptions, { _, _, complete in
             complete(true)

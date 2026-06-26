@@ -61,6 +61,9 @@ struct GraphicsReconnectPolicy: Equatable, Sendable {
 
 enum ClientGraphicsChannelHandshake {
     static let quicALPN = "agentdesk-owned-graphics"
+    // ADR-0025 motion carrier: ALPN for the dedicated isDatagram video connection,
+    // matching the host's OwnedQuicListenerConfigurations.mediaDatagramALPN.
+    static let datagramALPN = "agentdesk-owned-media-datagram"
 
     static func graphicsCapability(from mediaCapability: String) -> String {
         mediaCapability
