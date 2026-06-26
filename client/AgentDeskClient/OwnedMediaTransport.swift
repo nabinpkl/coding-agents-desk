@@ -45,10 +45,9 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     // ADR-0025 motion carrier: a dedicated isDatagram QUIC connection to the host's
     // datagram listener, carrying the HEVC video (host -> client) and keyframe requests
     // (client -> host). nil when the carrier flag is off.
-    private var videoDatagramConnection: NWConnection?
-    // ADR-0025 motion carrier: the group that drives the carrier connection's QUIC
-    // handshake. A bare client NWConnection to a QUIC listener never initiates the
-    // handshake (see start()); the group drives it, then vends the member connection.
+    // ADR-0025 motion carrier: the QUIC datagram group carrying HEVC (host -> client)
+    // and keyframe requests (client -> host). Datagrams flow at the group level via
+    // setReceiveHandler / group.send; there is no per-stream member connection.
     private var videoDatagramGroup: NWConnectionGroup?
     private var connection: NWConnection?
     private var controlConnection: NWConnection?
@@ -233,119 +232,36 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         }
     }
 
-    // ADR-0025 motion carrier: stand up the client's datagram connection to the host's
-    // datagram listener. The receive loop hands inbound video datagrams to the repair
-    // buffer; keyframe requests are sent back on the same connection. Failures here do
-    // not fail the session, the reliable tile path stays the source of truth.
+    // ADR-0025 motion carrier: stand up the client's datagram channel to the host's
+    // datagram listener. QUIC datagrams operate at the NWConnectionGroup level, NOT on a
+    // member connection: inbound HEVC arrives via the group's setReceiveHandler and the
+    // keyframe requests go back via group.send. A vended member (NWConnection(from:))
+    // carries a STREAM and never surfaces datagrams, which is why an earlier member-based
+    // receive read rx=0 even though the host's sends succeeded. The group also drives its
+    // own QUIC handshake on start(). Failures here do not fail the session; the reliable
+    // tile path stays the source of truth.
     private func startVideoDatagramConnection() {
         guard Config.ownedMediaVideoMotionEnabled else { return }
         guard let port = NWEndpoint.Port(rawValue: Config.ownedMediaDatagramPort) else { return }
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(self.plan.host), port: port)
-        // A bare client NWConnection to a QUIC listener stays INERT: it never initiates
-        // the handshake, never reaches .ready, and every host datagram send then fails
-        // ENOTCONN (POSIX 57), flooding the host send path until the reliable channel
-        // starves and the UI freezes. Drive the carrier handshake through a group exactly
-        // like the reliable channel (see start()), then vend a member connection for
-        // datagram I/O. A carrier failure is non-fatal: the tile path stays primary.
         let group = NWConnectionGroup(
             with: NWMultiplexGroup(to: endpoint),
             using: Self.makeDatagramQuicParameters(alpn: ClientGraphicsChannelHandshake.datagramALPN)
         )
         self.videoDatagramGroup = group
-        group.newConnectionHandler = { stream in stream.cancel() }
+        // Receive inbound datagrams at the group level. The handler stays armed for the
+        // session, so there is no per-message re-receive call as there is for a stream.
+        group.setReceiveHandler(maximumMessageSize: 64 * 1024, rejectOversizedMessages: false) { [weak self] _, content, _ in
+            guard let self, let content, !content.isEmpty else { return }
+            self.handleVideoDatagram(content)
+        }
+        group.stateUpdateHandler = { [weak self] state in
+            self?.logger.notice("owned media datagram group state=\(String(describing: state), privacy: .public)")
+            ownedMediaStderrTrace("video-datagram-group-state state=\(String(describing: state))")
+            if case .ready = state { ownedMediaStderrTrace("video-datagram-carrier-ready") }
+        }
         ownedMediaStderrTrace("video-datagram-dial host=\(self.plan.host) port=\(Config.ownedMediaDatagramPort)")
-        Task { [weak self] in
-            await self?.openVideoDatagramMember(group: group, endpoint: endpoint)
-        }
-    }
-
-    // Drive the carrier group to .ready (a client group is inert until newConnectionHandler
-    // is set before start()), then vend a member connection for datagram send/receive.
-    // Bounded by a timeout so a stalled handshake recycles instead of hanging; any failure
-    // tears the carrier down but leaves the reliable session alive.
-    private func openVideoDatagramMember(group: NWConnectionGroup, endpoint: NWEndpoint) async {
-        do {
-            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                nonisolated(unsafe) var resumed = false
-                group.stateUpdateHandler = { [weak self] state in
-                    self?.logger.notice("owned media datagram group state=\(String(describing: state), privacy: .public)")
-                    ownedMediaStderrTrace("video-datagram-group-state state=\(String(describing: state))")
-                    switch state {
-                    case .ready:
-                        if !resumed { resumed = true; cont.resume() }
-                    case .failed(let error):
-                        if !resumed { resumed = true; cont.resume(throwing: error) }
-                    case .cancelled:
-                        if !resumed { resumed = true; cont.resume(throwing: CancellationError()) }
-                    default:
-                        break
-                    }
-                }
-                group.start(queue: self.queue)
-                self.queue.asyncAfter(deadline: .now() + 6) {
-                    if !resumed { resumed = true; cont.resume(throwing: SessionRejected(reason: .malformed)) }
-                }
-            }
-            // Steady-state group handler now that it is ready.
-            group.stateUpdateHandler = { [weak self] state in
-                self?.logger.notice("owned media datagram group state=\(String(describing: state), privacy: .public)")
-                ownedMediaStderrTrace("video-datagram-group-state state=\(String(describing: state))")
-            }
-            guard let connection = NWConnection(from: group, to: endpoint) else {
-                logger.error("owned media datagram member vend failed")
-                ownedMediaStderrTrace("video-datagram-member-vend-failed")
-                group.cancel()
-                return
-            }
-            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                nonisolated(unsafe) var resumed = false
-                connection.stateUpdateHandler = { [weak self] state in
-                    self?.logger.notice("owned media datagram connection state=\(String(describing: state), privacy: .public)")
-                    ownedMediaStderrTrace("video-datagram-conn-state state=\(String(describing: state))")
-                    switch state {
-                    case .ready:
-                        if !resumed { resumed = true; cont.resume() }
-                    case .failed(let error):
-                        if !resumed { resumed = true; cont.resume(throwing: error) }
-                    case .cancelled:
-                        if !resumed { resumed = true; cont.resume(throwing: CancellationError()) }
-                    default:
-                        break
-                    }
-                }
-                connection.start(queue: self.queue)
-            }
-            connection.stateUpdateHandler = { [weak self] state in
-                self?.logger.notice("owned media datagram connection state=\(String(describing: state), privacy: .public)")
-                ownedMediaStderrTrace("video-datagram-conn-state state=\(String(describing: state))")
-            }
-            self.videoDatagramConnection = connection
-            self.receiveVideoDatagram(on: connection)
-            logger.notice("owned media datagram carrier ready")
-            ownedMediaStderrTrace("video-datagram-carrier-ready")
-        } catch {
-            logger.error("owned media datagram carrier setup failed: \(String(describing: error), privacy: .public)")
-            ownedMediaStderrTrace("video-datagram-carrier-failed error=\(String(describing: error))")
-            group.cancel()
-        }
-    }
-
-    // Inbound datagrams on the carrier connection are host -> client HEVC packets.
-    // Re-arm after each so the loop runs for the session.
-    private func receiveVideoDatagram(on connection: NWConnection) {
-        // QUIC datagrams are message-framed: receiveMessage delivers exactly one datagram
-        // per call. The stream-oriented receive(minimumIncompleteLength:maximumLength:)
-        // does not surface datagram boundaries and never fires here, so rx stays 0 even
-        // though the host's sends succeed. receiveMessage is the proven datagram receive.
-        connection.receiveMessage { [weak self] data, _, _, error in
-            guard let self else { return }
-            if let data, !data.isEmpty {
-                self.handleVideoDatagram(data)
-            }
-            if error == nil {
-                self.receiveVideoDatagram(on: connection)
-            }
-        }
+        group.start(queue: self.queue)
     }
 
     func stop() {
@@ -360,8 +276,6 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         self.connection = nil
         self.controlConnection?.cancel()
         self.controlConnection = nil
-        self.videoDatagramConnection?.cancel()
-        self.videoDatagramConnection = nil
         self.videoDatagramGroup?.cancel()
         self.videoDatagramGroup = nil
         self.group?.cancel()
@@ -549,8 +463,9 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     }
 
     private func sendVideoControl(_ message: OwnedMediaControlMessage) {
-        guard let connection = videoDatagramConnection, let data = try? JSONEncoder().encode(message) else { return }
-        connection.send(content: data, completion: .contentProcessed { _ in })
+        // Keyframe requests ride the same group datagram channel back to the host.
+        guard let group = videoDatagramGroup, let data = try? JSONEncoder().encode(message) else { return }
+        group.send(content: data) { _ in }
     }
 
     private static func makeReliableQuicParameters(alpn: String) -> NWParameters {
