@@ -25,6 +25,10 @@ final class OwnedMediaVideoDatagramServer: @unchecked Sendable {
     private let lock = NSLock()
     private var listener: NWListener?
     private var connection: NWConnection?
+    // True only while the accepted connection has completed its QUIC handshake.
+    // Sending into a not-ready (or failed) connection returns ENOTCONN for every
+    // packet, which floods the send path and starves the reliable channel (the freeze).
+    private var connectionReady = false
     private var sendErrors = 0
     private var connectionMisses = 0
     private var lastSendError: String?
@@ -65,6 +69,7 @@ final class OwnedMediaVideoDatagramServer: @unchecked Sendable {
             let c = self.connection
             self.listener = nil
             self.connection = nil
+            self.connectionReady = false
             return (l, c)
         }
         listener?.cancel()
@@ -74,7 +79,10 @@ final class OwnedMediaVideoDatagramServer: @unchecked Sendable {
     // Send a frame's already-packetized datagrams, paced into bursts so a large frame
     // does not flood the send buffer in one tight loop.
     func send(_ packets: [Data]) {
-        let connection = lock.withLock { self.connection }
+        let connection = lock.withLock { () -> NWConnection? in
+            guard self.connectionReady else { return nil }
+            return self.connection
+        }
         guard let connection else {
             lock.withLock { connectionMisses &+= 1 }
             return
@@ -113,11 +121,24 @@ final class OwnedMediaVideoDatagramServer: @unchecked Sendable {
         let previous = lock.withLock { () -> NWConnection? in
             let previous = self.connection
             self.connection = connection
+            self.connectionReady = false
             return previous
         }
         previous?.cancel()
         connection.stateUpdateHandler = { [weak self] state in
-            self?.logger.notice("owned media datagram connection state=\(String(describing: state), privacy: .public)")
+            guard let self else { return }
+            self.logger.notice("owned media datagram connection state=\(String(describing: state), privacy: .public)")
+            // Track readiness so send() only fires into a handshake-complete connection.
+            // Scope the flip to the current connection so a stale replaced connection's
+            // late .failed cannot clear a fresh connection's readiness.
+            self.lock.withLock {
+                guard self.connection === connection else { return }
+                if case .ready = state {
+                    self.connectionReady = true
+                } else {
+                    self.connectionReady = false
+                }
+            }
         }
         connection.start(queue: queue)
         receiveControl(on: connection)
