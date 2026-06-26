@@ -147,6 +147,13 @@ struct InputChannelTests {
         #expect(compositor.committedUpdateId == OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 1))
     }
 
+    // ADR-0022: the client tags each QUIC connection with a 1-byte role. Pin the
+    // values so they match the host's routing ('G' graphics, 'I' interactive).
+    @Test func graphicsStreamRoleTagBytesMatchHost() {
+        #expect(OwnedGraphicsStreamRole.graphics.rawValue == 0x47)
+        #expect(OwnedGraphicsStreamRole.interactive.rawValue == 0x49)
+    }
+
     @MainActor
     @Test func ownedMediaVideoSinkQueuesResetRequestWhenGraphicsFrameFails() {
         let sink = OwnedMediaVideoSink()

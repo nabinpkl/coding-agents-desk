@@ -42,7 +42,9 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     private let active: ActiveSession
     private let mediaCapability: MediaCapabilityGrant
     private var connection: NWConnection?
+    private var controlConnection: NWConnection?
     private var pendingConnection: NWConnection?
+    private var pendingControlConnection: NWConnection?
     private var pendingResetRequest: OwnedGraphicsResetRequest?
     private let resetFallbackLock = NSLock()
     private var resetFallbackGate = OwnedGraphicsResetFallbackGate()
@@ -71,44 +73,63 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         guard let endpointPort = NWEndpoint.Port(rawValue: self.plan.port) else {
             throw SessionRejected(reason: .malformed)
         }
-        let connection = NWConnection(
-            host: NWEndpoint.Host(self.plan.host),
-            port: endpointPort,
-            using: Self.makeReliableQuicParameters(alpn: self.plan.alpn)
-        )
-        self.pendingConnection = connection
+        let endpointHost = NWEndpoint.Host(self.plan.host)
+        // ADR-0022: two independent QUIC connections per session. Frames ride the
+        // graphics connection; acks and reset-requests ride the interactive one, so a
+        // large frame cannot head-of-line-block the control path.
+        let graphics = NWConnection(host: endpointHost, port: endpointPort, using: Self.makeReliableQuicParameters(alpn: self.plan.alpn))
+        let interactive = NWConnection(host: endpointHost, port: endpointPort, using: Self.makeReliableQuicParameters(alpn: self.plan.alpn))
+        self.pendingConnection = graphics
+        self.pendingControlConnection = interactive
         var didStart = false
         defer {
             if !didStart {
-                if self.pendingConnection === connection {
-                    self.pendingConnection = nil
-                }
+                if self.pendingConnection === graphics { self.pendingConnection = nil }
+                self.pendingControlConnection = nil
                 self.pendingResetRequest = nil
-                connection.cancel()
+                graphics.cancel()
+                interactive.cancel()
             }
         }
-        connection.stateUpdateHandler = { [weak self] state in
+        graphics.stateUpdateHandler = { [weak self] state in
             self?.logger.notice("owned graphics quic state=\(String(describing: state), privacy: .public)")
         }
-        connection.start(queue: self.queue)
+        interactive.stateUpdateHandler = { [weak self] state in
+            self?.logger.notice("owned graphics control quic state=\(String(describing: state), privacy: .public)")
+        }
+        graphics.start(queue: self.queue)
+        interactive.start(queue: self.queue)
 
-        let clientNonce = try Self.randomBytes(count: 32)
+        // Graphics connection: role tag + hello, then ready.
         let hello = ClientGraphicsChannelHandshake.makeHello(
             active: self.active,
             mediaCapability: self.mediaCapability,
-            clientNonce: clientNonce
+            clientNonce: try Self.randomBytes(count: 32)
         )
-        try await self.send(JSONEncoder().encode(hello), on: connection)
-        _ = try await self.receiveReady(expectedSessionId: self.active.sessionId, on: connection)
+        try await self.send(Data([OwnedGraphicsStreamRole.graphics.rawValue]) + (try JSONEncoder().encode(hello)), on: graphics)
+        _ = try await self.receiveReady(expectedSessionId: self.active.sessionId, on: graphics)
+
+        // Interactive connection: role tag + hello (authenticates the same session),
+        // then ready.
+        let controlHello = ClientGraphicsChannelHandshake.makeHello(
+            active: self.active,
+            mediaCapability: self.mediaCapability,
+            clientNonce: try Self.randomBytes(count: 32)
+        )
+        try await self.send(Data([OwnedGraphicsStreamRole.interactive.rawValue]) + (try JSONEncoder().encode(controlHello)), on: interactive)
+        _ = try await self.receiveReady(expectedSessionId: self.active.sessionId, on: interactive)
+
         self.pendingConnection = nil
-        self.connection = connection
+        self.pendingControlConnection = nil
+        self.connection = graphics
+        self.controlConnection = interactive
         resetFallbackLock.withLock {
             resetFallbackGate.startConnection()
         }
         if let pendingResetRequest {
             self.pendingResetRequest = nil
             do {
-                try await send(OwnedGraphicsControlStreamFrame.encode(pendingResetRequest), on: connection)
+                try await send(OwnedGraphicsControlStreamFrame.encode(pendingResetRequest), on: interactive)
                 ownedMediaStderrTrace("graphics-reset-request reason=\(pendingResetRequest.reason) generation=\(pendingResetRequest.lastCommittedSurfaceGeneration) frame=\(pendingResetRequest.lastCommittedFrameId) state=drained-pending")
             } catch {
                 logger.error("owned graphics pending reset request failed: \(String(describing: error), privacy: .public)")
@@ -120,8 +141,8 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         }
         didStart = true
         self.logger.notice("owned graphics quic ready port=\(Int(self.plan.port), privacy: .public)")
-        receiveTask = Task { [weak self, connection] in
-            await self?.receiveFrames(on: connection)
+        receiveTask = Task { [weak self, graphics] in
+            await self?.receiveFrames(on: graphics)
         }
     }
 
@@ -130,14 +151,18 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         receiveTask = nil
         self.pendingConnection?.cancel()
         self.pendingConnection = nil
+        self.pendingControlConnection?.cancel()
+        self.pendingControlConnection = nil
         self.pendingResetRequest = nil
         self.connection?.cancel()
         self.connection = nil
+        self.controlConnection?.cancel()
+        self.controlConnection = nil
     }
 
     func sendResetRequest(_ request: OwnedGraphicsResetRequest) async {
-        guard let connection else {
-            if pendingConnection != nil {
+        guard let controlConnection else {
+            if pendingControlConnection != nil {
                 pendingResetRequest = request
                 ownedMediaStderrTrace("graphics-reset-request-pending reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=pending-connection")
                 return
@@ -147,7 +172,7 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
             return
         }
         do {
-            try await send(OwnedGraphicsControlStreamFrame.encode(request), on: connection)
+            try await send(OwnedGraphicsControlStreamFrame.encode(request), on: controlConnection)
             ownedMediaStderrTrace("graphics-reset-request reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId)")
         } catch {
             logger.error("owned graphics reset request failed: \(String(describing: error), privacy: .public)")
@@ -175,8 +200,10 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
                     let ack = await MainActor.run { [weak self] in
                         self?.sink?.renderOwnedGraphicsFrame(frame, queueDepth: queueDepth)
                     }
-                    if let ack {
-                        try await send(OwnedGraphicsControlStreamFrame.encode(ack), on: connection)
+                    if let ack, let controlConnection = self.controlConnection {
+                        // Acks ride the interactive connection so a large frame in
+                        // flight on the graphics connection cannot delay them.
+                        try await send(OwnedGraphicsControlStreamFrame.encode(ack), on: controlConnection)
                         ownedMediaStderrTrace("graphics-ack frame=\(ack.frameId) generation=\(ack.surfaceGeneration) queuedFrames=\(ack.queuedFrames) queueDepthBytes=\(ack.queueDepthBytes) totalGraphicsApplied=\(ack.totalGraphicsFramesApplied) compositorMs=\(Self.formatDouble(ack.compositorMs)) stale=\(ack.staleDiscardCount)")
                     }
                     let resetRequest = await MainActor.run { [weak self] in
@@ -198,6 +225,10 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
                 logger.error("owned graphics quic receive failed: \(String(describing: error), privacy: .public)")
                 connection.cancel()
                 self.connection = nil
+                // Tear down the sibling interactive connection too: a session is
+                // both streams, so recovery re-establishes the pair.
+                self.controlConnection?.cancel()
+                self.controlConnection = nil
                 onDisconnected("receive-failed")
                 return
             }

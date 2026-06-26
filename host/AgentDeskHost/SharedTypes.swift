@@ -995,6 +995,14 @@ struct OwnedGraphicsByteRange: Codable, Equatable {
     }
 }
 
+// ADR-0022: one QUIC session is two connections/streams. Each opens with a 1-byte
+// role tag as its first byte so the host can route an inbound connection (graphics
+// frames vs interactive control) regardless of arrival order.
+enum OwnedGraphicsStreamRole: UInt8 {
+    case graphics = 0x47      // 'G'
+    case interactive = 0x49   // 'I'
+}
+
 enum OwnedGraphicsCommand: Equatable {
     case resetSurface(surfaceGeneration: UInt32, width: Int, height: Int, pixelFormat: OwnedGraphicsPixelFormat)
     case bitmapTile(x: Int, y: Int, width: Int, height: Int, compression: OwnedGraphicsTileCompression, byteRange: OwnedGraphicsByteRange)

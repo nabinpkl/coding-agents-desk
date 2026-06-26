@@ -215,6 +215,16 @@ struct SignalingFrameRoutingTests {
         #expect(decoded.header.updateId == OwnedSurfaceUpdateId(surfaceGeneration: 2, frameId: 11))
     }
 
+    // ADR-0022: the two-stream split routes inbound connections by a 1-byte role
+    // tag. Pin the tag values so the host and client stay in agreement on the wire.
+    @Test func graphicsStreamRoleTagBytesArePinned() {
+        #expect(OwnedGraphicsStreamRole.graphics.rawValue == 0x47)
+        #expect(OwnedGraphicsStreamRole.interactive.rawValue == 0x49)
+        #expect(OwnedGraphicsStreamRole(rawValue: 0x47) == .graphics)
+        #expect(OwnedGraphicsStreamRole(rawValue: 0x49) == .interactive)
+        #expect(OwnedGraphicsStreamRole(rawValue: 0x00) == nil)
+    }
+
     @Test func graphicsFrameEnvelopeRejectsMalformedAdgcFrames() throws {
         let payload = Data([1, 2, 3])
         let envelope = OwnedGraphicsFrameEnvelope(
