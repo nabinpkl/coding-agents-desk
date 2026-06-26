@@ -3,26 +3,27 @@ import CoreVideo
 import Testing
 @testable import AgentDeskHost
 
-// Task 3: per-frame byte budget. A genuinely-new fullframe tiled all-LZFSE could
+// ADR-0022 progressive repaint. A genuinely-new fullframe tiled all-LZFSE could
 // sum to several MB and clog the ~2Mbps link. makeTileEnvelope accumulates the
-// payload bytes appended across cells; once the running total crosses
-// Config.hybridFrameByteBudget, every subsequent rung-3 (new) cell is forced to
-// JPEG regardless of the per-cell busy test. Cells that hit rung 1 (omitted) or
-// rung 2 (drawCachedTile) carry no payload and must NOT consume the budget.
+// payload bytes appended across cells; once one envelope crosses
+// Config.hybridFrameSendBudgetBytes it is closed and the remaining cells continue
+// in the next envelope of the same surface generation (rising frameId). The client
+// paints each envelope cell-by-cell as it arrives, so a large repaint streams in as
+// several bounded frames instead of one that head-of-line blocks the channel. Text
+// stays lossless LZFSE at native resolution (no per-frame downscale); only
+// content-busy cells JPEG. Cells that hit rung 1 (omitted) or rung 2
+// (drawCachedTile) carry no payload and never trigger a chunk flush.
 struct FrameByteBudgetTests {
 
-    // Early new cells stay LZFSE (compressible, below budget); once the running
-    // payload crosses a small budget, later new cells switch to JPEG. Drive a
-    // whole-surface change of distinct, individually-compressible cells with the
-    // busy threshold raised high (so the busy test alone never trips) and a tiny
-    // byte budget (so the budget is the only thing that flips encoding).
-    @Test func budgetCrossingForcesLaterNewCellsToJpeg() throws {
-        // Busy threshold very high so no cell is "busy"; only the budget can flip
-        // a cell to JPEG. Small budget so the first cell or two stay LZFSE and the
-        // rest cross over.
+    // A large whole-surface change with a small per-envelope send budget splits into
+    // several envelopes, all in one surface generation with strictly rising
+    // frameIds, every non-final envelope at least a budget's worth of payload, and
+    // every cell crisp LZFSE (no downscale).
+    @Test func largeRepaintSplitsIntoBoundedProgressiveEnvelopes() throws {
+        let budget = 8_000
         var engine = ScrollDeltaEngine(
-            hybridTileBusyBytesPerPixel: 99.0,
-            hybridFrameByteBudget: 5_000
+            hybridTileBusyBytesPerPixel: 99.0,        // busy test never trips
+            hybridFrameSendBudgetBytes: budget
         )
         let width = 512
         let height = 256
@@ -34,18 +35,12 @@ struct FrameByteBudgetTests {
         #expect(engine.evaluate(first).kind == .reset)
         engine.commitPendingSurface()
 
-        // Whole-surface change: 512x256 at a 128px grid = 4x2 = 8 cells, each with
-        // distinct horizontal-gradient content (compressible by LZFSE, so each
-        // individual cell is well under the busy threshold, but each still carries
-        // a few KB of payload so a handful of cells crosses the 5KB budget).
         let churned = try Self.makeBGRAFrame(
             width: width,
             height: height,
             damageRects: [full],
             contentRectPixels: full
         ) { x, y in
-            // A smooth gradient that varies per grid cell so every cell is distinct
-            // (no rung-2 hits) yet compresses (LZFSE keeps it well under busy bpp).
             let cellX = x / 128
             let cellY = y / 128
             let v = UInt8((x &+ y &* 3 &+ cellX &* 40 &+ cellY &* 80) & 0xff)
@@ -54,34 +49,30 @@ struct FrameByteBudgetTests {
         let result = engine.evaluate(churned)
         #expect(result.kind == .accepted)
 
-        // Collect cache tiles in payload-offset order; the order cells are appended
-        // is the order they cross the budget.
-        let cacheTiles: [(offset: Int, compression: OwnedGraphicsTileCompression)] =
-            (result.envelope?.commands ?? []).compactMap { cmd in
-                guard case let .cacheTile(_, _, _, _, _, compression, range) = cmd else { return nil }
-                return (range.offset, compression)
-            }.sorted { $0.offset < $1.offset }
-
-        // There must be both LZFSE (early, under budget) and JPEG (late, over budget)
-        // cache tiles, and every LZFSE tile must precede every JPEG tile in payload
-        // order (the budget is a monotonic threshold on accumulated bytes).
-        let lzfseCount = cacheTiles.filter { $0.compression == .lzfse }.count
-        let jpegCount = cacheTiles.filter { $0.compression == .jpeg }.count
-        #expect(lzfseCount >= 1, "early cells (under budget, not busy) must stay LZFSE")
-        #expect(jpegCount >= 1, "cells after the budget crosses must switch to JPEG")
-
-        let firstJpegOffset = cacheTiles.first { $0.compression == .jpeg }?.offset ?? .max
-        let lastLzfseOffset = cacheTiles.last { $0.compression == .lzfse }?.offset ?? -1
-        #expect(lastLzfseOffset < firstJpegOffset,
-                "all LZFSE tiles must precede all JPEG tiles in payload order")
+        let envelopes = result.envelopes
+        #expect(envelopes.count >= 2, "a large repaint must split into multiple paced envelopes")
+        let generations = Set(envelopes.map { $0.header.surfaceGeneration })
+        #expect(generations.count == 1, "all progressive envelopes share one surface generation")
+        let frameIds = envelopes.map { $0.header.frameId }
+        #expect(frameIds == frameIds.sorted() && Set(frameIds).count == frameIds.count,
+                "frameIds strictly increase across progressive envelopes")
+        for envelope in envelopes.dropLast() {
+            #expect(envelope.payload.count >= budget, "a flushed envelope crossed the send budget")
+        }
+        for envelope in envelopes {
+            for cmd in envelope.commands {
+                if case let .cacheTile(_, _, _, _, _, compression, _) = cmd {
+                    #expect(compression == .lzfse, "progressive repaint keeps text lossless, no downscale")
+                }
+            }
+        }
     }
 
-    // A high budget (effectively unlimited) keeps every non-busy cell LZFSE: with
-    // the busy test off and the budget never crossed, nothing flips to JPEG.
-    @Test func highBudgetKeepsAllNonBusyCellsLzfse() throws {
+    // A high send budget never splits: one envelope, all non-busy cells LZFSE.
+    @Test func highBudgetEmitsSingleLosslessEnvelope() throws {
         var engine = ScrollDeltaEngine(
             hybridTileBusyBytesPerPixel: 99.0,
-            hybridFrameByteBudget: 100_000_000
+            hybridFrameSendBudgetBytes: 100_000_000
         )
         let width = 512
         let height = 256
@@ -106,10 +97,11 @@ struct FrameByteBudgetTests {
         }
         let result = engine.evaluate(churned)
         #expect(result.kind == .accepted)
+        #expect(result.envelopes.count == 1, "an under-budget frame is a single envelope")
 
-        for cmd in result.envelope?.commands ?? [] {
+        for cmd in result.envelopes.first?.commands ?? [] {
             if case let .cacheTile(_, _, _, _, _, compression, _) = cmd {
-                #expect(compression == .lzfse, "under an unlimited budget, non-busy cells stay LZFSE")
+                #expect(compression == .lzfse, "under a high budget, non-busy cells stay LZFSE")
             }
         }
     }
@@ -119,10 +111,10 @@ struct FrameByteBudgetTests {
     // a frame whose only genuinely-new cell is small. With a tiny budget, that lone
     // new cell must still be LZFSE because the cached cells appended no bytes, so
     // the running payload never reached the budget.
-    @Test func cachedAndOmittedCellsDoNotConsumeBudget() throws {
+    @Test func cachedAndOmittedCellsDoNotTriggerChunking() throws {
         var engine = ScrollDeltaEngine(
             hybridTileBusyBytesPerPixel: 99.0,
-            hybridFrameByteBudget: 4_000
+            hybridFrameSendBudgetBytes: 4_000
         )
         let width = 512
         let height = 256
@@ -202,54 +194,6 @@ struct FrameByteBudgetTests {
         }
         #expect(newCellCompression == [.lzfse],
                 "the only new cell must stay LZFSE because cached/omitted cells did not consume the budget")
-    }
-
-    // Workstream D: the per-frame wire-size ceiling. A whole-surface repaint of
-    // incompressible content that would be multi-MB at native resolution is bounded:
-    // once the ACCUMULATED payload crosses the ceiling, the remaining new cells drop to
-    // the floor resolution so a single frame cannot monopolise the in-order reliable
-    // channel. The same repaint with an unbounded ceiling stays full-res LZFSE; with a
-    // tight ceiling it is materially smaller and its tail cells are downscaled JPEG. A
-    // normal-encoded prefix before the crossing is expected (the ceiling is content-
-    // aware: it acts on real bytes, not an upfront estimate, so a cheap frame is never
-    // touched and never made larger).
-    @Test func frameWireCeilingShrinksLargeRepaint() throws {
-        func encodeLargeRepaint(ceiling: Int) throws -> (bytes: Int, jpegCount: Int) {
-            var engine = ScrollDeltaEngine(
-                hybridTileBusyBytesPerPixel: 99.0,        // busy test never trips
-                hybridFrameByteBudget: 100_000_000,       // byte budget never trips
-                hybridFrameWireCeilingBytes: ceiling
-            )
-            let width = 1024
-            let height = 768
-            let full = PixelRect(x: 0, y: 0, width: width, height: height)
-            let first = try Self.makeBGRAFrame(width: width, height: height) { _, _ in [10, 10, 10, 0xff] }
-            #expect(engine.evaluate(first).kind == .reset)
-            engine.commitPendingSurface()
-            // Per-pixel hash noise so LZFSE cannot shrink it; only the resolution
-            // downscale the ceiling triggers reduces the wire cost.
-            let churned = try Self.makeBGRAFrame(
-                width: width, height: height, damageRects: [full], contentRectPixels: full
-            ) { x, y in
-                var h = UInt32(truncatingIfNeeded: x &* 73_856_093 ^ y &* 19_349_663)
-                h ^= h >> 13; h = h &* 0x5bd1_e995; h ^= h >> 15
-                let v = UInt8(truncatingIfNeeded: h)
-                return [v, v, v, 0xff]
-            }
-            let result = engine.evaluate(churned)
-            #expect(result.kind == .accepted)
-            let jpegCount = (result.envelope?.commands ?? []).filter {
-                if case .cacheTile(_, _, _, _, _, .jpeg, _) = $0 { return true }
-                return false
-            }.count
-            return (result.envelope?.payload.count ?? 0, jpegCount)
-        }
-
-        let unbounded = try encodeLargeRepaint(ceiling: 100_000_000)
-        let bounded = try encodeLargeRepaint(ceiling: 50_000)
-        #expect(unbounded.jpegCount == 0, "with no ceiling the incompressible cells stay full-res LZFSE")
-        #expect(bounded.jpegCount >= 1, "cells after the ceiling crosses downscale to JPEG")
-        #expect(bounded.bytes < unbounded.bytes, "the per-frame ceiling must shrink a large incompressible repaint")
     }
 
     private static func makeBGRAFrame(

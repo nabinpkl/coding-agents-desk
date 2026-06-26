@@ -140,10 +140,10 @@ enum Config {
     // fullframe instead of damage-only tiles. This was 0.15 when an un-scrolled
     // tile was a raw LZFSE bitmap on the reliable channel and a near-full tile
     // (~600KB) froze the pump (R75 confirmed 0.6 froze). That premise is gone:
-    // .tiles and .fullFrame now share the rung-1/2/3 cache ladder bounded by
-    // hybridFrameByteBudget, so a high-coverage tiles set references cached cells
-    // (zero payload) and forces JPEG on genuinely-new cells once the budget is
-    // crossed, the same cost ceiling as fullframe. Raised to 0.6 so a regional
+    // .tiles and .fullFrame now share the rung-1/2/3 cache ladder and progressive
+    // chunking (hybridFrameSendBudgetBytes), so a high-coverage tiles set references
+    // cached cells (zero payload) and streams genuinely-new cells across several
+    // bounded envelopes, the same cost ceiling as fullframe. Raised to 0.6 so a regional
     // 1/4-to-1/2-screen repaint or a scroll-detection miss stays a damage-only
     // grid rather than a whole-surface resend. The exact ceiling is a device-data
     // decision; this is the safe higher default, env-overridable for tuning.
@@ -302,45 +302,24 @@ enum Config {
     // Per-frame payload byte budget for the tiler. A genuinely-new busy screen
     // (app switch, photo wall) tiled all-LZFSE could sum to several MB and clog
     // the ~2Mbps reliable channel, the exact freeze the fullframe-JPEG fallback
-    // existed to prevent. The tiler accumulates appended payload bytes across
-    // cells; once the running total crosses this budget, every subsequent rung-3
-    // (new) cell is forced to JPEG at congestion quality/scale regardless of the
-    // per-cell busy test, bounding a brand-new fullframe to roughly one JPEG's
-    // cost. Cells that hit rung 1 (omitted) or rung 2 (drawCachedTile) carry no
-    // payload and never count toward the budget, so a mostly-cached screen stays
-    // free no matter how large.
+    // existed to prevent. ADR-0022 progressive repaint: the tiler accumulates
+    // appended payload bytes across cells; once one envelope's running total crosses
+    // this budget, the envelope is closed and the remaining cells continue in the
+    // next envelope of the same surface generation (rising frameId). A large repaint
+    // therefore streams in as several bounded frames the client paints cell-by-cell
+    // into its retained surface, instead of one frame that head-of-line blocks the
+    // channel. Text stays lossless LZFSE at native resolution (no per-frame
+    // downscale); only content-busy photo cells re-encode to JPEG. Cells that hit
+    // rung 1 (omitted) or rung 2 (drawCachedTile) carry no payload and never count
+    // toward the budget, so a mostly-cached screen stays a single zero-byte envelope.
     //
-    // Calibration: the link is ~2Mbps ~= 250KB/s. The old whole-frame JPEG
-    // fallback landed near ~338KB per fullframe and was already drainable enough
-    // to hold cadence (about one frame per 1.3s at the floor). 300KB sits just
-    // under that, so a worst-case all-new busy fullframe costs about one old JPEG
-    // while a text-heavy fullframe (LZFSE well under budget) stays fully lossless
-    // and crisp. Override with AGENTDESK_HYBRID_FRAME_BYTE_BUDGET.
-    static let hybridFrameByteBudget: Int = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_FRAME_BYTE_BUDGET",
-        defaultValue: 300_000
-    )
-    // Per-frame wire-size ceiling (the 2 MB-fullframe freeze fix). hybridFrameByteBudget
-    // above only flips encoding to JPEG once crossed; it never bounds the SUM or the
-    // resolution, so a whole-surface repaint (444 native-res tiles, device run) summed
-    // to ~1.8 MB = ~7s of transit on the ~2Mbps link, which monopolises the in-order
-    // reliable channel and re-triggers the divergence -> reset cascade. To bound a
-    // single frame, makeTileEnvelope picks ONE frame-global resolution scale from the
-    // damage area: estimated full-res bytes = damageArea * assumedBytesPerPixel; if that
-    // exceeds the ceiling, scale = sqrt(ceiling / estimated), floored. All genuinely-new
-    // cells (text included) encode at that scale, so no single frame exceeds ~one second
-    // of link budget. Incremental frames (small area) stay scale 1.0 and lossless. This
-    // is rate control at the frame level, the same idea video keyframes use; the settle
-    // pass restores crisp once motion stops. Tune the ceiling to the link on device.
-    static let hybridFrameWireCeilingBytes: Int = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_FRAME_WIRE_CEILING_BYTES",
-        defaultValue: 262_144
-    )
-    // Floor resolution for cells emitted after the wire ceiling is crossed, so a huge
-    // repaint degrades to readable, not unreadable. 0.3 linear ~= 0.09 area.
-    static let hybridFrameScaleFloor: Double = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_FRAME_SCALE_FLOOR",
-        defaultValue: 0.3
+    // Calibration: the link is ~2Mbps ~= 250KB/s, so a ~128KB envelope drains in
+    // ~0.5s. Smaller envelopes paint more smoothly but add per-frame overhead; this
+    // is the per-envelope size, not a per-screen cap. Tune to the link on device via
+    // AGENTDESK_HYBRID_FRAME_SEND_BUDGET_BYTES.
+    static let hybridFrameSendBudgetBytes: Int = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_FRAME_SEND_BUDGET_BYTES",
+        defaultValue: 131_072
     )
     // Kill switch; false falls back to rung-1 baseline skip only.
     static let hybridTileCacheEnabled: Bool = enabledFlag(

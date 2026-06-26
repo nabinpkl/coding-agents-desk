@@ -237,15 +237,12 @@ struct ScrollDeltaEngine {
     // compresses poorly (photo/gradient, above the threshold) is re-encoded as JPEG
     // to save wire bytes. Text and solid-fill cells compress well and stay LZFSE.
     private let hybridTileBusyBytesPerPixel: Double
-    // Per-frame payload byte budget. Once cells in one envelope have appended this
-    // many payload bytes, remaining rung-3 cells force JPEG regardless of the busy
-    // test, bounding a brand-new busy fullframe to roughly one JPEG's cost.
-    private let hybridFrameByteBudget: Int
-    // Per-frame wire-size ceiling and the frame-global downscale it drives (see
-    // makeTileEnvelope). A frame whose estimated full-res cost exceeds the ceiling is
-    // scaled down uniformly so it cannot monopolise the in-order reliable channel.
-    private let hybridFrameWireCeilingBytes: Int
-    private let hybridFrameScaleFloor: Double
+    // Per-envelope send budget (ADR-0022 progressive repaint). Once cells in one
+    // envelope have appended this many payload bytes, the envelope is closed and the
+    // remaining cells continue in the next envelope of the same surface generation,
+    // so a large repaint streams in as several bounded frames instead of one frame
+    // that head-of-line blocks the channel.
+    private let hybridFrameSendBudgetBytes: Int
 
     init(
         maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes,
@@ -254,9 +251,7 @@ struct ScrollDeltaEngine {
         tileGridPx: Int = Config.hybridTileGridPx,
         fullframeMaxWireBytes: Int = Config.hybridFullframeMaxWireBytes,
         hybridTileBusyBytesPerPixel: Double = Config.hybridTileBusyBytesPerPixel,
-        hybridFrameByteBudget: Int = Config.hybridFrameByteBudget,
-        hybridFrameWireCeilingBytes: Int = Config.hybridFrameWireCeilingBytes,
-        hybridFrameScaleFloor: Double = Config.hybridFrameScaleFloor
+        hybridFrameSendBudgetBytes: Int = Config.hybridFrameSendBudgetBytes
     ) {
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
@@ -264,9 +259,7 @@ struct ScrollDeltaEngine {
         self.tileGridPx = max(1, tileGridPx)
         self.fullframeMaxWireBytes = max(1, fullframeMaxWireBytes)
         self.hybridTileBusyBytesPerPixel = max(0, hybridTileBusyBytesPerPixel)
-        self.hybridFrameByteBudget = max(1, hybridFrameByteBudget)
-        self.hybridFrameWireCeilingBytes = max(1, hybridFrameWireCeilingBytes)
-        self.hybridFrameScaleFloor = min(1.0, max(0.01, hybridFrameScaleFloor))
+        self.hybridFrameSendBudgetBytes = max(1, hybridFrameSendBudgetBytes)
     }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
@@ -549,11 +542,12 @@ struct ScrollDeltaEngine {
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
             pendingSurface = current
             switch makeTileEnvelope(current: current, previous: previous, rects: rects, policy: policy, capturedAtUptimeNs: frame.capturedAtUptimeNs) {
-            case .built(let envelope):
+            case .built(let envelopes):
                 return ScrollDeltaResult(
                     kind: .accepted,
-                    envelope: envelope,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), region: PixelRect.union(of: rects), motion: motion, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                    envelope: envelopes.first,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), region: PixelRect.union(of: rects), motion: motion, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight),
+                    envelopes: envelopes
                 )
             case .allUnchanged:
                 // pendingSurface = current is already set above; current equals previous
@@ -588,11 +582,12 @@ struct ScrollDeltaEngine {
             pendingSurface = current
             let region = PixelRect(x: 0, y: 0, width: current.width, height: current.height)
             switch makeTileEnvelope(current: current, previous: previous, rects: [region], policy: policy, capturedAtUptimeNs: frame.capturedAtUptimeNs) {
-            case .built(let envelope):
+            case .built(let envelopes):
                 return ScrollDeltaResult(
                     kind: .accepted,
-                    envelope: envelope,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), region: region, motion: motion, trace: trace, acceptedBy: "damage-fullframe-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                    envelope: envelopes.first,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), region: region, motion: motion, trace: trace, acceptedBy: "damage-fullframe-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight),
+                    envelopes: envelopes
                 )
             case .allUnchanged:
                 // pendingSurface = current is already set above; current equals previous
@@ -625,8 +620,9 @@ struct ScrollDeltaEngine {
 
     // Outcome of a tile envelope build attempt.
     private enum TileBuild {
-        // At least one cell changed; the envelope is ready to send.
-        case built(OwnedGraphicsFrameEnvelope)
+        // At least one cell changed; one or more envelopes are ready to send in
+        // order (progressive repaint splits a large frame into several).
+        case built([OwnedGraphicsFrameEnvelope])
         // Every dirty cell compared equal to the retained baseline; nothing to send.
         case allUnchanged
         // A cell extraction or compression step failed; the frame is undeliverable.
@@ -656,6 +652,7 @@ struct ScrollDeltaEngine {
             gridPx: tileGridPx
         )
         guard !cells.isEmpty else { return .allUnchanged }
+        var envelopes: [OwnedGraphicsFrameEnvelope] = []
         var commands: [OwnedGraphicsCommand] = []
         var payload = Data()
         for cell in cells {
@@ -693,33 +690,17 @@ struct ScrollDeltaEngine {
                 // (LZFSE approaches 3-4 bpp on random per-pixel noise).
                 let pixelCount = cell.width * cell.height
                 let lzfseBytesPerPixel = pixelCount > 0 ? Double(lzfseCompressed.count) / Double(pixelCount) : 0
+                // Content-gated only (ADR-0022): busy (photo) cells re-encode to JPEG
+                // at the governor's quality/scale; text and solid-fill stay lossless
+                // LZFSE so they are crisp. There is no per-frame downscale: a large
+                // repaint is split into several paced envelopes (progressive repaint)
+                // rather than shrunk, so text never loses resolution.
                 let isBusy = lzfseBytesPerPixel > hybridTileBusyBytesPerPixel
-                // payload.count is the running total of bytes appended by earlier
-                // rung-3 cells in this envelope. Rung-1 (omitted) and rung-2
-                // (drawCachedTile) cells appended nothing, so they never inflate it
-                // and never consume the budget. Once the budget is crossed, force
-                // JPEG on every remaining new cell regardless of the busy test, so a
-                // genuinely-new busy fullframe cannot sum past roughly one JPEG.
-                let budgetExceeded = payload.count >= hybridFrameByteBudget
-                // Per-frame wire-size ceiling (the multi-MB fullframe freeze fix). This is
-                // content-aware: it acts on the ACTUAL accumulated payload, not an upfront
-                // area estimate (which cannot tell compressible text from incompressible
-                // photo and would force-downscale a cheap frame into a larger lossy one).
-                // Once the real payload crosses the ceiling the frame is genuinely too big
-                // for the link, so every remaining new cell, text included, drops to the
-                // floor resolution. A whole-surface repaint therefore cannot be a multi-MB
-                // single frame that monopolises the in-order reliable channel; a cheap
-                // frame never reaches the ceiling and is untouched. The settle pass
-                // restores crisp once motion stops.
-                let ceilingExceeded = payload.count >= hybridFrameWireCeilingBytes
-                let cellScale = ceilingExceeded ? hybridFrameScaleFloor : (isBusy ? policy.busyResolutionScale : 1.0)
-                if isBusy || budgetExceeded || ceilingExceeded, let jpegBuilt = buildTile(
+                let cellScale = isBusy ? policy.busyResolutionScale : 1.0
+                if isBusy, let jpegBuilt = buildTile(
                     surface: current,
                     rect: cell,
-                    encoding: .jpeg(
-                        quality: policy.exposedStripQuality,
-                        scale: cellScale
-                    ),
+                    encoding: .jpeg(quality: policy.exposedStripQuality, scale: cellScale),
                     payloadOffset: payload.count
                 ) {
                     // buildTile emits a bitmapTile command; rewrap as cacheTile with slot.
@@ -740,20 +721,49 @@ struct ScrollDeltaEngine {
                 commands.append(built.command)
                 payload.append(built.payload)
             }
+            // Progressive repaint (ADR-0022): once this envelope's pixel payload
+            // reaches the per-envelope send budget, close it and continue the same
+            // surface generation in the next envelope (rising frameId). The pump
+            // sends them in order, paced by the link budget, so a large repaint
+            // streams in as several bounded frames the client paints cell-by-cell
+            // into its retained surface, instead of one frame that head-of-line
+            // blocks the channel. Rung-1 (omitted) and rung-2 (drawCachedTile) cells
+            // add no payload, so an all-cached frame stays a single zero-byte envelope.
+            if payload.count >= hybridFrameSendBudgetBytes {
+                graphicsFrameId &+= 1
+                envelopes.append(OwnedGraphicsFrameEnvelope(
+                    header: OwnedGraphicsFrameHeader(
+                        surfaceGeneration: surfaceGeneration,
+                        frameId: graphicsFrameId,
+                        capturedAtUptimeNs: capturedAtUptimeNs,
+                        commandCount: commands.count,
+                        payloadLength: payload.count
+                    ),
+                    commands: commands,
+                    payload: payload
+                ))
+                commands = []
+                payload = Data()
+            }
         }
-        guard !commands.isEmpty else { return .allUnchanged }
-        graphicsFrameId &+= 1
-        return .built(OwnedGraphicsFrameEnvelope(
-            header: OwnedGraphicsFrameHeader(
-                surfaceGeneration: surfaceGeneration,
-                frameId: graphicsFrameId,
-                capturedAtUptimeNs: capturedAtUptimeNs,
-                commandCount: commands.count,
-                payloadLength: payload.count
-            ),
-            commands: commands,
-            payload: payload
-        ))
+        // Flush the trailing partial envelope (also the only envelope for a small
+        // frame, and the single zero-payload envelope for an all-cached frame).
+        if !commands.isEmpty {
+            graphicsFrameId &+= 1
+            envelopes.append(OwnedGraphicsFrameEnvelope(
+                header: OwnedGraphicsFrameHeader(
+                    surfaceGeneration: surfaceGeneration,
+                    frameId: graphicsFrameId,
+                    capturedAtUptimeNs: capturedAtUptimeNs,
+                    commandCount: commands.count,
+                    payloadLength: payload.count
+                ),
+                commands: commands,
+                payload: payload
+            ))
+        }
+        guard !envelopes.isEmpty else { return .allUnchanged }
+        return .built(envelopes)
     }
 
     // Encoding choice for buildTile. LZFSE keeps text crisp; JPEG carries the

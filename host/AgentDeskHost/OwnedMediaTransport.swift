@@ -745,29 +745,38 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             let graphics = scrollDeltaEngine.evaluate(frame, motion: motion, policy: policy)
             switch graphics.kind {
             case .accepted:
-                guard let envelope = graphics.envelope else {
+                // ADR-0022 progressive repaint: a large frame is split into several
+                // bounded envelopes (same generation, rising frameId). They are sent
+                // in order, each awaited, so the client paints them cell-by-cell into
+                // its retained surface as they arrive instead of waiting for one big
+                // frame. The pacer/backpressure for the NEXT produce cycle accounts
+                // for the bytes. (Cross-cycle supersede of an in-flight repaint by
+                // newer damage is a future bandwidth optimization, not done here.)
+                let envelopes = graphics.envelopes
+                guard !envelopes.isEmpty else {
                     diagnostics.noteAdmissionHold(reason: "graphics-accepted-no-envelope")
                     continue
                 }
                 do {
-                    let encodedBytes = try await graphicsChannel.send(envelope)
-                    noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
-                    scrollDeltaEngine.commitPendingSurface()
-                    // Content tile cache decisions for this frame: cacheStores is rung 3
-                    // (cacheTile, pixels sent and a slot stored); cacheHits is rung 2
-                    // (drawCachedTile, the client already holds the content so zero pixel
-                    // bytes go on the wire). Rung 1 omits a cell entirely, so it never
-                    // appears as a command and is visible only as a lower command count.
-                    var cacheStores = 0
-                    var cacheHits = 0
-                    for command in envelope.commands {
-                        switch command {
-                        case .cacheTile: cacheStores += 1
-                        case .drawCachedTile: cacheHits += 1
-                        default: break
+                    for envelope in envelopes {
+                        let encodedBytes = try await graphicsChannel.send(envelope)
+                        noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
+                        // Content tile cache decisions for this envelope: cacheStores is
+                        // rung 3 (cacheTile, pixels sent and a slot stored); cacheHits is
+                        // rung 2 (drawCachedTile, the client already holds the content so
+                        // zero pixel bytes go on the wire). Rung 1 omits a cell entirely.
+                        var cacheStores = 0
+                        var cacheHits = 0
+                        for command in envelope.commands {
+                            switch command {
+                            case .cacheTile: cacheStores += 1
+                            case .drawCachedTile: cacheHits += 1
+                            default: break
+                            }
                         }
+                        logger.notice("owned graphics accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) envelopes=\(envelopes.count, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) cacheStores=\(cacheStores, privacy: .public) cacheHits=\(cacheHits, privacy: .public) acceptedBy=\(graphics.diagnostics?.acceptedBy ?? "unknown", privacy: .public) decision=\(graphics.diagnostics?.timeoutReason ?? "none", privacy: .public)")
                     }
-                    logger.notice("owned graphics accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) cacheStores=\(cacheStores, privacy: .public) cacheHits=\(cacheHits, privacy: .public) acceptedBy=\(graphics.diagnostics?.acceptedBy ?? "unknown", privacy: .public) decision=\(graphics.diagnostics?.timeoutReason ?? "none", privacy: .public) confidence=\(graphics.diagnostics?.confidence ?? 0, privacy: .public) hintActive=\(graphics.diagnostics?.hintActive ?? false, privacy: .public) hintAxis=\(graphics.diagnostics?.hintAxis ?? "none", privacy: .public)")
+                    scrollDeltaEngine.commitPendingSurface()
                 } catch {
                     logger.error("owned graphics send failed: \(String(describing: error), privacy: .public)")
                     if isActiveGraphicsConnection(ObjectIdentifier(graphicsChannel.connection)) {
