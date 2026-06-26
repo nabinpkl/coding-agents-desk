@@ -90,10 +90,17 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
                 group.cancel()
             }
         }
-        // Bring the QUIC connection up before opening streams.
+        // A client NWMultiplexGroup is INERT until a newConnectionHandler is set before
+        // start(): without it the group never initiates the QUIC handshake (no state
+        // transitions at all) and NWConnection(from:) returns nil forever. With it, the
+        // group drives the handshake and reaches .ready on its own; only then can it
+        // vend member connections. We never expect server-initiated streams, so accept
+        // and drop any. A connection timeout recycles a stalled handshake via the
+        // reconnect loop instead of hanging.
+        group.newConnectionHandler = { stream in stream.cancel() }
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            // The group state handler is serialized on `self.queue`, so a plain flag
-            // is safe here; mark it unsafe to satisfy the concurrency checker.
+            // The group handler and the timeout both run serialized on self.queue, so
+            // this flag is safe; mark it unsafe to satisfy the concurrency checker.
             nonisolated(unsafe) var resumed = false
             group.stateUpdateHandler = { [weak self] state in
                 self?.logger.notice("owned graphics quic group state=\(String(describing: state), privacy: .public)")
@@ -109,6 +116,9 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
                 }
             }
             group.start(queue: self.queue)
+            self.queue.asyncAfter(deadline: .now() + 6) {
+                if !resumed { resumed = true; cont.resume(throwing: SessionRejected(reason: .malformed)) }
+            }
         }
         // Steady-state group handler: tear the session down if the connection fails.
         group.stateUpdateHandler = { [weak self] state in
@@ -117,15 +127,35 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         }
 
         // Graphics stream: role 'G' + hello, then ready. (Every app stream is created
-        // explicitly; the group's implicit stream 0 is not used.)
-        guard let graphics = NWConnection(from: group) else {
+        // explicitly; the group's implicit stream 0 is not used.) Now that the group is
+        // ready it can vend a member connection; starting it drives stream setup.
+        guard let graphics = NWConnection(from: group, to: endpoint) else {
             throw SessionRejected(reason: .malformed)
         }
+        self.pendingConnection = graphics
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            // The stream state handler is serialized on `self.queue`, so a plain flag
+            // is safe here; mark it unsafe to satisfy the concurrency checker.
+            nonisolated(unsafe) var resumed = false
+            graphics.stateUpdateHandler = { [weak self] state in
+                self?.logger.notice("owned graphics quic stream state=\(String(describing: state), privacy: .public)")
+                switch state {
+                case .ready:
+                    if !resumed { resumed = true; cont.resume() }
+                case .failed(let error):
+                    if !resumed { resumed = true; cont.resume(throwing: error) }
+                case .cancelled:
+                    if !resumed { resumed = true; cont.resume(throwing: CancellationError()) }
+                default:
+                    break
+                }
+            }
+            graphics.start(queue: self.queue)
+        }
+        // Steady-state stream handler: drop the gating closure now that it is ready.
         graphics.stateUpdateHandler = { [weak self] state in
             self?.logger.notice("owned graphics quic stream state=\(String(describing: state), privacy: .public)")
         }
-        graphics.start(queue: self.queue)
-        self.pendingConnection = graphics
         let hello = ClientGraphicsChannelHandshake.makeHello(
             active: self.active,
             mediaCapability: self.mediaCapability,
@@ -136,7 +166,7 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
 
         // Interactive stream: role 'I' only. Trusted as a sibling on the same
         // authenticated QUIC connection; no second hello.
-        guard let interactive = NWConnection(from: group) else {
+        guard let interactive = NWConnection(from: group, to: endpoint) else {
             throw SessionRejected(reason: .malformed)
         }
         interactive.stateUpdateHandler = { [weak self] state in
