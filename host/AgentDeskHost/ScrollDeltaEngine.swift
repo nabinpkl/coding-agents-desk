@@ -258,7 +258,7 @@ struct ScrollDeltaEngine {
         fullframeMaxWireBytes: Int = Config.hybridFullframeMaxWireBytes,
         hybridTileBusyBytesPerPixel: Double = Config.hybridTileBusyBytesPerPixel,
         hybridFrameSendBudgetBytes: Int = Config.hybridFrameSendBudgetBytes,
-        healIntervalFrames: Int = Config.ownedMediaKeyframeIntervalFrames
+        healIntervalFrames: Int = Config.ownedMediaTileHealIntervalFrames
     ) {
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)

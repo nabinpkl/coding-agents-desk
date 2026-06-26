@@ -778,7 +778,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 configuration: OwnedMediaEncodingConfiguration(
                     targetBitrateKbps: Config.ownedMediaBitrateKbps,
                     expectedFrameRate: Config.ownedMediaExpectedFrameRate,
-                    keyframeIntervalFrames: Config.ownedMediaVideoKeyframeIntervalFrames
+                    keyframeIntervalFrames: Config.ownedMediaKeyframeIntervalFrames
                 )
             )
             : nil

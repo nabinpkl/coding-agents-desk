@@ -100,8 +100,11 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS",
         defaultValue: 30
     )
-    static let ownedMediaKeyframeIntervalFrames = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES",
+    // Tile-path periodic full-surface heal cadence (ScrollDeltaEngine.healIntervalFrames).
+    // Named for the heal it actually drives, not a video keyframe. The video GOP is the
+    // separate ownedMediaKeyframeIntervalFrames below.
+    static let ownedMediaTileHealIntervalFrames = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_TILE_HEAL_INTERVAL_FRAMES",
         defaultValue: 120
     )
     // ADR-0025 datagram carrier: how many recent frames' packets the host keeps for
@@ -135,11 +138,13 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_DATAGRAM_FRAME_SIZE",
         defaultValue: 1300
     )
-    // Video keyframe cadence is tighter than the tile path's: on datagram loss the
-    // client resyncs at the next keyframe (or by requesting one), so ~1s bounds the
-    // worst-case glitch.
-    static let ownedMediaVideoKeyframeIntervalFrames = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_VIDEO_KEYFRAME_INTERVAL_FRAMES",
+    // Video encoder GOP: the HEVC datagram carrier's keyframe cadence. THE keyframe
+    // knob (AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES). Defaults tighter than the
+    // tile heal because on datagram loss the client resyncs at the next keyframe (or by
+    // requesting one), so ~1s at 30fps bounds the worst-case glitch. Raise it to cut
+    // keyframe-tax bandwidth, the dominant rest cost under alwaysVideo.
+    static let ownedMediaKeyframeIntervalFrames = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES",
         defaultValue: 30
     )
     // ADR-0025 motion carrier: the dedicated QUIC datagram listener's port, distinct
