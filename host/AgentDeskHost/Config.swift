@@ -18,24 +18,22 @@ enum Config {
         }
     }
 
-    // ADR-0025 motion carrier mode, layered on the video carrier (only meaningful
-    // when ownedMediaVideoMotionEnabled is on). `.tilesMotion` is the device-validated
-    // default: scrolling forks to the HEVC datagram carrier, rest paints crisp tiles.
-    // `.alwaysVideo` runs the carrier on every produced frame (rest included) and never
-    // falls to the tile path, the pure-video A/B lever to measure whether video alone
-    // holds text and stays responsive without the tile-repair layer. No combo/repair
-    // mode exists yet, so an unknown value falls back to `.tilesMotion` and never
-    // regresses the daily driver. Set AGENTDESK_OWNED_MEDIA_MOTION_MODE = always_video.
+    // ADR-0025 motion carrier mode, layered on the video carrier. `.alwaysVideo` is
+    // the default now that device validation showed video alone is smooth, responsive,
+    // and cheap at rest: the carrier runs on every produced frame and never paints
+    // tiles. `.tilesMotion` is the prior hybrid: video on scroll, crisp tiles at rest;
+    // opt into it with AGENTDESK_OWNED_MEDIA_MOTION_MODE = tiles_motion. No combo/repair
+    // mode exists yet, so an unrecognized value resolves to the `.alwaysVideo` default.
     enum OwnedMediaMotionMode: String {
         case tilesMotion
         case alwaysVideo
 
         init(rawEnvironmentValue: String?) {
             switch rawEnvironmentValue?.trimmingCharacters(in: .whitespaces).lowercased() {
-            case "always_video", "always", "video":
-                self = .alwaysVideo
-            default:
+            case "tiles_motion", "tiles+motionvideo", "tiles", "scroll":
                 self = .tilesMotion
+            default:
+                self = .alwaysVideo
             }
         }
     }
@@ -115,19 +113,19 @@ enum Config {
     )
     static let ownedMediaMaxResendPackets = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
-        defaultValue: 64
+        defaultValue: 256
     )
-    // ADR-0025 mixed-mode kill switch. Off by default: the working retained-tile
-    // path carries everything, exactly as before. On: scrolling motion forks to the
-    // hardware HEVC datagram carrier. Stays off until the live carrier and the
-    // client video path are device-validated, so the daily driver never regresses.
+    // ADR-0025 motion carrier switch. ON by default now that the carrier and the
+    // client video path are device-validated: the HEVC datagram carrier is the
+    // primary media path (see ownedMediaMotionMode). Set the env var to 0 to fall
+    // back to the reliable retained-tile path only.
     static let ownedMediaVideoMotionEnabled: Bool = enabledFlag(
         environmentKey: "AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED",
-        defaultValue: false,
+        defaultValue: true,
         environment: ProcessInfo.processInfo.environment
     )
-    // Which motion-carrier mode the encode pump runs in. tilesMotion (default) =
-    // video on scroll, tiles at rest; alwaysVideo = continuous video, no tiles.
+    // Which motion-carrier mode the encode pump runs in. alwaysVideo (default) =
+    // continuous video, no tiles; tiles_motion = video on scroll, tiles at rest.
     static let ownedMediaMotionMode = OwnedMediaMotionMode(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_MOTION_MODE"]
     )
@@ -139,13 +137,13 @@ enum Config {
         defaultValue: 1300
     )
     // Video encoder GOP: the HEVC datagram carrier's keyframe cadence. THE keyframe
-    // knob (AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES). Defaults tighter than the
-    // tile heal because on datagram loss the client resyncs at the next keyframe (or by
-    // requesting one), so ~1s at 30fps bounds the worst-case glitch. Raise it to cut
-    // keyframe-tax bandwidth, the dominant rest cost under alwaysVideo.
+    // knob (AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES). 120 keeps the keyframe-tax
+    // bandwidth low (the dominant rest cost under alwaysVideo); datagram loss recovers
+    // via the next periodic keyframe or a client keyframe request. Lower it to bound the
+    // worst-case post-loss glitch at the cost of more keyframe bandwidth.
     static let ownedMediaKeyframeIntervalFrames = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES",
-        defaultValue: 30
+        defaultValue: 120
     )
     // ADR-0025 motion carrier: the dedicated QUIC datagram listener's port, distinct
     // from graphicsPort (41889) and offerPort (41890). Only bound when the motion
@@ -159,11 +157,11 @@ enum Config {
     // tight loop. burstPacketCount packets go back-to-back, then a burstPauseUs gap.
     static let ownedMediaDatagramBurstPacketCount = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PACKET_COUNT",
-        defaultValue: 16
+        defaultValue: 32
     )
     static let ownedMediaDatagramBurstPauseUs = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PAUSE_US",
-        defaultValue: 200
+        defaultValue: 1_000
     )
     // ADR-0021: damage is emitted as tiles snapped to a fixed grid in surface
     // pixel space. A fixed cell size bounds per-tile bytes and gives each tile a

@@ -41,7 +41,7 @@ enum Config {
     // frames it tracks at once, and the cap on missing packets named per request.
     static let ownedMediaRepairDeadlineMs = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_REPAIR_DEADLINE_MS",
-        defaultValue: 40
+        defaultValue: 50
     )
     static let ownedMediaTrackedFrameLimit = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_TRACKED_FRAME_LIMIT",
@@ -49,15 +49,16 @@ enum Config {
     )
     static let ownedMediaMaxResendPackets = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
-        defaultValue: 64
+        defaultValue: 256
     )
-    // ADR-0025 mixed-mode kill switch (mirrors the host). Off by default: the client
-    // renders only the retained-tile path. On: it accepts the HEVC datagram motion
-    // stream and swaps to the video layer while scrolling.
+    // ADR-0025 motion carrier switch (mirrors the host). ON by default now that the
+    // video path is device-validated: the client accepts the HEVC datagram stream and
+    // renders the video layer. Set the env var to 0/false to render only the retained
+    // tile path. An absent value resolves to true (the baked default).
     static let ownedMediaVideoMotionEnabled: Bool = {
         switch resolvedEnvValue("AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED")?.lowercased() {
-        case "1", "true", "yes", "on": return true
-        default: return false
+        case "0", "false", "no", "off": return false
+        default: return true
         }
     }()
     static let ownedMediaMaxDatagramFrameSize = positiveInt(
