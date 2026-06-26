@@ -89,6 +89,8 @@ Two client apps can coexist on one iPhone: the **stable** daily-driver (`com.exa
 
 ## Agent-run device sessions
 
+- **Installing or launching the host or client onto a device is the user's action, not the agent's.** Do not run install/launch recipes directly (`host-run`, `iphone-console-run[-dev]`, `fresh-install[-dev]`, `client-install[-dev]`, `client-reinstall-dev`, `pair-iphone`, etc.). The agent builds and runs `just check`, prepares the run, and states the exact command to use, then the user installs/launches and reports back. This protects the daily-driver device and keeps the human in control of what lands on hardware. Building (`xcodebuild`/`just check`) is fine; putting a build on a device or relaunching the host app is not, until the user approves or runs it.
+
 - When an agent launches the physical iPhone for exploratory media, transport, scroll, decode, or gesture feel work, use an attached console launch by default: `just iphone-console-run`.
 - Do not use `just fresh-install` or `just pair-iphone` for exploratory feel runs unless the user explicitly asks for a plain install or a non-attached launch.
 - The attached console path is load-bearing because it writes iPhone-side owned-media diagnostics to `/tmp/agentdesk-client-console.log`, including packet repair, stale skips, decoder recovery, render gaps, and frame age.
