@@ -65,6 +65,10 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         trackedFrameLimit: Config.ownedMediaTrackedFrameLimit,
         maxResendPackets: Config.ownedMediaMaxResendPackets
     )
+    // ADR-0025 diagnostic: counts inbound video datagrams so a device run can prove
+    // whether the host -> client datagram path delivers at all (the receive handler
+    // firing) versus a decode/reassembly fault. Touched only on `queue`.
+    private var videoDatagramRxCount = 0
     private let onFallbackResetRequest: @Sendable (OwnedGraphicsResetRequest) async -> Void
     private let onDisconnected: @Sendable (String) -> Void
 
@@ -393,10 +397,23 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     // hand each completed frame to the sink on the main actor, and ask for a keyframe
     // when a frame is dropped past its repair deadline. Runs serialized on `queue`.
     private func handleVideoDatagram(_ data: Data) {
-        guard let packet = try? MediaDatagramFramePacket.decode(data, key: Self.videoDatagramKey) else { return }
+        videoDatagramRxCount &+= 1
+        guard let packet = try? MediaDatagramFramePacket.decode(data, key: Self.videoDatagramKey) else {
+            if videoDatagramRxCount <= 8 {
+                logger.notice("owned media video datagram decode-failed rx=\(self.videoDatagramRxCount, privacy: .public) bytes=\(data.count, privacy: .public)")
+            }
+            return
+        }
+        if videoDatagramRxCount <= 8 || videoDatagramRxCount.isMultiple(of: 120) {
+            logger.notice("owned media video datagram rx=\(self.videoDatagramRxCount, privacy: .public) frame=\(packet.frameId, privacy: .public) idx=\(packet.packetIndex, privacy: .public)/\(packet.packetCount, privacy: .public) key=\(packet.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public)")
+        }
         let result = videoRepairBuffer.accept(packet, now: DispatchTime.now().uptimeNanoseconds)
         for completed in result.completedFrames {
-            guard let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else { continue }
+            guard let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else {
+                logger.notice("owned media video frame-complete decode-failed frame=\(completed.frameId, privacy: .public) bytes=\(completed.data.count, privacy: .public)")
+                continue
+            }
+            logger.notice("owned media video frame-complete frame=\(completed.frameId, privacy: .public) bytes=\(completed.data.count, privacy: .public)")
             Task { @MainActor [weak self] in self?.sink?.renderOwnedVideoFrame(envelope) }
         }
         if let expired = result.expiredFrames.last {

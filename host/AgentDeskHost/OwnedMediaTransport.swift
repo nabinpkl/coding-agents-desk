@@ -286,6 +286,13 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         serverNonce: Data()
     )
     private var videoEncoder: VideoToolboxOwnedMediaEncoder?
+    // ADR-0025 diagnostics for the datagram carrier send path. A nil group means the
+    // active-connection/group lookup failed, so every send no-ops silently; a send
+    // error is reported by Network.framework's completion (otherwise ignored). Both
+    // counters are read/reset by the encode pump's per-frame log, all on `queue`.
+    private var videoDatagramGroupMisses = 0
+    private var videoDatagramSendErrors = 0
+    private var lastVideoDatagramSendError: String?
 
     init(
         configuration: OwnedMediaEncodingConfiguration = .default,
@@ -441,8 +448,17 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     private func sendVideoDatagram(_ data: Data) {
-        guard let group = latestVideoGroup() else { return }
-        group.send(content: data, completion: { _ in })
+        guard let group = latestVideoGroup() else {
+            lock.withLock { videoDatagramGroupMisses &+= 1 }
+            return
+        }
+        group.send(content: data, completion: { [weak self] error in
+            guard let self, let error else { return }
+            self.lock.withLock {
+                self.videoDatagramSendErrors &+= 1
+                self.lastVideoDatagramSendError = String(describing: error)
+            }
+        })
     }
 
     private func latestVideoGroup() -> NWConnectionGroup? {
@@ -853,7 +869,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     for packet in packets { sendVideoDatagram(packet) }
                     let shouldLog = envelope.header.isKeyframe || videoFrameId.isMultiple(of: 30)
                     if shouldLog {
-                        logger.notice("owned media video sent frame=\(videoFrameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(Config.ownedMediaBitrateKbps, privacy: .public)")
+                        let (misses, errors, lastError) = lock.withLock {
+                            (videoDatagramGroupMisses, videoDatagramSendErrors, lastVideoDatagramSendError)
+                        }
+                        logger.notice("owned media video sent frame=\(videoFrameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(Config.ownedMediaBitrateKbps, privacy: .public) groupMisses=\(misses, privacy: .public) sendErrors=\(errors, privacy: .public) lastErr=\(lastError ?? "none", privacy: .public)")
                     }
                 }
                 continue
