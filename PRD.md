@@ -32,15 +32,16 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 2. Open iPhone app, see the active Space at native DPR.
 3. Trackpad area accepts: cursor move, tap-to-click, two-finger right-click, two-finger scroll, double-tap-drag.
 4. **One-handed Spaces control switches Spaces.** Visible feedback within one frame.
-5. Compact keyboard with Esc, Tab, arrows, and sticky-tap modifiers (Cmd, Ctrl, Option, Shift).
-6. When the iPhone app backgrounds, the session drops within one second. Foregrounding reconnects in under five seconds.
-7. macOS host runs as a menu-bar app that auto-starts when the user actively opens it (not on every boot).
-8. macOS host shows a persistent draggable Space Agent. The small spaceship toggles an attached active-display Spaces panel with live thumbnails; selecting a non-active tile switches Spaces and leaves the panel open.
+5. On multi-monitor hosts, pick the projected display from a labeled client rail. The Spaces control then switches Spaces on that selected display.
+6. Compact keyboard with Esc, Tab, arrows, and sticky-tap modifiers (Cmd, Ctrl, Option, Shift).
+7. When the iPhone app backgrounds, the session drops within one second. Foregrounding reconnects in under five seconds.
+8. macOS host runs as a menu-bar app that auto-starts when the user actively opens it (not on every boot).
+9. macOS host shows a persistent draggable Space Agent. The small spaceship toggles an attached active-display Spaces panel with live thumbnails; selecting a non-active tile switches Spaces and leaves the panel open.
 
 ## What v0 is not
 
 - **Not agent-native.** No agent cards, no per-agent reasoning ticker, no swipe-between-agents carousel. The host-side Space Agent is a local Spaces navigator, not the v1+ agent-native UX mocked in `mock-design/`.
-- **Not multi-display in the UI.** The host knows about multiple displays; the client only shows the active Space on the active display in v0.
+- **Not continuous multi-display gestures.** Display selection is an explicit tap on the client rail. Horizontal sliding remains dedicated to switching Spaces within the selected display.
 - **Not multi-user.** Single bearer token in Keychain. No accounts, no sharing.
 - **Not internet-routable.** Tailscale-only. No STUN, no TURN, no VPS, no relay.
 - **Not cross-platform.** macOS host and iOS client only. No Android, no web, no Windows host.
@@ -49,7 +50,6 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 ## Explicitly deferred
 
 - Agent-native UX (per-agent attention model, reasoning surface, multi-agent overview).
-- Multi-display projection on the client.
 - iPad client (later iteration, same codebase).
 - Browser client. AnyDesk and TeamViewer do not ship a mobile browser client either; chasing crisp text in a browser is not the v0 fight.
 - Marketplace / TestFlight wider distribution. v0 is signed Developer ID DMG for Mac and TestFlight to one device for iOS.

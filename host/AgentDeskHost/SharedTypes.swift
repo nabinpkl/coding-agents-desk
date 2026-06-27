@@ -1834,6 +1834,10 @@ struct InputChannelClose: Codable, Equatable {
 
 struct DisplayMetadata: Codable, Equatable {
     let id: String
+    let label: String
+    let isMain: Bool
+    let originX: Float
+    let originY: Float
     // ADR-0009 cursor-driven viewport pan. Display dimensions in points,
     // matching CGDisplayBounds / what InputDispatcher clamps cursor
     // positions against. The client uses these to clamp its predicted
@@ -1844,8 +1848,41 @@ struct DisplayMetadata: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id = "i"
+        case label = "l"
+        case isMain = "m"
+        case originX = "x"
+        case originY = "y"
         case widthPoints = "w"
         case heightPoints = "h"
+    }
+
+    init(
+        id: String,
+        label: String = "",
+        isMain: Bool = false,
+        originX: Float = 0,
+        originY: Float = 0,
+        widthPoints: Float,
+        heightPoints: Float
+    ) {
+        self.id = id
+        self.label = label
+        self.isMain = isMain
+        self.originX = originX
+        self.originY = originY
+        self.widthPoints = widthPoints
+        self.heightPoints = heightPoints
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        label = try container.decodeIfPresent(String.self, forKey: .label) ?? ""
+        isMain = try container.decodeIfPresent(Bool.self, forKey: .isMain) ?? false
+        originX = try container.decodeIfPresent(Float.self, forKey: .originX) ?? 0
+        originY = try container.decodeIfPresent(Float.self, forKey: .originY) ?? 0
+        widthPoints = try container.decode(Float.self, forKey: .widthPoints)
+        heightPoints = try container.decode(Float.self, forKey: .heightPoints)
     }
 }
 
@@ -1867,6 +1904,7 @@ struct DesktopState: Codable, Equatable {
     let displays: [DisplayMetadata]
     let spaces: [SpaceMetadata]
     let activeDisplayId: String?
+    let selectedDisplayId: String?
     let activeSpaceId: UInt64?
     // ADR-0009: current Mac cursor position in logical display points at
     // the moment the push was built. Nil when unavailable. The client
@@ -1880,6 +1918,7 @@ struct DesktopState: Codable, Equatable {
         case displays = "d"
         case spaces = "s"
         case activeDisplayId = "ad"
+        case selectedDisplayId = "sd"
         case activeSpaceId = "as"
         case cursorX = "cx"
         case cursorY = "cy"
@@ -1891,6 +1930,7 @@ struct DesktopState: Codable, Equatable {
         displays: [DisplayMetadata],
         spaces: [SpaceMetadata],
         activeDisplayId: String?,
+        selectedDisplayId: String? = nil,
         activeSpaceId: UInt64?,
         cursorX: Float? = nil,
         cursorY: Float? = nil
@@ -1898,9 +1938,21 @@ struct DesktopState: Codable, Equatable {
         self.displays = displays
         self.spaces = spaces
         self.activeDisplayId = activeDisplayId
+        self.selectedDisplayId = selectedDisplayId
         self.activeSpaceId = activeSpaceId
         self.cursorX = cursorX
         self.cursorY = cursorY
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        displays = try container.decode([DisplayMetadata].self, forKey: .displays)
+        spaces = try container.decode([SpaceMetadata].self, forKey: .spaces)
+        activeDisplayId = try container.decodeIfPresent(String.self, forKey: .activeDisplayId)
+        selectedDisplayId = try container.decodeIfPresent(String.self, forKey: .selectedDisplayId)
+        activeSpaceId = try container.decodeIfPresent(UInt64.self, forKey: .activeSpaceId)
+        cursorX = try container.decodeIfPresent(Float.self, forKey: .cursorX)
+        cursorY = try container.decodeIfPresent(Float.self, forKey: .cursorY)
     }
 }
 
@@ -2041,16 +2093,19 @@ struct ClientConfig: Codable, Equatable {
     let type: String
     let thumbnailsEnabled: Bool
     let thumbnailRefresh: UInt64?
+    let selectedDisplayId: String?
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case thumbnailsEnabled = "te"
         case thumbnailRefresh = "tr"
+        case selectedDisplayId = "sd"
     }
 
-    init(thumbnailsEnabled: Bool, thumbnailRefresh: UInt64? = nil) {
+    init(thumbnailsEnabled: Bool, thumbnailRefresh: UInt64? = nil, selectedDisplayId: String? = nil) {
         self.type = "client-config"
         self.thumbnailsEnabled = thumbnailsEnabled
         self.thumbnailRefresh = thumbnailRefresh
+        self.selectedDisplayId = selectedDisplayId
     }
 }

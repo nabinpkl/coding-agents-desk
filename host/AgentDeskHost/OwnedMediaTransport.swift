@@ -57,6 +57,9 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     private func enqueue(_ frame: CapturedVideoFrame) {
         let shouldStart = encodeGate.withLock { state -> Bool in
             state.latest = frame
+            if frame.forceKeyframe {
+                state.forceKeyframe = true
+            }
             if state.encoding { return false }
             state.encoding = true
             return true

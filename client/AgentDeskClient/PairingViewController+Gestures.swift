@@ -7,7 +7,7 @@ import UIKit
 // settings-changed responder, and the two background Tasks that drain
 // DesktopState / Thumbnails from the input channel into the views.
 
-extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDelegate {
+extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDelegate, DisplayRailViewDelegate {
     @objc func settingsChanged() {
         applySettingsToTranslator()
         // R20: settings toggle is the only source of truth for whether
@@ -32,11 +32,16 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     func startDesktopStateObservation() {
         desktopStateTask?.cancel()
         guard let channel = pairingClient.activeInputChannel else { return }
+        displayRailView.renderEmpty()
         thumbnailStripView.renderEmpty()
         desktopStateTask = Task { [weak self, channel] in
             for await state in channel.desktopStateUpdates {
                 await MainActor.run {
                     self?.lastDesktopState = state
+                    self?.selectedDisplayIdForClientConfig = state.selectedDisplayId
+                        ?? state.activeDisplayId
+                        ?? state.displays.first?.id
+                    self?.displayRailView.apply(state: state)
                     self?.thumbnailStripView.apply(state: state)
                     self?.refreshThumbnailStripVisibility()
                     self?.applyDesktopStateForCursorModel(state)
@@ -250,7 +255,10 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // or off.
     func sendCurrentClientConfig() {
         guard let channel = pairingClient.activeInputChannel else { return }
-        let config = ClientConfig(thumbnailsEnabled: SettingsStore.shared.showSpacePreviews)
+        let config = ClientConfig(
+            thumbnailsEnabled: SettingsStore.shared.showSpacePreviews,
+            selectedDisplayId: selectedDisplayIdForConfig()
+        )
         Task { [channel, config] in
             try? await channel.sendConfig(config)
         }
@@ -311,11 +319,31 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         guard let channel = pairingClient.activeInputChannel else { return }
         let config = ClientConfig(
             thumbnailsEnabled: SettingsStore.shared.showSpacePreviews,
-            thumbnailRefresh: spaceId
+            thumbnailRefresh: spaceId,
+            selectedDisplayId: selectedDisplayIdForConfig()
         )
         Task { [channel, config] in
             try? await channel.sendConfig(config)
         }
+    }
+
+    func displayRail(_ view: DisplayRailView, didSelectDisplayId displayId: String) {
+        guard let channel = pairingClient.activeInputChannel else { return }
+        selectedDisplayIdForClientConfig = displayId
+        let config = ClientConfig(
+            thumbnailsEnabled: SettingsStore.shared.showSpacePreviews,
+            selectedDisplayId: displayId
+        )
+        Task { [channel, config] in
+            try? await channel.sendConfig(config)
+        }
+    }
+
+    private func selectedDisplayIdForConfig() -> String? {
+        selectedDisplayIdForClientConfig
+            ?? lastDesktopState?.selectedDisplayId
+            ?? lastDesktopState?.activeDisplayId
+            ?? lastDesktopState?.displays.first?.id
     }
 
     // ADR-0030: input rides its own ordered stream inside the authenticated

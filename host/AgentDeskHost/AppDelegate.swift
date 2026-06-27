@@ -91,8 +91,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var signalingServer: PairingSignalingServer?
     private let sessions = SessionRegistry()
     private let scrollActivityHints = ScrollActivityStore()
-    private let inputDispatcher = InputDispatcher()
-    private let spacesProvider = SpacesProvider()
+    private let displaySelection = DisplaySelectionStore()
+    private lazy var inputDispatcher = InputDispatcher(
+        displayBoundsProvider: { [displaySelection] in
+            displaySelection.selectedBounds()
+        }
+    )
+    private lazy var spacesProvider = SpacesProvider(
+        selectedDisplayIdProvider: { [displaySelection] in
+            displaySelection.selectedDisplayId
+        }
+    )
     private let spaceThumbnailProvider = SpaceThumbnailProvider()
     private let cursorMonitor = CursorMonitor()
     private var spaceAgentController: SpaceAgentController?
@@ -104,7 +113,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var agentSayServer: AgentSayLocalServer?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
-    private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()
+    private lazy var frameSource: VideoFrameSource = MediaStack.makeFrameSource(
+        selectedDisplayIdProvider: { [displaySelection] in
+            displaySelection.selectedDisplayId
+        }
+    )
     private var pairingSignalSource: DispatchSourceSignal?
     // ADR-0019: bounds the .pairingOffered state so a device that never dials
     // back does not strand the popover. Cancelled when the device starts
@@ -479,7 +492,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // R11: push the current DesktopState as soon as the channel is
         // attached so the client can render the dots band immediately
         // on session start without waiting for a Spaces switch.
-        if let state = spacesProvider.current() {
+        if let state = currentDesktopState() {
             server.pushDesktopState(state)
         }
         // Seed the cursor overlay with the current cursor image so the
@@ -497,6 +510,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         server.configHandler = { [weak self, server] config in
             let enabled = config.thumbnailsEnabled
             let refresh = config.thumbnailRefresh
+            let selectedDisplayId = config.selectedDisplayId
             Task { @MainActor [weak self, provider, thumbnailOwner, server] in
                 guard let self else { return }
                 if enabled {
@@ -508,6 +522,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 provider.setDemand(owner: thumbnailOwner, enabled: enabled)
                 if let spaceId = refresh {
                     provider.forceRefresh(spaceId: spaceId)
+                }
+                if let selectedDisplayId, selectedDisplayId != self.displaySelection.selectedDisplayId {
+                    let available = Set(self.spacesProvider.current()?.displays.map(\.id) ?? [])
+                    guard self.displaySelection.select(selectedDisplayId, availableDisplayIds: available) else {
+                        return
+                    }
+                    (self.frameSource as? DisplaySelectableVideoFrameSource)?.selectDisplay(
+                        id: self.displaySelection.selectedDisplayId
+                    )
+                    self.broadcastDesktopState()
                 }
             }
         }
@@ -545,6 +569,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     server.pushThumbnails(thumbnails, topWindows: topWindows)
                 }
             }
+        }
+    }
+
+    private func currentDesktopState() -> DesktopState? {
+        guard let state = spacesProvider.current() else { return nil }
+        let fallback = state.selectedDisplayId ?? state.activeDisplayId ?? state.displays.first?.id
+        if displaySelection.selectDefaultIfNeeded(fallback) {
+            return spacesProvider.current() ?? state
+        }
+        return state
+    }
+
+    private func broadcastDesktopState() {
+        guard let state = currentDesktopState() else { return }
+        for server in sessions.allInputChannelServers() {
+            server.pushDesktopState(state)
         }
     }
 

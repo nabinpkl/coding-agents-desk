@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import os
@@ -108,6 +109,7 @@ final class SpacesProvider {
     private let spaceSwitchMode: Config.SpaceSwitchMode
     private let currentStateOverride: (() -> DesktopState?)?
     private let directSpaceSetter: DirectSpaceSetter
+    private let selectedDisplayIdProvider: () -> String?
     // Dedicated serial queue for tap-to-jump chains. We can't run the
     // chain on InputDispatcher's queue because multi-step switching can
     // do private-API verification or Dock event chains, and that would
@@ -128,11 +130,13 @@ final class SpacesProvider {
     init(
         eventPoster: @escaping EventPoster = { $0.post(tap: .cgSessionEventTap) },
         spaceSwitchMode: Config.SpaceSwitchMode = Config.spaceSwitchMode,
+        selectedDisplayIdProvider: @escaping () -> String? = { nil },
         currentStateProvider: (() -> DesktopState?)? = nil,
         directSpaceSetter: DirectSpaceSetter? = nil
     ) {
         self.eventPoster = eventPoster
         self.spaceSwitchMode = spaceSwitchMode
+        self.selectedDisplayIdProvider = selectedDisplayIdProvider
         self.currentStateOverride = currentStateProvider
         self.directSpaceSetter = directSpaceSetter ?? SpacesProvider.setCurrentSpaceDirectly
     }
@@ -162,21 +166,20 @@ final class SpacesProvider {
         var activeDisplayId: String?
         var activeSpaceId: UInt64?
 
-        // ADR-0009: stamp each display with its size in points. v0 only
-        // captures and dispatches input against CGMainDisplayID, and
-        // InputDispatcher clamps the cursor against CGDisplayBounds of
-        // the same display. So for the single-display case applying
-        // the main display's bounds to every DisplayMetadata is
-        // correct; multi-monitor v1 will need UUID-to-displayID
-        // matching to disambiguate.
-        let mainBounds = CGDisplayBounds(CGMainDisplayID())
+        let displayInfoById = HostDisplayResolver.displaysBySkyLightId()
 
         for entry in displaysRaw {
             guard let displayUUID = entry["Display Identifier"] as? String else { continue }
+            let info = displayInfoById[displayUUID]
+            let bounds = info?.bounds ?? CGDisplayBounds(CGMainDisplayID())
             displays.append(DisplayMetadata(
                 id: displayUUID,
-                widthPoints: Float(mainBounds.width),
-                heightPoints: Float(mainBounds.height)
+                label: info?.label ?? "Display \(displays.count + 1)",
+                isMain: info?.isMain ?? false,
+                originX: Float(bounds.origin.x),
+                originY: Float(bounds.origin.y),
+                widthPoints: Float(bounds.width),
+                heightPoints: Float(bounds.height)
             ))
 
             guard let displaySpaces = entry["Spaces"] as? [[String: Any]] else { continue }
@@ -207,6 +210,7 @@ final class SpacesProvider {
             displays: displays,
             spaces: spaces,
             activeDisplayId: activeDisplayId,
+            selectedDisplayId: selectedDisplayIdProvider() ?? activeDisplayId,
             activeSpaceId: activeSpaceId,
             cursorX: cursorLoc.map { Float($0.x) },
             cursorY: cursorLoc.map { Float($0.y) }
@@ -357,5 +361,92 @@ final class SpacesProvider {
         event.setDoubleValueField(DockSwipeField.gestureSwipeVelocityY, value: Double(velocityX))
         eventPoster(event)
         return true
+    }
+}
+
+struct HostDisplayInfo: Equatable {
+    let skyLightId: String
+    let cgDisplayId: CGDirectDisplayID
+    let label: String
+    let isMain: Bool
+    let bounds: CGRect
+}
+
+enum HostDisplayResolver {
+    static func displaysBySkyLightId() -> [String: HostDisplayInfo] {
+        var result: [String: HostDisplayInfo] = [:]
+        let mainDisplayID = CGMainDisplayID()
+        let screenNumberKey = NSDeviceDescriptionKey("NSScreenNumber")
+        for screen in NSScreen.screens {
+            guard let number = screen.deviceDescription[screenNumberKey] as? NSNumber else {
+                continue
+            }
+            let cgDisplayId = CGDirectDisplayID(number.uint32Value)
+            guard let skyLightId = skyLightId(for: cgDisplayId) else { continue }
+            let bounds = CGDisplayBounds(cgDisplayId)
+            result[skyLightId] = HostDisplayInfo(
+                skyLightId: skyLightId,
+                cgDisplayId: cgDisplayId,
+                label: screen.localizedName,
+                isMain: cgDisplayId == mainDisplayID,
+                bounds: bounds
+            )
+        }
+        return result
+    }
+
+    static func displayID(forSkyLightId skyLightId: String?) -> CGDirectDisplayID? {
+        guard let skyLightId else { return nil }
+        return displaysBySkyLightId()[skyLightId]?.cgDisplayId
+    }
+
+    static func bounds(forSkyLightId skyLightId: String?) -> CGRect {
+        if let skyLightId, let info = displaysBySkyLightId()[skyLightId] {
+            return info.bounds
+        }
+        return CGDisplayBounds(CGMainDisplayID())
+    }
+
+    private static func skyLightId(for displayID: CGDirectDisplayID) -> String? {
+        guard let uuid = CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue() else {
+            return nil
+        }
+        return CFUUIDCreateString(nil, uuid) as String
+    }
+}
+
+final class DisplaySelectionStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var selected: String?
+
+    var selectedDisplayId: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return selected
+    }
+
+    @discardableResult
+    func select(_ displayId: String?, availableDisplayIds: Set<String>? = nil) -> Bool {
+        if let displayId, let availableDisplayIds, !availableDisplayIds.contains(displayId) {
+            return false
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        guard selected != displayId else { return false }
+        selected = displayId
+        return true
+    }
+
+    @discardableResult
+    func selectDefaultIfNeeded(_ displayId: String?) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard selected == nil, let displayId else { return false }
+        selected = displayId
+        return true
+    }
+
+    func selectedBounds() -> CGRect {
+        HostDisplayResolver.bounds(forSkyLightId: selectedDisplayId)
     }
 }

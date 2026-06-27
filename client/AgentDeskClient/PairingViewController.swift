@@ -112,6 +112,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     let rightClickButton = UIButton(type: .system)
     let showKeyboardButton = UIButton(type: .system)
     // R25: merged Spaces band. Replaces the old dots band.
+    let displayRailView = DisplayRailView()
     let thumbnailStripView = ThumbnailStripView()
     var thumbnailsTask: Task<Void, Never>?
     var topWindowsTask: Task<Void, Never>?
@@ -119,6 +120,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // a thumbnails-push arrives without DesktopState changing, or when
     // the settings toggle flips after a state has already landed.
     var lastDesktopState: DesktopState?
+    var selectedDisplayIdForClientConfig: String?
     // R12.3: hidden first-responder that backs the iOS soft keyboard.
     let keyboardSurface = KeyboardSurface()
     var buttonRowBottomConstraint: NSLayoutConstraint?
@@ -370,6 +372,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         cursorSourcePos = nil
         activeDisplayRect = .zero
         activeDisplayIdMirror = nil
+        selectedDisplayIdForClientConfig = nil
         hideTrackpad()
     }
 

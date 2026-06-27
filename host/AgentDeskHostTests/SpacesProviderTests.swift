@@ -4,6 +4,16 @@ import Testing
 
 @MainActor
 struct SpacesProviderTests {
+    @Test func displaySelectionRejectsUnavailableDisplayAndKeepsBoundsFallback() {
+        let store = DisplaySelectionStore()
+
+        #expect(store.select("display-b", availableDisplayIds: ["display-a"]) == false)
+        #expect(store.selectedDisplayId == nil)
+        #expect(store.select("display-a", availableDisplayIds: ["display-a"]) == true)
+        #expect(store.selectedDisplayId == "display-a")
+        #expect(store.select("display-a", availableDisplayIds: ["display-a"]) == false)
+    }
+
     @Test func spaceSwitchModeDefaultsToDockSwipeAndAcceptsDirectSetAliases() {
         #expect(Config.SpaceSwitchMode(rawEnvironmentValue: nil) == .dockSwipe)
         #expect(Config.SpaceSwitchMode(rawEnvironmentValue: "dock-swipe") == .dockSwipe)

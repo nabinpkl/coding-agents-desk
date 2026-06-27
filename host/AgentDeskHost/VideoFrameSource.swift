@@ -17,6 +17,10 @@ protocol VideoFrameSource: AnyObject, Sendable {
     func stop()
 }
 
+protocol DisplaySelectableVideoFrameSource: AnyObject, Sendable {
+    func selectDisplay(id: String?)
+}
+
 // CVPixelBuffer is a CoreFoundation reference type; we never mutate it
 // after creation, so crossing task boundaries is safe in practice. Swift's
 // strict-concurrency checker doesn't know that, hence @unchecked.
@@ -25,6 +29,7 @@ struct CapturedVideoFrame: @unchecked Sendable {
     let presentationTimeNs: Int64
     let capturedAtUptimeNs: UInt64
     let rotation: VideoRotation
+    let forceKeyframe: Bool
     // OS-provided per-frame damage (ADR-0021), in native pixel-buffer space.
     // Empty when the capture source could not supply usable damage geometry
     // (incomplete frame, missing attachments, a non-SCK source, or a rescaled
@@ -40,6 +45,7 @@ struct CapturedVideoFrame: @unchecked Sendable {
         presentationTimeNs: Int64,
         capturedAtUptimeNs: UInt64,
         rotation: VideoRotation,
+        forceKeyframe: Bool = false,
         damageRects: [PixelRect] = [],
         contentRectPixels: PixelRect? = nil
     ) {
@@ -47,6 +53,7 @@ struct CapturedVideoFrame: @unchecked Sendable {
         self.presentationTimeNs = presentationTimeNs
         self.capturedAtUptimeNs = capturedAtUptimeNs
         self.rotation = rotation
+        self.forceKeyframe = forceKeyframe
         self.damageRects = damageRects
         self.contentRectPixels = contentRectPixels
     }

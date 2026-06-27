@@ -7,31 +7,56 @@ import ScreenCaptureKit
 import os
 
 // ADR-0004 production VideoFrameSource impl, host side. Captures the
-// first available display via ScreenCaptureKit at native pixel size and
-// 60 Hz, using the configured capture pixel format. The display picker for
-// multi-monitor selection is a
-// v1 follow-up; v0 captures `displays.first` which is the main display
-// in single-display setups.
+// selected display via ScreenCaptureKit at native pixel size and 60 Hz,
+// using the configured capture pixel format. Selection comes from the
+// input-channel client config and falls back to the first display.
 
-final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySelectableVideoFrameSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "capture")
     private let sampleQueue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.scstream", qos: .userInteractive)
     private let scaleDownBy: Double
     private let pixelFormat: OSType
     private var stream: SCStream?
-    // Set in start() and cleared in stop(). Read from the SCStream sample
-    // queue, written from the start/stop caller. Those don't overlap, so
-    // the lack of synchronization is intentional.
-    private var onFrame: (@Sendable (CapturedVideoFrame) -> Void)?
+    private let controlState = OSAllocatedUnfairLock(
+        initialState: CaptureControlState()
+    )
 
-    init(scaleDownBy: Double = 1.0, pixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
+    init(
+        scaleDownBy: Double = 1.0,
+        pixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+        selectedDisplayIdProvider: @escaping @Sendable () -> String? = { nil }
+    ) {
         self.scaleDownBy = max(scaleDownBy, 1.0)
         self.pixelFormat = pixelFormat
         super.init()
+        controlState.withLock { state in
+            state.selectedDisplayId = selectedDisplayIdProvider()
+        }
     }
 
     func start(onFrame: @escaping @Sendable (CapturedVideoFrame) -> Void) async throws {
-        self.onFrame = onFrame
+        controlState.withLock { state in
+            state.onFrame = onFrame
+            state.isRunning = true
+            state.forceKeyframeNextFrame = true
+        }
+        try await startCurrentSelection()
+    }
+
+    func selectDisplay(id: String?) {
+        let shouldRestart = controlState.withLock { state -> Bool in
+            let changed = state.selectedDisplayId != id
+            state.selectedDisplayId = id
+            return changed && state.isRunning && state.onFrame != nil
+        }
+        guard shouldRestart else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.restartCurrentSelection()
+        }
+    }
+
+    private func startCurrentSelection() async throws {
         let content: SCShareableContent
         do {
             content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
@@ -39,7 +64,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
             logger.error("SCShareableContent failed: \(String(describing: error), privacy: .public)")
             throw ScreenCaptureError.permissionDenied
         }
-        guard let display = content.displays.first else {
+        guard let display = selectDisplay(from: content.displays) else {
             throw ScreenCaptureError.noDisplay
         }
         let filter = SCContentFilter(display: display, excludingWindows: [])
@@ -92,6 +117,33 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
         logger.notice("screen capture started \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) backingScale=\(scale, privacy: .public) captureScaleDown=\(self.scaleDownBy, privacy: .public) pixelFormat=\(Self.fourCC(self.pixelFormat), privacy: .public)")
     }
 
+    private func selectDisplay(from displays: [SCDisplay]) -> SCDisplay? {
+        let selectedDisplayId = controlState.withLock { $0.selectedDisplayId }
+        if let cgDisplayId = HostDisplayResolver.displayID(forSkyLightId: selectedDisplayId),
+           let selected = displays.first(where: { $0.displayID == cgDisplayId }) {
+            return selected
+        }
+        return displays.first
+    }
+
+    private func restartCurrentSelection() async {
+        let oldStream = stream
+        stream = nil
+        if let oldStream {
+            try? await oldStream.stopCapture()
+        }
+        let callback = controlState.withLock { state -> (@Sendable (CapturedVideoFrame) -> Void)? in
+            state.forceKeyframeNextFrame = true
+            return state.onFrame
+        }
+        guard let callback else { return }
+        do {
+            try await start(onFrame: callback)
+        } catch {
+            logger.error("screen capture display switch failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     // Pull the backing scale factor for a CGDirectDisplayID off NSScreen.
     // Falls back to 2.0 (the Retina default) if the displayID doesn't
     // resolve, which keeps a desk-clone monitor working without
@@ -117,9 +169,12 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
     }
 
     func stop() {
+        controlState.withLock { state in
+            state.isRunning = false
+            state.onFrame = nil
+        }
         let captured = stream
         stream = nil
-        onFrame = nil
         guard let captured else { return }
         Task {
             do {
@@ -152,15 +207,21 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
         // whole frame. Read but do not log per frame: a prior os_log on this
         // 60fps sample queue re-froze the session.
         let damage = Self.damageRects(from: sampleBuffer, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+        let output = controlState.withLock { state -> (Bool, (@Sendable (CapturedVideoFrame) -> Void)?) in
+            let force = state.forceKeyframeNextFrame
+            state.forceKeyframeNextFrame = false
+            return (force, state.onFrame)
+        }
         let frame = CapturedVideoFrame(
             pixelBuffer: imageBuffer,
             presentationTimeNs: timeNs,
             capturedAtUptimeNs: DispatchTime.now().uptimeNanoseconds,
             rotation: ._0,
+            forceKeyframe: output.0,
             damageRects: damage,
             contentRectPixels: PixelRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight)
         )
-        onFrame?(frame)
+        output.1?(frame)
     }
 
     // Extract SCStreamFrameInfoDirtyRects as native pixel rects. Returns empty
@@ -198,7 +259,10 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         logger.error("scstream stopped with error: \(String(describing: error), privacy: .public)")
-        onFrame = nil
+        controlState.withLock { state in
+            state.onFrame = nil
+            state.isRunning = false
+        }
     }
 
     // MARK: - Permission helper
@@ -210,6 +274,13 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
     static func requestScreenRecordingPermission() {
         _ = CGRequestScreenCaptureAccess()
     }
+}
+
+private struct CaptureControlState: Sendable {
+    var selectedDisplayId: String?
+    var isRunning = false
+    var forceKeyframeNextFrame = true
+    var onFrame: (@Sendable (CapturedVideoFrame) -> Void)?
 }
 
 enum ScreenCaptureError: Error {

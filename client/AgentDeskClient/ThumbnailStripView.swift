@@ -1,7 +1,99 @@
 import UIKit
 
+@MainActor
+protocol DisplayRailViewDelegate: AnyObject {
+    func displayRail(_ view: DisplayRailView, didSelectDisplayId displayId: String)
+}
+
+@MainActor
+final class DisplayRailView: UIView {
+    weak var delegate: DisplayRailViewDelegate?
+
+    private let stack = UIStackView()
+    private var displays: [DisplayMetadata] = []
+    private var selectedDisplayId: String?
+
+    var displayCount: Int { displays.count }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configure()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configure()
+    }
+
+    private func configure() {
+        accessibilityIdentifier = "display-rail"
+        isHidden = true
+        stack.axis = .horizontal
+        stack.spacing = 8
+        stack.distribution = .fillEqually
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    func apply(state: DesktopState) {
+        displays = state.displays
+        selectedDisplayId = state.selectedDisplayId ?? state.activeDisplayId ?? state.displays.first?.id
+        render()
+    }
+
+    func renderEmpty() {
+        displays = []
+        selectedDisplayId = nil
+        render()
+    }
+
+    private func render() {
+        stack.arrangedSubviews.forEach { view in
+            stack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        isHidden = displays.count <= 1
+        for (idx, display) in displays.enumerated() {
+            let button = UIButton(type: .system)
+            button.titleLabel?.font = .preferredFont(forTextStyle: .caption1)
+            button.titleLabel?.adjustsFontSizeToFitWidth = true
+            button.titleLabel?.minimumScaleFactor = 0.75
+            button.setTitle(Self.title(for: display, fallbackIndex: idx), for: .normal)
+            button.layer.cornerRadius = 8
+            button.layer.borderWidth = 1
+            button.layer.borderColor = UIColor.separator.cgColor
+            button.backgroundColor = display.id == selectedDisplayId ? UIColor.tintColor.withAlphaComponent(0.16) : UIColor.secondarySystemBackground
+            button.accessibilityIdentifier = "display-rail-\(idx)"
+            button.tag = idx
+            button.addTarget(self, action: #selector(selectDisplay(_:)), for: .touchUpInside)
+            stack.addArrangedSubview(button)
+        }
+    }
+
+    @objc private func selectDisplay(_ sender: UIButton) {
+        guard sender.tag >= 0, sender.tag < displays.count else { return }
+        let displayId = displays[sender.tag].id
+        guard displayId != selectedDisplayId else { return }
+        selectedDisplayId = displayId
+        render()
+        delegate?.displayRail(self, didSelectDisplayId: displayId)
+    }
+
+    static func title(for display: DisplayMetadata, fallbackIndex: Int) -> String {
+        let trimmed = display.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        return display.isMain ? "Main" : "Display \(fallbackIndex + 1)"
+    }
+}
+
 // Spaces strip. Horizontal UICollectionView of one cell per non-fullscreen
-// user Space on the active display, with two layout modes:
+// user Space on the selected display, with two layout modes:
 //
 // - Fits: all tiles fit in the strip's bounds. Spacing expands so the
 //   row spans from the strip's leading edge to its trailing edge.
@@ -213,12 +305,12 @@ final class ThumbnailStripView: UIView {
     // MARK: - Public state surface
 
     func apply(state: DesktopState) {
-        guard let activeDisplayId = state.activeDisplayId else {
+        guard let displayId = state.selectedDisplayId ?? state.activeDisplayId else {
             renderEmpty()
             return
         }
         let userSpaces = state.spaces
-            .filter { $0.displayId == activeDisplayId && $0.type == 0 }
+            .filter { $0.displayId == displayId && $0.type == 0 }
             .sorted { ($0.index ?? Int.max) < ($1.index ?? Int.max) }
         let countChanged = userSpaces.map { $0.id } != orderedSpaces.map { $0.id }
         orderedSpaces = userSpaces

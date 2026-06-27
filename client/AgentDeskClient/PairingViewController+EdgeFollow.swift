@@ -33,13 +33,14 @@ extension PairingViewController: UIScrollViewDelegate {
         return scrollView.subviews.first
     }
 
-    // ADR-0009. The active display rect drives both the cursor-model
+    // ADR-0009. The selected display rect drives both the cursor-model
     // clamp and the aspect-fit math the EdgeFollow helper uses. Centre
-    // the cursor on first arrival or when the active display changes;
+    // the cursor on first arrival or when the selected display changes;
     // preserve the cursor position on a same-display re-push so the
     // user doesn't lose their place every time a Space switches.
     func applyDesktopStateForCursorModel(_ state: DesktopState) {
-        let active = state.displays.first(where: { $0.id == state.activeDisplayId })
+        let selectedId = state.selectedDisplayId ?? state.activeDisplayId
+        let active = state.displays.first(where: { $0.id == selectedId })
             ?? state.displays.first
         guard let display = active,
               display.widthPoints > 0,
@@ -59,7 +60,14 @@ extension PairingViewController: UIScrollViewDelegate {
         activeDisplayIdMirror = display.id
         if !isSameDisplay || cursorSourcePos == nil {
             if let cx = state.cursorX, let cy = state.cursorY {
-                cursorSourcePos = CGPoint(x: CGFloat(cx), y: CGFloat(cy))
+                cursorSourcePos = EdgeFollow.advanceCursor(
+                    from: CGPoint(
+                        x: CGFloat(cx - display.originX),
+                        y: CGFloat(cy - display.originY)
+                    ),
+                    delta: .zero,
+                    displayBounds: newRect
+                )
             } else {
                 cursorSourcePos = CGPoint(x: newRect.midX, y: newRect.midY)
             }

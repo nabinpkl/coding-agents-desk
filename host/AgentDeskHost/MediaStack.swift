@@ -2,13 +2,16 @@ import CoreVideo
 import Foundation
 
 enum MediaStack {
-    static func makeFrameSource() -> VideoFrameSource {
+    static func makeFrameSource(
+        selectedDisplayIdProvider: @escaping @Sendable () -> String? = { nil }
+    ) -> VideoFrameSource {
         if ProcessInfo.processInfo.environment["AGENTDESK_USE_TEST_PATTERN"] == "1" {
             return TestPatternFrameSource()
         }
         return ScreenCaptureKitFrameSource(
             scaleDownBy: Config.ownedMediaCaptureScaleDown,
-            pixelFormat: Config.ownedMediaChroma.capturePixelFormat
+            pixelFormat: Config.ownedMediaChroma.capturePixelFormat,
+            selectedDisplayIdProvider: selectedDisplayIdProvider
         )
     }
 }

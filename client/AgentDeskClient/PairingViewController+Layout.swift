@@ -125,6 +125,11 @@ extension PairingViewController {
         buttonRow.addArrangedSubview(showKeyboardButton)
 
         // R25: the merged Spaces band is just the thumbnail strip.
+        displayRailView.translatesAutoresizingMaskIntoConstraints = false
+        displayRailView.delegate = self
+        displayRailView.isHidden = true
+        view.addSubview(displayRailView)
+
         thumbnailStripView.translatesAutoresizingMaskIntoConstraints = false
         thumbnailStripView.delegate = self
         thumbnailStripView.isHidden = true
@@ -138,7 +143,7 @@ extension PairingViewController {
         // mountSinkView). Multiplier on view.bottom keeps the band's
         // position independent of when the sink mounts.
         let bandTopAtVideoBottom = NSLayoutConstraint(
-            item: thumbnailStripView,
+            item: displayRailView,
             attribute: .top,
             relatedBy: .equal,
             toItem: view,
@@ -162,6 +167,7 @@ extension PairingViewController {
             // or the secondary label is clipped and the active-tile
             // selection overlay (sized to cell, not strip) looks oversized
             // relative to the visible tile content.
+            displayRailView.heightAnchor.constraint(equalToConstant: 32),
             thumbnailStripView.heightAnchor.constraint(
                 equalToConstant: ThumbnailStripView.tileHeight + ThumbnailStripView.tileCaptionHeight
             ),
@@ -185,9 +191,13 @@ extension PairingViewController {
             buttonRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             buttonRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
 
+            displayRailView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            displayRailView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            bandTopAtVideoBottom,
+
             thumbnailStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            bandTopAtVideoBottom,
+            thumbnailStripView.topAnchor.constraint(equalTo: displayRailView.bottomAnchor, constant: 4),
 
             keyboardSurface.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             keyboardSurface.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
@@ -210,7 +220,11 @@ extension PairingViewController {
                 scroll.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
                 scroll.topAnchor.constraint(equalTo: safe.topAnchor),
                 scroll.widthAnchor.constraint(equalTo: safe.widthAnchor, multiplier: 0.62),
-                scroll.bottomAnchor.constraint(equalTo: thumbnailStripView.topAnchor, constant: -8),
+                scroll.bottomAnchor.constraint(equalTo: displayRailView.topAnchor, constant: -8),
+
+                displayRailView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+                displayRailView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
+                displayRailView.bottomAnchor.constraint(equalTo: thumbnailStripView.topAnchor, constant: -4),
 
                 thumbnailStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
                 thumbnailStripView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
@@ -262,6 +276,8 @@ extension PairingViewController {
         buttonRow.removeFromSuperview()
         rightClickButton.removeFromSuperview()
         showKeyboardButton.removeFromSuperview()
+        displayRailView.removeFromSuperview()
+        displayRailView.renderEmpty()
         thumbnailStripView.removeFromSuperview()
         thumbnailStripView.renderEmpty()
         desktopStateTask?.cancel()
@@ -274,6 +290,7 @@ extension PairingViewController {
         cursorTask = nil
         stopAgentSayForegroundPresentation()
         lastDesktopState = nil
+        selectedDisplayIdForClientConfig = nil
         keyboardSurface.setVisible(false)
         buttonRowBottomConstraint = nil
         // R23: drop the orientation-variant constraints; the next

@@ -164,7 +164,7 @@ struct ThumbnailStripViewTests {
         #expect(view.activeIndex == 0)
     }
 
-    @Test func applyStateOnlyCountsActiveDisplaySpaces() {
+    @Test func applyStateOnlyCountsSelectedDisplaySpacesWhenPresent() {
         let view = ThumbnailStripView()
         view.apply(state: DesktopState(
             displays: [
@@ -179,10 +179,48 @@ struct ThumbnailStripViewTests {
                 SpaceMetadata(id: 700, displayId: "DISP-2", index: 2, type: 0),
             ],
             activeDisplayId: "DISP-1",
+            selectedDisplayId: "DISP-2",
+            activeSpaceId: 200
+        ))
+        #expect(view.userSpaceCount == 3)
+        #expect(view.activeIndex == nil)
+    }
+
+    @Test func applyStateFallsBackToActiveDisplayWhenSelectedDisplayMissing() {
+        let view = ThumbnailStripView()
+        view.apply(state: DesktopState(
+            displays: [
+                DisplayMetadata(id: "DISP-1", widthPoints: 1512, heightPoints: 982),
+                DisplayMetadata(id: "DISP-2", widthPoints: 1512, heightPoints: 982),
+            ],
+            spaces: [
+                SpaceMetadata(id: 100, displayId: "DISP-1", index: 0, type: 0),
+                SpaceMetadata(id: 200, displayId: "DISP-1", index: 1, type: 0),
+                SpaceMetadata(id: 500, displayId: "DISP-2", index: 0, type: 0),
+            ],
+            activeDisplayId: "DISP-1",
             activeSpaceId: 200
         ))
         #expect(view.userSpaceCount == 2)
         #expect(view.activeIndex == 1)
+    }
+
+    @Test func displayRailRendersLabelsForMultipleDisplays() {
+        let view = DisplayRailView()
+        view.apply(state: DesktopState(
+            displays: [
+                DisplayMetadata(id: "DISP-1", label: "Built-in", isMain: true, widthPoints: 1512, heightPoints: 982),
+                DisplayMetadata(id: "DISP-2", label: "Studio", widthPoints: 2560, heightPoints: 1440),
+            ],
+            spaces: [],
+            activeDisplayId: "DISP-1",
+            selectedDisplayId: "DISP-2",
+            activeSpaceId: nil
+        ))
+
+        #expect(view.displayCount == 2)
+        #expect(view.isHidden == false)
+        #expect(DisplayRailView.title(for: DisplayMetadata(id: "x", isMain: true, widthPoints: 1, heightPoints: 1), fallbackIndex: 0) == "Main")
     }
 
     @Test func applyStateHandlesSingleUserSpace() {
