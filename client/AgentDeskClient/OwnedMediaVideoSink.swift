@@ -10,9 +10,10 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
         queueDepth: OwnedGraphicsQueueDepth
     ) -> OwnedGraphicsFrameAck
     // ADR-0025: a decoded HEVC motion frame from the datagram carrier.
-    @MainActor func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope)
+    @MainActor func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope, frameBytes: Int)
     @MainActor func currentGraphicsResetRequest(reason: String) -> OwnedGraphicsResetRequest
     @MainActor func consumePendingGraphicsResetRequest() -> OwnedGraphicsResetRequest?
+    @MainActor func noteOwnedMediaDroppedFrames(_ count: Int)
     @MainActor func setOwnedMediaStatus(_ status: OwnedMediaStatus)
     // ADR-0027: the transport installs how the sink asks for a keyframe (the render
     // -stall watchdog and the wedged-layer recovery both use it).
@@ -21,7 +22,8 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
 
 // Default no-ops so non-video conformers (test stubs) need not implement them.
 extension OwnedMediaFrameSink {
-    @MainActor func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope) {}
+    @MainActor func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope, frameBytes: Int) {}
+    @MainActor func noteOwnedMediaDroppedFrames(_ count: Int) {}
     @MainActor func setOwnedMediaStatus(_ status: OwnedMediaStatus) {}
     @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void) {}
 }
@@ -29,8 +31,7 @@ extension OwnedMediaFrameSink {
 enum OwnedMediaStatus: Equatable {
     case connecting
     case connected
-    case videoLive
-    case videoKeyframe
+    case video(OwnedMediaVideoStatusSnapshot)
     case videoRepairing
     case videoWaitingKeyframe
     case videoDropped
@@ -42,10 +43,8 @@ enum OwnedMediaStatus: Equatable {
             "media connecting"
         case .connected:
             "media connected"
-        case .videoLive:
-            "video live"
-        case .videoKeyframe:
-            "video keyframe"
+        case .video(let snapshot):
+            snapshot.labelText
         case .videoRepairing:
             "video repairing"
         case .videoWaitingKeyframe:
@@ -55,6 +54,61 @@ enum OwnedMediaStatus: Equatable {
         case .tilesLive:
             "tiles live"
         }
+    }
+}
+
+struct OwnedMediaVideoStatusSnapshot: Equatable {
+    let fps: Int
+    let receivedKbps: Int
+    let gapMs: Int
+    let droppedFrames: Int
+
+    var labelText: String {
+        "\(fps)fps rx\(receivedKbps)kbps gap\(gapMs) d\(droppedFrames)"
+    }
+}
+
+struct OwnedMediaVideoStatusTracker {
+    private let publishIntervalNs: UInt64
+    private var windowStartNs: UInt64?
+    private var windowFrames = 0
+    private var windowBytes = 0
+    private var lastEnqueueNs: UInt64?
+    private var lastGapMs = 0.0
+    private(set) var droppedFrames = 0
+
+    init(publishIntervalNs: UInt64 = 1_000_000_000) {
+        self.publishIntervalNs = publishIntervalNs
+    }
+
+    mutating func noteDroppedFrames(_ count: Int) {
+        droppedFrames += max(0, count)
+    }
+
+    mutating func noteEnqueuedFrame(bytes: Int, nowNs: UInt64) -> OwnedMediaVideoStatusSnapshot? {
+        if let lastEnqueueNs, nowNs >= lastEnqueueNs {
+            lastGapMs = Double(nowNs - lastEnqueueNs) / 1_000_000.0
+        }
+        lastEnqueueNs = nowNs
+        if windowStartNs == nil {
+            windowStartNs = nowNs
+        }
+        windowFrames += 1
+        windowBytes += max(0, bytes)
+        guard let windowStartNs, nowNs >= windowStartNs + publishIntervalNs else {
+            return nil
+        }
+        let elapsedSeconds = Double(nowNs - windowStartNs) / 1_000_000_000.0
+        let snapshot = OwnedMediaVideoStatusSnapshot(
+            fps: Int(round(Double(windowFrames) / elapsedSeconds)),
+            receivedKbps: Int(round(Double(windowBytes * 8) / elapsedSeconds / 1_000.0)),
+            gapMs: Int(round(lastGapMs)),
+            droppedFrames: droppedFrames
+        )
+        self.windowStartNs = nowNs
+        windowFrames = 0
+        windowBytes = 0
+        return snapshot
     }
 }
 
@@ -111,6 +165,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     private var lastVideoArrivalUptimeNs: UInt64?
     private var lastVideoEnqueueUptimeNs: UInt64?
     private var lastKeyframeRequestUptimeNs: UInt64?
+    private var videoStatusTracker = OwnedMediaVideoStatusTracker()
     private var videoKeyframeRequestHandler: (@Sendable () -> Void)?
     private let stallWatchdog: OwnedMediaRenderStallWatchdog
     private let stallTimer: DispatchSourceTimer
@@ -207,24 +262,29 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
 
     // ADR-0025: a decoded HEVC motion frame. Enqueue it on the video layer and, on
     // the first video frame of a scroll, swap the video layer in front of the tiles.
-    func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope) {
+    func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope, frameBytes: Int) {
         let now = DispatchTime.now().uptimeNanoseconds
         lastVideoArrivalUptimeNs = now
         let result = videoDecoder.decodeAndEnqueue(envelope)
         switch result {
         case .enqueued:
             lastVideoEnqueueUptimeNs = now
-            setOwnedMediaStatus(envelope.header.isKeyframe ? .videoKeyframe : .videoLive)
+            if let snapshot = videoStatusTracker.noteEnqueuedFrame(bytes: frameBytes, nowNs: now) {
+                setOwnedMediaStatus(.video(snapshot))
+            }
         case .recoveredRequestKeyframe:
             // ADR-0027: the layer was wedged and this frame was a delta; the decoder
             // blanked it and needs a keyframe to resync, so ask for one now.
             ownedMediaStderrTrace("video-frame-recovered frame=\(envelope.header.frameId)")
+            videoStatusTracker.noteDroppedFrames(1)
             setOwnedMediaStatus(.videoRepairing)
             requestKeyframe(now: now)
         case .droppedPendingKeyframe:
+            videoStatusTracker.noteDroppedFrames(1)
             setOwnedMediaStatus(.videoWaitingKeyframe)
             ownedMediaStderrTrace("video-frame-dropped frame=\(envelope.header.frameId) reason=\(result)")
         case .formatDescriptionUnavailable, .sampleBufferBuildFailed:
+            videoStatusTracker.noteDroppedFrames(1)
             setOwnedMediaStatus(.videoDropped)
             ownedMediaStderrTrace("video-frame-dropped frame=\(envelope.header.frameId) reason=\(result)")
         }
@@ -317,6 +377,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         let request = pendingGraphicsResetRequest
         pendingGraphicsResetRequest = nil
         return request
+    }
+
+    func noteOwnedMediaDroppedFrames(_ count: Int) {
+        videoStatusTracker.noteDroppedFrames(count)
     }
 
     func setOwnedMediaStatus(_ status: OwnedMediaStatus) {

@@ -202,12 +202,32 @@ struct InputChannelTests {
     @Test func ownedMediaStatusLabelsStayConcise() {
         #expect(OwnedMediaStatus.connecting.labelText == "media connecting")
         #expect(OwnedMediaStatus.connected.labelText == "media connected")
-        #expect(OwnedMediaStatus.videoLive.labelText == "video live")
-        #expect(OwnedMediaStatus.videoKeyframe.labelText == "video keyframe")
+        #expect(OwnedMediaStatus.video(OwnedMediaVideoStatusSnapshot(
+            fps: 30,
+            receivedKbps: 1_250,
+            gapMs: 33,
+            droppedFrames: 0
+        )).labelText == "30fps rx1250kbps gap33 d0")
         #expect(OwnedMediaStatus.videoRepairing.labelText == "video repairing")
         #expect(OwnedMediaStatus.videoWaitingKeyframe.labelText == "video waiting keyframe")
         #expect(OwnedMediaStatus.videoDropped.labelText == "video dropped")
         #expect(OwnedMediaStatus.tilesLive.labelText == "tiles live")
+    }
+
+    @Test func ownedMediaVideoStatusTrackerPublishesBoundedReceiveDiagnostics() {
+        var tracker = OwnedMediaVideoStatusTracker(publishIntervalNs: 1_000_000_000)
+
+        #expect(tracker.noteEnqueuedFrame(bytes: 125_000, nowNs: 0) == nil)
+        tracker.noteDroppedFrames(2)
+        #expect(tracker.noteEnqueuedFrame(bytes: 125_000, nowNs: 500_000_000) == nil)
+        let snapshot = tracker.noteEnqueuedFrame(bytes: 125_000, nowNs: 1_000_000_000)
+
+        #expect(snapshot == OwnedMediaVideoStatusSnapshot(
+            fps: 3,
+            receivedKbps: 3_000,
+            gapMs: 500,
+            droppedFrames: 2
+        ))
     }
 
     @MainActor

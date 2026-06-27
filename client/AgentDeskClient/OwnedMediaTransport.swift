@@ -218,7 +218,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             guard let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else { continue }
             sendVideoControl(OwnedMediaControlMessage(kind: .frameAck, frameId: completed.frameId))
             Task { @MainActor [weak self] in
-                self?.sink?.renderOwnedVideoFrame(envelope)
+                self?.sink?.renderOwnedVideoFrame(envelope, frameBytes: completed.data.count)
             }
         }
         for request in result.resendRequests {
@@ -229,6 +229,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             ))
         }
         if let expired = result.expiredFrames.last {
+            let expiredCount = result.expiredFrames.count
+            Task { @MainActor [weak self] in
+                self?.sink?.noteOwnedMediaDroppedFrames(expiredCount)
+            }
             sendVideoControl(OwnedMediaControlMessage(kind: .keyframeRequest, frameId: expired.frameId))
         }
     }
