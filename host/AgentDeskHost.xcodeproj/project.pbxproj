@@ -78,6 +78,7 @@
 		A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009D0 /* ScrollQualityTests.swift */; };
 		A00000000000000000000DA4 /* FrameComposerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DA3 /* FrameComposerTests.swift */; };
 		A00000000000000000000DB4 /* ScrollDeltaEngineDamageRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */; };
+		A00000000000000000000F16 /* ScrollDeltaEngineHealTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F15 /* ScrollDeltaEngineHealTests.swift */; };
 		A00000000000000000000DC4 /* TileGridEmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DC3 /* TileGridEmissionTests.swift */; };
 		A00000000000000000000DD4 /* UnackedFrameCapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DD3 /* UnackedFrameCapTests.swift */; };
 		A00000000000000000000DE4 /* ResetPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DE3 /* ResetPolicyTests.swift */; };
@@ -189,6 +190,7 @@
 		A000000000000000000009D0 /* ScrollQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollQualityTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DA3 /* FrameComposerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameComposerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaEngineDamageRoutingTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000F15 /* ScrollDeltaEngineHealTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaEngineHealTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DC3 /* TileGridEmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileGridEmissionTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DD3 /* UnackedFrameCapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnackedFrameCapTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DE3 /* ResetPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResetPolicyTests.swift; sourceTree = "<group>"; };
@@ -378,6 +380,7 @@
 				A000000000000000000009D0 /* ScrollQualityTests.swift */,
 				A00000000000000000000DA3 /* FrameComposerTests.swift */,
 				A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */,
+				A00000000000000000000F15 /* ScrollDeltaEngineHealTests.swift */,
 				A00000000000000000000DC3 /* TileGridEmissionTests.swift */,
 				A00000000000000000000DD3 /* UnackedFrameCapTests.swift */,
 				A00000000000000000000DE3 /* ResetPolicyTests.swift */,
@@ -608,6 +611,7 @@
 				A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */,
 				A00000000000000000000DA4 /* FrameComposerTests.swift in Sources */,
 				A00000000000000000000DB4 /* ScrollDeltaEngineDamageRoutingTests.swift in Sources */,
+				A00000000000000000000F16 /* ScrollDeltaEngineHealTests.swift in Sources */,
 				A00000000000000000000DC4 /* TileGridEmissionTests.swift in Sources */,
 				A00000000000000000000DD4 /* UnackedFrameCapTests.swift in Sources */,
 				A00000000000000000000DE4 /* ResetPolicyTests.swift in Sources */,
