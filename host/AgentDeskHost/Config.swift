@@ -447,6 +447,27 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_TILE_BUSY_BYTES_PER_PIXEL",
         defaultValue: 2.0
     )
+    // Per-frame payload byte budget for the tiler. A genuinely-new busy screen
+    // (app switch, photo wall) tiled all-LZFSE could sum to several MB and clog
+    // the ~2Mbps reliable channel, the exact freeze the fullframe-JPEG fallback
+    // existed to prevent. The tiler accumulates appended payload bytes across
+    // cells; once the running total crosses this budget, every subsequent rung-3
+    // (new) cell is forced to JPEG at congestion quality/scale regardless of the
+    // per-cell busy test, bounding a brand-new fullframe to roughly one JPEG's
+    // cost. Cells that hit rung 1 (omitted) or rung 2 (drawCachedTile) carry no
+    // payload and never count toward the budget, so a mostly-cached screen stays
+    // free no matter how large.
+    //
+    // Calibration: the link is ~2Mbps ~= 250KB/s. The old whole-frame JPEG
+    // fallback landed near ~338KB per fullframe and was already drainable enough
+    // to hold cadence (about one frame per 1.3s at the floor). 300KB sits just
+    // under that, so a worst-case all-new busy fullframe costs about one old JPEG
+    // while a text-heavy fullframe (LZFSE well under budget) stays fully lossless
+    // and crisp. Override with AGENTDESK_HYBRID_FRAME_BYTE_BUDGET.
+    static let hybridFrameByteBudget: Int = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_FRAME_BYTE_BUDGET",
+        defaultValue: 300_000
+    )
     // Kill switch; false falls back to rung-1 baseline skip only.
     static let hybridTileCacheEnabled: Bool = enabledFlag(
         environmentKey: "AGENTDESK_HYBRID_TILE_CACHE_ENABLED",

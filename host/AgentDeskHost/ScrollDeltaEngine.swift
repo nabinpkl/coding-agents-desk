@@ -253,6 +253,10 @@ struct ScrollDeltaEngine {
     // compresses poorly (photo/gradient, above the threshold) is re-encoded as JPEG
     // to save wire bytes. Text and solid-fill cells compress well and stay LZFSE.
     private let hybridTileBusyBytesPerPixel: Double
+    // Per-frame payload byte budget. Once cells in one envelope have appended this
+    // many payload bytes, remaining rung-3 cells force JPEG regardless of the busy
+    // test, bounding a brand-new busy fullframe to roughly one JPEG's cost.
+    private let hybridFrameByteBudget: Int
 
     init(
         maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes,
@@ -264,7 +268,8 @@ struct ScrollDeltaEngine {
         fullframeJpegQualityCongested: Double = Config.hybridFullframeJpegQualityCongested,
         fullframeMaxWireBytes: Int = Config.hybridFullframeMaxWireBytes,
         fullframeCongestedScale: Double = Config.hybridFullframeCongestedScale,
-        hybridTileBusyBytesPerPixel: Double = Config.hybridTileBusyBytesPerPixel
+        hybridTileBusyBytesPerPixel: Double = Config.hybridTileBusyBytesPerPixel,
+        hybridFrameByteBudget: Int = Config.hybridFrameByteBudget
     ) {
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
@@ -276,6 +281,7 @@ struct ScrollDeltaEngine {
         self.fullframeMaxWireBytes = max(1, fullframeMaxWireBytes)
         self.fullframeCongestedScale = min(1, max(0.1, fullframeCongestedScale))
         self.hybridTileBusyBytesPerPixel = max(0, hybridTileBusyBytesPerPixel)
+        self.hybridFrameByteBudget = max(1, hybridFrameByteBudget)
     }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
@@ -797,7 +803,14 @@ struct ScrollDeltaEngine {
                 let pixelCount = cell.width * cell.height
                 let lzfseBytesPerPixel = pixelCount > 0 ? Double(lzfseCompressed.count) / Double(pixelCount) : 0
                 let isBusy = lzfseBytesPerPixel > hybridTileBusyBytesPerPixel
-                if isBusy, let jpegBuilt = buildTile(
+                // payload.count is the running total of bytes appended by earlier
+                // rung-3 cells in this envelope. Rung-1 (omitted) and rung-2
+                // (drawCachedTile) cells appended nothing, so they never inflate it
+                // and never consume the budget. Once the budget is crossed, force
+                // JPEG on every remaining new cell regardless of the busy test, so a
+                // genuinely-new busy fullframe cannot sum past roughly one JPEG.
+                let budgetExceeded = payload.count >= hybridFrameByteBudget
+                if isBusy || budgetExceeded, let jpegBuilt = buildTile(
                     surface: current,
                     rect: cell,
                     encoding: .jpeg(
