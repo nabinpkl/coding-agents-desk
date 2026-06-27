@@ -500,6 +500,97 @@ struct DamageScrollClassifierTests {
         }
     }
 
+    // Bursty phone scroll: the 180/600ms hint window has lapsed, so the frame
+    // arrives with hint == nil. The classifier must still attempt copyRect,
+    // deriving the axis from the band geometry (a vertical scroll band is taller
+    // than it is wide). Before Phase C a no-hint frame skipped scroll detection
+    // entirely and fell to the coverage gate (tiles/fullframe), so a regional CLI
+    // scroll with an expired hint was misclassified to fullframe.
+    @Test func acceptsVerticalScrollWithoutHintViaGeometryAxis() {
+        let width = 400
+        let height = 640
+        let dy = 24
+        let previous = Self.surface(width: width, height: height, rowValue: Self.rowPattern)
+        let current = Self.surface(width: width, height: height) { Self.rowPattern($0 - dy) }
+        // Tall band: height >= width, so geometry resolves the axis to vertical.
+        let band = PixelRect(x: 100, y: 100, width: 200, height: 400)
+        let classifier = DamageScrollClassifier()
+
+        let result = classifier.classify(
+            damageRects: [band],
+            contentRect: PixelRect(x: 0, y: 0, width: width, height: height),
+            previous: previous,
+            current: current,
+            hint: nil
+        )
+
+        #expect(result == .scroll(region: band, dx: 0, dy: dy))
+    }
+
+    @Test func acceptsHorizontalScrollWithoutHintViaGeometryAxis() {
+        let width = 640
+        let height = 480
+        let dx = 24
+        // Column-only luma so a horizontal shift is detectable and wrong offsets
+        // mismatch (rowPattern reused as a function of x).
+        let previous = Self.surface2D(width: width, height: height) { x, _ in Self.rowPattern(x) }
+        let current = Self.surface2D(width: width, height: height) { x, _ in Self.rowPattern(x - dx) }
+        // Wide band: width > height, so geometry resolves the axis to horizontal.
+        let band = PixelRect(x: 100, y: 100, width: 400, height: 200)
+        let classifier = DamageScrollClassifier()
+
+        let result = classifier.classify(
+            damageRects: [band],
+            contentRect: PixelRect(x: 0, y: 0, width: width, height: height),
+            previous: previous,
+            current: current,
+            hint: nil
+        )
+
+        #expect(result == .scroll(region: band, dx: dx, dy: 0))
+    }
+
+    // The geometry-derived axis must not fabricate a scroll on damage that is not a
+    // shift. A tall band whose content fully scrambled (no consistent offset) finds
+    // no aligned offset, so the frame falls through to the coverage gate rather than
+    // becoming a torn copy. This is the same surface-verification guard that protects
+    // the hinted path, now exercised without a hint.
+    @Test func geometryAxisRejectsNonScrollDamageWithoutHint() {
+        let width = 400
+        let height = 640
+        let band = PixelRect(x: 0, y: 0, width: 200, height: 600)
+        let previous = Self.surface2D(width: width, height: height, value: Self.pixelPattern)
+        // Decorrelated from previous: every pixel changed, no shift explains it.
+        let current = Self.surface2D(width: width, height: height) { x, y in
+            Self.pixelPattern(x &+ 7, y &+ 333)
+        }
+        let classifier = DamageScrollClassifier()
+
+        let result = classifier.classify(
+            damageRects: [band],
+            contentRect: PixelRect(x: 0, y: 0, width: width, height: height),
+            previous: previous,
+            current: current,
+            hint: nil
+        )
+
+        if case .scroll = result {
+            Issue.record("geometry axis must not accept a scroll on non-shift damage, got \(result)")
+        }
+    }
+
+    // Part 1 wiring: the production default sources every threshold from Config, so
+    // a representative sample must equal the central knobs (no inlined literals).
+    @Test func defaultConfigMirrorsCentralConfig() {
+        let d = DamageScrollClassifierConfig.default
+        #expect(d.minScrollExtentPx == Config.hybridClassifierMinScrollExtentPx)
+        #expect(d.minCrossExtentPx == Config.hybridClassifierMinCrossExtentPx)
+        #expect(d.acceptConfidence == Config.hybridClassifierAcceptConfidence)
+        #expect(d.acceptConfidenceWithPrior == Config.hybridClassifierAcceptConfidenceWithPrior)
+        #expect(d.maxSearchOffsetPx == Config.hybridClassifierMaxSearchOffsetPx)
+        #expect(d.maxTileCoverageRatio == Config.hybridClassifierMaxTileCoverageRatio)
+    }
+
     @Test func pixelRectUnionCoversAllRects() {
         let rects = [
             PixelRect(x: 10, y: 20, width: 30, height: 40),

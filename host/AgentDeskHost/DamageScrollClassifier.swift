@@ -10,8 +10,11 @@ import Foundation
 //
 // The hint's predicted offset and sign are both unreliable (input dy is not
 // screen pixels once acceleration applies, and the sign jitters frame to frame
-// within one continuous scroll), so the hint contributes the axis only. The
-// signed offset is recovered from the surface by a directed coarse-to-fine search
+// within one continuous scroll), so the hint contributes the axis only, and even
+// that is optional: a bursty scroll whose hint window has lapsed arrives with no
+// hint, and the axis is then derived from the band geometry (a scroll band is
+// long along the axis of motion). The signed offset is always recovered from the
+// surface by a directed coarse-to-fine search
 // in both directions over a thin sampled stripe, bounded to the band extent, not
 // the whole frame. Trusting the hinted magnitude or sign left copyRect unable to
 // fire. The band gate is on the band's own geometry, not relative to the full
@@ -249,30 +252,58 @@ struct DamageScrollClassifier {
         let largestArea = clamped.map(\.area).max() ?? 0
         let scrollBand = PixelRect.union(of: clamped.filter { Double($0.area) >= 0.5 * Double(largestArea) }) ?? union
 
+        // Always attempt scroll detection, with or without a hint. This is the
+        // Phase C fix: a bursty phone scroll whose hint window (180/600ms) has
+        // lapsed arrives with no hint, and previously skipped scroll detection
+        // entirely and fell to the coverage gate, misclassifying a regional CLI
+        // scroll to fullframe.
+        //
+        // The band and axis are resolved differently by hint presence:
+        //  - With a live hint, the hint supplies the axis and a corroboration path
+        //    for sub-threshold flicks, and the band is the dominant-damage union
+        //    (existing, device-tuned behavior, unchanged).
+        //  - Without a hint there is no input to corroborate, so the geometry path
+        //    is deliberately conservative: it searches the single largest damage
+        //    rect (not the union of co-equal rects) and only when that rect is
+        //    smaller than the full surface. The axis is then the band's aspect (a
+        //    scroll band is long along the axis of motion). This rejects two cases
+        //    that overlap-only scoring would otherwise accept as a torn copy:
+        //    disjoint co-equal blocks (content reverting at A while the same
+        //    content reappears at B, a content-cache repeat, where the largest
+        //    block alone sits below the extent gate), and an exactly-full-surface
+        //    repaint (a fullframe that rides the cache ladder, not a scroll). A
+        //    genuine regional scroll is one tall/wide band well inside the surface,
+        //    so it is unaffected. Acceptance without a hint is the surface-verified
+        //    clean/certain path only (no input trust).
+        let axisSource = hint != nil ? "hinted" : "geometry"
+        let region: PixelRect
+        let search: OffsetSearch
         if let hint {
-            let search = scrollOffsetSearch(band: scrollBand, previous: previous, current: current, hint: hint)
-            if let offset = search.offset {
-                return (.scroll(region: scrollBand, dx: offset.dx, dy: offset.dy),
-                        DamageScrollTrace(bandWidth: scrollBand.width, bandHeight: scrollBand.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "scroll"))
-            }
-            // Scroll attempt failed: tile if small enough, else reject to fullFrame.
-            // Carry the real confidences so the device log shows why scroll was rejected.
-            if coverage <= config.maxTileCoverageRatio {
-                return (.tiles(clamped),
-                        DamageScrollTrace(bandWidth: scrollBand.width, bandHeight: scrollBand.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "tiles-scroll-miss"))
-            }
-            return (.fullFrame(reason: "damage-too-large-no-scroll"),
-                    DamageScrollTrace(bandWidth: scrollBand.width, bandHeight: scrollBand.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "fullframe-scroll-miss"))
+            region = scrollBand
+            search = scrollOffsetSearch(band: scrollBand, previous: previous, current: current, axis: hint.axis, hint: hint)
+        } else if let largest = clamped.max(by: { $0.area < $1.area }), largest.area < surfaceArea {
+            region = largest
+            let axis: ScrollActivityAxis = largest.height >= largest.width ? .vertical : .horizontal
+            search = scrollOffsetSearch(band: largest, previous: previous, current: current, axis: axis, hint: nil)
+        } else {
+            // No hint and no coherent regional band (full-surface or no dominant
+            // rect): do not attempt a copy, route through the coverage gate.
+            region = scrollBand
+            search = OffsetSearch(offset: nil, gatePassed: false, bestOffset: nil, bestConfidence: 0, staticConfidence: 0)
         }
-
-        // No hint: tile small damage, else reject to fullFrame. Summed rect area (not the union
-        // bounding box) so scattered rects are not penalised; capped at surface.
+        if let offset = search.offset {
+            return (.scroll(region: region, dx: offset.dx, dy: offset.dy),
+                    DamageScrollTrace(bandWidth: region.width, bandHeight: region.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "scroll-\(axisSource)"))
+        }
+        // Scroll attempt failed or was not attempted: tile if small enough, else
+        // reject to fullFrame. Carry the real confidences so the device log shows
+        // why scroll was rejected.
         if coverage <= config.maxTileCoverageRatio {
             return (.tiles(clamped),
-                    DamageScrollTrace(bandWidth: union.width, bandHeight: union.height, coverage: coverage, gatePassed: false, bestOffset: nil, bestConfidence: 0, staticConfidence: 0, decision: "tiles-no-hint"))
+                    DamageScrollTrace(bandWidth: region.width, bandHeight: region.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "tiles-scroll-miss"))
         }
         return (.fullFrame(reason: "damage-too-large-no-scroll"),
-                DamageScrollTrace(bandWidth: union.width, bandHeight: union.height, coverage: coverage, gatePassed: false, bestOffset: nil, bestConfidence: 0, staticConfidence: 0, decision: "fullframe-no-hint"))
+                DamageScrollTrace(bandWidth: region.width, bandHeight: region.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "fullframe-scroll-miss"))
     }
 
     struct OffsetSearch {
@@ -287,14 +318,15 @@ struct DamageScrollClassifier {
         band: PixelRect,
         previous: ScrollDeltaSurface,
         current: ScrollDeltaSurface,
-        hint: ScrollActivityHint
+        axis: ScrollActivityAxis,
+        hint: ScrollActivityHint?
     ) -> OffsetSearch {
         // Gate on the band's own geometry, axis-aware: a scroll band is long along
         // the axis of motion and wide enough across it to sample. This is measured
         // on the band, never relative to the full (possibly multi-monitor) surface,
         // so a narrow windowed scroll is not rejected for being a small fraction of
-        // the desktop width.
-        let axis = hint.axis
+        // the desktop width. The axis is supplied by the caller: the hint when one
+        // is live, else derived from the band geometry.
         let alongExtent = axis == .vertical ? band.height : band.width
         let crossExtent = axis == .vertical ? band.width : band.height
         guard alongExtent >= config.minScrollExtentPx, crossExtent >= config.minCrossExtentPx else {
@@ -389,26 +421,30 @@ struct DamageScrollClassifier {
         // surface and accept the best-explaining one at the relaxed bar. The offset
         // applied is the surface-validated candidate, not the raw hint magnitude
         // (R76), so a wrong-direction or wrong-axis hint cannot force a torn copy:
-        // its candidates simply will not explain the changed pixels.
-        var inputBestOffset = 0
-        var inputBestExplained = -1.0
-        var inputBestChanged = 0.0
-        for candidate in hint.candidateOffsets where candidate != 0 && abs(candidate) <= maxMagnitude {
-            let m = match(forOffset: candidate)
-            if m.explainedFraction > inputBestExplained {
-                inputBestExplained = m.explainedFraction
-                inputBestChanged = m.changedFraction
-                inputBestOffset = candidate
+        // its candidates simply will not explain the changed pixels. This path runs
+        // only with a live hint; without one (geometry axis) there is no input to
+        // corroborate, so the strict surface bar above is the only acceptance.
+        if let hint {
+            var inputBestOffset = 0
+            var inputBestExplained = -1.0
+            var inputBestChanged = 0.0
+            for candidate in hint.candidateOffsets where candidate != 0 && abs(candidate) <= maxMagnitude {
+                let m = match(forOffset: candidate)
+                if m.explainedFraction > inputBestExplained {
+                    inputBestExplained = m.explainedFraction
+                    inputBestChanged = m.changedFraction
+                    inputBestOffset = candidate
+                }
             }
-        }
-        if inputBestOffset != 0,
-           inputBestExplained >= config.acceptConfidenceWithPrior,
-           inputBestChanged >= config.minChangedFraction {
-            let resolved = axis == .vertical
-                ? ScrollDeltaOffset(dx: 0, dy: inputBestOffset)
-                : ScrollDeltaOffset(dx: inputBestOffset, dy: 0)
-            // Trace reflects the accepted input-corroborated offset.
-            return OffsetSearch(offset: resolved, gatePassed: true, bestOffset: inputBestOffset, bestConfidence: inputBestExplained, staticConfidence: inputBestChanged)
+            if inputBestOffset != 0,
+               inputBestExplained >= config.acceptConfidenceWithPrior,
+               inputBestChanged >= config.minChangedFraction {
+                let resolved = axis == .vertical
+                    ? ScrollDeltaOffset(dx: 0, dy: inputBestOffset)
+                    : ScrollDeltaOffset(dx: inputBestOffset, dy: 0)
+                // Trace reflects the accepted input-corroborated offset.
+                return OffsetSearch(offset: resolved, gatePassed: true, bestOffset: inputBestOffset, bestConfidence: inputBestExplained, staticConfidence: inputBestChanged)
+            }
         }
 
         // Neither path qualified: reject to fullFrame. Carry the surface-best for the
