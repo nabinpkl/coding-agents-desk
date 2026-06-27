@@ -165,7 +165,8 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
     private func bitrateControllerConfig() -> VideoBitrateControllerConfig {
         VideoBitrateControllerConfig(
             ceilingKbps: 2500, floorKbps: 800, downStep: 0.7, upStep: 1.15,
-            lossDownPermille: 50, raiseCleanWindows: 4
+            lossDownPermille: 50, raiseCleanWindows: 4,
+            fpsCeiling: 30, fpsFloor: 10, fpsDownStep: 0.7, fpsUpStep: 1.3
         )
     }
 
@@ -203,6 +204,50 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         let outcome = controller.observe(completedFrames: 0, expiredFrames: 0)
         XCTAssertFalse(outcome.changed)
         XCTAssertEqual(outcome.reason, "idle")
+        XCTAssertEqual(controller.targetKbps, 2500)
+        XCTAssertEqual(outcome.targetFps, 30, "fps holds at the ceiling on an idle window")
+    }
+
+    // ADR-0029: cadence is the deeper lever. fps must not move while bitrate still has
+    // room to fall, and only steps down once bitrate is pinned at the floor and the
+    // link is still losing; it never goes below the fps floor.
+    func testCadenceStepsDownOnlyAfterBitrateFloor() {
+        var controller = VideoBitrateController(config: bitrateControllerConfig())
+        // First lossy windows spend bitrate; fps stays at the ceiling throughout.
+        while controller.targetKbps > 800 {
+            let outcome = controller.observe(completedFrames: 80, expiredFrames: 20)
+            XCTAssertEqual(outcome.reason, "loss-down")
+            XCTAssertEqual(controller.targetFps, 30, "fps holds while bitrate is still falling")
+            XCTAssertFalse(outcome.fpsChanged)
+        }
+        // Bitrate pinned at floor and still losing: now cadence steps down.
+        let firstCadence = controller.observe(completedFrames: 80, expiredFrames: 20)
+        XCTAssertEqual(firstCadence.reason, "fps-down")
+        XCTAssertTrue(firstCadence.fpsChanged)
+        XCTAssertEqual(controller.targetKbps, 800, "bitrate stays at the floor, not below")
+        XCTAssertLessThan(controller.targetFps, 30)
+        // Sustained loss converges fps to the floor and not below.
+        for _ in 0..<20 { _ = controller.observe(completedFrames: 80, expiredFrames: 20) }
+        XCTAssertEqual(controller.targetFps, 10, "cadence converges to the fps floor and not below")
+    }
+
+    func testCadenceRecoversOnlyAfterBitrateCeiling() {
+        var controller = VideoBitrateController(config: bitrateControllerConfig())
+        // Drive bitrate to floor, then cadence to floor.
+        for _ in 0..<40 { _ = controller.observe(completedFrames: 80, expiredFrames: 20) }
+        XCTAssertEqual(controller.targetKbps, 800)
+        XCTAssertEqual(controller.targetFps, 10)
+        // Clean windows restore bitrate first; fps stays at floor while bitrate climbs.
+        while controller.targetKbps < 2500 {
+            let outcome = controller.observe(completedFrames: 100, expiredFrames: 0)
+            if outcome.changed {
+                XCTAssertEqual(outcome.reason, "clean-up")
+                XCTAssertEqual(controller.targetFps, 10, "fps holds at floor until bitrate is restored")
+            }
+        }
+        // Bitrate back at the ceiling: now cadence recovers, never above the ceiling.
+        for _ in 0..<40 { _ = controller.observe(completedFrames: 100, expiredFrames: 0) }
+        XCTAssertEqual(controller.targetFps, 30, "cadence recovers to the ceiling and not above")
         XCTAssertEqual(controller.targetKbps, 2500)
     }
 

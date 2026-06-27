@@ -480,9 +480,19 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             videoBitrateController = controller
             return (outcome, videoEncoder)
         }
-        guard let result, result.outcome.changed else { return }
-        result.encoder?.updateBitrate(result.outcome.targetKbps)
-        logger.notice("owned media video bitrate-step target=\(result.outcome.targetKbps, privacy: .public)kbps reason=\(result.outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
+        guard let result, result.outcome.changed || result.outcome.fpsChanged else { return }
+        if result.outcome.changed {
+            result.encoder?.updateBitrate(result.outcome.targetKbps)
+            logger.notice("owned media video bitrate-step target=\(result.outcome.targetKbps, privacy: .public)kbps reason=\(result.outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
+        }
+        // ADR-0029: cadence rung moved (only once bitrate is pinned at floor under loss,
+        // or restored at ceiling on recovery). The produce loop reads targetFps for the
+        // cadence cap; updating the encoder's expected frame rate keeps its bit
+        // allocation matched to the lower cadence.
+        if result.outcome.fpsChanged {
+            result.encoder?.updateExpectedFrameRate(result.outcome.targetFps)
+            logger.notice("owned media video fps-step target=\(result.outcome.targetFps, privacy: .public)fps reason=\(result.outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
+        }
     }
 
     private static func makeQuicParameters(configuration: OwnedQuicListenerConfiguration) throws -> NWParameters {
@@ -907,7 +917,17 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             // interval, so we reject/coalesce this frame instead of generating one the
             // link cannot drain. The mailbox keeps the freshest damage for the next
             // produce; readability is preserved by spending cadence, not quality.
-            if !resetPending, let last = lastProduceUptimeNs, nowBeforeProbe &- last < policy.minFrameIntervalNs {
+            // ADR-0029: a second cadence input. When the adaptive controller has spent
+            // its bitrate floor and is still losing, it steps a target fps below the
+            // ceiling; we widen the produce interval to match, spending frames the slow
+            // link cannot carry. Dormant at ceiling fps (interval 0), so the validated
+            // healthy path is unchanged. max() with the governor: the slower wins.
+            let capacityFps = lock.withLock { videoBitrateController?.targetFps } ?? Config.ownedMediaExpectedFrameRate
+            let capacityIntervalNs: UInt64 = (capacityFps > 0 && capacityFps < Config.ownedMediaExpectedFrameRate)
+                ? UInt64(1_000_000_000 / capacityFps)
+                : 0
+            let minFrameIntervalNs = max(policy.minFrameIntervalNs, capacityIntervalNs)
+            if !resetPending, let last = lastProduceUptimeNs, nowBeforeProbe &- last < minFrameIntervalNs {
                 diagnostics.noteAdmissionHold(reason: "cadence-cap")
                 continue
             }

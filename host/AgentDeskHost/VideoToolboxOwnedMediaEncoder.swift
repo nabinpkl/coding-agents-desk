@@ -106,7 +106,12 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     // adaptive controller updates it via updateBitrate; ensureSession applies the
     // current value so a session recreate (resize) keeps the adapted rate.
     private var currentBitrateKbps: Int
-    private let expectedFrameRate: Int
+    // ADR-0029: the live expected frame rate. Starts at the configured value; the
+    // adaptive controller lowers it via updateExpectedFrameRate when the link cannot
+    // carry full cadence, and ensureSession applies the current value so a session
+    // recreate keeps the adapted rate. Matches the encoder's bit allocation to the
+    // produce-loop cadence cap.
+    private var expectedFrameRate: Int
     private let configuration: OwnedMediaEncodingConfiguration
     private let lock = NSLock()
     private var session: VTCompressionSession?
@@ -260,6 +265,20 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         _ = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: kbps * 1000))
         _ = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitsValue)
         logger.notice("owned encoder bitrate-updated kbps=\(kbps, privacy: .public) dataRateCapBytes=\(Int(limits.bytesPerWindow), privacy: .public)")
+    }
+
+    // ADR-0029: retarget the live session's expected frame rate without recreating it,
+    // so the adaptive controller can lower cadence on a slow link and the encoder's bit
+    // allocation tracks it. A no-op if no session yet; the new value is remembered so
+    // the next ensureSession applies it.
+    func updateExpectedFrameRate(_ fps: Int) {
+        lock.lock()
+        expectedFrameRate = fps
+        let session = self.session
+        lock.unlock()
+        guard let session else { return }
+        _ = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: NSNumber(value: fps))
+        logger.notice("owned encoder fps-updated fps=\(fps, privacy: .public)")
     }
 
     private func ensureSession(for pixelBuffer: CVPixelBuffer) throws {
@@ -543,6 +562,13 @@ struct VideoBitrateControllerConfig: Equatable {
     let upStep: Double
     let lossDownPermille: Int
     let raiseCleanWindows: Int
+    // ADR-0029: cadence axis. fps only leaves the ceiling once bitrate is pinned at
+    // floor and still losing (spend cadence when sharpness can no longer pay), and
+    // recovers only after bitrate is restored to the ceiling.
+    let fpsCeiling: Int
+    let fpsFloor: Int
+    let fpsDownStep: Double
+    let fpsUpStep: Double
 
     static func fromConfig() -> VideoBitrateControllerConfig {
         VideoBitrateControllerConfig(
@@ -551,7 +577,11 @@ struct VideoBitrateControllerConfig: Equatable {
             downStep: Config.ownedMediaBitrateDownStep,
             upStep: Config.ownedMediaBitrateUpStep,
             lossDownPermille: Config.ownedMediaBitrateLossDownPermille,
-            raiseCleanWindows: Config.ownedMediaBitrateRaiseCleanWindows
+            raiseCleanWindows: Config.ownedMediaBitrateRaiseCleanWindows,
+            fpsCeiling: Config.ownedMediaExpectedFrameRate,
+            fpsFloor: Config.ownedMediaFpsFloor,
+            fpsDownStep: Config.ownedMediaFpsDownStep,
+            fpsUpStep: Config.ownedMediaFpsUpStep
         )
     }
 }
@@ -559,43 +589,65 @@ struct VideoBitrateControllerConfig: Equatable {
 struct VideoBitrateController {
     struct Outcome: Equatable {
         let targetKbps: Int
+        let targetFps: Int
         let changed: Bool
+        let fpsChanged: Bool
         let reason: String
     }
 
     private let config: VideoBitrateControllerConfig
     private(set) var targetKbps: Int
+    private(set) var targetFps: Int
     private var cleanStreak = 0
 
     init(config: VideoBitrateControllerConfig) {
         self.config = config
         self.targetKbps = config.ceilingKbps
+        self.targetFps = config.fpsCeiling
     }
 
     // Observe one report window. An empty window (idle/rest, no frames) holds and is
-    // neither clean nor lossy, so a quiet stream never drifts the target.
+    // neither clean nor lossy, so a quiet stream never drifts the target. Bitrate is
+    // the primary axis; cadence (fps) is the deeper lever, touched only once bitrate is
+    // exhausted (ADR-0029), so on a link with headroom this behaves exactly as before.
     mutating func observe(completedFrames: Int, expiredFrames: Int) -> Outcome {
         let completed = max(0, completedFrames)
         let expired = max(0, expiredFrames)
         let total = completed + expired
         guard total > 0 else {
-            return Outcome(targetKbps: targetKbps, changed: false, reason: "idle")
+            return outcome(changed: false, fpsChanged: false, reason: "idle")
         }
         let lossPermille = (expired * 1000) / total
-        let previous = targetKbps
         if lossPermille >= config.lossDownPermille {
             cleanStreak = 0
-            targetKbps = max(config.floorKbps, Int((Double(targetKbps) * config.downStep).rounded()))
-            let changed = targetKbps != previous
-            return Outcome(targetKbps: targetKbps, changed: changed, reason: changed ? "loss-down" : "at-floor")
+            // Spend bitrate first; only when it is pinned at the floor and the link is
+            // still losing do we step cadence down.
+            if targetKbps > config.floorKbps {
+                let previous = targetKbps
+                targetKbps = max(config.floorKbps, Int((Double(targetKbps) * config.downStep).rounded()))
+                return outcome(changed: targetKbps != previous, fpsChanged: false, reason: targetKbps != previous ? "loss-down" : "at-floor")
+            }
+            let previousFps = targetFps
+            targetFps = max(config.fpsFloor, Int((Double(targetFps) * config.fpsDownStep).rounded()))
+            return outcome(changed: false, fpsChanged: targetFps != previousFps, reason: targetFps != previousFps ? "fps-down" : "at-fps-floor")
         }
         cleanStreak += 1
         if cleanStreak >= config.raiseCleanWindows {
             cleanStreak = 0
-            targetKbps = min(config.ceilingKbps, Int((Double(targetKbps) * config.upStep).rounded()))
-            let changed = targetKbps != previous
-            return Outcome(targetKbps: targetKbps, changed: changed, reason: changed ? "clean-up" : "at-ceiling")
+            // Restore sharpness first: bitrate climbs back to the ceiling, then cadence.
+            if targetKbps < config.ceilingKbps {
+                let previous = targetKbps
+                targetKbps = min(config.ceilingKbps, Int((Double(targetKbps) * config.upStep).rounded()))
+                return outcome(changed: targetKbps != previous, fpsChanged: false, reason: targetKbps != previous ? "clean-up" : "at-ceiling")
+            }
+            let previousFps = targetFps
+            targetFps = min(config.fpsCeiling, Int((Double(targetFps) * config.fpsUpStep).rounded()))
+            return outcome(changed: false, fpsChanged: targetFps != previousFps, reason: targetFps != previousFps ? "fps-up" : "at-fps-ceiling")
         }
-        return Outcome(targetKbps: targetKbps, changed: false, reason: "clean-hold")
+        return outcome(changed: false, fpsChanged: false, reason: "clean-hold")
+    }
+
+    private func outcome(changed: Bool, fpsChanged: Bool, reason: String) -> Outcome {
+        Outcome(targetKbps: targetKbps, targetFps: targetFps, changed: changed, fpsChanged: fpsChanged, reason: reason)
     }
 }

@@ -71,3 +71,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0026 | Video-primary owned media: retire the reliable channel | proposed | 2026-06-26 |
 | ADR-0027 | Congestion-adaptive video for constrained links | accepted | 2026-06-26 |
 | ADR-0028 | Selective packet resend (NACK) and bounded keyframe recovery | proposed | 2026-06-26 |
+| ADR-0029 | Capacity-driven cadence: trade frame rate for survival on a slow link | proposed | 2026-06-26 |

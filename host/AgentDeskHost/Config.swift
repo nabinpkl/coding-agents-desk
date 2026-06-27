@@ -140,6 +140,23 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS",
         defaultValue: 30
     )
+    // ADR-0029: capacity-driven cadence floor. When the adaptive controller has spent
+    // its bitrate floor and the link is still losing, it steps the produce/encode fps
+    // down toward this floor (spending cadence the slow link cannot carry), recovering
+    // toward ownedMediaExpectedFrameRate once bitrate is restored. Dormant on a link
+    // with bitrate headroom, so the validated healthy path is unaffected.
+    static let ownedMediaFpsFloor = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_FPS_FLOOR",
+        defaultValue: 10
+    )
+    static let ownedMediaFpsDownStep = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_FPS_DOWN_STEP",
+        defaultValue: 0.7
+    )
+    static let ownedMediaFpsUpStep = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_FPS_UP_STEP",
+        defaultValue: 1.3
+    )
     // Tile-path periodic full-surface heal cadence (ScrollDeltaEngine.healIntervalFrames).
     // Named for the heal it actually drives, not a video keyframe. The video GOP is the
     // separate ownedMediaKeyframeIntervalFrames below.
