@@ -80,10 +80,10 @@ struct FrameComposerTests {
         #expect(result == .fullFrame(reason: "no-damage-info"))
     }
 
-    @Test func scrollingMotionTilesTheDamageBand() {
-        // ADR-0022: there is no offset estimation or copyRect. A declared scroll
-        // whose damage is within the coverage ceiling tiles the damage band like
-        // any other change; motion only labels the trace.
+    @Test func scrollingMotionWithCleanScrollReturnsScroll() {
+        // ADR-0022 revived: input declares a vertical scroll and the band actually
+        // translated by dy, so the estimator measures it and the composer returns
+        // .scroll for the engine to copyRect.
         let dy = 24
         let previous = Self.verticalSurface(width: 640, height: 480, rowValue: Self.pattern)
         let current = Self.verticalSurface(width: 640, height: 480) { Self.pattern($0 - dy) }
@@ -92,10 +92,10 @@ struct FrameComposerTests {
         let result = FrameComposer().compose(
             damageRects: [band], previous: previous, current: current, motion: Self.vertical
         )
-        #expect(result == .tiles([band]))
+        #expect(result == .scroll(region: band, dx: 0, dy: dy))
     }
 
-    @Test func horizontalScrollingMotionTilesTheDamageBand() {
+    @Test func horizontalScrollingMotionReturnsHorizontalOffset() {
         let dx = 36
         let previous = Self.horizontalSurface(width: 800, height: 400, colValue: Self.pattern)
         let current = Self.horizontalSurface(width: 800, height: 400) { Self.pattern($0 - dx) }
@@ -104,13 +104,13 @@ struct FrameComposerTests {
         let result = FrameComposer().compose(
             damageRects: [band], previous: previous, current: current, motion: Self.horizontal
         )
-        #expect(result == .tiles([band]))
+        #expect(result == .scroll(region: band, dx: dx, dy: 0))
     }
 
-    @Test func scrollingMotionAboveCoverageCeilingFullFrames() {
-        // ADR-0022: a near-full-surface damage band is a fullFrame regardless of
-        // motion, since there is no scroll copy to amortize it. The coverage gate,
-        // not a measured offset, governs.
+    @Test func scrollWinsOverCoverageCeiling() {
+        // A clean scroll over a near-full-surface band is a scroll, not a fullframe,
+        // because the offset is measured before the coverage gate is consulted: the
+        // copyRect amortizes the whole band.
         let dy = 30
         let previous = Self.verticalSurface(width: 640, height: 480, rowValue: Self.pattern)
         let current = Self.verticalSurface(width: 640, height: 480) { Self.pattern($0 - dy) }
@@ -119,12 +119,13 @@ struct FrameComposerTests {
         let result = FrameComposer().compose(
             damageRects: [band], previous: previous, current: current, motion: Self.vertical
         )
-        #expect(result == .fullFrame(reason: "damage-too-large"))
+        #expect(result == .scroll(region: band, dx: 0, dy: dy))
     }
 
     @Test func scrollingMotionThatDoesNotTranslateTilesTheRegion() {
-        // Input says scrolling but every change tiles (ADR-0022): the small-coverage
-        // band tiles regardless of whether it translated.
+        // Input says scrolling but the band is an unrelated repaint: the estimator
+        // returns nil and the small-coverage region tiles (still readable), never a
+        // torn copy.
         let previous = Self.verticalSurface(width: 640, height: 480, rowValue: Self.pattern)
         let current = Self.verticalSurface(width: 640, height: 480, rowValue: Self.pattern2)
         let band = PixelRect(x: 100, y: 60, width: 240, height: 200)
@@ -133,6 +134,22 @@ struct FrameComposerTests {
             damageRects: [band], previous: previous, current: current, motion: Self.vertical
         )
         if case .tiles = result {} else { Issue.record("expected tiles, got \(result)") }
+    }
+
+    @Test func scatteredIncidentalDamageDoesNotInflateTheScrollBand() {
+        // A dominant scrolled band plus small scattered damage elsewhere (a cursor, a
+        // clock). The scroll region must be the dominant band alone, so the copyRect
+        // shifts only the band and not the whole bounding box of every rect.
+        let dy = 20
+        let previous = Self.verticalSurface(width: 640, height: 480, rowValue: Self.pattern)
+        let current = Self.verticalSurface(width: 640, height: 480) { Self.pattern($0 - dy) }
+        let band = PixelRect(x: 80, y: 60, width: 400, height: 340)
+        let speck = PixelRect(x: 600, y: 10, width: 16, height: 16)
+
+        let result = FrameComposer().compose(
+            damageRects: [band, speck], previous: previous, current: current, motion: Self.vertical
+        )
+        #expect(result == .scroll(region: band, dx: 0, dy: dy))
     }
 
     @Test func restSmallDamageReturnsTiles() {

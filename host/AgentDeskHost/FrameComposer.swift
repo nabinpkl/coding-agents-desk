@@ -65,6 +65,9 @@ struct PixelRect: Equatable, Sendable {
 }
 
 enum DamageScrollClassification: Equatable {
+    // The dominant band translated by a verified (dx, dy): the engine shifts the
+    // stable region with one copyRect and re-tiles only the exposed strip.
+    case scroll(region: PixelRect, dx: Int, dy: Int)
     case tiles([PixelRect])
     case fullFrame(reason: String)
     case noChange
@@ -77,10 +80,11 @@ struct DamageScrollTrace: Equatable {
     let bandWidth: Int
     let bandHeight: Int
     let coverage: Double
+    let measuredOffset: Int?
     let decision: String
 
     static let empty = DamageScrollTrace(
-        bandWidth: 0, bandHeight: 0, coverage: 0, decision: "none"
+        bandWidth: 0, bandHeight: 0, coverage: 0, measuredOffset: nil, decision: "none"
     )
 }
 
@@ -88,11 +92,16 @@ struct FrameComposer {
     // Coverage above which a damage change tiles the whole surface (through the
     // same cache ladder) instead of just the damage rects.
     private let maxTileCoverageRatio: Double
+    // Measures the exact offset of an input-declared scroll. Injectable as a test
+    // seam.
+    private let estimator: ScrollOffsetEstimator
 
     init(
-        maxTileCoverageRatio: Double = Config.hybridClassifierMaxTileCoverageRatio
+        maxTileCoverageRatio: Double = Config.hybridClassifierMaxTileCoverageRatio,
+        estimator: ScrollOffsetEstimator = ScrollOffsetEstimator()
     ) {
         self.maxTileCoverageRatio = maxTileCoverageRatio
+        self.estimator = estimator
     }
 
     func compose(
@@ -136,10 +145,22 @@ struct FrameComposer {
         let largestArea = clamped.map(\.area).max() ?? 0
         let scrollBand = PixelRect.union(of: clamped.filter { Double($0.area) >= 0.5 * Double(largestArea) }) ?? union
 
-        // Tile the damage if it is small enough, else tile the whole surface. Both
-        // ride the cache ladder; fullFrame here is a coverage decision. The motion
-        // signal only labels the trace (scrolling vs rest) for device logs.
-        let phase = motion != nil ? "scrolling" : "rest"
+        // Input declares a scroll: measure the exact offset on the dominant band. The
+        // estimator gates the band geometry itself and returns nil when the band does
+        // not actually translate (or the offset fails the verify floor), so the frame
+        // falls through to the tile path (still readable), never a torn copy.
+        if let motion,
+           let offset = estimator.measure(band: scrollBand, previous: previous, current: current, axis: motion.axis) {
+            let dx = motion.axis == .horizontal ? offset : 0
+            let dy = motion.axis == .vertical ? offset : 0
+            return (.scroll(region: scrollBand, dx: dx, dy: dy),
+                    trace(band: scrollBand, coverage: coverage, measuredOffset: offset, decision: "scroll"))
+        }
+
+        // Not a scroll (rest, or a scroll the surface did not confirm): tile the
+        // damage if it is small enough, else tile the whole surface. Both ride the
+        // cache ladder; fullFrame here is a coverage decision, not a scroll miss.
+        let phase = motion != nil ? "scroll-miss" : "rest"
         if coverage <= maxTileCoverageRatio {
             return (.tiles(clamped), trace(band: scrollBand, coverage: coverage, decision: "tiles-\(phase)"))
         }
@@ -147,11 +168,12 @@ struct FrameComposer {
                 trace(band: scrollBand, coverage: coverage, decision: "fullframe-\(phase)"))
     }
 
-    private func trace(band: PixelRect? = nil, coverage: Double = 0, decision: String) -> DamageScrollTrace {
+    private func trace(band: PixelRect? = nil, coverage: Double = 0, measuredOffset: Int? = nil, decision: String) -> DamageScrollTrace {
         DamageScrollTrace(
             bandWidth: band?.width ?? 0,
             bandHeight: band?.height ?? 0,
             coverage: coverage,
+            measuredOffset: measuredOffset,
             decision: decision
         )
     }

@@ -591,6 +591,34 @@ struct ScrollDeltaEngine {
         // surface identical to the client's, even though only the damaged rects
         // were sent.
         switch classification {
+        case .scroll(let region, _, _):
+            // Slice 4 wires the detection; the copyRect emission lands in Slice 5.
+            // Until then, tile the confirmed band so the scroll is still painted
+            // (readable, never torn) and rides the cache ladder.
+            let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
+            pendingSurface = current
+            switch makeTileEnvelope(current: current, previous: previous, rects: [region], policy: policy, capturedAtUptimeNs: frame.capturedAtUptimeNs) {
+            case .built(let envelopes):
+                return ScrollDeltaResult(
+                    kind: .accepted,
+                    envelope: envelopes.first,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), region: region, motion: motion, trace: trace, acceptedBy: "damage-scroll-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight),
+                    envelopes: envelopes
+                )
+            case .allUnchanged:
+                return ScrollDeltaResult(
+                    kind: .noChange,
+                    envelope: nil,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), region: region, motion: motion, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                )
+            case .failed:
+                pendingSurface = nil
+                return ScrollDeltaResult(
+                    kind: .rejected("damage-scroll-tile-envelope-build-failed"),
+                    envelope: nil,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), region: region, motion: motion, trace: trace, acceptedBy: "damage-scroll-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                )
+            }
         case .tiles(let rects):
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
             pendingSurface = current
