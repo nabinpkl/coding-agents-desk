@@ -16,10 +16,14 @@ import Foundation
 // the whole frame. Trusting the hinted magnitude or sign left copyRect unable to
 // fire. The band gate is on the band's own geometry, not relative to the full
 // surface, so a narrow windowed scroll on a multi-monitor desktop still qualifies.
-// Acceptance has no runner-up margin gate (the structurally-unsatisfiable thing
-// that froze the pixel-diff path); the only margin is best-vs-static (offset 0),
-// which rejects torn copies on low-detail or repetitive content where any offset
-// matches.
+// Acceptance scores an offset by the fraction of CHANGED pixels (those differing
+// at offset 0) that the shift explains, not a whole-band match. On real desktop
+// content a scrolled band is mostly uniform background that matches at any offset,
+// so a best-vs-static margin is structurally unsatisfiable (R76: the search found
+// bestDy=68 at 0.96 but static was 0.92, every frame rejected to HEVC, which then
+// froze). Restricting to changed pixels excludes the static background, and a
+// minimum changed-pixel fraction rejects near-static frames that would otherwise
+// accept a coincidental shift.
 
 struct PixelRect: Equatable, Sendable {
     let x: Int
@@ -104,10 +108,18 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
     // surface-relative width gate rejected every windowed scroll. R76 confirmed.
     let minScrollExtentPx: Int
     let minCrossExtentPx: Int
+    // Acceptance is the fraction of CHANGED pixels (those differing at offset 0)
+    // that the shift explains. A whole-band match fraction does not discriminate
+    // on real desktop content: a scrolled band is mostly uniform background that
+    // matches at any offset, so the no-shift match is already ~0.92 and a
+    // best-vs-static margin is structurally unsatisfiable (R76: bestDy=68
+    // confidence=0.96 static=0.92 rejected). Measuring only the pixels that
+    // actually moved excludes the static background by construction.
     let acceptConfidence: Double
-    // Shifted match must beat the no-shift (offset 0) match by this margin. This
-    // is not the rejected runner-up margin; it is the anti-torn-copy guard.
-    let minStaticMargin: Double
+    // The band must have at least this fraction of changed pixels to be a
+    // confident scroll, so a near-static frame (nothing moved) cannot be accepted
+    // on a coincidental shift match.
+    let minChangedFraction: Double
     let sampleStep: Int
     let lumaTolerance: Int
     // Directed offset search: probe magnitudes at this stride (coarse), then
@@ -134,8 +146,8 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
     static let `default` = DamageScrollClassifierConfig(
         minScrollExtentPx: 120,
         minCrossExtentPx: 64,
-        acceptConfidence: 0.9,
-        minStaticMargin: 0.15,
+        acceptConfidence: 0.7,
+        minChangedFraction: 0.05,
         sampleStep: 8,
         lumaTolerance: 24,
         coarseStep: 8,
@@ -189,20 +201,29 @@ struct DamageScrollClassifier {
         let damageArea = min(surfaceArea, clamped.reduce(0) { $0 + $1.area })
         let coverage = Double(damageArea) / Double(surfaceArea)
 
+        // The scroll band is the dominant damage, not the bounding box of every
+        // rect. Scattered incidental damage (cursor, a clock, a badge elsewhere on
+        // the desktop) balloons the union to the whole multi-monitor surface, so a
+        // copyRect would shift everything and the verify stripe would mix unrelated
+        // regions and fail. Keep only rects that are a significant fraction of the
+        // largest and union those.
+        let largestArea = clamped.map(\.area).max() ?? 0
+        let scrollBand = PixelRect.union(of: clamped.filter { Double($0.area) >= 0.5 * Double(largestArea) }) ?? union
+
         if let hint {
-            let search = scrollOffsetSearch(band: union, previous: previous, current: current, hint: hint)
+            let search = scrollOffsetSearch(band: scrollBand, previous: previous, current: current, hint: hint)
             if let offset = search.offset {
-                return (.scroll(region: union, dx: offset.dx, dy: offset.dy),
-                        DamageScrollTrace(bandWidth: union.width, bandHeight: union.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "scroll"))
+                return (.scroll(region: scrollBand, dx: offset.dx, dy: offset.dy),
+                        DamageScrollTrace(bandWidth: scrollBand.width, bandHeight: scrollBand.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "scroll"))
             }
             // Scroll attempt failed: tile if small enough, else HEVC. Carry the
             // real confidences so the device log shows why scroll was rejected.
             if coverage <= config.maxTileCoverageRatio {
                 return (.tiles(clamped),
-                        DamageScrollTrace(bandWidth: union.width, bandHeight: union.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "tiles-scroll-miss"))
+                        DamageScrollTrace(bandWidth: scrollBand.width, bandHeight: scrollBand.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "tiles-scroll-miss"))
             }
             return (.fullFrame(reason: "damage-too-large-no-scroll"),
-                    DamageScrollTrace(bandWidth: union.width, bandHeight: union.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "fullframe-scroll-miss"))
+                    DamageScrollTrace(bandWidth: scrollBand.width, bandHeight: scrollBand.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "fullframe-scroll-miss"))
         }
 
         // No hint: tile small damage, else HEVC. Summed rect area (not the union
@@ -249,21 +270,27 @@ struct DamageScrollClassifier {
         let maxMagnitude = min(config.maxSearchOffsetPx, max(1, alongExtent - 1))
         let coarseStep = max(1, config.coarseStep)
 
-        // Verify over a thin centered stripe, not the whole band.
+        // Verify over a thin centered stripe, not the whole band. Score each
+        // offset by the fraction of changed pixels it explains; the offset that
+        // best explains the motion wins.
         let stripe = verifyStripe(band: band, axis: axis)
-        let staticConfidence = matchConfidence(region: stripe, previous: previous, current: current, axis: axis, offset: 0)
 
-        func confidence(forOffset offset: Int) -> Double {
-            matchConfidence(region: stripe, previous: previous, current: current, axis: axis, offset: offset)
+        func match(forOffset offset: Int) -> ShiftMatch {
+            shiftExplainsChange(region: stripe, previous: previous, current: current, axis: axis, offset: offset)
         }
 
         var bestOffset = 0
-        var bestConfidence = -1.0
+        var bestExplained = -1.0
+        var bestChangedFraction = 0.0
         for sign in [1, -1] {
             var magnitude = coarseStep
             while magnitude <= maxMagnitude {
-                let c = confidence(forOffset: sign * magnitude)
-                if c > bestConfidence { bestConfidence = c; bestOffset = sign * magnitude }
+                let m = match(forOffset: sign * magnitude)
+                if m.explainedFraction > bestExplained {
+                    bestExplained = m.explainedFraction
+                    bestChangedFraction = m.changedFraction
+                    bestOffset = sign * magnitude
+                }
                 magnitude += coarseStep
             }
         }
@@ -278,22 +305,27 @@ struct DamageScrollClassifier {
             var fine = lo
             while fine <= hi {
                 if fine % coarseStep != 0 {
-                    let c = confidence(forOffset: sign * fine)
-                    if c > bestConfidence { bestConfidence = c; bestOffset = sign * fine }
+                    let m = match(forOffset: sign * fine)
+                    if m.explainedFraction > bestExplained {
+                        bestExplained = m.explainedFraction
+                        bestChangedFraction = m.changedFraction
+                        bestOffset = sign * fine
+                    }
                 }
                 fine += 1
             }
         }
 
         guard bestOffset != 0 else {
-            return OffsetSearch(offset: nil, gatePassed: true, bestOffset: nil, bestConfidence: 0, staticConfidence: staticConfidence)
+            return OffsetSearch(offset: nil, gatePassed: true, bestOffset: nil, bestConfidence: 0, staticConfidence: 0)
         }
-        let accepted = bestConfidence >= config.acceptConfidence
-            && bestConfidence - staticConfidence >= config.minStaticMargin
+        let accepted = bestExplained >= config.acceptConfidence
+            && bestChangedFraction >= config.minChangedFraction
         let resolved: ScrollDeltaOffset? = accepted
             ? (axis == .vertical ? ScrollDeltaOffset(dx: 0, dy: bestOffset) : ScrollDeltaOffset(dx: bestOffset, dy: 0))
             : nil
-        return OffsetSearch(offset: resolved, gatePassed: true, bestOffset: bestOffset, bestConfidence: bestConfidence, staticConfidence: staticConfidence)
+        // staticConfidence carries the changed-pixel fraction for the device log.
+        return OffsetSearch(offset: resolved, gatePassed: true, bestOffset: bestOffset, bestConfidence: bestExplained, staticConfidence: bestChangedFraction)
     }
 
     // A thin stripe centered in the band along the axis of motion. Verifying a
@@ -312,56 +344,76 @@ struct DamageScrollClassifier {
         }
     }
 
-    // Fraction of sampled region pixels that match the previous frame after
-    // shifting by the candidate offset. The region came from OS damage, so its
-    // pixels did change; a high shifted-match therefore means the content
-    // translated by the offset (a real scroll) rather than coincidental static
-    // overlap.
-    private func matchConfidence(
+    struct ShiftMatch {
+        // Of the pixels that changed between previous and current (differ at
+        // offset 0), the fraction the shift explains (match within tolerance after
+        // shifting previous by the offset).
+        let explainedFraction: Double
+        // Fraction of all sampled pixels that changed, so a near-static frame
+        // (little changed) is not accepted on a coincidental shift match.
+        let changedFraction: Double
+
+        static let zero = ShiftMatch(explainedFraction: 0, changedFraction: 0)
+    }
+
+    // Measure how well shifting previous by the offset explains the pixels that
+    // actually changed. A whole-band match fraction is dominated by uniform
+    // background that matches at any offset; restricting to changed pixels
+    // isolates the moving content, so the metric discriminates real scroll on
+    // low-detail desktop content where a best-vs-static margin cannot.
+    private func shiftExplainsChange(
         region: PixelRect,
         previous: ScrollDeltaSurface,
         current: ScrollDeltaSurface,
         axis: ScrollActivityAxis,
         offset: Int
-    ) -> Double {
+    ) -> ShiftMatch {
         let dx = axis == .horizontal ? offset : 0
         let dy = axis == .vertical ? offset : 0
         let step = max(1, config.sampleStep)
         let tolerance = config.lumaTolerance
 
-        return previous.pixels.withUnsafeBytes { previousRaw -> Double in
-            current.pixels.withUnsafeBytes { currentRaw -> Double in
+        return previous.pixels.withUnsafeBytes { previousRaw -> ShiftMatch in
+            current.pixels.withUnsafeBytes { currentRaw -> ShiftMatch in
                 guard let previousBase = previousRaw.bindMemory(to: UInt8.self).baseAddress,
                       let currentBase = currentRaw.bindMemory(to: UInt8.self).baseAddress else {
-                    return 0
+                    return .zero
                 }
-                var matches = 0
+                var changed = 0
+                var explained = 0
                 var samples = 0
                 var y = region.y
                 while y < region.maxY {
-                    let previousY = y - dy
-                    if previousY >= region.y, previousY < region.maxY,
-                       previousY >= 0, previousY < previous.height,
-                       y >= 0, y < current.height {
+                    if y >= 0, y < current.height {
                         var x = region.x
                         while x < region.maxX {
-                            let previousX = x - dx
-                            if previousX >= region.x, previousX < region.maxX,
-                               previousX >= 0, previousX < previous.width,
-                               x >= 0, x < current.width {
-                                let currentLuma = Self.luma(currentBase, currentRow: y, currentColumn: x, bytesPerRow: current.bytesPerRow)
-                                let previousLuma = Self.luma(previousBase, currentRow: previousY, currentColumn: previousX, bytesPerRow: previous.bytesPerRow)
-                                if abs(Int(currentLuma) - Int(previousLuma)) <= tolerance {
-                                    matches += 1
-                                }
+                            if x >= 0, x < current.width {
                                 samples += 1
+                                // previous and current share dimensions, so the
+                                // offset-0 read at (x, y) is always in bounds.
+                                let currentLuma = Self.luma(currentBase, currentRow: y, currentColumn: x, bytesPerRow: current.bytesPerRow)
+                                let staticLuma = Self.luma(previousBase, currentRow: y, currentColumn: x, bytesPerRow: previous.bytesPerRow)
+                                if abs(Int(currentLuma) - Int(staticLuma)) > tolerance {
+                                    changed += 1
+                                    let previousX = x - dx
+                                    let previousY = y - dy
+                                    if previousX >= 0, previousX < previous.width,
+                                       previousY >= 0, previousY < previous.height {
+                                        let shiftedLuma = Self.luma(previousBase, currentRow: previousY, currentColumn: previousX, bytesPerRow: previous.bytesPerRow)
+                                        if abs(Int(currentLuma) - Int(shiftedLuma)) <= tolerance {
+                                            explained += 1
+                                        }
+                                    }
+                                }
                             }
                             x += step
                         }
                     }
                     y += step
                 }
-                return samples == 0 ? 0 : Double(matches) / Double(samples)
+                let explainedFraction = changed > 0 ? Double(explained) / Double(changed) : 0
+                let changedFraction = samples > 0 ? Double(changed) / Double(samples) : 0
+                return ShiftMatch(explainedFraction: explainedFraction, changedFraction: changedFraction)
             }
         }
     }
