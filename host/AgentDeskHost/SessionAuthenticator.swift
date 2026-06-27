@@ -109,13 +109,30 @@ final class SessionAuthenticator {
             establishedAt: Int(establishedAt.timeIntervalSince1970)
         )
         self.pending = nil
+        let unsignedReady = SessionReady(
+            sessionId: sessionId,
+            resumeId: resumeId,
+            resumeSecret: resumeSecret,
+            resumeExpiresAt: resumeExpiresAt,
+            mediaKeySalt: mediaKeySalt,
+            hostSignature: Data()
+        )
+        let readySignature = try key.signature(for: SessionResumeSigning.readyInput(
+            ready: unsignedReady,
+            deviceFingerprint: pending.deviceFingerprint,
+            clientNonce: pending.clientNonce,
+            hostNonce: pending.hostNonce,
+            protocolVersion: Config.protocolVersion,
+            hostFingerprint: hostFingerprint
+        )).rawRepresentation
         return (
             SessionReady(
                 sessionId: sessionId,
                 resumeId: resumeId,
                 resumeSecret: resumeSecret,
                 resumeExpiresAt: resumeExpiresAt,
-                mediaKeySalt: mediaKeySalt
+                mediaKeySalt: mediaKeySalt,
+                hostSignature: readySignature
             ),
             session,
             pending

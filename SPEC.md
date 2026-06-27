@@ -129,21 +129,26 @@ SessionInit       { deviceFingerprint, sessionToken, clientNonce,
                     protocolVersion, minCompatibleProtocolVersion }   // pv must be >= 2
 SessionChallenge  { hostNonce, hostSignature, protocolVersion }
 SessionProof      { clientSignature }
-SessionReady      { sessionId, resumeId, resumeSecret, resumeExpiresAt, mediaKeySalt }
+SessionReady      { sessionId, resumeId, resumeSecret, resumeExpiresAt, mediaKeySalt,
+                    hostSignature }
 SessionResumeInit { deviceFingerprint, sessionId, resumeId, clientNonce,
                     protocolVersion }
-SessionResumeChallenge { hostNonce, resumeExpiresAt }
+SessionResumeChallenge { hostNonce, resumeExpiresAt, hostSignature }
 SessionResumeProof     { proof }
 SessionRejected   { reason }   // reason includes "incompatible-protocol", "expired-resume"
 ```
 
 `SessionResumeInit` does not carry a bearer secret. The host accepts the public
 `resumeId` only long enough to issue one pending `SessionResumeChallenge`, then
-requires `SessionResumeProof` to be an HMAC over the session id, device
+signs the challenge over the session id, device fingerprint, resume id, client
+nonce, host nonce, expiry, protocol version, ALPN, and host fingerprint. The
+client verifies that signature with the stored paired host public key before it
+sends `SessionResumeProof`. The proof is an HMAC over the session id, device
 fingerprint, resume id, client nonce, host nonce, protocol version, and session
 ALPN using the memory-only `resumeSecret`. Success consumes the pending challenge
-and rotates resume id, resume secret, and media key salt in the next
-`SessionReady`.
+and rotates resume id, resume secret, and media key salt in the next signed
+`SessionReady`; the client verifies the ready signature before accepting the new
+material.
 
 Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. v0 now sets both to `2`; older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
 

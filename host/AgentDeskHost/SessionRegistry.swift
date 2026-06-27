@@ -10,7 +10,7 @@ enum SessionLifecycleState: Equatable {
 }
 
 enum SessionResumeValidationResult: Equatable {
-    case accepted(ActiveSession)
+    case accepted(ActiveSession, hostNonce: Data)
     case rejected(SessionRejectionReason)
 }
 
@@ -128,7 +128,8 @@ final class SessionRegistry {
         records[request.deviceFingerprint] = record
         return .accepted(SessionResumeChallenge(
             hostNonce: hostNonce,
-            resumeExpiresAt: record.resumeExpiresAt
+            resumeExpiresAt: record.resumeExpiresAt,
+            hostSignature: Data()
         ))
     }
 
@@ -167,7 +168,20 @@ final class SessionRegistry {
         record.state = .resuming
         record.pendingResumeProof = nil
         records[request.deviceFingerprint] = record
-        return .accepted(record.session)
+        return .accepted(record.session, hostNonce: pending.hostNonce)
+    }
+
+    func cancelResumeChallenge(_ request: SessionResumeInit) {
+        guard var record = records[request.deviceFingerprint],
+              record.session.sessionId == request.sessionId,
+              let pending = record.pendingResumeProof,
+              pending.resumeId == request.resumeId,
+              pending.clientNonce == request.clientNonce
+        else {
+            return
+        }
+        record.pendingResumeProof = nil
+        records[request.deviceFingerprint] = record
     }
 
     func noteResumed(_ fingerprint: DeviceFingerprint, ready: SessionReady, transport: MediaTransport? = nil) {
@@ -256,7 +270,8 @@ final class SessionRegistry {
             resumeId: try randomBytes(32),
             resumeSecret: try randomBytes(32),
             resumeExpiresAt: Int(now().addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970),
-            mediaKeySalt: try randomBytes(32)
+            mediaKeySalt: try randomBytes(32),
+            hostSignature: Data()
         )
     }
 

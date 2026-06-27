@@ -259,7 +259,8 @@ final class PairingClient {
                     port: port,
                     deviceFingerprint: fingerprint,
                     active: resume.active,
-                    resume: resume.resume
+                    resume: resume.resume,
+                    hostPublicKey: record.hostPublicKey
                 )
             } else {
                 pendingResume = nil

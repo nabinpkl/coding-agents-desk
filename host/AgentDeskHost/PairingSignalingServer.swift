@@ -27,6 +27,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         SymmetricKey
     ) -> Void
     typealias SessionResumeChallengeHandler = (SessionResumeInit) async throws -> SessionResumeChallenge
+    typealias SessionResumeChallengeCancelledHandler = (SessionResumeInit) async -> Void
     typealias SessionResumeHandler = (SessionResumeInit, SessionResumeProof) async throws -> (ActiveSession, SessionReady)
     typealias SessionSuspendedHandler = (DeviceFingerprint, String?) -> Void
     typealias SessionEndedHandler = (DeviceFingerprint, String?) -> Void
@@ -38,6 +39,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     private let sessionAttemptStartedHandler: SessionAttemptStartedHandler
     private let sessionReadyHandler: SessionReadyHandler
     private let sessionResumeChallengeHandler: SessionResumeChallengeHandler
+    private let sessionResumeChallengeCancelledHandler: SessionResumeChallengeCancelledHandler
     private let sessionResumeHandler: SessionResumeHandler
     private let sessionSuspendedHandler: SessionSuspendedHandler
     private let sessionEndedHandler: SessionEndedHandler
@@ -52,6 +54,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         sessionAttemptStartedHandler: @escaping SessionAttemptStartedHandler = { _ in },
         sessionReadyHandler: @escaping SessionReadyHandler = { _, _, _, _ in },
         sessionResumeChallengeHandler: @escaping SessionResumeChallengeHandler = { _ in throw SessionRejected(reason: .unauthorized) },
+        sessionResumeChallengeCancelledHandler: @escaping SessionResumeChallengeCancelledHandler = { _ in },
         sessionResumeHandler: @escaping SessionResumeHandler = { _, _ in throw SessionRejected(reason: .unauthorized) },
         sessionSuspendedHandler: @escaping SessionSuspendedHandler = { _, _ in },
         sessionEndedHandler: @escaping SessionEndedHandler = { _, _ in },
@@ -62,6 +65,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         self.sessionAttemptStartedHandler = sessionAttemptStartedHandler
         self.sessionReadyHandler = sessionReadyHandler
         self.sessionResumeChallengeHandler = sessionResumeChallengeHandler
+        self.sessionResumeChallengeCancelledHandler = sessionResumeChallengeCancelledHandler
         self.sessionResumeHandler = sessionResumeHandler
         self.sessionSuspendedHandler = sessionSuspendedHandler
         self.sessionEndedHandler = sessionEndedHandler
@@ -337,12 +341,19 @@ final class PairingSignalingServer: @unchecked Sendable {
             sessionAttemptStartedHandler(request.deviceFingerprint)
             let challenge = try await sessionResumeChallengeHandler(request)
             try await QuicSessionStreamIO.send(challenge, role: .control, on: stream)
-            let proofFrame = try await QuicSessionStreamIO.receiveFrame(on: stream)
-            guard proofFrame.role == .control else {
-                try await reject(.malformed, on: stream)
-                return
+            let proof: SessionResumeProof
+            do {
+                let proofFrame = try await QuicSessionStreamIO.receiveFrame(on: stream)
+                guard proofFrame.role == .control else {
+                    await sessionResumeChallengeCancelledHandler(request)
+                    try await reject(.malformed, on: stream)
+                    return
+                }
+                proof = try JSONDecoder().decode(SessionResumeProof.self, from: proofFrame.payload)
+            } catch {
+                await sessionResumeChallengeCancelledHandler(request)
+                throw error
             }
-            let proof = try JSONDecoder().decode(SessionResumeProof.self, from: proofFrame.payload)
             let (active, ready) = try await sessionResumeHandler(request, proof)
             let datagrams = try await context.connection.datagrams
             let mediaKey = MediaDatagramCrypto.sessionKey(

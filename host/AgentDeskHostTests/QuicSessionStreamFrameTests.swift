@@ -52,7 +52,8 @@ struct QuicSessionStreamFrameTests {
             resumeId: Data([1, 2, 3]),
             resumeSecret: Data([7, 8, 9]),
             resumeExpiresAt: 1_800_000_020,
-            mediaKeySalt: Data([4, 5, 6])
+            mediaKeySalt: Data([4, 5, 6]),
+            hostSignature: Data([10, 11, 12])
         )
 
         let data = try JSONEncoder().encode(ready)
@@ -65,6 +66,7 @@ struct QuicSessionStreamFrameTests {
         #expect(json.contains("\"rid\":\"AQID\""))
         #expect(json.contains("\"rs\":\"BwgJ\""))
         #expect(json.contains("\"mk\":\"BAUG\""))
+        #expect(json.contains("\"hs\":\"CgsM\""))
     }
 
     @Test func sessionResumeChallengeAndProofRoundTripWithCompactKeys() throws {
@@ -77,7 +79,8 @@ struct QuicSessionStreamFrameTests {
         )
         let challenge = SessionResumeChallenge(
             hostNonce: Data([7, 8, 9]),
-            resumeExpiresAt: 1_800_000_020
+            resumeExpiresAt: 1_800_000_020,
+            hostSignature: Data([13, 14, 15])
         )
         let proof = SessionResumeProof(proof: Data([10, 11, 12]))
 

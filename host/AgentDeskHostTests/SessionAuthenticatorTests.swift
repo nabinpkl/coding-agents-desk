@@ -17,11 +17,66 @@ struct SessionAuthenticatorTests {
         #expect(ready.resumeSecret.count == 32)
         #expect(ready.resumeExpiresAt == Int(fixture.clock.addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970))
         #expect(ready.mediaKeySalt.count == 32)
+        #expect(ready.hostSignature.count > 0)
+        #expect(try fixture.readySignatureIsValid(ready, pending: pending))
         #expect(active.sessionId == ready.sessionId)
         #expect(active.deviceFingerprint == fixture.deviceFingerprint)
         #expect(active.establishedAt == Int(fixture.clock.timeIntervalSince1970))
         #expect(pending.clientNonce == fixture.clientNonce)
         #expect(pending.hostNonce == challenge.hostNonce)
+    }
+
+    @Test func readySignatureRejectsTamperedResumeMaterial() throws {
+        let fixture = try Fixture()
+        let challenge = try fixture.authenticator.processInit(fixture.makeSessionInit(clientNonce: fixture.clientNonce))
+        let proof = try fixture.signProof(hostNonce: challenge.hostNonce, clientNonce: fixture.clientNonce)
+        let (ready, _, pending) = try fixture.authenticator.processProof(proof)
+        let tampered = SessionReady(
+            sessionId: ready.sessionId,
+            resumeId: ready.resumeId,
+            resumeSecret: Data(repeating: 0xee, count: 32),
+            resumeExpiresAt: ready.resumeExpiresAt,
+            mediaKeySalt: ready.mediaKeySalt,
+            hostSignature: ready.hostSignature
+        )
+
+        #expect(try fixture.readySignatureIsValid(ready, pending: pending))
+        #expect(try !fixture.readySignatureIsValid(tampered, pending: pending))
+    }
+
+    @Test func resumeChallengeSignatureBindsClientAndHostNonces() throws {
+        let hostKey = P256.Signing.PrivateKey()
+        let fingerprint = DeviceFingerprint("device-fp")
+        let sessionId = "session-1"
+        let resumeId = Data(repeating: 7, count: 32)
+        let clientNonce = Data(repeating: 4, count: 32)
+        let hostNonce = Data(repeating: 5, count: 32)
+        let expiresAt = 1_800_000_020
+        let hostFingerprint = hostKey.publicKey.agentDeskFingerprint
+        let input = SessionResumeSigning.challengeInput(
+            sessionId: sessionId,
+            deviceFingerprint: fingerprint,
+            resumeId: resumeId,
+            clientNonce: clientNonce,
+            hostNonce: hostNonce,
+            resumeExpiresAt: expiresAt,
+            protocolVersion: Config.protocolVersion,
+            hostFingerprint: hostFingerprint
+        )
+        let signature = try hostKey.signature(for: input)
+        let tampered = SessionResumeSigning.challengeInput(
+            sessionId: sessionId,
+            deviceFingerprint: fingerprint,
+            resumeId: resumeId,
+            clientNonce: Data(repeating: 9, count: 32),
+            hostNonce: hostNonce,
+            resumeExpiresAt: expiresAt,
+            protocolVersion: Config.protocolVersion,
+            hostFingerprint: hostFingerprint
+        )
+
+        #expect(hostKey.publicKey.isValidSignature(signature, for: input))
+        #expect(!hostKey.publicKey.isValidSignature(signature, for: tampered))
     }
 
     @Test func unknownDeviceReturnsUnknownDeviceRejection() throws {
@@ -122,7 +177,7 @@ struct SessionRegistryTests {
         #expect(registry.isActive(fingerprint))
         #expect(!registry.isAttempting(fingerprint))
         #expect(challenge.hostNonce == Data(repeating: 1, count: 32))
-        #expect(registry.validateResume(request, proof: proof) == .accepted(active))
+        #expect(registry.validateResume(request, proof: proof) == .accepted(active, hostNonce: challenge.hostNonce))
     }
 
     @Test func suspendClosesLanesButKeepsSessionResumable() throws {
@@ -150,7 +205,7 @@ struct SessionRegistryTests {
         #expect(inputTask.isCancelled)
         let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
         let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
-        #expect(registry.validateResume(request, proof: proof) == .accepted(active))
+        #expect(registry.validateResume(request, proof: proof) == .accepted(active, hostNonce: challenge.hostNonce))
     }
 
     @Test func forgedStaleAndIncompatibleResumeProofsAreRejected() throws {
@@ -199,7 +254,7 @@ struct SessionRegistryTests {
         registry.markSuspended(fingerprint, sessionId: "session-1")
         let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
         let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
-        #expect(registry.validateResume(request, proof: proof) == .accepted(active))
+        #expect(registry.validateResume(request, proof: proof) == .accepted(active, hostNonce: challenge.hostNonce))
 
         let resumedReady = try registry.makeResumeReady(for: fingerprint)
         registry.noteResumed(fingerprint, ready: resumedReady)
@@ -211,6 +266,40 @@ struct SessionRegistryTests {
         #expect(registry.state(for: fingerprint) == .connected)
         #expect(registry.makeResumeChallenge(request) == .rejected(.unauthorized))
         #expect(registry.validateResume(request, proof: proof) == .rejected(.unauthorized))
+    }
+
+    @Test func cancellingResumeChallengeRejectsTheOldProof() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now })
+        let fingerprint = DeviceFingerprint("device-fp")
+        let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
+        let ready = makeReady(now: now)
+        let request = makeResumeRequest(ready: ready, fingerprint: fingerprint)
+        registry.noteReady(active, ready: ready)
+        let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
+        let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
+
+        registry.cancelResumeChallenge(request)
+
+        #expect(registry.validateResume(request, proof: proof) == .rejected(.unauthorized))
+    }
+
+    @Test func overlappingResumeChallengeInvalidatesEarlierProof() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now })
+        let fingerprint = DeviceFingerprint("device-fp")
+        let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
+        let ready = makeReady(now: now)
+        let firstRequest = makeResumeRequest(ready: ready, fingerprint: fingerprint, clientNonce: Data(repeating: 4, count: 32))
+        let secondRequest = makeResumeRequest(ready: ready, fingerprint: fingerprint, clientNonce: Data(repeating: 5, count: 32))
+        registry.noteReady(active, ready: ready)
+        let firstChallenge = try acceptedChallenge(from: registry.makeResumeChallenge(firstRequest))
+        let secondChallenge = try acceptedChallenge(from: registry.makeResumeChallenge(secondRequest))
+        let firstProof = makeResumeProof(ready: ready, request: firstRequest, challenge: firstChallenge)
+        let secondProof = makeResumeProof(ready: ready, request: secondRequest, challenge: secondChallenge)
+
+        #expect(registry.validateResume(firstRequest, proof: firstProof) == .rejected(.unauthorized))
+        #expect(registry.validateResume(secondRequest, proof: secondProof) == .accepted(active, hostNonce: secondChallenge.hostNonce))
     }
 
     @Test func endSessionTearsDownActiveSurfacesAndRejectsResume() {
@@ -244,7 +333,8 @@ struct SessionRegistryTests {
             resumeId: Data(repeating: 7, count: 32),
             resumeSecret: Data(repeating: 6, count: 32),
             resumeExpiresAt: Int(now.addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970),
-            mediaKeySalt: Data(repeating: 8, count: 32)
+            mediaKeySalt: Data(repeating: 8, count: 32),
+            hostSignature: Data(repeating: 9, count: 64)
         )
     }
 
@@ -408,6 +498,19 @@ private final class Fixture {
         )
         let signature = try deviceKey.signature(for: signingInput)
         return SessionProof(clientSignature: signature.rawRepresentation)
+    }
+
+    func readySignatureIsValid(_ ready: SessionReady, pending: PendingSessionHandshake) throws -> Bool {
+        let signature = try P256.Signing.ECDSASignature(rawRepresentation: ready.hostSignature)
+        let input = SessionResumeSigning.readyInput(
+            ready: ready,
+            deviceFingerprint: pending.deviceFingerprint,
+            clientNonce: pending.clientNonce,
+            hostNonce: pending.hostNonce,
+            protocolVersion: Config.protocolVersion,
+            hostFingerprint: hostKey.publicKey.agentDeskFingerprint
+        )
+        return hostKey.publicKey.isValidSignature(signature, for: input)
     }
 }
 

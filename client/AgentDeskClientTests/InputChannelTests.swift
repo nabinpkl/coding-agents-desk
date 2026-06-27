@@ -30,7 +30,8 @@ struct InputChannelTests {
             resumeId: Data([1, 2, 3]),
             resumeSecret: Data([7, 8, 9]),
             resumeExpiresAt: 1_800_000_020,
-            mediaKeySalt: Data([4, 5, 6])
+            mediaKeySalt: Data([4, 5, 6]),
+            hostSignature: Data([10, 11, 12])
         )
         let data = try JSONEncoder().encode(ready)
         let json = String(data: data, encoding: .utf8) ?? ""
@@ -41,6 +42,7 @@ struct InputChannelTests {
         #expect(json.contains("\"rid\":\"AQID\""))
         #expect(json.contains("\"rs\":\"BwgJ\""))
         #expect(json.contains("\"mk\":\"BAUG\""))
+        #expect(json.contains("\"hs\":\"CgsM\""))
     }
 
     @Test func sessionResumeProofRejectsUnexpectedType() {

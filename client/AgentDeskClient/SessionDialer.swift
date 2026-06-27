@@ -93,6 +93,15 @@ final class SessionDialer {
         )
 
         let ready = try decodeControl(SessionReady.self, expectedType: "session-ready", from: try await receiveControlPayload(on: control))
+        try verifyReadySignature(
+            ready,
+            hostPublicKey: hostPub,
+            hostFingerprint: hostFingerprint,
+            deviceFingerprint: deviceFingerprint,
+            clientNonce: clientNonce,
+            hostNonce: challenge.hostNonce,
+            protocolVersion: challenge.protocolVersion
+        )
         let active = ActiveSession(
             sessionId: ready.sessionId,
             deviceFingerprint: deviceFingerprint,
@@ -134,8 +143,16 @@ final class SessionDialer {
         port: UInt16,
         deviceFingerprint: DeviceFingerprint,
         active: ActiveSession,
-        resume: SessionResumeMaterial
+        resume: SessionResumeMaterial,
+        hostPublicKey: Data
     ) async throws -> SessionHandshakeOutcome {
+        let hostPub: P256.Signing.PublicKey
+        do {
+            hostPub = try P256.Signing.PublicKey(x963Representation: hostPublicKey)
+        } catch {
+            throw SessionRejected(reason: .badSignature)
+        }
+        let hostFingerprint = hostPub.agentDeskFingerprint
         let connection = try await openConnection(host: host, port: port)
         var success = false
         defer {
@@ -164,6 +181,20 @@ final class SessionDialer {
         guard challenge.resumeExpiresAt >= Int(now().timeIntervalSince1970) else {
             throw SessionRejected(reason: .expiredResume)
         }
+        try verifySignature(
+            challenge.hostSignature,
+            hostPublicKey: hostPub,
+            input: SessionResumeSigning.challengeInput(
+                sessionId: active.sessionId,
+                deviceFingerprint: deviceFingerprint,
+                resumeId: resume.id,
+                clientNonce: clientNonce,
+                hostNonce: challenge.hostNonce,
+                resumeExpiresAt: challenge.resumeExpiresAt,
+                protocolVersion: Config.protocolVersion,
+                hostFingerprint: hostFingerprint
+            )
+        )
         let proof = SessionResumeSigning.proof(
             sessionId: active.sessionId,
             deviceFingerprint: deviceFingerprint,
@@ -186,6 +217,15 @@ final class SessionDialer {
         guard ready.sessionId == active.sessionId else {
             throw SessionRejected(reason: .unauthorized)
         }
+        try verifyReadySignature(
+            ready,
+            hostPublicKey: hostPub,
+            hostFingerprint: hostFingerprint,
+            deviceFingerprint: deviceFingerprint,
+            clientNonce: clientNonce,
+            hostNonce: challenge.hostNonce,
+            protocolVersion: Config.protocolVersion
+        )
 
         let inputStream = try await connection.openStream()
         let datagrams = try await connection.datagrams
@@ -287,6 +327,45 @@ final class SessionDialer {
             throw SessionRejected(reason: .malformed)
         }
         return try JSONDecoder().decode(type, from: data)
+    }
+
+    private func verifyReadySignature(
+        _ ready: SessionReady,
+        hostPublicKey: P256.Signing.PublicKey,
+        hostFingerprint: String,
+        deviceFingerprint: DeviceFingerprint,
+        clientNonce: Data,
+        hostNonce: Data,
+        protocolVersion: Int
+    ) throws {
+        try verifySignature(
+            ready.hostSignature,
+            hostPublicKey: hostPublicKey,
+            input: SessionResumeSigning.readyInput(
+                ready: ready,
+                deviceFingerprint: deviceFingerprint,
+                clientNonce: clientNonce,
+                hostNonce: hostNonce,
+                protocolVersion: protocolVersion,
+                hostFingerprint: hostFingerprint
+            )
+        )
+    }
+
+    private func verifySignature(
+        _ signatureData: Data,
+        hostPublicKey: P256.Signing.PublicKey,
+        input: Data
+    ) throws {
+        let signature: P256.Signing.ECDSASignature
+        do {
+            signature = try P256.Signing.ECDSASignature(rawRepresentation: signatureData)
+        } catch {
+            throw SessionRejected(reason: .badSignature)
+        }
+        guard hostPublicKey.isValidSignature(signature, for: input) else {
+            throw SessionRejected(reason: .badSignature)
+        }
     }
 
     private struct Envelope: Decodable {

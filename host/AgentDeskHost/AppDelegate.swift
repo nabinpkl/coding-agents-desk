@@ -167,7 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let source = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
         source.setEventHandler { [weak self] in
             self?.signalingLogger.notice("SIGUSR1 received; starting pairing")
-            self?.startPairing()
+            self?.startPairing(writeAutomationURL: true)
         }
         source.resume()
         pairingSignalSource = source
@@ -275,6 +275,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return try self.handleSessionResumeChallenge(request)
                 }
             },
+            sessionResumeChallengeCancelledHandler: { [weak self] request in
+                await MainActor.run {
+                    self?.sessions.cancelResumeChallenge(request)
+                }
+            },
             sessionResumeHandler: { [weak self] request, proof in
                 try await MainActor.run {
                     guard let self else { throw SessionRejected(reason: .unauthorized) }
@@ -338,7 +343,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         switch sessions.makeResumeChallenge(request) {
         case .accepted(let challenge):
-            return challenge
+            return try signedResumeChallenge(challenge, request: request)
         case .rejected(let reason):
             throw SessionRejected(reason: reason)
         }
@@ -346,17 +351,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleSessionResume(_ request: SessionResumeInit, proof: SessionResumeProof) throws -> (ActiveSession, SessionReady) {
         switch sessions.validateResume(request, proof: proof) {
-        case .accepted(let active):
+        case .accepted(let active, let hostNonce):
             guard (try? pairing.lookup(deviceFingerprint: active.deviceFingerprint)) != nil else {
                 sessions.endSession(active.deviceFingerprint, sessionId: active.sessionId)
                 throw SessionRejected(reason: .unknownDevice)
             }
-            let ready = try sessions.makeResumeReady(for: active.deviceFingerprint)
+            let unsignedReady = try sessions.makeResumeReady(for: active.deviceFingerprint)
+            let ready = try signedSessionReady(
+                unsignedReady,
+                deviceFingerprint: active.deviceFingerprint,
+                clientNonce: request.clientNonce,
+                hostNonce: hostNonce,
+                protocolVersion: request.protocolVersion
+            )
             signalingLogger.notice("session resuming fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public) session=\(active.sessionId, privacy: .public)")
             return (active, ready)
         case .rejected(let reason):
             throw SessionRejected(reason: reason)
         }
+    }
+
+    private func signedResumeChallenge(_ challenge: SessionResumeChallenge, request: SessionResumeInit) throws -> SessionResumeChallenge {
+        let key = try pairing.signingKey()
+        let hostFingerprint = key.publicKey.agentDeskFingerprint
+        let signature = try key.signature(for: SessionResumeSigning.challengeInput(
+            sessionId: request.sessionId,
+            deviceFingerprint: request.deviceFingerprint,
+            resumeId: request.resumeId,
+            clientNonce: request.clientNonce,
+            hostNonce: challenge.hostNonce,
+            resumeExpiresAt: challenge.resumeExpiresAt,
+            protocolVersion: request.protocolVersion,
+            hostFingerprint: hostFingerprint
+        )).rawRepresentation
+        return SessionResumeChallenge(
+            hostNonce: challenge.hostNonce,
+            resumeExpiresAt: challenge.resumeExpiresAt,
+            hostSignature: signature
+        )
+    }
+
+    private func signedSessionReady(
+        _ ready: SessionReady,
+        deviceFingerprint: DeviceFingerprint,
+        clientNonce: Data,
+        hostNonce: Data,
+        protocolVersion: Int
+    ) throws -> SessionReady {
+        let key = try pairing.signingKey()
+        let hostFingerprint = key.publicKey.agentDeskFingerprint
+        let signature = try key.signature(for: SessionResumeSigning.readyInput(
+            ready: ready,
+            deviceFingerprint: deviceFingerprint,
+            clientNonce: clientNonce,
+            hostNonce: hostNonce,
+            protocolVersion: protocolVersion,
+            hostFingerprint: hostFingerprint
+        )).rawRepresentation
+        return SessionReady(
+            sessionId: ready.sessionId,
+            resumeId: ready.resumeId,
+            resumeSecret: ready.resumeSecret,
+            resumeExpiresAt: ready.resumeExpiresAt,
+            mediaKeySalt: ready.mediaKeySalt,
+            hostSignature: signature
+        )
     }
 
     private func handleSessionSuspended(_ fingerprint: DeviceFingerprint, sessionId: String?) {
@@ -758,12 +817,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func startPairing() {
+    private func startPairing(writeAutomationURL: Bool = false) {
         do {
             let payload = try pairing.mintPairingPayload()
             let url = try payload.pairingURL()
-            signalingLogger.notice("pairing URL minted: \(url.absoluteString, privacy: .public)")
-            try? url.absoluteString.write(to: Config.devLastPairURLPath, atomically: true, encoding: .utf8)
+            signalingLogger.notice("pairing URL minted expiresAt=\(payload.expiresAt, privacy: .public)")
+            if writeAutomationURL {
+                try writeAutomationPairingURL(url)
+            }
             applyIcon(.pairing)
             popoverController.render(.pairing(url, QRCodeRenderer.image(for: url)))
         } catch is TailscaleRequiredError {
@@ -775,6 +836,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             applyIcon(.pairingFailed)
             popoverController.render(.idle)
         }
+    }
+
+    private func writeAutomationPairingURL(_ url: URL) throws {
+        let fileURL = Config.devLastPairURLPath
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try url.absoluteString.write(to: fileURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: fileURL.path
+        )
     }
 
     private func refreshConnectedState() {

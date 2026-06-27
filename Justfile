@@ -177,11 +177,12 @@ pair-iphone variant="stable":
     test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
     if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; else BID='{{client_bundle_id}}'; fi
     rm -f "{{last_pair_url_path}}"
+    trap 'rm -f "{{last_pair_url_path}}"' EXIT
     kill -USR1 $(pgrep -f AgentDeskHost)
     i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
-    echo "URL: $(cat '{{last_pair_url_path}}')"
-    URL="$(cat '{{last_pair_url_path}}')"; xcrun devicectl device process launch --device {{ios_device}} --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\"}" "$BID" "$URL"
+    echo "URL: <redacted; delivered to client>"
+    URL="$(cat '{{last_pair_url_path}}')"; xcrun devicectl device process launch --device {{ios_device}} --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\"}" "$BID"
 
 # Pair-launch the physical iPhone client with the console attached. Blocks until
 # the app exits and tees stdout/stderr to {{iphone_console_log}}. Owned-media stderr
@@ -193,11 +194,12 @@ iphone-console-run variant="stable":
     test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
     if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; else BID='{{client_bundle_id}}'; fi
     rm -f "{{last_pair_url_path}}" "{{iphone_console_log}}"
+    trap 'rm -f "{{last_pair_url_path}}"' EXIT
     kill -USR1 $(pgrep -f AgentDeskHost)
     i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
-    echo "URL: $(cat '{{last_pair_url_path}}')"
-    URL="$(cat "{{last_pair_url_path}}")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\",\"AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED\":\"$VIDEO\"}" "$BID" "$URL" 2>&1 | tee "{{iphone_console_log}}"
+    echo "URL: <redacted; delivered to client>"
+    URL="$(cat "{{last_pair_url_path}}")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\",\"AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED\":\"$VIDEO\"}" "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
 # Physical-device feel runs. Two console modes x two client variants. Both rebuild
 # and relaunch the host and reinstall the client (the "fresh" prefix is the reinstall);
@@ -302,11 +304,12 @@ motion-verify variant="dev" video="1" seconds="60":
 
     echo "== [4/5] pair + attach client console ($BID) =="
     rm -f "{{last_pair_url_path}}"
+    trap 'rm -f "{{last_pair_url_path}}"' EXIT
     kill -USR1 "$HOST_PID"
     i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     URL="$(cat "{{last_pair_url_path}}")"
-    echo "pair URL: $URL"
+    echo "pair URL: <redacted; delivered to client>"
     # Build the client env JSON: launch URL + stderr trace + motion flag, plus every
     # AGENTDESK_OWNED_MEDIA_* knob from .env so the on-device client matches current code.
     CJSON="{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\",\"AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED\":\"{{video}}\""
@@ -364,10 +367,11 @@ client-sim-reinstall:
 pair-sim:
     @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "{{last_pair_url_path}}"
+    trap 'rm -f "{{last_pair_url_path}}"' EXIT
     kill -USR1 $(pgrep -f AgentDeskHost)
     @i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
-    @echo "URL: $(cat '{{last_pair_url_path}}')"
+    @echo "URL: <redacted; delivered to simulator>"
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
     SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$(cat '{{last_pair_url_path}}')" \
         SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost \
@@ -381,12 +385,13 @@ pair-sim:
 sim-console-run:
     @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "{{last_pair_url_path}}" "{{sim_console_log}}"
+    trap 'rm -f "{{last_pair_url_path}}"' EXIT
     kill -USR1 $(pgrep -f AgentDeskHost)
     @i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
-    @echo "URL: $(cat '{{last_pair_url_path}}')"
+    @echo "URL: <redacted; delivered to simulator>"
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
-    bash -o pipefail -c 'URL="$(cat "{{last_pair_url_path}}")"; SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost SIMCTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE=1 xcrun simctl launch --console --terminate-running-process {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient "$URL" 2>&1 | tee "{{sim_console_log}}"'
+    bash -o pipefail -c 'URL="$(cat "{{last_pair_url_path}}")"; SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost SIMCTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE=1 xcrun simctl launch --console --terminate-running-process {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient 2>&1 | tee "{{sim_console_log}}"'
 
 # Rebuild and relaunch the Mac host, uninstall/reinstall the simulator app, then
 # pair-launch it with stdout/stderr attached (owned-media traces -> {{sim_console_log}}).

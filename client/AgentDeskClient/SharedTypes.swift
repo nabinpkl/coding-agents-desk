@@ -373,6 +373,7 @@ struct SessionReady: Codable, Equatable {
     let resumeSecret: Data
     let resumeExpiresAt: Int
     let mediaKeySalt: Data
+    let hostSignature: Data
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
@@ -381,6 +382,7 @@ struct SessionReady: Codable, Equatable {
         case resumeSecret = "rs"
         case resumeExpiresAt = "re"
         case mediaKeySalt = "mk"
+        case hostSignature = "hs"
     }
 
     init(
@@ -388,7 +390,8 @@ struct SessionReady: Codable, Equatable {
         resumeId: Data,
         resumeSecret: Data,
         resumeExpiresAt: Int,
-        mediaKeySalt: Data
+        mediaKeySalt: Data,
+        hostSignature: Data
     ) {
         self.type = "session-ready"
         self.sessionId = sessionId
@@ -396,6 +399,7 @@ struct SessionReady: Codable, Equatable {
         self.resumeSecret = resumeSecret
         self.resumeExpiresAt = resumeExpiresAt
         self.mediaKeySalt = mediaKeySalt
+        self.hostSignature = hostSignature
     }
 
     init(from decoder: Decoder) throws {
@@ -406,6 +410,7 @@ struct SessionReady: Codable, Equatable {
         resumeSecret = try Data(base64URLEncoded: container.decode(String.self, forKey: .resumeSecret))
         resumeExpiresAt = try container.decode(Int.self, forKey: .resumeExpiresAt)
         mediaKeySalt = try Data(base64URLEncoded: container.decode(String.self, forKey: .mediaKeySalt))
+        hostSignature = try Data(base64URLEncoded: container.decode(String.self, forKey: .hostSignature))
     }
 
     func encode(to encoder: Encoder) throws {
@@ -416,6 +421,7 @@ struct SessionReady: Codable, Equatable {
         try container.encode(resumeSecret.base64URLEncodedString(), forKey: .resumeSecret)
         try container.encode(resumeExpiresAt, forKey: .resumeExpiresAt)
         try container.encode(mediaKeySalt.base64URLEncodedString(), forKey: .mediaKeySalt)
+        try container.encode(hostSignature.base64URLEncodedString(), forKey: .hostSignature)
     }
 }
 
@@ -476,17 +482,20 @@ struct SessionResumeChallenge: Codable, Equatable {
     let type: String
     let hostNonce: Data
     let resumeExpiresAt: Int
+    let hostSignature: Data
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case hostNonce = "hn"
         case resumeExpiresAt = "re"
+        case hostSignature = "hs"
     }
 
-    init(hostNonce: Data, resumeExpiresAt: Int) {
+    init(hostNonce: Data, resumeExpiresAt: Int, hostSignature: Data) {
         self.type = "session-resume-challenge"
         self.hostNonce = hostNonce
         self.resumeExpiresAt = resumeExpiresAt
+        self.hostSignature = hostSignature
     }
 
     init(from decoder: Decoder) throws {
@@ -494,6 +503,7 @@ struct SessionResumeChallenge: Codable, Equatable {
         type = try container.decode(String.self, forKey: .type)
         hostNonce = try Data(base64URLEncoded: container.decode(String.self, forKey: .hostNonce))
         resumeExpiresAt = try container.decode(Int.self, forKey: .resumeExpiresAt)
+        hostSignature = try Data(base64URLEncoded: container.decode(String.self, forKey: .hostSignature))
     }
 
     func encode(to encoder: Encoder) throws {
@@ -501,6 +511,7 @@ struct SessionResumeChallenge: Codable, Equatable {
         try container.encode(type, forKey: .type)
         try container.encode(hostNonce.base64URLEncodedString(), forKey: .hostNonce)
         try container.encode(resumeExpiresAt, forKey: .resumeExpiresAt)
+        try container.encode(hostSignature.base64URLEncodedString(), forKey: .hostSignature)
     }
 }
 
@@ -608,6 +619,54 @@ enum SessionResumeSigning {
         appendField(clientNonce, to: &data)
         appendField(hostNonce, to: &data)
         appendField(Data(String(protocolVersion).utf8), to: &data)
+        return data
+    }
+
+    static func challengeInput(
+        sessionId: String,
+        deviceFingerprint: DeviceFingerprint,
+        resumeId: Data,
+        clientNonce: Data,
+        hostNonce: Data,
+        resumeExpiresAt: Int,
+        protocolVersion: Int,
+        hostFingerprint: String
+    ) -> Data {
+        var data = Data()
+        appendField(Data("\(domainPrefix):challenge".utf8), to: &data)
+        appendField(Data(Config.sessionQuicALPN.utf8), to: &data)
+        appendField(Data(sessionId.utf8), to: &data)
+        appendField(Data(deviceFingerprint.rawValue.utf8), to: &data)
+        appendField(resumeId, to: &data)
+        appendField(clientNonce, to: &data)
+        appendField(hostNonce, to: &data)
+        appendField(Data(String(resumeExpiresAt).utf8), to: &data)
+        appendField(Data(String(protocolVersion).utf8), to: &data)
+        appendField(Data(hostFingerprint.utf8), to: &data)
+        return data
+    }
+
+    static func readyInput(
+        ready: SessionReady,
+        deviceFingerprint: DeviceFingerprint,
+        clientNonce: Data,
+        hostNonce: Data,
+        protocolVersion: Int,
+        hostFingerprint: String
+    ) -> Data {
+        var data = Data()
+        appendField(Data("\(domainPrefix):ready".utf8), to: &data)
+        appendField(Data(Config.sessionQuicALPN.utf8), to: &data)
+        appendField(Data(ready.sessionId.utf8), to: &data)
+        appendField(Data(deviceFingerprint.rawValue.utf8), to: &data)
+        appendField(ready.resumeId, to: &data)
+        appendField(ready.resumeSecret, to: &data)
+        appendField(Data(String(ready.resumeExpiresAt).utf8), to: &data)
+        appendField(ready.mediaKeySalt, to: &data)
+        appendField(clientNonce, to: &data)
+        appendField(hostNonce, to: &data)
+        appendField(Data(String(protocolVersion).utf8), to: &data)
+        appendField(Data(hostFingerprint.utf8), to: &data)
         return data
     }
 
