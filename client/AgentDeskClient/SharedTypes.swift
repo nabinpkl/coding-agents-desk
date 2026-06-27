@@ -507,7 +507,6 @@ enum SessionRejectionReason: String, Codable, Equatable, Error {
     case expiredInputCapability = "expired-input-capability"
     case staleInputCapability = "stale-input-capability"
     case expiredMediaCapability = "expired-media-capability"
-    case staleMediaCapability = "stale-media-capability"
     // ADR-0020: peer's wire protocol version is incompatible; the user must
     // update the older app. Not recoverable by retrying.
     case incompatibleProtocol = "incompatible-protocol"
@@ -720,48 +719,6 @@ struct InputChannelReady: Codable, Equatable {
     init(sessionId: String) {
         self.type = "input-ready"
         self.sessionId = sessionId
-    }
-}
-
-struct MediaChannelHello: Codable, Equatable {
-    let type: String
-    let deviceFingerprint: DeviceFingerprint
-    let sessionId: String
-    let mediaCapability: String
-    let clientNonce: Data
-
-    enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case deviceFingerprint = "d"
-        case sessionId = "sid"
-        case mediaCapability = "mc"
-        case clientNonce = "cn"
-    }
-
-    init(deviceFingerprint: DeviceFingerprint, sessionId: String, mediaCapability: String, clientNonce: Data = Data()) {
-        self.type = "media-hello"
-        self.deviceFingerprint = deviceFingerprint
-        self.sessionId = sessionId
-        self.mediaCapability = mediaCapability
-        self.clientNonce = clientNonce
-    }
-}
-
-struct MediaChannelReady: Codable, Equatable {
-    let type: String
-    let sessionId: String
-    let serverNonce: Data
-
-    enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case sessionId = "sid"
-        case serverNonce = "sn"
-    }
-
-    init(sessionId: String, serverNonce: Data = Data()) {
-        self.type = "media-ready"
-        self.sessionId = sessionId
-        self.serverNonce = serverNonce
     }
 }
 

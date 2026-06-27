@@ -63,23 +63,6 @@ struct InputChannelTests {
         #expect(decoded.mediaCapabilityExpiresAt == 0)
     }
 
-    @Test func mediaHelloFrameSerializesWithCompactKeys() throws {
-        let hello = MediaChannelHello(
-            deviceFingerprint: DeviceFingerprint("device-fp-xyz"),
-            sessionId: "session-123",
-            mediaCapability: "media-capability",
-            clientNonce: Data([1, 2, 3])
-        )
-        let data = try JSONEncoder().encode(hello)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        #expect(json.contains("\"t\":\"media-hello\""))
-        #expect(json.contains("\"d\""))
-        #expect(json.contains("device-fp-xyz"))
-        #expect(json.contains("\"sid\":\"session-123\""))
-        #expect(json.contains("\"mc\":\"media-capability\""))
-        #expect(json.contains("\"cn\""))
-    }
-
     @Test func mediaCapabilityRefreshFrameSerializesWithCompactKeys() throws {
         let request = MediaCapabilityRefreshRequest(
             deviceFingerprint: DeviceFingerprint("device-fp-xyz"),
@@ -545,7 +528,7 @@ struct InputChannelTests {
         }
 
         let wrongTypeData = """
-        {"t":"media-ready","sid":"session-123","sn":"BAUG"}
+        {"t":"not-graphics-ready","sid":"session-123","sn":"BAUG"}
         """.data(using: .utf8) ?? Data()
         let wrongType = try JSONDecoder().decode(GraphicsChannelReady.self, from: wrongTypeData)
         #expect(throws: SessionRejected(reason: .malformed)) {

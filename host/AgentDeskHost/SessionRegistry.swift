@@ -29,17 +29,7 @@ private struct InputCapabilityKey: Hashable {
     let inputCapability: String
 }
 
-private struct MediaCapabilityKey: Hashable {
-    let deviceFingerprint: DeviceFingerprint
-    let sessionId: String
-    let mediaCapability: String
-}
-
 private struct StaleInputCapabilityRecord {
-    let expiresAt: Int
-}
-
-private struct StaleMediaCapabilityRecord {
     let expiresAt: Int
 }
 
@@ -66,7 +56,6 @@ final class SessionRegistry {
     private var inputCapabilities: [DeviceFingerprint: InputCapabilityRecord] = [:]
     private var staleInputCapabilities: [InputCapabilityKey: StaleInputCapabilityRecord] = [:]
     private var mediaCapabilities: [DeviceFingerprint: MediaCapabilityRecord] = [:]
-    private var staleMediaCapabilities: [MediaCapabilityKey: StaleMediaCapabilityRecord] = [:]
 
     init(
         now: @escaping () -> Date = Date.init,
@@ -140,7 +129,6 @@ final class SessionRegistry {
         inputCapabilities.removeValue(forKey: fingerprint)
         staleInputCapabilities = staleInputCapabilities.filter { $0.key.deviceFingerprint != fingerprint }
         mediaCapabilities.removeValue(forKey: fingerprint)
-        staleMediaCapabilities = staleMediaCapabilities.filter { $0.key.deviceFingerprint != fingerprint }
         if closeSignaling {
             channel?.close()
         }
@@ -175,33 +163,6 @@ final class SessionRegistry {
         } catch {
             return .rejected(.malformed)
         }
-        return .accepted(hello.deviceFingerprint)
-    }
-
-    func validateMediaCapability(_ hello: MediaChannelHello) -> MediaCapabilityValidationResult {
-        pruneExpiredStaleMediaCapabilities()
-        let presented = MediaCapabilityKey(
-            deviceFingerprint: hello.deviceFingerprint,
-            sessionId: hello.sessionId,
-            mediaCapability: hello.mediaCapability
-        )
-        if staleMediaCapabilities[presented] != nil {
-            return .rejected(.staleMediaCapability)
-        }
-        guard active.contains(hello.deviceFingerprint),
-              sessionIds[hello.deviceFingerprint] == hello.sessionId,
-              let current = mediaCapabilities[hello.deviceFingerprint],
-              current.sessionId == hello.sessionId
-        else {
-            return .rejected(.unauthorized)
-        }
-        guard current.mediaCapability == hello.mediaCapability else {
-            return .rejected(.unauthorized)
-        }
-        guard Int(now().timeIntervalSince1970) <= current.expiresAt else {
-            return .rejected(.expiredMediaCapability)
-        }
-        markStaleMediaCapability(presented, originalExpiresAt: current.expiresAt)
         return .accepted(hello.deviceFingerprint)
     }
 
@@ -259,18 +220,10 @@ final class SessionRegistry {
         deviceFingerprint: DeviceFingerprint,
         sessionId: String
     ) -> Result<MediaCapabilityGrant, SessionRejectionReason> {
-        pruneExpiredStaleMediaCapabilities()
         guard active.contains(deviceFingerprint),
               sessionIds[deviceFingerprint] == sessionId
         else {
             return .failure(.unauthorized)
-        }
-        if let current = mediaCapabilities[deviceFingerprint] {
-            markStaleMediaCapabilityForRefresh(MediaCapabilityKey(
-                deviceFingerprint: deviceFingerprint,
-                sessionId: current.sessionId,
-                mediaCapability: current.mediaCapability
-            ))
         }
         do {
             let record = try makeMediaCapabilityRecord(sessionId: sessionId)
@@ -369,27 +322,9 @@ final class SessionRegistry {
         )
     }
 
-    private func markStaleMediaCapability(_ key: MediaCapabilityKey, originalExpiresAt: Int) {
-        let ttlExpiresAt = Int(now().addingTimeInterval(Config.mediaCapabilityTTL).timeIntervalSince1970)
-        staleMediaCapabilities[key] = StaleMediaCapabilityRecord(
-            expiresAt: min(originalExpiresAt, ttlExpiresAt)
-        )
-    }
-
-    private func markStaleMediaCapabilityForRefresh(_ key: MediaCapabilityKey) {
-        staleMediaCapabilities[key] = StaleMediaCapabilityRecord(
-            expiresAt: Int(now().addingTimeInterval(Config.mediaCapabilityTTL).timeIntervalSince1970)
-        )
-    }
-
     private func pruneExpiredStaleInputCapabilities() {
         let currentTime = Int(now().timeIntervalSince1970)
         staleInputCapabilities = staleInputCapabilities.filter { $0.value.expiresAt >= currentTime }
-    }
-
-    private func pruneExpiredStaleMediaCapabilities() {
-        let currentTime = Int(now().timeIntervalSince1970)
-        staleMediaCapabilities = staleMediaCapabilities.filter { $0.value.expiresAt >= currentTime }
     }
 
     nonisolated private static func systemRandomBytes(_ count: Int) throws -> Data {

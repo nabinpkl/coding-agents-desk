@@ -174,7 +174,6 @@ struct PairingClientTests {
         for reason in [
             SessionRejectionReason.staleInputCapability,
             .expiredInputCapability,
-            .staleMediaCapability,
             .expiredMediaCapability
         ] {
             let store = InMemorySessionTokenStore()

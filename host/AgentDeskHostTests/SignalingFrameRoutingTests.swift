@@ -80,11 +80,6 @@ struct SignalingFrameRoutingTests {
         #expect(SignalingFrameRouter.classifyFirstFrame(data) == .inputHello)
     }
 
-    @Test func classifyFirstFrameMediaHelloIsMalformedOnSessionSocket() {
-        let data = Data(#"{"t":"media-hello"}"#.utf8)
-        #expect(SignalingFrameRouter.classifyFirstFrame(data) == .malformed)
-    }
-
     @Test func inputHelloFrameRoundTripsThroughCodable() throws {
         let hello = InputChannelHello(
             deviceFingerprint: DeviceFingerprint("device-fp"),
@@ -98,23 +93,6 @@ struct SignalingFrameRoutingTests {
         #expect(decoded.deviceFingerprint == DeviceFingerprint("device-fp"))
         #expect(decoded.sessionId == "session-123")
         #expect(decoded.inputCapability == "capability-abc")
-    }
-
-    @Test func mediaHelloFrameRoundTripsThroughCodable() throws {
-        let hello = MediaChannelHello(
-            deviceFingerprint: DeviceFingerprint("device-fp"),
-            sessionId: "session-123",
-            mediaCapability: "media-capability-abc",
-            clientNonce: Data([1, 2, 3])
-        )
-        let data = try JSONEncoder().encode(hello)
-        let decoded = try JSONDecoder().decode(MediaChannelHello.self, from: data)
-        #expect(decoded == hello)
-        #expect(decoded.type == "media-hello")
-        #expect(decoded.deviceFingerprint == DeviceFingerprint("device-fp"))
-        #expect(decoded.sessionId == "session-123")
-        #expect(decoded.mediaCapability == "media-capability-abc")
-        #expect(decoded.clientNonce == Data([1, 2, 3]))
     }
 
     @Test func mediaCapabilityRefreshFrameRoundTripsThroughCodable() throws {
@@ -402,14 +380,9 @@ struct SignalingFrameRoutingTests {
             _ = try OwnedGraphicsHandshake.validateHelloData(Data())
         }
 
-        let mediaHello = MediaChannelHello(
-            deviceFingerprint: DeviceFingerprint("device-fp"),
-            sessionId: "session-123",
-            mediaCapability: "media-capability",
-            clientNonce: Data([1, 2, 3])
-        )
+        let wrongType = Data(#"{"t":"not-graphics-hello","d":"device-fp","sid":"session-123","gc":"graphics-capability","cn":"AQID"}"#.utf8)
         #expect(throws: SessionRejected(reason: .malformed)) {
-            _ = try OwnedGraphicsHandshake.validateHelloData(try JSONEncoder().encode(mediaHello))
+            _ = try OwnedGraphicsHandshake.validateHelloData(wrongType)
         }
 
         let emptyNonce = GraphicsChannelHello(
