@@ -1,4 +1,5 @@
 import AVFoundation
+import OSLog
 import UIKit
 
 // Pairing + session lifecycle owner. The view controller threads three
@@ -10,6 +11,7 @@ import UIKit
 // internal access.
 
 final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate {
+    private let sessionLogger = Logger(subsystem: Config.logSubsystem, category: "session-quic")
     let pairingClient = PairingClient()
     // ADR-0019: listens for a Mac-pushed pairing offer while unpaired and
     // foregrounded. Started/stopped from render() and the background hook.
@@ -21,6 +23,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var previewLayer: AVCaptureVideoPreviewLayer?
     var handshakeTask: Task<Void, Never>?
     var sessionTask: Task<Void, Never>?
+    var sessionAttemptGeneration: UInt64 = 0
     var mediaTransport: MediaTransport?
     var videoSink: VideoFrameSink?
     // R21: pinch-zoom container around the owned media sink. Local-only zoom
@@ -201,8 +204,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // and no video. Closing here forces state to .pairedDisconnected
     // so the next foreground reliably re-attempts.
     @objc func applicationDidEnterBackground() {
-        sessionTask?.cancel()
-        sessionTask = nil
+        cancelSessionAttempt()
         handshakeTask?.cancel()
         handshakeTask = nil
         iceGraceTask?.cancel()
@@ -226,17 +228,54 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     func triggerSessionIfPaired() {
+        guard sessionTask == nil else { return }
         guard case .pairedDisconnected = pairingClient.state else { return }
-        sessionTask?.cancel()
+        sessionAttemptGeneration &+= 1
+        let generation = sessionAttemptGeneration
         sessionTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            do {
-                _ = try await self.pairingClient.attemptSession()
-            } catch {
-                // PairingClient.attemptSession already set the state.
+            defer {
+                if self.sessionAttemptGeneration == generation {
+                    self.sessionTask = nil
+                }
             }
-            self.render()
+            var shouldDelay = false
+            while !Task.isCancelled, self.sessionAttemptGeneration == generation {
+                guard case .pairedDisconnected = self.pairingClient.state else { return }
+                if shouldDelay {
+                    try? await Task.sleep(
+                        nanoseconds: UInt64(Config.sessionReconnectRetryDelayMs) * 1_000_000
+                    )
+                    guard !Task.isCancelled, self.sessionAttemptGeneration == generation else { return }
+                    guard case .pairedDisconnected = self.pairingClient.state else { return }
+                }
+                do {
+                    _ = try await self.pairingClient.attemptSession()
+                    guard self.sessionAttemptGeneration == generation else { return }
+                    self.render()
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard self.sessionAttemptGeneration == generation else { return }
+                    // PairingClient.attemptSession already reset the state for
+                    // transient failures. Keep retrying while foregrounded so a
+                    // launch-time duplicate lifecycle callback cannot strand the
+                    // app at "Paired (reconnecting)" after one pre-handshake drop.
+                    self.sessionLogger.notice(
+                        "session reconnect attempt failed: \(String(describing: error), privacy: .public)"
+                    )
+                    self.render()
+                    shouldDelay = true
+                }
+            }
         }
+    }
+
+    func cancelSessionAttempt() {
+        sessionAttemptGeneration &+= 1
+        sessionTask?.cancel()
+        sessionTask = nil
     }
 
     deinit {
@@ -418,7 +457,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     @objc private func forgetHost() {
-        sessionTask?.cancel()
+        cancelSessionAttempt()
         handshakeTask?.cancel()
         stopCamera()
         teardownMediaTransport()
@@ -539,7 +578,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     func handleIncomingPairingURL(_ url: URL) {
         // A fresh pair URL supersedes whatever state we're in.
-        sessionTask?.cancel()
+        cancelSessionAttempt()
         handshakeTask?.cancel()
         stopCamera()
         pairingClient.clearStoredCredentials()

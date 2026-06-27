@@ -18,6 +18,10 @@ enum Config {
         environmentKey: "AGENTDESK_SESSION_CONNECTION_READY_TIMEOUT_MS",
         defaultValue: 10_000
     )
+    static let sessionReconnectRetryDelayMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_RECONNECT_RETRY_DELAY_MS",
+        defaultValue: 1_000
+    )
     // The stable and experimental client installs differ only by bundle id.
     // Deriving the log subsystem and keychain namespace from the running
     // bundle id keeps each variant's diagnostics and stored credentials

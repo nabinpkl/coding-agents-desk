@@ -257,6 +257,7 @@ final class PairingClient {
 
         let host = resolvedHost(fqdn: record.tailnetFQDN, ipv4: record.tailnetIPv4)
         do {
+            try Task.checkCancellation()
             let fingerprint = DeviceFingerprint(try deviceKeyProvider.publicKey.agentDeskFingerprint)
             let connection: SessionHandshakeOutcome
             if let resume = pendingResume,
@@ -279,6 +280,12 @@ final class PairingClient {
                     hostPublicKey: record.hostPublicKey,
                     deviceKey: deviceKeyProvider
                 )
+            }
+            do {
+                try Task.checkCancellation()
+            } catch {
+                connection.transport.close()
+                throw error
             }
             let session = SessionConnection(
                 active: connection.active,
@@ -304,6 +311,10 @@ final class PairingClient {
             pendingResume = nil
             applyRejection(rejection)
             throw rejection
+        } catch is CancellationError {
+            resetActiveMediaSession()
+            state = .pairedDisconnected
+            throw CancellationError()
         } catch {
             resetActiveMediaSession()
             state = .pairedDisconnected
