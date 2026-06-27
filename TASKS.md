@@ -172,6 +172,17 @@ Phase goal: promote region-scoped scroll copy from whole-window geometry to the 
 - [x] D73. Extend diagnostics summary and fixtures to report viewport-locked copyRects, whole-window copyRects, HEVC visual-only fallbacks, HEVC baseline realignments, graphics EOF versus malformed, and reset retry suppression.
 - [ ] R74. Run `just check`, then physical `just fresh-hybrid-consoled-run`; accept only if viewport-locked copyRects are active, whole-window copyRects are zero, outside-scroll chrome/sidebar stays fixed, HEVC baseline realignment happens only after idle, and graphics reset does not loop into malformed reconnect churn.
 
+## v0 Phase 13: viewport-first scroll ownership
+
+Phase goal: stop treating viewport detection as a post-acceptance refinement. The failed R74 physical run showed reset stripes were ACKed and graphics compositor cost was low, but scroll never accepted: host scroll `accepted=0`, `timeout=688`, `blindTimeout=570`, client `copyRects=0`, and HEVC carried motion with render gaps up to `6096ms`. The current pipeline must classify the inner viewport before expensive full-window offset scanning.
+
+- [ ] R75. Record host scroll input diagnostics in `host/AgentDeskHost/ScrollActivityTracker.swift` and `host/AgentDeskHost/OwnedMediaTransport.swift`, logging raw scroll `dx`, `dy`, phase, scaled predicted offset, candidate offsets, hint expiry, and whether the encode pump consumed an active input or ownership hint.
+- [ ] R76. Replace `ScrollDeltaEngine` ordering so active input or ownership never runs blind 960-candidate probing; active scroll uses bounded candidates only, and a miss returns `viewport-search-miss` or `owned-scroll-miss` without HEVC baseline realignment.
+- [ ] R77. Add a viewport-first probe in `host/AgentDeskHost/ScrollViewportTracker.swift`: use the active scroll axis/sign and outer window region to find likely inner scrolling bands directly, then verify offset only inside the candidate viewport before any `copyRect` envelope is built.
+- [ ] R78. Change `host/AgentDeskHost/OwnedMediaTransport.swift` HEVC fallback during active viewport search so repeated `scroll-timeout` does not call `observeFallbackFrame(frame)` and does not send a full-frame HEVC refresh more than the bounded recovery interval.
+- [ ] R79. Extend `tools/hybrid-graphics-diagnostics-summary.sh` to report input-hint consumption, viewport-search misses, active-scroll blind-scan count, active-scroll HEVC baseline realignment count, and viewport-first acceptance count.
+- [ ] R80. Add tests proving active scroll cannot enter blind scan, viewport-first probing locks an inner body rectangle before full-window offset acceptance, scroll-timeout during active viewport search does not realign the retained baseline, and physical `just fresh-hybrid-consoled-run` shows `viewport-locked copyRects > 0`.
+
 ---
 
 ## v0 full mixed graphics scope (captured, not started)
@@ -255,7 +266,8 @@ D60       2026-06-22  retired     physical rerun showed copyRect active but wron
 D61-D66   2026-06-22  done        input-focused stable scroll region, region-scoped copyRect, diagnostics, and tests; `just check` green
 R67       2026-06-22  retired     physical run fixed full-desktop copy but selected the whole app window, so inner viewport detection starts at R68
 D68-D73   2026-06-22  done        inner viewport detection, viewport-scoped envelopes, HEVC baseline-safe suppression, graphics stream/reset diagnostics, and `just check` green
-R74       pending     pending     physical comparison for inner viewport ownership and graphics reset recovery
+R74       2026-06-22  blocked     physical run froze: reset stripes ACKed, but host scroll accepted 0, blind timeouts 570, client copyRects 0, and HEVC carried motion with multi-second render gaps
+R75-R80   pending     pending     viewport-first scroll ownership: input diagnostics, no active-scroll blind scan, viewport-first probe, HEVC baseline guard, summary coverage, physical acceptance
 R54.0     2026-06-21  committed   reverted locator-code pairing; clean QR/handshake base restored
 R54.1-R54.6 2026-06-22  committed   Mac-initiated tailnet pairing: offer codec, peer enumeration, host pre-approval, device picker + offer sender, client offer listener, ADR-0019
 R54.7     2026-06-22  done        physical pick-to-pair worked: inbound TCP over utun confirmed, direct connection established
