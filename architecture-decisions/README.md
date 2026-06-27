@@ -63,3 +63,6 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0016 | Scroll-first hybrid retained graphics | accepted | 2026-06-20 |
 | ADR-0019 | Mac-initiated tailnet pairing with a host-side device picker | proposed | 2026-06-22 |
 | ADR-0020 | Wire protocol version negotiated at the session handshake | proposed | 2026-06-22 |
+| ADR-0021 | Damage-driven retained graphics | superseded by ADR-0022 | 2026-06-22 |
+| ADR-0022 | Multi-stream QUIC and progressive repaint, dropping pixel-guessed scroll | proposed | 2026-06-25 |
+| ADR-0023 | Revive a hardened, host-detected scroll copyRect | accepted | 2026-06-25 |

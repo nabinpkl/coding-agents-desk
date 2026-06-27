@@ -73,18 +73,17 @@ enum DamageScrollClassification: Equatable {
     case noChange
 }
 
-// Per-frame trace for device logs: the band geometry, coverage, the measured
-// offset, and the decision string, so a device run shows why each frame composed
-// the way it did.
+// Per-frame trace for device logs: the band geometry, coverage, and the decision
+// string, so a device run shows why each frame composed the way it did. The
+// measured scroll offset is carried on the diagnostics (acceptedDx/Dy), not here.
 struct DamageScrollTrace: Equatable {
     let bandWidth: Int
     let bandHeight: Int
     let coverage: Double
-    let measuredOffset: Int?
     let decision: String
 
     static let empty = DamageScrollTrace(
-        bandWidth: 0, bandHeight: 0, coverage: 0, measuredOffset: nil, decision: "none"
+        bandWidth: 0, bandHeight: 0, coverage: 0, decision: "none"
     )
 }
 
@@ -154,7 +153,7 @@ struct FrameComposer {
             let dx = motion.axis == .horizontal ? offset : 0
             let dy = motion.axis == .vertical ? offset : 0
             return (.scroll(region: scrollBand, dx: dx, dy: dy),
-                    trace(band: scrollBand, coverage: coverage, measuredOffset: offset, decision: "scroll"))
+                    trace(band: scrollBand, coverage: coverage, decision: "scroll"))
         }
 
         // Not a scroll (rest, or a scroll the surface did not confirm): tile the
@@ -168,12 +167,11 @@ struct FrameComposer {
                 trace(band: scrollBand, coverage: coverage, decision: "fullframe-\(phase)"))
     }
 
-    private func trace(band: PixelRect? = nil, coverage: Double = 0, measuredOffset: Int? = nil, decision: String) -> DamageScrollTrace {
+    private func trace(band: PixelRect? = nil, coverage: Double = 0, decision: String) -> DamageScrollTrace {
         DamageScrollTrace(
             bandWidth: band?.width ?? 0,
             bandHeight: band?.height ?? 0,
             coverage: coverage,
-            measuredOffset: measuredOffset,
             decision: decision
         )
     }

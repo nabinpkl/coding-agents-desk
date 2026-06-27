@@ -19,7 +19,7 @@
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
 
-ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the current scroll-first hybrid retained-graphics worktree architecture. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version.
+ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the current scroll-first hybrid retained-graphics worktree architecture. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 and ADR-0022 record the damage-driven retained-graphics and multi-stream-QUIC iterations. ADR-0023 records the hardened, host-detected scroll copyRect (verify-or-fallback) and the two-part black-flash fix that the current graphics pipeline runs.
 
 ## Module Boundaries
 

@@ -145,6 +145,47 @@ struct OwnedSurfaceCompositorCopyRectTests {
         }
     }
 
+    // Executable coherence proof (ADR-0023). The host, on a confirmed scroll, commits
+    // pendingSurface = current and emits copyRect (shift the stable region) + a strip
+    // tile (the newly-exposed pixels of current). Applying exactly that to a client
+    // seeded with `previous` must reproduce `current` byte-for-byte: copyRect moves
+    // previous's stable rows into place and the strip paints the exposed remainder.
+    @Test func scrollEnvelopeReproducesHostCurrentSurface() throws {
+        let width = 8, height = 8, dy = 2
+
+        // previous: each row r stamped with value r.
+        let previous = Self.rowStampedPixels(width: width, height: height)
+        // current: previous scrolled DOWN by dy. Rows [dy, height) hold previous rows
+        // [0, height-dy); rows [0, dy) are newly-exposed content (distinct values).
+        var current = Data(count: width * height * 4)
+        for y in 0..<height {
+            let value: UInt8 = y < dy ? UInt8(200 + y) : UInt8(y - dy)
+            for x in 0..<(width * 4) { current[y * width * 4 + x] = value }
+        }
+
+        var compositor = OwnedSurfaceCompositor()
+        _ = try compositor.applyGraphicsFrame(try Self.makeSeedEnvelope(width: width, height: height, pixels: previous))
+
+        // The host scroll envelope: copyRect shifts the stable region down by dy, then
+        // a bitmapTile paints the exposed top strip (rows [0, dy)) with current's pixels.
+        let stripPixels = current.subdata(in: 0..<(width * dy * 4))
+        let stripPayload = try Self.compressLZFSE(stripPixels)
+        let envelope = OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: 1, frameId: 2, capturedAtUptimeNs: 200,
+                commandCount: 2, payloadLength: stripPayload.count
+            ),
+            commands: [
+                .copyRect(srcX: 0, srcY: 0, dstX: 0, dstY: dy, width: width, height: height - dy),
+                .bitmapTile(x: 0, y: 0, width: width, height: dy, compression: .lzfse, byteRange: OwnedGraphicsByteRange(offset: 0, length: stripPayload.count))
+            ],
+            payload: stripPayload
+        )
+        _ = try compositor.applyGraphicsFrame(envelope)
+
+        #expect(compositor.pixelBytesForDiagnostics() == current, "client surface must equal the host-committed current after copyRect + strip")
+    }
+
     // A destination rect that runs off the surface is malformed and rejected before
     // any pixels move.
     @Test func outOfBoundsDestinationIsRejected() throws {
