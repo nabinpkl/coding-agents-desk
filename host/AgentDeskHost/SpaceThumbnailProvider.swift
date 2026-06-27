@@ -181,6 +181,12 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
         scheduleCapture(reason: "force-refresh \(spaceId)")
     }
 
+    func forceRefresh() {
+        let shouldSchedule = state.withLock { !$0.demandOwners.isEmpty }
+        guard shouldSchedule else { return }
+        scheduleCapture(reason: "force-refresh")
+    }
+
     // MARK: - Internal
 
     private func installSpaceChangeObserver() {

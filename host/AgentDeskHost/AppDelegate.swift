@@ -520,6 +520,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     server.pushThumbnails([:])
                 }
                 provider.setDemand(owner: thumbnailOwner, enabled: enabled)
+                if enabled {
+                    provider.forceRefresh()
+                }
                 if let spaceId = refresh {
                     provider.forceRefresh(spaceId: spaceId)
                 }
@@ -532,6 +535,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         id: self.displaySelection.selectedDisplayId
                     )
                     self.broadcastDesktopState()
+                    if enabled {
+                        provider.forceRefresh()
+                    }
                 }
             }
         }

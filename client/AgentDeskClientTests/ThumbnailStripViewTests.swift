@@ -205,6 +205,24 @@ struct ThumbnailStripViewTests {
         #expect(view.activeIndex == 1)
     }
 
+    @Test func applyStateFallsBackWhenSelectedDisplayIsStale() {
+        let view = ThumbnailStripView()
+        view.apply(state: DesktopState(
+            displays: [
+                DisplayMetadata(id: "DISP-1", widthPoints: 1512, heightPoints: 982),
+            ],
+            spaces: [
+                SpaceMetadata(id: 100, displayId: "DISP-1", index: 0, type: 0),
+                SpaceMetadata(id: 200, displayId: "DISP-1", index: 1, type: 0),
+            ],
+            activeDisplayId: "DISP-1",
+            selectedDisplayId: "STALE-DISPLAY",
+            activeSpaceId: 100
+        ))
+        #expect(view.userSpaceCount == 2)
+        #expect(view.activeIndex == 0)
+    }
+
     @Test func displayRailRendersLabelsForMultipleDisplays() {
         let view = DisplayRailView()
         view.apply(state: DesktopState(

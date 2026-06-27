@@ -305,7 +305,7 @@ final class ThumbnailStripView: UIView {
     // MARK: - Public state surface
 
     func apply(state: DesktopState) {
-        guard let displayId = state.selectedDisplayId ?? state.activeDisplayId else {
+        guard let displayId = Self.displayIdToRender(from: state) else {
             renderEmpty()
             return
         }
@@ -458,6 +458,15 @@ final class ThumbnailStripView: UIView {
     var activeIndex: Int? {
         guard let activeSpaceId else { return nil }
         return orderedSpaces.firstIndex { $0.id == activeSpaceId }
+    }
+
+    static func displayIdToRender(from state: DesktopState) -> String? {
+        let available = Set(state.spaces.map(\.displayId))
+        for candidate in [state.selectedDisplayId, state.activeDisplayId, state.displays.first?.id] {
+            guard let candidate else { continue }
+            if available.contains(candidate) { return candidate }
+        }
+        return available.sorted().first
     }
 
     // Test affordances.
