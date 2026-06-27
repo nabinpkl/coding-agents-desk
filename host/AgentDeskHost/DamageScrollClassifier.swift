@@ -8,13 +8,15 @@ import Foundation
 // takes that band as the scroll region directly, instead of brute-force scanning
 // the frame for it, then verifies the input-hinted offset only inside the band.
 //
-// There is no full-frame candidate sweep. The hint's predicted offset is
-// approximate (input dy is not screen pixels once acceleration applies), so a
-// small bounded neighbourhood around the predicted offset is probed over a thin
-// sampled stripe, not the whole band. Acceptance still has no runner-up margin
-// gate (the structurally-unsatisfiable thing that froze the pixel-diff path);
-// the only margin is best-vs-static (offset 0), which rejects torn copies on
-// low-detail or repetitive content where any offset matches.
+// The hint's predicted offset is approximate (input dy is not screen pixels once
+// acceleration applies), so the hint contributes axis and sign only. The offset
+// magnitude is recovered from the surface by a directed coarse-to-fine search
+// over a thin sampled stripe, bounded to the band extent, not the whole frame.
+// Trusting only the hinted candidate magnitudes left copyRect unable to fire
+// when the prediction was off, which it always was. Acceptance has no runner-up
+// margin gate (the structurally-unsatisfiable thing that froze the pixel-diff
+// path); the only margin is best-vs-static (offset 0), which rejects torn copies
+// on low-detail or repetitive content where any offset matches.
 
 struct PixelRect: Equatable, Sendable {
     let x: Int
@@ -101,8 +103,13 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
     let minStaticMargin: Double
     let sampleStep: Int
     let lumaTolerance: Int
-    // Cap on how many hinted offsets we probe, closest-to-predicted first.
-    let maxCandidateProbes: Int
+    // Directed offset search: probe magnitudes in the hinted sign at this stride
+    // (coarse), then refine +/-(coarseStep-1) around the winner at stride 1. The
+    // input hint contributes axis and sign only; its magnitude is unreliable
+    // (input dy is not screen pixels once acceleration applies), so the true
+    // pixel offset is recovered from the surface instead of trusted from the hint.
+    let coarseStep: Int
+    let maxSearchOffsetPx: Int
     // Thin verification stripe extent (band height for vertical, width for
     // horizontal) so verification stays O(stripe), not O(band).
     let verifyExtent: Int
@@ -123,7 +130,8 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
         minStaticMargin: 0.15,
         sampleStep: 8,
         lumaTolerance: 24,
-        maxCandidateProbes: 5,
+        coarseStep: 8,
+        maxSearchOffsetPx: 200,
         verifyExtent: 256,
         maxTileCoverageRatio: 0.15
     )
@@ -220,41 +228,58 @@ struct DamageScrollClassifier {
             return OffsetSearch(offset: nil, gatePassed: false, bestOffset: nil, bestConfidence: 0, staticConfidence: 0)
         }
 
-        // Probe the predicted offset plus its closest hinted neighbours, deduped
-        // and bounded, instead of the whole candidate list. The predicted offset
-        // leads; ties break toward it.
-        var seen = Set<Int>()
-        var candidates: [Int] = []
-        for candidate in [hint.predictedOffsetPx] + hint.candidateOffsets where candidate != 0 {
-            if seen.insert(candidate).inserted { candidates.append(candidate) }
-        }
-        guard !candidates.isEmpty else {
-            return OffsetSearch(offset: nil, gatePassed: true, bestOffset: nil, bestConfidence: 0, staticConfidence: 0)
-        }
-        candidates.sort { abs($0 - hint.predictedOffsetPx) < abs($1 - hint.predictedOffsetPx) }
-        let probes = candidates.prefix(max(1, config.maxCandidateProbes))
+        // The hint contributes axis and sign only. Search the offset magnitude
+        // directly against the surface: coarse stride across the plausible range
+        // in the hinted sign, then refine around the winner. An offset larger
+        // than the band cannot have produced this band, so the range is capped at
+        // the band extent along the axis of motion.
+        let sign = hint.sign >= 0 ? 1 : -1
+        let axisExtent = hint.axis == .vertical ? band.height : band.width
+        let maxMagnitude = min(config.maxSearchOffsetPx, max(1, axisExtent - 1))
+        let coarseStep = max(1, config.coarseStep)
 
         // Verify over a thin centered stripe, not the whole band.
         let stripe = verifyStripe(band: band, axis: hint.axis)
         let staticConfidence = matchConfidence(region: stripe, previous: previous, current: current, axis: hint.axis, offset: 0)
 
-        var best: (offset: Int, confidence: Double)?
-        for candidate in probes {
-            let confidence = matchConfidence(region: stripe, previous: previous, current: current, axis: hint.axis, offset: candidate)
-            if best == nil || confidence > best!.confidence {
-                best = (candidate, confidence)
+        func confidence(forMagnitude magnitude: Int) -> Double {
+            matchConfidence(region: stripe, previous: previous, current: current, axis: hint.axis, offset: sign * magnitude)
+        }
+
+        var bestMagnitude = 0
+        var bestConfidence = -1.0
+        var magnitude = coarseStep
+        while magnitude <= maxMagnitude {
+            let c = confidence(forMagnitude: magnitude)
+            if c > bestConfidence { bestConfidence = c; bestMagnitude = magnitude }
+            magnitude += coarseStep
+        }
+        // Refine at unit stride within +/-(coarseStep-1) of the coarse winner.
+        // Adjacent coarse points are coarseStep apart and each refine window
+        // reaches coarseStep-1, so the windows tile the range without gaps.
+        if bestMagnitude > 0 {
+            let lo = max(1, bestMagnitude - (coarseStep - 1))
+            let hi = min(maxMagnitude, bestMagnitude + (coarseStep - 1))
+            var fine = lo
+            while fine <= hi {
+                if fine % coarseStep != 0 {
+                    let c = confidence(forMagnitude: fine)
+                    if c > bestConfidence { bestConfidence = c; bestMagnitude = fine }
+                }
+                fine += 1
             }
         }
-        guard let best else {
+
+        guard bestMagnitude > 0 else {
             return OffsetSearch(offset: nil, gatePassed: true, bestOffset: nil, bestConfidence: 0, staticConfidence: staticConfidence)
         }
-        let accepted = best.offset != 0
-            && best.confidence >= config.acceptConfidence
-            && best.confidence - staticConfidence >= config.minStaticMargin
+        let bestOffset = sign * bestMagnitude
+        let accepted = bestConfidence >= config.acceptConfidence
+            && bestConfidence - staticConfidence >= config.minStaticMargin
         let resolved: ScrollDeltaOffset? = accepted
-            ? (hint.axis == .vertical ? ScrollDeltaOffset(dx: 0, dy: best.offset) : ScrollDeltaOffset(dx: best.offset, dy: 0))
+            ? (hint.axis == .vertical ? ScrollDeltaOffset(dx: 0, dy: bestOffset) : ScrollDeltaOffset(dx: bestOffset, dy: 0))
             : nil
-        return OffsetSearch(offset: resolved, gatePassed: true, bestOffset: best.offset, bestConfidence: best.confidence, staticConfidence: staticConfidence)
+        return OffsetSearch(offset: resolved, gatePassed: true, bestOffset: bestOffset, bestConfidence: bestConfidence, staticConfidence: staticConfidence)
     }
 
     // A thin stripe centered in the band along the axis of motion. Verifying a

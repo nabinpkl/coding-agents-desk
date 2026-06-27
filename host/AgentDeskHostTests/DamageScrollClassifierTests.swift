@@ -148,7 +148,7 @@ struct DamageScrollClassifierTests {
         #expect(result == .fullFrame(reason: "damage-too-large-no-scroll"))
     }
 
-    @Test func rejectsScrollWhenHintOffsetDoesNotMatchContent() {
+    @Test func findsTrueVerticalOffsetWhenHintMagnitudeIsWrong() {
         let width = 640
         let height = 480
         let dy = 24
@@ -157,8 +157,11 @@ struct DamageScrollClassifierTests {
         let band = PixelRect(x: 100, y: 100, width: 400, height: 300)
         let classifier = DamageScrollClassifier()
 
-        // Hint candidates do not include the true offset (24), so verification
-        // fails and the band is treated as tiles, not a torn scroll copy.
+        // The input hint carries the correct sign but wrong magnitudes (input dy
+        // is not screen pixels once acceleration applies). The directed search
+        // must recover the true offset (24) from the surface anyway, instead of
+        // only trusting the hinted candidates. This is the whole point of the
+        // damage path: copyRect fires even when the hint magnitude is off.
         let result = classifier.classify(
             damageRects: [band],
             contentRect: PixelRect(x: 0, y: 0, width: width, height: height),
@@ -167,8 +170,31 @@ struct DamageScrollClassifierTests {
             hint: Self.verticalHint(candidateOffsets: [4, 8, 12], sign: 1)
         )
 
+        #expect(result == .scroll(region: band, dx: 0, dy: dy))
+    }
+
+    @Test func rejectsScrollWhenHintSignContradictsContent() {
+        let width = 640
+        let height = 480
+        let dy = 24
+        let previous = Self.surface(width: width, height: height, rowValue: Self.rowPattern)
+        // Content scrolled down (+24), but the hint claims an upward scroll.
+        let current = Self.surface(width: width, height: height) { Self.rowPattern($0 - dy) }
+        let band = PixelRect(x: 100, y: 100, width: 400, height: 300)
+        let classifier = DamageScrollClassifier()
+
+        // Directed search only probes the hinted sign, so a wrong-sign hint finds
+        // no aligned offset and the frame must not become a torn copy.
+        let result = classifier.classify(
+            damageRects: [band],
+            contentRect: PixelRect(x: 0, y: 0, width: width, height: height),
+            previous: previous,
+            current: current,
+            hint: Self.verticalHint(candidateOffsets: [16, 24, 32], sign: -1)
+        )
+
         if case .scroll = result {
-            Issue.record("must not accept a scroll offset that was not verified")
+            Issue.record("must not accept a scroll whose direction contradicts the hint sign")
         }
     }
 
