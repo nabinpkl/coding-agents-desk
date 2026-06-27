@@ -92,6 +92,16 @@ final class OwnedMediaFrameRepairBufferTests: XCTestCase {
         XCTAssertEqual(decoded.packetIndexes, [2, 5])
     }
 
+    func testFrameAckMessageRoundTripsOnClient() throws {
+        let message = OwnedMediaControlMessage(kind: .frameAck, frameId: 42)
+        let decoded = try JSONDecoder().decode(
+            OwnedMediaControlMessage.self, from: JSONEncoder().encode(message)
+        )
+
+        XCTAssertEqual(decoded.kind, .frameAck)
+        XCTAssertEqual(decoded.frameId, 42)
+    }
+
     // ADR-0027 R87: the client encodes link-health reports the host decodes.
     func testLinkHealthMessageRoundTripsOnClient() throws {
         let message = OwnedMediaControlMessage(

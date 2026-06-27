@@ -700,3 +700,78 @@ struct VideoBitrateController {
         return max(config.survivalFloorKbps, Int((Double(config.floorKbps) * fpsRatio).rounded()))
     }
 }
+
+struct QuicSessionHostMediaState {
+    private var nextFrameId: UInt64 = 0
+    private var lastProduceUptimeNs: UInt64?
+    private var backpressure: GraphicsBackpressure
+    private var bitrateController: VideoBitrateController
+    private var resendRing: OwnedMediaResendRing
+    private let expectedFrameRate: Int
+
+    init(
+        maxInflightFrames: Int = Config.ownedMediaBackpressureMaxInflightFrames,
+        maxInflightBytes: Int = Config.ownedMediaBackpressureMaxInflightBytes,
+        expectedFrameRate: Int = Config.ownedMediaExpectedFrameRate,
+        bitrateController: VideoBitrateController = VideoBitrateController(config: .fromConfig()),
+        resendRingFrames: Int = Config.ownedMediaResendRingFrames
+    ) {
+        self.backpressure = GraphicsBackpressure(
+            maxUnacked: maxInflightFrames,
+            maxUnackedBytes: maxInflightBytes
+        )
+        self.expectedFrameRate = max(1, expectedFrameRate)
+        self.bitrateController = bitrateController
+        self.resendRing = OwnedMediaResendRing(capacityFrames: resendRingFrames)
+    }
+
+    var targetKbps: Int { bitrateController.targetKbps }
+    var targetFps: Int { bitrateController.targetFps }
+    var inFlightFrames: Int { backpressure.inFlight }
+
+    mutating func reserveUpdateId(nowNs: UInt64) -> OwnedSurfaceUpdateId? {
+        guard backpressure.canProduce() else { return nil }
+        if let last = lastProduceUptimeNs {
+            let interval = capacityIntervalNs()
+            if interval > 0, nowNs &- last < interval {
+                return nil
+            }
+        }
+        nextFrameId &+= 1
+        lastProduceUptimeNs = nowNs
+        return OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: nextFrameId)
+    }
+
+    mutating func noteSent(frameId: UInt64, encodedBytes: Int, packets: [Data]) {
+        backpressure.noteSent(frameId: frameId, bytes: encodedBytes)
+        resendRing.remember(frameId: frameId, packets: packets)
+    }
+
+    mutating func noteAck(frameId: UInt64) {
+        backpressure.noteAck(frameId: frameId)
+    }
+
+    mutating func packetsForResend(
+        frameId: UInt64,
+        indexes: [UInt16],
+        maxCount: Int
+    ) -> (packets: [(UInt16, Data)], misses: [UInt16]) {
+        resendRing.packets(frameId: frameId, indexes: indexes, maxCount: maxCount)
+    }
+
+    mutating func observeLinkHealth(
+        completedFrames: Int,
+        expiredFrames: Int
+    ) -> VideoBitrateController.Outcome {
+        bitrateController.observe(
+            completedFrames: completedFrames,
+            expiredFrames: expiredFrames
+        )
+    }
+
+    private func capacityIntervalNs() -> UInt64 {
+        let fps = bitrateController.targetFps
+        guard fps > 0, fps < expectedFrameRate else { return 0 }
+        return UInt64(1_000_000_000 / fps)
+    }
+}

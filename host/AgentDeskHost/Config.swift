@@ -222,6 +222,17 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PAUSE_US",
         defaultValue: 1_000
     )
+    // ADR-0030: the media lane now shares one QUIC session with input/control, so
+    // video admission must keep in-flight media bounded instead of filling the
+    // connection behind input.
+    static let ownedMediaBackpressureMaxInflightFrames = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_MAX_INFLIGHT_FRAMES",
+        defaultValue: 2
+    )
+    static let ownedMediaBackpressureMaxInflightBytes = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_MAX_INFLIGHT_BYTES",
+        defaultValue: 300_000
+    )
     // ADR-0021: damage is emitted as tiles snapped to a fixed grid in surface
     // pixel space. A fixed cell size bounds per-tile bytes and gives each tile a
     // stable identity for the content tile cache (see the content-tile-cache

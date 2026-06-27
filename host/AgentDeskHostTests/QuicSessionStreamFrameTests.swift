@@ -130,3 +130,114 @@ struct QuicSessionStreamFrameTests {
         #expect(MediaTimingMath.formatMilliseconds(nil) == "?")
     }
 }
+
+struct QuicSessionHostMediaStateTests {
+    private func controllerConfig() -> VideoBitrateControllerConfig {
+        VideoBitrateControllerConfig(
+            ceilingKbps: 2500,
+            floorKbps: 800,
+            survivalFloorKbps: 300,
+            downStep: 0.7,
+            upStep: 1.15,
+            lossDownPermille: 50,
+            raiseCleanWindows: 4,
+            fpsCeiling: 30,
+            fpsFloor: 10,
+            fpsDownStep: 0.7,
+            fpsUpStep: 1.3
+        )
+    }
+
+    private func makeState(
+        maxInflightFrames: Int = 2,
+        maxInflightBytes: Int = 300_000
+    ) -> QuicSessionHostMediaState {
+        QuicSessionHostMediaState(
+            maxInflightFrames: maxInflightFrames,
+            maxInflightBytes: maxInflightBytes,
+            expectedFrameRate: 30,
+            bitrateController: VideoBitrateController(config: controllerConfig()),
+            resendRingFrames: 4
+        )
+    }
+
+    @Test func mediaUpdateIdsStartAboveZeroAndIncrease() throws {
+        var state = makeState()
+
+        let reservedFirst = state.reserveUpdateId(nowNs: 0)
+        let first = try #require(reservedFirst)
+        let reservedSecond = state.reserveUpdateId(nowNs: 1)
+        let second = try #require(reservedSecond)
+
+        #expect(first.surfaceGeneration == 1)
+        #expect(first.frameId == 1)
+        #expect(second.frameId == 2)
+    }
+
+    @Test func inFlightAdmissionBlocksUntilAck() throws {
+        var state = makeState(maxInflightFrames: 2)
+        let reservedFirst = state.reserveUpdateId(nowNs: 0)
+        let first = try #require(reservedFirst)
+        state.noteSent(frameId: first.frameId, encodedBytes: 10, packets: [Data([1])])
+        let reservedSecond = state.reserveUpdateId(nowNs: 1)
+        let second = try #require(reservedSecond)
+        state.noteSent(frameId: second.frameId, encodedBytes: 10, packets: [Data([2])])
+
+        let blocked = state.reserveUpdateId(nowNs: 2)
+        #expect(blocked == nil)
+        state.noteAck(frameId: first.frameId)
+        let reservedThird = state.reserveUpdateId(nowNs: 3)
+        let third = try #require(reservedThird)
+        #expect(third.frameId == 3)
+    }
+
+    @Test func resendRingServesRememberedPackets() throws {
+        var state = makeState()
+        let reservedUpdate = state.reserveUpdateId(nowNs: 0)
+        let update = try #require(reservedUpdate)
+        state.noteSent(
+            frameId: update.frameId,
+            encodedBytes: 2,
+            packets: [Data([0]), Data([1])]
+        )
+
+        let served = state.packetsForResend(
+            frameId: update.frameId,
+            indexes: [0, 1, 9],
+            maxCount: 8
+        )
+
+        #expect(served.packets.map(\.0) == [0, 1])
+        #expect(served.packets.map(\.1) == [Data([0]), Data([1])])
+        #expect(served.misses == [9])
+    }
+
+    @Test func linkHealthMovesAdaptiveTargets() {
+        var state = makeState()
+
+        let outcome = state.observeLinkHealth(completedFrames: 80, expiredFrames: 20)
+
+        #expect(outcome.changed)
+        #expect(outcome.reason == "loss-down")
+        #expect(state.targetKbps < 2500)
+        #expect(state.targetFps == 30)
+    }
+
+    @Test func survivalFpsAddsCapacityAdmissionInterval() throws {
+        var state = makeState()
+        while state.targetFps == 30 {
+            _ = state.observeLinkHealth(completedFrames: 80, expiredFrames: 20)
+        }
+        #expect(state.targetFps < 30)
+
+        let reservedFirst = state.reserveUpdateId(nowNs: 0)
+        let first = try #require(reservedFirst)
+        #expect(first.frameId == 1)
+        let blocked = state.reserveUpdateId(nowNs: 1)
+        #expect(blocked == nil)
+
+        let reservedAfterCapacityInterval = state.reserveUpdateId(nowNs: 70_000_000)
+        let afterCapacityInterval = try #require(reservedAfterCapacityInterval)
+        #expect(afterCapacityInterval.frameId == 2)
+    }
+}

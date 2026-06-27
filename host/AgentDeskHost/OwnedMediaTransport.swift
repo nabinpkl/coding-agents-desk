@@ -13,11 +13,17 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         codec: .hevc,
         configuration: .fromConfig()
     )
+    private let pacer = OwnedMediaDatagramSendPacer(
+        burstPacketCount: Config.ownedMediaDatagramBurstPacketCount,
+        burstPauseUs: Config.ownedMediaDatagramBurstPauseUs
+    )
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
     let connectionState: AsyncStream<MediaConnectionState>
     private let encodeGate = OSAllocatedUnfairLock<EncodeState>(initialState: EncodeState())
+    private let sendQueueGate = OSAllocatedUnfairLock<MediaSendQueueState>(
+        initialState: MediaSendQueueState()
+    )
     private var controlTask: Task<Void, Never>?
-    private var forceNextKeyframe = false
 
     init(
         source: VideoFrameSource,
@@ -63,24 +69,28 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
 
     private func drainEncodeQueue() async {
         while true {
-            let frame = encodeGate.withLock { state -> CapturedVideoFrame? in
-                let frame = state.latest
-                state.latest = nil
-                if frame == nil {
+            let job = encodeGate.withLock { state -> EncodeJob? in
+                guard let frame = state.latest else {
                     state.encoding = false
+                    return nil
                 }
-                return frame
+                guard let updateId = state.mediaState.reserveUpdateId(
+                    nowNs: DispatchTime.now().uptimeNanoseconds
+                ) else {
+                    state.encoding = false
+                    return nil
+                }
+                state.latest = nil
+                let forceKeyframe = state.forceKeyframe
+                state.forceKeyframe = false
+                return EncodeJob(frame: frame, updateId: updateId, forceKeyframe: forceKeyframe)
             }
-            guard let frame else { return }
-            let forceKeyframe = encodeGate.withLock { state -> Bool in
-                defer { state.forceKeyframe = false }
-                return state.forceKeyframe
-            }
+            guard let job else { return }
             guard let envelope = await encoder.encode(
-                frame,
-                updateId: OwnedSurfaceUpdateId(surfaceGeneration: 0, frameId: 0),
-                forceKeyframe: forceKeyframe,
-                requestedKeyframeReason: forceKeyframe ? OwnedMediaKeyframeReason.clientRequest : nil
+                job.frame,
+                updateId: job.updateId,
+                forceKeyframe: job.forceKeyframe,
+                requestedKeyframeReason: job.forceKeyframe ? OwnedMediaKeyframeReason.clientRequest : nil
             ) else {
                 continue
             }
@@ -110,17 +120,104 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             return
         }
         encodeGate.withLock { state in
-            state.resendRing.remember(frameId: envelope.header.frameId, packets: packets)
+            state.mediaState.noteSent(
+                frameId: envelope.header.frameId,
+                encodedBytes: payload.count,
+                packets: packets
+            )
         }
-        for packet in packets {
-            do {
-                try await datagrams.send(packet)
-            } catch {
-                logger.error("video datagram send failed: \(String(describing: error), privacy: .public)")
-                stateContinuation.yield(.failed)
-                return
+        let sent = await enqueuePackets(packets).value
+        guard sent else { return }
+        if envelope.header.isKeyframe || envelope.header.frameId.isMultiple(of: 30) {
+            let liveTargets = encodeGate.withLock { state in
+                (kbps: state.mediaState.targetKbps, fps: state.mediaState.targetFps)
+            }
+            logger.notice("owned media video sent frame=\(envelope.header.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(payload.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(liveTargets.kbps, privacy: .public) fps=\(liveTargets.fps, privacy: .public)")
+        }
+    }
+
+    private func enqueuePackets(_ packets: [Data]) -> Task<Bool, Never> {
+        sendQueueGate.withLock { state -> Task<Bool, Never> in
+            let prior = state.tail
+            let task = Task { [weak self] in
+                _ = await prior?.value
+                guard let self else { return false }
+                return await self.sendPacketsSerial(packets)
+            }
+            state.tail = task
+            return task
+        }
+    }
+
+    private func sendPacketsSerial(_ packets: [Data]) async -> Bool {
+        let bursts = pacer.bursts(packetCount: packets.count)
+        for (burstIndex, range) in bursts.enumerated() {
+            if burstIndex > 0, pacer.pauseNanos > 0 {
+                try? await Task.sleep(nanoseconds: pacer.pauseNanos)
+            }
+            for packet in packets[range] {
+                guard await sendPacket(packet) else { return false }
             }
         }
+        return true
+    }
+
+    private func sendPacket(_ packet: Data) async -> Bool {
+        do {
+            try await datagrams.send(packet)
+            return true
+        } catch {
+            logger.error("video datagram send failed: \(String(describing: error), privacy: .public)")
+            stateContinuation.yield(.failed)
+            return false
+        }
+    }
+
+    private func startDrainIfNeeded() {
+        let shouldStart = encodeGate.withLock { state -> Bool in
+            guard state.latest != nil, !state.encoding else { return false }
+            state.encoding = true
+            return true
+        }
+        guard shouldStart else { return }
+        Task { [weak self] in
+            await self?.drainEncodeQueue()
+        }
+    }
+
+    private func sendResendPackets(_ packets: [Data]) {
+        _ = enqueuePackets(packets)
+    }
+
+    private func handleFrameAck(_ frameId: UInt64) {
+        encodeGate.withLock { state in
+            state.mediaState.noteAck(frameId: frameId)
+        }
+        startDrainIfNeeded()
+    }
+
+    private func handleLinkHealth(_ message: OwnedMediaControlMessage) {
+        let completed = message.linkHealthCompletedFrames ?? 0
+        let expired = message.linkHealthExpiredFrames ?? 0
+        let outcome = encodeGate.withLock { state in
+            state.mediaState.observeLinkHealth(completedFrames: completed, expiredFrames: expired)
+        }
+        guard outcome.changed || outcome.fpsChanged else { return }
+        if outcome.changed {
+            encoder.updateBitrate(outcome.targetKbps)
+            logger.notice("owned media video bitrate-step target=\(outcome.targetKbps, privacy: .public)kbps reason=\(outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
+        }
+        if outcome.fpsChanged {
+            encoder.updateExpectedFrameRate(outcome.targetFps)
+            logger.notice("owned media video fps-step target=\(outcome.targetFps, privacy: .public)fps bitrate=\(outcome.targetKbps, privacy: .public)kbps reason=\(outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
+        }
+        startDrainIfNeeded()
+    }
+
+    private struct EncodeJob {
+        let frame: CapturedVideoFrame
+        let updateId: OwnedSurfaceUpdateId
+        let forceKeyframe: Bool
     }
 
     private func startControlReceiveLoop() {
@@ -149,25 +246,21 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             }
         case .packetResendRequest:
             let packets = encodeGate.withLock { state in
-                state.resendRing.packets(
+                state.mediaState.packetsForResend(
                     frameId: message.frameId,
                     indexes: message.packetIndexes,
                     maxCount: Config.ownedMediaMaxResendPackets
                 ).packets.map { $0.1 }
             }
-            Task { [datagrams] in
-                for packet in packets {
-                    try? await datagrams.send(packet)
-                }
-            }
+            sendResendPackets(packets)
         case .frameAck:
-            break
+            handleFrameAck(message.frameId)
         case .graphicsResetRequest:
             break
         case .keepalive:
             break
         case .linkHealth:
-            logger.debug("link health completed=\(message.linkHealthCompletedFrames ?? 0, privacy: .public) expired=\(message.linkHealthExpiredFrames ?? 0, privacy: .public)")
+            handleLinkHealth(message)
         }
     }
 
@@ -175,6 +268,10 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var latest: CapturedVideoFrame?
         var encoding = false
         var forceKeyframe = false
-        var resendRing = OwnedMediaResendRing(capacityFrames: Config.ownedMediaResendRingFrames)
+        var mediaState = QuicSessionHostMediaState()
+    }
+
+    private struct MediaSendQueueState {
+        var tail: Task<Bool, Never>?
     }
 }

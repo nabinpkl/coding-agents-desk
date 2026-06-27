@@ -213,6 +213,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         }
         for completed in result.completedFrames {
             guard let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else { continue }
+            sendVideoControl(OwnedMediaControlMessage(kind: .frameAck, frameId: completed.frameId))
             Task { @MainActor [weak self] in
                 self?.sink?.renderOwnedVideoFrame(envelope)
             }
