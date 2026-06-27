@@ -86,6 +86,46 @@ struct ScrollDeltaEngineDamageRoutingTests {
         #expect(tiles.first?.1 == .jpeg)
     }
 
+    // A fullframe JPEG must be stepped down in quality to fit the wire-byte
+    // ceiling, so no single frame can clog the channel and trigger the reset
+    // ackTimeout cascade. The same detailed fullframe encoded under a tiny budget
+    // must be smaller than under an effectively unlimited one.
+    @Test func fullFrameJpegSteppedDownToFitWireBudget() throws {
+        func fullframeBytes(maxWireBytes: Int) throws -> Int {
+            var engine = ScrollDeltaEngine(fullframeMaxWireBytes: maxWireBytes)
+            let width = 256
+            let height = 256
+            let solid = try Self.makeBGRAFrame(width: width, height: height) { _, _ in [10, 10, 10, 0xff] }
+            #expect(engine.evaluate(solid).kind == .reset)
+            engine.commitPendingSurface()
+            let full = PixelRect(x: 0, y: 0, width: width, height: height)
+            let detailed = try Self.makeBGRAFrame(
+                width: width,
+                height: height,
+                damageRects: [full],
+                contentRectPixels: full
+            ) { x, y in
+                // Smooth gradient: representative of real screen content (UI, text,
+                // gradients) where lower JPEG quality genuinely shrinks the payload,
+                // unlike per-pixel noise which is incompressible at any quality.
+                let v = UInt8((x + y) & 0xff)
+                return [v, v, v, 0xff]
+            }
+            let result = engine.evaluate(detailed, scrollHint: nil)
+            guard case .bitmapTile(_, _, _, _, .jpeg, _)? = result.envelope?.commands.first else {
+                Issue.record("expected a fullframe JPEG tile")
+                return 0
+            }
+            return result.envelope?.payload.count ?? 0
+        }
+
+        let unbounded = try fullframeBytes(maxWireBytes: 10_000_000)
+        let bounded = try fullframeBytes(maxWireBytes: 3_000)
+        #expect(unbounded > 0)
+        #expect(bounded > 0)
+        #expect(bounded < unbounded)
+    }
+
     // Motion-adaptive quality: a fullframe emitted while a scroll hint is active
     // (mid-flick) must be encoded at the lower motion quality, so its payload is
     // smaller than the same fullframe emitted with no hint (settled/at rest). Both

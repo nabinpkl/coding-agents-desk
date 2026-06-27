@@ -253,6 +253,8 @@ struct ScrollDeltaEngine {
     // is low so a mid-scroll fullframe stays small and holds cadence.
     private let fullframeJpegQualityRest: Double
     private let fullframeJpegQualityMotion: Double
+    // Hard wire-byte ceiling for a fullframe JPEG; quality steps down to fit it.
+    private let fullframeMaxWireBytes: Int
 
     init(
         maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes,
@@ -260,7 +262,8 @@ struct ScrollDeltaEngine {
         damageClassifier: DamageScrollClassifier = DamageScrollClassifier(),
         tileGridPx: Int = Config.hybridTileGridPx,
         fullframeJpegQuality: Double = Config.hybridFullframeJpegQuality,
-        fullframeJpegQualityMotion: Double = Config.hybridFullframeJpegQualityMotion
+        fullframeJpegQualityMotion: Double = Config.hybridFullframeJpegQualityMotion,
+        fullframeMaxWireBytes: Int = Config.hybridFullframeMaxWireBytes
     ) {
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
@@ -268,6 +271,7 @@ struct ScrollDeltaEngine {
         self.tileGridPx = max(1, tileGridPx)
         self.fullframeJpegQualityRest = min(1, max(0.1, fullframeJpegQuality))
         self.fullframeJpegQualityMotion = min(1, max(0.1, fullframeJpegQualityMotion))
+        self.fullframeMaxWireBytes = max(1, fullframeMaxWireBytes)
     }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
@@ -746,7 +750,7 @@ struct ScrollDeltaEngine {
         let clamped = region.clamped(toWidth: current.width, height: current.height)
         guard clamped.width > 0, clamped.height > 0,
               let bgra = tileData(surface: current, x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height),
-              let jpeg = compressJPEG(bgra, width: clamped.width, height: clamped.height, quality: quality) else { return nil }
+              let jpeg = compressJPEGWithinBudget(bgra, width: clamped.width, height: clamped.height, startQuality: quality) else { return nil }
         let command = OwnedGraphicsCommand.bitmapTile(
             x: clamped.x,
             y: clamped.y,
@@ -766,6 +770,26 @@ struct ScrollDeltaEngine {
             commands: [command],
             payload: jpeg
         )
+    }
+
+    // Encode at startQuality, then step quality down a short ladder until the JPEG
+    // fits the wire-byte ceiling. Bounds every fullframe to a drainable size so no
+    // single frame can clog the channel and trigger the reset-stripe ackTimeout
+    // cascade. At most a few re-encodes; motion frames already start small and fit
+    // on the first try. Returns the smallest encoding if even the floor overshoots.
+    private func compressJPEGWithinBudget(_ bgra: Data, width: Int, height: Int, startQuality: Double) -> Data? {
+        let ladder = [startQuality, 0.45, 0.3, 0.18].filter { $0 <= startQuality } + [0.1]
+        var smallest: Data?
+        for quality in ladder {
+            guard let jpeg = compressJPEG(bgra, width: width, height: height, quality: quality) else { continue }
+            if smallest == nil || jpeg.count < (smallest?.count ?? .max) {
+                smallest = jpeg
+            }
+            if jpeg.count <= fullframeMaxWireBytes {
+                return jpeg
+            }
+        }
+        return smallest
     }
 
     // BGRA (32-bit little-endian, alpha ignored) -> JPEG via CoreGraphics. Kept

@@ -360,11 +360,23 @@ enum Config {
     // rest quality, so the resting image self-sharpens.
     static let hybridFullframeJpegQuality = positiveDouble(
         environmentKey: "AGENTDESK_HYBRID_FULLFRAME_JPEG_QUALITY",
-        defaultValue: 0.85
+        defaultValue: 0.65
     )
     static let hybridFullframeJpegQualityMotion = positiveDouble(
         environmentKey: "AGENTDESK_HYBRID_FULLFRAME_JPEG_QUALITY_MOTION",
         defaultValue: 0.4
+    )
+    // Hard ceiling on a single fullframe JPEG's wire size. A whole-screen change at
+    // Retina resolution was 0.9-2.0MB even as JPEG; one such frame clogged the
+    // reliable channel long enough that a reset stripe's ack timed out, and the
+    // resulting full-surface resync clogged it again, a self-feeding freeze
+    // cascade (device run: gen 1->2, 15 disconnects). Capping every fullframe to a
+    // drainable size keeps reset stripes (192KB each) flowing so the cascade cannot
+    // form. The starting quality is stepped down until the JPEG fits this budget,
+    // so a complex screen degrades gracefully instead of stalling the link.
+    static let hybridFullframeMaxWireBytes = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_FULLFRAME_MAX_WIRE_BYTES",
+        defaultValue: 450_000
     )
     static let hybridScrollViewportMinWidth = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_SCROLL_VIEWPORT_MIN_WIDTH",
