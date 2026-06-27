@@ -6,7 +6,6 @@ import CoreImage
 import Foundation
 import Network
 import Security
-import VideoToolbox
 import os
 
 typealias OwnedMediaDatagramAuthorizer = @Sendable (MediaChannelHello) async -> MediaCapabilityValidationResult

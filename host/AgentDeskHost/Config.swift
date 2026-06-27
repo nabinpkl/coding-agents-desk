@@ -1,27 +1,6 @@
 import Foundation
 
 enum Config {
-    enum OwnedMediaCodecChoice: String {
-        case hevc
-        case h264
-
-        init(rawEnvironmentValue: String?) {
-            switch rawEnvironmentValue?.lowercased() {
-            case "h264":
-                self = .h264
-            default:
-                self = .hevc
-            }
-        }
-
-        var wireCodec: OwnedMediaCodec {
-            switch self {
-            case .hevc: .hevc
-            case .h264: .h264
-            }
-        }
-    }
-
     enum OwnedMediaChroma: String {
         case yuv420
         case yuv444
@@ -109,9 +88,6 @@ enum Config {
     static let nonceTTL: TimeInterval = 90
     static let inputCapabilityTTL: TimeInterval = 60
     static let mediaCapabilityTTL: TimeInterval = 60
-    static let ownedMediaCodec = OwnedMediaCodecChoice(
-        rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_CODEC"]
-    )
     static let ownedMediaChroma = OwnedMediaChroma(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_CHROMA"]
     )
