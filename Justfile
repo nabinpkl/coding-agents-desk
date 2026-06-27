@@ -31,6 +31,13 @@ client_dev_app := dev_derived_data + "/Build/Products/Debug-iphoneos/AgentDeskCl
 client_archive_path := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_PATH", justfile_directory() + "/.build/testflight/AgentDeskClient.xcarchive")
 client_export_path := env_var_or_default("AGENTDESK_CLIENT_EXPORT_PATH", justfile_directory() + "/.build/testflight/export")
 client_ipa_path := env_var_or_default("AGENTDESK_CLIENT_IPA_PATH", client_export_path + "/AgentDeskClient.ipa")
+# Experimental-variant TestFlight artifact paths, kept separate from the stable
+# ones so a dev archive/export never overwrites a stable one. The dev IPA carries
+# bundle id {{client_dev_bundle_id}}, which App Store Connect routes to its own
+# app record (a bundle id maps to exactly one record; that record is HITL).
+client_dev_archive_path := justfile_directory() + "/.build/testflight/AgentDeskClient-dev.xcarchive"
+client_dev_export_path := justfile_directory() + "/.build/testflight/export-dev"
+client_dev_ipa_path := client_dev_export_path + "/AgentDeskClient.ipa"
 # Marketing versions (CFBundleShortVersionString), semver, bumped PER RELEASE not
 # per build: MAJOR = incompatible change, MINOR = new feature, PATCH = bug fix.
 # Host and client are versioned INDEPENDENTLY (separate release cadences); their
@@ -330,47 +337,73 @@ client-build-number:
     @tools/testflight-upload.sh build-number
 
 # Build a signed iOS Release archive for TestFlight export/upload.
-client-archive-release:
+# variant: "stable" (default) or "dev" (the experimental record, bundle id
+# {{client_dev_bundle_id}}, separate archive path; identity overridden inline).
+client-archive-release variant="stable":
+    #!/usr/bin/env bash
     # Override per upload: AGENTDESK_CLIENT_VERSION=1.0 AGENTDESK_CLIENT_BUILD=20260621173045 just client-archive-release
-    mkdir -p "$(dirname '{{client_archive_path}}')"
-    @BUILD_NUMBER="$(tools/testflight-upload.sh build-number)"; \
-        GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"; \
-        echo "Archiving AgentDeskClient {{client_marketing_version}} ($BUILD_NUMBER) commit $GIT_SHA"; \
-        xcodebuild -project client/AgentDeskClient.xcodeproj \
-            -scheme AgentDeskClient \
-            -derivedDataPath '{{derived_data}}' \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -archivePath '{{client_archive_path}}' \
-            DEVELOPMENT_TEAM='{{apple_team_id}}' \
-            MARKETING_VERSION='{{client_marketing_version}}' \
-            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-            AGENTDESK_GIT_SHA="$GIT_SHA" \
-            -allowProvisioningUpdates \
-            clean archive
+    set -euo pipefail
+    BUILD_NUMBER="$(tools/testflight-upload.sh build-number)"
+    GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
+    if [ "{{variant}}" = "dev" ]; then
+        ARCHIVE='{{client_dev_archive_path}}'; DD='{{dev_derived_data}}'
+        EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev')
+    else
+        ARCHIVE='{{client_archive_path}}'; DD='{{derived_data}}'
+        EXTRA=()
+    fi
+    mkdir -p "$(dirname "$ARCHIVE")"
+    echo "Archiving AgentDeskClient ({{variant}}) {{client_marketing_version}} ($BUILD_NUMBER) commit $GIT_SHA"
+    xcodebuild -project client/AgentDeskClient.xcodeproj \
+        -scheme AgentDeskClient \
+        -derivedDataPath "$DD" \
+        -configuration Release \
+        -destination 'generic/platform=iOS' \
+        -archivePath "$ARCHIVE" \
+        DEVELOPMENT_TEAM='{{apple_team_id}}' \
+        MARKETING_VERSION='{{client_marketing_version}}' \
+        CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+        AGENTDESK_GIT_SHA="$GIT_SHA" \
+        "${EXTRA[@]}" \
+        -allowProvisioningUpdates \
+        clean archive
 
 # Export the signed Release archive to an App Store Connect IPA.
-client-export-ipa:
-    @test -d '{{client_archive_path}}' || { echo "archive missing: {{client_archive_path}}"; exit 1; }
-    rm -rf '{{client_export_path}}'
-    mkdir -p '{{client_export_path}}'
+client-export-ipa variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{variant}}" = "dev" ]; then ARCHIVE='{{client_dev_archive_path}}'; EXPORT='{{client_dev_export_path}}'; IPA='{{client_dev_ipa_path}}'; else ARCHIVE='{{client_archive_path}}'; EXPORT='{{client_export_path}}'; IPA='{{client_ipa_path}}'; fi
+    test -d "$ARCHIVE" || { echo "archive missing: $ARCHIVE"; exit 1; }
+    rm -rf "$EXPORT"
+    mkdir -p "$EXPORT"
     xcodebuild -exportArchive \
-        -archivePath '{{client_archive_path}}' \
-        -exportPath '{{client_export_path}}' \
+        -archivePath "$ARCHIVE" \
+        -exportPath "$EXPORT" \
         -exportOptionsPlist tools/testflight-export-options.plist \
         -allowProvisioningUpdates
-    @test -f '{{client_ipa_path}}' || { echo "IPA missing: {{client_ipa_path}}"; find '{{client_export_path}}' -maxdepth 2 -type f -print; exit 1; }
-    @echo "IPA: {{client_ipa_path}}"
+    test -f "$IPA" || { echo "IPA missing: $IPA"; find "$EXPORT" -maxdepth 2 -type f -print; exit 1; }
+    echo "IPA: $IPA"
 
 # Upload a signed IPA to App Store Connect for internal TestFlight processing.
 # Requires AGENTDESK_ASC_KEY_ID, AGENTDESK_ASC_ISSUER_ID, and
-# AGENTDESK_ASC_API_KEY_PATH in .env or the shell environment.
-testflight-upload:
+# AGENTDESK_ASC_API_KEY_PATH in .env or the shell environment. The dev variant
+# routes to its own App Store Connect record by bundle id (the record is HITL).
+testflight-upload variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
     tools/testflight-upload.sh require-upload-env
-    just client-archive-release
-    just client-export-ipa
-    tools/testflight-upload.sh upload '{{client_ipa_path}}'
-    @echo "Upload submitted. App Store Connect may still need processing time before the build appears in TestFlight."
+    if [ "{{variant}}" = "dev" ]; then IPA='{{client_dev_ipa_path}}'; else IPA='{{client_ipa_path}}'; fi
+    just client-archive-release {{variant}}
+    just client-export-ipa {{variant}}
+    tools/testflight-upload.sh upload "$IPA"
+    echo "Upload submitted. App Store Connect may still need processing time before the build appears in TestFlight."
+
+# Experimental-variant TestFlight wrappers (route to the dev App Store Connect record).
+client-archive-dev:
+    just client-archive-release dev
+
+testflight-upload-dev:
+    just testflight-upload dev
 
 # Build/export locally without uploading, useful for signing or export checks.
 testflight-build:

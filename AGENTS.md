@@ -78,6 +78,15 @@ The two iOS/macOS version fields are independent by design; do not conflate them
 - **Host and client version independently.** They are separate apps on separate release cadences (the Mac host is local, the iOS client ships via TestFlight); a host change does not require a client bump or vice versa. The compatibility contract between them is the **wire protocol, not the app version**: a breaking wire change is governed by an explicit protocol version negotiated at the handshake (advertise supported versions, agree on one or fail with a clear "update required"), bumped only on breaking changes. Matching marketing versions across host and client is not a compatibility signal and must not be relied on as one.
 - History: `1.1.0` = Mac-initiated pairing (ADR-0019); `1.2.0` = live tailnet device discovery (R55).
 
+## Client build variants
+
+Two client apps can coexist on one iPhone: the **stable** daily-driver (`com.example.agentdesk.AgentDeskClient`) and an **experimental** "dev" build under test (`com.example.agentdesk.AgentDeskClient.dev`, "AgentDesk Dev" name, DEV-ribbon icon). iOS keeps both because they have different bundle ids. This lets risky graphics work be tested on the phone without losing the working app, which protects the 7-day daily-driver acceptance test.
+
+- One target, one scheme. The variant is a build-time override axis, not a duplicated target: the dev build overrides `PRODUCT_BUNDLE_IDENTIFIER`, `ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev`, and `BUNDLE_DISPLAY_NAME` inline, and builds into a separate derived-data dir (`{{derived_data}}-dev`).
+- The runtime self-namespaces by bundle id: `Config.logSubsystem` and `Config.keychainService` derive from `Bundle.main.bundleIdentifier`, so each variant's os_log lines and keychain are separate.
+- Most client recipes take a `variant` arg (`stable` default | `dev`) with thin `-dev` wrappers: `client-install-dev`, `fresh-install-dev`, `iphone-console-run-dev`, `iphone-log-collect-dev`, `fresh-consoled-run-dev`, `client-archive-dev`, `testflight-upload-dev`. The dev bundle id is env-overridable via `AGENTDESK_CLIENT_DEV_BUNDLE_ID`.
+- Both variants register the `agentdesk://` scheme. Dev pairing injects the URL via `devicectl --environment-variables` into a specific bundle id (read in `SceneDelegate`), bypassing system URL routing, so the shared scheme does not affect pairing.
+
 ## Agent-run device sessions
 
 - When an agent launches the physical iPhone for exploratory media, transport, scroll, decode, or gesture feel work, use an attached console launch by default: `just iphone-console-run`.
@@ -109,7 +118,7 @@ The two iOS/macOS version fields are independent by design; do not conflate them
 
 # Open questions agents should escalate, not invent
 
-- Bundle IDs and signing identity (HITL, lives in S0).
+- Bundle IDs and signing identity (HITL, lives in S0). The experimental client variant's bundle id (`com.example.agentdesk.AgentDeskClient.dev`) and its own App Store Connect record (a bundle id maps to exactly one record, required for the dev variant's TestFlight track) are HITL provisioning. Direct-install of the dev variant needs only the App ID, which Automatic signing can register under team `TEAMID0000`.
 - Apple Developer Program account details (HITL).
 - Anything that would change the v0 acceptance test in `PRD.md` (the 7-day daily-driver criterion).
 
