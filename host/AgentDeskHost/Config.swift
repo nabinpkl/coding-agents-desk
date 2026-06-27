@@ -114,38 +114,6 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS",
         defaultValue: 30
     )
-    static let ownedMediaMotionBudgetEnabled = enabledFlag(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_BUDGET_ENABLED",
-        defaultValue: true,
-        environment: ProcessInfo.processInfo.environment
-    )
-    static let ownedMediaMotionBitrateKbps = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_BITRATE_KBPS",
-        defaultValue: 5_000
-    )
-    static let ownedMediaMotionFps = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_FPS",
-        defaultValue: 15
-    )
-    static let ownedMediaMotionScaleDown = ownedMediaMotionScaleDown(
-        environment: ProcessInfo.processInfo.environment
-    )
-    static let ownedMediaMotionFrameAgeMs = positiveDouble(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_FRAME_AGE_MS",
-        defaultValue: 80
-    )
-    static let ownedMediaMotionBacklogFrames = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_BACKLOG_FRAMES",
-        defaultValue: 1
-    )
-    static let ownedMediaMotionInflightBytes = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_INFLIGHT_BYTES",
-        defaultValue: 120_000
-    )
-    static let ownedMediaRestBudgetHoldMs = nonNegativeInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_REST_BUDGET_HOLD_MS",
-        defaultValue: 500
-    )
     static let ownedMediaKeyframeIntervalFrames = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES",
         defaultValue: 120
@@ -409,13 +377,6 @@ enum Config {
         defaultValue: true,
         environment: ProcessInfo.processInfo.environment
     )
-    static func ownedMediaMotionScaleDown(environment: [String: String]) -> Double {
-        positiveDouble(
-            environment: environment,
-            environmentKey: "AGENTDESK_OWNED_MEDIA_MOTION_SCALE_DOWN",
-            defaultValue: 1.25
-        )
-    }
     static func graphicsPort(environment: [String: String]) -> UInt16 {
         guard let raw = environment["AGENTDESK_GRAPHICS_PORT"],
               let value = UInt16(raw),
