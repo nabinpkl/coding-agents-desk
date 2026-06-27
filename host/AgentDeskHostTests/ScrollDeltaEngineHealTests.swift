@@ -99,11 +99,10 @@ struct ScrollDeltaEngineHealTests {
         return UInt8(truncatingIfNeeded: h >> 24)
     }
 
-    // The heal fires during sustained scrolling: scroll frames advance the heal
-    // counter like any change, and because the heal check precedes the scroll arm, a
-    // heal-due frame re-tiles the WHOLE surface (reconciling any divergence the
-    // copyRect path left) instead of emitting another copyRect. This is the repair
-    // path for a skipped (missing-slot) strip tile on the client.
+    // The heal fires during sustained motion: motion frames advance the heal counter
+    // like any change, and a heal-due frame re-tiles the WHOLE surface (reconciling
+    // any client divergence). This is the repair path for a skipped (missing-slot)
+    // tile on the client.
     @Test func healFiresDuringSustainedScroll() throws {
         var engine = ScrollDeltaEngine(
             hybridTileBusyBytesPerPixel: 99.0,   // never JPEG
@@ -119,24 +118,21 @@ struct ScrollDeltaEngineHealTests {
         #expect(engine.evaluate(base).kind == .reset)
         engine.commitPendingSurface()
 
-        // Frame 1: a real vertical scroll (1st change frame). Accepted as scroll.
-        let scroll1 = try Self.makeBGRAFrame(width: side, height: side, damageRects: [full], contentRectPixels: full) { _, y in
+        // Frame 1: a motion frame (1st change frame), tiled like any damage.
+        let motion1 = try Self.makeBGRAFrame(width: side, height: side, damageRects: [full], contentRectPixels: full) { _, y in
             let v = Self.scrollRowValue(y - 16); return [v, v, v, 0xff]
         }
-        let r1 = engine.evaluate(scroll1, motion: MotionSignal(axis: .vertical, sign: 1))
-        #expect(r1.diagnostics?.acceptedBy == "scroll")
+        #expect(engine.evaluate(motion1, motion: MotionSignal(axis: .vertical, sign: 1)).kind == .accepted)
         engine.commitPendingSurface()
 
-        // Frame 2: another scroll, but this is the 2nd change frame, so the heal fires
-        // first and re-tiles the whole surface rather than emitting a copyRect.
-        let scroll2 = try Self.makeBGRAFrame(width: side, height: side, damageRects: [full], contentRectPixels: full) { _, y in
+        // Frame 2: another motion frame, the 2nd change frame, so the heal fires and
+        // re-tiles the whole surface.
+        let motion2 = try Self.makeBGRAFrame(width: side, height: side, damageRects: [full], contentRectPixels: full) { _, y in
             let v = Self.scrollRowValue(y - 32); return [v, v, v, 0xff]
         }
-        let r2 = engine.evaluate(scroll2, motion: MotionSignal(axis: .vertical, sign: 1))
+        let r2 = engine.evaluate(motion2, motion: MotionSignal(axis: .vertical, sign: 1))
         #expect(r2.diagnostics?.acceptedBy == "damage-heal")
-        #expect(Self.cells(in: r2) == allCells, "the heal re-emits every grid cell during a scroll")
-        let hasCopyRect = r2.envelopes.flatMap { $0.commands }.contains { if case .copyRect = $0 { return true }; return false }
-        #expect(!hasCopyRect, "a heal-due frame heals the whole surface, it does not copyRect")
+        #expect(Self.cells(in: r2) == allCells, "the heal re-emits every grid cell during motion")
     }
 
     // Collect the set of [x, y] grid-cell origins addressed by a result's commands

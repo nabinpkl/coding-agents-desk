@@ -151,20 +151,6 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MAX_TILE_COVERAGE_RATIO",
         defaultValue: 0.6
     )
-    // ScrollOffsetEstimator band-credibility gates (ADR-0024). Input declares a
-    // scroll and its axis; the estimator proposes the dominant integer offset by
-    // row/column content-hash matching and the predict-and-correct engine corrects
-    // any imperfection with a residual, so there is no verify floor or luma knob to
-    // tune. These two gates are the only tuning left: a band must be long enough
-    // along the motion axis and wide enough across it to be a credible scroll.
-    static let hybridClassifierMinScrollExtentPx = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_SCROLL_EXTENT_PX",
-        defaultValue: 120
-    )
-    static let hybridClassifierMinCrossExtentPx = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_CROSS_EXTENT_PX",
-        defaultValue: 64
-    )
     // MotionGovernor policy table. These few knobs replace the deleted
     // congestion-EWMA trio and the three fullframe-quality knobs with one
     // cadence-first ladder (see MotionGovernor).

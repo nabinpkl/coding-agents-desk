@@ -7,9 +7,10 @@ enum ScrollActivityAxis: String, Equatable, Sendable {
 
 // What input DECLARES about content motion, the macOS-native substitute for the
 // OS scroll order RDP gets on Windows: the phone caused the scroll, so the host
-// is told the axis and direction directly. The magnitude is deliberately absent;
-// ScrollOffsetEstimator measures it from the surface. A nil signal means rest (no
-// active scroll within the debounce window). Presence means scrolling.
+// is told the axis and direction directly. The magnitude is absent and not needed:
+// a declared scroll routes to the HEVC video carrier, which does its own motion
+// estimation in hardware. A nil signal means rest (no active scroll within the
+// debounce window). Presence means scrolling.
 struct MotionSignal: Equatable, Sendable {
     let axis: ScrollActivityAxis
     let sign: Int

@@ -65,17 +65,13 @@ struct PixelRect: Equatable, Sendable {
 }
 
 enum DamageScrollClassification: Equatable {
-    // The dominant band translated by a verified (dx, dy): the engine shifts the
-    // stable region with one copyRect and re-tiles only the exposed strip.
-    case scroll(region: PixelRect, dx: Int, dy: Int)
     case tiles([PixelRect])
     case fullFrame(reason: String)
     case noChange
 }
 
 // Per-frame trace for device logs: the band geometry, coverage, and the decision
-// string, so a device run shows why each frame composed the way it did. The
-// measured scroll offset is carried on the diagnostics (acceptedDx/Dy), not here.
+// string, so a device run shows why each frame composed the way it did.
 struct DamageScrollTrace: Equatable {
     let bandWidth: Int
     let bandHeight: Int
@@ -91,16 +87,11 @@ struct FrameComposer {
     // Coverage above which a damage change tiles the whole surface (through the
     // same cache ladder) instead of just the damage rects.
     private let maxTileCoverageRatio: Double
-    // Measures the exact offset of an input-declared scroll. Injectable as a test
-    // seam.
-    private let estimator: ScrollOffsetEstimator
 
     init(
-        maxTileCoverageRatio: Double = Config.hybridClassifierMaxTileCoverageRatio,
-        estimator: ScrollOffsetEstimator = ScrollOffsetEstimator()
+        maxTileCoverageRatio: Double = Config.hybridClassifierMaxTileCoverageRatio
     ) {
         self.maxTileCoverageRatio = maxTileCoverageRatio
-        self.estimator = estimator
     }
 
     func compose(
@@ -142,29 +133,18 @@ struct FrameComposer {
         // Keep only rects that are a significant fraction of the largest and union
         // those.
         let largestArea = clamped.map(\.area).max() ?? 0
-        let scrollBand = PixelRect.union(of: clamped.filter { Double($0.area) >= 0.5 * Double(largestArea) }) ?? union
+        let dominantBand = PixelRect.union(of: clamped.filter { Double($0.area) >= 0.5 * Double(largestArea) }) ?? union
 
-        // Input declares a scroll: measure the exact offset on the dominant band. The
-        // estimator gates the band geometry itself and returns nil when the band does
-        // not actually translate (or the offset fails the verify floor), so the frame
-        // falls through to the tile path (still readable), never a torn copy.
-        if let motion,
-           let offset = estimator.measure(band: scrollBand, previous: previous, current: current, axis: motion.axis) {
-            let dx = motion.axis == .horizontal ? offset : 0
-            let dy = motion.axis == .vertical ? offset : 0
-            return (.scroll(region: scrollBand, dx: dx, dy: dy),
-                    trace(band: scrollBand, coverage: coverage, decision: "scroll"))
-        }
-
-        // Not a scroll (rest, or a scroll the surface did not confirm): tile the
-        // damage if it is small enough, else tile the whole surface. Both ride the
-        // cache ladder; fullFrame here is a coverage decision, not a scroll miss.
-        let phase = motion != nil ? "scroll-miss" : "rest"
+        // Every change tiles: the damage if it is small enough, else the whole
+        // surface, both through the cache ladder. Motion only labels the decision;
+        // the motion carrier (the HEVC video path) intercepts a declared scroll
+        // upstream of this composer, so here a scroll just tiles like any damage.
+        let phase = motion != nil ? "motion" : "rest"
         if coverage <= maxTileCoverageRatio {
-            return (.tiles(clamped), trace(band: scrollBand, coverage: coverage, decision: "tiles-\(phase)"))
+            return (.tiles(clamped), trace(band: dominantBand, coverage: coverage, decision: "tiles-\(phase)"))
         }
         return (.fullFrame(reason: "damage-too-large"),
-                trace(band: scrollBand, coverage: coverage, decision: "fullframe-\(phase)"))
+                trace(band: dominantBand, coverage: coverage, decision: "fullframe-\(phase)"))
     }
 
     private func trace(band: PixelRect? = nil, coverage: Double = 0, decision: String) -> DamageScrollTrace {
