@@ -3,7 +3,7 @@ appId: com.example.agentdesk.AgentDeskClient
 - extendedWaitUntil:
     visible: "Trackpad"
     timeout: 20000
-# Use with `just fresh-sim-consoled-run` already running in another shell.
+# Use with `just sim-fresh-install` already running in another shell.
 # This flow intentionally does not launch the app, because launchApp drops
 # the pairing URL and simulator-only localhost override needed by the
 # attached console run.

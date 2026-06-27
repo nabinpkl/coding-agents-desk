@@ -200,29 +200,17 @@ iphone-console-run variant="stable":
     echo "URL: $(cat '{{last_pair_url_path}}')"
     URL="$(cat "{{last_pair_url_path}}")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\",\"AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED\":\"$VIDEO\"}" "$BID" "$URL" 2>&1 | tee "{{iphone_console_log}}"
 
-fresh-install:
+# One command to rebuild and relaunch the host, reinstall the iPhone client, and
+# launch it with the console attached so owned-media diagnostics stream to
+# {{iphone_console_log}}. This is the default physical-device feel-run path
+# (AGENTS.md). variant: stable (the daily driver) | dev (the side-by-side
+# AgentDesk Dev build, {{client_dev_bundle_id}}, which leaves the stable install
+# untouched). For a non-attached "just use it" launch, run the leaves instead:
+# host-run, then client-reinstall {{variant}}, then pair-iphone {{variant}}.
+fresh-install variant="stable":
     just host-run
-    just client-reinstall
-    just pair-iphone
-
-# Rebuild and relaunch the host, reinstall the physical iPhone app, then
-# launch the client with stdout/stderr attached for owned-media diagnostics.
-fresh-consoled-run:
-    just host-run
-    just client-reinstall
-    just iphone-console-run
-
-# Experimental "dev" variant wrappers. These install/launch the side-by-side
-# AgentDesk Dev app ({{client_dev_bundle_id}}) without touching the stable
-# install, so risky graphics work is tested without losing the daily driver.
-client-install-dev:
-    just client-install dev
-
-client-reinstall-dev:
-    just client-reinstall dev
-
-iphone-console-run-dev:
-    just iphone-console-run dev
+    just client-reinstall {{variant}}
+    just iphone-console-run {{variant}}
 
 # One-shot, deterministic motion-carrier device verification (ADR-0025). Rebuilds
 # and reinstalls host + client, launches both with the motion flag on, records
@@ -327,26 +315,6 @@ motion-verify variant="dev" video="1" seconds="60":
     echo "  host stdio  : {{motion_host_stdio}}"
     echo "  client      : {{motion_client_log}}"
 
-iphone-log-collect-dev:
-    just iphone-log-collect dev
-
-# One-shot dev path: rebuild and relaunch the host (kills any stale host first),
-# reinstall the side-by-side dev client, and launch it with the console attached
-# so owned-media diagnostics stream to {{iphone_console_log}}. The default for dev
-# feel runs per AGENTS.md.
-fresh-install-dev:
-    just host-run
-    just client-reinstall dev
-    just iphone-console-run dev
-
-# Branch-local scroll-first hybrid retained-graphics run. This keeps the
-# physical iPhone attached console path and preserves
-# /tmp/agentdesk-client-console.log for media and compositor diagnostics.
-# It delegates to the current consoled run until the reliable graphics
-# stream and retained compositor behavior land.
-fresh-hybrid-consoled-run:
-    just fresh-consoled-run
-
 # Build client Debug for the iPhone simulator and install (does not launch).
 # Mirrors `client-install` but targets the simulator instead of the
 # physical device.
@@ -403,21 +371,12 @@ sim-console-run:
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
     bash -o pipefail -c 'URL="$(cat "{{last_pair_url_path}}")"; SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost SIMCTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE=1 xcrun simctl launch --console --terminate-running-process {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient "$URL" 2>&1 | tee "{{sim_console_log}}"'
 
-# Rebuild and relaunch the Mac host, uninstall and reinstall the iOS
-# app on the simulator, then pair and open it. Use after changes that
-# affect either side's install-time metadata, or when you want a
-# known-clean simulator starting point for a Maestro flow run.
-# Uninstall wipes UserDefaults so pairing always has to be re-done;
-# pair-sim handles that and leaves the app open on the trackpad screen.
+# Rebuild and relaunch the Mac host, uninstall/reinstall the simulator app, then
+# pair-launch it with stdout/stderr attached (owned-media traces -> {{sim_console_log}}).
+# This is the default simulator feel-test path. The uninstall wipes UserDefaults so
+# pairing is always re-done. For a non-blocking paired launch (e.g. to drive a Maestro
+# flow while the app stays open), run the leaves: host-run, client-sim-reinstall, pair-sim.
 sim-fresh-install:
-    just host-run
-    just client-sim-reinstall
-    just pair-sim
-
-# Rebuild and relaunch the Mac host, uninstall/reinstall the simulator app,
-# then pair-launch with stdout/stderr attached. This is the default simulator
-# feel-test path when an agent needs to inspect client owned-media logs.
-fresh-sim-consoled-run:
     just host-run
     just client-sim-reinstall
     just sim-console-run
@@ -505,13 +464,6 @@ testflight-upload variant="stable":
     just client-export-ipa {{variant}}
     tools/testflight-upload.sh upload "$IPA"
     echo "Upload submitted. App Store Connect may still need processing time before the build appears in TestFlight."
-
-# Experimental-variant TestFlight wrappers (route to the dev App Store Connect record).
-client-archive-dev:
-    just client-archive-release dev
-
-testflight-upload-dev:
-    just testflight-upload dev
 
 # Build/export locally without uploading, useful for signing or export checks.
 testflight-build:

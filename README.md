@@ -74,18 +74,13 @@ v0 is done when the author uses it as a daily driver without reaching for AnyDes
 5. Open the Mac app, click the menu-bar icon, hit **Pair iPhone**. The Mac scans the tailnet and lists the iPhones that answered. Tap yours; it pairs with no typing and no QR. (QR remains a fallback.)
 6. The iPhone shows the active Space at native DPR. Three-finger swipe switches Spaces.
 
-For a development run on the connected iPhone in this worktree:
+For a development run on the connected iPhone:
 
 ```sh
-AGENTDESK_OWNED_MEDIA_CODEC=hevc \
-AGENTDESK_OWNED_MEDIA_CHROMA=420 \
-AGENTDESK_GRAPHICS_PORT=41889 \
-AGENTDESK_HYBRID_SCROLL_HEVC_FPS=0 \
-AGENTDESK_HYBRID_SCROLL_IDLE_REFRESH_MS=250 \
-just fresh-hybrid-consoled-run
+just fresh-install
 ```
 
-`fresh-hybrid-consoled-run` uses the attached-console path and preserves `/tmp/agentdesk-client-console.log`. Until the graphics stream and retained compositor land, it delegates to the existing consoled run path while keeping the hybrid experiment's run contract explicit.
+`fresh-install` rebuilds and relaunches the Mac host, reinstalls the iPhone client, and launches it with the console attached, preserving owned-media diagnostics in `/tmp/agentdesk-client-console.log`. Configuration (the always_video carrier, keyframe interval, and so on) comes from baked code defaults and `.env`; see `.env.example` for the knobs. Pass `dev` (`just fresh-install dev`) to drive the side-by-side AgentDesk Dev build without disturbing the stable install.
 
 ## Repository layout
 
