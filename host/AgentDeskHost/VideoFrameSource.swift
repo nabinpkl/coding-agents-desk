@@ -25,6 +25,31 @@ struct CapturedVideoFrame: @unchecked Sendable {
     let presentationTimeNs: Int64
     let capturedAtUptimeNs: UInt64
     let rotation: VideoRotation
+    // OS-provided per-frame damage (ADR-0021), in native pixel-buffer space.
+    // Empty when the capture source could not supply usable damage geometry
+    // (incomplete frame, missing attachments, a non-SCK source, or a rescaled
+    // frame); the damage scroll classifier treats empty damage as a full-frame
+    // refresh, so an empty list is always safe, just unoptimized.
+    let damageRects: [PixelRect]
+    // The valid-content rectangle in native pixel-buffer space, nil when
+    // unknown. The classifier gates a scroll band against this width.
+    let contentRectPixels: PixelRect?
+
+    init(
+        pixelBuffer: CVPixelBuffer,
+        presentationTimeNs: Int64,
+        capturedAtUptimeNs: UInt64,
+        rotation: VideoRotation,
+        damageRects: [PixelRect] = [],
+        contentRectPixels: PixelRect? = nil
+    ) {
+        self.pixelBuffer = pixelBuffer
+        self.presentationTimeNs = presentationTimeNs
+        self.capturedAtUptimeNs = capturedAtUptimeNs
+        self.rotation = rotation
+        self.damageRects = damageRects
+        self.contentRectPixels = contentRectPixels
+    }
 }
 
 struct CapturePixelSize: Equatable {

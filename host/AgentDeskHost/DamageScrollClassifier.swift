@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 // Damage-driven scroll classifier (ADR-0021). macOS ScreenCaptureKit hands the
@@ -47,6 +48,20 @@ struct PixelRect: Equatable, Sendable {
             accumulated = accumulated.union(rect)
         }
         return accumulated
+    }
+
+    // Round a CGRect (e.g. an SCStreamFrameInfo dirty rect) outward to whole
+    // pixels, so a partially-covered edge pixel is never dropped, then clamp to
+    // the pixel buffer. A null/infinite/empty rect collapses to zero area.
+    static func clampedPixels(from rect: CGRect, width: Int, height: Int) -> PixelRect {
+        guard !rect.isNull, !rect.isInfinite, !rect.isEmpty else {
+            return PixelRect(x: 0, y: 0, width: 0, height: 0)
+        }
+        let minX = max(0, Int(rect.minX.rounded(.down)))
+        let minY = max(0, Int(rect.minY.rounded(.down)))
+        let maxX = min(width, Int(rect.maxX.rounded(.up)))
+        let maxY = min(height, Int(rect.maxY.rounded(.up)))
+        return PixelRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
     }
 }
 

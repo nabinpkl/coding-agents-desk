@@ -921,7 +921,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 confidenceThreshold: Config.hybridScrollViewportConfidence,
                 minInsetPx: Config.hybridScrollViewportMinInsetPx,
                 overlapThreshold: Config.hybridScrollViewportOverlap
-            )
+            ),
+            useDamageClassifier: Config.hybridDamageDrivenScroll
         )
         var scrollHevcAdmission = HybridScrollHEVCAdmission()
         var scrollCopyOwnership = ScrollCopyOwnership(config: ScrollCopyOwnershipConfig(

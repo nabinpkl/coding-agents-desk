@@ -2166,6 +2166,104 @@ struct ScrollQualityTests {
         #expect(result.envelopes.isEmpty)
     }
 
+    // Non-linear per-row hash so a vertical shift is unambiguously detectable.
+    private static func damageRowHash(_ y: Int) -> UInt8 {
+        var h = UInt32(truncatingIfNeeded: y &+ 1)
+        h = h &* 2_654_435_761
+        h ^= (h >> 15)
+        h = h &* 2_246_822_519
+        h ^= (h >> 13)
+        return UInt8(truncatingIfNeeded: h >> 24)
+    }
+
+    @Test func damageDrivenScrollEmitsCopyRect() throws {
+        var engine = ScrollDeltaEngine(useDamageClassifier: true)
+        let width = 240
+        let height = 200
+        let dy = 24
+        let previous = try Self.makeBGRAFrame(width: width, height: height) { _, y in
+            let v = Self.damageRowHash(y); return [v, v, v, 0xff]
+        }
+        let band = PixelRect(x: 0, y: 0, width: width, height: height)
+        let current = try Self.makeBGRAFrame(
+            width: width,
+            height: height,
+            damageRects: [band],
+            contentRectPixels: band
+        ) { _, y in
+            let v = Self.damageRowHash(y - dy); return [v, v, v, 0xff]
+        }
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let hint = ScrollActivityHint(
+            axis: .vertical, sign: 1, predictedOffsetPx: dy,
+            candidateOffsets: [dy], activeUntilUptimeNs: .max, eventCount: 4
+        )
+        let result = engine.evaluate(current, scrollHint: hint)
+
+        #expect(result.kind == ScrollDeltaKind.accepted)
+        let envelope = try #require(result.envelope)
+        let hasCopyRect = envelope.commands.contains { if case .copyRect = $0 { return true } else { return false } }
+        #expect(hasCopyRect)
+        #expect(result.diagnostics?.acceptedDy == dy)
+        #expect(result.diagnostics?.acceptedBy == "damage")
+    }
+
+    @Test func damageDrivenSmallDamageEmitsTileWithoutCopyRect() throws {
+        var engine = ScrollDeltaEngine(useDamageClassifier: true)
+        let width = 240
+        let height = 200
+        let frame0 = try Self.makeBGRAFrame(width: width, height: height) { x, y in
+            Self.scrollProbePixel(x: x, y: y)
+        }
+        #expect(engine.evaluate(frame0).kind == .reset)
+        engine.commitPendingSurface()
+        let damage = PixelRect(x: 10, y: 10, width: 40, height: 40)
+        let frame1 = try Self.makeBGRAFrame(
+            width: width, height: height,
+            damageRects: [damage],
+            contentRectPixels: PixelRect(x: 0, y: 0, width: width, height: height)
+        ) { x, y in
+            Self.scrollProbePixel(x: x, y: y)
+        }
+        let result = engine.evaluate(frame1, scrollHint: nil)
+
+        #expect(result.kind == ScrollDeltaKind.accepted)
+        let envelope = try #require(result.envelope)
+        let hasTile = envelope.commands.contains { if case .bitmapTile = $0 { return true } else { return false } }
+        let hasCopyRect = envelope.commands.contains { if case .copyRect = $0 { return true } else { return false } }
+        #expect(hasTile)
+        #expect(!hasCopyRect)
+    }
+
+    @Test func damageDrivenLargeDamageWithoutHintFallsBackToHEVC() throws {
+        var engine = ScrollDeltaEngine(useDamageClassifier: true)
+        let width = 240
+        let height = 200
+        let frame0 = try Self.makeBGRAFrame(width: width, height: height) { x, y in
+            Self.scrollProbePixel(x: x, y: y)
+        }
+        #expect(engine.evaluate(frame0).kind == .reset)
+        engine.commitPendingSurface()
+        let full = PixelRect(x: 0, y: 0, width: width, height: height)
+        let frame1 = try Self.makeBGRAFrame(
+            width: width, height: height,
+            damageRects: [full],
+            contentRectPixels: full
+        ) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+        let result = engine.evaluate(frame1, scrollHint: nil)
+
+        if case .rejected(let reason) = result.kind {
+            #expect(reason.hasPrefix("damage-fullframe"))
+        } else {
+            Issue.record("expected fullFrame damage to map to rejected, got \(result.kind)")
+        }
+        #expect(result.envelope == nil)
+    }
+
     @Test func scrollDeltaEngineHintGuidedProbeAcceptsBoundedVerticalOffsets() throws {
         for scrollDy in [1, 15, 80] {
             var engine = ScrollDeltaEngine()
@@ -2650,6 +2748,8 @@ struct ScrollQualityTests {
     private static func makeBGRAFrame(
         width: Int,
         height: Int,
+        damageRects: [PixelRect] = [],
+        contentRectPixels: PixelRect? = nil,
         pixel: (Int, Int) -> [UInt8]
     ) throws -> CapturedVideoFrame {
         var pixelBuffer: CVPixelBuffer?
@@ -2688,7 +2788,9 @@ struct ScrollQualityTests {
             pixelBuffer: pixelBuffer,
             presentationTimeNs: 123_000_000,
             capturedAtUptimeNs: 456_000_000,
-            rotation: ._0
+            rotation: ._0,
+            damageRects: damageRects,
+            contentRectPixels: contentRectPixels
         )
     }
 

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 
@@ -185,6 +186,22 @@ struct DamageScrollClassifierTests {
         )
 
         #expect(result == .fullFrame(reason: "surface-size-changed"))
+    }
+
+    @Test func captureDamagePixelRectRoundsOutwardAndClamps() {
+        // Sub-pixel rect rounds outward: floor the origin, ceil the far edge, so
+        // a partially-covered edge pixel is never dropped.
+        let rounded = PixelRect.clampedPixels(
+            from: CGRect(x: 10.4, y: 20.6, width: 100.1, height: 50.2), width: 200, height: 200
+        )
+        #expect(rounded == PixelRect(x: 10, y: 20, width: 101, height: 51))
+        // An oversized rect clamps to the pixel buffer.
+        let clamped = PixelRect.clampedPixels(
+            from: CGRect(x: -5, y: -5, width: 400, height: 400), width: 200, height: 150
+        )
+        #expect(clamped == PixelRect(x: 0, y: 0, width: 200, height: 150))
+        // A null rect collapses to zero area.
+        #expect(PixelRect.clampedPixels(from: .null, width: 200, height: 200).area == 0)
     }
 
     @Test func pixelRectUnionCoversAllRects() {

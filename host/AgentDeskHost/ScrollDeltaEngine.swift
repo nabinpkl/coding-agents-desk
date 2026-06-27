@@ -170,17 +170,27 @@ struct ScrollDeltaEngine {
     private let detectionBudgetMs: Double
     private let maxDecodedResetStripePayloadBytes: Int
     private let maxWireResetStripeBytes: Int
+    // ADR-0021 damage-driven detection. When enabled, evaluate() classifies the
+    // OS damage region instead of running the brute-force pixel-diff probe and
+    // the 2-frame viewport streak. Off by default so the proven probe path stays
+    // live until a device run validates this one.
+    private let useDamageClassifier: Bool
+    private let damageClassifier: DamageScrollClassifier
 
     init(
         detectionBudgetMs: Double = 4.0,
         maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes,
         maxWireResetStripeBytes: Int = Self.defaultMaxWireResetStripeBytes,
-        viewportConfig: ScrollViewportConfig = .default
+        viewportConfig: ScrollViewportConfig = .default,
+        useDamageClassifier: Bool = false,
+        damageClassifier: DamageScrollClassifier = DamageScrollClassifier()
     ) {
         self.detectionBudgetMs = detectionBudgetMs
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
         self.viewportTracker = ScrollViewportTracker(config: viewportConfig)
+        self.useDamageClassifier = useDamageClassifier
+        self.damageClassifier = damageClassifier
     }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
@@ -299,6 +309,16 @@ struct ScrollDeltaEngine {
                 envelopes: stripedEnvelopes
             )
         }
+        if useDamageClassifier {
+            return evaluateWithDamage(
+                frame,
+                previous: previous,
+                scrollHint: activeHint,
+                startedAt: startedAt,
+                surfaceWidth: currentWidth,
+                surfaceHeight: currentHeight
+            )
+        }
         let probe: ProbeOutcome
         if activeHint == nil && !allowBlindScan {
             probe = ProbeOutcome(
@@ -390,12 +410,13 @@ struct ScrollDeltaEngine {
                 )
             )
         }
-        guard let envelope = makeScrollEnvelope(
-            current: current,
-            offset: offset,
-            viewport: stableViewport,
-            capturedAtUptimeNs: frame.capturedAtUptimeNs
-        ) else {
+        guard let viewport = stableViewport,
+              let envelope = makeScrollEnvelope(
+                current: current,
+                offset: offset,
+                region: PixelRect(x: viewport.x, y: viewport.y, width: viewport.width, height: viewport.height),
+                capturedAtUptimeNs: frame.capturedAtUptimeNs
+              ) else {
             return ScrollDeltaResult(
                 kind: .rejected("scroll-envelope-build-failed"),
                 envelope: nil,
@@ -703,10 +724,9 @@ struct ScrollDeltaEngine {
     private func makeScrollEnvelope(
         current: Surface,
         offset: ScrollOffset,
-        viewport: ScrollViewport?,
+        region rect: PixelRect,
         capturedAtUptimeNs: UInt64
     ) -> OwnedGraphicsFrameEnvelope? {
-        guard let rect = viewport else { return nil }
         let copyCommand: OwnedGraphicsCommand
         let tileX: Int
         let tileY: Int
@@ -759,6 +779,174 @@ struct ScrollDeltaEngine {
                 )
             ],
             payload: compressed
+        )
+    }
+
+    // ADR-0021 damage-driven detection. Classify the OS damage region and map
+    // the result onto the existing envelope builders and the unchanged pump
+    // contract: .scroll/.tiles -> .accepted (pump sends, then commits the
+    // surface), .fullFrame/.noChange -> .rejected (pump falls back to HEVC and
+    // realigns the retained baseline). There is no probe, no viewport streak.
+    private mutating func evaluateWithDamage(
+        _ frame: CapturedVideoFrame,
+        previous: Surface,
+        scrollHint: ScrollActivityHint?,
+        startedAt: UInt64,
+        surfaceWidth: Int,
+        surfaceHeight: Int
+    ) -> ScrollDeltaResult {
+        guard let current = makeSurface(frame.pixelBuffer) else {
+            pendingSurface = nil
+            return ScrollDeltaResult(kind: .rejected("no-bgra-surface"), envelope: nil)
+        }
+        let content = frame.contentRectPixels
+            ?? PixelRect(x: 0, y: 0, width: current.width, height: current.height)
+        let classification = damageClassifier.classify(
+            damageRects: frame.damageRects,
+            contentRect: content,
+            previous: previous,
+            current: current,
+            hint: scrollHint
+        )
+        let probeMs = elapsedMs(since: startedAt)
+
+        // Damage covers exactly what changed, so outside the damage rects the
+        // current frame already equals the previous surface. Committing
+        // pendingSurface = current after a scroll copy or a tile update
+        // therefore keeps the host surface identical to the client's, even
+        // though only the damaged rects were sent.
+        switch classification {
+        case .scroll(let region, let dx, let dy):
+            let offset = ScrollOffset(dx: dx, dy: dy)
+            let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
+            pendingSurface = current
+            graphicsFrameId &+= 1
+            guard let envelope = makeScrollEnvelope(
+                current: current,
+                offset: offset,
+                region: region,
+                capturedAtUptimeNs: frame.capturedAtUptimeNs
+            ) else {
+                pendingSurface = nil
+                return ScrollDeltaResult(
+                    kind: .rejected("damage-scroll-envelope-build-failed"),
+                    envelope: nil,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: offset, region: region, scrollHint: scrollHint, acceptedBy: "damage", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                )
+            }
+            return ScrollDeltaResult(
+                kind: .accepted,
+                envelope: envelope,
+                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: offset, region: region, scrollHint: scrollHint, acceptedBy: "damage", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+            )
+        case .tiles(let rects):
+            let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
+            pendingSurface = current
+            graphicsFrameId &+= 1
+            guard let envelope = makeTileEnvelope(current: current, rects: rects, capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
+                pendingSurface = nil
+                return ScrollDeltaResult(
+                    kind: .rejected("damage-tile-envelope-build-failed"),
+                    envelope: nil,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                )
+            }
+            return ScrollDeltaResult(
+                kind: .accepted,
+                envelope: envelope,
+                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+            )
+        case .fullFrame(let reason):
+            pendingSurface = nil
+            return ScrollDeltaResult(
+                kind: .rejected("damage-fullframe-\(reason)"),
+                envelope: nil,
+                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: nil, offset: nil, region: nil, scrollHint: scrollHint, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+            )
+        case .noChange:
+            pendingSurface = nil
+            return ScrollDeltaResult(
+                kind: .rejected("damage-nochange"),
+                envelope: nil,
+                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: nil, offset: nil, region: nil, scrollHint: scrollHint, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+            )
+        }
+    }
+
+    // Single bitmap tile covering the union of the damage rects. Sub-rect,
+    // non-full-width tiles are already exercised by the scroll exposed-strip
+    // path, so this stays within proven wire semantics. The union may include
+    // unchanged pixels between scattered rects, but those equal the current
+    // frame anyway, so the client surface is still correct.
+    private func makeTileEnvelope(current: Surface, rects: [PixelRect], capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
+        guard let union = PixelRect.union(of: rects)?.clamped(toWidth: current.width, height: current.height),
+              union.area > 0,
+              let tile = tileData(surface: current, x: union.x, y: union.y, width: union.width, height: union.height),
+              let compressed = compressLZFSE(tile) else { return nil }
+        return OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: surfaceGeneration,
+                frameId: graphicsFrameId,
+                capturedAtUptimeNs: capturedAtUptimeNs,
+                commandCount: 1,
+                payloadLength: compressed.count
+            ),
+            commands: [
+                .bitmapTile(
+                    x: union.x,
+                    y: union.y,
+                    width: union.width,
+                    height: union.height,
+                    compression: .lzfse,
+                    byteRange: OwnedGraphicsByteRange(offset: 0, length: compressed.count)
+                )
+            ],
+            payload: compressed
+        )
+    }
+
+    private func damageDiagnostics(
+        probeMs: Double,
+        payloadBuildMs: Double?,
+        offset: ScrollOffset?,
+        region: PixelRect?,
+        scrollHint: ScrollActivityHint?,
+        acceptedBy: String?,
+        surfaceWidth: Int,
+        surfaceHeight: Int
+    ) -> ScrollDeltaDiagnostics {
+        ScrollDeltaDiagnostics(
+            probeMs: probeMs,
+            payloadBuildMs: payloadBuildMs,
+            acceptedDx: offset?.dx,
+            acceptedDy: offset?.dy,
+            confidence: offset != nil ? 1.0 : 0.0,
+            timeoutReason: nil,
+            sampledPixelCount: 0,
+            bestDx: offset?.dx,
+            bestDy: offset?.dy,
+            hintActive: scrollHint != nil,
+            hintAxis: scrollHint?.axis.rawValue,
+            hintPredictedOffset: scrollHint?.predictedOffsetPx,
+            hintCandidates: scrollHint?.candidateOffsets ?? [],
+            hintSource: scrollHint?.source.rawValue ?? "damage",
+            acceptedBy: acceptedBy,
+            regionStable: region != nil,
+            regionSource: "damage",
+            regionX: region?.x,
+            regionY: region?.y,
+            regionWidth: region?.width,
+            regionHeight: region?.height,
+            viewportStable: offset != nil,
+            viewportSource: offset != nil ? "damage" : nil,
+            viewportX: region?.x,
+            viewportY: region?.y,
+            viewportWidth: region?.width,
+            viewportHeight: region?.height,
+            outerRegionX: region?.x,
+            outerRegionY: region?.y,
+            outerRegionWidth: region?.width,
+            outerRegionHeight: region?.height
         )
     }
 

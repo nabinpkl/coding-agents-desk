@@ -145,13 +145,53 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, SCStreamOut
         CVBufferSetAttachment(imageBuffer, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
         let ts = sampleBuffer.presentationTimeStamp
         let timeNs = Int64(CMTimeGetSeconds(ts) * 1_000_000_000)
+        let pixelWidth = CVPixelBufferGetWidth(imageBuffer)
+        let pixelHeight = CVPixelBufferGetHeight(imageBuffer)
+        // ADR-0021: carry the OS damage region so the encode pump can drive
+        // copyRect/tile from what actually changed instead of pixel-diffing the
+        // whole frame. Read but do not log per frame: a prior os_log on this
+        // 60fps sample queue re-froze the session.
+        let damage = Self.damageRects(from: sampleBuffer, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
         let frame = CapturedVideoFrame(
             pixelBuffer: imageBuffer,
             presentationTimeNs: timeNs,
             capturedAtUptimeNs: DispatchTime.now().uptimeNanoseconds,
-            rotation: ._0
+            rotation: ._0,
+            damageRects: damage,
+            contentRectPixels: PixelRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight)
         )
         onFrame?(frame)
+    }
+
+    // Extract SCStreamFrameInfoDirtyRects as native pixel rects. Returns empty
+    // for any frame that is not a complete capture or carries no usable damage,
+    // which the classifier reads as "refresh the whole frame".
+    //
+    // A device spike (logged raw, ScreenCaptureKitFrameSource history) confirmed
+    // the dirty rects arrive already in native pixel-buffer space on this path:
+    // a full-frame dirty rect logged as 3600x2338 for an 1800x1169-point display
+    // at 2x backing scale, i.e. equal to the pixel buffer, so no scaleFactor
+    // multiply is applied here. The rects use the pixel buffer's top-left origin;
+    // a wrong origin convention would fail the classifier's stripe verification
+    // and degrade to a full-frame refresh rather than tearing the copy.
+    private static func damageRects(from sampleBuffer: CMSampleBuffer, pixelWidth: Int, pixelHeight: Int) -> [PixelRect] {
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
+            as? [[SCStreamFrameInfo: Any]],
+            let info = attachments.first else {
+            return []
+        }
+        let statusRaw = (info[.status] as? Int) ?? -1
+        guard statusRaw == SCFrameStatus.complete.rawValue else { return [] }
+        let rawRects = (info[.dirtyRects] as? [Any]) ?? []
+        var rects: [PixelRect] = []
+        rects.reserveCapacity(rawRects.count)
+        for element in rawRects {
+            guard let dictionary = element as? NSDictionary,
+                  let cgRect = CGRect(dictionaryRepresentation: dictionary) else { continue }
+            let rect = PixelRect.clampedPixels(from: cgRect, width: pixelWidth, height: pixelHeight)
+            if rect.area > 0 { rects.append(rect) }
+        }
+        return rects
     }
 
     // MARK: - SCStreamDelegate
