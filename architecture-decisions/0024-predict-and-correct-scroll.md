@@ -1,7 +1,8 @@
 ---
-status: accepted
+status: superseded by ADR-0025
 date: 2026-06-25
 supersedes: ADR-0023
+superseded-by: ADR-0025
 ---
 
 # Predict-and-correct scroll (motion plus residual), replacing verify-or-fallback

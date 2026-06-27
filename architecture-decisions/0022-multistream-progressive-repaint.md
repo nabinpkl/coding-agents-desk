@@ -1,7 +1,8 @@
 ---
-status: proposed
+status: partially superseded by ADR-0025
 date: 2026-06-25
 supersedes: ADR-0021 (damage-driven retained graphics)
+partially-superseded-by: ADR-0025 (scroll bet only; the multi-stream split and the tile/cache/progressive-repaint half stand)
 ---
 
 # Multi-stream QUIC and progressive repaint, dropping pixel-guessed scroll

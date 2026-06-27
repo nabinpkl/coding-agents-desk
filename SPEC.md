@@ -19,7 +19,7 @@
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
 
-ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the current scroll-first hybrid retained-graphics worktree architecture. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 and ADR-0022 record the damage-driven retained-graphics and multi-stream-QUIC iterations. ADR-0023 records the hardened, host-detected scroll copyRect (verify-or-fallback) and the two-part black-flash fix, superseded by ADR-0024, which replaces the verify gate with predict-and-correct (motion plus residual) and a hash-based offset proposer that the current graphics pipeline runs.
+ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the current scroll-first hybrid retained-graphics worktree architecture. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 and ADR-0022 record the damage-driven retained-graphics and multi-stream-QUIC iterations. ADR-0023 records the hardened, host-detected scroll copyRect (verify-or-fallback), superseded by ADR-0024 (predict-and-correct, hash-proposed offset), both superseded by ADR-0025. ADR-0025 records the mixed-mode renderer that the current pipeline runs: scrolling motion plays as full-surface hardware HEVC over QUIC datagrams while rest keeps the retained-tile content-cache path, with the hand-rolled scroll machinery removed. ADR-0022's multi-stream split and tile/cache half stand; only its scroll bet is superseded.
 
 ## Module Boundaries
 
@@ -38,7 +38,7 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 9. **SessionAuthenticator.** Runs the per-connection mutual challenge-response on the authenticated session socket. Rejects a peer whose advertised `protocolVersion` is below the host's `minCompatibleProtocolVersion` with `incompatible-protocol` (ADR-0020). Produces `SessionReady` with input and media capabilities.
 10. **MediaTransport.** Starts one owned QUIC media channel. The first datagram is `MediaChannelHello`; the host validates the media capability through `SessionRegistry`, replies with `MediaChannelReady`, derives the per-session HMAC key, and sends authenticated `ADMD` v2 packets carrying HEVC full-frame refreshes.
 11. **GraphicsTransport.** Planned sibling reliable QUIC stream for retained graphics commands. It uses the same TLS identity as owned media, an explicit graphics hello/ready nonce handshake, ALPN `agentdesk-owned-graphics`, and `AGENTDESK_GRAPHICS_PORT`.
-12. **ScrollDeltaEngine.** Scroll-first retained-graphics producer (ADR-0024). On a declared scroll it applies the `ScrollOffsetEstimator`'s hash-proposed shift as one `copyRect`, then tiles only the residual (the cells that still differ from the shifted-previous surface) through the content-cache tile ladder; if the shift omits nothing it drops the `copyRect` and plain-tiles the band. Non-scroll damage tiles directly.
+12. **ScrollDeltaEngine.** Rest-state retained-graphics producer (ADR-0025). Damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`), omitting cells that already match the retained baseline. The hand-rolled scroll path (`ScrollOffsetEstimator`, `copyRect`) is removed; scrolling motion is carried by the hardware HEVC datagram path (`VideoToolboxOwnedMediaEncoder`, `MediaDatagramFramePacket`, client `OwnedMediaVideoDecoder` / `OwnedMediaCarrierHandoff`), not by this engine.
 13. **InputChannelServer.** Owns the host side of the dedicated input WebSocket. Validates `InputChannelHello` against `SessionRegistry`, drains `InputChannelEvent` frames into `NormalizedInput`, and pushes desktop state, thumbnails, cursor updates, and agent speech events.
 14. **SignalingChannel.** Wraps the authenticated session WebSocket after `SessionReady`. It carries low-frequency input capability refresh messages only.
 15. **VideoFrameSource.** Concrete implementation `ScreenCaptureKitFrameSource` captures one stream for the active display. `TestPatternFrameSource` exists as a diagnostic source.
@@ -206,15 +206,20 @@ OwnedGraphicsFrameHeader {
 
 OwnedGraphicsCommand =
   | { kind: "resetSurface", surfaceGeneration, width, height, pixelFormat: "bgra" }
-  | { kind: "copyRect", srcX, srcY, dstX, dstY, width, height }
   | { kind: "bitmapTile", x, y, width, height, compression: "lzfse", byteRange }
-  | { kind: "codecTile" } // reserved, rejected until full mixed graphics opens
+  | { kind: "cacheTile", slot, x, y, width, height, compression, byteRange }
+  | { kind: "drawCachedTile", slot, x, y, width, height }
+
+// ADR-0025 motion carrier, on QUIC datagrams (not this reliable stream):
+OwnedMediaFrameEnvelope { header: OwnedMediaFrameHeader, payload }  // length-prefixed NAL
+MediaDatagramFramePacket  // "ADMD", HMAC-authenticated MTU fragments of an envelope
+OwnedMediaControlMessage { kind: "keyframe-request" | "packet-resend-request", frameId, packetIndexes }
 
 OwnedGraphicsFrameAck { surfaceGeneration, frameId, compositorMs, staleDiscardCount }
 OwnedGraphicsResetRequest { reason, lastCommittedSurfaceGeneration, lastCommittedFrameId }
 ```
 
-All visual updates compare only `(surfaceGeneration, frameId)`. `capturedAtUptimeNs` is never an ordering key. `resetSurface` accepts only a strictly newer `surfaceGeneration`, initializes committed order to `(surfaceGeneration, 0)`, then applies reset tiles. A declared scroll emits one `copyRect` (the proposed shift) followed by the residual cells against the shifted-previous surface, tiled through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`); a shift that omits no cells drops the `copyRect` and plain-tiles the band (ADR-0024).
+All tile updates compare only `(surfaceGeneration, frameId)`. `capturedAtUptimeNs` is never an ordering key. `resetSurface` accepts only a strictly newer `surfaceGeneration`, initializes committed order to `(surfaceGeneration, 0)`, then applies reset tiles. Rest-state damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`). Scrolling motion does not ride this stream at all: it plays as full-surface hardware HEVC over QUIC datagrams (`OwnedMediaFrameEnvelope` fragmented into `MediaDatagramFramePacket`s), decoded by display on the client; on scroll-stop the host sends one full-surface tile refresh and the client swaps the video layer back to tiles only after applying it (ADR-0025).
 
 Input-channel wire shapes are locked by ADR-0005 and ADR-0011.
 
