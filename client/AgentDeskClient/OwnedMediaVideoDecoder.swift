@@ -44,8 +44,9 @@ final class OwnedMediaVideoDecoder {
                   let description = makeFormatDescription(parameterSets, header.codec) else {
                 return .formatDescriptionUnavailable
             }
-            // A keyframe is a fresh sync point. Drop any half-decoded queue so the
-            // first thing shown is the crisp keyframe, not a stale delta.
+            // A keyframe is a fresh sync point. Drop any pending (undisplayed) queue so
+            // the keyframe shows next instead of a stale delta. flush() keeps the
+            // current image up until the keyframe decodes, so there is no black frame.
             layer.flush()
             formatDescription = description
         }
@@ -208,6 +209,11 @@ final class OwnedMediaVideoLayerEnqueuer: OwnedMediaVideoEnqueuing {
     }
 
     func flush() {
-        displayLayer.flushAndRemoveImage()
+        // Drop pending (undisplayed) sample buffers but KEEP the current image.
+        // flushAndRemoveImage() blanks the layer, and because the decoder flushes on
+        // every keyframe, that produced a black frame at each keyframe interval (the
+        // periodic flash). flush() keeps the last frame visible until the keyframe
+        // decodes, so the keyframe is a sharpen, not a black blink.
+        displayLayer.flush()
     }
 }
