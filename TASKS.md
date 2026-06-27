@@ -219,4 +219,5 @@ R55.5     pending     pending     physical acceptance: picker lists the iPhone b
 R56.1     2026-06-22  committed   host and client marketing versions decoupled (independent semver per release)
 R56.2     2026-06-22  committed   protocol version negotiated at session handshake (ADR-0020); incompatible peer rejected as update-required
 R57       2026-06-22  committed   fix on-device TLS failure: Release delegate accepts host cert chain on tailnet CGNAT IP literals (hostname check skipped), FQDN dials stay strict (ADR-0019)
+R58       2026-06-22  committed   offer-sent state is escapable: Back button + 30s timeout return to the picker, cancelled when the device dials back
 ```

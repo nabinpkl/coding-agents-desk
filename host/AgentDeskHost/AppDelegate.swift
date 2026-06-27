@@ -131,6 +131,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
     private let frameSource: VideoFrameSource = MediaStack.makeFrameSource()
     private var pairingSignalSource: DispatchSourceSignal?
+    // ADR-0019: bounds the .pairingOffered state so a device that never dials
+    // back does not strand the popover. Cancelled when the device starts
+    // connecting or the user leaves the offered state.
+    private var pairingOfferTimeoutTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -356,6 +360,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleSessionAttemptStarted(_ fingerprint: DeviceFingerprint) {
+        // The offered device dialed back; the offer wait is over.
+        pairingOfferTimeoutTask?.cancel()
+        pairingOfferTimeoutTask = nil
         sessions.noteAttempt(fingerprint)
         signalingLogger.notice("session attempt started fingerprint=\(fingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
@@ -689,6 +696,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // shows the device picker. Picking a device is the host-side authorization.
     // QR pairing stays reachable via SIGUSR1 -> startPairing.
     private func showDevicePicker() {
+        // Leaving any in-flight offer (the user came back to pick again).
+        pairingOfferTimeoutTask?.cancel()
+        pairingOfferTimeoutTask = nil
         let candidates: [TailnetDeviceOption]
         do {
             // ADR-0019: probe online iOS peers and list only those that identify
@@ -759,6 +769,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.signalingLogger.error("pairing offer send failed: \(String(describing: error), privacy: .public)")
                     self.showDevicePicker()
                 }
+            }
+            // Bound the wait: if the device never dials back, return to the
+            // picker so the user can retry instead of being stranded. Cancelled
+            // in handleSessionAttemptStarted once the device responds.
+            pairingOfferTimeoutTask?.cancel()
+            pairingOfferTimeoutTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                self.signalingLogger.notice("pairing offer timed out; returning to picker")
+                self.showDevicePicker()
             }
         } catch is TailscaleRequiredError {
             applyIcon(.tailscaleRequired)

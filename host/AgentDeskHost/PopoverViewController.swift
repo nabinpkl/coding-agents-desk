@@ -77,7 +77,14 @@ final class PopoverViewController: NSViewController {
             button(title: "Refresh", action: #selector(startPairing))
         case .pairingOffered(let deviceName):
             label("Pairing offer sent", font: .boldSystemFont(ofSize: 16))
+            let spinner = NSProgressIndicator()
+            spinner.style = .spinning
+            spinner.controlSize = .small
+            spinner.startAnimation(nil)
+            spinner.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(spinner)
             label("Sent to \(deviceName). Open AgentDesk on it if it is not already; it will connect automatically.", font: .systemFont(ofSize: 12))
+            button(title: "Back", action: #selector(startPairing))
         case .pairing(let url, let image):
             label("Scan to pair", font: .boldSystemFont(ofSize: 16))
             if let image {
