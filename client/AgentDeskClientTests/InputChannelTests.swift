@@ -996,9 +996,25 @@ struct InputChannelTests {
         withUnsafeBytes(of: &metadataLength) { header.append(contentsOf: $0) }
         withUnsafeBytes(of: &payloadLength) { header.append(contentsOf: $0) }
 
-        #expect(throws: SessionRejected(reason: .malformed)) {
+        #expect(throws: OwnedGraphicsTransportError.frameMalformed) {
             _ = try parser.append(header)
         }
+    }
+
+    @Test func graphicsStreamEmptyReadReportsEOF() throws {
+        #expect(throws: OwnedGraphicsTransportError.streamEOF) {
+            _ = try OwnedGraphicsStreamRead.unwrap(data: Data(), error: nil)
+        }
+        #expect(String(describing: OwnedGraphicsTransportError.streamEOF) == "graphics-stream-eof")
+    }
+
+    @Test func graphicsStreamParserReportsMalformedAdgcFrame() throws {
+        var parser = OwnedGraphicsStreamFrameParser()
+
+        #expect(throws: OwnedGraphicsTransportError.frameMalformed) {
+            _ = try parser.append(Data([0x42, 0x41, 0x44, 0x21, 1, 0, 0, 0, 0, 0, 0, 0, 0]))
+        }
+        #expect(String(describing: OwnedGraphicsTransportError.frameMalformed) == "graphics-frame-malformed")
     }
 
     @Test func graphicsControlStreamFramesRoundTripSplitAndCoalescedMessages() throws {
@@ -1034,9 +1050,47 @@ struct InputChannelTests {
         var parser = OwnedGraphicsControlStreamFrameParser()
         let frame = Data([0, 0, 0, 0])
 
-        #expect(throws: SessionRejected(reason: .malformed)) {
+        #expect(throws: OwnedGraphicsTransportError.controlMalformed) {
             _ = try parser.append(frame)
         }
+        #expect(String(describing: OwnedGraphicsTransportError.controlMalformed) == "graphics-control-malformed")
+    }
+
+    @Test func graphicsResetFallbackGateDoesNotLoopSameFailedGenerationUntilReconnect() {
+        var gate = OwnedGraphicsResetFallbackGate()
+        let request = OwnedGraphicsResetRequest(
+            reason: "graphics-stream-eof",
+            lastCommittedSurfaceGeneration: 7,
+            lastCommittedFrameId: 11
+        )
+
+        gate.startConnection()
+        #expect(gate.beginFallbackIfAllowed(for: request) == .send)
+        gate.noteFallbackFailed(for: request)
+        #expect(gate.beginFallbackIfAllowed(for: request) == .suppress(reason: "already-failed-generation"))
+
+        gate.startConnection()
+        #expect(gate.beginFallbackIfAllowed(for: request) == .send)
+    }
+
+    @Test func graphicsResetFallbackGateAllowsOnlyOneActiveResetPerConnection() {
+        var gate = OwnedGraphicsResetFallbackGate()
+        let first = OwnedGraphicsResetRequest(
+            reason: "graphics-frame-malformed",
+            lastCommittedSurfaceGeneration: 3,
+            lastCommittedFrameId: 8
+        )
+        let second = OwnedGraphicsResetRequest(
+            reason: "graphics-control-malformed",
+            lastCommittedSurfaceGeneration: 4,
+            lastCommittedFrameId: 1
+        )
+
+        gate.startConnection()
+        #expect(gate.beginFallbackIfAllowed(for: first) == .send)
+        #expect(gate.beginFallbackIfAllowed(for: second) == .suppress(reason: "reset-already-active"))
+        gate.noteFallbackCompleted(for: first)
+        #expect(gate.beginFallbackIfAllowed(for: second) == .send)
     }
 
     @Test func staleGraphicsUpdateUsesSharedTimelineOrdering() {

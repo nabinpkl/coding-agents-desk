@@ -88,7 +88,13 @@ struct ScrollQualityTests {
         #expect(Config.hybridScrollOwnershipMs == 500)
         #expect(Config.hybridScrollFallbackAfterMs == 300)
         #expect(Config.hybridScrollOwnershipMaxMisses == 2)
+        #expect(Config.hybridScrollViewportMinWidth == 320)
+        #expect(Config.hybridScrollViewportMinHeight == 240)
+        #expect(Config.hybridScrollViewportConfidence == 0.88)
+        #expect(Config.hybridScrollViewportMinInsetPx == 24)
+        #expect(Config.hybridScrollViewportOverlap == 0.80)
         #expect(Config.hybridResetStripeMaxDecodedBytes == 2 * 1_024 * 1_024)
+        #expect(Config.hybridResetStripeMaxWireBytes == 196_608)
         #expect(Config.hybridResetStripeAckTimeoutMs == 1_000)
         #expect(Config.hybridGraphicsFallbackMinIntervalMs == 1_500)
     }
@@ -1525,6 +1531,157 @@ struct ScrollQualityTests {
         ) == .allow)
     }
 
+    @Test func hybridHevcFallbackPolicySuppressesActiveScrollWhenBaselineCannotRealign() throws {
+        var engine = ScrollDeltaEngine()
+        let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            return Self.pixel(x: x, y: y)
+        }
+        let fallback = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            Self.pixel(x: x, y: y + 31)
+        }
+        let current = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            y < 40 ? Self.pixel(x: x, y: y + 24) : Self.exposedPixel(x: x, y: y)
+        }
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let decision = HybridHEVCFallbackPolicy.evaluate(
+            HybridHEVCFallbackPolicyContext(
+                fallbackReason: .scrollTimeout,
+                inputScrollActive: true,
+                ownershipActive: false,
+                regionLockPending: false,
+                stableViewportActive: false,
+                graphicsRecoveryState: .idle,
+                isIdleCorrectnessRefresh: false
+            )
+        )
+
+        #expect(decision.visualDecision == .suppress(reason: "baseline-not-realigned"))
+        #expect(decision.baselineDecision == .visualOnly(reason: "active-scroll"))
+        if decision.baselineDecision == .realign {
+            engine.observeFallbackFrame(fallback)
+        }
+        let result = engine.evaluate(current)
+
+        #expect(result.kind == .accepted)
+        #expect(result.diagnostics?.acceptedDy == -24)
+    }
+
+    @Test func hybridHevcFallbackPolicyRealignsIdleCorrectnessRefresh() throws {
+        var engine = ScrollDeltaEngine()
+        let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            return Self.pixel(x: x, y: y)
+        }
+        let fallback = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            Self.pixel(x: x, y: y + 31)
+        }
+        let current = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            y < 48 ? Self.pixel(x: x, y: y + 47) : Self.exposedPixel(x: x, y: y)
+        }
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let decision = HybridHEVCFallbackPolicy.evaluate(
+            HybridHEVCFallbackPolicyContext(
+                fallbackReason: nil,
+                inputScrollActive: false,
+                ownershipActive: false,
+                regionLockPending: false,
+                stableViewportActive: false,
+                graphicsRecoveryState: .idle,
+                isIdleCorrectnessRefresh: true
+            )
+        )
+
+        #expect(decision.visualDecision == .allow)
+        #expect(decision.baselineDecision == .realign)
+        if decision.baselineDecision == .realign {
+            engine.observeFallbackFrame(fallback)
+        }
+        let result = engine.evaluate(current)
+
+        #expect(result.kind == .accepted)
+        #expect(result.diagnostics?.acceptedDy == -16)
+    }
+
+    @Test func hybridHevcFallbackPolicyRealignsIdleRefreshEvenWithStaleViewportLock() {
+        let decision = HybridHEVCFallbackPolicy.evaluate(
+            HybridHEVCFallbackPolicyContext(
+                fallbackReason: nil,
+                inputScrollActive: false,
+                ownershipActive: true,
+                regionLockPending: false,
+                stableViewportActive: true,
+                graphicsRecoveryState: .idle,
+                isIdleCorrectnessRefresh: true
+            )
+        )
+
+        #expect(decision.visualDecision == .allow)
+        #expect(decision.baselineDecision == .realign)
+    }
+
+    @Test func hybridHevcFallbackPolicySuppressesViewportTimeoutAndRejectedFallbacks() {
+        for reason in [
+            OwnedHybridHEVCFallbackReason.scrollTimeout,
+            .scrollRegionBeforeLock,
+            .rejectedMotion,
+            .graphicsReset,
+            .graphicsSendFailed,
+            .graphicsResetSendFailed
+        ] {
+            let decision = HybridHEVCFallbackPolicy.evaluate(
+                HybridHEVCFallbackPolicyContext(
+                    fallbackReason: reason,
+                    inputScrollActive: false,
+                    ownershipActive: false,
+                    regionLockPending: false,
+                    stableViewportActive: true,
+                    graphicsRecoveryState: .idle,
+                    isIdleCorrectnessRefresh: false
+                )
+            )
+
+            #expect(decision.visualDecision == .suppress(reason: "baseline-not-realigned"))
+            #expect(decision.baselineDecision == .visualOnly(reason: "stable-viewport"))
+        }
+    }
+
+    @Test func hybridHevcFallbackPolicySuppressesRegionLockPendingWhenBaselineCannotRealign() {
+        let decision = HybridHEVCFallbackPolicy.evaluate(
+            HybridHEVCFallbackPolicyContext(
+                fallbackReason: .scrollRegionBeforeLock,
+                inputScrollActive: false,
+                ownershipActive: false,
+                regionLockPending: true,
+                stableViewportActive: false,
+                graphicsRecoveryState: .idle,
+                isIdleCorrectnessRefresh: false
+            )
+        )
+
+        #expect(decision.visualDecision == .suppress(reason: "baseline-not-realigned"))
+        #expect(decision.baselineDecision == .visualOnly(reason: "region-lock-pending"))
+    }
+
+    @Test func hybridHevcFallbackPolicyRealignsGraphicsRecoveryWhenAllowed() {
+        let decision = HybridHEVCFallbackPolicy.evaluate(
+            HybridHEVCFallbackPolicyContext(
+                fallbackReason: .graphicsDisconnected,
+                inputScrollActive: false,
+                ownershipActive: false,
+                regionLockPending: false,
+                stableViewportActive: false,
+                graphicsRecoveryState: .reconnecting,
+                isIdleCorrectnessRefresh: false
+            )
+        )
+
+        #expect(decision.visualDecision == .allow)
+        #expect(decision.baselineDecision == .realign)
+    }
+
     @Test func ownedGraphicsAckWaiterCompletesWhenAckCoversUpdate() async {
         let waiter = OwnedGraphicsAckWaiter()
         let task = Task {
@@ -1684,7 +1841,38 @@ struct ScrollQualityTests {
         }
     }
 
-    @Test func scrollDeltaEngineEmitsVerticalCopyRectAndExposedStrip() throws {
+    @Test func scrollDeltaEngineResetStripesRespectDecodedAndWireCaps() throws {
+        let decodedStripeCap = 512 * 32 * 4
+        let wireStripeCap = 16_384
+        var engine = ScrollDeltaEngine(
+            maxDecodedResetStripePayloadBytes: decodedStripeCap,
+            maxWireResetStripeBytes: wireStripeCap
+        )
+        let frame = try Self.makeBGRAFrame(width: 512, height: 128) { x, y in
+            [
+                UInt8((x * 31 + y * 17) & 0xff),
+                UInt8((x * 19 + y * 47 + x / 3) & 0xff),
+                UInt8((x * 53 + y * 29 + y / 5) & 0xff),
+                0xff
+            ]
+        }
+
+        let result = engine.evaluate(frame)
+
+        #expect(result.kind == ScrollDeltaKind.reset)
+        #expect(result.envelopes.count > 4)
+        for stripe in result.envelopes {
+            #expect(stripe.wireByteCount <= wireStripeCap)
+            guard let tile = stripe.commands.compactMap(Self.bitmapTileCommand).first else {
+                Issue.record("expected reset stripe bitmapTile")
+                continue
+            }
+            #expect(tile.width == 512)
+            #expect(tile.height * tile.width * 4 <= decodedStripeCap)
+        }
+    }
+
+    @Test func scrollDeltaEngineRejectsWholeSurfaceVerticalCopyRect() throws {
         var engine = ScrollDeltaEngine()
         let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
             Self.pixel(x: x, y: y)
@@ -1704,23 +1892,12 @@ struct ScrollQualityTests {
         #expect(diagnostics.confidence >= 0.92)
         #expect(diagnostics.sampledPixelCount > 0)
         #expect(diagnostics.payloadBuildMs != nil)
-        #expect(diagnostics.fullSurfaceCopyRect)
-        let envelope = try #require(result.envelope)
-        #expect(result.envelopes == [envelope])
-        #expect(envelope.commands.count == 2)
-        #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(srcX: 0, srcY: 16, dstX: 0, dstY: 0, width: 64, height: 48))
-        #expect(envelope.commands[1] == OwnedGraphicsCommand.bitmapTile(
-            x: 0,
-            y: 48,
-            width: 64,
-            height: 16,
-            compression: OwnedGraphicsTileCompression.lzfse,
-            byteRange: OwnedGraphicsByteRange(offset: 0, length: envelope.payload.count)
-        ))
-        let decoded = try Self.decompressLZFSE(envelope.payload, expectedCount: 64 * 16 * 4)
-        #expect(decoded == Self.tileBytes(width: 64, height: 16) { x, row in
-            Self.exposedPixel(x: x, y: row + 48)
-        })
+        #expect(result.envelope == nil)
+        #expect(result.envelopes.isEmpty)
+        #expect(!diagnostics.viewportStable)
+        #expect(diagnostics.viewportSource == nil)
+        #expect(!diagnostics.fullSurfaceCopyRect)
+        #expect(!diagnostics.wholeWindowCopyRect)
     }
 
     @Test func scrollDeltaEngineDoesNotEmitCopyRectWithoutStableRegion() throws {
@@ -1746,63 +1923,107 @@ struct ScrollQualityTests {
         #expect(!diagnostics.fullSurfaceCopyRect)
     }
 
-    @Test func scrollDeltaEngineEmitsRegionScopedVerticalCopyRectAndExposedStrip() throws {
-        var engine = ScrollDeltaEngine()
-        let region = ScrollRegion(
-            x: 10,
-            y: 8,
-            width: 50,
-            height: 40,
+    @Test func scrollDeltaEngineEmitsViewportScopedVerticalCopyRectAndExposedStripAfterViewportLock() throws {
+        var engine = ScrollDeltaEngine(viewportConfig: ScrollViewportConfig(
+            minWidth: 20,
+            minHeight: 20,
+            confidenceThreshold: 0.88,
+            minInsetPx: 4,
+            overlapThreshold: 0.80
+        ))
+        let outerRegion = ScrollRegion(
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
             source: .cursorFallback,
             stability: ScrollRegionStability(stableFrameCount: 2, overlapRatioWithPrevious: 1)
         )
-        let scrollDy = 6
+        let viewport = (x: 4, y: 4, width: 96, height: 76)
+        let viewportMaxX = viewport.x + viewport.width
+        let viewportMaxY = viewport.y + viewport.height
+        let scrollDy = 2
+        func movingPixel(x: Int, y: Int) -> [UInt8] {
+            let value = UInt8((y % 4) * 60 + (x % 3) * 5)
+            return [value, value, value, 0xff]
+        }
         let previous = try Self.makeBGRAFrame(width: 100, height: 80) { x, y in
-            Self.pixel(x: x, y: y)
+            if x >= viewport.x, x < viewportMaxX, y >= viewport.y, y < viewportMaxY {
+                return movingPixel(x: x, y: y)
+            }
+            return Self.pixel(x: x, y: y)
         }
         let current = try Self.makeBGRAFrame(width: 100, height: 80) { x, y in
-            if x >= region.x, x < region.maxX, y >= region.y, y < region.maxY {
-                return y < region.maxY - scrollDy
-                    ? Self.pixel(x: x, y: y + scrollDy)
+            if x >= viewport.x, x < viewportMaxX, y >= viewport.y, y < viewportMaxY {
+                return y < viewportMaxY - scrollDy
+                    ? movingPixel(x: x, y: y + scrollDy)
                     : Self.exposedPixel(x: x, y: y)
             }
             return Self.pixel(x: x, y: y)
         }
+        let scrollHint = ScrollActivityHint(
+            axis: .vertical,
+            sign: -1,
+            predictedOffsetPx: -scrollDy,
+            candidateOffsets: [-scrollDy],
+            activeUntilUptimeNs: UInt64.max,
+            eventCount: 1
+        )
 
         #expect(engine.evaluate(previous).kind == .reset)
         engine.commitPendingSurface()
-        let result = engine.evaluate(current, scrollRegion: region)
+        let firstResult = engine.evaluate(
+            current,
+            scrollHint: scrollHint,
+            scrollRegion: outerRegion,
+            allowBlindScan: false
+        )
+        #expect(firstResult.kind == ScrollDeltaKind.accepted)
+        #expect(firstResult.envelope == nil)
+        let result = engine.evaluate(
+            current,
+            scrollHint: scrollHint,
+            scrollRegion: outerRegion,
+            allowBlindScan: false
+        )
 
         #expect(result.kind == ScrollDeltaKind.accepted)
         let diagnostics = try #require(result.diagnostics)
         #expect(diagnostics.regionStable)
         #expect(diagnostics.regionSource == "cursor-fallback")
-        #expect(diagnostics.regionX == 10)
-        #expect(diagnostics.regionY == 8)
-        #expect(diagnostics.regionWidth == 50)
-        #expect(diagnostics.regionHeight == 40)
+        #expect(diagnostics.regionX == 0)
+        #expect(diagnostics.regionY == 0)
+        #expect(diagnostics.regionWidth == 100)
+        #expect(diagnostics.regionHeight == 80)
+        #expect(diagnostics.viewportStable)
+        #expect(diagnostics.viewportSource == "derived-pixels")
+        #expect((diagnostics.viewportX ?? 0) >= viewport.x)
+        #expect((diagnostics.viewportY ?? 0) >= viewport.y)
+        #expect((diagnostics.viewportX ?? 0) <= viewport.x + 16)
+        #expect((diagnostics.viewportY ?? 0) <= viewport.y + 16)
+        #expect((diagnostics.viewportWidth ?? 0) >= viewport.width - 16)
+        #expect((diagnostics.viewportHeight ?? 0) >= viewport.height - 16)
         #expect(!diagnostics.fullSurfaceCopyRect)
+        #expect(!diagnostics.wholeWindowCopyRect)
         let envelope = try #require(result.envelope)
-        #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(
-            srcX: 10,
-            srcY: 14,
-            dstX: 10,
-            dstY: 8,
-            width: 50,
-            height: 34
-        ))
-        #expect(envelope.commands[1] == OwnedGraphicsCommand.bitmapTile(
-            x: 10,
-            y: 42,
-            width: 50,
-            height: 6,
-            compression: OwnedGraphicsTileCompression.lzfse,
-            byteRange: OwnedGraphicsByteRange(offset: 0, length: envelope.payload.count)
-        ))
-        let decoded = try Self.decompressLZFSE(envelope.payload, expectedCount: 50 * 6 * 4)
-        #expect(decoded == Self.tileBytes(width: 50, height: 6) { x, row in
-            Self.exposedPixel(x: x + 10, y: row + 42)
-        })
+        guard case let .copyRect(srcX, srcY, dstX, dstY, width, height) = envelope.commands[0] else {
+            Issue.record("expected copyRect")
+            return
+        }
+        #expect(srcX == dstX)
+        #expect(srcY == dstY + scrollDy)
+        #expect(width <= outerRegion.width)
+        #expect(height < outerRegion.height)
+        guard case let .bitmapTile(tileX, tileY, tileWidth, tileHeight, compression, byteRange) = envelope.commands[1] else {
+            Issue.record("expected bitmapTile")
+            return
+        }
+        #expect(compression == .lzfse)
+        #expect(byteRange == OwnedGraphicsByteRange(offset: 0, length: envelope.payload.count))
+        #expect(tileX == dstX)
+        #expect(tileY >= viewport.y)
+        #expect(tileWidth == width)
+        #expect(tileHeight == scrollDy)
     }
 
     @Test func scrollDeltaEngineValidatesRegionScrollWithoutEmittingBeforeRegionLock() throws {
@@ -1832,6 +2053,7 @@ struct ScrollQualityTests {
         let result = engine.evaluate(
             current,
             scrollRegion: region,
+            scrollRegionIsStable: false,
             emitGraphicsBeforeRegionLock: false
         )
 
@@ -1864,9 +2086,8 @@ struct ScrollQualityTests {
         #expect(diagnostics.confidence >= 0.92)
         #expect(diagnostics.sampledPixelCount > 0)
         #expect(diagnostics.payloadBuildMs != nil)
-        let envelope = try #require(result.envelope)
-        #expect(result.envelopes == [envelope])
-        #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(srcX: 0, srcY: 32, dstX: 0, dstY: 0, width: 320, height: 224))
+        #expect(result.envelope == nil)
+        #expect(result.envelopes.isEmpty)
     }
 
     @Test func scrollDeltaEngineAcceptsPhysicalScaleNonStrideVerticalScrollWithinBudget() throws {
@@ -1902,12 +2123,8 @@ struct ScrollQualityTests {
         #expect(diagnostics.probeScale > 1)
         #expect(diagnostics.timeoutReason == nil)
         #expect(diagnostics.payloadBuildMs != nil)
-        let envelope = try #require(result.envelope)
-        #expect(result.envelopes == [envelope])
-        #expect(envelope.commands.contains { command in
-            if case .copyRect = command { return true }
-            return false
-        })
+        #expect(result.envelope == nil)
+        #expect(result.envelopes.isEmpty)
     }
 
     @Test func scrollDeltaEngineHintGuidedProbeAcceptsBoundedVerticalOffsets() throws {
@@ -1941,8 +2158,8 @@ struct ScrollQualityTests {
             #expect(diagnostics.hintPredictedOffset == -scrollDy)
             #expect(diagnostics.candidateCount <= 24)
             #expect(diagnostics.hintCandidates.count == diagnostics.candidateCount)
-            let envelope = try #require(result.envelope)
-            Self.expectSingleCopyRectAndTile(envelope)
+            #expect(result.envelope == nil)
+            #expect(result.envelopes.isEmpty)
         }
     }
 
@@ -2096,7 +2313,7 @@ struct ScrollQualityTests {
         }
     }
 
-    @Test func scrollDeltaEngineEmitsHorizontalCopyRectAndExposedStrip() throws {
+    @Test func scrollDeltaEngineRejectsWholeSurfaceHorizontalCopyRect() throws {
         var engine = ScrollDeltaEngine()
         let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
             Self.pixel(x: x, y: y)
@@ -2116,17 +2333,8 @@ struct ScrollQualityTests {
         #expect(diagnostics.confidence >= 0.92)
         #expect(diagnostics.sampledPixelCount > 0)
         #expect(diagnostics.payloadBuildMs != nil)
-        let envelope = try #require(result.envelope)
-        #expect(result.envelopes == [envelope])
-        #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(srcX: 16, srcY: 0, dstX: 0, dstY: 0, width: 48, height: 64))
-        #expect(envelope.commands[1] == OwnedGraphicsCommand.bitmapTile(
-            x: 48,
-            y: 0,
-            width: 16,
-            height: 64,
-            compression: OwnedGraphicsTileCompression.lzfse,
-            byteRange: OwnedGraphicsByteRange(offset: 0, length: envelope.payload.count)
-        ))
+        #expect(result.envelope == nil)
+        #expect(result.envelopes.isEmpty)
     }
 
     @Test func scrollDeltaEngineRejectsUnexplainedMotion() throws {
@@ -2604,6 +2812,20 @@ struct ScrollQualityTests {
         #expect(envelope.commands.count == 2)
         #expect(copyRectCount == 1)
         #expect(bitmapTileCount == 1)
+    }
+
+    private static func bitmapTileCommand(_ command: OwnedGraphicsCommand) -> (
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        compression: OwnedGraphicsTileCompression,
+        byteRange: OwnedGraphicsByteRange
+    )? {
+        guard case let .bitmapTile(x, y, width, height, compression, byteRange) = command else {
+            return nil
+        }
+        return (x, y, width, height, compression, byteRange)
     }
 
     private static func decompressLZFSE(_ data: Data, expectedCount: Int) throws -> Data {

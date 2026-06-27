@@ -49,6 +49,8 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     private var connection: NWConnection?
     private var pendingConnection: NWConnection?
     private var pendingResetRequest: OwnedGraphicsResetRequest?
+    private let resetFallbackLock = NSLock()
+    private var resetFallbackGate = OwnedGraphicsResetFallbackGate()
     private var receiveTask: Task<Void, Never>?
     private weak var sink: (any OwnedMediaFrameSink)?
     private let onFallbackResetRequest: @Sendable (OwnedGraphicsResetRequest) async -> Void
@@ -105,6 +107,9 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         _ = try await self.receiveReady(expectedSessionId: self.active.sessionId, on: connection)
         self.pendingConnection = nil
         self.connection = connection
+        resetFallbackLock.withLock {
+            resetFallbackGate.startConnection()
+        }
         if let pendingResetRequest {
             self.pendingResetRequest = nil
             do {
@@ -113,7 +118,7 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
             } catch {
                 logger.error("owned graphics pending reset request failed: \(String(describing: error), privacy: .public)")
                 ownedMediaStderrTrace("graphics-reset-request-failed reason=\(pendingResetRequest.reason) generation=\(pendingResetRequest.lastCommittedSurfaceGeneration) frame=\(pendingResetRequest.lastCommittedFrameId) error=\(String(describing: error)) state=drained-pending")
-                await onFallbackResetRequest(pendingResetRequest)
+                await sendFallbackResetIfAllowed(pendingResetRequest, state: "drained-pending", marksGenerationFailed: true)
                 onDisconnected("reset-send-failed")
                 throw error
             }
@@ -142,8 +147,7 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
                 ownedMediaStderrTrace("graphics-reset-request-pending reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=pending-connection")
                 return
             }
-            ownedMediaStderrTrace("graphics-reset-request-fallback reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=no-connection")
-            await onFallbackResetRequest(request)
+            await sendFallbackResetIfAllowed(request, state: "no-connection", marksGenerationFailed: true)
             onDisconnected("reset-no-connection")
             return
         }
@@ -153,7 +157,7 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         } catch {
             logger.error("owned graphics reset request failed: \(String(describing: error), privacy: .public)")
             ownedMediaStderrTrace("graphics-reset-request-failed reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) error=\(String(describing: error))")
-            await onFallbackResetRequest(request)
+            await sendFallbackResetIfAllowed(request, state: "reset-send-failed", marksGenerationFailed: true)
             onDisconnected("reset-send-failed")
         }
     }
@@ -194,8 +198,7 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
                     self?.sink?.currentGraphicsResetRequest(reason: "graphics-stream-\(String(describing: error))")
                 }
                 if let request {
-                    await onFallbackResetRequest(request)
-                    ownedMediaStderrTrace("graphics-reset-request-fallback reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=receive-failed")
+                    await sendFallbackResetIfAllowed(request, state: "receive-failed", marksGenerationFailed: false)
                 }
                 logger.error("owned graphics quic receive failed: \(String(describing: error), privacy: .public)")
                 connection.cancel()
@@ -215,8 +218,12 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
            rejected.type == "session-rejected" {
             throw rejected
         }
-        let ready = try JSONDecoder().decode(GraphicsChannelReady.self, from: data)
-        return try ClientGraphicsChannelHandshake.validateReady(ready, expectedSessionId: expectedSessionId)
+        do {
+            let ready = try JSONDecoder().decode(GraphicsChannelReady.self, from: data)
+            return try ClientGraphicsChannelHandshake.validateReady(ready, expectedSessionId: expectedSessionId)
+        } catch {
+            throw OwnedGraphicsTransportError.controlMalformed
+        }
     }
 
     private func send(_ data: Data, on connection: NWConnection) async throws {
@@ -234,15 +241,35 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     private func receive(on connection: NWConnection, maximumLength: Int = 4_096) async throws -> Data {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
             connection.receive(minimumIncompleteLength: 1, maximumLength: maximumLength) { data, _, _, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else if let data, !data.isEmpty {
-                    continuation.resume(returning: data)
-                } else {
-                    continuation.resume(throwing: SessionRejected(reason: .malformed))
-                }
+                continuation.resume(with: Result { try OwnedGraphicsStreamRead.unwrap(data: data, error: error) })
             }
         }
+    }
+
+    private func sendFallbackResetIfAllowed(
+        _ request: OwnedGraphicsResetRequest,
+        state: String,
+        marksGenerationFailed: Bool
+    ) async {
+        let decision = resetFallbackLock.withLock {
+            resetFallbackGate.beginFallbackIfAllowed(for: request)
+        }
+        guard decision == .send else {
+            if case let .suppress(reason) = decision {
+                ownedMediaStderrTrace("graphics-reset-request-fallback-suppressed reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=\(state) suppress=\(reason)")
+            }
+            return
+        }
+
+        await onFallbackResetRequest(request)
+        resetFallbackLock.withLock {
+            if marksGenerationFailed {
+                resetFallbackGate.noteFallbackFailed(for: request)
+            } else {
+                resetFallbackGate.noteFallbackCompleted(for: request)
+            }
+        }
+        ownedMediaStderrTrace("graphics-reset-request-fallback reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=\(state)")
     }
 
     private static func randomBytes(count: Int) throws -> Data {

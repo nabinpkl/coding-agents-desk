@@ -41,6 +41,8 @@ perl -ne '
     $graphicsCapabilityRefresh++ if /graphics-capability-refresh-request/;
     $graphicsChannelConnected++ if /graphics-channel-connected/;
     $graphicsChannelDisconnected++ if /graphics-channel-disconnected/;
+    $graphicsStreamEOF++ if /graphics-stream-eof/;
+    $graphicsStreamMalformed++ if /graphics-(?:frame|control)-malformed/ || /graphics-stream.*malformed/;
     $graphicsReconnect++ if /owned graphics quic (ready|state=.*ready|state=.*preparing|state=.*setup)/;
     $graphicsDisconnect++ if /owned graphics quic (receive failed|connect failed|state=.*(failed|cancelled|waiting))/ ||
         /graphics-reset-request-(dropped|failed).*Socket is not connected/;
@@ -126,8 +128,9 @@ perl -ne '
         my $avgMakeImage = $makeImageMsCount ? $makeImageMsTotal / $makeImageMsCount : 0;
         printf "client graphics frames=%d failed=%d acks=%d copyRects=%d maxCopyRects=%d tileBytes=%d maxTileBytes=%d payloadBytes=%d\n",
             $graphicsFrame||0, $graphicsFrameFailed||0, $graphicsAck||0, $copyRects||0, $max{"copyRects"}||0, $tileBytes||0, $max{"tileBytes"}||0, $graphicsBytes||0;
-        printf "client graphics resetRequests=%d dropped=%d failed=%d fallback=%d reconnectHints=%d disconnectHints=%d\n",
-            $graphicsResetRequest||0, $graphicsResetDropped||0, $graphicsResetFailed||0, $graphicsResetFallback||0, $graphicsReconnect||0, $graphicsDisconnect||0;
+        printf "client graphics resetRequests=%d dropped=%d failed=%d fallback=%d reconnectHints=%d disconnectHints=%d eof=%d malformed=%d\n",
+            $graphicsResetRequest||0, $graphicsResetDropped||0, $graphicsResetFailed||0, $graphicsResetFallback||0,
+            $graphicsReconnect||0, $graphicsDisconnect||0, $graphicsStreamEOF||0, $graphicsStreamMalformed||0;
         printf "client graphics channel connected=%d disconnected=%d capabilityRefreshRequests=%d\n",
             $graphicsChannelConnected||0, $graphicsChannelDisconnected||0, $graphicsCapabilityRefresh||0;
         printf "client graphics timing compositorSamples=%d avgCompositorMs=%.2f maxCompositorMs=%.2f ackRttSamples=%d maxAckRttMs=%.2f\n",
@@ -159,6 +162,8 @@ perl -ne '
     $scrollAcceptedBlind++ if /owned graphics scroll-accepted/ && /acceptedBy=blind/;
     $scrollRegionAccepted++ if /owned graphics scroll-accepted/ && /regionStable=true/;
     $scrollFullSurfaceCopyRect++ if /owned graphics scroll-accepted/ && /fullSurfaceCopyRect=true/;
+    $scrollViewportAccepted++ if /owned graphics scroll-accepted/ && /viewportStable=true/;
+    $scrollWholeWindowCopyRect++ if /owned graphics scroll-accepted/ && /wholeWindowCopyRect=true/;
     $scrollRejected++ if /owned graphics scroll-rejected/;
     $scrollTimeout++ if /owned graphics scroll-timeout/;
     $scrollHintTimeout++ if /owned graphics scroll-hint-timeout/;
@@ -169,6 +174,9 @@ perl -ne '
         $regionStable++ if $stable eq "true";
         $regionFallback++ if $stable ne "true";
         $regionReleaseReasons{$reason}++;
+    }
+    if (/viewportSource=([^[:space:]]+)/) {
+        $viewportSourceCounts{$1}++;
     }
     if (/hintSource=([^[:space:]]+)/) {
         my $source = $1;
@@ -226,6 +234,8 @@ perl -ne '
     $hostFrame++ if /owned media host-frame frame=/;
     $hostAck++ if /owned media host-frame-ack/;
     $hevcFallback++ if /owned media hevc-fallback /;
+    $hevcVisualOnly++ if /owned media hevc-visual-only/;
+    $hevcBaselineRealigned++ if /owned media hevc-baseline-realigned/;
     $hevcFallbackSuppressed++ if /owned media hevc-fallback-suppressed/ ||
         /owned media hevc-suppressed/ ||
         /owned media admission-hold .*reason=.*(?:suppressed-hevc|hevc-suppressed|graphics-suppressed)/;
@@ -316,8 +326,9 @@ perl -ne '
             $hintSourceInput||0, $hintSourceOwnership||0, $hintSourceBlind||0, $hintSourceOther||0;
         printf "host scroll ownership accepted=%d miss=%d released=%d\n",
             $ownershipAccepted||0, $ownershipMiss||0, $ownershipReleased||0;
-        printf "host scroll region accepted=%d stable=%d fallback=%d fullSurfaceCopyRects=%d\n",
-            $scrollRegionAccepted||0, $regionStable||0, $regionFallback||0, $scrollFullSurfaceCopyRect||0;
+        printf "host scroll region accepted=%d stable=%d fallback=%d fullSurfaceCopyRects=%d wholeWindowCopyRects=%d viewportLockedCopyRects=%d\n",
+            $scrollRegionAccepted||0, $regionStable||0, $regionFallback||0, $scrollFullSurfaceCopyRect||0,
+            $scrollWholeWindowCopyRect||0, $scrollViewportAccepted||0;
         if (%regionSourceCounts) {
             my @parts = map { "$_=$regionSourceCounts{$_}" } sort keys %regionSourceCounts;
             print "host scroll regionSources " . join(" ", @parts) . "\n";
@@ -329,6 +340,12 @@ perl -ne '
             print "host scroll regionReasons " . join(" ", @parts) . "\n";
         } else {
             print "host scroll regionReasons none\n";
+        }
+        if (%viewportSourceCounts) {
+            my @parts = map { "$_=$viewportSourceCounts{$_}" } sort keys %viewportSourceCounts;
+            print "host scroll viewportSources " . join(" ", @parts) . "\n";
+        } else {
+            print "host scroll viewportSources none\n";
         }
         printf "host graphics resets=%d queued=%d consumed=%d sendFailed=%d reconnectHints=%d disconnectHints=%d fallbackReceived=%d acked=%d commands=%d maxCommands=%d payloadBytes=%d maxPayloadBytes=%d resetStripes=%d resetStripeAckTimeout=%d maxResetStripeBytes=%d\n",
             $graphicsResetFrame||0, $graphicsResetQueued||0, $graphicsResetConsumed||0, $graphicsResetSendFailed||0,
@@ -346,8 +363,9 @@ perl -ne '
         }
         printf "host hevc frames=%d acks=%d bytes=%d maxBytes=%d packets=%d maxPackets=%d framesOver100Packets=%d\n",
             $hostFrame||0, $hostAck||0, $hevcBytes||0, $max{"hevcBytes"}||0, $hevcPackets||0, $max{"hevcPackets"}||0, $hevcPacketFramesOver100||0;
-        printf "host hevc fallbacks=%d suppressedByOwnership=%d fallbackSuppressed=%d\n",
-            $hevcFallback||0, $hevcSuppressedByOwnership||0, $hevcFallbackSuppressed||0;
+        printf "host hevc fallbacks=%d suppressedByOwnership=%d fallbackSuppressed=%d visualOnly=%d baselineRealignments=%d\n",
+            $hevcFallback||0, $hevcSuppressedByOwnership||0, $hevcFallbackSuppressed||0,
+            $hevcVisualOnly||0, $hevcBaselineRealigned||0;
         printf "host hevc regionLock beforeLock=%d duringLock=%d\n",
             $hevcBeforeRegionLock||0, $hevcDuringRegionLock||0;
         if (%fallbackReasons) {

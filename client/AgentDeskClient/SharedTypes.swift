@@ -1045,6 +1045,35 @@ struct OwnedGraphicsFrameEnvelope: Equatable {
     }
 }
 
+enum OwnedGraphicsTransportError: Error, Equatable, CustomStringConvertible {
+    case streamEOF
+    case frameMalformed
+    case controlMalformed
+
+    var description: String {
+        switch self {
+        case .streamEOF:
+            return "graphics-stream-eof"
+        case .frameMalformed:
+            return "graphics-frame-malformed"
+        case .controlMalformed:
+            return "graphics-control-malformed"
+        }
+    }
+}
+
+enum OwnedGraphicsStreamRead {
+    static func unwrap(data: Data?, error: Error?) throws -> Data {
+        if let error {
+            throw error
+        }
+        guard let data, !data.isEmpty else {
+            throw OwnedGraphicsTransportError.streamEOF
+        }
+        return data
+    }
+}
+
 struct OwnedGraphicsStreamFrameParser {
     static let maxFrameByteCount = 8 * 1024 * 1024
     private var buffer = Data()
@@ -1056,20 +1085,24 @@ struct OwnedGraphicsStreamFrameParser {
             let fixedHeader = [UInt8](buffer.prefix(OwnedGraphicsFrameEnvelope.fixedHeaderByteCount))
             guard Array(fixedHeader[0..<4]) == OwnedGraphicsFrameEnvelope.magic,
                   fixedHeader[4] == OwnedGraphicsFrameEnvelope.version else {
-                throw SessionRejected(reason: .malformed)
+                throw OwnedGraphicsTransportError.frameMalformed
             }
             let metadataLength = fixedHeader[5..<9].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
             let payloadLength = fixedHeader[9..<13].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
             let frameLength = OwnedGraphicsFrameEnvelope.fixedHeaderByteCount + Int(metadataLength) + Int(payloadLength)
             guard frameLength >= OwnedGraphicsFrameEnvelope.fixedHeaderByteCount,
                   frameLength <= Self.maxFrameByteCount else {
-                throw SessionRejected(reason: .malformed)
+                throw OwnedGraphicsTransportError.frameMalformed
             }
             guard buffer.count >= frameLength else {
                 break
             }
             let frameData = buffer.prefix(frameLength)
-            frames.append(try OwnedGraphicsFrameEnvelope.decode(Data(frameData)))
+            do {
+                frames.append(try OwnedGraphicsFrameEnvelope.decode(Data(frameData)))
+            } catch {
+                throw OwnedGraphicsTransportError.frameMalformed
+            }
             buffer.removeFirst(frameLength)
         }
         return frames
@@ -1099,7 +1132,7 @@ struct OwnedGraphicsControlStreamFrameParser {
     mutating func append(_ chunk: Data) throws -> [Data] {
         buffer.append(chunk)
         guard buffer.count <= OwnedGraphicsControlStreamFrame.maxPayloadByteCount + OwnedGraphicsControlStreamFrame.fixedHeaderByteCount else {
-            throw SessionRejected(reason: .malformed)
+            throw OwnedGraphicsTransportError.controlMalformed
         }
         var frames: [Data] = []
         while buffer.count >= OwnedGraphicsControlStreamFrame.fixedHeaderByteCount {
@@ -1107,7 +1140,7 @@ struct OwnedGraphicsControlStreamFrameParser {
             let payloadLength = fixedHeader.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
             guard payloadLength > 0,
                   payloadLength <= UInt32(OwnedGraphicsControlStreamFrame.maxPayloadByteCount) else {
-                throw SessionRejected(reason: .malformed)
+                throw OwnedGraphicsTransportError.controlMalformed
             }
             let frameLength = OwnedGraphicsControlStreamFrame.fixedHeaderByteCount + Int(payloadLength)
             guard buffer.count >= frameLength else {
@@ -1123,6 +1156,51 @@ struct OwnedGraphicsControlStreamFrameParser {
             buffer.removeFirst(frameLength)
         }
         return frames
+    }
+}
+
+enum OwnedGraphicsResetFallbackDecision: Equatable {
+    case send
+    case suppress(reason: String)
+}
+
+struct OwnedGraphicsResetFallbackGate {
+    private var activeGeneration: UInt32?
+    private var failedGenerations = Set<UInt32>()
+
+    mutating func startConnection() {
+        activeGeneration = nil
+        failedGenerations.removeAll()
+    }
+
+    mutating func beginFallbackIfAllowed(
+        for request: OwnedGraphicsResetRequest
+    ) -> OwnedGraphicsResetFallbackDecision {
+        let generation = request.lastCommittedSurfaceGeneration
+        if activeGeneration != nil {
+            return .suppress(reason: "reset-already-active")
+        }
+        if failedGenerations.contains(generation) {
+            return .suppress(reason: "already-failed-generation")
+        }
+        activeGeneration = generation
+        return .send
+    }
+
+    mutating func noteFallbackCompleted(for request: OwnedGraphicsResetRequest) {
+        clearActiveGeneration(request.lastCommittedSurfaceGeneration)
+    }
+
+    mutating func noteFallbackFailed(for request: OwnedGraphicsResetRequest) {
+        let generation = request.lastCommittedSurfaceGeneration
+        failedGenerations.insert(generation)
+        clearActiveGeneration(generation)
+    }
+
+    private mutating func clearActiveGeneration(_ generation: UInt32) {
+        if activeGeneration == generation {
+            activeGeneration = nil
+        }
     }
 }
 

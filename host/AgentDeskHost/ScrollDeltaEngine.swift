@@ -57,6 +57,17 @@ struct ScrollDeltaDiagnostics: Equatable {
     let regionWidth: Int?
     let regionHeight: Int?
     let fullSurfaceCopyRect: Bool
+    let viewportStable: Bool
+    let viewportSource: String?
+    let viewportX: Int?
+    let viewportY: Int?
+    let viewportWidth: Int?
+    let viewportHeight: Int?
+    let outerRegionX: Int?
+    let outerRegionY: Int?
+    let outerRegionWidth: Int?
+    let outerRegionHeight: Int?
+    let wholeWindowCopyRect: Bool
 
     init(
         probeMs: Double,
@@ -85,7 +96,18 @@ struct ScrollDeltaDiagnostics: Equatable {
         regionY: Int? = nil,
         regionWidth: Int? = nil,
         regionHeight: Int? = nil,
-        fullSurfaceCopyRect: Bool = false
+        fullSurfaceCopyRect: Bool = false,
+        viewportStable: Bool = false,
+        viewportSource: String? = nil,
+        viewportX: Int? = nil,
+        viewportY: Int? = nil,
+        viewportWidth: Int? = nil,
+        viewportHeight: Int? = nil,
+        outerRegionX: Int? = nil,
+        outerRegionY: Int? = nil,
+        outerRegionWidth: Int? = nil,
+        outerRegionHeight: Int? = nil,
+        wholeWindowCopyRect: Bool = false
     ) {
         self.probeMs = probeMs
         self.payloadBuildMs = payloadBuildMs
@@ -114,6 +136,17 @@ struct ScrollDeltaDiagnostics: Equatable {
         self.regionWidth = regionWidth
         self.regionHeight = regionHeight
         self.fullSurfaceCopyRect = fullSurfaceCopyRect
+        self.viewportStable = viewportStable
+        self.viewportSource = viewportSource
+        self.viewportX = viewportX
+        self.viewportY = viewportY
+        self.viewportWidth = viewportWidth
+        self.viewportHeight = viewportHeight
+        self.outerRegionX = outerRegionX
+        self.outerRegionY = outerRegionY
+        self.outerRegionWidth = outerRegionWidth
+        self.outerRegionHeight = outerRegionHeight
+        self.wholeWindowCopyRect = wholeWindowCopyRect
     }
 }
 
@@ -122,6 +155,7 @@ struct ScrollDeltaEngine {
     private static let confidenceThreshold = 0.88
     private static let confidenceMargin = 0.06
     static let defaultMaxDecodedResetStripePayloadBytes = 2 * 1024 * 1024
+    static let defaultMaxWireResetStripeBytes = 196_608
 
     private typealias Surface = ScrollDeltaSurface
     private typealias ScrollOffset = ScrollDeltaOffset
@@ -131,16 +165,22 @@ struct ScrollDeltaEngine {
     private var pendingSurface: Surface?
     private var surfaceGeneration: UInt32 = 0
     private var graphicsFrameId: UInt64 = 0
+    private var viewportTracker: ScrollViewportTracker
     private let ciContext = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any])
     private let detectionBudgetMs: Double
     private let maxDecodedResetStripePayloadBytes: Int
+    private let maxWireResetStripeBytes: Int
 
     init(
         detectionBudgetMs: Double = 4.0,
-        maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes
+        maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes,
+        maxWireResetStripeBytes: Int = Self.defaultMaxWireResetStripeBytes,
+        viewportConfig: ScrollViewportConfig = .default
     ) {
         self.detectionBudgetMs = detectionBudgetMs
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
+        self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
+        self.viewportTracker = ScrollViewportTracker(config: viewportConfig)
     }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
@@ -160,11 +200,17 @@ struct ScrollDeltaEngine {
     mutating func observeFallbackFrame(_ frame: CapturedVideoFrame) {
         previous = makeSurface(frame.pixelBuffer)
         pendingSurface = nil
+        viewportTracker.release()
     }
 
     mutating func invalidateRetainedSurface() {
         previous = nil
         pendingSurface = nil
+        viewportTracker.release()
+    }
+
+    var hasStableViewport: Bool {
+        viewportTracker.stableViewport != nil
     }
 
     mutating func evaluate(
@@ -311,7 +357,18 @@ struct ScrollDeltaEngine {
         }
         pendingSurface = current
         graphicsFrameId &+= 1
-        let shouldEmitGraphics = emitGraphicsBeforeRegionLock && scrollRegionIsStable && scrollRegion != nil
+        let viewportCandidate = scrollRegion.flatMap {
+            viewportTracker.candidate(
+                previous: previous,
+                current: current,
+                outerRegion: $0,
+                offset: offset
+            )
+        }
+        let stableViewport = emitGraphicsBeforeRegionLock && scrollRegionIsStable
+            ? viewportTracker.observeValidation(candidate: viewportCandidate, accepted: viewportCandidate != nil)
+            : nil
+        let shouldEmitGraphics = stableViewport != nil
         if !shouldEmitGraphics {
             return ScrollDeltaResult(
                 kind: .accepted,
@@ -325,18 +382,40 @@ struct ScrollDeltaEngine {
                     acceptedBy: activeHint == nil ? "blind" : "hint",
                     usedBlindScan: activeHint == nil && allowBlindScan,
                     scrollRegion: scrollRegion,
-                    regionStable: false,
+                    regionStable: scrollRegionIsStable && scrollRegion != nil,
+                    scrollViewport: viewportCandidate?.viewport,
+                    viewportStable: false,
                     surfaceWidth: currentWidth,
                     surfaceHeight: currentHeight
                 )
             )
         }
-        let envelope = makeScrollEnvelope(
+        guard let envelope = makeScrollEnvelope(
             current: current,
             offset: offset,
-            region: scrollRegion,
+            viewport: stableViewport,
             capturedAtUptimeNs: frame.capturedAtUptimeNs
-        )
+        ) else {
+            return ScrollDeltaResult(
+                kind: .rejected("scroll-envelope-build-failed"),
+                envelope: nil,
+                diagnostics: makeDiagnostics(
+                    probeMs: probeMs,
+                    payloadBuildMs: elapsedMs(since: payloadStartedAt),
+                    acceptedOffset: offset,
+                    probe: probe,
+                    scrollHint: activeHint,
+                    acceptedBy: activeHint == nil ? "blind" : "hint",
+                    usedBlindScan: activeHint == nil && allowBlindScan,
+                    scrollRegion: scrollRegion,
+                    regionStable: true,
+                    scrollViewport: stableViewport,
+                    viewportStable: true,
+                    surfaceWidth: currentWidth,
+                    surfaceHeight: currentHeight
+                )
+            )
+        }
         return ScrollDeltaResult(
             kind: .accepted,
             envelope: envelope,
@@ -350,6 +429,8 @@ struct ScrollDeltaEngine {
                 usedBlindScan: activeHint == nil && allowBlindScan,
                 scrollRegion: scrollRegion,
                 regionStable: true,
+                scrollViewport: stableViewport,
+                viewportStable: stableViewport != nil,
                 surfaceWidth: currentWidth,
                 surfaceHeight: currentHeight
             )
@@ -449,6 +530,8 @@ struct ScrollDeltaEngine {
         timeoutReasonOverride: String? = nil,
         scrollRegion: ScrollRegion? = nil,
         regionStable: Bool = false,
+        scrollViewport: ScrollViewport? = nil,
+        viewportStable: Bool = false,
         surfaceWidth: Int,
         surfaceHeight: Int
     ) -> ScrollDeltaDiagnostics {
@@ -479,8 +562,27 @@ struct ScrollDeltaEngine {
             regionY: scrollRegion?.y,
             regionWidth: scrollRegion?.width,
             regionHeight: scrollRegion?.height,
-            fullSurfaceCopyRect: regionStable && (scrollRegion?.isFullSurface(width: surfaceWidth, height: surfaceHeight) ?? false)
+            fullSurfaceCopyRect: false,
+            viewportStable: viewportStable,
+            viewportSource: scrollViewport?.source,
+            viewportX: scrollViewport?.x,
+            viewportY: scrollViewport?.y,
+            viewportWidth: scrollViewport?.width,
+            viewportHeight: scrollViewport?.height,
+            outerRegionX: scrollRegion?.x,
+            outerRegionY: scrollRegion?.y,
+            outerRegionWidth: scrollRegion?.width,
+            outerRegionHeight: scrollRegion?.height,
+            wholeWindowCopyRect: viewportStable && isWholeWindowCopyRect(viewport: scrollViewport, outerRegion: scrollRegion)
         )
+    }
+
+    private func isWholeWindowCopyRect(viewport: ScrollViewport?, outerRegion: ScrollRegion?) -> Bool {
+        guard let viewport, let outerRegion else { return false }
+        return viewport.x == outerRegion.x &&
+            viewport.y == outerRegion.y &&
+            viewport.width == outerRegion.width &&
+            viewport.height == outerRegion.height
     }
 
     private func makeProbeSampler(for pixelBuffer: CVPixelBuffer) -> ScrollDeltaProbeSampler? {
@@ -517,70 +619,94 @@ struct ScrollDeltaEngine {
         capturedAtUptimeNs: UInt64
     ) -> [OwnedGraphicsFrameEnvelope]? {
         let rowBytes = surface.width * 4
-        let stripeHeight = max(1, min(surface.height, maxDecodedResetStripePayloadBytes / rowBytes))
+        guard rowBytes <= maxDecodedResetStripePayloadBytes else { return nil }
+        let maxDecodedStripeHeight = max(1, min(surface.height, maxDecodedResetStripePayloadBytes / rowBytes))
         var envelopes: [OwnedGraphicsFrameEnvelope] = []
         var y = 0
         var frameId = startingFrameId
         while y < surface.height {
-            let height = min(stripeHeight, surface.height - y)
-            guard let stripe = tileData(surface: surface, x: 0, y: y, width: surface.width, height: height),
-                  let compressed = compressLZFSE(stripe) else {
-                return nil
-            }
-            let commands: [OwnedGraphicsCommand]
-            if y == 0 {
-                commands = [
-                    .resetSurface(
-                        surfaceGeneration: surfaceGeneration,
-                        width: surface.width,
-                        height: surface.height,
-                        pixelFormat: .bgra
-                    ),
-                    .bitmapTile(
-                        x: 0,
-                        y: y,
-                        width: surface.width,
-                        height: height,
-                        compression: .lzfse,
-                        byteRange: OwnedGraphicsByteRange(offset: 0, length: compressed.count)
-                    )
-                ]
-            } else {
-                commands = [
-                    .bitmapTile(
-                        x: 0,
-                        y: y,
-                        width: surface.width,
-                        height: height,
-                        compression: .lzfse,
-                        byteRange: OwnedGraphicsByteRange(offset: 0, length: compressed.count)
-                    )
-                ]
-            }
-            envelopes.append(OwnedGraphicsFrameEnvelope(
-                header: OwnedGraphicsFrameHeader(
-                    surfaceGeneration: surfaceGeneration,
+            var height = min(maxDecodedStripeHeight, surface.height - y)
+            var envelope: OwnedGraphicsFrameEnvelope?
+            while height > 0 {
+                guard let candidate = makeResetStripeEnvelope(
+                    surface: surface,
+                    y: y,
+                    height: height,
                     frameId: frameId,
                     capturedAtUptimeNs: capturedAtUptimeNs,
-                    commandCount: commands.count,
-                    payloadLength: compressed.count
-                ),
-                commands: commands,
-                payload: compressed
-            ))
+                    includesResetSurface: y == 0
+                ) else {
+                    return nil
+                }
+                if candidate.wireByteCount <= maxWireResetStripeBytes {
+                    envelope = candidate
+                    break
+                }
+                height /= 2
+            }
+            guard let envelope else { return nil }
+            envelopes.append(envelope)
             y += height
             frameId &+= 1
         }
         return envelopes
     }
 
+    private func makeResetStripeEnvelope(
+        surface: Surface,
+        y: Int,
+        height: Int,
+        frameId: UInt64,
+        capturedAtUptimeNs: UInt64,
+        includesResetSurface: Bool
+    ) -> OwnedGraphicsFrameEnvelope? {
+        guard height > 0 else { return nil }
+        guard let stripe = tileData(surface: surface, x: 0, y: y, width: surface.width, height: height),
+              let compressed = compressLZFSE(stripe) else {
+            return nil
+        }
+        let tileCommand = OwnedGraphicsCommand.bitmapTile(
+            x: 0,
+            y: y,
+            width: surface.width,
+            height: height,
+            compression: .lzfse,
+            byteRange: OwnedGraphicsByteRange(offset: 0, length: compressed.count)
+        )
+        let commands: [OwnedGraphicsCommand]
+        if includesResetSurface {
+            commands = [
+                .resetSurface(
+                    surfaceGeneration: surfaceGeneration,
+                    width: surface.width,
+                    height: surface.height,
+                    pixelFormat: .bgra
+                ),
+                tileCommand
+            ]
+        } else {
+            commands = [tileCommand]
+        }
+        return OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: surfaceGeneration,
+                frameId: frameId,
+                capturedAtUptimeNs: capturedAtUptimeNs,
+                commandCount: commands.count,
+                payloadLength: compressed.count
+            ),
+            commands: commands,
+            payload: compressed
+        )
+    }
+
     private func makeScrollEnvelope(
         current: Surface,
         offset: ScrollOffset,
-        region: ScrollRegion?,
+        viewport: ScrollViewport?,
         capturedAtUptimeNs: UInt64
     ) -> OwnedGraphicsFrameEnvelope? {
-        guard let rect = region else { return nil }
+        guard let rect = viewport else { return nil }
         let copyCommand: OwnedGraphicsCommand
         let tileX: Int
         let tileY: Int

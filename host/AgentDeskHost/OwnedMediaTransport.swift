@@ -236,6 +236,8 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
     private var coalescedAdmissionHold = 0
     private var coalescedEncodeBusy = 0
     private var coalescedNetworkBackpressure = 0
+    private var hevcVisualOnlyFallbacks = 0
+    private var hevcBaselineRealignments = 0
 
     func setPhase(_ phase: OwnedMediaPipelinePhase) {
         lock.withLock {
@@ -275,6 +277,22 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
     func noteAdmissionHold(reason: String?, mode: OwnedMediaCadenceMode) {
         setPhase(.admissionHold)
         logger.notice("owned media admission-hold-diagnostic mode=\(String(describing: mode), privacy: .public) reason=\(reason ?? "unknown", privacy: .public)")
+    }
+
+    func noteHEVCVisualOnly(frameId: UInt64, fallbackReason: OwnedHybridHEVCFallbackReason?, reason: String) {
+        let total = lock.withLock {
+            hevcVisualOnlyFallbacks += 1
+            return hevcVisualOnlyFallbacks
+        }
+        logger.notice("owned media hevc-visual-only frame=\(frameId, privacy: .public) fallbackReason=\(fallbackReason?.rawValue ?? "none", privacy: .public) reason=\(reason, privacy: .public) total=\(total, privacy: .public)")
+    }
+
+    func noteHEVCBaselineRealignment(frameId: UInt64, fallbackReason: OwnedHybridHEVCFallbackReason?) {
+        let total = lock.withLock {
+            hevcBaselineRealignments += 1
+            return hevcBaselineRealignments
+        }
+        logger.notice("owned media hevc-baseline-realigned frame=\(frameId, privacy: .public) fallbackReason=\(fallbackReason?.rawValue ?? "none", privacy: .public) total=\(total, privacy: .public)")
     }
 
     func noteAdmitted(
@@ -895,7 +913,15 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     ) async {
         var cadenceScheduler = OwnedMediaCadenceScheduler()
         var scrollDeltaEngine = ScrollDeltaEngine(
-            maxDecodedResetStripePayloadBytes: Config.hybridResetStripeMaxDecodedBytes
+            maxDecodedResetStripePayloadBytes: Config.hybridResetStripeMaxDecodedBytes,
+            maxWireResetStripeBytes: Config.hybridResetStripeMaxWireBytes,
+            viewportConfig: ScrollViewportConfig(
+                minWidth: Config.hybridScrollViewportMinWidth,
+                minHeight: Config.hybridScrollViewportMinHeight,
+                confidenceThreshold: Config.hybridScrollViewportConfidence,
+                minInsetPx: Config.hybridScrollViewportMinInsetPx,
+                overlapThreshold: Config.hybridScrollViewportOverlap
+            )
         )
         var scrollHevcAdmission = HybridScrollHEVCAdmission()
         var scrollCopyOwnership = ScrollCopyOwnership(config: ScrollCopyOwnershipConfig(
@@ -948,6 +974,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
             var retainedGraphicsAvailable = false
             var hevcFallbackReason: OwnedHybridHEVCFallbackReason?
+            var scrollRegionLockPending = false
+            var hevcIsIdleCorrectnessRefresh = false
             if let graphicsChannel = latestGraphicsChannel() {
                 retainedGraphicsAvailable = true
                 let pendingReset = peekPendingGraphicsResetRequest()
@@ -988,6 +1016,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     logger.notice("owned graphics scroll-region source=none stable=false rect=0,0,0,0 overlap=0 reason=missing-focus")
                 }
                 let regionLocked = scrollRegionTracker.isStable(candidate: scrollRegionCandidate)
+                scrollRegionLockPending = scrollRegionCandidate != nil && !regionLocked
                 let probeRegion = scrollRegionCandidate?.region
                 let graphics = scrollDeltaEngine.evaluate(
                     frame,
@@ -1034,7 +1063,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                                 _ = mailbox.wakeWithLatestFrame()
                             }
                             if let scrollDiagnostics = graphics.diagnostics {
-                                logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) dx=\(scrollDiagnostics.acceptedDx ?? 0, privacy: .public) dy=\(scrollDiagnostics.acceptedDy ?? 0, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) acceptedBy=\(scrollDiagnostics.acceptedBy ?? "unknown", privacy: .public) tieBreak=\(scrollDiagnostics.tieBreak ?? "none", privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) payloadBuildMs=\(scrollDiagnostics.payloadBuildMs ?? 0, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public) regionStable=\(scrollDiagnostics.regionStable, privacy: .public) regionSource=\(scrollDiagnostics.regionSource ?? "none", privacy: .public) regionRect=\(scrollDiagnostics.regionX ?? 0, privacy: .public),\(scrollDiagnostics.regionY ?? 0, privacy: .public),\(scrollDiagnostics.regionWidth ?? 0, privacy: .public),\(scrollDiagnostics.regionHeight ?? 0, privacy: .public) fullSurfaceCopyRect=\(scrollDiagnostics.fullSurfaceCopyRect, privacy: .public)")
+                                logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) dx=\(scrollDiagnostics.acceptedDx ?? 0, privacy: .public) dy=\(scrollDiagnostics.acceptedDy ?? 0, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) acceptedBy=\(scrollDiagnostics.acceptedBy ?? "unknown", privacy: .public) tieBreak=\(scrollDiagnostics.tieBreak ?? "none", privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) payloadBuildMs=\(scrollDiagnostics.payloadBuildMs ?? 0, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public) regionStable=\(scrollDiagnostics.regionStable, privacy: .public) regionSource=\(scrollDiagnostics.regionSource ?? "none", privacy: .public) regionRect=\(scrollDiagnostics.regionX ?? 0, privacy: .public),\(scrollDiagnostics.regionY ?? 0, privacy: .public),\(scrollDiagnostics.regionWidth ?? 0, privacy: .public),\(scrollDiagnostics.regionHeight ?? 0, privacy: .public) viewportStable=\(scrollDiagnostics.viewportStable, privacy: .public) viewportSource=\(scrollDiagnostics.viewportSource ?? "none", privacy: .public) viewportRect=\(scrollDiagnostics.viewportX ?? 0, privacy: .public),\(scrollDiagnostics.viewportY ?? 0, privacy: .public),\(scrollDiagnostics.viewportWidth ?? 0, privacy: .public),\(scrollDiagnostics.viewportHeight ?? 0, privacy: .public) outerRegionRect=\(scrollDiagnostics.outerRegionX ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionY ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionWidth ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionHeight ?? 0, privacy: .public) fullSurfaceCopyRect=\(scrollDiagnostics.fullSurfaceCopyRect, privacy: .public) wholeWindowCopyRect=\(scrollDiagnostics.wholeWindowCopyRect, privacy: .public)")
                             } else {
                                 logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
                             }
@@ -1062,7 +1091,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     } else {
                         hevcFallbackReason = .scrollRegionBeforeLock
                         if let scrollDiagnostics = graphics.diagnostics {
-                            logger.notice("owned graphics scroll-region fallback=hevc reason=before-lock regionStable=\(scrollDiagnostics.regionStable, privacy: .public) regionSource=\(scrollDiagnostics.regionSource ?? "none", privacy: .public) regionRect=\(scrollDiagnostics.regionX ?? 0, privacy: .public),\(scrollDiagnostics.regionY ?? 0, privacy: .public),\(scrollDiagnostics.regionWidth ?? 0, privacy: .public),\(scrollDiagnostics.regionHeight ?? 0, privacy: .public)")
+                            logger.notice("owned graphics scroll-region fallback=hevc reason=before-lock regionStable=\(scrollDiagnostics.regionStable, privacy: .public) regionSource=\(scrollDiagnostics.regionSource ?? "none", privacy: .public) regionRect=\(scrollDiagnostics.regionX ?? 0, privacy: .public),\(scrollDiagnostics.regionY ?? 0, privacy: .public),\(scrollDiagnostics.regionWidth ?? 0, privacy: .public),\(scrollDiagnostics.regionHeight ?? 0, privacy: .public) viewportStable=\(scrollDiagnostics.viewportStable, privacy: .public) viewportSource=\(scrollDiagnostics.viewportSource ?? "none", privacy: .public) viewportRect=\(scrollDiagnostics.viewportX ?? 0, privacy: .public),\(scrollDiagnostics.viewportY ?? 0, privacy: .public),\(scrollDiagnostics.viewportWidth ?? 0, privacy: .public),\(scrollDiagnostics.viewportHeight ?? 0, privacy: .public) outerRegionRect=\(scrollDiagnostics.outerRegionX ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionY ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionWidth ?? 0, privacy: .public),\(scrollDiagnostics.outerRegionHeight ?? 0, privacy: .public) wholeWindowCopyRect=\(scrollDiagnostics.wholeWindowCopyRect, privacy: .public)")
                         } else {
                             logger.notice("owned graphics scroll-region fallback=hevc reason=before-lock regionStable=false regionSource=none regionRect=0,0,0,0")
                         }
@@ -1238,9 +1267,33 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                         nowUptimeNs: beforeHevcNs,
                         idleRefreshMs: Config.hybridScrollIdleRefreshMs
                     )
+                    hevcIsIdleCorrectnessRefresh = true
                     requestKeyframe()
                     logger.notice("owned media scroll-idle-refresh requested idleMs=\(Config.hybridScrollIdleRefreshMs, privacy: .public)")
                 }
+            }
+
+            let stableViewportActive = scrollDeltaEngine.hasStableViewport
+            let graphicsRecoveryStateForPolicy = currentGraphicsRecoveryState()
+            let hevcFallbackPolicy = HybridHEVCFallbackPolicy.evaluate(
+                HybridHEVCFallbackPolicyContext(
+                    fallbackReason: hevcFallbackReason,
+                    inputScrollActive: idleInputScrollHint?.isActive(nowUptimeNs: beforeHevcNs) == true,
+                    ownershipActive: scrollCopyOwnership.isActive(nowUptimeNs: beforeHevcNs),
+                    regionLockPending: scrollRegionLockPending,
+                    stableViewportActive: stableViewportActive,
+                    graphicsRecoveryState: graphicsRecoveryStateForPolicy,
+                    isIdleCorrectnessRefresh: hevcIsIdleCorrectnessRefresh
+                )
+            )
+            switch hevcFallbackPolicy.visualDecision {
+            case .allow:
+                break
+            case .suppress(let reason):
+                diagnostics.noteAdmissionHold(reason: reason, mode: currentAdmissionMode())
+                logger.notice("owned media hevc-suppressed reason=\(reason, privacy: .public) fallbackReason=\(hevcFallbackReason?.rawValue ?? "none", privacy: .public) recoveryState=\(graphicsRecoveryStateForPolicy.rawValue, privacy: .public)")
+                try? await Task.sleep(nanoseconds: intervalNs)
+                continue
             }
 
             let recoveryGate = graphicsRecoveryHEVCDecision(
@@ -1332,7 +1385,20 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             do {
                 diagnostics.setPhase(.sending)
                 let sendStats = try await channel.send(envelope)
-                scrollDeltaEngine.observeFallbackFrame(frame)
+                switch hevcFallbackPolicy.baselineDecision {
+                case .realign:
+                    scrollDeltaEngine.observeFallbackFrame(frame)
+                    diagnostics.noteHEVCBaselineRealignment(
+                        frameId: envelope.header.frameId,
+                        fallbackReason: hevcFallbackReason
+                    )
+                case .visualOnly(let reason):
+                    diagnostics.noteHEVCVisualOnly(
+                        frameId: envelope.header.frameId,
+                        fallbackReason: hevcFallbackReason,
+                        reason: reason
+                    )
+                }
                 diagnostics.noteSent(envelope: envelope, stats: sendStats, decision: decision)
                 if let hevcFallbackReason {
                     let regionLockState = hevcFallbackReason == .scrollRegionBeforeLock

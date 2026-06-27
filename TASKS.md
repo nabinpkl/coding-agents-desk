@@ -160,6 +160,18 @@ Phase goal: make retained scroll-copy operate only inside a stable input-focused
 - [x] D66. Add host/client coverage for window-region selection, cursor fallback clamping, stable-region locking, region-scoped vertical and horizontal copyRect envelopes, pixels outside the region staying unchanged, HEVC fallback before lock, and diagnostics summary parsing.
 - [ ] R67. Run `just check`, then physical `just fresh-hybrid-consoled-run`; accept only if copyRects remain active, no whole-screen shift is visible, outside-scroll UI stays stable, active-scroll HEVC appears only before region lock or after region loss, and rest text refreshes after idle.
 
+## v0 Phase 12: inner viewport scroll copy and HEVC recovery
+
+Phase goal: promote region-scoped scroll copy from whole-window geometry to the actual inner scrolling viewport, and prevent HEVC or reset recovery from poisoning retained scroll ownership.
+
+- [x] D68. Record the latest physical finding: copyRect is active and not full-desktop, but the stable region is the whole app window (`152,78,1874,2102`), HEVC fallback still redraws during scroll, and graphics reset/reconnect can end in malformed receive failure.
+- [x] D69. Add a host `ScrollViewportTracker` that derives a stable inner viewport from shifted-pixel evidence inside the outer window region, requiring two matching validations, minimum size, 80 percent overlap, and a visible chrome/sidebar inset before lock.
+- [x] D70. Scope `ScrollDeltaEngine` envelopes to the stable viewport only: copyRect and exposed-strip bitmapTile stay inside the viewport, whole-window copy is rejected, and no viewport lock emits no graphics envelope.
+- [x] D71. Split HEVC fallback from retained-baseline realignment: suppress HEVC whenever the host cannot realign the retained baseline, and run `observeFallbackFrame` only after idle correctness refresh or an allowed realignment state.
+- [x] D72. Harden graphics reset and stream durability: typed EOF/frame/control errors replace generic malformed on stream closure, reset requests are de-duplicated per generation, reconnect forces a fresh generation reset, and reset stripes satisfy both decoded-byte and wire-byte caps.
+- [x] D73. Extend diagnostics summary and fixtures to report viewport-locked copyRects, whole-window copyRects, HEVC visual-only fallbacks, HEVC baseline realignments, graphics EOF versus malformed, and reset retry suppression.
+- [ ] R74. Run `just check`, then physical `just fresh-hybrid-consoled-run`; accept only if viewport-locked copyRects are active, whole-window copyRects are zero, outside-scroll chrome/sidebar stays fixed, HEVC baseline realignment happens only after idle, and graphics reset does not loop into malformed reconnect churn.
+
 ---
 
 ## v0 full mixed graphics scope (captured, not started)
@@ -241,7 +253,9 @@ R57       2026-06-22  blocked     physical run showed cheap active copyRects, av
 D58-D59   2026-06-22  done        media keepalive plus 24 px input-scroll scaling; focused tests and `just check` green
 D60       2026-06-22  retired     physical rerun showed copyRect active but wrong full-surface geometry; region-scoped copy starts at R61
 D61-D66   2026-06-22  done        input-focused stable scroll region, region-scoped copyRect, diagnostics, and tests; `just check` green
-R67       pending     pending     physical region-scoped scroll acceptance
+R67       2026-06-22  retired     physical run fixed full-desktop copy but selected the whole app window, so inner viewport detection starts at R68
+D68-D73   2026-06-22  done        inner viewport detection, viewport-scoped envelopes, HEVC baseline-safe suppression, graphics stream/reset diagnostics, and `just check` green
+R74       pending     pending     physical comparison for inner viewport ownership and graphics reset recovery
 R54.0     2026-06-21  committed   reverted locator-code pairing; clean QR/handshake base restored
 R54.1-R54.6 2026-06-22  committed   Mac-initiated tailnet pairing: offer codec, peer enumeration, host pre-approval, device picker + offer sender, client offer listener, ADR-0019
 R54.7     2026-06-22  done        physical pick-to-pair worked: inbound TCP over utun confirmed, direct connection established

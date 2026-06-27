@@ -1030,6 +1030,12 @@ struct OwnedGraphicsFrameEnvelope: Equatable {
         return encoded
     }
 
+    var wireByteCount: Int {
+        let metadata = OwnedGraphicsFrameMetadata(header: header, commands: commands)
+        let metadataByteCount = (try? JSONEncoder().encode(metadata).count) ?? 0
+        return Self.fixedHeaderByteCount + metadataByteCount + payload.count
+    }
+
     static func decode(_ data: Data) throws -> OwnedGraphicsFrameEnvelope {
         guard data.count >= fixedHeaderByteCount else {
             throw SessionRejected(reason: .malformed)
@@ -1716,6 +1722,92 @@ enum HybridGraphicsRecoveryState: String, Equatable, Sendable {
 enum HybridGraphicsRecoveryHEVCDecision: Equatable {
     case allow
     case suppress(reason: String)
+}
+
+enum HybridHEVCVisualDecision: Equatable {
+    case allow
+    case suppress(reason: String)
+}
+
+enum HybridHEVCBaselineDecision: Equatable {
+    case realign
+    case visualOnly(reason: String)
+}
+
+struct HybridHEVCFallbackPolicyContext: Equatable, Sendable {
+    let fallbackReason: OwnedHybridHEVCFallbackReason?
+    let inputScrollActive: Bool
+    let ownershipActive: Bool
+    let regionLockPending: Bool
+    let stableViewportActive: Bool
+    let graphicsRecoveryState: HybridGraphicsRecoveryState
+    let isIdleCorrectnessRefresh: Bool
+}
+
+struct HybridHEVCFallbackPolicyDecision: Equatable {
+    let visualDecision: HybridHEVCVisualDecision
+    let baselineDecision: HybridHEVCBaselineDecision
+}
+
+struct HybridHEVCFallbackPolicy {
+    static func evaluate(_ context: HybridHEVCFallbackPolicyContext) -> HybridHEVCFallbackPolicyDecision {
+        let baselineDecision = baselineDecision(for: context)
+        return HybridHEVCFallbackPolicyDecision(
+            visualDecision: visualDecision(for: context, baselineDecision: baselineDecision),
+            baselineDecision: baselineDecision
+        )
+    }
+
+    private static func visualDecision(
+        for context: HybridHEVCFallbackPolicyContext,
+        baselineDecision: HybridHEVCBaselineDecision
+    ) -> HybridHEVCVisualDecision {
+        if case .visualOnly = baselineDecision {
+            return .suppress(reason: "baseline-not-realigned")
+        }
+        guard context.stableViewportActive,
+              let fallbackReason = context.fallbackReason,
+              suppressesVisualHEVCForStableViewport(fallbackReason) else {
+            return .allow
+        }
+        return .suppress(reason: "stable-viewport-suppressed-hevc")
+    }
+
+    private static func baselineDecision(for context: HybridHEVCFallbackPolicyContext) -> HybridHEVCBaselineDecision {
+        if context.isIdleCorrectnessRefresh, !context.inputScrollActive, context.graphicsRecoveryState == .idle {
+            return .realign
+        }
+        if context.graphicsRecoveryState != .idle {
+            return .realign
+        }
+        if context.inputScrollActive {
+            return .visualOnly(reason: "active-scroll")
+        }
+        if context.ownershipActive {
+            return .visualOnly(reason: "scroll-ownership")
+        }
+        if context.regionLockPending {
+            return .visualOnly(reason: "region-lock-pending")
+        }
+        if context.stableViewportActive {
+            return .visualOnly(reason: "stable-viewport")
+        }
+        return .realign
+    }
+
+    private static func suppressesVisualHEVCForStableViewport(_ reason: OwnedHybridHEVCFallbackReason) -> Bool {
+        switch reason {
+        case .scrollTimeout,
+             .scrollRegionBeforeLock,
+             .rejectedMotion,
+             .graphicsReset,
+             .graphicsSendFailed,
+             .graphicsResetSendFailed:
+            return true
+        case .graphicsDisconnected:
+            return false
+        }
+    }
 }
 
 struct HybridGraphicsRecoveryHEVCGate: Equatable {
