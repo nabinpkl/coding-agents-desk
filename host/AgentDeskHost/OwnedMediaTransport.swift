@@ -1002,7 +1002,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     logger.notice("owned graphics scroll-ownership ownership=released reason=idle")
                 }
                 let scrollHint = scrollCopyOwnership.hint(nowUptimeNs: nowBeforeProbe)
-                let allowBlindScan = scrollHint == nil
+                // Never blind-scan in the live path. A frame with no usable offset
+                // hint emits no graphics commands and falls back to HEVC for that
+                // frame, instead of triggering the full -240..240 candidate sweep
+                // that blocked the encode pump for tens of ms and starved HEVC
+                // admission. Hinted detection stays bounded to the hint candidates.
+                let allowBlindScan = false
                 let regionHint = scrollRegionHintProvider()
                 let scrollRegionCandidate = regionHint.flatMap {
                     scrollRegionTracker.candidate(
@@ -1275,6 +1280,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
             let stableViewportActive = scrollDeltaEngine.hasStableViewport
             let graphicsRecoveryStateForPolicy = currentGraphicsRecoveryState()
+            let graphicsRecentlyProducing = scrollHevcAdmission.recentlyAcceptedScroll(
+                nowUptimeNs: beforeHevcNs,
+                windowMs: Config.hybridScrollIdleRefreshMs
+            )
             let hevcFallbackPolicy = HybridHEVCFallbackPolicy.evaluate(
                 HybridHEVCFallbackPolicyContext(
                     fallbackReason: hevcFallbackReason,
@@ -1283,7 +1292,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     regionLockPending: scrollRegionLockPending,
                     stableViewportActive: stableViewportActive,
                     graphicsRecoveryState: graphicsRecoveryStateForPolicy,
-                    isIdleCorrectnessRefresh: hevcIsIdleCorrectnessRefresh
+                    isIdleCorrectnessRefresh: hevcIsIdleCorrectnessRefresh,
+                    graphicsRecentlyProducing: graphicsRecentlyProducing
                 )
             )
             switch hevcFallbackPolicy.visualDecision {

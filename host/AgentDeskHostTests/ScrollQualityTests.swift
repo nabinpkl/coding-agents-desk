@@ -1553,7 +1553,8 @@ struct ScrollQualityTests {
                 regionLockPending: false,
                 stableViewportActive: false,
                 graphicsRecoveryState: .idle,
-                isIdleCorrectnessRefresh: false
+                isIdleCorrectnessRefresh: false,
+                graphicsRecentlyProducing: true
             )
         )
 
@@ -1590,7 +1591,8 @@ struct ScrollQualityTests {
                 regionLockPending: false,
                 stableViewportActive: false,
                 graphicsRecoveryState: .idle,
-                isIdleCorrectnessRefresh: true
+                isIdleCorrectnessRefresh: true,
+                graphicsRecentlyProducing: false
             )
         )
 
@@ -1614,7 +1616,8 @@ struct ScrollQualityTests {
                 regionLockPending: false,
                 stableViewportActive: true,
                 graphicsRecoveryState: .idle,
-                isIdleCorrectnessRefresh: true
+                isIdleCorrectnessRefresh: true,
+                graphicsRecentlyProducing: true
             )
         )
 
@@ -1639,7 +1642,8 @@ struct ScrollQualityTests {
                     regionLockPending: false,
                     stableViewportActive: true,
                     graphicsRecoveryState: .idle,
-                    isIdleCorrectnessRefresh: false
+                    isIdleCorrectnessRefresh: false,
+                    graphicsRecentlyProducing: false
                 )
             )
 
@@ -1657,7 +1661,8 @@ struct ScrollQualityTests {
                 regionLockPending: true,
                 stableViewportActive: false,
                 graphicsRecoveryState: .idle,
-                isIdleCorrectnessRefresh: false
+                isIdleCorrectnessRefresh: false,
+                graphicsRecentlyProducing: true
             )
         )
 
@@ -1674,12 +1679,46 @@ struct ScrollQualityTests {
                 regionLockPending: false,
                 stableViewportActive: false,
                 graphicsRecoveryState: .reconnecting,
-                isIdleCorrectnessRefresh: false
+                isIdleCorrectnessRefresh: false,
+                graphicsRecentlyProducing: false
             )
         )
 
         #expect(decision.visualDecision == .allow)
         #expect(decision.baselineDecision == .realign)
+    }
+
+    @Test func hybridHevcFallbackPolicyRealignsScrollWhenGraphicsSilent() {
+        // Freeze fix: during scroll intent, if graphics is not producing accepted
+        // updates, HEVC must carry the motion (realign + allow) instead of being
+        // suppressed, otherwise the screen freezes for the scroll duration.
+        let contexts = [
+            HybridHEVCFallbackPolicyContext(
+                fallbackReason: .scrollTimeout,
+                inputScrollActive: true,
+                ownershipActive: false,
+                regionLockPending: false,
+                stableViewportActive: false,
+                graphicsRecoveryState: .idle,
+                isIdleCorrectnessRefresh: false,
+                graphicsRecentlyProducing: false
+            ),
+            HybridHEVCFallbackPolicyContext(
+                fallbackReason: .scrollRegionBeforeLock,
+                inputScrollActive: false,
+                ownershipActive: false,
+                regionLockPending: true,
+                stableViewportActive: false,
+                graphicsRecoveryState: .idle,
+                isIdleCorrectnessRefresh: false,
+                graphicsRecentlyProducing: false
+            )
+        ]
+        for context in contexts {
+            let decision = HybridHEVCFallbackPolicy.evaluate(context)
+            #expect(decision.visualDecision == .allow)
+            #expect(decision.baselineDecision == .realign)
+        }
     }
 
     @Test func ownedGraphicsAckWaiterCompletesWhenAckCoversUpdate() async {

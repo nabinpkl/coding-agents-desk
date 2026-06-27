@@ -1696,6 +1696,14 @@ struct HybridScrollHEVCAdmission: Equatable {
         }
         return nowUptimeNs &- lastAcceptedScrollAtUptimeNs < UInt64(max(0, idleRefreshMs)) * 1_000_000
     }
+
+    // True when the graphics path accepted a scroll update within the window, i.e.
+    // graphics is actively carrying motion. Used to decide whether suppressing the
+    // HEVC full-frame path during scroll is safe.
+    func recentlyAcceptedScroll(nowUptimeNs: UInt64, windowMs: Int) -> Bool {
+        guard let lastAcceptedScrollAtUptimeNs else { return false }
+        return nowUptimeNs &- lastAcceptedScrollAtUptimeNs < UInt64(max(0, windowMs)) * 1_000_000
+    }
 }
 
 enum OwnedHybridHEVCFallbackReason: String, Equatable, Sendable {
@@ -1742,6 +1750,12 @@ struct HybridHEVCFallbackPolicyContext: Equatable, Sendable {
     let stableViewportActive: Bool
     let graphicsRecoveryState: HybridGraphicsRecoveryState
     let isIdleCorrectnessRefresh: Bool
+    // True only while the graphics path is actually emitting accepted scroll
+    // updates. HEVC full frames are suppressed during scroll to avoid overwriting
+    // a graphics-owned retained surface; that suppression is only safe while
+    // graphics is producing. When graphics is silent, HEVC must carry the motion
+    // or the screen freezes for the scroll duration.
+    let graphicsRecentlyProducing: Bool
 }
 
 struct HybridHEVCFallbackPolicyDecision: Equatable {
@@ -1780,13 +1794,16 @@ struct HybridHEVCFallbackPolicy {
         if context.graphicsRecoveryState != .idle {
             return .realign
         }
-        if context.inputScrollActive {
+        // Suppress HEVC (visual-only) during scroll only while graphics is
+        // actually producing accepted updates. If graphics is silent, fall
+        // through to .realign so HEVC carries the motion instead of freezing.
+        if context.inputScrollActive, context.graphicsRecentlyProducing {
             return .visualOnly(reason: "active-scroll")
         }
-        if context.ownershipActive {
+        if context.ownershipActive, context.graphicsRecentlyProducing {
             return .visualOnly(reason: "scroll-ownership")
         }
-        if context.regionLockPending {
+        if context.regionLockPending, context.graphicsRecentlyProducing {
             return .visualOnly(reason: "region-lock-pending")
         }
         if context.stableViewportActive {
