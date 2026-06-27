@@ -37,13 +37,18 @@ Before doing project work, read `PRD.md` and `SPEC.md` once. They are short on p
 - **Per-iteration plan and progress** go in `TASKS.md`. Do not duplicate ADR or PRD content there.
 - **Anything inferable from reading the code** does not need a doc. Skip the ADR.
 
-# How work is broken down
+# How work is done
 
 - The unit of work is a **vertical-slice issue** on GitHub (`nabinpkl/agent-desk`). Each slice cuts through capture, transport, input, and UI as needed to demo or verify end-to-end.
 - Slices are labelled `hitl` (requires the human) or `afk` (an agent can ship it without intervention). AFK issues also carry `ready-for-agent`.
 - v0 slices are issues #2 through #10. #2 (S0) and #10 (S8) are HITL. The rest are AFK. Dependency edges live in each issue's "Blocked by" section, not here.
 - New work appends new issues. Closed issues stay as history.
-- Huge feature work goes through `TASKS.md` and a subagent flow. The main agent acts as coordinator and reviewer: it decomposes the plan into concrete R-tasks, delegates bounded exploration, implementation, and review work to subagents where the harness exposes them, integrates the results, resolves conflicts, updates `TASKS.md`, verifies with `just check`, then commits and pushes each green task cluster.
+- Work runs through Codex native threads, not a generic subagent flow. The four standing roles are **Co-ordinator**, **Implementor**, **Reviewer**, and **Small Tasks Doer**.
+- **Co-ordinator** is the main control thread. It owns the live plan, keeps `TASKS.md` current, breaks large work into concrete R-tasks, opens or steers other Codex threads, integrates results, resolves conflicts, verifies the merged state, and decides when a task cluster is ready to commit and push.
+- **Implementor** threads take one bounded R-task or sub-task. They modify code and tests inside that scope, report the exact files changed, and hand back verification results and remaining risks.
+- **Reviewer** threads are read-only unless explicitly asked to patch. They review diffs or codepaths for correctness, regressions, security, and missing tests, with findings first and file/line references.
+- **Small Tasks Doer** handles narrow, low-risk chores that do not need decomposition: spelling fixes, small doc updates, targeted test additions, mechanical renames, and one-file bug fixes. It should not absorb broad feature work or architecture changes.
+- Huge feature work goes through `TASKS.md` and the Codex thread roles above. The Co-ordinator decomposes the plan, delegates bounded implementation and review work to separate threads when parallelism or isolation helps, integrates the results, updates `TASKS.md`, verifies with `just check`, then commits and pushes each green task cluster.
 
 # Conventions
 
