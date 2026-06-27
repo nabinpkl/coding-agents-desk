@@ -182,7 +182,7 @@ pair-iphone variant="stable":
     i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
-    URL="$(cat '{{last_pair_url_path}}')"; xcrun devicectl device process launch --device {{ios_device}} --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\"}" "$BID"
+    URL="$(cat '{{last_pair_url_path}}')"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" xcrun devicectl device process launch --device {{ios_device}} --terminate-existing "$BID"
 
 # Pair-launch the physical iPhone client with the console attached. Blocks until
 # the app exits and tees stdout/stderr to {{iphone_console_log}}. Owned-media stderr
@@ -199,7 +199,7 @@ iphone-console-run variant="stable":
     i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
-    URL="$(cat "{{last_pair_url_path}}")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\",\"AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED\":\"$VIDEO\"}" "$BID" 2>&1 | tee "{{iphone_console_log}}"
+    URL="$(cat "{{last_pair_url_path}}")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
 # Physical-device feel runs. Two console modes x two client variants. Both rebuild
 # and relaunch the host and reinstall the client (the "fresh" prefix is the reinstall);
@@ -310,17 +310,17 @@ motion-verify variant="dev" video="1" seconds="60":
     test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     URL="$(cat "{{last_pair_url_path}}")"
     echo "pair URL: <redacted; delivered to client>"
-    # Build the client env JSON: launch URL + stderr trace + motion flag, plus every
+    # Forward launch URL + stderr trace + motion flag, plus every
     # AGENTDESK_OWNED_MEDIA_* knob from .env so the on-device client matches current code.
-    CJSON="{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\",\"AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED\":\"{{video}}\""
+    export DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL"
+    export DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1"
+    export DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="{{video}}"
     while IFS='=' read -r k v; do
         case "$k" in AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED|AGENTDESK_OWNED_MEDIA_STDERR_TRACE) continue;; esac
-        CJSON="$CJSON,\"$k\":\"$v\""
+        export "DEVICECTL_CHILD_$k=$v"
     done < <(env | grep '^AGENTDESK_OWNED_MEDIA_')
-    CJSON="$CJSON}"
-    echo "client env JSON: <redacted launch URL; media knobs forwarded>"
+    echo "client launch env: <redacted launch URL; media knobs forwarded>"
     xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing \
-        --environment-variables "$CJSON" \
         "$BID" >"{{motion_client_log}}" 2>&1 &
     CONSOLE_PID=$!
 
