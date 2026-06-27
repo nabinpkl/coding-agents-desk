@@ -101,6 +101,20 @@ enum Config {
         defaultValue: false,
         environment: ProcessInfo.processInfo.environment
     )
+    // QUIC DATAGRAM frame size advertised on the graphics group when the motion
+    // carrier is on. Packets are sized under this (MediaDatagramFramePacket caps
+    // payload at 1050, plus header/MAC, comfortably under a 1300 frame).
+    static let ownedMediaMaxDatagramFrameSize = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_DATAGRAM_FRAME_SIZE",
+        defaultValue: 1300
+    )
+    // Video keyframe cadence is tighter than the tile path's: on datagram loss the
+    // client resyncs at the next keyframe (or by requesting one), so ~1s bounds the
+    // worst-case glitch.
+    static let ownedMediaVideoKeyframeIntervalFrames = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_VIDEO_KEYFRAME_INTERVAL_FRAMES",
+        defaultValue: 30
+    )
     // ADR-0021: damage is emitted as tiles snapped to a fixed grid in surface
     // pixel space. A fixed cell size bounds per-tile bytes and gives each tile a
     // stable identity for the content tile cache (see the content-tile-cache

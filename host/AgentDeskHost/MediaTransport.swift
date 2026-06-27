@@ -90,11 +90,15 @@ enum OwnedQuicListenerConfigurations {
     static let graphicsALPN = "agentdesk-owned-graphics"
 
     static func graphics() -> OwnedQuicListenerConfiguration {
+        // ADR-0025: when the motion carrier is on, advertise QUIC DATAGRAM frames so
+        // the video stream can ride the same group as the reliable tile streams.
+        // isDatagram stays false, so the streams are unaffected. When the flag is off
+        // the parameters are identical to before, so the daily-driver path is untouched.
         OwnedQuicListenerConfiguration(
             alpn: graphicsALPN,
             port: Config.graphicsPort,
             usesDatagrams: false,
-            maxDatagramFrameSize: nil
+            maxDatagramFrameSize: Config.ownedMediaVideoMotionEnabled ? Config.ownedMediaMaxDatagramFrameSize : nil
         )
     }
 }

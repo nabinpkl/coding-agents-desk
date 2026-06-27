@@ -275,6 +275,17 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var diagnostics = OwnedMediaHostDiagnostics()
     private let frameScaler = OwnedMediaFrameScaler()
     private var started = false
+    // ADR-0025 motion carrier. The video stream rides QUIC DATAGRAM frames on the
+    // graphics group; the QUIC session already encrypts and authenticates the
+    // channel, so the per-packet HMAC is an integrity check keyed by a shared
+    // constant rather than a session secret. The pump publishes its encoder here so
+    // the group's datagram receive handler can honor a client keyframe request.
+    private static let videoDatagramKey = MediaDatagramCrypto.key(
+        mediaCapability: "owned-hevc-motion",
+        clientNonce: Data(),
+        serverNonce: Data()
+    )
+    private var videoEncoder: VideoToolboxOwnedMediaEncoder?
 
     init(
         configuration: OwnedMediaEncodingConfiguration = .default,
@@ -395,6 +406,15 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         group.newConnectionHandler = { [weak self] stream in
             self?.handleGraphicsStream(stream, groupId: groupId)
         }
+        // ADR-0025: inbound QUIC datagrams on this group are owned-media control
+        // (client -> host), currently the keyframe request. Video frames flow the
+        // other way (host -> client) and are not received here.
+        if Config.ownedMediaVideoMotionEnabled {
+            group.setReceiveHandler(maximumMessageSize: 64 * 1024, rejectOversizedMessages: false) { [weak self] _, content, _ in
+                guard let self, let content, !content.isEmpty else { return }
+                self.handleVideoControlDatagram(content)
+            }
+        }
         group.stateUpdateHandler = { [weak self] state in
             self?.logger.notice("owned graphics quic group state=\(String(describing: state), privacy: .public)")
             switch state {
@@ -405,6 +425,31 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             }
         }
         group.start(queue: queue)
+    }
+
+    // ADR-0025 motion carrier helpers.
+    private func handleVideoControlDatagram(_ data: Data) {
+        guard let message = try? JSONDecoder().decode(OwnedMediaControlMessage.self, from: data) else { return }
+        switch message.kind {
+        case .keyframeRequest:
+            let encoder = lock.withLock { videoEncoder }
+            encoder?.requestKeyframe()
+            logger.notice("owned media video keyframe-request from client frame=\(message.frameId, privacy: .public)")
+        default:
+            break
+        }
+    }
+
+    private func sendVideoDatagram(_ data: Data) {
+        guard let group = latestVideoGroup() else { return }
+        group.send(content: data, completion: { _ in })
+    }
+
+    private func latestVideoGroup() -> NWConnectionGroup? {
+        lock.withLock {
+            guard let id = activeGraphicsConnectionId, let groupId = streamGroupId[id] else { return nil }
+            return graphicsGroups[groupId]
+        }
     }
 
     // Each inbound stream is routed by its 1-byte role tag. The group owns an
@@ -703,9 +748,22 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         // carrier and client video path are wired next. The encoder is only created
         // when the flag is on, so the default path holds no VTCompressionSession.
         let videoEncoder: VideoToolboxOwnedMediaEncoder? = Config.ownedMediaVideoMotionEnabled
-            ? VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: .fromConfig())
+            ? VideoToolboxOwnedMediaEncoder(
+                codec: .hevc,
+                configuration: OwnedMediaEncodingConfiguration(
+                    targetBitrateKbps: Config.ownedMediaBitrateKbps,
+                    expectedFrameRate: Config.ownedMediaExpectedFrameRate,
+                    keyframeIntervalFrames: Config.ownedMediaVideoKeyframeIntervalFrames
+                )
+            )
             : nil
-        defer { videoEncoder?.invalidate() }
+        // Publish the encoder so the group's datagram receive handler can honor a
+        // client keyframe request; clear it when the pump ends.
+        lock.withLock { self.videoEncoder = videoEncoder }
+        defer {
+            videoEncoder?.invalidate()
+            lock.withLock { self.videoEncoder = nil }
+        }
         var videoFrameId: UInt64 = 0
         var wasScrollingForVideo = false
         for await _ in mailbox.stream {
@@ -783,9 +841,20 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     frame,
                     updateId: OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: videoFrameId),
                     forceKeyframe: forceKeyframe
-                ), let data = try? envelope.encode() {
-                    let packetCount = max(1, Int(ceil(Double(data.count) / Double(MediaDatagramFramePacket.maxPayloadBytes))))
-                    logger.notice("owned media video-encode frame=\(videoFrameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packetCount, privacy: .public) bitrateKbps=\(Config.ownedMediaBitrateKbps, privacy: .public)")
+                ),
+                let data = try? envelope.encode(),
+                let packets = try? MediaDatagramFramePacket.packetize(
+                    frameId: videoFrameId,
+                    isKeyframe: envelope.header.isKeyframe,
+                    sentAtUptimeNs: frame.capturedAtUptimeNs,
+                    payload: data,
+                    key: Self.videoDatagramKey
+                ) {
+                    for packet in packets { sendVideoDatagram(packet) }
+                    let shouldLog = envelope.header.isKeyframe || videoFrameId.isMultiple(of: 30)
+                    if shouldLog {
+                        logger.notice("owned media video sent frame=\(videoFrameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(Config.ownedMediaBitrateKbps, privacy: .public)")
+                    }
                 }
                 continue
             }
