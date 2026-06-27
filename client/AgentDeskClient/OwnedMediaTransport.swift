@@ -95,6 +95,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                 }
             }
             startLinkHealthReporting()
+            await MainActor.run { [weak mediaSink] in
+                mediaSink?.setOwnedMediaStatus(.connected)
+            }
         }
     }
 

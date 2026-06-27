@@ -199,6 +199,26 @@ struct InputChannelTests {
         #expect(SessionConnectionReadiness.decision(for: .cancelled) == .fail(String(describing: CancellationError())))
     }
 
+    @Test func ownedMediaStatusLabelsStayConcise() {
+        #expect(OwnedMediaStatus.connecting.labelText == "media connecting")
+        #expect(OwnedMediaStatus.connected.labelText == "media connected")
+        #expect(OwnedMediaStatus.videoLive.labelText == "video live")
+        #expect(OwnedMediaStatus.videoKeyframe.labelText == "video keyframe")
+        #expect(OwnedMediaStatus.videoRepairing.labelText == "video repairing")
+        #expect(OwnedMediaStatus.videoWaitingKeyframe.labelText == "video waiting keyframe")
+        #expect(OwnedMediaStatus.videoDropped.labelText == "video dropped")
+        #expect(OwnedMediaStatus.tilesLive.labelText == "tiles live")
+    }
+
+    @MainActor
+    @Test func ownedMediaVideoSinkStartsWithConnectionStatusLabel() {
+        let sink = OwnedMediaVideoSink()
+
+        #expect(sink.statusLabelTextForTesting() == "media connecting")
+        sink.setOwnedMediaStatus(.connected)
+        #expect(sink.statusLabelTextForTesting() == "media connected")
+    }
+
     @MainActor
     @Test func ownedMediaVideoSinkQueuesResetRequestWhenGraphicsFrameFails() {
         let sink = OwnedMediaVideoSink()

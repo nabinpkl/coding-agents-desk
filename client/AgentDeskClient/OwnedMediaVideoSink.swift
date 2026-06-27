@@ -13,7 +13,7 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
     @MainActor func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope)
     @MainActor func currentGraphicsResetRequest(reason: String) -> OwnedGraphicsResetRequest
     @MainActor func consumePendingGraphicsResetRequest() -> OwnedGraphicsResetRequest?
-    @MainActor func setOwnedMediaDebugStatus(_ status: String)
+    @MainActor func setOwnedMediaStatus(_ status: OwnedMediaStatus)
     // ADR-0027: the transport installs how the sink asks for a keyframe (the render
     // -stall watchdog and the wedged-layer recovery both use it).
     @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void)
@@ -22,7 +22,40 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
 // Default no-ops so non-video conformers (test stubs) need not implement them.
 extension OwnedMediaFrameSink {
     @MainActor func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope) {}
+    @MainActor func setOwnedMediaStatus(_ status: OwnedMediaStatus) {}
     @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void) {}
+}
+
+enum OwnedMediaStatus: Equatable {
+    case connecting
+    case connected
+    case videoLive
+    case videoKeyframe
+    case videoRepairing
+    case videoWaitingKeyframe
+    case videoDropped
+    case tilesLive
+
+    var labelText: String {
+        switch self {
+        case .connecting:
+            "media connecting"
+        case .connected:
+            "media connected"
+        case .videoLive:
+            "video live"
+        case .videoKeyframe:
+            "video keyframe"
+        case .videoRepairing:
+            "video repairing"
+        case .videoWaitingKeyframe:
+            "video waiting keyframe"
+        case .videoDropped:
+            "video dropped"
+        case .tilesLive:
+            "tiles live"
+        }
+    }
 }
 
 // Render-stall watchdog for the video carrier (ADR-0027). The carrier can wedge:
@@ -65,7 +98,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     private lazy var videoDecoder = OwnedMediaVideoDecoder(
         layer: OwnedMediaVideoLayerEnqueuer(displayLayer: videoLayer)
     )
-    private let debugLabel = UILabel()
+    private let statusLabel = UILabel()
     private let logger = Logger(subsystem: Config.logSubsystem, category: "owned-media")
     private var compositor = OwnedSurfaceCompositor()
     private var lastRenderUptimeNs: UInt64?
@@ -101,19 +134,19 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         videoLayer.backgroundColor = UIColor.black.cgColor
         videoLayer.isHidden = true
         container.layer.addSublayer(videoLayer)
-        debugLabel.backgroundColor = UIColor.black.withAlphaComponent(0.72)
-        debugLabel.textColor = .white
-        debugLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        debugLabel.numberOfLines = 0
-        debugLabel.text = "owned media: waiting"
-        debugLabel.layer.cornerRadius = 6
-        debugLabel.layer.masksToBounds = true
-        debugLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(debugLabel)
+        statusLabel.backgroundColor = UIColor.black.withAlphaComponent(0.72)
+        statusLabel.textColor = .white
+        statusLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        statusLabel.numberOfLines = 1
+        statusLabel.text = OwnedMediaStatus.connecting.labelText
+        statusLabel.layer.cornerRadius = 6
+        statusLabel.layer.masksToBounds = true
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(statusLabel)
         NSLayoutConstraint.activate([
-            debugLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            debugLabel.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
-            debugLabel.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8)
+            statusLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            statusLabel.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
+            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8)
         ])
         container.layoutHandler = { [weak self, weak container] in
             guard let self, let bounds = container?.bounds else { return }
@@ -181,12 +214,18 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         switch result {
         case .enqueued:
             lastVideoEnqueueUptimeNs = now
+            setOwnedMediaStatus(envelope.header.isKeyframe ? .videoKeyframe : .videoLive)
         case .recoveredRequestKeyframe:
             // ADR-0027: the layer was wedged and this frame was a delta; the decoder
             // blanked it and needs a keyframe to resync, so ask for one now.
             ownedMediaStderrTrace("video-frame-recovered frame=\(envelope.header.frameId)")
+            setOwnedMediaStatus(.videoRepairing)
             requestKeyframe(now: now)
-        case .droppedPendingKeyframe, .formatDescriptionUnavailable, .sampleBufferBuildFailed:
+        case .droppedPendingKeyframe:
+            setOwnedMediaStatus(.videoWaitingKeyframe)
+            ownedMediaStderrTrace("video-frame-dropped frame=\(envelope.header.frameId) reason=\(result)")
+        case .formatDescriptionUnavailable, .sampleBufferBuildFailed:
+            setOwnedMediaStatus(.videoDropped)
             ownedMediaStderrTrace("video-frame-dropped frame=\(envelope.header.frameId) reason=\(result)")
         }
         if handoff.motionStateChanged(to: .scrolling) == .video {
@@ -235,13 +274,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 handoff.tileRefreshCommitted()
             }
             applyVisibleSurface()
-            // Graphics frames are the only retained-tile render path, so reflect liveness
-            // in the debug overlay here. The old datagram/HEVC path used to drive
-            // setOwnedMediaDebugStatus; without this the label stayed on its
-            // initial "waiting" text forever even while frames flowed. Only
-            // assign on change to avoid per-frame label layout churn.
-            let liveStatus = "owned media: live gen \(envelope.header.surfaceGeneration)"
-            if debugLabel.text != liveStatus { debugLabel.text = liveStatus }
+            setOwnedMediaStatus(.tilesLive)
             // A graphics (tile) frame is the only thing that refreshes
             // surfaceLayer now, so every applied frame is a screen update. Stamp
             // the render clock here so renderGapMs reflects real frame spacing.
@@ -286,8 +319,13 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         return request
     }
 
-    func setOwnedMediaDebugStatus(_ status: String) {
-        debugLabel.text = "owned media\n\(status)"
+    func setOwnedMediaStatus(_ status: OwnedMediaStatus) {
+        let text = status.labelText
+        if statusLabel.text != text { statusLabel.text = text }
+    }
+
+    func statusLabelTextForTesting() -> String? {
+        statusLabel.text
     }
 }
 
