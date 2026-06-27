@@ -306,7 +306,7 @@ struct ScrollDeltaEngine {
     mutating func evaluate(
         _ frame: CapturedVideoFrame,
         scrollHint: ScrollActivityHint? = nil,
-        congested: Bool = false
+        congestionLevel: Double = 0
     ) -> ScrollDeltaResult {
         let startedAt = DispatchTime.now().uptimeNanoseconds
         let activeHint = scrollHint?.isActive(nowUptimeNs: startedAt) == true ? scrollHint : nil
@@ -388,7 +388,7 @@ struct ScrollDeltaEngine {
             frame,
             previous: previous,
             scrollHint: activeHint,
-            congested: congested,
+            congestionLevel: congestionLevel,
             startedAt: startedAt,
             surfaceWidth: currentWidth,
             surfaceHeight: currentHeight
@@ -528,6 +528,8 @@ struct ScrollDeltaEngine {
         current: Surface,
         offset: ScrollOffset,
         region rect: PixelRect,
+        congestionLevel: Double,
+        motion: Bool,
         capturedAtUptimeNs: UInt64
     ) -> OwnedGraphicsFrameEnvelope? {
         let copyCommand: OwnedGraphicsCommand
@@ -560,28 +562,47 @@ struct ScrollDeltaEngine {
             tileWidth = exposedWidth
             tileHeight = rect.height
         }
-        guard let exposed = tileData(surface: current, x: tileX, y: tileY, width: tileWidth, height: tileHeight),
-              let compressed = compressLZFSE(exposed) else { return nil }
+        // The exposed strip is lossy JPEG when it is large (a fast flick reveals a
+        // tall band that is a big lossless blob, the ~133KB device tail) or the link
+        // is congested; otherwise lossless LZFSE keeps a small, slow-scroll strip
+        // crisp. JPEG reuses the fullframe tile builder (motion quality, ramped
+        // downscale), and the client decodes it like any other bitmap tile.
+        let stripRawBytes = tileWidth * tileHeight * 4
+        let useLossy = congestionLevel > 0 || stripRawBytes >= Config.hybridScrollStripLossyThresholdBytes
+        let stripCommand: OwnedGraphicsCommand
+        let payload: Data
+        if useLossy,
+           let tile = makeJpegTile(
+               current: current,
+               rect: PixelRect(x: tileX, y: tileY, width: tileWidth, height: tileHeight),
+               quality: fullframeQuality(forLevel: congestionLevel, motion: motion),
+               scale: fullframeScale(forLevel: congestionLevel)
+           ) {
+            stripCommand = tile.command
+            payload = tile.payload
+        } else {
+            guard let exposed = tileData(surface: current, x: tileX, y: tileY, width: tileWidth, height: tileHeight),
+                  let compressed = compressLZFSE(exposed) else { return nil }
+            stripCommand = .bitmapTile(
+                x: tileX,
+                y: tileY,
+                width: tileWidth,
+                height: tileHeight,
+                compression: .lzfse,
+                byteRange: OwnedGraphicsByteRange(offset: 0, length: compressed.count)
+            )
+            payload = compressed
+        }
         return OwnedGraphicsFrameEnvelope(
             header: OwnedGraphicsFrameHeader(
                 surfaceGeneration: surfaceGeneration,
                 frameId: graphicsFrameId,
                 capturedAtUptimeNs: capturedAtUptimeNs,
                 commandCount: 2,
-                payloadLength: compressed.count
+                payloadLength: payload.count
             ),
-            commands: [
-                copyCommand,
-                .bitmapTile(
-                    x: tileX,
-                    y: tileY,
-                    width: tileWidth,
-                    height: tileHeight,
-                    compression: .lzfse,
-                    byteRange: OwnedGraphicsByteRange(offset: 0, length: compressed.count)
-                )
-            ],
-            payload: compressed
+            commands: [copyCommand, stripCommand],
+            payload: payload
         )
     }
 
@@ -594,7 +615,7 @@ struct ScrollDeltaEngine {
         _ frame: CapturedVideoFrame,
         previous: Surface,
         scrollHint: ScrollActivityHint?,
-        congested: Bool,
+        congestionLevel: Double,
         startedAt: UInt64,
         surfaceWidth: Int,
         surfaceHeight: Int
@@ -629,6 +650,8 @@ struct ScrollDeltaEngine {
                 current: current,
                 offset: offset,
                 region: region,
+                congestionLevel: congestionLevel,
+                motion: scrollHint != nil,
                 capturedAtUptimeNs: frame.capturedAtUptimeNs
             ) else {
                 pendingSurface = nil
@@ -676,21 +699,13 @@ struct ScrollDeltaEngine {
             let region = frame.damageRects.isEmpty
                 ? contentRegion
                 : (PixelRect.union(of: frame.damageRects)?.clamped(toWidth: current.width, height: current.height) ?? contentRegion)
-            // Congestion- and motion-adaptive quality. When the pump is backed up
-            // (a hard flick flooding fullframes faster than the link drains), encode
-            // at the congested floor so frames stay tiny and cadence holds. Else an
-            // active scroll hint means mid-flick (motion quality); no hint means the
-            // screen is settling or a discrete change at rest, so encode it crisp.
-            let quality: Double
-            if congested {
-                quality = fullframeJpegQualityCongested
-            } else {
-                quality = scrollHint != nil ? fullframeJpegQualityMotion : fullframeJpegQualityRest
-            }
-            // Downscale only when congested: quality alone bottoms out on a thin link,
-            // so halving resolution is what actually drops the wire bytes. Rest and
-            // motion fullframes stay full resolution and re-sharpen once the link drains.
-            let scale = congested ? fullframeCongestedScale : 1.0
+            // Congestion- and motion-adaptive quality, ramped not cliffed. The level
+            // (smoothed in the pump) lerps quality from the rest/motion baseline down
+            // to the congested floor, and lerps resolution from full down to the floor
+            // only above a mid threshold, so a light backlog costs a little sharpness
+            // and the image re-sharpens smoothly as the link drains.
+            let quality = fullframeQuality(forLevel: congestionLevel, motion: scrollHint != nil)
+            let scale = fullframeScale(forLevel: congestionLevel)
             guard let envelope = makeJPEGFrameEnvelope(current: current, region: region, quality: quality, scale: scale, capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
                 pendingSurface = nil
                 return ScrollDeltaResult(
@@ -763,6 +778,24 @@ struct ScrollDeltaEngine {
         )
     }
 
+    // Monotonic quality: the rest or motion baseline at level 0, lerped down to the
+    // congested floor at level 1. A light backlog costs a little sharpness, not all.
+    func fullframeQuality(forLevel level: Double, motion: Bool) -> Double {
+        let l = min(1, max(0, level))
+        let baseline = motion ? fullframeJpegQualityMotion : fullframeJpegQualityRest
+        return baseline + (fullframeJpegQualityCongested - baseline) * l
+    }
+
+    // Monotonic scale: full resolution until the ramp threshold, then lerp toward the
+    // congested floor at level 1. Never below the floor.
+    func fullframeScale(forLevel level: Double) -> Double {
+        let l = min(1, max(0, level))
+        let threshold = min(0.999, max(0, Config.hybridCongestionScaleRampThreshold))
+        guard l > threshold else { return 1.0 }
+        let t = (l - threshold) / (1 - threshold)
+        return 1.0 + (fullframeCongestedScale - 1.0) * t
+    }
+
     // The fullframe fallback as ONE lossy JPEG tile over the damage region,
     // instead of N raw LZFSE cells. A whole-screen change is contiguous and large,
     // so a single JPEG both compresses far better than per-cell LZFSE (cross-tile
@@ -771,15 +804,30 @@ struct ScrollDeltaEngine {
     // to the surface; the client decodes the JPEG back to BGRA and paints it like
     // any other bitmap tile.
     private func makeJPEGFrameEnvelope(current: Surface, region: PixelRect, quality: Double, scale: Double, capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
-        let clamped = region.clamped(toWidth: current.width, height: current.height)
+        guard let tile = makeJpegTile(current: current, rect: region, quality: quality, scale: scale) else { return nil }
+        return OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: surfaceGeneration,
+                frameId: graphicsFrameId,
+                capturedAtUptimeNs: capturedAtUptimeNs,
+                commandCount: 1,
+                payloadLength: tile.payload.count
+            ),
+            commands: [tile.command],
+            payload: tile.payload
+        )
+    }
+
+    // One lossy JPEG bitmap tile over a rect. The tile command carries the full
+    // destination size; the JPEG may be encoded smaller (congestion downscale) and
+    // the client upscales it. Scale on the raw BGRA with vImage (row-order
+    // preserving) so the smaller buffer feeds the identical CGImage path and the
+    // round trip stays orientation-correct. Shared by the fullframe fallback and the
+    // lossy exposed scroll strip.
+    private func makeJpegTile(current: Surface, rect: PixelRect, quality: Double, scale: Double) -> (command: OwnedGraphicsCommand, payload: Data)? {
+        let clamped = rect.clamped(toWidth: current.width, height: current.height)
         guard clamped.width > 0, clamped.height > 0,
               let bgra = tileData(surface: current, x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height) else { return nil }
-        // The tile command always carries the full destination size; the JPEG may be
-        // encoded smaller (congestion downscale) and the client upscales it into the
-        // destination. JPEG is self-describing, so no wire field is needed to carry
-        // the encoded size. Scale on the raw BGRA with vImage (row-order preserving)
-        // so the smaller buffer feeds the identical CGImage path and the round trip
-        // stays orientation-correct.
         let scaledWidth = max(1, Int((Double(clamped.width) * scale).rounded()))
         let scaledHeight = max(1, Int((Double(clamped.height) * scale).rounded()))
         let encodeBytes: Data
@@ -804,17 +852,7 @@ struct ScrollDeltaEngine {
             compression: .jpeg,
             byteRange: OwnedGraphicsByteRange(offset: 0, length: jpeg.count)
         )
-        return OwnedGraphicsFrameEnvelope(
-            header: OwnedGraphicsFrameHeader(
-                surfaceGeneration: surfaceGeneration,
-                frameId: graphicsFrameId,
-                capturedAtUptimeNs: capturedAtUptimeNs,
-                commandCount: 1,
-                payloadLength: jpeg.count
-            ),
-            commands: [command],
-            payload: jpeg
-        )
+        return (command, jpeg)
     }
 
     // Encode at startQuality, then step quality down a short ladder until the JPEG

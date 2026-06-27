@@ -401,6 +401,35 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_FULLFRAME_CONGESTED_SCALE",
         defaultValue: 0.5
     )
+    // Number of pump holds-since-last-produce that maps the instantaneous congestion
+    // signal to 1.0 (fully saturated). Device runs saturated at ~14 holds/frame, so a
+    // value below that saturates the ramp a bit before the extreme.
+    static let hybridCongestionSaturationHolds = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_CONGESTION_SATURATION_HOLDS",
+        defaultValue: 8
+    )
+    // EWMA smoothing for the congestion level so a single held frame does not jump the
+    // level to maximum (the binary cliff that the macroblock regression came from).
+    // new = alpha * instantaneous + (1 - alpha) * previous.
+    static let hybridCongestionEwmaAlpha = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_CONGESTION_EWMA_ALPHA",
+        defaultValue: 0.5
+    )
+    // Congestion level below which fullframe resolution stays full (scale 1.0). Above
+    // it, scale ramps toward the congested floor. Resolution is the heavy hammer,
+    // reserved for sustained congestion; quality does the gentle early work.
+    static let hybridCongestionScaleRampThreshold = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_CONGESTION_SCALE_RAMP_THRESHOLD",
+        defaultValue: 0.5
+    )
+    // Raw byte size (width*height*4) above which an exposed scroll strip is sent as
+    // lossy JPEG instead of lossless LZFSE. A fast flick reveals a tall band that is a
+    // large lossless blob (device run: ~133KB LZFSE strips); a slow scroll reveals a
+    // thin strip that stays crisp and is small anyway. Congestion also forces lossy.
+    static let hybridScrollStripLossyThresholdBytes = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_STRIP_LOSSY_THRESHOLD_BYTES",
+        defaultValue: 524_288
+    )
     static let hybridScrollViewportMinWidth = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_SCROLL_VIEWPORT_MIN_WIDTH",
         defaultValue: 320

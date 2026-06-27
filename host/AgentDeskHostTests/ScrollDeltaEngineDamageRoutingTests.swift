@@ -191,7 +191,7 @@ struct ScrollDeltaEngineDamageRoutingTests {
                 return [v, v, v, 0xff]
             }
             let hint = ScrollActivityHint(axis: .vertical, sign: 1, predictedOffsetPx: 40, candidateOffsets: [40], activeUntilUptimeNs: .max, eventCount: 4)
-            let result = engine.evaluate(churned, scrollHint: hint, congested: congested)
+            let result = engine.evaluate(churned, scrollHint: hint, congestionLevel: congested ? 1.0 : 0.0)
             guard case .bitmapTile(_, _, _, _, .jpeg, _)? = result.envelope?.commands.first else {
                 Issue.record("expected a fullframe JPEG tile")
                 return 0
@@ -276,7 +276,7 @@ struct ScrollDeltaEngineDamageRoutingTests {
                 return [v, v, v, 0xff]
             }
             let hint = ScrollActivityHint(axis: .vertical, sign: 1, predictedOffsetPx: 40, candidateOffsets: [40], activeUntilUptimeNs: .max, eventCount: 4)
-            let result = engine.evaluate(churned, scrollHint: hint, congested: congested)
+            let result = engine.evaluate(churned, scrollHint: hint, congestionLevel: congested ? 1.0 : 0.0)
             guard case let .bitmapTile(_, _, tileWidth, _, .jpeg, byteRange)? =
                     result.envelope?.commands.first(where: { $0.kindIsBitmapTile }),
                   let payload = result.envelope?.payload else {
@@ -326,7 +326,7 @@ struct ScrollDeltaEngineDamageRoutingTests {
             return [v, v, v, 0xff]
         }
         let hint = ScrollActivityHint(axis: .vertical, sign: 1, predictedOffsetPx: 40, candidateOffsets: [40], activeUntilUptimeNs: .max, eventCount: 4)
-        let result = engine.evaluate(gradient, scrollHint: hint, congested: true)
+        let result = engine.evaluate(gradient, scrollHint: hint, congestionLevel: 1.0)
 
         guard case let .bitmapTile(_, _, tileWidth, tileHeight, compression, byteRange)? =
                 result.envelope?.commands.first(where: { $0.kindIsBitmapTile }),
@@ -343,6 +343,82 @@ struct ScrollDeltaEngineDamageRoutingTests {
         let bottomLuma = Self.luma(decoded, x: 8, y: tileHeight - 8, width: tileWidth)
         #expect(topLuma > 180)
         #expect(bottomLuma < 80)
+    }
+
+    // The congestion ramp replaces the binary congested cliff: quality drops
+    // smoothly from the rest/motion baseline to the congested floor as the level
+    // climbs, and resolution stays full until a mid threshold before ramping to the
+    // floor. Neither ever crosses the working-version-11 floor (q0.15, scale 0.5).
+    @Test func congestionQualityRampIsMonotonicBaselineToFloor() {
+        let engine = ScrollDeltaEngine()
+        let rest = engine.fullframeQuality(forLevel: 0, motion: false)
+        let mid = engine.fullframeQuality(forLevel: 0.5, motion: false)
+        let full = engine.fullframeQuality(forLevel: 1, motion: false)
+        #expect(rest > mid)
+        #expect(mid > full)
+        #expect(abs(full - 0.15) < 1e-9)            // exactly the congested floor
+        #expect(abs(rest - 0.65) < 1e-9)            // exactly the rest baseline
+    }
+
+    @Test func congestionScaleStaysFullUntilThresholdThenRampsToFloor() {
+        let engine = ScrollDeltaEngine()
+        #expect(engine.fullframeScale(forLevel: 0) == 1.0)
+        #expect(engine.fullframeScale(forLevel: 0.5) == 1.0)   // at threshold, still full
+        let mid = engine.fullframeScale(forLevel: 0.75)
+        #expect(mid < 1.0 && mid > 0.5)                         // ramping
+        #expect(abs(engine.fullframeScale(forLevel: 1) - 0.5) < 1e-9)  // floor, never below
+    }
+
+    // Per-row luma hash so a vertical shift is detectable and a scroll classifies
+    // cleanly (mirrors the classifier test surfaces).
+    private static func scrollRowValue(_ y: Int) -> UInt8 {
+        var h = UInt32(truncatingIfNeeded: y &+ 1)
+        h = h &* 2_654_435_761; h ^= (h >> 15); h = h &* 2_246_822_519; h ^= (h >> 13)
+        return UInt8(truncatingIfNeeded: h >> 24)
+    }
+
+    // Drive a real downward scroll through the engine so the classifier returns
+    // .scroll and makeScrollEnvelope runs, then report the exposed strip tile's
+    // compression.
+    private static func stripCompressionForDownScroll(dy: Int, width: Int, height: Int, congestionLevel: Double) throws -> OwnedGraphicsTileCompression {
+        var engine = ScrollDeltaEngine()
+        let first = try makeBGRAFrame(width: width, height: height) { _, y in
+            let v = scrollRowValue(y); return [v, v, v, 0xff]
+        }
+        #expect(engine.evaluate(first).kind == .reset)
+        engine.commitPendingSurface()
+        let band = PixelRect(x: 0, y: 0, width: width, height: height)
+        let scrolled = try makeBGRAFrame(width: width, height: height, damageRects: [band], contentRectPixels: band) { _, y in
+            let v = scrollRowValue(y - dy); return [v, v, v, 0xff]
+        }
+        let hint = ScrollActivityHint(axis: .vertical, sign: 1, predictedOffsetPx: dy, candidateOffsets: [dy], activeUntilUptimeNs: .max, eventCount: 4)
+        let result = engine.evaluate(scrolled, scrollHint: hint, congestionLevel: congestionLevel)
+        guard let strip = result.envelope?.commands.first(where: { $0.kindIsBitmapTile }),
+              case let .bitmapTile(_, _, _, _, compression, _) = strip else {
+            Issue.record("expected a scroll strip bitmap tile, acceptedBy=\(String(describing: result.diagnostics?.acceptedBy))")
+            return .lzfse
+        }
+        return compression
+    }
+
+    // A fast flick reveals a tall band: 640*240*4 = 614400 bytes >= the 524288
+    // threshold, so the strip ships lossy JPEG instead of a large lossless blob.
+    @Test func largeFlickScrollStripIsLossyJpeg() throws {
+        let compression = try Self.stripCompressionForDownScroll(dy: 240, width: 640, height: 480, congestionLevel: 0)
+        #expect(compression == .jpeg)
+    }
+
+    // A slow scroll on a calm link reveals a thin strip (640*8*4 = 20480 bytes, well
+    // under threshold) and stays lossless so revealed text is crisp.
+    @Test func slowCalmScrollStripStaysLossless() throws {
+        let compression = try Self.stripCompressionForDownScroll(dy: 8, width: 640, height: 480, congestionLevel: 0)
+        #expect(compression == .lzfse)
+    }
+
+    // The same small strip goes lossy when the link is congested.
+    @Test func congestedSmallScrollStripIsLossyJpeg() throws {
+        let compression = try Self.stripCompressionForDownScroll(dy: 8, width: 640, height: 480, congestionLevel: 1.0)
+        #expect(compression == .jpeg)
     }
 
     private static func jpegPixelWidth(_ data: Data) -> Int? {

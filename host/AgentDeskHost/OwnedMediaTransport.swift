@@ -923,6 +923,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         // hard flick flooding fullframes), so the next produce encodes at the
         // congested floor to keep cadence. Reset to 0 each time we produce.
         var heldSinceLastProduce = 0
+        // Smoothed congestion level in [0,1]. The raw held count is mapped to an
+        // instantaneous level and EWMA-smoothed so the encode quality ramps instead
+        // of cliffing to the floor on a single held frame.
+        var congestionLevelEwma = 0.0
         for await _ in mailbox.stream {
             guard !Task.isCancelled else { return }
             diagnostics.setPhase(.idle)
@@ -984,11 +988,14 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             let scrollHint = inputScrollHint?.isActive(nowUptimeNs: nowBeforeProbe) == true
                 ? inputScrollHint
                 : nil
-            // Congested when at least one frame was held since the last produce: the
-            // link is not keeping up, so encode this fullframe at the congested floor.
-            let congested = heldSinceLastProduce >= 1
+            // Map held frames to an instantaneous congestion level and EWMA-smooth it,
+            // so the encode quality and resolution ramp with sustained backpressure
+            // instead of cliffing on the first held frame.
+            let instantaneousCongestion = min(1.0, Double(heldSinceLastProduce) / Double(Config.hybridCongestionSaturationHolds))
+            congestionLevelEwma = Config.hybridCongestionEwmaAlpha * instantaneousCongestion
+                + (1 - Config.hybridCongestionEwmaAlpha) * congestionLevelEwma
             heldSinceLastProduce = 0
-            let graphics = scrollDeltaEngine.evaluate(frame, scrollHint: scrollHint, congested: congested)
+            let graphics = scrollDeltaEngine.evaluate(frame, scrollHint: scrollHint, congestionLevel: congestionLevelEwma)
             switch graphics.kind {
             case .accepted:
                 guard let envelope = graphics.envelope else {
