@@ -364,7 +364,17 @@ enum Config {
     )
     static let hybridFullframeJpegQualityMotion = positiveDouble(
         environmentKey: "AGENTDESK_HYBRID_FULLFRAME_JPEG_QUALITY_MOTION",
-        defaultValue: 0.4
+        defaultValue: 0.3
+    )
+    // Congestion quality: when the encode pump is backed up against the unacked
+    // cap (a hard flick flooding fullframes faster than the link drains), encode at
+    // this floor so each frame is tiny and drains fast, keeping cadence instead of
+    // stalling into a freeze. This is RDP's P9 lesson, drop quality to hold cadence
+    // under constrained bandwidth, applied as a congestion signal rather than a
+    // fixed motion/rest split. Restored to motion/rest quality once the link drains.
+    static let hybridFullframeJpegQualityCongested = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_FULLFRAME_JPEG_QUALITY_CONGESTED",
+        defaultValue: 0.15
     )
     // Hard ceiling on a single fullframe JPEG's wire size. A whole-screen change at
     // Retina resolution was 0.9-2.0MB even as JPEG; one such frame clogged the

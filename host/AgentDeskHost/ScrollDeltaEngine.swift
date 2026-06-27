@@ -253,6 +253,7 @@ struct ScrollDeltaEngine {
     // is low so a mid-scroll fullframe stays small and holds cadence.
     private let fullframeJpegQualityRest: Double
     private let fullframeJpegQualityMotion: Double
+    private let fullframeJpegQualityCongested: Double
     // Hard wire-byte ceiling for a fullframe JPEG; quality steps down to fit it.
     private let fullframeMaxWireBytes: Int
 
@@ -263,6 +264,7 @@ struct ScrollDeltaEngine {
         tileGridPx: Int = Config.hybridTileGridPx,
         fullframeJpegQuality: Double = Config.hybridFullframeJpegQuality,
         fullframeJpegQualityMotion: Double = Config.hybridFullframeJpegQualityMotion,
+        fullframeJpegQualityCongested: Double = Config.hybridFullframeJpegQualityCongested,
         fullframeMaxWireBytes: Int = Config.hybridFullframeMaxWireBytes
     ) {
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
@@ -271,6 +273,7 @@ struct ScrollDeltaEngine {
         self.tileGridPx = max(1, tileGridPx)
         self.fullframeJpegQualityRest = min(1, max(0.1, fullframeJpegQuality))
         self.fullframeJpegQualityMotion = min(1, max(0.1, fullframeJpegQualityMotion))
+        self.fullframeJpegQualityCongested = min(1, max(0.1, fullframeJpegQualityCongested))
         self.fullframeMaxWireBytes = max(1, fullframeMaxWireBytes)
     }
 
@@ -295,7 +298,8 @@ struct ScrollDeltaEngine {
 
     mutating func evaluate(
         _ frame: CapturedVideoFrame,
-        scrollHint: ScrollActivityHint? = nil
+        scrollHint: ScrollActivityHint? = nil,
+        congested: Bool = false
     ) -> ScrollDeltaResult {
         let startedAt = DispatchTime.now().uptimeNanoseconds
         let activeHint = scrollHint?.isActive(nowUptimeNs: startedAt) == true ? scrollHint : nil
@@ -377,6 +381,7 @@ struct ScrollDeltaEngine {
             frame,
             previous: previous,
             scrollHint: activeHint,
+            congested: congested,
             startedAt: startedAt,
             surfaceWidth: currentWidth,
             surfaceHeight: currentHeight
@@ -582,6 +587,7 @@ struct ScrollDeltaEngine {
         _ frame: CapturedVideoFrame,
         previous: Surface,
         scrollHint: ScrollActivityHint?,
+        congested: Bool,
         startedAt: UInt64,
         surfaceWidth: Int,
         surfaceHeight: Int
@@ -663,10 +669,17 @@ struct ScrollDeltaEngine {
             let region = frame.damageRects.isEmpty
                 ? contentRegion
                 : (PixelRect.union(of: frame.damageRects)?.clamped(toWidth: current.width, height: current.height) ?? contentRegion)
-            // Motion-adaptive quality: an active scroll hint means this fullframe is
-            // mid-flick, so encode it small (motion quality). With no hint the screen
-            // is settling or a discrete change at rest, so encode it crisp.
-            let quality = scrollHint != nil ? fullframeJpegQualityMotion : fullframeJpegQualityRest
+            // Congestion- and motion-adaptive quality. When the pump is backed up
+            // (a hard flick flooding fullframes faster than the link drains), encode
+            // at the congested floor so frames stay tiny and cadence holds. Else an
+            // active scroll hint means mid-flick (motion quality); no hint means the
+            // screen is settling or a discrete change at rest, so encode it crisp.
+            let quality: Double
+            if congested {
+                quality = fullframeJpegQualityCongested
+            } else {
+                quality = scrollHint != nil ? fullframeJpegQualityMotion : fullframeJpegQualityRest
+            }
             guard let envelope = makeJPEGFrameEnvelope(current: current, region: region, quality: quality, capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
                 pendingSurface = nil
                 return ScrollDeltaResult(

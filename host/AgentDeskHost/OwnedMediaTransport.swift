@@ -917,6 +917,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             maxDecodedResetStripePayloadBytes: Config.hybridResetStripeMaxDecodedBytes,
             maxWireResetStripeBytes: Config.hybridResetStripeMaxWireBytes
         )
+        // Congestion signal for adaptive fullframe quality: how many frames were
+        // held at the unacked cap since the last one was produced. A non-zero count
+        // means the link could not drain the last frame before the next arrived (a
+        // hard flick flooding fullframes), so the next produce encodes at the
+        // congested floor to keep cadence. Reset to 0 each time we produce.
+        var heldSinceLastProduce = 0
         for await _ in mailbox.stream {
             guard !Task.isCancelled else { return }
             diagnostics.setPhase(.idle)
@@ -970,6 +976,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 // carries the freshest damage.
                 diagnostics.noteAdmissionHold(reason: "backpressure-cap", mode: currentAdmissionMode())
                 logger.notice("owned graphics backpressure-hold reason=unacked-cap maxUnacked=\(Config.hybridMaxUnackedFrames, privacy: .public)")
+                heldSinceLastProduce += 1
                 continue
             }
             let nowBeforeProbe = DispatchTime.now().uptimeNanoseconds
@@ -977,7 +984,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             let scrollHint = inputScrollHint?.isActive(nowUptimeNs: nowBeforeProbe) == true
                 ? inputScrollHint
                 : nil
-            let graphics = scrollDeltaEngine.evaluate(frame, scrollHint: scrollHint)
+            // Congested when at least one frame was held since the last produce: the
+            // link is not keeping up, so encode this fullframe at the congested floor.
+            let congested = heldSinceLastProduce >= 1
+            heldSinceLastProduce = 0
+            let graphics = scrollDeltaEngine.evaluate(frame, scrollHint: scrollHint, congested: congested)
             switch graphics.kind {
             case .accepted:
                 guard let envelope = graphics.envelope else {

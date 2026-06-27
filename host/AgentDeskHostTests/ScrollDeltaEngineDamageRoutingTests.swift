@@ -168,6 +168,44 @@ struct ScrollDeltaEngineDamageRoutingTests {
         #expect(motionBytes < restBytes)
     }
 
+    // Congestion-adaptive quality: when the pump signals it is backed up, a
+    // fullframe must encode at the congested floor (smaller than the motion
+    // quality) so it drains fast and cadence holds instead of stalling into a
+    // freeze. Same fullframe, same active hint; only the congested flag differs.
+    @Test func fullFrameUsesCongestedQualityWhenPumpBackedUp() throws {
+        func fullframeBytes(congested: Bool) throws -> Int {
+            var engine = ScrollDeltaEngine()
+            let width = 256
+            let height = 256
+            let solid = try Self.makeBGRAFrame(width: width, height: height) { _, _ in [10, 10, 10, 0xff] }
+            #expect(engine.evaluate(solid).kind == .reset)
+            engine.commitPendingSurface()
+            let full = PixelRect(x: 0, y: 0, width: width, height: height)
+            let churned = try Self.makeBGRAFrame(
+                width: width,
+                height: height,
+                damageRects: [full],
+                contentRectPixels: full
+            ) { x, y in
+                let v = UInt8((x + y) & 0xff)
+                return [v, v, v, 0xff]
+            }
+            let hint = ScrollActivityHint(axis: .vertical, sign: 1, predictedOffsetPx: 40, candidateOffsets: [40], activeUntilUptimeNs: .max, eventCount: 4)
+            let result = engine.evaluate(churned, scrollHint: hint, congested: congested)
+            guard case .bitmapTile(_, _, _, _, .jpeg, _)? = result.envelope?.commands.first else {
+                Issue.record("expected a fullframe JPEG tile")
+                return 0
+            }
+            return result.envelope?.payload.count ?? 0
+        }
+
+        let congestedBytes = try fullframeBytes(congested: true)
+        let motionBytes = try fullframeBytes(congested: false)
+        #expect(congestedBytes > 0)
+        #expect(motionBytes > 0)
+        #expect(congestedBytes < motionBytes)
+    }
+
     // The fullframe JPEG must survive the round trip without a vertical flip. Prime
     // a surface, deliver a fullframe whose top half is bright and bottom half dark,
     // then decode the emitted JPEG exactly as the client does (CGImageSource into a
