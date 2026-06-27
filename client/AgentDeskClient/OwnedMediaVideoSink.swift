@@ -396,6 +396,10 @@ struct OwnedSurfaceCompositor {
                     to: DispatchTime.now().uptimeNanoseconds
                 )
                 validated.append(.cacheTile(slot: slot, x: x, y: y, width: width, height: height, decoded: cacheDecoded))
+            case .copyRect:
+                // The wire command exists (Slice 1) but the blit apply path lands in
+                // Slice 2. No host emits copyRect yet, so reaching here is malformed.
+                throw SessionRejected(reason: .malformed)
             case let .drawCachedTile(slot, x, y, width, height):
                 guard updateId.isStrictlyNewer(than: candidateCommittedUpdateId) else {
                     throw SessionRejected(reason: .malformed)
