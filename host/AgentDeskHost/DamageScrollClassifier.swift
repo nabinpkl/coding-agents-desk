@@ -72,6 +72,24 @@ enum DamageScrollClassification: Equatable {
     case noChange
 }
 
+// Honest per-frame trace of the classifier's reasoning, so device logs show
+// the real band geometry and match confidences instead of synthetic values.
+struct DamageScrollTrace: Equatable {
+    let bandWidth: Int
+    let bandHeight: Int
+    let coverage: Double
+    let gatePassed: Bool
+    let bestOffset: Int?
+    let bestConfidence: Double
+    let staticConfidence: Double
+    let decision: String
+
+    static let empty = DamageScrollTrace(
+        bandWidth: 0, bandHeight: 0, coverage: 0, gatePassed: false,
+        bestOffset: nil, bestConfidence: 0, staticConfidence: 0, decision: "none"
+    )
+}
+
 struct DamageScrollClassifierConfig: Equatable, Sendable {
     // Band must span at least this fraction of contentRect width to be a scroll
     // candidate, per the spike (real scroll bands are near full content width).
@@ -92,6 +110,12 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
 
     // Provisional defaults. The spike log (/tmp/agentdesk-capture-damage.log)
     // is the data to calibrate these against before they are locked.
+    //
+    // maxTileCoverageRatio is deliberately small: an un-scrolled tile is a raw
+    // LZFSE bitmap sent over the RELIABLE graphics channel, so a near-full-frame
+    // tile (~600KB) saturates the single-unacked-frame fence and freezes the
+    // pump. Anything bigger than this fraction must go to HEVC instead, which is
+    // built for full-frame motion. R75 device run confirmed 0.6 froze.
     static let `default` = DamageScrollClassifierConfig(
         minBandWidthRatio: 0.6,
         minBandHeight: 80,
@@ -101,7 +125,7 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
         lumaTolerance: 24,
         maxCandidateProbes: 5,
         verifyExtent: 256,
-        maxTileCoverageRatio: 0.6
+        maxTileCoverageRatio: 0.15
     )
 }
 
@@ -119,8 +143,19 @@ struct DamageScrollClassifier {
         current: ScrollDeltaSurface,
         hint: ScrollActivityHint?
     ) -> DamageScrollClassification {
+        classifyTraced(damageRects: damageRects, contentRect: contentRect, previous: previous, current: current, hint: hint).0
+    }
+
+    func classifyTraced(
+        damageRects: [PixelRect],
+        contentRect: PixelRect,
+        previous: ScrollDeltaSurface,
+        current: ScrollDeltaSurface,
+        hint: ScrollActivityHint?
+    ) -> (DamageScrollClassification, DamageScrollTrace) {
         guard previous.width == current.width, previous.height == current.height else {
-            return .fullFrame(reason: "surface-size-changed")
+            return (.fullFrame(reason: "surface-size-changed"),
+                    DamageScrollTrace(bandWidth: 0, bandHeight: 0, coverage: 0, gatePassed: false, bestOffset: nil, bestConfidence: 0, staticConfidence: 0, decision: "size-changed"))
         }
         let clamped = damageRects
             .map { $0.clamped(toWidth: current.width, height: current.height) }
@@ -130,38 +165,59 @@ struct DamageScrollClassifier {
             // changed, so an absent or degenerate damage region means the
             // change extent is unknown, not that nothing moved. Refresh the
             // whole frame rather than risk leaving a stale screen.
-            return .fullFrame(reason: "no-damage-info")
+            return (.fullFrame(reason: "no-damage-info"),
+                    DamageScrollTrace(bandWidth: 0, bandHeight: 0, coverage: 0, gatePassed: false, bestOffset: nil, bestConfidence: 0, staticConfidence: 0, decision: "no-damage-info"))
         }
 
-        let contentWidth = contentRect.area > 0 ? contentRect.width : current.width
-        if let hint, let offset = scrollOffset(band: union, contentWidth: contentWidth, previous: previous, current: current, hint: hint) {
-            return .scroll(region: union, dx: offset.dx, dy: offset.dy)
-        }
-
-        // No scroll: tile the damage, fall back to a full frame when the damage
-        // covers most of the surface (the graphics tile path would not pay
-        // there). Use summed rect area, not the union bounding box, so two small
-        // rects in opposite corners are not penalised as if they were one huge
-        // rect. Overlap can over-count, so cap the ratio at the surface area.
         let surfaceArea = max(1, current.width * current.height)
         let damageArea = min(surfaceArea, clamped.reduce(0) { $0 + $1.area })
         let coverage = Double(damageArea) / Double(surfaceArea)
-        if coverage <= config.maxTileCoverageRatio {
-            return .tiles(clamped)
+        let contentWidth = contentRect.area > 0 ? contentRect.width : current.width
+
+        if let hint {
+            let search = scrollOffsetSearch(band: union, contentWidth: contentWidth, previous: previous, current: current, hint: hint)
+            if let offset = search.offset {
+                return (.scroll(region: union, dx: offset.dx, dy: offset.dy),
+                        DamageScrollTrace(bandWidth: union.width, bandHeight: union.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "scroll"))
+            }
+            // Scroll attempt failed: tile if small enough, else HEVC. Carry the
+            // real confidences so the device log shows why scroll was rejected.
+            if coverage <= config.maxTileCoverageRatio {
+                return (.tiles(clamped),
+                        DamageScrollTrace(bandWidth: union.width, bandHeight: union.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "tiles-scroll-miss"))
+            }
+            return (.fullFrame(reason: "damage-too-large-no-scroll"),
+                    DamageScrollTrace(bandWidth: union.width, bandHeight: union.height, coverage: coverage, gatePassed: search.gatePassed, bestOffset: search.bestOffset, bestConfidence: search.bestConfidence, staticConfidence: search.staticConfidence, decision: "fullframe-scroll-miss"))
         }
-        return .fullFrame(reason: "damage-too-large-no-scroll")
+
+        // No hint: tile small damage, else HEVC. Summed rect area (not the union
+        // bounding box) so scattered rects are not penalised; capped at surface.
+        if coverage <= config.maxTileCoverageRatio {
+            return (.tiles(clamped),
+                    DamageScrollTrace(bandWidth: union.width, bandHeight: union.height, coverage: coverage, gatePassed: false, bestOffset: nil, bestConfidence: 0, staticConfidence: 0, decision: "tiles-no-hint"))
+        }
+        return (.fullFrame(reason: "damage-too-large-no-scroll"),
+                DamageScrollTrace(bandWidth: union.width, bandHeight: union.height, coverage: coverage, gatePassed: false, bestOffset: nil, bestConfidence: 0, staticConfidence: 0, decision: "fullframe-no-hint"))
     }
 
-    private func scrollOffset(
+    struct OffsetSearch {
+        let offset: ScrollDeltaOffset?
+        let gatePassed: Bool
+        let bestOffset: Int?
+        let bestConfidence: Double
+        let staticConfidence: Double
+    }
+
+    private func scrollOffsetSearch(
         band: PixelRect,
         contentWidth: Int,
         previous: ScrollDeltaSurface,
         current: ScrollDeltaSurface,
         hint: ScrollActivityHint
-    ) -> ScrollDeltaOffset? {
+    ) -> OffsetSearch {
         let minBandWidth = Int(Double(contentWidth) * config.minBandWidthRatio)
         guard band.width >= minBandWidth, band.height >= config.minBandHeight else {
-            return nil
+            return OffsetSearch(offset: nil, gatePassed: false, bestOffset: nil, bestConfidence: 0, staticConfidence: 0)
         }
 
         // Probe the predicted offset plus its closest hinted neighbours, deduped
@@ -172,7 +228,9 @@ struct DamageScrollClassifier {
         for candidate in [hint.predictedOffsetPx] + hint.candidateOffsets where candidate != 0 {
             if seen.insert(candidate).inserted { candidates.append(candidate) }
         }
-        guard !candidates.isEmpty else { return nil }
+        guard !candidates.isEmpty else {
+            return OffsetSearch(offset: nil, gatePassed: true, bestOffset: nil, bestConfidence: 0, staticConfidence: 0)
+        }
         candidates.sort { abs($0 - hint.predictedOffsetPx) < abs($1 - hint.predictedOffsetPx) }
         let probes = candidates.prefix(max(1, config.maxCandidateProbes))
 
@@ -187,15 +245,16 @@ struct DamageScrollClassifier {
                 best = (candidate, confidence)
             }
         }
-        guard let best, best.offset != 0,
-              best.confidence >= config.acceptConfidence,
-              best.confidence - staticConfidence >= config.minStaticMargin else {
-            return nil
+        guard let best else {
+            return OffsetSearch(offset: nil, gatePassed: true, bestOffset: nil, bestConfidence: 0, staticConfidence: staticConfidence)
         }
-        switch hint.axis {
-        case .vertical: return ScrollDeltaOffset(dx: 0, dy: best.offset)
-        case .horizontal: return ScrollDeltaOffset(dx: best.offset, dy: 0)
-        }
+        let accepted = best.offset != 0
+            && best.confidence >= config.acceptConfidence
+            && best.confidence - staticConfidence >= config.minStaticMargin
+        let resolved: ScrollDeltaOffset? = accepted
+            ? (hint.axis == .vertical ? ScrollDeltaOffset(dx: 0, dy: best.offset) : ScrollDeltaOffset(dx: best.offset, dy: 0))
+            : nil
+        return OffsetSearch(offset: resolved, gatePassed: true, bestOffset: best.offset, bestConfidence: best.confidence, staticConfidence: staticConfidence)
     }
 
     // A thin stripe centered in the band along the axis of motion. Verifying a

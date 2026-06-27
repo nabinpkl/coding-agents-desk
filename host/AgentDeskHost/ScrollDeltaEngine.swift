@@ -801,7 +801,7 @@ struct ScrollDeltaEngine {
         }
         let content = frame.contentRectPixels
             ?? PixelRect(x: 0, y: 0, width: current.width, height: current.height)
-        let classification = damageClassifier.classify(
+        let (classification, trace) = damageClassifier.classifyTraced(
             damageRects: frame.damageRects,
             contentRect: content,
             previous: previous,
@@ -831,13 +831,13 @@ struct ScrollDeltaEngine {
                 return ScrollDeltaResult(
                     kind: .rejected("damage-scroll-envelope-build-failed"),
                     envelope: nil,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: offset, region: region, scrollHint: scrollHint, acceptedBy: "damage", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: offset, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
                 )
             }
             return ScrollDeltaResult(
                 kind: .accepted,
                 envelope: envelope,
-                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: offset, region: region, scrollHint: scrollHint, acceptedBy: "damage", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: offset, region: region, scrollHint: scrollHint, trace: trace, acceptedBy: "damage", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
             )
         case .tiles(let rects):
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
@@ -848,27 +848,27 @@ struct ScrollDeltaEngine {
                 return ScrollDeltaResult(
                     kind: .rejected("damage-tile-envelope-build-failed"),
                     envelope: nil,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
                 )
             }
             return ScrollDeltaResult(
                 kind: .accepted,
                 envelope: envelope,
-                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), offset: nil, region: PixelRect.union(of: rects), scrollHint: scrollHint, trace: trace, acceptedBy: "damage-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
             )
         case .fullFrame(let reason):
             pendingSurface = nil
             return ScrollDeltaResult(
                 kind: .rejected("damage-fullframe-\(reason)"),
                 envelope: nil,
-                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: nil, offset: nil, region: nil, scrollHint: scrollHint, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: nil, offset: nil, region: nil, scrollHint: scrollHint, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
             )
         case .noChange:
             pendingSurface = nil
             return ScrollDeltaResult(
                 kind: .rejected("damage-nochange"),
                 envelope: nil,
-                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: nil, offset: nil, region: nil, scrollHint: scrollHint, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: nil, offset: nil, region: nil, scrollHint: scrollHint, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
             )
         }
     }
@@ -911,42 +911,50 @@ struct ScrollDeltaEngine {
         offset: ScrollOffset?,
         region: PixelRect?,
         scrollHint: ScrollActivityHint?,
+        trace: DamageScrollTrace,
         acceptedBy: String?,
         surfaceWidth: Int,
         surfaceHeight: Int
     ) -> ScrollDeltaDiagnostics {
-        ScrollDeltaDiagnostics(
+        // Honest values from the classifier trace: confidence is the real best
+        // shifted match, secondBestConfidence carries the no-shift (static)
+        // match, and bestDx/bestDy carry the best offset the search found even
+        // when it was rejected. acceptedBy carries the decision string so the
+        // device log shows exactly why a scroll was or was not taken.
+        let axisVertical = scrollHint?.axis != .horizontal
+        return ScrollDeltaDiagnostics(
             probeMs: probeMs,
             payloadBuildMs: payloadBuildMs,
             acceptedDx: offset?.dx,
             acceptedDy: offset?.dy,
-            confidence: offset != nil ? 1.0 : 0.0,
-            timeoutReason: nil,
+            confidence: trace.bestConfidence,
+            timeoutReason: trace.decision,
             sampledPixelCount: 0,
-            bestDx: offset?.dx,
-            bestDy: offset?.dy,
+            bestDx: axisVertical ? nil : trace.bestOffset,
+            bestDy: axisVertical ? trace.bestOffset : nil,
+            secondBestConfidence: trace.staticConfidence,
             hintActive: scrollHint != nil,
             hintAxis: scrollHint?.axis.rawValue,
             hintPredictedOffset: scrollHint?.predictedOffsetPx,
             hintCandidates: scrollHint?.candidateOffsets ?? [],
             hintSource: scrollHint?.source.rawValue ?? "damage",
-            acceptedBy: acceptedBy,
+            acceptedBy: acceptedBy ?? trace.decision,
             regionStable: region != nil,
             regionSource: "damage",
             regionX: region?.x,
             regionY: region?.y,
-            regionWidth: region?.width,
-            regionHeight: region?.height,
+            regionWidth: region?.width ?? trace.bandWidth,
+            regionHeight: region?.height ?? trace.bandHeight,
             viewportStable: offset != nil,
             viewportSource: offset != nil ? "damage" : nil,
             viewportX: region?.x,
             viewportY: region?.y,
-            viewportWidth: region?.width,
-            viewportHeight: region?.height,
+            viewportWidth: region?.width ?? trace.bandWidth,
+            viewportHeight: region?.height ?? trace.bandHeight,
             outerRegionX: region?.x,
             outerRegionY: region?.y,
-            outerRegionWidth: region?.width,
-            outerRegionHeight: region?.height
+            outerRegionWidth: region?.width ?? trace.bandWidth,
+            outerRegionHeight: region?.height ?? trace.bandHeight
         )
     }
 
