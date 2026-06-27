@@ -51,6 +51,14 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
         defaultValue: 256
     )
+    // ADR-0025 carrier keepalive cadence. The datagram carrier is host->client only,
+    // so with nothing flowing back the host's QUIC idle timer fires (~30s) and drops
+    // the carrier. A small keepalive control datagram on this interval keeps the host
+    // hearing from the client. Must stay well under the 30s idle window.
+    static let ownedMediaKeepaliveIntervalMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_KEEPALIVE_INTERVAL_MS",
+        defaultValue: 5_000
+    )
     // ADR-0025 motion carrier switch (mirrors the host). ON by default now that the
     // video path is device-validated: the client accepts the HEVC datagram stream and
     // renders the video layer. Set the env var to 0/false to render only the retained

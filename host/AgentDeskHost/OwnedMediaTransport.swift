@@ -440,6 +440,13 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         let options = NWProtocolQUIC.Options(alpn: [configuration.alpn])
         options.direction = .bidirectional
         options.isDatagram = configuration.usesDatagrams
+        // Park the reliable channel against the default ~30s QUIC idle timeout (the
+        // black-flash trigger under always_video, where it carries no frames after the
+        // handshake). Negotiated as the min of both ends, so this mirrors the client.
+        // The carrier's liveness is the client keepalive, not the idle timeout; a dead
+        // client still drops the carrier within its own ~30s window. Bridge until the
+        // reliable channel is retired for video-only (carrier-auth follow-up / ADR).
+        options.idleTimeout = 86_400_000
         if let maxDatagramFrameSize = configuration.maxDatagramFrameSize {
             options.maxDatagramFrameSize = maxDatagramFrameSize
         }

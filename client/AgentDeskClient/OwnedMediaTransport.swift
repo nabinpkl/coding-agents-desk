@@ -49,6 +49,9 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     // and keyframe requests (client -> host). Datagrams flow at the group level via
     // setReceiveHandler / group.send; there is no per-stream member connection.
     private var videoDatagramGroup: NWConnectionGroup?
+    // ADR-0025 carrier keepalive timer. Runs on `queue`; sends a keepalive control
+    // datagram so the host's idle timer never fires on the one-directional carrier.
+    private var keepaliveTimer: DispatchSourceTimer?
     private var connection: NWConnection?
     private var controlConnection: NWConnection?
     private var pendingConnection: NWConnection?
@@ -258,13 +261,47 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         group.stateUpdateHandler = { [weak self] state in
             self?.logger.notice("owned media datagram group state=\(String(describing: state), privacy: .public)")
             ownedMediaStderrTrace("video-datagram-group-state state=\(String(describing: state))")
-            if case .ready = state { ownedMediaStderrTrace("video-datagram-carrier-ready") }
+            switch state {
+            case .ready:
+                ownedMediaStderrTrace("video-datagram-carrier-ready")
+                self?.startCarrierKeepalive()
+            case .failed, .cancelled:
+                self?.stopCarrierKeepalive()
+            default:
+                break
+            }
         }
         ownedMediaStderrTrace("video-datagram-dial host=\(self.plan.host) port=\(Config.ownedMediaDatagramPort)")
         group.start(queue: self.queue)
     }
 
+    // ADR-0025 carrier keepalive. The carrier is host->client only, so with no traffic
+    // flowing back the host's QUIC idle timer fires (~30s) and drops the connection (the
+    // periodic black flash and carrier re-dial). A keepalive control datagram every
+    // keepaliveIntervalMs keeps the host hearing from the client, so the carrier stays
+    // warm through idle periods. The host ignores the keepalive for keyframe purposes;
+    // its only effect is resetting the connection's idle timer.
+    private func startCarrierKeepalive() {
+        let intervalMs = Config.ownedMediaKeepaliveIntervalMs
+        guard intervalMs > 0 else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        let interval = DispatchTimeInterval.milliseconds(intervalMs)
+        timer.schedule(deadline: .now() + interval, repeating: interval)
+        timer.setEventHandler { [weak self] in
+            self?.sendVideoControl(OwnedMediaControlMessage(kind: .keepalive, frameId: 0))
+        }
+        keepaliveTimer?.cancel()
+        keepaliveTimer = timer
+        timer.resume()
+    }
+
+    private func stopCarrierKeepalive() {
+        keepaliveTimer?.cancel()
+        keepaliveTimer = nil
+    }
+
     func stop() {
+        stopCarrierKeepalive()
         receiveTask?.cancel()
         receiveTask = nil
         self.pendingConnection?.cancel()
@@ -472,6 +509,14 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         let options = NWProtocolQUIC.Options(alpn: [alpn])
         options.direction = .bidirectional
         options.isDatagram = false
+        // Park the reliable channel. Under always_video it carries no frames after the
+        // handshake, so the default ~30s QUIC idle timeout would fire and its reconnect
+        // and surface-reset churn blanks the screen (the black flash) since there is no
+        // tile surface to fall back to. A long idle timeout keeps it quietly alive for
+        // the session; carrier liveness is the keepalive, not this channel. Negotiated
+        // as the min of both ends, so the host sets the same. Bridge until the reliable
+        // channel is retired for video-only (carrier-auth follow-up / ADR).
+        options.idleTimeout = 86_400_000
         // The reliable graphics group carries only streams. The motion carrier's
         // datagrams ride a separate isDatagram connection, never this group.
         // ADR-0022: two app streams per connection (plus the group's implicit
