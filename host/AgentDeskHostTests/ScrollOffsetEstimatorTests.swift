@@ -102,7 +102,7 @@ struct ScrollOffsetEstimatorTests {
     }
 
     // A fast Retina flick moves more than the old 400px search cap in one frame.
-    // The projection scans the full band extent, so the large offset is found.
+    // The hash vote scans the full band extent, so the large offset is found.
     @Test func measuresLargeOffsetBeyondOldCap() {
         let dy = 600
         let previous = Self.verticalSurface(width: 480, height: 900, rowValue: Self.pattern)
@@ -116,7 +116,8 @@ struct ScrollOffsetEstimatorTests {
     }
 
     // The newly-revealed leading strip (rows whose source falls off the surface)
-    // is excluded by overlap-only scoring; the offset is still measured.
+    // has no overlap partner and so cannot vote; the offset is still measured from
+    // the rows that translated.
     @Test func recoversOffsetWithExposedStrip() {
         let dy = 28
         let previous = Self.verticalSurface(width: 640, height: 600, rowValue: Self.pattern)
@@ -132,8 +133,27 @@ struct ScrollOffsetEstimatorTests {
         #expect(result == dy)
     }
 
-    // A sticky header (top rows identical in both frames) carries no scroll
-    // evidence and is excluded as unchanged; the scrolled remainder is measured.
+    // A real scroll where a fraction of rows re-rasterized (the sub-pixel case the
+    // old verify floor rejected): most rows still translate byte-exact, so the
+    // dominant offset wins the vote. The residual corrects the differing rows.
+    @Test func measuresOffsetWhenAFractionOfRowsDiffer() {
+        let dy = 24
+        let previous = Self.verticalSurface(width: 640, height: 600, rowValue: Self.pattern)
+        // One row in eight is replaced by unrelated content instead of the shift.
+        let current = Self.verticalSurface(width: 640, height: 600) { y in
+            (y % 8 == 0) ? Self.pattern2(y &* 7 &+ 3) : Self.pattern(y - dy)
+        }
+        let band = PixelRect(x: 100, y: 50, width: 400, height: 400)
+
+        let result = ScrollOffsetEstimator().measure(
+            band: band, previous: previous, current: current, axis: .vertical
+        )
+        #expect(result == dy)
+    }
+
+    // A sticky header (top rows identical in both frames) does not match the shift,
+    // so those rows abstain from the vote; the scrolled remainder still carries a
+    // clear majority and the offset is measured.
     @Test func measuresThroughStickyHeader() {
         let dy = 36
         let headerHeight = 48
@@ -150,7 +170,7 @@ struct ScrollOffsetEstimatorTests {
     }
 
     // A full-region repaint unrelated to the previous frame by any shift has no
-    // offset that explains the changed pixels: returns nil so the caller tiles.
+    // offset that makes a majority of rows hash-equal: returns nil so the caller tiles.
     @Test func rejectsNonTranslatingRepaint() {
         let previous = Self.verticalSurface(width: 640, height: 600, rowValue: Self.pattern)
         let current = Self.verticalSurface(width: 640, height: 600, rowValue: Self.pattern2)
@@ -175,8 +195,8 @@ struct ScrollOffsetEstimatorTests {
 
     // The direction is recovered from the surface, not the input: the same
     // downward scroll is measured to +dy whether or not the input sign agreed,
-    // because the search scans both directions and the verify floor confirms only
-    // the real translation. This removes the fragile input-to-content sign mapping.
+    // because the vote scans both directions and only the real translation wins
+    // the hash majority. This removes the fragile input-to-content sign mapping.
     @Test func measuresDirectionFromSurfaceNotInput() {
         let dy = 30
         let previous = Self.verticalSurface(width: 640, height: 600, rowValue: Self.pattern)

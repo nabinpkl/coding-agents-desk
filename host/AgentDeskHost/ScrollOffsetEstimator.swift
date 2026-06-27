@@ -1,67 +1,63 @@
 import Foundation
 
-// Measures the exact pixel offset of a scroll that input has already DECLARED.
+// Proposes the dominant integer offset of a scroll that input has already
+// DECLARED, by row/column content-hash matching (ADR-0024).
 //
-// Input tells the host that a scroll is happening and on which axis (the phone
-// caused it); this unit measures the signed magnitude. The search is a 1-D
-// projection correlation along the declared axis, scanning the full band extent
-// in both directions. There is no offset cap: a fast Retina flick of more than
-// 400 native px per frame is found here where the old brute-force probe (capped
-// at 400) could not. The direction is recovered from the surface rather than
-// trusted from the input delta, whose mapping to on-screen content direction
-// depends on the OS scroll-direction setting; the verify floor below makes the
-// both-direction search safe, so a wrong direction simply fails to verify.
+// Input tells the host a scroll is happening and on which axis (the phone caused
+// it); this unit proposes its signed magnitude. There is no verify floor and no
+// luma tolerance: the predict-and-correct engine applies the proposed shift as a
+// copyRect and then tiles the residual (the pixels that still differ against the
+// shifted surface), so an imperfect proposal is corrected, not rejected. This
+// unit's only job is to name the shift a copyRect should try.
 //
-// The projection nominates the most likely offsets; a thin 2-D overlap verify
-// disposes of them. A non-translating repaint, or two regions moving
-// differently, produces no offset that explains the changed pixels on the verify
-// stripe, so measure() returns nil and the caller tiles the region (still
-// readable) instead of applying a torn copy. Static or uniform content also
-// returns nil: with nothing changed, the explained fraction is zero.
+// Method: hash each band row (vertical axis) or column (horizontal axis) of both
+// surfaces over the band's cross extent, with the same FNV-1a the slot cache uses.
+// For a vertical scroll of dy, a row that merely moved is byte-identical, so the
+// current row i equals the previous row i-dy; the offset that makes the most rows
+// hash-equal over their overlap is the dominant shift. An integer-pixel scroll
+// keeps interior rows byte-identical, so the true offset wins by a wide margin
+// while sub-pixel-changed rows simply do not vote (and the residual corrects
+// them). The direction is recovered from the surface, not trusted from the input
+// delta, whose mapping to on-screen content direction depends on the OS
+// scroll-direction setting: both signs are searched and the real translation wins.
 //
-// Scoring is overlap-only and changed-pixel-only, the same principle proven in
-// the previous classifier: a scrolled band is mostly uniform background that
-// matches at any offset, and the newly-revealed leading strip has no on-surface
-// source, so both are excluded and only the moved content drives the measurement.
-// Tuning for ScrollOffsetEstimator. Top-level (not nested) to avoid shadowing the
-// global Config from which its defaults are sourced.
+// Returns nil when no offset dominates: a non-translating repaint, static or
+// uniform content, or two regions moving differently leave no offset that makes a
+// majority of overlapping bands hash-equal, so the caller tiles the band instead
+// of copying a shift that explains nothing.
+//
+// Top-level (not nested) to avoid shadowing the global Config from which its
+// defaults are sourced.
 struct ScrollOffsetEstimatorConfig: Equatable, Sendable {
     // Band geometry gates, measured on the band itself (never relative to the
     // full, possibly multi-monitor surface): a scroll band is long along the
     // axis of motion and wide enough across it to sample.
     let minScrollExtentPx: Int
     let minCrossExtentPx: Int
-    // Per-sample luma match tolerance.
-    let lumaTolerance: Int
-    // Thin 2-D verify stripe extent (band height for vertical, width for
-    // horizontal) so verification stays O(stripe), not O(band).
-    let verifyExtent: Int
-    // Minimum fraction of the stripe's changed pixels a candidate offset must
-    // explain to be accepted. The single correctness gate that replaced the
-    // old confidence-knob cluster.
-    let verifyFloor: Double
 
     static let `default` = ScrollOffsetEstimatorConfig(
         minScrollExtentPx: Config.hybridClassifierMinScrollExtentPx,
-        minCrossExtentPx: Config.hybridClassifierMinCrossExtentPx,
-        lumaTolerance: Config.hybridClassifierLumaTolerance,
-        verifyExtent: Config.hybridClassifierVerifyExtent,
-        verifyFloor: Config.hybridScrollOffsetVerifyFloor
+        minCrossExtentPx: Config.hybridClassifierMinCrossExtentPx
     )
 }
 
 struct ScrollOffsetEstimator {
-    // Column/row stride for the 1-D projection. The projection only nominates
-    // candidates that a full 2-D stripe then verifies, so a coarse stride keeps it
-    // cheap without affecting correctness.
-    private static let projectionStep = 4
-    // Number of top projection peaks handed to the 2-D verify. The projection's
-    // column averaging can blur the true peak by a row or two; verifying the few
-    // best candidates recovers it. The first to clear the floor wins.
-    private static let candidateCount = 3
-    // Floor on verify-stripe changed samples, so a stripe where almost nothing
-    // moved cannot accept an offset on a handful of coincidental matches.
-    private static let minVerifyChangedSamples = 8
+    // A proposed offset must make at least this many bands hash-equal: an absolute
+    // floor against coincidental hash collisions, so a large offset whose overlap is
+    // a handful of bands cannot nominate a shift on a few accidental matches.
+    private static let minMatchedBands = 8
+    // ...and at least this fraction of the offset's overlapping bands. An
+    // integer-pixel scroll keeps the interior byte-identical, so the real offset
+    // clears a wide majority while collision noise sits near zero. This structural
+    // majority is the only acceptance gate; it does not need tuning because the
+    // residual corrects whatever the shift leaves behind.
+    private static let dominanceRatio = 0.5
+
+    // FNV-1a 64-bit, the same hash TileContentCache uses for slot content. Inlined
+    // over the pixel pointer here to hash each band row/column without allocating a
+    // Data slice per band.
+    private static let fnvOffset: UInt64 = 0xcbf29ce484222325
+    private static let fnvPrime: UInt64 = 0x00000100000001B3
 
     private let config: ScrollOffsetEstimatorConfig
 
@@ -70,7 +66,7 @@ struct ScrollOffsetEstimator {
     }
 
     // Returns the signed pixel offset (dy for vertical, dx for horizontal) of the
-    // scroll, or nil when no offset explains the change well enough to copy.
+    // scroll, or nil when no offset dominates the row/column hash vote.
     func measure(
         band: PixelRect,
         previous: ScrollDeltaSurface,
@@ -83,195 +79,86 @@ struct ScrollOffsetEstimator {
         let crossExtent = axis == .vertical ? clamped.width : clamped.height
         guard alongExtent >= config.minScrollExtentPx, crossExtent >= config.minCrossExtentPx else { return nil }
 
-        let candidates = projectionCandidates(band: clamped, previous: previous, current: current, axis: axis)
-        for candidate in candidates {
-            if verify(offset: candidate, band: clamped, previous: previous, current: current, axis: axis) {
-                return candidate
-            }
-        }
-        return nil
-    }
+        let previousHashes = bandHashes(band: clamped, surface: previous, axis: axis)
+        let currentHashes = bandHashes(band: clamped, surface: current, axis: axis)
+        let n = previousHashes.count
+        guard n > 1, currentHashes.count == n else { return nil }
 
-    // Build the 1-D luma projection of the band along the axis for both surfaces,
-    // then score every offset in BOTH directions by the fraction of CHANGED
-    // projection rows the shift explains. Returns the top signed offsets by score
-    // (descending), at most candidateCount, which the 2-D verify then confirms.
-    private func projectionCandidates(
-        band: PixelRect,
-        previous: ScrollDeltaSurface,
-        current: ScrollDeltaSurface,
-        axis: ScrollActivityAxis
-    ) -> [Int] {
-        let previousProjection = projection(band: band, surface: previous, axis: axis)
-        let currentProjection = projection(band: band, surface: current, axis: axis)
-        let n = previousProjection.count
-        guard n > 1, currentProjection.count == n else { return [] }
-        let tolerance = config.lumaTolerance
-
-        // Indices that changed at offset 0: only these carry scroll evidence. An
-        // unchanged projection row is background or a sticky header and is excluded.
-        var changed = [Int]()
-        changed.reserveCapacity(n)
-        for i in 0..<n where abs(Int(currentProjection[i]) - Int(previousProjection[i])) > tolerance {
-            changed.append(i)
-        }
-        guard !changed.isEmpty else { return [] }
-
-        let maxShift = n - 1
-        let minOverlap = max(2, changed.count / 4)
-        var scored = [(offset: Int, score: Double)]()
-        scored.reserveCapacity(2 * maxShift)
+        // Vote every signed offset that keeps some overlap, scoring exact band-hash
+        // matches. The true shift matches nearly the whole overlap; every other
+        // offset matches only at the collision floor.
+        var bestOffset = 0
+        var bestMatched = 0
+        var bestOverlap = 0
         for sign in [1, -1] {
-            for magnitude in 1...maxShift {
-                let signedOffset = sign * magnitude
-                var total = 0
+            for magnitude in 1..<n {
+                let offset = sign * magnitude
+                let lo = max(0, offset)
+                let hi = min(n, n + offset)
+                guard lo < hi else { continue }
                 var matched = 0
-                for i in changed {
-                    let source = i - signedOffset
-                    guard source >= 0, source < n else { continue }
-                    total += 1
-                    if abs(Int(currentProjection[i]) - Int(previousProjection[source])) <= tolerance {
-                        matched += 1
-                    }
+                var i = lo
+                while i < hi {
+                    if currentHashes[i] == previousHashes[i - offset] { matched += 1 }
+                    i += 1
                 }
-                // Require a non-trivial overlap so a 1-row coincidence cannot win.
-                guard total >= minOverlap else { continue }
-                scored.append((signedOffset, Double(matched) / Double(total)))
+                let overlap = hi - lo
+                // Prefer more matches; break a tie toward the smaller-magnitude shift.
+                if matched > bestMatched || (matched == bestMatched && abs(offset) < abs(bestOffset)) {
+                    bestMatched = matched
+                    bestOffset = offset
+                    bestOverlap = overlap
+                }
             }
         }
-        return scored
-            .sorted { $0.score > $1.score }
-            .prefix(Self.candidateCount)
-            .map(\.offset)
+
+        guard bestMatched >= Self.minMatchedBands,
+              Double(bestMatched) >= Self.dominanceRatio * Double(bestOverlap) else {
+            return nil
+        }
+        return bestOffset
     }
 
-    // Mean luma per row (vertical) or per column (horizontal) across the band,
-    // sampled at projectionStep, as UInt8. Pixels are BGRA.
-    private func projection(band: PixelRect, surface: ScrollDeltaSurface, axis: ScrollActivityAxis) -> [UInt8] {
-        let step = Self.projectionStep
-        return surface.pixels.withUnsafeBytes { raw -> [UInt8] in
+    // FNV-1a over each band row (vertical) or column (horizontal), across the band's
+    // cross extent, hashing all four BGRA channels so the comparison is exact-pixel.
+    private func bandHashes(band: PixelRect, surface: ScrollDeltaSurface, axis: ScrollActivityAxis) -> [UInt64] {
+        surface.pixels.withUnsafeBytes { raw -> [UInt64] in
             guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return [] }
             switch axis {
             case .vertical:
-                var result = [UInt8](repeating: 0, count: band.height)
+                // Each row is a contiguous byte run, so the hash walks it directly.
+                var result = [UInt64](repeating: 0, count: band.height)
                 for row in 0..<band.height {
-                    let y = band.y + row
-                    var sum = 0
-                    var count = 0
-                    var x = band.x
-                    while x < band.maxX {
-                        sum += Int(Self.luma(base, row: y, column: x, bytesPerRow: surface.bytesPerRow))
-                        count += 1
-                        x += step
+                    let rowStart = (band.y + row) * surface.bytesPerRow + band.x * 4
+                    let rowEnd = rowStart + band.width * 4
+                    var h = Self.fnvOffset
+                    var i = rowStart
+                    while i < rowEnd {
+                        h = (h ^ UInt64(base[i])) &* Self.fnvPrime
+                        i += 1
                     }
-                    result[row] = count > 0 ? UInt8(clamping: sum / count) : 0
+                    result[row] = h
                 }
                 return result
             case .horizontal:
-                var result = [UInt8](repeating: 0, count: band.width)
+                // Each column strides bytesPerRow between its pixels.
+                var result = [UInt64](repeating: 0, count: band.width)
                 for col in 0..<band.width {
-                    let x = band.x + col
-                    var sum = 0
-                    var count = 0
-                    var y = band.y
-                    while y < band.maxY {
-                        sum += Int(Self.luma(base, row: y, column: x, bytesPerRow: surface.bytesPerRow))
-                        count += 1
-                        y += step
+                    let colStart = band.y * surface.bytesPerRow + (band.x + col) * 4
+                    var h = Self.fnvOffset
+                    var y = 0
+                    while y < band.height {
+                        let p = colStart + y * surface.bytesPerRow
+                        h = (h ^ UInt64(base[p])) &* Self.fnvPrime
+                        h = (h ^ UInt64(base[p + 1])) &* Self.fnvPrime
+                        h = (h ^ UInt64(base[p + 2])) &* Self.fnvPrime
+                        h = (h ^ UInt64(base[p + 3])) &* Self.fnvPrime
+                        y += 1
                     }
-                    result[col] = count > 0 ? UInt8(clamping: sum / count) : 0
+                    result[col] = h
                 }
                 return result
             }
         }
-    }
-
-    // Verify a candidate offset on a thin centered 2-D stripe: of the pixels that
-    // changed at offset 0, the fraction the shift explains must clear verifyFloor.
-    // Overlap-only (a pixel whose shift source is off-surface is the newly-revealed
-    // strip and is excluded). Static content yields zero changed pixels and so
-    // never passes.
-    private func verify(
-        offset: Int,
-        band: PixelRect,
-        previous: ScrollDeltaSurface,
-        current: ScrollDeltaSurface,
-        axis: ScrollActivityAxis
-    ) -> Bool {
-        let stripe = verifyStripe(band: band, axis: axis, offset: offset, surfaceWidth: current.width, surfaceHeight: current.height)
-        let dx = axis == .horizontal ? offset : 0
-        let dy = axis == .vertical ? offset : 0
-        let tolerance = config.lumaTolerance
-
-        return previous.pixels.withUnsafeBytes { previousRaw -> Bool in
-            current.pixels.withUnsafeBytes { currentRaw -> Bool in
-                guard let previousBase = previousRaw.bindMemory(to: UInt8.self).baseAddress,
-                      let currentBase = currentRaw.bindMemory(to: UInt8.self).baseAddress else {
-                    return false
-                }
-                var changed = 0
-                var explained = 0
-                var y = stripe.y
-                while y < stripe.maxY {
-                    if y >= 0, y < current.height {
-                        var x = stripe.x
-                        while x < stripe.maxX {
-                            if x >= 0, x < current.width {
-                                let sourceX = x - dx
-                                let sourceY = y - dy
-                                if sourceX >= 0, sourceX < previous.width,
-                                   sourceY >= 0, sourceY < previous.height {
-                                    let currentLuma = Self.luma(currentBase, row: y, column: x, bytesPerRow: current.bytesPerRow)
-                                    let staticLuma = Self.luma(previousBase, row: y, column: x, bytesPerRow: previous.bytesPerRow)
-                                    if abs(Int(currentLuma) - Int(staticLuma)) > tolerance {
-                                        changed += 1
-                                        let shiftedLuma = Self.luma(previousBase, row: sourceY, column: sourceX, bytesPerRow: previous.bytesPerRow)
-                                        if abs(Int(currentLuma) - Int(shiftedLuma)) <= tolerance {
-                                            explained += 1
-                                        }
-                                    }
-                                }
-                            }
-                            x += 1
-                        }
-                    }
-                    y += 1
-                }
-                guard changed >= Self.minVerifyChangedSamples else { return false }
-                return Double(explained) / Double(changed) >= config.verifyFloor
-            }
-        }
-    }
-
-    // A thin stripe centered in the band's OVERLAP region for this offset, not its
-    // geometric center. At a large offset the geometric center can fall entirely
-    // inside the newly-exposed strip (no on-surface source), leaving the verify
-    // with zero overlap samples. Centering on the overlap interval keeps the
-    // verify on the moved content for any offset up to the band extent.
-    private func verifyStripe(band: PixelRect, axis: ScrollActivityAxis, offset: Int, surfaceWidth: Int, surfaceHeight: Int) -> PixelRect {
-        switch axis {
-        case .vertical:
-            let lo = max(band.y, max(0, offset))
-            let hi = min(band.maxY, surfaceHeight + min(0, offset))
-            let overlap = max(0, hi - lo)
-            let extent = min(config.verifyExtent, overlap)
-            let y = lo + (overlap - extent) / 2
-            return PixelRect(x: band.x, y: y, width: band.width, height: extent)
-        case .horizontal:
-            let lo = max(band.x, max(0, offset))
-            let hi = min(band.maxX, surfaceWidth + min(0, offset))
-            let overlap = max(0, hi - lo)
-            let extent = min(config.verifyExtent, overlap)
-            let x = lo + (overlap - extent) / 2
-            return PixelRect(x: x, y: band.y, width: extent, height: band.height)
-        }
-    }
-
-    private static func luma(_ base: UnsafePointer<UInt8>, row: Int, column: Int, bytesPerRow: Int) -> UInt8 {
-        let offset = row * bytesPerRow + column * 4
-        let b = Int(base[offset])
-        let g = Int(base[offset + 1])
-        let r = Int(base[offset + 2])
-        return UInt8(clamping: (77 * r + 150 * g + 29 * b) >> 8)
     }
 }
