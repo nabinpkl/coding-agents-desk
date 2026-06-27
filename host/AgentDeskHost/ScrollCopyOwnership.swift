@@ -82,6 +82,10 @@ struct ScrollCopyOwnership: Equatable {
         return true
     }
 
+    func isActive(nowUptimeNs: UInt64) -> Bool {
+        hasActiveOwnership(nowUptimeNs: nowUptimeNs)
+    }
+
     func hint(nowUptimeNs: UInt64) -> ScrollActivityHint? {
         if let latestInputHint, latestInputHint.isActive(nowUptimeNs: nowUptimeNs) {
             return latestInputHint
@@ -105,14 +109,7 @@ struct ScrollCopyOwnership: Equatable {
     }
 
     func allowsHevcFallback(nowUptimeNs: UInt64) -> Bool {
-        guard hasActiveOwnership(nowUptimeNs: nowUptimeNs),
-              let latestAcceptedAtUptimeNs else {
-            return true
-        }
-        if missCount >= config.maxMisses {
-            return true
-        }
-        return Self.elapsedNs(from: latestAcceptedAtUptimeNs, to: nowUptimeNs) >= config.fallbackAfterNs
+        !hasActiveOwnership(nowUptimeNs: nowUptimeNs)
     }
 
     private func hasActiveOwnership(nowUptimeNs: UInt64) -> Bool {

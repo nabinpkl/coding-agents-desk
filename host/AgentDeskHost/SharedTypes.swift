@@ -1399,6 +1399,7 @@ enum OwnedMediaControlKind: String, Codable, Equatable {
     case packetResendRequest = "packet-resend-request"
     case frameAck = "frame-ack"
     case graphicsResetRequest = "graphics-reset-request"
+    case keepalive = "keepalive"
 }
 
 struct OwnedMediaControlMessage: Codable, Equatable {
@@ -1643,6 +1644,11 @@ struct HybridScrollHEVCAdmission: Equatable {
         pendingIdleRefresh = true
     }
 
+    mutating func noteActiveScroll(nowUptimeNs: UInt64) {
+        guard pendingIdleRefresh else { return }
+        lastAcceptedScrollAtUptimeNs = nowUptimeNs
+    }
+
     mutating func idleRefreshDue(nowUptimeNs: UInt64, idleRefreshMs: Int) -> Bool {
         guard pendingIdleRefresh,
               let lastAcceptedScrollAtUptimeNs,
@@ -1651,6 +1657,14 @@ struct HybridScrollHEVCAdmission: Equatable {
         }
         pendingIdleRefresh = false
         return true
+    }
+
+    func idleRefreshEligible(nowUptimeNs: UInt64, idleRefreshMs: Int) -> Bool {
+        guard pendingIdleRefresh,
+              let lastAcceptedScrollAtUptimeNs else {
+            return false
+        }
+        return nowUptimeNs &- lastAcceptedScrollAtUptimeNs >= UInt64(idleRefreshMs) * 1_000_000
     }
 
     mutating func decisionAfterAcceptedScroll(nowUptimeNs: UInt64, scrollHEVCFps: Int) -> HybridScrollHEVCDecision {
@@ -1668,6 +1682,14 @@ struct HybridScrollHEVCAdmission: Equatable {
         guard let lastAcceptedScrollAtUptimeNs else { return true }
         return nowUptimeNs &- lastAcceptedScrollAtUptimeNs >= UInt64(max(0, fallbackGraceMs)) * 1_000_000
     }
+
+    func suppressesActiveScrollFallback(nowUptimeNs: UInt64, idleRefreshMs: Int) -> Bool {
+        guard pendingIdleRefresh,
+              let lastAcceptedScrollAtUptimeNs else {
+            return false
+        }
+        return nowUptimeNs &- lastAcceptedScrollAtUptimeNs < UInt64(max(0, idleRefreshMs)) * 1_000_000
+    }
 }
 
 enum OwnedHybridHEVCFallbackReason: String, Equatable, Sendable {
@@ -1677,6 +1699,7 @@ enum OwnedHybridHEVCFallbackReason: String, Equatable, Sendable {
     case graphicsSendFailed = "graphics-send-failed"
     case graphicsResetSendFailed = "graphics-reset-send-failed"
     case rejectedMotion = "rejected-motion"
+    case scrollRegionBeforeLock = "scroll-region-before-lock"
 
     var requestsKeyframe: Bool {
         false
@@ -1727,7 +1750,7 @@ struct HybridGraphicsRecoveryHEVCGate: Equatable {
         switch reason {
         case .graphicsDisconnected, .graphicsReset, .graphicsSendFailed, .graphicsResetSendFailed:
             return true
-        case .scrollTimeout, .rejectedMotion:
+        case .scrollTimeout, .rejectedMotion, .scrollRegionBeforeLock:
             return false
         }
     }

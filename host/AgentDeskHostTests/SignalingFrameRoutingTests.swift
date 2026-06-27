@@ -149,6 +149,30 @@ struct SignalingFrameRoutingTests {
         #expect(decoded.clientBacklogBytes == nil)
     }
 
+    @Test func ownedMediaKeepaliveControlMessageRoundTripsThroughCodable() throws {
+        let message = OwnedMediaControlMessage(kind: .keepalive, frameId: 0)
+        let data = try JSONEncoder().encode(message)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
+
+        #expect(decoded == message)
+        #expect(decoded.type == "owned-media-control")
+        #expect(decoded.kind == .keepalive)
+        #expect(decoded.frameId == 0)
+        #expect(decoded.packetIndexes.isEmpty)
+        #expect(decoded.totalFramesDecoded == nil)
+        #expect(decoded.renderGapMs == nil)
+        #expect(decoded.frameAgeMs == nil)
+        #expect(decoded.clientBacklogFrames == nil)
+        #expect(decoded.clientBacklogBytes == nil)
+        #expect(json.contains("\"k\":\"keepalive\""))
+        #expect(!json.contains("\"px\""))
+        #expect(!json.contains("\"td\""))
+        #expect(!json.contains("\"rg\""))
+        #expect(!json.contains("\"qf\""))
+        #expect(!json.contains("\"qb\""))
+    }
+
     @Test func ownedSurfaceUpdateIdOrdersOnlyGenerationThenFrame() {
         let committed = OwnedSurfaceUpdateId(surfaceGeneration: 2, frameId: 10)
 

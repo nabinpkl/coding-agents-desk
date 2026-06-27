@@ -50,6 +50,13 @@ struct ScrollDeltaDiagnostics: Equatable {
     let hintSource: String?
     let acceptedBy: String?
     let tieBreak: String?
+    let regionStable: Bool
+    let regionSource: String?
+    let regionX: Int?
+    let regionY: Int?
+    let regionWidth: Int?
+    let regionHeight: Int?
+    let fullSurfaceCopyRect: Bool
 
     init(
         probeMs: Double,
@@ -71,7 +78,14 @@ struct ScrollDeltaDiagnostics: Equatable {
         hintCandidates: [Int] = [],
         hintSource: String? = nil,
         acceptedBy: String? = nil,
-        tieBreak: String? = nil
+        tieBreak: String? = nil,
+        regionStable: Bool = false,
+        regionSource: String? = nil,
+        regionX: Int? = nil,
+        regionY: Int? = nil,
+        regionWidth: Int? = nil,
+        regionHeight: Int? = nil,
+        fullSurfaceCopyRect: Bool = false
     ) {
         self.probeMs = probeMs
         self.payloadBuildMs = payloadBuildMs
@@ -93,6 +107,13 @@ struct ScrollDeltaDiagnostics: Equatable {
         self.hintSource = hintSource
         self.acceptedBy = acceptedBy
         self.tieBreak = tieBreak
+        self.regionStable = regionStable
+        self.regionSource = regionSource
+        self.regionX = regionX
+        self.regionY = regionY
+        self.regionWidth = regionWidth
+        self.regionHeight = regionHeight
+        self.fullSurfaceCopyRect = fullSurfaceCopyRect
     }
 }
 
@@ -149,6 +170,9 @@ struct ScrollDeltaEngine {
     mutating func evaluate(
         _ frame: CapturedVideoFrame,
         scrollHint: ScrollActivityHint? = nil,
+        scrollRegion: ScrollRegion? = nil,
+        scrollRegionIsStable: Bool = true,
+        emitGraphicsBeforeRegionLock: Bool = true,
         detectionBudgetMs overrideDetectionBudgetMs: Double? = nil,
         allowBlindScan: Bool = true
     ) -> ScrollDeltaResult {
@@ -252,7 +276,8 @@ struct ScrollDeltaEngine {
                 currentPixelBuffer: frame.pixelBuffer,
                 startedAt: startedAt,
                 detectionBudgetMs: detectionBudgetMs,
-                scrollHint: activeHint
+                scrollHint: activeHint,
+                scrollRegion: scrollRegion
             )
         }
         let probeMs = elapsedMs(since: startedAt)
@@ -271,7 +296,11 @@ struct ScrollDeltaEngine {
                     scrollHint: activeHint,
                     acceptedBy: nil,
                     usedBlindScan: usedBlindScan,
-                    timeoutReasonOverride: ownedHintMiss ? "owned-scroll-miss" : nil
+                    timeoutReasonOverride: ownedHintMiss ? "owned-scroll-miss" : nil,
+                    scrollRegion: scrollRegion,
+                    regionStable: scrollRegionIsStable && scrollRegion != nil,
+                    surfaceWidth: currentWidth,
+                    surfaceHeight: currentHeight
                 )
             )
         }
@@ -282,9 +311,30 @@ struct ScrollDeltaEngine {
         }
         pendingSurface = current
         graphicsFrameId &+= 1
+        let shouldEmitGraphics = emitGraphicsBeforeRegionLock && scrollRegionIsStable && scrollRegion != nil
+        if !shouldEmitGraphics {
+            return ScrollDeltaResult(
+                kind: .accepted,
+                envelope: nil,
+                diagnostics: makeDiagnostics(
+                    probeMs: probeMs,
+                    payloadBuildMs: elapsedMs(since: payloadStartedAt),
+                    acceptedOffset: offset,
+                    probe: probe,
+                    scrollHint: activeHint,
+                    acceptedBy: activeHint == nil ? "blind" : "hint",
+                    usedBlindScan: activeHint == nil && allowBlindScan,
+                    scrollRegion: scrollRegion,
+                    regionStable: false,
+                    surfaceWidth: currentWidth,
+                    surfaceHeight: currentHeight
+                )
+            )
+        }
         let envelope = makeScrollEnvelope(
             current: current,
             offset: offset,
+            region: scrollRegion,
             capturedAtUptimeNs: frame.capturedAtUptimeNs
         )
         return ScrollDeltaResult(
@@ -297,7 +347,11 @@ struct ScrollDeltaEngine {
                 probe: probe,
                 scrollHint: activeHint,
                 acceptedBy: activeHint == nil ? "blind" : "hint",
-                usedBlindScan: activeHint == nil && allowBlindScan
+                usedBlindScan: activeHint == nil && allowBlindScan,
+                scrollRegion: scrollRegion,
+                regionStable: true,
+                surfaceWidth: currentWidth,
+                surfaceHeight: currentHeight
             )
         )
     }
@@ -349,7 +403,8 @@ struct ScrollDeltaEngine {
         currentPixelBuffer: CVPixelBuffer,
         startedAt: UInt64,
         detectionBudgetMs: Double,
-        scrollHint: ScrollActivityHint?
+        scrollHint: ScrollActivityHint?,
+        scrollRegion: ScrollRegion?
     ) -> ProbeOutcome {
         CVPixelBufferLockBaseAddress(currentPixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(currentPixelBuffer, .readOnly) }
@@ -378,7 +433,8 @@ struct ScrollDeltaEngine {
             confidenceMargin: Self.confidenceMargin,
             startedAt: startedAt,
             detectionBudgetMs: detectionBudgetMs,
-            elapsedMs: elapsedMs(since:)
+            elapsedMs: elapsedMs(since:),
+            region: scrollRegion
         ).bestOffset(scrollHint: scrollHint)
     }
 
@@ -390,7 +446,11 @@ struct ScrollDeltaEngine {
         scrollHint: ScrollActivityHint?,
         acceptedBy: String?,
         usedBlindScan: Bool = false,
-        timeoutReasonOverride: String? = nil
+        timeoutReasonOverride: String? = nil,
+        scrollRegion: ScrollRegion? = nil,
+        regionStable: Bool = false,
+        surfaceWidth: Int,
+        surfaceHeight: Int
     ) -> ScrollDeltaDiagnostics {
         ScrollDeltaDiagnostics(
             probeMs: probeMs,
@@ -412,7 +472,14 @@ struct ScrollDeltaEngine {
             hintCandidates: probe.hintCandidates,
             hintSource: scrollHint?.source.rawValue ?? (usedBlindScan ? "blind" : nil),
             acceptedBy: acceptedBy,
-            tieBreak: probe.tieBreak
+            tieBreak: probe.tieBreak,
+            regionStable: regionStable,
+            regionSource: scrollRegion?.source.diagnosticName,
+            regionX: scrollRegion?.x,
+            regionY: scrollRegion?.y,
+            regionWidth: scrollRegion?.width,
+            regionHeight: scrollRegion?.height,
+            fullSurfaceCopyRect: regionStable && (scrollRegion?.isFullSurface(width: surfaceWidth, height: surfaceHeight) ?? false)
         )
     }
 
@@ -510,35 +577,39 @@ struct ScrollDeltaEngine {
     private func makeScrollEnvelope(
         current: Surface,
         offset: ScrollOffset,
+        region: ScrollRegion?,
         capturedAtUptimeNs: UInt64
     ) -> OwnedGraphicsFrameEnvelope? {
+        guard let rect = region else { return nil }
         let copyCommand: OwnedGraphicsCommand
         let tileX: Int
         let tileY: Int
         let tileWidth: Int
         let tileHeight: Int
         if offset.dy != 0 {
-            let exposedY = offset.dy > 0 ? 0 : current.height + offset.dy
+            let exposedY = offset.dy > 0 ? rect.y : rect.maxY + offset.dy
             let exposedHeight = abs(offset.dy)
-            let stableHeight = current.height - exposedHeight
+            let stableHeight = rect.height - exposedHeight
+            guard stableHeight > 0 else { return nil }
             copyCommand = offset.dy > 0
-                ? .copyRect(srcX: 0, srcY: 0, dstX: 0, dstY: offset.dy, width: current.width, height: stableHeight)
-                : .copyRect(srcX: 0, srcY: exposedHeight, dstX: 0, dstY: 0, width: current.width, height: stableHeight)
-            tileX = 0
+                ? .copyRect(srcX: rect.x, srcY: rect.y, dstX: rect.x, dstY: rect.y + offset.dy, width: rect.width, height: stableHeight)
+                : .copyRect(srcX: rect.x, srcY: rect.y + exposedHeight, dstX: rect.x, dstY: rect.y, width: rect.width, height: stableHeight)
+            tileX = rect.x
             tileY = exposedY
-            tileWidth = current.width
+            tileWidth = rect.width
             tileHeight = exposedHeight
         } else {
-            let exposedX = offset.dx > 0 ? 0 : current.width + offset.dx
+            let exposedX = offset.dx > 0 ? rect.x : rect.maxX + offset.dx
             let exposedWidth = abs(offset.dx)
-            let stableWidth = current.width - exposedWidth
+            let stableWidth = rect.width - exposedWidth
+            guard stableWidth > 0 else { return nil }
             copyCommand = offset.dx > 0
-                ? .copyRect(srcX: 0, srcY: 0, dstX: offset.dx, dstY: 0, width: stableWidth, height: current.height)
-                : .copyRect(srcX: exposedWidth, srcY: 0, dstX: 0, dstY: 0, width: stableWidth, height: current.height)
+                ? .copyRect(srcX: rect.x, srcY: rect.y, dstX: rect.x + offset.dx, dstY: rect.y, width: stableWidth, height: rect.height)
+                : .copyRect(srcX: rect.x + exposedWidth, srcY: rect.y, dstX: rect.x, dstY: rect.y, width: stableWidth, height: rect.height)
             tileX = exposedX
-            tileY = 0
+            tileY = rect.y
             tileWidth = exposedWidth
-            tileHeight = current.height
+            tileHeight = rect.height
         }
         guard let exposed = tileData(surface: current, x: tileX, y: tileY, width: tileWidth, height: tileHeight),
               let compressed = compressLZFSE(exposed) else { return nil }

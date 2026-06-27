@@ -122,19 +122,22 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
     private let authorizer: OwnedMediaDatagramAuthorizer
     private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
     private let scrollActivityHintProvider: @Sendable () -> ScrollActivityHint?
+    private let scrollRegionHintProvider: @Sendable () -> ScrollRegionFocusHint?
 
     init(
         codec: OwnedMediaCodec,
         configuration: OwnedMediaEncodingConfiguration = .default,
         authorizer: @escaping OwnedMediaDatagramAuthorizer,
         graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer,
-        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
+        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil },
+        scrollRegionHintProvider: @escaping @Sendable () -> ScrollRegionFocusHint? = { nil }
     ) {
         self.codec = codec
         self.configuration = configuration
         self.authorizer = authorizer
         self.graphicsAuthorizer = graphicsAuthorizer
         self.scrollActivityHintProvider = scrollActivityHintProvider
+        self.scrollRegionHintProvider = scrollRegionHintProvider
     }
 
     func make() -> MediaTransport {
@@ -143,7 +146,8 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
             configuration: configuration,
             authorizer: authorizer,
             graphicsAuthorizer: graphicsAuthorizer,
-            scrollActivityHintProvider: scrollActivityHintProvider
+            scrollActivityHintProvider: scrollActivityHintProvider,
+            scrollRegionHintProvider: scrollRegionHintProvider
         )
     }
 }
@@ -406,6 +410,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let authorizer: OwnedMediaDatagramAuthorizer
     private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
     private let scrollActivityHintProvider: @Sendable () -> ScrollActivityHint?
+    private let scrollRegionHintProvider: @Sendable () -> ScrollRegionFocusHint?
     private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic")
     private let lock = NSLock()
     private var mediaDatagramListener: NWListener?
@@ -435,13 +440,15 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         configuration: OwnedMediaEncodingConfiguration = .default,
         authorizer: @escaping OwnedMediaDatagramAuthorizer,
         graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer,
-        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
+        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil },
+        scrollRegionHintProvider: @escaping @Sendable () -> ScrollRegionFocusHint? = { nil }
     ) {
         self.codec = codec
         self.configuration = configuration
         self.authorizer = authorizer
         self.graphicsAuthorizer = graphicsAuthorizer
         self.scrollActivityHintProvider = scrollActivityHintProvider
+        self.scrollRegionHintProvider = scrollRegionHintProvider
         var continuation: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { continuation = $0 }
         self.stateContinuation = continuation
@@ -896,6 +903,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             fallbackAfterMs: Config.hybridScrollFallbackAfterMs,
             maxMisses: Config.hybridScrollOwnershipMaxMisses
         ))
+        var scrollRegionTracker = ScrollRegionTracker()
         var scrollIdleRefreshWakeTask: Task<Void, Never>?
         defer { scrollIdleRefreshWakeTask?.cancel() }
         for await _ in mailbox.stream {
@@ -903,13 +911,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             diagnostics.setPhase(.idle)
             guard var frame = mailbox.takeLatest() else { continue }
             let pumpNowNs = DispatchTime.now().uptimeNanoseconds
-
-            if scrollHevcAdmission.idleRefreshDue(
-                nowUptimeNs: pumpNowNs,
-                idleRefreshMs: Config.hybridScrollIdleRefreshMs
-            ) {
-                requestKeyframe()
-                logger.notice("owned media scroll-idle-refresh requested idleMs=\(Config.hybridScrollIdleRefreshMs, privacy: .public)")
+            let pumpInputScrollHint = scrollActivityHintProvider()
+            scrollCopyOwnership.observeInputHint(pumpInputScrollHint)
+            if pumpInputScrollHint?.isActive(nowUptimeNs: pumpNowNs) == true ||
+                scrollCopyOwnership.isActive(nowUptimeNs: pumpNowNs) {
+                scrollHevcAdmission.noteActiveScroll(nowUptimeNs: pumpNowNs)
             }
 
             var timing = currentEncodeTiming(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
@@ -958,20 +964,48 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     continue
                 }
                 let nowBeforeProbe = DispatchTime.now().uptimeNanoseconds
+                let probeInputScrollHint = scrollActivityHintProvider()
+                scrollCopyOwnership.observeInputHint(probeInputScrollHint)
+                if probeInputScrollHint?.isActive(nowUptimeNs: nowBeforeProbe) == true ||
+                    scrollCopyOwnership.isActive(nowUptimeNs: nowBeforeProbe) {
+                    scrollHevcAdmission.noteActiveScroll(nowUptimeNs: nowBeforeProbe)
+                }
                 if scrollCopyOwnership.releaseIfExpired(nowUptimeNs: nowBeforeProbe) {
                     logger.notice("owned graphics scroll-ownership ownership=released reason=idle")
                 }
-                let inputScrollHint = scrollActivityHintProvider()
-                scrollCopyOwnership.observeInputHint(inputScrollHint)
                 let scrollHint = scrollCopyOwnership.hint(nowUptimeNs: nowBeforeProbe)
                 let allowBlindScan = scrollHint == nil
+                let regionHint = scrollRegionHintProvider()
+                let scrollRegionCandidate = regionHint.flatMap {
+                    scrollRegionTracker.candidate(
+                        from: $0,
+                        surfaceWidth: CVPixelBufferGetWidth(frame.pixelBuffer),
+                        surfaceHeight: CVPixelBufferGetHeight(frame.pixelBuffer),
+                        nowUptimeNs: nowBeforeProbe
+                    )
+                }
+                if scrollRegionTracker.releaseIfMissingCandidate(scrollRegionCandidate) {
+                    logger.notice("owned graphics scroll-region source=none stable=false rect=0,0,0,0 overlap=0 reason=missing-focus")
+                }
+                let regionLocked = scrollRegionTracker.isStable(candidate: scrollRegionCandidate)
+                let probeRegion = scrollRegionCandidate?.region
                 let graphics = scrollDeltaEngine.evaluate(
                     frame,
                     scrollHint: scrollHint,
+                    scrollRegion: probeRegion,
+                    scrollRegionIsStable: regionLocked,
+                    emitGraphicsBeforeRegionLock: regionLocked,
                     allowBlindScan: allowBlindScan
                 )
                 switch graphics.kind {
                 case .accepted:
+                    if let scrollRegionCandidate {
+                        let locked = scrollRegionTracker.observeValidation(
+                            candidate: scrollRegionCandidate,
+                            accepted: true
+                        )
+                        logger.notice("owned graphics scroll-region source=\(scrollRegionCandidate.region.source.diagnosticName, privacy: .public) stable=\(locked != nil, privacy: .public) rect=\(scrollRegionCandidate.region.x, privacy: .public),\(scrollRegionCandidate.region.y, privacy: .public),\(scrollRegionCandidate.region.width, privacy: .public),\(scrollRegionCandidate.region.height, privacy: .public) accepts=\(scrollRegionCandidate.region.stability.stableFrameCount, privacy: .public) reason=validated")
+                    }
                     if let envelope = graphics.envelope {
                         do {
                             let encodedBytes = try await graphicsChannel.send(envelope)
@@ -1000,7 +1034,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                                 _ = mailbox.wakeWithLatestFrame()
                             }
                             if let scrollDiagnostics = graphics.diagnostics {
-                                logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) dx=\(scrollDiagnostics.acceptedDx ?? 0, privacy: .public) dy=\(scrollDiagnostics.acceptedDy ?? 0, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) acceptedBy=\(scrollDiagnostics.acceptedBy ?? "unknown", privacy: .public) tieBreak=\(scrollDiagnostics.tieBreak ?? "none", privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) payloadBuildMs=\(scrollDiagnostics.payloadBuildMs ?? 0, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                                logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public) dx=\(scrollDiagnostics.acceptedDx ?? 0, privacy: .public) dy=\(scrollDiagnostics.acceptedDy ?? 0, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) hintActive=\(scrollDiagnostics.hintActive, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) acceptedBy=\(scrollDiagnostics.acceptedBy ?? "unknown", privacy: .public) tieBreak=\(scrollDiagnostics.tieBreak ?? "none", privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "none", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) payloadBuildMs=\(scrollDiagnostics.payloadBuildMs ?? 0, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public) regionStable=\(scrollDiagnostics.regionStable, privacy: .public) regionSource=\(scrollDiagnostics.regionSource ?? "none", privacy: .public) regionRect=\(scrollDiagnostics.regionX ?? 0, privacy: .public),\(scrollDiagnostics.regionY ?? 0, privacy: .public),\(scrollDiagnostics.regionWidth ?? 0, privacy: .public),\(scrollDiagnostics.regionHeight ?? 0, privacy: .public) fullSurfaceCopyRect=\(scrollDiagnostics.fullSurfaceCopyRect, privacy: .public)")
                             } else {
                                 logger.notice("owned graphics scroll-accepted frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) commands=\(envelope.commands.count, privacy: .public) payloadBytes=\(envelope.payload.count, privacy: .public)")
                             }
@@ -1024,6 +1058,13 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                                 setGraphicsRecoveryState(.failedCoolingDown, reason: "scroll-send-failed")
                             }
                             hevcFallbackReason = .graphicsSendFailed
+                        }
+                    } else {
+                        hevcFallbackReason = .scrollRegionBeforeLock
+                        if let scrollDiagnostics = graphics.diagnostics {
+                            logger.notice("owned graphics scroll-region fallback=hevc reason=before-lock regionStable=\(scrollDiagnostics.regionStable, privacy: .public) regionSource=\(scrollDiagnostics.regionSource ?? "none", privacy: .public) regionRect=\(scrollDiagnostics.regionX ?? 0, privacy: .public),\(scrollDiagnostics.regionY ?? 0, privacy: .public),\(scrollDiagnostics.regionWidth ?? 0, privacy: .public),\(scrollDiagnostics.regionHeight ?? 0, privacy: .public)")
+                        } else {
+                            logger.notice("owned graphics scroll-region fallback=hevc reason=before-lock regionStable=false regionSource=none regionRect=0,0,0,0")
                         }
                     }
                 case .reset:
@@ -1089,6 +1130,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     }
                 case .timeout:
                     hevcFallbackReason = .scrollTimeout
+                    if let scrollRegionCandidate {
+                        _ = scrollRegionTracker.observeValidation(candidate: scrollRegionCandidate, accepted: false)
+                        logger.notice("owned graphics scroll-region source=\(scrollRegionCandidate.region.source.diagnosticName, privacy: .public) stable=false rect=\(scrollRegionCandidate.region.x, privacy: .public),\(scrollRegionCandidate.region.y, privacy: .public),\(scrollRegionCandidate.region.width, privacy: .public),\(scrollRegionCandidate.region.height, privacy: .public) reason=timeout")
+                    }
                     if let scrollDiagnostics = graphics.diagnostics {
                         if scrollHint != nil {
                             scrollCopyOwnership.observeMiss(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
@@ -1098,29 +1143,45 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                             logger.notice("owned graphics scroll-hint-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) hintSource=\(scrollDiagnostics.hintSource ?? "none", privacy: .public) hintAxis=\(scrollDiagnostics.hintAxis ?? "none", privacy: .public) hintPredictedOffset=\(scrollDiagnostics.hintPredictedOffset ?? 0, privacy: .public) hintCandidates=\(scrollDiagnostics.hintCandidates.count, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
                             let nowNs = DispatchTime.now().uptimeNanoseconds
                             let shouldSuppressForOwnership = !scrollCopyOwnership.allowsHevcFallback(nowUptimeNs: nowNs)
-                            let shouldSuppressForHintGrace = !scrollHevcAdmission.allowsHintTimeoutFallback(
+                            let shouldSuppressForActiveScroll = scrollHevcAdmission.suppressesActiveScrollFallback(
                                 nowUptimeNs: nowNs,
-                                fallbackGraceMs: Self.scrollHintFallbackGraceMs
+                                idleRefreshMs: Config.hybridScrollIdleRefreshMs
                             )
-                            if shouldSuppressForOwnership || shouldSuppressForHintGrace {
+                            if shouldSuppressForOwnership || shouldSuppressForActiveScroll {
                                 let reason = scrollDiagnostics.hintSource == ScrollActivityHintSource.scrollCopyOwnership.rawValue
                                     ? "graphics-suppressed-by-ownership"
                                     : "graphics-hint-timeout-suppressed-hevc"
                                 diagnostics.noteAdmissionHold(reason: reason, mode: currentAdmissionMode())
                                 continue
                             }
-                            if scrollDiagnostics.hintSource == ScrollActivityHintSource.scrollCopyOwnership.rawValue {
-                                logger.notice("owned graphics scroll-ownership ownership=released reason=hevc-fallback misses=\(scrollCopyOwnership.missCount, privacy: .public)")
-                            }
-                            scrollCopyOwnership.release()
                         } else {
                             logger.notice("owned graphics scroll-timeout reason=\(scrollDiagnostics.timeoutReason ?? "unknown", privacy: .public) confidence=\(scrollDiagnostics.confidence, privacy: .public) secondConfidence=\(scrollDiagnostics.secondBestConfidence, privacy: .public) bestDx=\(scrollDiagnostics.bestDx ?? 0, privacy: .public) bestDy=\(scrollDiagnostics.bestDy ?? 0, privacy: .public) candidates=\(scrollDiagnostics.candidateCount, privacy: .public) timeoutPhase=\(scrollDiagnostics.timeoutPhase ?? "unknown", privacy: .public) probeScale=\(scrollDiagnostics.probeScale, privacy: .public) probeMs=\(scrollDiagnostics.probeMs, privacy: .public) sampledPixels=\(scrollDiagnostics.sampledPixelCount, privacy: .public)")
+                            let nowNs = DispatchTime.now().uptimeNanoseconds
+                            if scrollHevcAdmission.suppressesActiveScrollFallback(
+                                nowUptimeNs: nowNs,
+                                idleRefreshMs: Config.hybridScrollIdleRefreshMs
+                            ) {
+                                diagnostics.noteAdmissionHold(reason: "graphics-active-scroll-suppressed-hevc", mode: currentAdmissionMode())
+                                continue
+                            }
                         }
                     } else {
                         logger.notice("owned graphics scroll-timeout")
+                        let nowNs = DispatchTime.now().uptimeNanoseconds
+                        if scrollHevcAdmission.suppressesActiveScrollFallback(
+                            nowUptimeNs: nowNs,
+                            idleRefreshMs: Config.hybridScrollIdleRefreshMs
+                        ) {
+                            diagnostics.noteAdmissionHold(reason: "graphics-active-scroll-suppressed-hevc", mode: currentAdmissionMode())
+                            continue
+                        }
                     }
                 case .rejected(let reason):
                     hevcFallbackReason = .rejectedMotion
+                    if let scrollRegionCandidate {
+                        _ = scrollRegionTracker.observeValidation(candidate: scrollRegionCandidate, accepted: false)
+                        logger.notice("owned graphics scroll-region source=\(scrollRegionCandidate.region.source.diagnosticName, privacy: .public) stable=false rect=\(scrollRegionCandidate.region.x, privacy: .public),\(scrollRegionCandidate.region.y, privacy: .public),\(scrollRegionCandidate.region.width, privacy: .public),\(scrollRegionCandidate.region.height, privacy: .public) reason=rejected")
+                    }
                     if let scrollDiagnostics = graphics.diagnostics {
                         if scrollHint != nil {
                             scrollCopyOwnership.observeMiss(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
@@ -1132,18 +1193,54 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                             diagnostics.noteAdmissionHold(reason: "graphics-suppressed-by-ownership", mode: currentAdmissionMode())
                             continue
                         }
-                        if scrollDiagnostics.hintActive {
-                            if scrollDiagnostics.hintSource == ScrollActivityHintSource.scrollCopyOwnership.rawValue {
-                                logger.notice("owned graphics scroll-ownership ownership=released reason=rejected-motion misses=\(scrollCopyOwnership.missCount, privacy: .public)")
-                            }
-                            scrollCopyOwnership.release()
+                        let nowNs = DispatchTime.now().uptimeNanoseconds
+                        if scrollHevcAdmission.suppressesActiveScrollFallback(
+                            nowUptimeNs: nowNs,
+                            idleRefreshMs: Config.hybridScrollIdleRefreshMs
+                        ) {
+                            diagnostics.noteAdmissionHold(reason: "graphics-active-scroll-suppressed-hevc", mode: currentAdmissionMode())
+                            continue
                         }
                     } else {
                         logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public)")
+                        let nowNs = DispatchTime.now().uptimeNanoseconds
+                        if scrollHevcAdmission.suppressesActiveScrollFallback(
+                            nowUptimeNs: nowNs,
+                            idleRefreshMs: Config.hybridScrollIdleRefreshMs
+                        ) {
+                            diagnostics.noteAdmissionHold(reason: "graphics-active-scroll-suppressed-hevc", mode: currentAdmissionMode())
+                            continue
+                        }
                     }
                 }
             } else {
                 hevcFallbackReason = .graphicsDisconnected
+            }
+
+            let beforeHevcNs = DispatchTime.now().uptimeNanoseconds
+            let idleInputScrollHint = scrollActivityHintProvider()
+            scrollCopyOwnership.observeInputHint(idleInputScrollHint)
+            if idleInputScrollHint?.isActive(nowUptimeNs: beforeHevcNs) == true ||
+                scrollCopyOwnership.isActive(nowUptimeNs: beforeHevcNs) {
+                scrollHevcAdmission.noteActiveScroll(nowUptimeNs: beforeHevcNs)
+            }
+            if scrollHevcAdmission.idleRefreshEligible(
+                nowUptimeNs: beforeHevcNs,
+                idleRefreshMs: Config.hybridScrollIdleRefreshMs
+            ) {
+                if idleInputScrollHint?.isActive(nowUptimeNs: beforeHevcNs) == true ||
+                    scrollCopyOwnership.isActive(nowUptimeNs: beforeHevcNs) {
+                    scrollHevcAdmission.noteActiveScroll(nowUptimeNs: beforeHevcNs)
+                    diagnostics.noteAdmissionHold(reason: "graphics-idle-refresh-suppressed-active-scroll", mode: currentAdmissionMode())
+                    continue
+                } else {
+                    _ = scrollHevcAdmission.idleRefreshDue(
+                        nowUptimeNs: beforeHevcNs,
+                        idleRefreshMs: Config.hybridScrollIdleRefreshMs
+                    )
+                    requestKeyframe()
+                    logger.notice("owned media scroll-idle-refresh requested idleMs=\(Config.hybridScrollIdleRefreshMs, privacy: .public)")
+                }
             }
 
             let recoveryGate = graphicsRecoveryHEVCDecision(
@@ -1238,6 +1335,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 scrollDeltaEngine.observeFallbackFrame(frame)
                 diagnostics.noteSent(envelope: envelope, stats: sendStats, decision: decision)
                 if let hevcFallbackReason {
+                    let regionLockState = hevcFallbackReason == .scrollRegionBeforeLock
+                        ? "before-lock"
+                        : (scrollRegionTracker.stableRegion == nil ? "none" : "during-lock")
+                    if regionLockState != "none" {
+                        logger.notice("owned media hevc-region-lock state=\(regionLockState, privacy: .public) fallbackReason=\(hevcFallbackReason.rawValue, privacy: .public)")
+                    }
                     logger.notice("owned media hevc-fallback reason=\(hevcFallbackReason.rawValue, privacy: .public) frame=\(envelope.header.frameId, privacy: .public) bytes=\(sendStats.encodedBytes, privacy: .public) packets=\(sendStats.packetCount, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public)")
                 }
                 noteAdmissionSent(envelope, decision: decision)
@@ -1407,6 +1510,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             )
             logger.notice("owned graphics reset fallback received reason=\(request.reason, privacy: .public) generation=\(request.lastCommittedSurfaceGeneration, privacy: .public) frame=\(request.lastCommittedFrameId, privacy: .public)")
             handleGraphicsResetRequest(request)
+        case .keepalive:
+            break
         }
     }
 

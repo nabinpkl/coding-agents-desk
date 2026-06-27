@@ -281,6 +281,8 @@ final class OwnedMediaChannelServer: OwnedMediaChannelServing, @unchecked Sendab
             onControlMessage(enrichedMessage)
         case .graphicsResetRequest:
             onControlMessage(message)
+        case .keepalive:
+            break
         }
     }
 

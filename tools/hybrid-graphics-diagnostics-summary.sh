@@ -75,6 +75,26 @@ perl -ne '
         $graphicsCompositorTotal += $1;
         max_value("graphicsCompositorMs", $1);
     }
+    if (/copyRectMs=([0-9.]+)/) {
+        $copyRectMsCount++;
+        $copyRectMsTotal += $1;
+        max_value("copyRectMs", $1);
+    }
+    if (/tileDecodeMs=([0-9.]+)/) {
+        $tileDecodeMsCount++;
+        $tileDecodeMsTotal += $1;
+        max_value("tileDecodeMs", $1);
+    }
+    if (/tilePaintMs=([0-9.]+)/) {
+        $tilePaintMsCount++;
+        $tilePaintMsTotal += $1;
+        max_value("tilePaintMs", $1);
+    }
+    if (/makeImageMs=([0-9.]+)/) {
+        $makeImageMsCount++;
+        $makeImageMsTotal += $1;
+        max_value("makeImageMs", $1);
+    }
     if (/graphicsAckRttMs=([0-9.]+)/ || /graphics.*ackRttMs=([0-9.]+)/) {
         $graphicsAckRttCount++;
         max_value("graphicsAckRttMs", $1);
@@ -100,6 +120,10 @@ perl -ne '
 
     END {
         my $avgCompositor = $graphicsCompositorCount ? $graphicsCompositorTotal / $graphicsCompositorCount : 0;
+        my $avgCopyRect = $copyRectMsCount ? $copyRectMsTotal / $copyRectMsCount : 0;
+        my $avgTileDecode = $tileDecodeMsCount ? $tileDecodeMsTotal / $tileDecodeMsCount : 0;
+        my $avgTilePaint = $tilePaintMsCount ? $tilePaintMsTotal / $tilePaintMsCount : 0;
+        my $avgMakeImage = $makeImageMsCount ? $makeImageMsTotal / $makeImageMsCount : 0;
         printf "client graphics frames=%d failed=%d acks=%d copyRects=%d maxCopyRects=%d tileBytes=%d maxTileBytes=%d payloadBytes=%d\n",
             $graphicsFrame||0, $graphicsFrameFailed||0, $graphicsAck||0, $copyRects||0, $max{"copyRects"}||0, $tileBytes||0, $max{"tileBytes"}||0, $graphicsBytes||0;
         printf "client graphics resetRequests=%d dropped=%d failed=%d fallback=%d reconnectHints=%d disconnectHints=%d\n",
@@ -108,6 +132,11 @@ perl -ne '
             $graphicsChannelConnected||0, $graphicsChannelDisconnected||0, $graphicsCapabilityRefresh||0;
         printf "client graphics timing compositorSamples=%d avgCompositorMs=%.2f maxCompositorMs=%.2f ackRttSamples=%d maxAckRttMs=%.2f\n",
             $graphicsCompositorCount||0, $avgCompositor, $max{"graphicsCompositorMs"}||0, $graphicsAckRttCount||0, $max{"graphicsAckRttMs"}||0;
+        printf "client graphics timingBuckets copyRectSamples=%d avgCopyRectMs=%.2f maxCopyRectMs=%.2f tileDecodeSamples=%d avgTileDecodeMs=%.2f maxTileDecodeMs=%.2f tilePaintSamples=%d avgTilePaintMs=%.2f maxTilePaintMs=%.2f makeImageSamples=%d avgMakeImageMs=%.2f maxMakeImageMs=%.2f\n",
+            $copyRectMsCount||0, $avgCopyRect, $max{"copyRectMs"}||0,
+            $tileDecodeMsCount||0, $avgTileDecode, $max{"tileDecodeMs"}||0,
+            $tilePaintMsCount||0, $avgTilePaint, $max{"tilePaintMs"}||0,
+            $makeImageMsCount||0, $avgMakeImage, $max{"makeImageMs"}||0;
         printf "client graphics queue samples=%d maxFrames=%d byteSamples=%d maxBytes=%d\n",
             $graphicsQueueSamples||0, $max{"graphicsQueueFrames"}||0, $graphicsQueueByteSamples||0, $max{"graphicsQueueBytes"}||0;
         printf "client hevc complete=%d render=%d frameAck=%d bytes=%d maxBytes=%d packets=%d maxPackets=%d framesOver100Packets=%d\n",
@@ -128,10 +157,19 @@ perl -ne '
     $scrollAccepted++ if /owned graphics scroll-accepted/;
     $scrollAcceptedHint++ if /owned graphics scroll-accepted/ && /acceptedBy=hint/;
     $scrollAcceptedBlind++ if /owned graphics scroll-accepted/ && /acceptedBy=blind/;
+    $scrollRegionAccepted++ if /owned graphics scroll-accepted/ && /regionStable=true/;
+    $scrollFullSurfaceCopyRect++ if /owned graphics scroll-accepted/ && /fullSurfaceCopyRect=true/;
     $scrollRejected++ if /owned graphics scroll-rejected/;
     $scrollTimeout++ if /owned graphics scroll-timeout/;
     $scrollHintTimeout++ if /owned graphics scroll-hint-timeout/;
     $scrollBlindTimeout++ if /owned graphics scroll-timeout/;
+    if (/owned graphics scroll-region .*source=([^[:space:]]+) .*stable=(true|false).*reason=([^[:space:]]+)/) {
+        my ($source, $stable, $reason) = ($1, $2, $3);
+        $regionSourceCounts{$source}++;
+        $regionStable++ if $stable eq "true";
+        $regionFallback++ if $stable ne "true";
+        $regionReleaseReasons{$reason}++;
+    }
     if (/hintSource=([^[:space:]]+)/) {
         my $source = $1;
         if ($source eq "input") {
@@ -162,15 +200,16 @@ perl -ne '
     }
     $graphicsResetFrame++ if /owned graphics reset frame=/;
     $graphicsResetStripe++ if /owned graphics reset[- ]stripe(?:[[:space:]]|$)/ || /resetStripe(?:[[:space:]]|=)/;
-    $graphicsResetStripeAckTimeout++ if /reset[- ]stripe[- ]ack[- ]timeout/i || /resetStripeAckTimeout(?:[[:space:]]|=)/;
+    my $resetAckTimeoutLine = /reset[- ]stripe[- ]ack[- ]timeout/i || /resetStripeAckTimeout(?:[[:space:]]|=)/;
+    $graphicsResetStripeAckTimeout++ if $resetAckTimeoutLine;
     $graphicsResetQueued++ if /owned graphics reset queued/;
     $graphicsResetConsumed++ if /owned graphics reset consumed/;
     $graphicsResetFallbackReceived++ if /owned graphics reset fallback received/;
     $graphicsResetAcked++ if /owned graphics reset acked/;
-    $graphicsResetAckWaitSuccess++ if /owned graphics reset[- ]stripe[- ]ack(?:ed|[- ]success)/i ||
+    $graphicsResetAckWaitSuccess++ if !$resetAckTimeoutLine && (/owned graphics reset[- ]stripe[- ]ack(?:$|[[:space:]]|ed|[- ]success)/i ||
         /owned graphics reset[- ]ack[- ]wait[- ]success/i ||
         /resetStripeAckSuccess(?:[[:space:]]|=)/ ||
-        /resetAckWait=(?:success|acked)/;
+        /resetAckWait=(?:success|acked)/);
     $graphicsChannelConnected++ if /owned graphics channel-connected/;
     $graphicsChannelDisconnected++ if /owned graphics channel-disconnected/;
     $graphicsActiveChannelReplacement++ if /owned graphics active[- ]channel[- ](?:replacement|replaced|replace)/ ||
@@ -193,6 +232,11 @@ perl -ne '
     $hevcSuppressedByOwnership++ if /suppressed-by-ownership/ ||
         /owned media hevc-suppressed .*ownership/ ||
         /owned media admission-hold .*reason=ownership-suppressed/;
+    if (/owned media hevc-region-lock .*state=([^[:space:]]+)/) {
+        my $state = $1;
+        $hevcBeforeRegionLock++ if $state eq "before-lock";
+        $hevcDuringRegionLock++ if $state eq "during-lock";
+    }
     $drainEnter++ if /owned media drain-enter/;
     $drainExit++ if /owned media drain-exit/;
     $admissionHold++ if /owned media admission-hold/;
@@ -272,6 +316,20 @@ perl -ne '
             $hintSourceInput||0, $hintSourceOwnership||0, $hintSourceBlind||0, $hintSourceOther||0;
         printf "host scroll ownership accepted=%d miss=%d released=%d\n",
             $ownershipAccepted||0, $ownershipMiss||0, $ownershipReleased||0;
+        printf "host scroll region accepted=%d stable=%d fallback=%d fullSurfaceCopyRects=%d\n",
+            $scrollRegionAccepted||0, $regionStable||0, $regionFallback||0, $scrollFullSurfaceCopyRect||0;
+        if (%regionSourceCounts) {
+            my @parts = map { "$_=$regionSourceCounts{$_}" } sort keys %regionSourceCounts;
+            print "host scroll regionSources " . join(" ", @parts) . "\n";
+        } else {
+            print "host scroll regionSources none\n";
+        }
+        if (%regionReleaseReasons) {
+            my @parts = map { "$_=$regionReleaseReasons{$_}" } sort keys %regionReleaseReasons;
+            print "host scroll regionReasons " . join(" ", @parts) . "\n";
+        } else {
+            print "host scroll regionReasons none\n";
+        }
         printf "host graphics resets=%d queued=%d consumed=%d sendFailed=%d reconnectHints=%d disconnectHints=%d fallbackReceived=%d acked=%d commands=%d maxCommands=%d payloadBytes=%d maxPayloadBytes=%d resetStripes=%d resetStripeAckTimeout=%d maxResetStripeBytes=%d\n",
             $graphicsResetFrame||0, $graphicsResetQueued||0, $graphicsResetConsumed||0, $graphicsResetSendFailed||0,
             $graphicsReconnect||0, $graphicsDisconnect||0, $graphicsResetFallbackReceived||0, $graphicsResetAcked||0,
@@ -290,6 +348,8 @@ perl -ne '
             $hostFrame||0, $hostAck||0, $hevcBytes||0, $max{"hevcBytes"}||0, $hevcPackets||0, $max{"hevcPackets"}||0, $hevcPacketFramesOver100||0;
         printf "host hevc fallbacks=%d suppressedByOwnership=%d fallbackSuppressed=%d\n",
             $hevcFallback||0, $hevcSuppressedByOwnership||0, $hevcFallbackSuppressed||0;
+        printf "host hevc regionLock beforeLock=%d duringLock=%d\n",
+            $hevcBeforeRegionLock||0, $hevcDuringRegionLock||0;
         if (%fallbackReasons) {
             my @parts = map { "$_=$fallbackReasons{$_}" } sort keys %fallbackReasons;
             print "host hevcFallbackReasons " . join(" ", @parts) . "\n";

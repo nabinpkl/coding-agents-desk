@@ -47,6 +47,7 @@ struct ScrollActivityTracker: Equatable {
 
     private let activeWindowNs: UInt64
     private let maxOffsetPx: Int
+    private let inputPixelScale: Double
     private var axis: ScrollActivityAxis?
     private var sign: Int?
     private var accumulatedOffset: Double = 0
@@ -54,9 +55,10 @@ struct ScrollActivityTracker: Equatable {
     private var activeUntilUptimeNs: UInt64 = 0
     private var eventCount: Int = 0
 
-    init(activeWindowMs: Int = 180, maxOffsetPx: Int = 240) {
+    init(activeWindowMs: Int = 180, maxOffsetPx: Int = 240, inputPixelScale: Double = 1) {
         self.activeWindowNs = UInt64(max(0, activeWindowMs)) * 1_000_000
         self.maxOffsetPx = max(1, maxOffsetPx)
+        self.inputPixelScale = max(1, inputPixelScale)
     }
 
     mutating func record(_ input: NormalizedInput, nowUptimeNs: UInt64) {
@@ -94,8 +96,8 @@ struct ScrollActivityTracker: Equatable {
         else {
             return nil
         }
-        let predictedOffsetPx = signedOffset(latestOffset, sign: sign)
-        let accumulatedOffsetPx = signedOffset(accumulatedOffset, sign: sign)
+        let predictedOffsetPx = signedOffset(latestOffset * inputPixelScale, sign: sign)
+        let accumulatedOffsetPx = signedOffset(accumulatedOffset * inputPixelScale, sign: sign)
         return ScrollActivityHint(
             axis: axis,
             sign: sign,
@@ -164,7 +166,7 @@ final class ScrollActivityHintStore: @unchecked Sendable {
     private let lock = NSLock()
     private var tracker: ScrollActivityTracker
 
-    init(tracker: ScrollActivityTracker = ScrollActivityTracker()) {
+    init(tracker: ScrollActivityTracker = ScrollActivityTracker(inputPixelScale: Config.hybridScrollInputPixelScale)) {
         self.tracker = tracker
     }
 

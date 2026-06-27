@@ -20,6 +20,25 @@ struct InputDispatcherTests {
         #expect(recorder.events[0].location == CGPoint(x: 110, y: 180))
     }
 
+    @Test func scrollFocusSnapshotUsesIntegratedCursorPositionAfterMove() {
+        let recorder = EventRecorder()
+        var now: CFTimeInterval = 10
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 100, y: 200) },
+            displayBoundsProvider: { CGRect(x: 0, y: 0, width: 1500, height: 1000) },
+            clock: { now }
+        )
+
+        dispatcher.performDispatch(.cursorMove(dx: 40, dy: -10))
+        now += 0.05
+        let focus = dispatcher.scrollFocusSnapshot()
+
+        #expect(focus.focusPoint == CGPoint(x: 140, y: 190))
+        #expect(focus.displayBounds == CGRect(x: 0, y: 0, width: 1500, height: 1000))
+    }
+
     @Test func cursorMoveClampsAtDisplayEdge() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(

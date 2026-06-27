@@ -16,6 +16,12 @@ final class InputDispatcher: @unchecked Sendable {
     typealias Clock = () -> CFTimeInterval
     typealias SwitchSpaceGestureHandler = (NormalizedInput.SwipePhase, Float, Float) -> Void
     typealias SwitchSpaceStepHandler = (Int) -> Void
+    typealias ScrollFocusHandler = @Sendable (NormalizedInput, ScrollFocusSnapshot) -> Void
+
+    struct ScrollFocusSnapshot: Sendable {
+        let focusPoint: CGPoint
+        let displayBounds: CGRect
+    }
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "input")
     private let eventPoster: EventPoster
@@ -110,10 +116,26 @@ final class InputDispatcher: @unchecked Sendable {
         self.cursorEventSource = source
     }
 
-    func dispatch(_ input: NormalizedInput) {
+    func dispatch(_ input: NormalizedInput, scrollFocusHandler: ScrollFocusHandler? = nil) {
         // async so the caller's Task moves on while CGEvent.post runs on
         // our queue. The queue is serial, so events stay in order.
-        queue.async { [self] in performDispatch(input) }
+        queue.async { [self] in
+            if case .scroll = input, let scrollFocusHandler {
+                scrollFocusHandler(input, makeScrollFocusSnapshot())
+            }
+            performDispatch(input)
+        }
+    }
+
+    func scrollFocusSnapshot() -> ScrollFocusSnapshot {
+        queue.sync { makeScrollFocusSnapshot() }
+    }
+
+    private func makeScrollFocusSnapshot() -> ScrollFocusSnapshot {
+        ScrollFocusSnapshot(
+            focusPoint: cursorBase(),
+            displayBounds: displayBoundsProvider()
+        )
     }
 
     // Synchronous core, called only from `queue`. Exposed-internal so tests

@@ -26,6 +26,10 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
         defaultValue: 256
     )
+    static let ownedMediaKeepaliveIntervalMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_KEEPALIVE_INTERVAL_MS",
+        defaultValue: 5_000
+    )
     static let graphicsReconnectInitialDelayMs = positiveInt(
         environmentKey: "AGENTDESK_GRAPHICS_RECONNECT_INITIAL_DELAY_MS",
         defaultValue: 250

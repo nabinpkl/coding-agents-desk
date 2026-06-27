@@ -5,14 +5,16 @@ enum MediaStack {
     static func makeFactory(
         ownedDatagramAuthorizer: @escaping OwnedMediaDatagramAuthorizer = { _ in .rejected(.unauthorized) },
         ownedGraphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer = { _ in .rejected(.unauthorized) },
-        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
+        scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil },
+        scrollRegionHintProvider: @escaping @Sendable () -> ScrollRegionFocusHint? = { nil }
     ) -> MediaTransportFactory {
         OwnedMediaTransportFactory(
             codec: Config.ownedMediaCodec.wireCodec,
             configuration: .fromConfig(),
             authorizer: ownedDatagramAuthorizer,
             graphicsAuthorizer: ownedGraphicsAuthorizer,
-            scrollActivityHintProvider: scrollActivityHintProvider
+            scrollActivityHintProvider: scrollActivityHintProvider,
+            scrollRegionHintProvider: scrollRegionHintProvider
         )
     }
 

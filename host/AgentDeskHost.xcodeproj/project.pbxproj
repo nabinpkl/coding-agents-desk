@@ -44,6 +44,9 @@
 		A00000000000000000000A13 /* ScrollCopyOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A12 /* ScrollCopyOwnership.swift */; };
 		A00000000000000000000A14 /* ScrollCopyOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A12 /* ScrollCopyOwnership.swift */; };
 		A00000000000000000000A16 /* ScrollCopyOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A15 /* ScrollCopyOwnershipTests.swift */; };
+		A00000000000000000000A18 /* ScrollRegionTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A17 /* ScrollRegionTracker.swift */; };
+		A00000000000000000000A19 /* ScrollRegionTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A17 /* ScrollRegionTracker.swift */; };
+		A00000000000000000000A1B /* ScrollRegionTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A1A /* ScrollRegionTrackerTests.swift */; };
 		A00000000000000000000219 /* TestPatternFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000119 /* TestPatternFrameSource.swift */; };
 		A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */; };
 		A0000000000000000000021B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011B /* Assets.xcassets */; };
@@ -165,6 +168,8 @@
 		A00000000000000000000A10 /* ScrollActivityTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollActivityTrackerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000A12 /* ScrollCopyOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollCopyOwnership.swift; sourceTree = "<group>"; };
 		A00000000000000000000A15 /* ScrollCopyOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollCopyOwnershipTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000A17 /* ScrollRegionTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollRegionTracker.swift; sourceTree = "<group>"; };
+		A00000000000000000000A1A /* ScrollRegionTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollRegionTrackerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000119 /* TestPatternFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestPatternFrameSource.swift; sourceTree = "<group>"; };
 		A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureKitFrameSource.swift; sourceTree = "<group>"; };
 		A0000000000000000000011C /* InputDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcher.swift; sourceTree = "<group>"; };
@@ -287,6 +292,7 @@
 				A00000000000000000000A0A /* ScrollDeltaProbe.swift */,
 				A00000000000000000000A0D /* ScrollActivityTracker.swift */,
 				A00000000000000000000A12 /* ScrollCopyOwnership.swift */,
+				A00000000000000000000A17 /* ScrollRegionTracker.swift */,
 				A00000000000000000000119 /* TestPatternFrameSource.swift */,
 				A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */,
 				A0000000000000000000011C /* InputDispatcher.swift */,
@@ -355,6 +361,7 @@
 				A000000000000000000009D0 /* ScrollQualityTests.swift */,
 				A00000000000000000000A10 /* ScrollActivityTrackerTests.swift */,
 				A00000000000000000000A15 /* ScrollCopyOwnershipTests.swift */,
+				A00000000000000000000A1A /* ScrollRegionTrackerTests.swift */,
 				A0000000000000000000012B /* SpaceAgentModelTests.swift */,
 				A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */,
 			);
@@ -496,6 +503,7 @@
 				A00000000000000000000A0B /* ScrollDeltaProbe.swift in Sources */,
 				A00000000000000000000A0E /* ScrollActivityTracker.swift in Sources */,
 				A00000000000000000000A13 /* ScrollCopyOwnership.swift in Sources */,
+				A00000000000000000000A18 /* ScrollRegionTracker.swift in Sources */,
 				A00000000000000000000219 /* TestPatternFrameSource.swift in Sources */,
 				A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */,
 				A0000000000000000000021C /* InputDispatcher.swift in Sources */,
@@ -550,6 +558,7 @@
 				A00000000000000000000A0C /* ScrollDeltaProbe.swift in Sources */,
 				A00000000000000000000A0F /* ScrollActivityTracker.swift in Sources */,
 				A00000000000000000000A14 /* ScrollCopyOwnership.swift in Sources */,
+				A00000000000000000000A19 /* ScrollRegionTracker.swift in Sources */,
 				A00000000000000000000255 /* SessionRegistry.swift in Sources */,
 				A00000000000000000000256 /* InputChannelServer.swift in Sources */,
 				A0000000000000000000025D /* JsonlChildProcess.swift in Sources */,
@@ -574,6 +583,7 @@
 				A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */,
 				A00000000000000000000A11 /* ScrollActivityTrackerTests.swift in Sources */,
 				A00000000000000000000A16 /* ScrollCopyOwnershipTests.swift in Sources */,
+				A00000000000000000000A1B /* ScrollRegionTrackerTests.swift in Sources */,
 				A0000000000000000000023F /* SpaceThumbnailProvider.swift in Sources */,
 				A0000000000000000000023C /* SpaceAgentModel.swift in Sources */,
 				A0000000000000000000023D /* SpaceAgentViewController.swift in Sources */,

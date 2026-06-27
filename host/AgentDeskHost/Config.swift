@@ -299,6 +299,10 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_OWNERSHIP_MAX_MISSES",
         defaultValue: 2
     )
+    static let hybridScrollInputPixelScale = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_INPUT_PIXEL_SCALE",
+        defaultValue: 24
+    )
     static let hybridResetStripeMaxDecodedBytes = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_RESET_STRIPE_MAX_DECODED_BYTES",
         defaultValue: 2 * 1_024 * 1_024

@@ -295,6 +295,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var graphicsTask: Task<Void, Never>?
     private var graphicsReconnectTask: Task<Void, Never>?
     private var receiveTask: Task<Void, Never>?
+    private var keepaliveTask: Task<Void, Never>?
     private weak var sink: (any OwnedMediaFrameSink)?
     private var isStopped = false
     private var graphicsReconnectGeneration: UInt64 = 0
@@ -366,6 +367,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         )
         stateContinuation.yield(.connected)
         startGraphicsChannel(refreshCapability: false)
+        keepaliveTask = Task { [weak self, connection] in
+            await self?.sendKeepalives(on: connection)
+        }
         receiveTask = Task { [weak self, connection] in
             await self?.receiveLoop(connection: connection, key: key)
         }
@@ -384,6 +388,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         graphicsReconnectTask = nil
         graphicsTransport?.stop()
         graphicsTransport = nil
+        keepaliveTask?.cancel()
+        keepaliveTask = nil
         receiveTask?.cancel()
         receiveTask = nil
         connection?.cancel()
@@ -756,6 +762,29 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 }
             })
         }
+    }
+
+    private func sendKeepalives(on connection: NWConnection) async {
+        let intervalNs = UInt64(Config.ownedMediaKeepaliveIntervalMs) * 1_000_000
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(nanoseconds: intervalNs)
+                try await sendKeepalive(on: connection)
+            } catch is CancellationError {
+                return
+            } catch {
+                logger.error("owned media keepalive failed: \(String(describing: error), privacy: .public)")
+                ownedMediaStderrTrace("keepalive-failed error=\(String(describing: error))")
+                return
+            }
+        }
+    }
+
+    private func sendKeepalive(on connection: NWConnection) async throws {
+        let message = OwnedMediaControlMessage(kind: .keepalive, frameId: 0)
+        let data = try JSONEncoder().encode(message)
+        try await send(data, on: connection)
+        ownedMediaStderrTrace("keepalive intervalMs=\(Config.ownedMediaKeepaliveIntervalMs)")
     }
 
     private func sendKeyframeRequest(afterFrameId frameId: UInt64, on connection: NWConnection) async throws {

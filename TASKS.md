@@ -132,6 +132,33 @@ Phase goal: recover the retained graphics channel without letting HEVC flood the
 - [x] D50. Extend `tools/hybrid-graphics-diagnostics-summary.sh`, `tools/hybrid-graphics-diagnostics-summary-tests.sh`, and `tests/fixtures/owned-media/` to report active-channel replacement, reset ACK wait success or timeout, graphics recovery state, and HEVC fallback suppression while preserving the existing scroll, reset, HEVC, queue, and drain summary lines.
   - 2026-06-21 result: diagnostics parser and fixture cover reset stripes applied, reset ACK timeout after one successful stripe ACK, graphics disconnect, HEVC 100-plus packet flood, HEVC suppression during recovery, and client `copyRects=0`.
 - [ ] R51. Run the physical comparison with `just fresh-hybrid-consoled-run`, save the diagnostics summary, and classify whether the remaining blocker is active-channel identity, reset ACK state, HEVC fallback valve release, client compositor cost, or transport loss.
+  - 2026-06-22 result: activation passed and the app did not disconnect, but freezes remain. The run showed `copyRects=879`, host scroll accepted `880`, client avg compositor `24.85ms`, max render gap `12010ms`, host HEVC fallbacks `583`, and reset ACK flapping. Remaining blockers are HEVC competition, CPU copyRect compositor cost, and reset ACK matching.
+
+## v0 Phase 10: retained scroll freeze fix
+
+Phase goal: keep retained graphics as the only active-scroll surface and make copyRect cheap enough that it does not feel stepwise.
+
+- [x] D52. Tighten the host HEVC valve in `host/AgentDeskHost/OwnedMediaTransport.swift` so active scroll ownership and recent copyRect acceptance suppress HEVC for scroll timeout, rejected motion, ownership miss, periodic keyframe, and idle refresh until the configured idle window.
+- [x] D53. Keep the idle correctness refresh as exactly one HEVC refresh after `AGENTDESK_HYBRID_SCROLL_IDLE_REFRESH_MS`, then return to retained ownership as soon as input or copyRect resumes.
+- [x] D54. Keep graphics recovery HEVC bounded to one scaled correctness refresh per `AGENTDESK_HYBRID_GRAPHICS_FALLBACK_MIN_INTERVAL_MS`, and ensure reset or send timeout cannot open an HEVC flood.
+- [x] D55. Optimize `client/AgentDeskClient/OwnedMediaVideoSink.swift` so ordinary graphics frames mutate the retained surface in place, use overlap-safe `memmove` for copyRect, and do not clone the full BGRA surface for one small scroll update.
+- [x] D56. Extend graphics diagnostics with copyRect, tile-decode, tile-paint, and image-commit timing buckets, plus reset ACK matched or missed counts in the host summary.
+- [ ] R57. Run `just check`, then run physical `just fresh-hybrid-consoled-run` and accept only if copyRects remain active, active-scroll HEVC frames stay under five, no render gap exceeds 1000ms, avg compositor is under 10ms, max compositor is under 20ms, and rest text refreshes after idle.
+- [x] D58. Keep the owned-media control channel alive while retained graphics owns scroll, so sparse HEVC/full-frame traffic does not let the media QUIC connection idle into timeout and terminate the session.
+- [x] D59. Scale host scroll input hints before pixel verification, because the physical run accepted hundreds of copyRects but many were only one-pixel moves and looked frozen.
+- [x] D60. Retire the latest physical result: copyRect stayed active, but geometry was wrong because the host emitted full-surface scroll copies, visibly shifting the whole retained desktop instead of the scrolled region.
+
+## v0 Phase 11: region-scoped scroll copy
+
+Phase goal: make retained scroll-copy operate only inside a stable input-focused scroll region, with HEVC fallback until the region is known.
+
+- [x] D61. Add a host scroll region source in `host/AgentDeskHost/ScrollRegionTracker.swift` that samples the host focus point at scroll dispatch time, selects the frontmost normal on-screen window containing that point via a testable window-list provider, and falls back to a cursor-centered region clamped to the capture surface.
+- [x] D62. Extend `host/AgentDeskHost/InputDispatcher.swift`, `host/AgentDeskHost/AppDelegate.swift`, and `host/AgentDeskHost/OwnedMediaTransport.swift` so scroll input records focus point and the media transport receives the latest active input-focused region candidate beside the existing scroll hint.
+- [x] D63. Scope `host/AgentDeskHost/ScrollDeltaProbe.swift` and `host/AgentDeskHost/ScrollDeltaEngine.swift` to the stable region: probe samples only inside the region, copyRect and exposed-strip bitmapTile are emitted only inside that rectangle, and full-surface copyRect is rejected unless the stable region is the full surface.
+- [x] D64. Gate retained scroll ownership on stable region lock: require two consecutive validated matches with same axis/sign and at least 80 percent region overlap before emitting copyRect, use HEVC fallback before lock, suppress HEVC during locked scroll, and release the lock on region drift, cursor exit, or two verification misses.
+- [x] D65. Extend diagnostics and `tools/hybrid-graphics-diagnostics-summary.sh` with region source, stability, rect, fallback, full-surface copyRect count, HEVC-before-lock frames, HEVC-during-lock frames, and region release reasons.
+- [x] D66. Add host/client coverage for window-region selection, cursor fallback clamping, stable-region locking, region-scoped vertical and horizontal copyRect envelopes, pixels outside the region staying unchanged, HEVC fallback before lock, and diagnostics summary parsing.
+- [ ] R67. Run `just check`, then physical `just fresh-hybrid-consoled-run`; accept only if copyRects remain active, no whole-screen shift is visible, outside-scroll UI stays stable, active-scroll HEVC appears only before region lock or after region loss, and rest text refreshes after idle.
 
 ---
 
@@ -208,7 +235,13 @@ D45       2026-06-21  committed   retained reset stripes are sent with ACK waits
 R46       pending     pending     physical comparison for sustained ownership
 D47-D49   2026-06-21  committed   active graphics channel identity, reset ACK state machine, and HEVC fallback valve
 D50       2026-06-21  committed   diagnostics summary and freeze fixture updated for reset and HEVC recovery
-R51       pending     pending     physical comparison for graphics reset and HEVC fallback freeze fix
+R51       2026-06-22  done        physical run kept copyRect active without disconnect, but showed HEVC competition, compositor cost, and reset ACK flapping
+D52-D56   2026-06-22  done        stricter active-scroll HEVC valve, in-place copyRect compositor, reset ACK parser fix, and `just check` green
+R57       2026-06-22  blocked     physical run showed cheap active copyRects, avg compositor 3.12ms and max 7.90ms, but visible motion froze; media QUIC timed out to reconnecting and many retained moves were one-pixel `dy=-1`
+D58-D59   2026-06-22  done        media keepalive plus 24 px input-scroll scaling; focused tests and `just check` green
+D60       2026-06-22  retired     physical rerun showed copyRect active but wrong full-surface geometry; region-scoped copy starts at R61
+D61-D66   2026-06-22  done        input-focused stable scroll region, region-scoped copyRect, diagnostics, and tests; `just check` green
+R67       pending     pending     physical region-scoped scroll acceptance
 R54.0     2026-06-21  committed   reverted locator-code pairing; clean QR/handshake base restored
 R54.1-R54.6 2026-06-22  committed   Mac-initiated tailnet pairing: offer codec, peer enumeration, host pre-approval, device picker + offer sender, client offer listener, ADR-0019
 R54.7     2026-06-22  done        physical pick-to-pair worked: inbound TCP over utun confirmed, direct connection established

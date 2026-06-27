@@ -1382,6 +1382,7 @@ enum OwnedMediaControlKind: String, Codable, Equatable {
     case packetResendRequest = "packet-resend-request"
     case frameAck = "frame-ack"
     case graphicsResetRequest = "graphics-reset-request"
+    case keepalive = "keepalive"
 }
 
 struct OwnedMediaControlMessage: Codable, Equatable {

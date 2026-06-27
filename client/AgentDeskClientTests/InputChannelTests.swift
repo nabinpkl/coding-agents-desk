@@ -1,4 +1,5 @@
 import Foundation
+import Compression
 import Testing
 import UIKit
 
@@ -111,6 +112,24 @@ struct InputChannelTests {
         #expect(!json.contains("\"fa\""))
         #expect(!json.contains("\"qf\""))
         #expect(!json.contains("\"qb\""))
+    }
+
+    @Test func ownedMediaKeepaliveControlSerializesWithoutPayloadFields() throws {
+        let message = OwnedMediaControlMessage(kind: .keepalive, frameId: 0)
+        let data = try JSONEncoder().encode(message)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
+
+        #expect(decoded == message)
+        #expect(json.contains("\"k\":\"keepalive\""))
+        #expect(json.contains("\"id\":0"))
+        #expect(!json.contains("\"px\""))
+        #expect(!json.contains("\"td\""))
+        #expect(!json.contains("\"rg\""))
+        #expect(!json.contains("\"qf\""))
+        #expect(!json.contains("\"qb\""))
+        #expect(!json.contains("\"sg\""))
+        #expect(!json.contains("\"r\""))
     }
 
     @Test func ownedMediaPacketResendControlSerializesWithCompactIndexes() throws {
@@ -247,6 +266,180 @@ struct InputChannelTests {
             _ = try compositor.applyGraphicsFrame(failing)
         }
         #expect(compositor.committedUpdateId == OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 1))
+    }
+
+    @Test func ownedSurfaceCompositorCopiesFullWidthVerticalScrollUpAndDown() throws {
+        let width = 4
+        let height = 4
+        let pixels = Self.makeDiagnosticPixels(width: width, height: height)
+
+        var upCompositor = OwnedSurfaceCompositor()
+        _ = try upCompositor.applyGraphicsFrame(Self.makeSeedSurfaceEnvelope(
+            surfaceGeneration: 1,
+            frameId: 1,
+            width: width,
+            height: height,
+            pixels: pixels
+        ))
+        let upStats = try upCompositor.applyGraphicsFrame(Self.makeCopyRectEnvelope(
+            surfaceGeneration: 1,
+            frameId: 2,
+            srcX: 0,
+            srcY: 1,
+            dstX: 0,
+            dstY: 0,
+            width: width,
+            height: 3
+        ))
+        let upPixels = upCompositor.pixelBytesForDiagnostics()
+
+        #expect(upStats.copyRectCount == 1)
+        #expect(upStats.copyRectMs >= 0)
+        #expect(Self.row(upPixels, width: width, y: 0) == Self.row(pixels, width: width, y: 1))
+        #expect(Self.row(upPixels, width: width, y: 1) == Self.row(pixels, width: width, y: 2))
+        #expect(Self.row(upPixels, width: width, y: 2) == Self.row(pixels, width: width, y: 3))
+
+        var downCompositor = OwnedSurfaceCompositor()
+        _ = try downCompositor.applyGraphicsFrame(Self.makeSeedSurfaceEnvelope(
+            surfaceGeneration: 1,
+            frameId: 1,
+            width: width,
+            height: height,
+            pixels: pixels
+        ))
+        let downStats = try downCompositor.applyGraphicsFrame(Self.makeCopyRectEnvelope(
+            surfaceGeneration: 1,
+            frameId: 2,
+            srcX: 0,
+            srcY: 0,
+            dstX: 0,
+            dstY: 1,
+            width: width,
+            height: 3
+        ))
+        let downPixels = downCompositor.pixelBytesForDiagnostics()
+
+        #expect(downStats.copyRectCount == 1)
+        #expect(downStats.copyRectMs >= 0)
+        #expect(Self.row(downPixels, width: width, y: 1) == Self.row(pixels, width: width, y: 0))
+        #expect(Self.row(downPixels, width: width, y: 2) == Self.row(pixels, width: width, y: 1))
+        #expect(Self.row(downPixels, width: width, y: 3) == Self.row(pixels, width: width, y: 2))
+    }
+
+    @Test func ownedSurfaceCompositorCopiesVerticalScrollInsideRegionOnly() throws {
+        let width = 6
+        let height = 5
+        let pixels = Self.makeDiagnosticPixels(width: width, height: height)
+        var compositor = OwnedSurfaceCompositor()
+        _ = try compositor.applyGraphicsFrame(Self.makeSeedSurfaceEnvelope(
+            surfaceGeneration: 1,
+            frameId: 1,
+            width: width,
+            height: height,
+            pixels: pixels
+        ))
+
+        _ = try compositor.applyGraphicsFrame(Self.makeCopyRectEnvelope(
+            surfaceGeneration: 1,
+            frameId: 2,
+            srcX: 2,
+            srcY: 2,
+            dstX: 2,
+            dstY: 1,
+            width: 3,
+            height: 2
+        ))
+
+        let updated = compositor.pixelBytesForDiagnostics()
+        #expect(Self.pixel(updated, width: width, x: 0, y: 0) == Self.pixel(pixels, width: width, x: 0, y: 0))
+        #expect(Self.pixel(updated, width: width, x: 1, y: 1) == Self.pixel(pixels, width: width, x: 1, y: 1))
+        #expect(Self.pixel(updated, width: width, x: 5, y: 2) == Self.pixel(pixels, width: width, x: 5, y: 2))
+        #expect(Self.pixel(updated, width: width, x: 2, y: 1) == Self.pixel(pixels, width: width, x: 2, y: 2))
+        #expect(Self.pixel(updated, width: width, x: 4, y: 2) == Self.pixel(pixels, width: width, x: 4, y: 3))
+    }
+
+    @Test func ownedSurfaceCompositorCopiesHorizontalPartialOverlap() throws {
+        let width = 6
+        let height = 2
+        let pixels = Self.makeDiagnosticPixels(width: width, height: height)
+
+        var rightCompositor = OwnedSurfaceCompositor()
+        _ = try rightCompositor.applyGraphicsFrame(Self.makeSeedSurfaceEnvelope(
+            surfaceGeneration: 1,
+            frameId: 1,
+            width: width,
+            height: height,
+            pixels: pixels
+        ))
+        _ = try rightCompositor.applyGraphicsFrame(Self.makeCopyRectEnvelope(
+            surfaceGeneration: 1,
+            frameId: 2,
+            srcX: 0,
+            srcY: 0,
+            dstX: 1,
+            dstY: 0,
+            width: 5,
+            height: 1
+        ))
+        let rightPixels = rightCompositor.pixelBytesForDiagnostics()
+
+        for x in 0..<5 {
+            #expect(Self.pixel(rightPixels, width: width, x: x + 1, y: 0) == Self.pixel(pixels, width: width, x: x, y: 0))
+        }
+
+        var leftCompositor = OwnedSurfaceCompositor()
+        _ = try leftCompositor.applyGraphicsFrame(Self.makeSeedSurfaceEnvelope(
+            surfaceGeneration: 1,
+            frameId: 1,
+            width: width,
+            height: height,
+            pixels: pixels
+        ))
+        _ = try leftCompositor.applyGraphicsFrame(Self.makeCopyRectEnvelope(
+            surfaceGeneration: 1,
+            frameId: 2,
+            srcX: 1,
+            srcY: 0,
+            dstX: 0,
+            dstY: 0,
+            width: 5,
+            height: 1
+        ))
+        let leftPixels = leftCompositor.pixelBytesForDiagnostics()
+
+        for x in 0..<5 {
+            #expect(Self.pixel(leftPixels, width: width, x: x, y: 0) == Self.pixel(pixels, width: width, x: x + 1, y: 0))
+        }
+    }
+
+    @Test func ownedSurfaceCompositorStatsExposeTimingBuckets() throws {
+        let pixels = Self.makeDiagnosticPixels(width: 2, height: 2)
+        var compositor = OwnedSurfaceCompositor()
+
+        let seedStats = try compositor.applyGraphicsFrame(Self.makeSeedSurfaceEnvelope(
+            surfaceGeneration: 1,
+            frameId: 1,
+            width: 2,
+            height: 2,
+            pixels: pixels
+        ))
+        let copyStats = try compositor.applyGraphicsFrame(Self.makeCopyRectEnvelope(
+            surfaceGeneration: 1,
+            frameId: 2,
+            srcX: 0,
+            srcY: 1,
+            dstX: 0,
+            dstY: 0,
+            width: 2,
+            height: 1
+        ))
+
+        #expect(seedStats.tileDecodeMs >= 0)
+        #expect(seedStats.tilePaintMs >= 0)
+        #expect(seedStats.copyRectMs == 0)
+        #expect(copyStats.copyRectMs >= 0)
+        #expect(copyStats.tileDecodeMs == 0)
+        #expect(copyStats.tilePaintMs == 0)
     }
 
     @MainActor
@@ -1409,6 +1602,116 @@ struct InputChannelTests {
             ],
             payload: Data()
         )
+    }
+
+    private static func makeSeedSurfaceEnvelope(
+        surfaceGeneration: UInt32,
+        frameId: UInt64,
+        width: Int,
+        height: Int,
+        pixels: Data
+    ) throws -> OwnedGraphicsFrameEnvelope {
+        let payload = try compressLZFSE(pixels)
+        return OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: surfaceGeneration,
+                frameId: frameId,
+                capturedAtUptimeNs: frameId * 100,
+                commandCount: 2,
+                payloadLength: payload.count
+            ),
+            commands: [
+                .resetSurface(
+                    surfaceGeneration: surfaceGeneration,
+                    width: width,
+                    height: height,
+                    pixelFormat: .bgra
+                ),
+                .bitmapTile(
+                    x: 0,
+                    y: 0,
+                    width: width,
+                    height: height,
+                    compression: .lzfse,
+                    byteRange: OwnedGraphicsByteRange(offset: 0, length: payload.count)
+                )
+            ],
+            payload: payload
+        )
+    }
+
+    private static func makeCopyRectEnvelope(
+        surfaceGeneration: UInt32,
+        frameId: UInt64,
+        srcX: Int,
+        srcY: Int,
+        dstX: Int,
+        dstY: Int,
+        width: Int,
+        height: Int
+    ) -> OwnedGraphicsFrameEnvelope {
+        OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(
+                surfaceGeneration: surfaceGeneration,
+                frameId: frameId,
+                capturedAtUptimeNs: frameId * 100,
+                commandCount: 1,
+                payloadLength: 0
+            ),
+            commands: [
+                .copyRect(srcX: srcX, srcY: srcY, dstX: dstX, dstY: dstY, width: width, height: height)
+            ],
+            payload: Data()
+        )
+    }
+
+    private static func makeDiagnosticPixels(width: Int, height: Int) -> Data {
+        var pixels = Data()
+        pixels.reserveCapacity(width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                pixels.append(UInt8((y * width + x) & 0xff))
+                pixels.append(UInt8((x * 17) & 0xff))
+                pixels.append(UInt8((y * 29) & 0xff))
+                pixels.append(0xff)
+            }
+        }
+        return pixels
+    }
+
+    private static func row(_ pixels: Data, width: Int, y: Int) -> Data {
+        let rowBytes = width * 4
+        return pixels.subdata(in: (y * rowBytes)..<((y + 1) * rowBytes))
+    }
+
+    private static func pixel(_ pixels: Data, width: Int, x: Int, y: Int) -> Data {
+        let offset = (y * width + x) * 4
+        return pixels.subdata(in: offset..<(offset + 4))
+    }
+
+    private static func compressLZFSE(_ data: Data) throws -> Data {
+        var outputSize = max(data.count + 1024, 1024)
+        while outputSize <= max(data.count * 8, 4096) {
+            var output = Data(count: outputSize)
+            let encodedCount = output.withUnsafeMutableBytes { outputBytes in
+                data.withUnsafeBytes { inputBytes in
+                    compression_encode_buffer(
+                        outputBytes.bindMemory(to: UInt8.self).baseAddress!,
+                        outputSize,
+                        inputBytes.bindMemory(to: UInt8.self).baseAddress!,
+                        data.count,
+                        nil,
+                        COMPRESSION_LZFSE
+                    )
+                }
+            }
+            if encodedCount > 0 {
+                output.removeSubrange(encodedCount..<output.count)
+                return output
+            }
+            outputSize *= 2
+        }
+        throw SessionRejected(reason: .malformed)
     }
 }
 

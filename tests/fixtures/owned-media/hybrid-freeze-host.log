@@ -7,6 +7,10 @@
 2026-06-21 09:00:01.000 AgentDeskHost[200] owned graphics scroll-timeout reason=probe-budget-exceeded confidence=0.860 secondConfidence=0.850 candidates=11 timeoutPhase=ownership-candidate-scan probeScale=22 probeMs=4.40 sampledPixels=1024 hintSource=ownership ownership=miss
 2026-06-21 09:00:01.033 AgentDeskHost[200] owned graphics scroll-hint-timeout reason=probe-budget-exceeded confidence=0.870 secondConfidence=0.860 bestDx=0 bestDy=-15 hintAxis=vertical hintPredictedOffset=-15 hintCandidates=11 hintSource=ownership ownership=miss candidates=11 timeoutPhase=hint-candidate-scan probeScale=22 probeMs=4.20 sampledPixels=1024
 2026-06-21 09:00:01.080 AgentDeskHost[200] owned graphics scroll-rejected reason=confidence hintSource=ownership ownership=miss confidence=0.810 secondConfidence=0.800 candidates=11 probeMs=3.90
+2026-06-21 09:00:01.085 AgentDeskHost[200] owned graphics scroll-accepted frame=120 generation=3 commands=2 payloadBytes=12000 dx=0 dy=-15 bestDx=0 bestDy=-15 confidence=0.940 secondConfidence=0.910 hintActive=true hintSource=input hintAxis=vertical hintPredictedOffset=-15 hintCandidates=11 acceptedBy=hint tieBreak=predicted-offset candidates=11 timeoutPhase=none probeScale=22 probeMs=1.10 payloadBuildMs=0.80 sampledPixels=1024 regionStable=true regionSource=window regionRect=0,0,2796,1290 fullSurfaceCopyRect=true
+2026-06-21 09:00:01.086 AgentDeskHost[200] owned graphics scroll-region source=window stable=true rect=0,0,2796,1290 accepts=2 reason=validated
+2026-06-21 09:00:01.087 AgentDeskHost[200] owned media hevc-region-lock state=before-lock fallbackReason=scroll-region-before-lock
+2026-06-21 09:00:01.088 AgentDeskHost[200] owned media hevc-region-lock state=during-lock fallbackReason=scroll-timeout
 2026-06-21 09:00:01.100 AgentDeskHost[200] owned media hevc-suppressed reason=graphics-recovery-resetting fallbackReason=graphics-reset recoveryState=resetting
 2026-06-21 09:00:01.110 AgentDeskHost[200] owned media host-frame frame=900 keyframe=true keyframeReason=initial mode=draining budgetMode=motion budgetKbps=6000 budgetFps=15 scaleDown=1.0 sourceSize=2796x1290 encodeSize=2796x1290 captureToAdmissionMs=4.0 encodeMs=7.0 sendMs=18.0 bytes=420000 packets=136 burst=16 pauseUs=2500 pacingReason=backpressure burstPauses=9 maxPacketGapMs=3.0 backpressure=true coalescedRaw=3 coalescedAdmissionHold=2 coalescedEncodeBusy=1 coalescedNetwork=4
 2026-06-21 09:00:01.111 AgentDeskHost[200] owned media hevc-fallback reason=scroll-timeout frame=900 bytes=420000 packets=136 keyframe=true
@@ -15,6 +19,7 @@
 2026-06-21 09:00:01.131 AgentDeskHost[200] owned graphics reset-stripe-acked frame=44 generation=3 stripe=1 updateId=44-1
 2026-06-21 09:00:01.140 AgentDeskHost[200] owned graphics reset-stripe sent frame=45 generation=3 stripe=2 stripes=3 commands=1 bytes=524288 maxDecodedBytes=524288
 2026-06-21 09:00:01.141 AgentDeskHost[200] owned graphics reset-stripe-ack-timeout frame=45 generation=3 timeoutMs=180
+2026-06-21 09:00:01.141 AgentDeskHost[200] owned graphics reset stripe ack timeout frame=45 generation=3 timeoutMs=180
 2026-06-21 09:00:01.142 AgentDeskHost[200] owned graphics recovery state=failedCoolingDown previous=resetting reason=reset-ack-timeout
 2026-06-21 09:00:01.145 AgentDeskHost[200] owned graphics channel-disconnected state=failed
 2026-06-21 09:00:01.146 AgentDeskHost[200] owned graphics quic connection state=failed

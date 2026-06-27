@@ -100,6 +100,7 @@ struct ScrollDeltaProbe {
     let startedAt: UInt64
     let detectionBudgetMs: Double
     let elapsedMs: (UInt64) -> Double
+    let region: ScrollRegion?
 
     func bestOffset(scrollHint: ScrollActivityHint? = nil) -> ScrollDeltaProbeOutcome {
         if detectionBudgetMs <= 0 {
@@ -119,8 +120,8 @@ struct ScrollDeltaProbe {
         if let scrollHint, scrollHint.isActive(nowUptimeNs: startedAt) {
             return bestHintOffset(scrollHint)
         }
-        let sampleXs = sampleCoordinates(length: min(previous.width, sampler.width), targetCount: Self.targetSampleColumns)
-        let sampleYs = sampleCoordinates(length: min(previous.height, sampler.height), targetCount: Self.targetSampleRows)
+        let sampleXs = sampleCoordinates(axisLength: .x, targetCount: Self.targetSampleColumns)
+        let sampleYs = sampleCoordinates(axisLength: .y, targetCount: Self.targetSampleRows)
         guard !sampleXs.isEmpty, !sampleYs.isEmpty else {
             return outcome(
                 offset: nil,
@@ -157,11 +158,11 @@ struct ScrollDeltaProbe {
         }
         if let verticalBest = bestOffset, verticalBest.dx == 0 {
             let verificationXs = sampleCoordinates(
-                length: min(previous.width, sampler.width),
+                axisLength: .x,
                 targetCount: Self.verificationSampleColumns
             )
             let verificationYs = sampleCoordinates(
-                length: min(previous.height, sampler.height),
+                axisLength: .y,
                 targetCount: Self.verificationSampleRows
             )
             let refined = refine(
@@ -210,11 +211,11 @@ struct ScrollDeltaProbe {
 
         if let coarseBestOffset = bestOffset {
             let verificationXs = sampleCoordinates(
-                length: min(previous.width, sampler.width),
+                axisLength: .x,
                 targetCount: Self.verificationSampleColumns
             )
             let verificationYs = sampleCoordinates(
-                length: min(previous.height, sampler.height),
+                axisLength: .y,
                 targetCount: Self.verificationSampleRows
             )
             let refined = refine(
@@ -251,11 +252,11 @@ struct ScrollDeltaProbe {
 
     private func bestHintOffset(_ hint: ScrollActivityHint) -> ScrollDeltaProbeOutcome {
         let sampleXs = sampleCoordinates(
-            length: min(previous.width, sampler.width),
+            axisLength: .x,
             targetCount: Self.verificationSampleColumns
         )
         let sampleYs = sampleCoordinates(
-            length: min(previous.height, sampler.height),
+            axisLength: .y,
             targetCount: Self.verificationSampleRows
         )
         guard !sampleXs.isEmpty, !sampleYs.isEmpty else {
@@ -425,12 +426,27 @@ struct ScrollDeltaProbe {
         confidence >= confidenceThreshold && confidence - secondBestConfidence >= confidenceMargin
     }
 
-    private func sampleCoordinates(length: Int, targetCount: Int) -> [Int] {
+    private enum ProbeAxis {
+        case x
+        case y
+    }
+
+    private func sampleCoordinates(axisLength axis: ProbeAxis, targetCount: Int) -> [Int] {
+        let start: Int
+        let length: Int
+        switch axis {
+        case .x:
+            start = region?.x ?? 0
+            length = region.map { min($0.width, previous.width - $0.x, sampler.width - $0.x) } ?? min(previous.width, sampler.width)
+        case .y:
+            start = region?.y ?? 0
+            length = region.map { min($0.height, previous.height - $0.y, sampler.height - $0.y) } ?? min(previous.height, sampler.height)
+        }
         guard length > 0, targetCount > 0 else { return [] }
         let count = min(length, targetCount)
-        guard count > 1 else { return [length / 2] }
+        guard count > 1 else { return [start + length / 2] }
         return (0..<count).map { index in
-            min(length - 1, (index * (length - 1)) / (count - 1))
+            start + min(length - 1, (index * (length - 1)) / (count - 1))
         }
     }
 
@@ -441,6 +457,16 @@ struct ScrollDeltaProbe {
             let previousY = currentY - offset
             guard previousY >= 0, previousY < previous.height, currentY < sampler.height else { continue }
             for x in sampleXs where x < previous.width && x < sampler.width {
+                if let region {
+                    guard x >= region.x,
+                          x < region.maxX,
+                          currentY >= region.y,
+                          currentY < region.maxY,
+                          previousY >= region.y,
+                          previousY < region.maxY else {
+                        continue
+                    }
+                }
                 if samplesMatch(previousX: x, previousY: previousY, currentX: x, currentY: currentY) {
                     matches += 1
                 }
@@ -455,9 +481,20 @@ struct ScrollDeltaProbe {
         var matches = 0
         var samples = 0
         for y in sampleYs where y < previous.height && y < sampler.height {
+            if let region {
+                guard y >= region.y, y < region.maxY else { continue }
+            }
             for currentX in sampleXs {
                 let previousX = currentX - offset
                 guard previousX >= 0, previousX < previous.width, currentX < sampler.width else { continue }
+                if let region {
+                    guard currentX >= region.x,
+                          currentX < region.maxX,
+                          previousX >= region.x,
+                          previousX < region.maxX else {
+                        continue
+                    }
+                }
                 if samplesMatch(previousX: previousX, previousY: y, currentX: currentX, currentY: y) {
                     matches += 1
                 }

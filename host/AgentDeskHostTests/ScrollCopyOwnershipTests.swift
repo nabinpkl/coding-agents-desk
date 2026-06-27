@@ -104,11 +104,18 @@ struct ScrollCopyOwnershipTests {
 
         #expect(ownership.missCount == 2)
         #expect(ownership.hint(nowUptimeNs: 1_120_000_000) == nil)
-        #expect(ownership.allowsHevcFallback(nowUptimeNs: 1_120_000_000))
+        #expect(!ownership.allowsHevcFallback(nowUptimeNs: 1_120_000_000))
+
+        let didRelease = ownership.releaseIfExpired(nowUptimeNs: 1_500_000_001)
+        #expect(didRelease)
+        #expect(ownership.allowsHevcFallback(nowUptimeNs: 1_500_000_001))
     }
 
-    @Test func hevcFallbackIsAllowedAfterConfiguredWindowWithoutAcceptedGraphics() {
-        var ownership = ScrollCopyOwnership(config: ScrollCopyOwnershipConfig(fallbackAfterMs: 300))
+    @Test func hevcFallbackIsSuppressedUntilOwnershipExpires() {
+        var ownership = ScrollCopyOwnership(config: ScrollCopyOwnershipConfig(
+            ownershipTTLMs: 500,
+            fallbackAfterMs: 300
+        ))
 
         #expect(ownership.allowsHevcFallback(nowUptimeNs: 1_000_000_000))
 
@@ -121,7 +128,11 @@ struct ScrollCopyOwnershipTests {
         )
 
         #expect(!ownership.allowsHevcFallback(nowUptimeNs: 1_299_999_999))
-        #expect(ownership.allowsHevcFallback(nowUptimeNs: 1_300_000_000))
+        #expect(!ownership.allowsHevcFallback(nowUptimeNs: 1_300_000_000))
+        #expect(!ownership.allowsHevcFallback(nowUptimeNs: 1_499_999_999))
+        let firstRelease = ownership.releaseIfExpired(nowUptimeNs: 1_500_000_001)
+        #expect(firstRelease)
+        #expect(ownership.allowsHevcFallback(nowUptimeNs: 1_500_000_001))
 
         ownership.observeAccepted(
             axis: .vertical,
@@ -132,7 +143,10 @@ struct ScrollCopyOwnershipTests {
         )
 
         #expect(!ownership.allowsHevcFallback(nowUptimeNs: 1_589_999_999))
-        #expect(ownership.allowsHevcFallback(nowUptimeNs: 1_590_000_000))
+        #expect(!ownership.allowsHevcFallback(nowUptimeNs: 1_790_000_000))
+        let secondRelease = ownership.releaseIfExpired(nowUptimeNs: 1_790_000_001)
+        #expect(secondRelease)
+        #expect(ownership.allowsHevcFallback(nowUptimeNs: 1_790_000_001))
     }
 
     @Test func releaseClearsOwnershipAndStoredInputHint() {

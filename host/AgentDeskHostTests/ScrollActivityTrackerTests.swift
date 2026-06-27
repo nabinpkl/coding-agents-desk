@@ -31,6 +31,19 @@ struct ScrollActivityTrackerTests {
         #expect(hint.candidateOffsets.allSatisfy { $0 > 0 })
     }
 
+    @Test func inputPixelScaleMapsSmallGestureDeltaToVisiblePixelOffset() throws {
+        var tracker = ScrollActivityTracker(inputPixelScale: 24)
+
+        tracker.record(.scroll(dx: 0, dy: -1, phase: .changed), nowUptimeNs: 1_000)
+
+        let hint = try #require(tracker.hint(nowUptimeNs: 1_000))
+        #expect(hint.predictedOffsetPx == -24)
+        #expect(hint.candidateOffsets.first == -24)
+        #expect(hint.candidateOffsets.contains(-40))
+        #expect(hint.candidateOffsets.contains(-8))
+        #expect(hint.candidateOffsets.allSatisfy { $0 < 0 })
+    }
+
     @Test func hintExpiresAfterTheActiveWindow() throws {
         var tracker = ScrollActivityTracker(activeWindowMs: 10)
 

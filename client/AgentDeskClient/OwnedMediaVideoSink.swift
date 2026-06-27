@@ -203,9 +203,14 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         do {
             ownedMediaStderrTrace("graphics-frame-apply-start frame=\(envelope.header.frameId) generation=\(envelope.header.surfaceGeneration) queuedFrames=\(queueDepth.queuedFrames) queueDepthBytes=\(queueDepth.queueDepthBytes) totalGraphicsApplied=\(compositor.totalGraphicsFramesApplied)")
             let stats = try compositor.applyGraphicsFrame(envelope)
+            let makeImageStartNs = DispatchTime.now().uptimeNanoseconds
             surfaceLayer.contents = compositor.makeImage()
+            let makeImageMs = OwnedMediaRenderTiming.elapsedMs(
+                from: makeImageStartNs,
+                to: DispatchTime.now().uptimeNanoseconds
+            )
             surfaceLayer.isHidden = false
-            ownedMediaStderrTrace("graphics-frame frame=\(envelope.header.frameId) generation=\(envelope.header.surfaceGeneration) commands=\(envelope.commands.count) bytes=\(envelope.payload.count) action=\(stats.action) compositorMs=\(Self.formatDouble(stats.compositorMs)) stale=\(stats.staleDiscardCount) copyRects=\(stats.copyRectCount) tileBytes=\(stats.tileBytes) queuedFrames=\(queueDepth.queuedFrames) queueDepthBytes=\(queueDepth.queueDepthBytes) totalGraphicsApplied=\(stats.totalGraphicsFramesApplied)")
+            ownedMediaStderrTrace("graphics-frame frame=\(envelope.header.frameId) generation=\(envelope.header.surfaceGeneration) commands=\(envelope.commands.count) bytes=\(envelope.payload.count) action=\(stats.action) compositorMs=\(Self.formatDouble(stats.compositorMs)) copyRectMs=\(Self.formatDouble(stats.copyRectMs)) tileDecodeMs=\(Self.formatDouble(stats.tileDecodeMs)) tilePaintMs=\(Self.formatDouble(stats.tilePaintMs)) makeImageMs=\(Self.formatDouble(makeImageMs)) stale=\(stats.staleDiscardCount) copyRects=\(stats.copyRectCount) tileBytes=\(stats.tileBytes) queuedFrames=\(queueDepth.queuedFrames) queueDepthBytes=\(queueDepth.queueDepthBytes) totalGraphicsApplied=\(stats.totalGraphicsFramesApplied)")
             return OwnedGraphicsFrameAck(
                 surfaceGeneration: envelope.header.surfaceGeneration,
                 frameId: envelope.header.frameId,
@@ -471,10 +476,29 @@ private final class OwnedHEVCFrameDecoder {
 struct OwnedSurfaceCompositorStats: Equatable {
     let action: String
     let compositorMs: Double
+    let copyRectMs: Double
+    let tileDecodeMs: Double
+    let tilePaintMs: Double
     let staleDiscardCount: Int
     let totalGraphicsFramesApplied: UInt64
     let copyRectCount: Int
     let tileBytes: Int
+}
+
+private struct OwnedSurfaceCompositorTiming {
+    var copyRectMs = 0.0
+    var tileDecodeMs = 0.0
+    var tilePaintMs = 0.0
+}
+
+private enum OwnedSurfaceValidatedCommand {
+    case resetSurface(surfaceGeneration: UInt32, width: Int, height: Int, baseline: OwnedSurfaceUpdateId)
+    case copyRect(srcX: Int, srcY: Int, dstX: Int, dstY: Int, width: Int, height: Int)
+    case bitmapTile(x: Int, y: Int, width: Int, height: Int, decoded: Data)
+}
+
+private enum OwnedSurfaceCompositorValidationError: Error {
+    case staleReset
 }
 
 struct OwnedSurfaceCompositor {
@@ -493,7 +517,7 @@ struct OwnedSurfaceCompositor {
         let startNs = DispatchTime.now().uptimeNanoseconds
         guard updateId.isStrictlyNewer(than: committedUpdateId) else {
             staleDiscardCount += 1
-            return stats(action: "stale-hevc", startNs: startNs, copyRects: 0, tileBytes: 0)
+            return stats(action: "stale-hevc", startNs: startNs, timing: .init(), copyRects: 0, tileBytes: 0)
         }
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
@@ -519,7 +543,7 @@ struct OwnedSurfaceCompositor {
         bytesPerRow = targetBytesPerRow
         pixels = nextPixels
         committedUpdateId = updateId
-        return stats(action: "hevc-refresh", startNs: startNs, copyRects: 0, tileBytes: targetBytesPerRow * sourceHeight)
+        return stats(action: "hevc-refresh", startNs: startNs, timing: .init(), copyRects: 0, tileBytes: targetBytesPerRow * sourceHeight)
     }
 
     mutating func applyGraphicsFrame(_ envelope: OwnedGraphicsFrameEnvelope) throws -> OwnedSurfaceCompositorStats {
@@ -529,61 +553,59 @@ struct OwnedSurfaceCompositor {
             envelope.commands.contains(where: { command in
                 if case .resetSurface = command { return true }
                 return false
-            }) else {
+        }) else {
             staleDiscardCount += 1
-            return stats(action: "stale-graphics", startNs: startNs, copyRects: 0, tileBytes: 0)
+            return stats(action: "stale-graphics", startNs: startNs, timing: .init(), copyRects: 0, tileBytes: 0)
         }
-        var next = self
+        var timing = OwnedSurfaceCompositorTiming()
+        let validatedCommands: [OwnedSurfaceValidatedCommand]
+        do {
+            validatedCommands = try validateGraphicsFrame(envelope, updateId: updateId, timing: &timing)
+        } catch OwnedSurfaceCompositorValidationError.staleReset {
+            staleDiscardCount += 1
+            return stats(action: "stale-reset", startNs: startNs, timing: timing, copyRects: 0, tileBytes: 0)
+        }
         var copyRects = 0
         var tileBytes = 0
-        for command in envelope.commands {
+        for command in validatedCommands {
             switch command {
-            case let .resetSurface(surfaceGeneration, width, height, pixelFormat):
-                guard pixelFormat == .bgra,
-                      let baseline = OwnedSurfaceUpdateId.acceptedResetBaseline(
-                        surfaceGeneration: surfaceGeneration,
-                        committedSurfaceGeneration: next.committedUpdateId.surfaceGeneration
-                      ) else {
-                    staleDiscardCount += 1
-                    return stats(action: "stale-reset", startNs: startNs, copyRects: copyRects, tileBytes: tileBytes)
-                }
-                next.width = width
-                next.height = height
-                next.bytesPerRow = width * 4
-                next.pixels = Data(count: next.bytesPerRow * height)
-                next.committedUpdateId = baseline
+            case let .resetSurface(_, width, height, baseline):
+                self.width = width
+                self.height = height
+                bytesPerRow = width * 4
+                pixels = Data(count: bytesPerRow * height)
+                committedUpdateId = baseline
             case let .copyRect(srcX, srcY, dstX, dstY, width, height):
-                guard updateId.isStrictlyNewer(than: next.committedUpdateId) else {
-                    staleDiscardCount += 1
-                    return stats(action: "stale-graphics", startNs: startNs, copyRects: copyRects, tileBytes: tileBytes)
-                }
-                try next.copyRect(srcX: srcX, srcY: srcY, dstX: dstX, dstY: dstY, width: width, height: height)
+                let copyStartNs = DispatchTime.now().uptimeNanoseconds
+                try copyRect(srcX: srcX, srcY: srcY, dstX: dstX, dstY: dstY, width: width, height: height)
+                timing.copyRectMs += OwnedMediaRenderTiming.elapsedMs(
+                    from: copyStartNs,
+                    to: DispatchTime.now().uptimeNanoseconds
+                )
                 copyRects += 1
-            case let .bitmapTile(x, y, width, height, compression, byteRange):
-                guard updateId.isStrictlyNewer(than: next.committedUpdateId),
-                      compression == .lzfse else {
-                    staleDiscardCount += 1
-                    return stats(action: "stale-tile", startNs: startNs, copyRects: copyRects, tileBytes: tileBytes)
-                }
-                let compressed = envelope.payload[byteRange.offset..<(byteRange.offset + byteRange.length)]
-                let decoded = try next.decompressLZFSE(Data(compressed), expectedCount: width * height * 4)
-                try next.paintTile(decoded, x: x, y: y, width: width, height: height)
+            case let .bitmapTile(x, y, width, height, decoded):
+                let paintStartNs = DispatchTime.now().uptimeNanoseconds
+                try paintTile(decoded, x: x, y: y, width: width, height: height)
+                timing.tilePaintMs += OwnedMediaRenderTiming.elapsedMs(
+                    from: paintStartNs,
+                    to: DispatchTime.now().uptimeNanoseconds
+                )
                 tileBytes += decoded.count
-            case .codecTile:
-                throw SessionRejected(reason: .malformed)
             }
         }
-        if updateId.isStrictlyNewer(than: next.committedUpdateId) {
-            next.committedUpdateId = updateId
+        if updateId.isStrictlyNewer(than: committedUpdateId) {
+            committedUpdateId = updateId
         }
-        next.totalGraphicsFramesApplied += 1
-        self = next
-        return stats(action: "graphics", startNs: startNs, copyRects: copyRects, tileBytes: tileBytes)
+        totalGraphicsFramesApplied += 1
+        return stats(action: "graphics", startNs: startNs, timing: timing, copyRects: copyRects, tileBytes: tileBytes)
     }
 
     func makeImage() -> CGImage? {
         guard width > 0, height > 0, pixels.count == bytesPerRow * height else { return nil }
-        let data = pixels as CFData
+        let presentationPixels = pixels.withUnsafeBytes { bytes in
+            Data(bytes)
+        }
+        let data = presentationPixels as CFData
         guard let provider = CGDataProvider(data: data),
               let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
         return CGImage(
@@ -605,12 +627,16 @@ struct OwnedSurfaceCompositor {
     private func stats(
         action: String,
         startNs: UInt64,
+        timing: OwnedSurfaceCompositorTiming,
         copyRects: Int,
         tileBytes: Int
     ) -> OwnedSurfaceCompositorStats {
         OwnedSurfaceCompositorStats(
             action: action,
             compositorMs: Double(DispatchTime.now().uptimeNanoseconds &- startNs) / 1_000_000.0,
+            copyRectMs: timing.copyRectMs,
+            tileDecodeMs: timing.tileDecodeMs,
+            tilePaintMs: timing.tilePaintMs,
             staleDiscardCount: staleDiscardCount,
             totalGraphicsFramesApplied: totalGraphicsFramesApplied,
             copyRectCount: copyRects,
@@ -618,32 +644,162 @@ struct OwnedSurfaceCompositor {
         )
     }
 
+    func pixelBytesForDiagnostics() -> Data {
+        pixels
+    }
+
+    private func validateGraphicsFrame(
+        _ envelope: OwnedGraphicsFrameEnvelope,
+        updateId: OwnedSurfaceUpdateId,
+        timing: inout OwnedSurfaceCompositorTiming
+    ) throws -> [OwnedSurfaceValidatedCommand] {
+        var candidateCommittedUpdateId = committedUpdateId
+        var candidateWidth = width
+        var candidateHeight = height
+        var candidateBytesPerRow = bytesPerRow
+        var candidatePixelCount = pixels.count
+        var validated: [OwnedSurfaceValidatedCommand] = []
+        validated.reserveCapacity(envelope.commands.count)
+
+        for command in envelope.commands {
+            switch command {
+            case let .resetSurface(surfaceGeneration, width, height, pixelFormat):
+                guard pixelFormat == .bgra else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                guard let baseline = OwnedSurfaceUpdateId.acceptedResetBaseline(
+                        surfaceGeneration: surfaceGeneration,
+                        committedSurfaceGeneration: candidateCommittedUpdateId.surfaceGeneration
+                ) else {
+                    throw OwnedSurfaceCompositorValidationError.staleReset
+                }
+                candidateWidth = width
+                candidateHeight = height
+                candidateBytesPerRow = width * 4
+                candidatePixelCount = candidateBytesPerRow * height
+                candidateCommittedUpdateId = baseline
+                validated.append(.resetSurface(
+                    surfaceGeneration: surfaceGeneration,
+                    width: width,
+                    height: height,
+                    baseline: baseline
+                ))
+            case let .copyRect(srcX, srcY, dstX, dstY, width, height):
+                guard updateId.isStrictlyNewer(than: candidateCommittedUpdateId) else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                try Self.validateRect(
+                    x: srcX,
+                    y: srcY,
+                    width: width,
+                    height: height,
+                    surfaceWidth: candidateWidth,
+                    surfaceHeight: candidateHeight,
+                    bytesPerRow: candidateBytesPerRow,
+                    pixelCount: candidatePixelCount
+                )
+                try Self.validateRect(
+                    x: dstX,
+                    y: dstY,
+                    width: width,
+                    height: height,
+                    surfaceWidth: candidateWidth,
+                    surfaceHeight: candidateHeight,
+                    bytesPerRow: candidateBytesPerRow,
+                    pixelCount: candidatePixelCount
+                )
+                validated.append(.copyRect(srcX: srcX, srcY: srcY, dstX: dstX, dstY: dstY, width: width, height: height))
+            case let .bitmapTile(x, y, width, height, compression, byteRange):
+                guard updateId.isStrictlyNewer(than: candidateCommittedUpdateId),
+                      compression == .lzfse else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                try Self.validateRect(
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height,
+                    surfaceWidth: candidateWidth,
+                    surfaceHeight: candidateHeight,
+                    bytesPerRow: candidateBytesPerRow,
+                    pixelCount: candidatePixelCount
+                )
+                let end = byteRange.offset + byteRange.length
+                guard byteRange.offset >= 0,
+                      byteRange.length > 0,
+                      end <= envelope.payload.count else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                let decodeStartNs = DispatchTime.now().uptimeNanoseconds
+                let compressed = envelope.payload[byteRange.offset..<end]
+                let decoded = try decompressLZFSE(Data(compressed), expectedCount: width * height * 4)
+                timing.tileDecodeMs += OwnedMediaRenderTiming.elapsedMs(
+                    from: decodeStartNs,
+                    to: DispatchTime.now().uptimeNanoseconds
+                )
+                validated.append(.bitmapTile(x: x, y: y, width: width, height: height, decoded: decoded))
+            case .codecTile:
+                throw SessionRejected(reason: .malformed)
+            }
+        }
+        return validated
+    }
+
     private mutating func copyRect(srcX: Int, srcY: Int, dstX: Int, dstY: Int, width: Int, height: Int) throws {
         try validateRect(x: srcX, y: srcY, width: width, height: height)
         try validateRect(x: dstX, y: dstY, width: width, height: height)
         let copyBytesPerRow = width * 4
-        var temp = Data(count: copyBytesPerRow * height)
-        pixels.withUnsafeBytes { sourceBytes in
-            temp.withUnsafeMutableBytes { targetBytes in
-                guard let sourceBase = sourceBytes.baseAddress,
-                      let targetBase = targetBytes.baseAddress else { return }
-                for row in 0..<height {
-                    let source = sourceBase.advanced(by: (srcY + row) * bytesPerRow + srcX * 4)
-                    let target = targetBase.advanced(by: row * copyBytesPerRow)
-                    target.copyMemory(from: source, byteCount: copyBytesPerRow)
-                }
+        pixels.withUnsafeMutableBytes { targetBytes in
+            guard let base = targetBytes.baseAddress else { return }
+            if srcX == 0, dstX == 0, width == self.width {
+                let source = base.advanced(by: srcY * bytesPerRow)
+                let target = base.advanced(by: dstY * bytesPerRow)
+                memmove(target, source, copyBytesPerRow * height)
+                return
+            }
+
+            let rows: AnySequence<Int>
+            if dstY > srcY {
+                rows = AnySequence(stride(from: height - 1, through: 0, by: -1))
+            } else {
+                rows = AnySequence(0..<height)
+            }
+            for row in rows {
+                let source = base.advanced(by: (srcY + row) * bytesPerRow + srcX * 4)
+                let target = base.advanced(by: (dstY + row) * bytesPerRow + dstX * 4)
+                memmove(target, source, copyBytesPerRow)
             }
         }
-        pixels.withUnsafeMutableBytes { targetBytes in
-            temp.withUnsafeBytes { sourceBytes in
-                guard let targetBase = targetBytes.baseAddress,
-                      let sourceBase = sourceBytes.baseAddress else { return }
-                for row in 0..<height {
-                    let source = sourceBase.advanced(by: row * copyBytesPerRow)
-                    let target = targetBase.advanced(by: (dstY + row) * bytesPerRow + dstX * 4)
-                    target.copyMemory(from: source, byteCount: copyBytesPerRow)
-                }
-            }
+    }
+
+    private func validateRect(x: Int, y: Int, width: Int, height: Int) throws {
+        try Self.validateRect(
+            x: x,
+            y: y,
+            width: width,
+            height: height,
+            surfaceWidth: self.width,
+            surfaceHeight: self.height,
+            bytesPerRow: bytesPerRow,
+            pixelCount: pixels.count
+        )
+    }
+
+    private static func validateRect(
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        surfaceWidth: Int,
+        surfaceHeight: Int,
+        bytesPerRow: Int,
+        pixelCount: Int
+    ) throws {
+        guard x >= 0, y >= 0, width > 0, height > 0,
+              x <= surfaceWidth - width,
+              y <= surfaceHeight - height,
+              pixelCount == bytesPerRow * surfaceHeight else {
+            throw SessionRejected(reason: .malformed)
         }
     }
 
@@ -663,15 +819,6 @@ struct OwnedSurfaceCompositor {
                     target.copyMemory(from: source, byteCount: tileBytesPerRow)
                 }
             }
-        }
-    }
-
-    private func validateRect(x: Int, y: Int, width: Int, height: Int) throws {
-        guard x >= 0, y >= 0, width > 0, height > 0,
-              x <= self.width - width,
-              y <= self.height - height,
-              pixels.count == bytesPerRow * self.height else {
-            throw SessionRejected(reason: .malformed)
         }
     }
 

@@ -148,6 +148,8 @@ struct ScrollQualityTests {
         var admission = HybridScrollHEVCAdmission()
 
         admission.noteAcceptedScroll(nowUptimeNs: 2_000_000_000)
+        #expect(!admission.idleRefreshEligible(nowUptimeNs: 2_249_000_000, idleRefreshMs: 250))
+        #expect(admission.idleRefreshEligible(nowUptimeNs: 2_250_000_000, idleRefreshMs: 250))
         let beforeIdle = admission.idleRefreshDue(nowUptimeNs: 2_249_000_000, idleRefreshMs: 250)
         let atIdle = admission.idleRefreshDue(nowUptimeNs: 2_250_000_000, idleRefreshMs: 250)
         let afterConsumed = admission.idleRefreshDue(nowUptimeNs: 2_750_000_000, idleRefreshMs: 250)
@@ -157,6 +159,45 @@ struct ScrollQualityTests {
         #expect(!afterConsumed)
     }
 
+    @Test func hybridScrollHevcAdmissionEligibilityDoesNotConsumePendingRefresh() {
+        var admission = HybridScrollHEVCAdmission()
+
+        admission.noteAcceptedScroll(nowUptimeNs: 2_000_000_000)
+
+        #expect(admission.idleRefreshEligible(nowUptimeNs: 2_250_000_000, idleRefreshMs: 250))
+        #expect(admission.pendingIdleRefresh)
+        admission.noteActiveScroll(nowUptimeNs: 2_260_000_000)
+        #expect(!admission.idleRefreshEligible(nowUptimeNs: 2_300_000_000, idleRefreshMs: 250))
+        let refreshDue = admission.idleRefreshDue(nowUptimeNs: 2_510_000_000, idleRefreshMs: 250)
+        #expect(refreshDue)
+        #expect(!admission.pendingIdleRefresh)
+    }
+
+    @Test func scrollCopyOwnershipSuppressesHevcWhileActiveEvenAfterMissBudget() {
+        var ownership = ScrollCopyOwnership(config: ScrollCopyOwnershipConfig(
+            ownershipTTLMs: 500,
+            fallbackAfterMs: 300,
+            maxMisses: 2
+        ))
+
+        ownership.observeAccepted(
+            axis: .vertical,
+            sign: -1,
+            offsetPx: -24,
+            frameId: 42,
+            nowUptimeNs: 1_000_000_000
+        )
+        ownership.observeMiss(nowUptimeNs: 1_100_000_000)
+        ownership.observeMiss(nowUptimeNs: 1_200_000_000)
+        ownership.observeMiss(nowUptimeNs: 1_400_000_000)
+
+        #expect(ownership.isActive(nowUptimeNs: 1_400_000_000))
+        #expect(!ownership.allowsHevcFallback(nowUptimeNs: 1_400_000_000))
+        let released = ownership.releaseIfExpired(nowUptimeNs: 1_501_000_000)
+        #expect(released)
+        #expect(ownership.allowsHevcFallback(nowUptimeNs: 1_501_000_000))
+    }
+
     @Test func hybridHevcFallbackReasonsDoNotRequestKeyframes() {
         let reasons: [OwnedHybridHEVCFallbackReason] = [
             .scrollTimeout,
@@ -164,12 +205,14 @@ struct ScrollQualityTests {
             .graphicsReset,
             .graphicsSendFailed,
             .graphicsResetSendFailed,
-            .rejectedMotion
+            .rejectedMotion,
+            .scrollRegionBeforeLock
         ]
 
         #expect(reasons.allSatisfy { !$0.requestsKeyframe })
         #expect(reasons.map(\.rawValue).contains("scroll-timeout"))
         #expect(reasons.map(\.rawValue).contains("graphics-disconnected"))
+        #expect(reasons.map(\.rawValue).contains("scroll-region-before-lock"))
     }
 
     @Test func ownedGraphicsAdmissionAckClearsInflightFramesAndBytes() {
@@ -1459,6 +1502,29 @@ struct ScrollQualityTests {
         ) == .allow)
     }
 
+    @Test func hybridGraphicsRecoveryHevcGateRateLimitsResetSendFailureFallback() {
+        var gate = HybridGraphicsRecoveryHEVCGate()
+
+        #expect(gate.decision(
+            reason: .graphicsResetSendFailed,
+            recoveryState: .failedCoolingDown,
+            nowUptimeNs: 10_000_000_000,
+            minIntervalMs: 1_500
+        ) == .allow)
+        #expect(gate.decision(
+            reason: .graphicsResetSendFailed,
+            recoveryState: .failedCoolingDown,
+            nowUptimeNs: 11_000_000_000,
+            minIntervalMs: 1_500
+        ) == .suppress(reason: "graphics-recovery-rate-limited"))
+        #expect(gate.decision(
+            reason: .graphicsResetSendFailed,
+            recoveryState: .failedCoolingDown,
+            nowUptimeNs: 11_500_000_000,
+            minIntervalMs: 1_500
+        ) == .allow)
+    }
+
     @Test func ownedGraphicsAckWaiterCompletesWhenAckCoversUpdate() async {
         let waiter = OwnedGraphicsAckWaiter()
         let task = Task {
@@ -1477,6 +1543,46 @@ struct ScrollQualityTests {
         ))
 
         #expect(await task.value)
+    }
+
+    @Test func ownedGraphicsAckWaiterCompletesWhenNewerGenerationCoversUpdate() async {
+        let waiter = OwnedGraphicsAckWaiter()
+        let task = Task {
+            await waiter.wait(
+                for: OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: 200),
+                timeoutMs: 1_000
+            )
+        }
+
+        waiter.noteAck(OwnedGraphicsFrameAck(
+            surfaceGeneration: 2,
+            frameId: 1,
+            compositorMs: 1,
+            totalGraphicsFramesApplied: 12,
+            staleDiscardCount: 0
+        ))
+
+        #expect(await task.value)
+    }
+
+    @Test func ownedGraphicsAckWaiterDoesNotCompleteForOlderAck() async {
+        let waiter = OwnedGraphicsAckWaiter()
+        let task = Task {
+            await waiter.wait(
+                for: OwnedSurfaceUpdateId(surfaceGeneration: 2, frameId: 1),
+                timeoutMs: 5
+            )
+        }
+
+        waiter.noteAck(OwnedGraphicsFrameAck(
+            surfaceGeneration: 1,
+            frameId: 999,
+            compositorMs: 1,
+            totalGraphicsFramesApplied: 11,
+            staleDiscardCount: 0
+        ))
+
+        #expect(!(await task.value))
     }
 
     @Test func ownedGraphicsAckWaiterTimesOutWithoutMutatingAuthState() async {
@@ -1589,7 +1695,7 @@ struct ScrollQualityTests {
 
         #expect(engine.evaluate(previous).kind == .reset)
         engine.commitPendingSurface()
-        let result = engine.evaluate(current)
+        let result = engine.evaluate(current, scrollRegion: Self.fullSurfaceRegion(width: 64, height: 64))
 
         #expect(result.kind == ScrollDeltaKind.accepted)
         let diagnostics = try #require(result.diagnostics)
@@ -1598,6 +1704,7 @@ struct ScrollQualityTests {
         #expect(diagnostics.confidence >= 0.92)
         #expect(diagnostics.sampledPixelCount > 0)
         #expect(diagnostics.payloadBuildMs != nil)
+        #expect(diagnostics.fullSurfaceCopyRect)
         let envelope = try #require(result.envelope)
         #expect(result.envelopes == [envelope])
         #expect(envelope.commands.count == 2)
@@ -1616,6 +1723,127 @@ struct ScrollQualityTests {
         })
     }
 
+    @Test func scrollDeltaEngineDoesNotEmitCopyRectWithoutStableRegion() throws {
+        var engine = ScrollDeltaEngine()
+        let previous = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+        let current = try Self.makeBGRAFrame(width: 64, height: 64) { x, y in
+            y < 48 ? Self.pixel(x: x, y: y + 16) : Self.exposedPixel(x: x, y: y)
+        }
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let result = engine.evaluate(current)
+
+        #expect(result.kind == ScrollDeltaKind.accepted)
+        #expect(result.envelope == nil)
+        #expect(result.envelopes.isEmpty)
+        let diagnostics = try #require(result.diagnostics)
+        #expect(diagnostics.acceptedDy == -16)
+        #expect(!diagnostics.regionStable)
+        #expect(diagnostics.regionSource == nil)
+        #expect(!diagnostics.fullSurfaceCopyRect)
+    }
+
+    @Test func scrollDeltaEngineEmitsRegionScopedVerticalCopyRectAndExposedStrip() throws {
+        var engine = ScrollDeltaEngine()
+        let region = ScrollRegion(
+            x: 10,
+            y: 8,
+            width: 50,
+            height: 40,
+            source: .cursorFallback,
+            stability: ScrollRegionStability(stableFrameCount: 2, overlapRatioWithPrevious: 1)
+        )
+        let scrollDy = 6
+        let previous = try Self.makeBGRAFrame(width: 100, height: 80) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+        let current = try Self.makeBGRAFrame(width: 100, height: 80) { x, y in
+            if x >= region.x, x < region.maxX, y >= region.y, y < region.maxY {
+                return y < region.maxY - scrollDy
+                    ? Self.pixel(x: x, y: y + scrollDy)
+                    : Self.exposedPixel(x: x, y: y)
+            }
+            return Self.pixel(x: x, y: y)
+        }
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let result = engine.evaluate(current, scrollRegion: region)
+
+        #expect(result.kind == ScrollDeltaKind.accepted)
+        let diagnostics = try #require(result.diagnostics)
+        #expect(diagnostics.regionStable)
+        #expect(diagnostics.regionSource == "cursor-fallback")
+        #expect(diagnostics.regionX == 10)
+        #expect(diagnostics.regionY == 8)
+        #expect(diagnostics.regionWidth == 50)
+        #expect(diagnostics.regionHeight == 40)
+        #expect(!diagnostics.fullSurfaceCopyRect)
+        let envelope = try #require(result.envelope)
+        #expect(envelope.commands[0] == OwnedGraphicsCommand.copyRect(
+            srcX: 10,
+            srcY: 14,
+            dstX: 10,
+            dstY: 8,
+            width: 50,
+            height: 34
+        ))
+        #expect(envelope.commands[1] == OwnedGraphicsCommand.bitmapTile(
+            x: 10,
+            y: 42,
+            width: 50,
+            height: 6,
+            compression: OwnedGraphicsTileCompression.lzfse,
+            byteRange: OwnedGraphicsByteRange(offset: 0, length: envelope.payload.count)
+        ))
+        let decoded = try Self.decompressLZFSE(envelope.payload, expectedCount: 50 * 6 * 4)
+        #expect(decoded == Self.tileBytes(width: 50, height: 6) { x, row in
+            Self.exposedPixel(x: x + 10, y: row + 42)
+        })
+    }
+
+    @Test func scrollDeltaEngineValidatesRegionScrollWithoutEmittingBeforeRegionLock() throws {
+        var engine = ScrollDeltaEngine()
+        let region = ScrollRegion(
+            x: 10,
+            y: 8,
+            width: 50,
+            height: 40,
+            source: .cursorFallback,
+            stability: ScrollRegionStability(stableFrameCount: 1, overlapRatioWithPrevious: 0)
+        )
+        let previous = try Self.makeBGRAFrame(width: 100, height: 80) { x, y in
+            Self.pixel(x: x, y: y)
+        }
+        let current = try Self.makeBGRAFrame(width: 100, height: 80) { x, y in
+            if x >= region.x, x < region.maxX, y >= region.y, y < region.maxY {
+                return y < region.maxY - 6
+                    ? Self.pixel(x: x, y: y + 6)
+                    : Self.exposedPixel(x: x, y: y)
+            }
+            return Self.pixel(x: x, y: y)
+        }
+
+        #expect(engine.evaluate(previous).kind == .reset)
+        engine.commitPendingSurface()
+        let result = engine.evaluate(
+            current,
+            scrollRegion: region,
+            emitGraphicsBeforeRegionLock: false
+        )
+
+        #expect(result.kind == ScrollDeltaKind.accepted)
+        #expect(result.envelope == nil)
+        #expect(result.envelopes.isEmpty)
+        let diagnostics = try #require(result.diagnostics)
+        #expect(diagnostics.acceptedDy == -6)
+        #expect(!diagnostics.regionStable)
+        #expect(diagnostics.regionSource == "cursor-fallback")
+    }
+
     @Test func scrollDeltaEngineSamplesLumaBeforePayloadBuildFor420Scroll() throws {
         var engine = ScrollDeltaEngine()
         let previous = try Self.makeBGRAFrame(width: 320, height: 256) { x, y in
@@ -1627,7 +1855,7 @@ struct ScrollQualityTests {
 
         #expect(engine.evaluate(previous).kind == .reset)
         engine.commitPendingSurface()
-        let result = engine.evaluate(current)
+        let result = engine.evaluate(current, scrollRegion: Self.fullSurfaceRegion(width: 320, height: 256))
 
         #expect(result.kind == ScrollDeltaKind.accepted)
         let diagnostics = try #require(result.diagnostics)
@@ -1655,7 +1883,11 @@ struct ScrollQualityTests {
 
         #expect(engine.evaluate(previous).kind == .reset)
         engine.commitPendingSurface()
-        let result = engine.evaluate(current, detectionBudgetMs: 4)
+        let result = engine.evaluate(
+            current,
+            scrollRegion: Self.fullSurfaceRegion(width: width, height: height),
+            detectionBudgetMs: 4
+        )
 
         #expect(result.kind == ScrollDeltaKind.accepted)
         let diagnostics = try #require(result.diagnostics)
@@ -1693,7 +1925,11 @@ struct ScrollQualityTests {
 
             #expect(engine.evaluate(previous).kind == .reset)
             engine.commitPendingSurface()
-            let result = engine.evaluate(current, scrollHint: hint)
+            let result = engine.evaluate(
+                current,
+                scrollHint: hint,
+                scrollRegion: Self.fullSurfaceRegion(width: width, height: height)
+            )
 
             #expect(result.kind == ScrollDeltaKind.accepted)
             let diagnostics = try #require(result.diagnostics)
@@ -1871,7 +2107,7 @@ struct ScrollQualityTests {
 
         #expect(engine.evaluate(previous).kind == .reset)
         engine.commitPendingSurface()
-        let result = engine.evaluate(current)
+        let result = engine.evaluate(current, scrollRegion: Self.fullSurfaceRegion(width: 64, height: 64))
 
         #expect(result.kind == ScrollDeltaKind.accepted)
         let diagnostics = try #require(result.diagnostics)
@@ -1978,7 +2214,8 @@ struct ScrollQualityTests {
             elapsedMs: { _ in
                 elapsed += 1.0
                 return elapsed
-            }
+            },
+            region: nil
         )
 
         let outcome = probe.bestOffset()
@@ -2334,6 +2571,17 @@ struct ScrollQualityTests {
             candidateOffsets: candidates,
             activeUntilUptimeNs: UInt64.max,
             eventCount: 1
+        )
+    }
+
+    private static func fullSurfaceRegion(width: Int, height: Int) -> ScrollRegion {
+        ScrollRegion(
+            x: 0,
+            y: 0,
+            width: width,
+            height: height,
+            source: .cursorFallback,
+            stability: ScrollRegionStability(stableFrameCount: 2, overlapRatioWithPrevious: 1)
         )
     }
 
