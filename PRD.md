@@ -28,7 +28,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 
 ## v0 user surface
 
-1. Pair iPhone to Mac once by scanning a QR code on the Mac.
+1. Pair iPhone to Mac once from the Mac: open the app on the phone, then pick that iPhone from the Mac's tailnet device list. The host-side pick is the authorization. QR scanning remains a fallback.
 2. Open iPhone app, see the active Space at native DPR.
 3. Trackpad area accepts: cursor move, tap-to-click, two-finger right-click, two-finger scroll, double-tap-drag.
 4. **One-handed Spaces control switches Spaces.** Visible feedback within one frame.

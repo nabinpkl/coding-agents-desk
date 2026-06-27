@@ -19,7 +19,7 @@ This worktree is testing the ADR-0016 scroll-first hybrid retained-graphics path
 - **Three-finger horizontal swipe on the phone switches Spaces on the Mac.**
 - Compact keyboard with `Esc`, `Tab`, arrows, and sticky-tap modifiers (`Cmd`, `Ctrl`, `Option`, `Shift`).
 - Drops the session within a second when the iPhone app backgrounds. Reconnects in under five when it foregrounds.
-- One-shot QR pairing on the same tailnet.
+- Mac-initiated pairing: open the app on the phone, pick it from the Mac's tailnet device list, done. QR stays as a fallback.
 
 ## What it is not
 
@@ -40,7 +40,7 @@ The full non-goal list is in `PRD.md`.
   | VideoRenderer        | <===================>  | InputDispatcher (CGEventPost) |
   | RetainedCompositor*  |    graphics commands   | ScrollDeltaEngine*            |
   | PairingClient        |    QUIC media packets  | SpacesProvider (private CGS)  |
-  | OwnedMediaTransport  |                        | Pairing (QR + Keychain)       |
+  | OwnedMediaTransport  |                        | Pairing (picker + QR)         |
   | GraphicsTransport*   |                        | GraphicsTransport*            |
   +----------------------+                        | OwnedMediaTransport           |
                                                   +-------------------------------+
@@ -55,7 +55,7 @@ Key choices:
 - **Codec and compositor:** Hardware HEVC via VideoToolbox remains the rest and full-frame correctness path. The current baseline decodes into `AVSampleBufferDisplayLayer`; the worktree target decodes HEVC with `VTDecompressionSession` into a retained BGRA compositor while graphics commands mutate the same surface during accepted scroll.
 - **Graphics scope:** scroll-first hybrid retained graphics, not full Microsoft mixed mode. The branch targets `copyRect` plus lossless exposed-strip tiles for scroll motion. Full text/image/video classification, region HEVC, and codec atlas behavior remain future scope.
 - **Spaces:** Private CoreGraphics calls (`CGSGetActiveSpace`, `CGSCopySpaces`, `CGSSpaceCopyOwners`) on the Mac. The 3-finger swipe lands as a synthesized `Ctrl+Arrow` event via `CGEventPost`, which is the same path the OS uses for the keyboard shortcut.
-- **Pairing:** Scan a QR on the Mac. The phone stores a signed bearer token in the Keychain. No accounts, no server.
+- **Pairing:** Open the app on the phone, then pick that iPhone from the Mac's tailnet device list. The Mac enumerates online iOS peers, probes each for a self-reported name, and pushes a pre-approved signed offer to the one you tap; the phone runs the unchanged handshake and the host auto-approves the pick. The phone stores a signed bearer token in the Keychain. QR stays as a fallback. No accounts, no server. See ADR-0019.
 
 Module boundaries, wire shapes (`DesktopState`, `NormalizedInput`, `PairingPayload`), and performance budgets are in `SPEC.md`.
 
@@ -70,8 +70,8 @@ v0 is done when the author uses it as a daily driver without reaching for AnyDes
 1. Install on the Mac: open the notarized DMG built from the host workspace, drag the app to `/Applications`, grant Screen Recording and Accessibility permissions on first launch.
 2. Install on the iPhone: TestFlight invite, single device.
 3. Both devices must be on the same Tailscale tailnet.
-4. Open the Mac app, click the menu-bar icon, hit **Pair**. A QR appears.
-5. Open the iPhone app, scan the QR. The token lands in the Keychain on both ends.
+4. Open the iPhone app so it is foregrounded on its unpaired screen.
+5. Open the Mac app, click the menu-bar icon, hit **Pair iPhone**. The Mac scans the tailnet and lists the iPhones that answered. Tap yours; it pairs with no typing and no QR. (QR remains a fallback.)
 6. The iPhone shows the active Space at native DPR. Three-finger swipe switches Spaces.
 
 For a development run on the connected iPhone in this worktree:

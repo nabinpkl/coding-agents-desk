@@ -12,13 +12,14 @@
 | Encode / decode | Hardware-required VideoToolbox, HEVC by default and H.264 as an explicit owned-media codec setting | Rest-state text crispness depends on hardware screen-content quality. In this worktree HEVC remains the full-frame refresh path while retained graphics commands target scroll motion. |
 | Transport | Owned authenticated QUIC datagrams for HEVC full-frame refreshes, sibling reliable QUIC graphics command channel, dedicated TLS WebSocket for input | ADR-0016 is the current worktree media architecture. Input stays reliable and independent. HEVC owns packet repair, stale-frame skip, and keyframe recovery. Graphics uses `AGENTDESK_GRAPHICS_PORT` for scroll-first retained commands. |
 | Network | Tailscale only | No public rendezvous, relay, or internet routing. Both peers are on the tailnet. |
-| Pairing | QR code on Mac, scanned by iPhone | One-shot approval. Signed token stored in Keychain on both sides. |
+| Pairing | Mac-initiated tailnet device picker (ADR-0019), QR fallback | The Mac enumerates online iOS tailnet peers, probes each on the plain-TCP offer port (`AGENTDESK_OFFER_PORT`, default 41890) for a self-reported display name, and pushes a pre-approved signed offer to the picked device. The pick is the authorization. The iPhone runs the unchanged signed handshake. Signed token stored in Keychain on both sides. |
+| Wire compatibility | Protocol version negotiated at the handshake (ADR-0020) | Host and client version independently; the wire protocol, not the app version, is the compatibility contract. `SessionInit`/`SessionChallenge` advertise `protocolVersion` and `minCompatibleProtocolVersion`; a peer below the other's minimum is rejected with `incompatible-protocol`. |
 | Spaces enumeration | Private SkyLight/CoreGraphics symbols bound with `dlopen` and `dlsym` | No public API exists. Risk is acceptable because App Store distribution is not the v0 target. |
 | Spaces switch | Synthesize Dock swipe `CGEvent`s via `SpacesProvider.postDockSwipeFrame` and `commitStep(delta:)` | Stock macOS path that preserves live Space transition animation. |
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
 
-ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the current scroll-first hybrid retained-graphics worktree architecture.
+ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the current scroll-first hybrid retained-graphics worktree architecture. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version.
 
 ## Module Boundaries
 
@@ -30,17 +31,20 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 2. **Encoder.** Wraps VideoToolbox and produces `OwnedMediaFrameEnvelope` payloads for HEVC full-frame refreshes. It fails the media path if the required hardware encoder cannot start.
 3. **SpacesProvider.** Enumerates Spaces through SkyLight/CoreGraphics bindings and forwards Space-swipe gestures through Dock-handled events.
 4. **InputDispatcher.** Consumes `NormalizedInput` and emits `CGEvent`. Space-switch gestures stream through the injected `SpacesProvider` handler.
-5. **Pairing.** Generates QR payloads, validates approval tokens, and stores allowlisted devices in Keychain-backed state.
-6. **SessionAuthenticator.** Runs the per-connection mutual challenge-response on the authenticated session socket. Produces `SessionReady` with input and media capabilities.
-7. **MediaTransport.** Starts one owned QUIC media channel. The first datagram is `MediaChannelHello`; the host validates the media capability through `SessionRegistry`, replies with `MediaChannelReady`, derives the per-session HMAC key, and sends authenticated `ADMD` v2 packets carrying HEVC full-frame refreshes.
-8. **GraphicsTransport.** Planned sibling reliable QUIC stream for retained graphics commands. It uses the same TLS identity as owned media, an explicit graphics hello/ready nonce handshake, ALPN `agentdesk-owned-graphics`, and `AGENTDESK_GRAPHICS_PORT`.
-9. **ScrollDeltaEngine.** Planned scroll-first retained-graphics producer. It compares BGRA captures, accepts scroll only within the configured detection budget and confidence threshold, emits `copyRect` plus lossless exposed-strip `bitmapTile` commands, and otherwise falls back to HEVC for that frame.
-10. **InputChannelServer.** Owns the host side of the dedicated input WebSocket. Validates `InputChannelHello` against `SessionRegistry`, drains `InputChannelEvent` frames into `NormalizedInput`, and pushes desktop state, thumbnails, cursor updates, and agent speech events.
-11. **SignalingChannel.** Wraps the authenticated session WebSocket after `SessionReady`. It carries low-frequency input capability refresh messages only.
-12. **VideoFrameSource.** Concrete implementation `ScreenCaptureKitFrameSource` captures one stream for the active display. `TestPatternFrameSource` exists as a diagnostic source.
-13. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces, enabled by owner-scoped demand.
-14. **SpaceAgent.** Host-local overlay under `host/AgentDeskHost/SpaceAgent/`, showing the draggable spaceship and active-display Spaces strip.
-15. **DictationBar.** Host-local push-to-talk overlay under `host/AgentDeskHost/DictationBar/`, independent of the iPhone media and input channels.
+5. **Pairing.** Generates pairing payloads, validates approval tokens, and stores allowlisted devices in Keychain-backed state. Holds the in-memory pre-approval set: a Mac-side device pick marks the offer's one-time nonce pre-approved, so the signaling server issues the token without a prompt when the iPhone dials back with it. The nonce is still consumed once, in `issueApprovedSessionToken`. Records the client-reported display name on the paired record so the host UI shows which device it is.
+6. **TailnetDiscovery.** Parses `tailscale status --json` into online tailnet peers (`TailnetDeviceOption`), keeping iOS peers with a tailnet IPv4 and ordering online ones first. The JSON parser is split out for unit testing without running `tailscale`.
+7. **PairingOfferSender.** Outbound plain-TCP `NWConnection` to a picked peer's offer port. Writes one length-prefixed `PairingPayload` and closes. Plaintext is acceptable: WireGuard encrypts the peer hop, the host public key in the payload is already public, and the nonce is one-use and pre-approval-gated.
+8. **TailnetIdentityProber.** Outbound `whois` probe on the offer port. An unpaired client whose listener is running replies with a display-only `DeviceIdentity`; the picker lists only the peers that answered, by their reported name. Display-only and pre-auth: tailnet membership is the trust boundary and the signed handshake still gates pairing.
+9. **SessionAuthenticator.** Runs the per-connection mutual challenge-response on the authenticated session socket. Rejects a peer whose advertised `protocolVersion` is below the host's `minCompatibleProtocolVersion` with `incompatible-protocol` (ADR-0020). Produces `SessionReady` with input and media capabilities.
+10. **MediaTransport.** Starts one owned QUIC media channel. The first datagram is `MediaChannelHello`; the host validates the media capability through `SessionRegistry`, replies with `MediaChannelReady`, derives the per-session HMAC key, and sends authenticated `ADMD` v2 packets carrying HEVC full-frame refreshes.
+11. **GraphicsTransport.** Planned sibling reliable QUIC stream for retained graphics commands. It uses the same TLS identity as owned media, an explicit graphics hello/ready nonce handshake, ALPN `agentdesk-owned-graphics`, and `AGENTDESK_GRAPHICS_PORT`.
+12. **ScrollDeltaEngine.** Planned scroll-first retained-graphics producer. It compares BGRA captures, accepts scroll only within the configured detection budget and confidence threshold, emits `copyRect` plus lossless exposed-strip `bitmapTile` commands, and otherwise falls back to HEVC for that frame.
+13. **InputChannelServer.** Owns the host side of the dedicated input WebSocket. Validates `InputChannelHello` against `SessionRegistry`, drains `InputChannelEvent` frames into `NormalizedInput`, and pushes desktop state, thumbnails, cursor updates, and agent speech events.
+14. **SignalingChannel.** Wraps the authenticated session WebSocket after `SessionReady`. It carries low-frequency input capability refresh messages only.
+15. **VideoFrameSource.** Concrete implementation `ScreenCaptureKitFrameSource` captures one stream for the active display. `TestPatternFrameSource` exists as a diagnostic source.
+16. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces, enabled by owner-scoped demand.
+17. **SpaceAgent.** Host-local overlay under `host/AgentDeskHost/SpaceAgent/`, showing the draggable spaceship and active-display Spaces strip.
+18. **DictationBar.** Host-local push-to-talk overlay under `host/AgentDeskHost/DictationBar/`, independent of the iPhone media and input channels.
 
 ### Client
 
@@ -48,13 +52,14 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 2. **GestureTranslator.** Converts UIKit gestures on the trackpad and scroll-strip surfaces to `NormalizedInput`. It does not send media quality hints.
 3. **SpacesDotsView.** One-handed Spaces switch surface driven by `DesktopStatePush` from the input channel.
 4. **KeyboardSurface.** Compact keyboard plus accessory row. Emits key and modifier input frames.
-5. **PairingClient.** Camera, QR decode, token verification, and Keychain write.
-6. **SessionDialer.** Client mirror of session authentication. Owns the connected/disconnected UI machine and clears stored credentials on terminal rejection.
-7. **MediaTransport.** Opens one QUIC datagram connection to the host, performs the media nonce handshake, verifies `ADMD` v2 packets, repairs missing packet indexes before deadline, skips stale delta frames, and asks for keyframe recovery only when decoder continuity requires it.
-8. **GraphicsTransport.** Planned reliable graphics stream client. It dials `AGENTDESK_GRAPHICS_PORT`, performs the graphics nonce handshake, reads ordered `ADGC` frames, sends graphics ACKs, and sends reset requests without sharing the HEVC datagram control path.
-9. **OwnedHEVCFrameDecoder.** Planned `VTDecompressionSession` bridge for the hybrid worktree. It decodes HEVC refreshes into `CVPixelBuffer` output instead of enqueueing directly into `AVSampleBufferDisplayLayer`.
-10. **OwnedSurfaceCompositor.** Planned `@MainActor` single writer for the retained BGRA surface. It applies HEVC full-surface refreshes and retained graphics commands in strict `(surfaceGeneration, frameId)` order, then commits the visible layer.
-11. **InputChannel.** Dedicated TLS WebSocket for remote input and host pushes. It opens alongside the authenticated session using the input capability from `SessionReady`.
+5. **PairingClient.** QR decode, token verification, and Keychain write. Reports the device display name (`UIDevice` name or hardware model identifier plus a short per-device id) in the handshake so the host labels the paired record. Its `TailnetServerTrustDelegate` applies strict TLS validation to FQDN dials and, for a tailnet CGNAT IPv4 literal (100.64.0.0/10), validates the cert chain but skips the hostname match, because the FQDN-only `tailscale cert` cannot pass a hostname check on an IP literal (ADR-0019). The L3 WireGuard peer auth plus the signed handshake are the real authentication.
+6. **PairingOfferListener.** `NWListener` on the offer port, running only while the app is foregrounded and unpaired. Routes length-prefixed offer-port frames: a pairing offer feeds `handleIncomingPairingURL` (reusing the QR path, host auto-approves the pre-approved nonce); a `whois` probe is answered with this device's display-only `DeviceIdentity`. Prefers the `utun` tailnet IPv4 (100.x) over a carrier-CGNAT address when reporting its own address.
+7. **SessionDialer.** Client mirror of session authentication. Rejects a host whose `protocolVersion` is below the client minimum with `incompatible-protocol` (ADR-0020). Owns the connected/disconnected UI machine and clears stored credentials on terminal rejection.
+8. **MediaTransport.** Opens one QUIC datagram connection to the host, performs the media nonce handshake, verifies `ADMD` v2 packets, repairs missing packet indexes before deadline, skips stale delta frames, and asks for keyframe recovery only when decoder continuity requires it.
+9. **GraphicsTransport.** Planned reliable graphics stream client. It dials `AGENTDESK_GRAPHICS_PORT`, performs the graphics nonce handshake, reads ordered `ADGC` frames, sends graphics ACKs, and sends reset requests without sharing the HEVC datagram control path.
+10. **OwnedHEVCFrameDecoder.** Planned `VTDecompressionSession` bridge for the hybrid worktree. It decodes HEVC refreshes into `CVPixelBuffer` output instead of enqueueing directly into `AVSampleBufferDisplayLayer`.
+11. **OwnedSurfaceCompositor.** Planned `@MainActor` single writer for the retained BGRA surface. It applies HEVC full-surface refreshes and retained graphics commands in strict `(surfaceGeneration, frameId)` order, then commits the visible layer.
+12. **InputChannel.** Dedicated TLS WebSocket for remote input and host pushes. It opens alongside the authenticated session using the input capability from `SessionReady`.
 
 Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView.** Additional owned-media contract tests pin wire shapes, packet repair, and decoder recovery behavior where regressions are expensive.
 
@@ -101,18 +106,34 @@ SessionToken {
 }
 ```
 
-Session establishment is locked by ADR-0003 and ADR-0011.
+Mac-initiated pairing rides a dedicated plain-TCP offer port (ADR-0019), separate from the TLS signaling channel so it sidesteps the IP-literal certificate problem. Every message is one length-prefixed frame; the body's `t` tag routes it.
 
 ```
-SessionInit       { deviceFingerprint, sessionToken, clientNonce }
-SessionChallenge  { hostNonce, hostSignature }
+OfferPortFrame    = UInt32BE length || body          // length-prefixed JSON body
+
+// body, routed by OfferPortMessage.classify:
+PairingOffer      = PairingPayload                    // untagged; the offer itself
+DeviceIdentityRequest { t: "whois" }                 // Mac probes a peer
+DeviceIdentity        { t: "id", n: displayName }     // client's display-only reply
+```
+
+The offer is an untagged `PairingPayload`; the iPhone synthesizes its `pairingURL()` locally and reuses the QR handshake path. `whois`/`id` carry only a display name for the picker and are pre-auth; the signed handshake still gates pairing.
+
+Session establishment is locked by ADR-0003 and ADR-0011. The handshake-negotiated wire protocol version is locked by ADR-0020.
+
+```
+SessionInit       { deviceFingerprint, sessionToken, clientNonce,
+                    protocolVersion, minCompatibleProtocolVersion }   // pv defaults to 1 when absent
+SessionChallenge  { hostNonce, hostSignature, protocolVersion }
 SessionProof      { clientSignature }
 SessionReady      { sessionId, inputCapability, inputCapabilityExpiresAt,
                     mediaCapability, mediaCapabilityExpiresAt }
 InputCapabilityRefreshRequest { deviceFingerprint, sessionId }       // t: "input-capability-refresh"
 InputCapabilityGrant { sessionId, inputCapability, inputCapabilityExpiresAt } // t: "input-capability-grant"
-SessionRejected   { reason }
+SessionRejected   { reason }   // reason ∈ { ..., "incompatible-protocol" }
 ```
+
+Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. The version fields decode-tolerant to `1` when absent, so an older build still parses. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
 
 Owned media travels over QUIC datagrams after `SessionReady`.
 
