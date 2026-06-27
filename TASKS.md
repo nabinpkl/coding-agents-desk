@@ -56,7 +56,7 @@ Trigger: start only after Phase 1 and Phase 2 have a throttled-link run behind t
 
 Phase goal: prove the freeze is gone on a real constrained link and the loop tracks it.
 
-- [ ] R91. Run `just check`, then a throttled-link physical run (`just fresh-consoled-run`, with Network Link Conditioner LTE profile or real cellular). Collect host owned-media logs and the attached client console. Accept only if: motion sustains with no render gap beyond the watchdog bound, no permanent freeze across a WiFi-to-LTE transition, keyframe recovery never exceeds the `DataRateLimits` window, and (after Phase 3) the host log shows the bitrate controller stepping down under loss and recovering as the link clears. Classify any remaining blocker as encoder ceiling, decoder recovery, feedback cadence, or controller tuning before the next edit.
+- [x] R91. Throttled-LTE device run (`just fresh-consoled-run-dev`) passed. No permanent freeze across WiFi-to-LTE; the controller drove the full cycle (2500 -> 986 kbps under loss, recovering 986 -> 2500 in steps, 7 down / 14 up); `dataRateCapBytes` tracked each step; loss-driven keyframe-requests fell to 8 per session (vs 16-19 at a fixed bitrate). ADR-0027 accepted. Remaining open item is tuning, not correctness: `lossDownPermille=50` trips a down-step on a single lost frame in ~19, so the rate is slightly twitchy though it recovers fast; revisit the threshold with more device data.
 
 ---
 
@@ -86,5 +86,6 @@ D82-D83      2026-06-26  committed   encoder DataRateLimits hard ceiling (ratio 
 D84-D86      2026-06-26  committed   client freeze recovery: wedged-layer recovery wired into decoder, render-stall watchdog with keyframe-request handler, six decoder/watchdog tests green on sim
 R82-R86      2026-06-26  device      throttled-LTE run: cap applied (dataRateCapBytes live), no permanent freeze, recovery fired; motion-delta bursts confirmed as the remaining choppiness, lowering bitrate kept text crisp
 D87-D90      2026-06-26  committed   closed-loop adaptive bitrate: .linkHealth wire message + round-trips, client per-window emit, host VideoBitrateController applied live via updateBitrate, 5 controller tests; default bitrate 8000->2500
-R91          pending     pending     constrained-link physical acceptance (throttled / LTE) and blocker classification
+R91          2026-06-26  done        throttled-LTE run passed: full down-up controller cycle (2500<->986), cap tracked, keyframe-requests 8/session, no permanent freeze; ADR-0027 accepted
+LogFix       2026-06-26  committed   video-sent log shows the live adapted bitrate, not the static ceiling
 ```

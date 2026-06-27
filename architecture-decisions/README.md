@@ -69,4 +69,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0024 | Predict-and-correct scroll (motion plus residual) | superseded by ADR-0025 | 2026-06-25 |
 | ADR-0025 | Mixed-mode renderer: hardware HEVC video for motion, retained tiles for rest | accepted | 2026-06-25 |
 | ADR-0026 | Video-primary owned media: retire the reliable channel | proposed | 2026-06-26 |
-| ADR-0027 | Congestion-adaptive video for constrained links | proposed | 2026-06-26 |
+| ADR-0027 | Congestion-adaptive video for constrained links | accepted | 2026-06-26 |

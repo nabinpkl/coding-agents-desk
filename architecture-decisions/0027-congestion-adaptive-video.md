@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-06-26
 refines: ADR-0026
 ---
@@ -41,7 +41,9 @@ Chose **Option C as the target, reached incrementally through Option B**. Option
 
 ### Confirmation
 
-Accepted-and-executed is observable in three places. First, a unit test asserts the encoder sets `DataRateLimits` (not only `AverageBitRate`), and that the live sink consults `OwnedMediaDisplayQueuePolicy.action` on a `.failed` / `requiresFlush` status. Second, a deliberately throttled-link run (Network Link Conditioner or real LTE) sustains motion with no render gap beyond the watchdog bound and no permanent freeze. Third, under induced loss the host log shows the adaptive controller stepping the encoder bitrate down and recovering it as the link clears. Until the ceiling and the freeze-recovery land, status stays `proposed`.
+Accepted-and-executed is observable in three places. First, a unit test asserts the encoder sets `DataRateLimits` (not only `AverageBitRate`), and that the live sink consults `OwnedMediaDisplayQueuePolicy.action` on a `.failed` / `requiresFlush` status. Second, a deliberately throttled-link run (Network Link Conditioner or real LTE) sustains motion with no render gap beyond the watchdog bound and no permanent freeze. Third, under induced loss the host log shows the adaptive controller stepping the encoder bitrate down and recovering it as the link clears.
+
+Confirmed on device 2026-06-26 over throttled LTE. The encoder applied `dataRateCapBytes` tracking the target; no permanent freeze occurred across WiFi-to-LTE; and the controller drove the full cycle (2500 down to 986 kbps under loss, then recovering 986 to 2500 in steps), with loss-driven client keyframe-requests dropping to 8 per session versus 16 to 19 at a fixed bitrate. A device finding also retired the 8000 kbps default to 2500: a Retina text keyframe is content-bound near 140 KB, so the higher rate bought no text quality and only saturated constrained links.
 
 ## Pros and Cons of the Options
 

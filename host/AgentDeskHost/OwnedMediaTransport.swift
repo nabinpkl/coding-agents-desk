@@ -924,7 +924,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     let shouldLog = envelope.header.isKeyframe || videoFrameId.isMultiple(of: 30)
                     if shouldLog {
                         let diag = server?.diagnosticsSnapshot()
-                        logger.notice("owned media video sent frame=\(videoFrameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(Config.ownedMediaBitrateKbps, privacy: .public) connMisses=\(diag?.connectionMisses ?? -1, privacy: .public) sendErrors=\(diag?.sendErrors ?? -1, privacy: .public) lastErr=\(diag?.lastError ?? "none", privacy: .public)")
+                        // Live adapted target (ADR-0027), not the static ceiling.
+                        let liveBitrateKbps = lock.withLock { videoBitrateController?.targetKbps } ?? Config.ownedMediaBitrateKbps
+                        logger.notice("owned media video sent frame=\(videoFrameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(liveBitrateKbps, privacy: .public) connMisses=\(diag?.connectionMisses ?? -1, privacy: .public) sendErrors=\(diag?.sendErrors ?? -1, privacy: .public) lastErr=\(diag?.lastError ?? "none", privacy: .public)")
                     }
                 }
                 continue
