@@ -232,6 +232,20 @@ Phase goal: the device picker should list real iPhones by name, live, with no st
 
 ---
 
+## v0 Phase: content-addressed tile cache (ADR-0021)
+
+Phase goal: make a regional scroll and any repeated on-screen content nearly free on the ~2Mbps reliable graphics channel, with crisp lossless text. Damage is gridded into fixed cells; each dirty cell runs a decision ladder (rung 1 omit if it matches the retained baseline, rung 2 `drawCachedTile` if its content hash hits an LRU slot the client already holds, rung 3 `cacheTile` paint-and-store). `.fullFrame` rides the same ladder, so an all-cached whole-surface frame ships zero bytes instead of a ~338KB JPEG (the prior freeze). Design and plan: `docs/superpowers/specs/2026-06-24-content-tile-cache-design.md`, `docs/superpowers/plans/2026-06-24-content-tile-cache.md`.
+
+- [x] TileCache-P0. Prefactor (no behavior change): delete dead `codecTile` wire case, `ScrollRegionTracker` machinery, 5 unused viewport config knobs; unify the three tile-build paths into one `buildTile` seam.
+- [x] TileCache-P1. Rung 1: omit a dirty cell whose pixels equal the retained baseline; an all-unchanged tiles frame becomes `.noChange` (freeze fix, no wire change).
+- [x] TileCache-P2. Rungs 2-3: `TileContentCache` host unit, `cacheTile`/`drawCachedTile` wire commands, client slot store and handlers, engine decision ladder, LRU recency refresh on draw-cached hits, per-frame cacheStores/cacheHits logging.
+- [x] Phase A. Dead-code purge exposed by the prefactor: HEVC type hierarchy and encoder-config fields, QUIC datagram owned-media channel + SharedTypes, owned-graphics admission, scroll-ownership and HEVC-fallback machinery, cadence/motion-budget config, and the write-only datagram media-capability validation cluster.
+- [x] Phase B. Cache-ladder unification: route `.fullFrame` through rung 1/2/3, per-tile rung-3 encoding choice (LZFSE for text, JPEG for busy cells), per-frame byte budget bounding a brand-new fullframe; ADR-0021 accepted (supersedes ADR-0015 and ADR-0016).
+- [x] Phase C. Scroll-detection cleanup: lift the 13 `DamageScrollClassifier` thresholds into `Config` (`AGENTDESK_HYBRID_CLASSIFIER_*`); derive scroll axis from band geometry so copyRect is attempted when the input hint window has lapsed (single sub-surface band, surface-verified, conservative against disjoint-block and full-surface false positives); raise the tile-coverage gate 0.15 -> 0.6 now that fullframe rides the ladder.
+- [ ] TileCache-Acc. Acceptance (physical/sim, user-driven HITL): bursty CLI scroll lands `acceptedBy=damage` with `hintActive=false` and `copyRects>0`, `drawCachedTile` hits on re-exposed lines, `fullframe-scroll-miss` drops, text stays crisp, no freeze on sustained fast flicks.
+
+---
+
 ## Promotion log
 
 ```
@@ -279,4 +293,11 @@ R56.1     2026-06-22  committed   host and client marketing versions decoupled (
 R56.2     2026-06-22  committed   protocol version negotiated at session handshake (ADR-0020); incompatible peer rejected as update-required
 R57       2026-06-22  committed   fix on-device TLS failure: Release delegate accepts host cert chain on tailnet CGNAT IP literals (hostname check skipped), FQDN dials stay strict (ADR-0019)
 R58       2026-06-22  committed   offer-sent state is escapable: Back button + 30s timeout return to the picker, cancelled when the device dials back
+TileCache-P0 2026-06-24  committed   prefactor: delete codecTile/ScrollRegionTracker/viewport knobs, unify the three tile-build paths into one buildTile seam
+TileCache-P1 2026-06-24  committed   rung-1 retained-baseline tile skip: unchanged cells omitted, all-unchanged frame becomes .noChange (freeze fix, no wire change)
+TileCache-P2 2026-06-24  committed   rungs 2-3 content-addressed cache: TileContentCache host unit, cacheTile/drawCachedTile wire, client slot store, engine decision ladder, LRU recency
+PhaseA       2026-06-24  committed   dead-code purge: HEVC hierarchy, QUIC datagram media channel, owned-graphics admission, scroll-ownership, cadence/motion-budget config, write-only media-capability cluster
+PhaseB       2026-06-24  committed   cache-ladder unification: fullframe routed through rung 1/2/3, per-tile rung-3 encoding choice, per-frame byte budget; ADR-0021 accepted (supersedes ADR-0015/0016)
+PhaseC       2026-06-24  committed   scroll-detection cleanup: 13 classifier thresholds to Config, axis-from-geometry copyRect without a live hint, tile-coverage gate raised 0.15->0.6
+TileCache-Acc pending     pending     physical/sim acceptance: bursty CLI scroll copyRects with hintActive=false, drawCachedTile hits on re-exposed lines, no freeze on sustained flicks
 ```

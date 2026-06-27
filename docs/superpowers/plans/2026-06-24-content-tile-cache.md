@@ -1,6 +1,6 @@
 # Content-Addressed Tile Cache Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Stop the host re-sending tiles the client already holds, by adding an RDP-aligned content-addressed tile cache as one per-cell decision ladder, landed on prefactored code.
 
@@ -36,18 +36,18 @@
 **Interfaces:**
 - Produces: `OwnedGraphicsCommand` with cases `resetSurface`, `copyRect`, `bitmapTile` only.
 
-- [ ] **Step 1: Confirm no live emitter**
+- [x] **Step 1: Confirm no live emitter**
 
 ```bash
 grep -rn "codecTile" host client
 ```
 Expected: only the enum case, its `Kind`, the two codec `throw`s, the `validateForCurrentScope` `throw`, and the client `OwnedMediaVideoSink.swift:382` arm. No constructor that emits `.codecTile`.
 
-- [ ] **Step 2: Remove the case from both `SharedTypes.swift`**
+- [x] **Step 2: Remove the case from both `SharedTypes.swift`**
 
 In each file delete: the `case codecTile` enum member; the `case codecTile` in `enum Kind`; the `case .codecTile: throw SessionRejected(reason: .malformed)` arms in `validateForCurrentScope`, in `init(from:)`, and in `encode(to:)`.
 
-- [ ] **Step 3: Remove the client compositor arm**
+- [x] **Step 3: Remove the client compositor arm**
 
 In `client/AgentDeskClient/OwnedMediaVideoSink.swift`, delete:
 
@@ -58,12 +58,12 @@ In `client/AgentDeskClient/OwnedMediaVideoSink.swift`, delete:
 
 The `switch command` over `OwnedGraphicsCommand` is now exhaustive over the three real cases.
 
-- [ ] **Step 4: Run the suite**
+- [x] **Step 4: Run the suite**
 
 Run: `just check`
 Expected: PASS. If any test referenced `.codecTile` as an expected-malformed input, delete that test case; a removed enum member cannot be constructed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add host/AgentDeskHost/SharedTypes.swift client/AgentDeskClient/SharedTypes.swift client/AgentDeskClient/OwnedMediaVideoSink.swift
@@ -90,30 +90,30 @@ git push
 **Interfaces:**
 - Produces: `OwnedMediaTransport` and the encode pump with no `scrollRegionHintProvider` parameter or stored property.
 
-- [ ] **Step 1: Map every reference**
+- [x] **Step 1: Map every reference**
 
 ```bash
 grep -rn "ScrollRegionTracker\|scrollRegionHintProvider\|ScrollRegionFocusHint\|ScrollRegionTrackerProvider" host
 ```
 Expected: the file itself, its test, a provider type, a stored/passed `scrollRegionHintProvider` in `OwnedMediaTransport` and the pump constructor, and the factory wiring. Confirm `scrollRegionHintProvider()` is never invoked (no call site reads its return).
 
-- [ ] **Step 2: Delete the two files and their pbxproj references**
+- [x] **Step 2: Delete the two files and their pbxproj references**
 
 ```bash
 git rm host/AgentDeskHost/ScrollRegionTracker.swift host/AgentDeskHostTests/ScrollRegionTrackerTests.swift
 ```
 Then remove the matching `PBXBuildFile` and `PBXFileReference` lines for both files in `host/AgentDeskHost.xcodeproj/project.pbxproj`, and their entries in the Sources build phase and group children. Search the pbxproj for `ScrollRegionTracker` and delete every matching line.
 
-- [ ] **Step 3: Remove the threading in `OwnedMediaTransport.swift`**
+- [x] **Step 3: Remove the threading in `OwnedMediaTransport.swift`**
 
 Delete the `scrollRegionHintProvider` parameter from the `OwnedMediaTransport` initializer and the encode-pump constructor, the stored property, the `ScrollRegionTrackerProvider` instantiation in the factory, and every site that passes it through. The encode pump never consumed it, so no replacement value is needed.
 
-- [ ] **Step 4: Build and test**
+- [x] **Step 4: Build and test**
 
 Run: `just check`
 Expected: PASS. Compiler errors point to any missed reference; remove each.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -138,23 +138,23 @@ git push
 **Interfaces:**
 - Produces: `Config` without `hybridScrollViewportMinWidth`, `hybridScrollViewportMinHeight`, `hybridScrollViewportConfidence`, `hybridScrollViewportMinInsetPx`, `hybridScrollViewportOverlap`.
 
-- [ ] **Step 1: Confirm no references outside Config**
+- [x] **Step 1: Confirm no references outside Config**
 
 ```bash
 grep -rn "hybridScrollViewportMinWidth\|hybridScrollViewportMinHeight\|hybridScrollViewportConfidence\|hybridScrollViewportMinInsetPx\|hybridScrollViewportOverlap" host client
 ```
 Expected: only the five definitions in `Config.swift`. No reader.
 
-- [ ] **Step 2: Delete the five `static let` definitions and their env-parse lines**
+- [x] **Step 2: Delete the five `static let` definitions and their env-parse lines**
 
 Remove each of the five properties at `Config.swift:438-457` together with any `AGENTDESK_HYBRID_SCROLL_VIEWPORT_*` environment lookup that feeds them.
 
-- [ ] **Step 3: Build and test**
+- [x] **Step 3: Build and test**
 
 Run: `just check`
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add host/AgentDeskHost/Config.swift
@@ -185,16 +185,16 @@ git push
   ```
 - Consumes: existing `tileData`, `compressLZFSE`, `downscaleBGRA`, `compressJPEGWithinBudget`.
 
-- [ ] **Step 1: Add a focused test that `buildTile` produces a wire-equal LZFSE tile**
+- [x] **Step 1: Add a focused test that `buildTile` produces a wire-equal LZFSE tile**
 
 Add to `ScrollDeltaEngineDamageRoutingTests.swift` a test that drives the existing `.tiles` damage routing on a small synthetic frame and asserts the emitted commands are `.bitmapTile(compression: .lzfse)` with payload lengths matching their byteRanges (the behavior unchanged by the refactor). Reuse the file's existing frame/damage builders.
 
-- [ ] **Step 2: Run it green against current code**
+- [x] **Step 2: Run it green against current code**
 
 Run: `just check`
 Expected: PASS (this pins current behavior before the refactor).
 
-- [ ] **Step 3: Introduce `buildTile`**
+- [x] **Step 3: Introduce `buildTile`**
 
 Add, next to `makeJpegTile`:
 
@@ -232,7 +232,7 @@ private func buildTile(surface: Surface, rect: PixelRect, encoding: TileEncoding
 }
 ```
 
-- [ ] **Step 4: Route the three callers through `buildTile`**
+- [x] **Step 4: Route the three callers through `buildTile`**
 
 In `makeTileEnvelope`, replace the per-cell `tileData`+`compressLZFSE`+`.bitmapTile` block with:
 
@@ -264,16 +264,16 @@ In `makeJPEGFrameEnvelope`, replace the `makeJpegTile` call with:
 
 Keep `makeJpegTile` as the JPEG implementation that `buildTile` calls; do not duplicate its vImage/JPEG logic.
 
-- [ ] **Step 5: Update the stale comments**
+- [x] **Step 5: Update the stale comments**
 
 At `ScrollDeltaEngine.swift:12`, `ScrollDeltaEngine.swift:736`, and `Config.swift:310`, replace "for a future content-hash cache" with a present-tense reference, for example: "the fixed grid gives each tile a stable identity for the content tile cache (see the content-tile-cache design and its ADR)".
 
-- [ ] **Step 6: Run the suite**
+- [x] **Step 6: Run the suite**
 
 Run: `just check`
 Expected: PASS. The routing tests prove behavior is unchanged.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add host/AgentDeskHost/ScrollDeltaEngine.swift host/AgentDeskHost/Config.swift host/AgentDeskHostTests/ScrollDeltaEngineDamageRoutingTests.swift
@@ -305,7 +305,7 @@ git push
   ```
 - Consumes: `buildTile` (Task 4), `tileData`, `previous` (already a param of `evaluateWithDamage`).
 
-- [ ] **Step 1: Write the failing test, identical consecutive tiles frame yields noChange**
+- [x] **Step 1: Write the failing test, identical consecutive tiles frame yields noChange**
 
 Add to `ScrollDeltaEngineDamageRoutingTests.swift`:
 
@@ -327,12 +327,12 @@ func testIdenticalTilesFrameSecondTimeIsNoChange() {
 ```
 Use the file's existing frame and damage-rect builders; adapt the helper names to what the test file already defines.
 
-- [ ] **Step 2: Run it, expect failure**
+- [x] **Step 2: Run it, expect failure**
 
 Run: `just check`
 Expected: FAIL, `r2.kind` is `.accepted` (the current code re-sends the unchanged tile).
 
-- [ ] **Step 3: Rewrite `makeTileEnvelope` to skip unchanged cells and signal emptiness**
+- [x] **Step 3: Rewrite `makeTileEnvelope` to skip unchanged cells and signal emptiness**
 
 ```swift
 private enum TileBuild {
@@ -376,7 +376,7 @@ private mutating func makeTileEnvelope(current: Surface, previous: Surface, rect
 ```
 Note the `graphicsFrameId &+= 1` now lives inside `makeTileEnvelope` and only fires when a frame is actually built.
 
-- [ ] **Step 4: Update the `.tiles` caller in `evaluateWithDamage`**
+- [x] **Step 4: Update the `.tiles` caller in `evaluateWithDamage`**
 
 Replace the `.tiles` case body (currently increments `graphicsFrameId`, calls the old `makeTileEnvelope`, returns accepted/rejected) with:
 
@@ -408,7 +408,7 @@ Replace the `.tiles` case body (currently increments `graphicsFrameId`, calls th
 ```
 On `.allUnchanged`, `pendingSurface = current` is kept set (current equals previous on the changed-but-unchanged cells and outside the damage), matching the existing `.noChange` semantics.
 
-- [ ] **Step 5: Add the partial-change test**
+- [x] **Step 5: Add the partial-change test**
 
 ```swift
 func testPartialTilesChangeSendsOnlyChangedCells() {
@@ -427,12 +427,12 @@ func testPartialTilesChangeSendsOnlyChangedCells() {
 ```
 Adapt `makeBGRAFrame` argument names to the test file's helpers, adding a multi-dirty-rect variant if one is not present.
 
-- [ ] **Step 6: Run the suite**
+- [x] **Step 6: Run the suite**
 
 Run: `just check`
 Expected: PASS (both new tests and all existing routing tests).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add host/AgentDeskHost/ScrollDeltaEngine.swift host/AgentDeskHostTests/ScrollDeltaEngineDamageRoutingTests.swift
@@ -461,7 +461,7 @@ git push
 **Interfaces:**
 - Produces: `Config.hybridTileCacheSlots: Int` (default 512), `Config.hybridTileCacheEnabled: Bool` (default true).
 
-- [ ] **Step 1: Add the two knobs following the existing `hybrid*` pattern**
+- [x] **Step 1: Add the two knobs following the existing `hybrid*` pattern**
 
 ```swift
     // Content tile cache: number of host/client-mirrored slots. Memory is
@@ -472,12 +472,12 @@ git push
 ```
 Use whatever `envInt`/`envBool` helpers `Config.swift` already uses; match the surrounding style exactly.
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `just check`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add host/AgentDeskHost/Config.swift
@@ -510,7 +510,7 @@ git push
   }
   ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `host/AgentDeskHostTests/TileContentCacheTests.swift`:
 
@@ -572,12 +572,12 @@ final class TileContentCacheTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Run, expect failure (type does not exist)**
+- [x] **Step 2: Run, expect failure (type does not exist)**
 
 Run: `just check`
 Expected: FAIL to compile, `cannot find 'TileContentCache' in scope`.
 
-- [ ] **Step 3: Implement `TileContentCache`**
+- [x] **Step 3: Implement `TileContentCache`**
 
 Create `host/AgentDeskHost/TileContentCache.swift`:
 
@@ -656,16 +656,16 @@ struct TileContentCache {
 }
 ```
 
-- [ ] **Step 4: Add both files to the Xcode targets**
+- [x] **Step 4: Add both files to the Xcode targets**
 
 In `host/AgentDeskHost.xcodeproj/project.pbxproj`, add `TileContentCache.swift` to the `AgentDeskHost` Sources build phase and group, and `TileContentCacheTests.swift` to the test target, following the pattern of an existing pair of source+test files.
 
-- [ ] **Step 5: Run, expect pass**
+- [x] **Step 5: Run, expect pass**
 
 Run: `just check`
 Expected: PASS (all five tests).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add host/AgentDeskHost/TileContentCache.swift host/AgentDeskHostTests/TileContentCacheTests.swift host/AgentDeskHost.xcodeproj/project.pbxproj
@@ -693,7 +693,7 @@ git push
   case drawCachedTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int)
   ```
 
-- [ ] **Step 1: Write the failing codec round-trip test**
+- [x] **Step 1: Write the failing codec round-trip test**
 
 Create `host/AgentDeskHostTests/OwnedGraphicsCommandCodecTests.swift`:
 
@@ -722,12 +722,12 @@ final class OwnedGraphicsCommandCodecTests: XCTestCase {
 ```
 Add the new file to the host test target in the pbxproj.
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `just check`
 Expected: FAIL to compile, the new cases do not exist.
 
-- [ ] **Step 3: Add the cases to BOTH `SharedTypes.swift` copies**
+- [x] **Step 3: Add the cases to BOTH `SharedTypes.swift` copies**
 
 In each file, in `enum OwnedGraphicsCommand`:
 
@@ -797,19 +797,19 @@ In `encode(to:)`:
             try container.encode(height, forKey: .height)
 ```
 
-- [ ] **Step 4: Run, expect host codec tests pass**
+- [x] **Step 4: Run, expect host codec tests pass**
 
 Run: `just check`
 Expected: PASS. Both copies compile (the client copy is now exhaustive too; its `OwnedMediaVideoSink` switch is handled in Task 9, so a non-exhaustive switch there will fail to compile until Task 9. If Task 9 is not yet done, the client target will not build, so Task 8 and Task 9 may be committed together; see Step 6.)
 
-- [ ] **Step 5: Keep the two copies byte-identical in the command region**
+- [x] **Step 5: Keep the two copies byte-identical in the command region**
 
 ```bash
 diff <(sed -n '/enum OwnedGraphicsCommand/,/^}/p' host/AgentDeskHost/SharedTypes.swift) <(sed -n '/enum OwnedGraphicsCommand/,/^}/p' client/AgentDeskClient/SharedTypes.swift)
 ```
 Expected: empty diff for the enum body and its `Codable` extension. If they differ, reconcile.
 
-- [ ] **Step 6: Commit (jointly with Task 9 if the client will not build alone)**
+- [x] **Step 6: Commit (jointly with Task 9 if the client will not build alone)**
 
 Because the client `OwnedMediaVideoSink` switch over `OwnedGraphicsCommand` becomes non-exhaustive the moment the cases are added, build the client handlers (Task 9) before running the full `just check`, then commit Tasks 8 and 9 together:
 
@@ -838,7 +838,7 @@ git push
 - Consumes: `OwnedGraphicsCommand.cacheTile`, `OwnedGraphicsCommand.drawCachedTile` (Task 8).
 - Produces: a compositor that stores cached tiles by slot and blits them, clearing slots on reset.
 
-- [ ] **Step 1: Write failing compositor tests**
+- [x] **Step 1: Write failing compositor tests**
 
 Create `client/AgentDeskClientTests/OwnedSurfaceCompositorCacheTests.swift`:
 
@@ -871,12 +871,12 @@ final class OwnedSurfaceCompositorCacheTests: XCTestCase {
 ```
 Fill the bodies using the envelope/byte helpers the existing client compositor tests already provide. Add the file to the client test target in the pbxproj.
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `just check`
 Expected: FAIL (compile or assertion): the compositor has no slot store or handlers.
 
-- [ ] **Step 3: Add the slot store and validated-command cases**
+- [x] **Step 3: Add the slot store and validated-command cases**
 
 In `OwnedSurfaceCompositor`, add:
 
@@ -891,7 +891,7 @@ Extend `OwnedSurfaceValidatedCommand`:
     case drawCachedTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int)
 ```
 
-- [ ] **Step 4: Validate the new commands in `validateGraphicsFrame`**
+- [x] **Step 4: Validate the new commands in `validateGraphicsFrame`**
 
 Add arms alongside `.bitmapTile`:
 
@@ -923,7 +923,7 @@ Add arms alongside `.bitmapTile`:
 
 The existing `.bitmapTile` and the `default`/exhaustive switch must still compile; remove any now-dead `default` if the switch is meant to be exhaustive.
 
-- [ ] **Step 5: Apply the new commands in the apply loop**
+- [x] **Step 5: Apply the new commands in the apply loop**
 
 Add to the `for command in validatedCommands` switch:
 
@@ -944,7 +944,7 @@ Add to the `for command in validatedCommands` switch:
                 copyRects += 0
 ```
 
-- [ ] **Step 6: Clear slots on reset**
+- [x] **Step 6: Clear slots on reset**
 
 In the `.resetSurface` apply arm, after `pixels = Data(count: bytesPerRow * height)`, add:
 
@@ -952,12 +952,12 @@ In the `.resetSurface` apply arm, after `pixels = Data(count: bytesPerRow * heig
                 slotBitmaps.removeAll()
 ```
 
-- [ ] **Step 7: Run, expect pass**
+- [x] **Step 7: Run, expect pass**
 
 Run: `just check`
 Expected: PASS (client compositor cache tests plus the Task 8 host codec tests).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 Commit jointly with Task 8 (see Task 8 Step 6), adding the client files:
 
@@ -976,7 +976,7 @@ git add client/AgentDeskClient/OwnedMediaVideoSink.swift client/AgentDeskClientT
 **Interfaces:**
 - Consumes: `TileContentCache` (Task 7), `cacheTile`/`drawCachedTile` (Task 8), `Config.hybridTileCacheSlots`/`hybridTileCacheEnabled` (Task 6).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `ScrollDeltaEngineDamageRoutingTests.swift`:
 
@@ -1012,12 +1012,12 @@ func testGenerationResetClearsCache() {
 ```
 Adapt `makeBGRAFrame` painting helpers to the test file's actual API; add a multi-region paint variant if needed.
 
-- [ ] **Step 2: Run, expect failure**
+- [x] **Step 2: Run, expect failure**
 
 Run: `just check`
 Expected: FAIL: no `cacheTile`/`drawCachedTile` is emitted (the engine still only emits `.bitmapTile`).
 
-- [ ] **Step 3: Add the cache property and reset hooks**
+- [x] **Step 3: Add the cache property and reset hooks**
 
 In `ScrollDeltaEngine`, add:
 
@@ -1046,7 +1046,7 @@ At the very top of `evaluateWithDamage` (before the `makeSurface` guard), add:
 ```
 This guarantees staged slot updates live only within one evaluate-then-commit cycle; a held, failed, or non-tiles frame never commits a prior tiles frame's staging.
 
-- [ ] **Step 4: Replace the per-cell loop body in `makeTileEnvelope` with the decision ladder**
+- [x] **Step 4: Replace the per-cell loop body in `makeTileEnvelope` with the decision ladder**
 
 ```swift
     for cell in cells {
@@ -1080,12 +1080,12 @@ This guarantees staged slot updates live only within one evaluate-then-commit cy
 ```
 `makeTileEnvelope` is already `mutating` (Task 5), so staging into `tileCache` is allowed.
 
-- [ ] **Step 5: Run, expect pass**
+- [x] **Step 5: Run, expect pass**
 
 Run: `just check`
 Expected: PASS, including the Task 5 freeze and partial-change tests (rung 1 still fires first) and the new rung 2/3 tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add host/AgentDeskHost/ScrollDeltaEngine.swift host/AgentDeskHostTests/ScrollDeltaEngineDamageRoutingTests.swift
