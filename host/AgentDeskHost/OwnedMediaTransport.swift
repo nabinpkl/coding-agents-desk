@@ -177,43 +177,11 @@ enum OwnedMediaCoalescedFrameBucket: String, Equatable {
     case networkBackpressure = "network-backpressure"
 }
 
-private struct OwnedMediaFrameLifecycle {
-    var frameId: UInt64
-    let capturedAtUptimeNs: UInt64
-    var admissionUptimeNs: UInt64?
-    var encodeStartUptimeNs: UInt64?
-    var encodeEndUptimeNs: UInt64?
-    var sendStartUptimeNs: UInt64?
-    var sendEndUptimeNs: UInt64?
-    var ackUptimeNs: UInt64?
-    var encodedBytes: Int = 0
-    var packetCount: Int = 0
-    var isKeyframe = false
-    var requestedKeyframeReason: OwnedMediaKeyframeReason?
-    var actualKeyframeReason: OwnedMediaKeyframeReason?
-    var admissionMode: OwnedMediaCadenceMode = .normal
-    var encodeBudget: OwnedMediaEncodeBudget?
-    var scaleDown: Double = 1.0
-    var sourceWidth: Int = 0
-    var sourceHeight: Int = 0
-    var encodeWidth: Int = 0
-    var encodeHeight: Int = 0
-}
-
-private struct OwnedMediaEncodeTiming {
-    let decision: OwnedMediaAdmissionDecision
-    let budget: OwnedMediaEncodeBudget
-    let admissionIntervalMs: Int
-    let intervalMs: Int
-}
-
 final class OwnedMediaHostDiagnostics: @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
     private let lock = NSLock()
     private var phase: OwnedMediaPipelinePhase = .idle
     private var fpsWindow = OwnedMediaDiagnosticsFpsWindow(windowStartedAtUptimeNs: DispatchTime.now().uptimeNanoseconds)
-    private var lifecycleByCaptureNs: [UInt64: OwnedMediaFrameLifecycle] = [:]
-    private var lifecycleByFrameId: [UInt64: OwnedMediaFrameLifecycle] = [:]
     private var coalescedRawCapture = 0
     private var coalescedAdmissionHold = 0
     private var coalescedEncodeBusy = 0
@@ -253,119 +221,9 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
         logger.notice("owned media diag-skip bucket=\(bucket.rawValue, privacy: .public)")
     }
 
-    func noteAdmissionHold(reason: String?, mode: OwnedMediaCadenceMode) {
+    func noteAdmissionHold(reason: String?) {
         setPhase(.admissionHold)
-        logger.notice("owned media admission-hold-diagnostic mode=\(String(describing: mode), privacy: .public) reason=\(reason ?? "unknown", privacy: .public)")
-    }
-
-    func noteAdmitted(
-        _ frame: CapturedVideoFrame,
-        decision: OwnedMediaAdmissionDecision,
-        budget: OwnedMediaEncodeBudget,
-        sourcePixelSize: CapturePixelSize,
-        encodePixelSize: CapturePixelSize,
-        nowUptimeNs: UInt64
-    ) {
-        let fpsSample = lock.withLock {
-            fpsWindow.incrementAdmitted()
-            var lifecycle = OwnedMediaFrameLifecycle(
-                frameId: 0,
-                capturedAtUptimeNs: frame.capturedAtUptimeNs,
-                admissionUptimeNs: nowUptimeNs,
-                requestedKeyframeReason: decision.keyframeReason,
-                admissionMode: decision.mode,
-                encodeBudget: budget
-            )
-            lifecycle.scaleDown = budget.scaleDown
-            lifecycle.sourceWidth = sourcePixelSize.width
-            lifecycle.sourceHeight = sourcePixelSize.height
-            lifecycle.encodeWidth = encodePixelSize.width
-            lifecycle.encodeHeight = encodePixelSize.height
-            lifecycleByCaptureNs[frame.capturedAtUptimeNs] = lifecycle
-            return fpsWindow.flushIfDue(nowUptimeNs: nowUptimeNs)
-        }
-        logFpsIfNeeded(fpsSample)
-    }
-
-    func noteEncodeStarted(frame: CapturedVideoFrame, nowUptimeNs: UInt64) {
-        lock.withLock {
-            lifecycleByCaptureNs[frame.capturedAtUptimeNs]?.encodeStartUptimeNs = nowUptimeNs
-        }
-    }
-
-    func noteEncoded(
-        envelope: OwnedMediaFrameEnvelope,
-        requestedKeyframeReason: OwnedMediaKeyframeReason?,
-        actualKeyframeReason: OwnedMediaKeyframeReason?,
-        nowUptimeNs: UInt64
-    ) {
-        let fpsSample = lock.withLock {
-            fpsWindow.incrementEncoded()
-            var lifecycle = lifecycleByCaptureNs.removeValue(forKey: envelope.header.capturedAtUptimeNs) ?? OwnedMediaFrameLifecycle(
-                frameId: envelope.header.frameId,
-                capturedAtUptimeNs: envelope.header.capturedAtUptimeNs
-            )
-            lifecycle.frameId = envelope.header.frameId
-            lifecycle.encodeEndUptimeNs = nowUptimeNs
-            lifecycle.encodedBytes = envelope.payload.count
-            lifecycle.isKeyframe = envelope.header.isKeyframe
-            lifecycle.requestedKeyframeReason = requestedKeyframeReason
-            lifecycle.actualKeyframeReason = actualKeyframeReason
-            lifecycleByFrameId[envelope.header.frameId] = lifecycle
-            return fpsWindow.flushIfDue(nowUptimeNs: nowUptimeNs)
-        }
-        logFpsIfNeeded(fpsSample)
-        if envelope.header.isKeyframe {
-            logger.notice("owned media keyframe-result frame=\(envelope.header.frameId, privacy: .public) requestedReason=\(requestedKeyframeReason?.rawValue ?? "none", privacy: .public) actualReason=\(actualKeyframeReason?.rawValue ?? "unknown", privacy: .public) expected=\(requestedKeyframeReason != nil, privacy: .public) bytes=\(envelope.payload.count, privacy: .public)")
-        }
-    }
-
-    func noteSent(envelope: OwnedMediaFrameEnvelope, stats: OwnedMediaSendStats, decision: OwnedMediaAdmissionDecision) {
-        let now = DispatchTime.now().uptimeNanoseconds
-        let snapshot = lock.withLock {
-            fpsWindow.incrementSent()
-            var lifecycle = lifecycleByFrameId[envelope.header.frameId] ?? OwnedMediaFrameLifecycle(
-                frameId: envelope.header.frameId,
-                capturedAtUptimeNs: envelope.header.capturedAtUptimeNs
-            )
-            lifecycle.sendStartUptimeNs = stats.sendStartUptimeNs
-            lifecycle.sendEndUptimeNs = stats.sendEndUptimeNs
-            lifecycle.encodedBytes = stats.encodedBytes
-            lifecycle.packetCount = stats.packetCount
-            lifecycle.isKeyframe = envelope.header.isKeyframe
-            lifecycle.admissionMode = decision.mode
-            lifecycleByFrameId[envelope.header.frameId] = lifecycle
-            return (
-                lifecycle: lifecycle,
-                fps: fpsWindow.flushIfDue(nowUptimeNs: now),
-                raw: coalescedRawCapture,
-                hold: coalescedAdmissionHold,
-                encode: coalescedEncodeBusy,
-                network: coalescedNetworkBackpressure
-            )
-        }
-        logFpsIfNeeded(snapshot.fps)
-        logger.notice("owned media host-frame frame=\(envelope.header.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) keyframeReason=\(snapshot.lifecycle.actualKeyframeReason?.rawValue ?? snapshot.lifecycle.requestedKeyframeReason?.rawValue ?? "none", privacy: .public) mode=\(String(describing: decision.mode), privacy: .public) budgetMode=\(snapshot.lifecycle.encodeBudget?.mode.rawValue ?? "unknown", privacy: .public) budgetKbps=\(snapshot.lifecycle.encodeBudget?.bitrateKbps ?? 0, privacy: .public) budgetFps=\(snapshot.lifecycle.encodeBudget?.expectedFrameRate ?? 0, privacy: .public) scaleDown=\(snapshot.lifecycle.scaleDown, privacy: .public) sourceSize=\(snapshot.lifecycle.sourceWidth, privacy: .public)x\(snapshot.lifecycle.sourceHeight, privacy: .public) encodeSize=\(snapshot.lifecycle.encodeWidth, privacy: .public)x\(snapshot.lifecycle.encodeHeight, privacy: .public) captureToAdmissionMs=\(Self.ms(from: snapshot.lifecycle.capturedAtUptimeNs, to: snapshot.lifecycle.admissionUptimeNs), privacy: .public) encodeMs=\(Self.ms(from: snapshot.lifecycle.encodeStartUptimeNs, to: snapshot.lifecycle.encodeEndUptimeNs), privacy: .public) sendMs=\(stats.sendDurationMs, privacy: .public) bytes=\(stats.encodedBytes, privacy: .public) packets=\(stats.packetCount, privacy: .public) burst=\(stats.pacingBurstPacketCount, privacy: .public) pauseUs=\(stats.pacingBurstPauseUs, privacy: .public) pacingReason=\(stats.pacingReason.rawValue, privacy: .public) burstPauses=\(stats.burstPauseCount, privacy: .public) maxPacketGapMs=\(stats.maxInterPacketGapMs, privacy: .public) backpressure=\(stats.isBackpressured, privacy: .public) coalescedRaw=\(snapshot.raw, privacy: .public) coalescedAdmissionHold=\(snapshot.hold, privacy: .public) coalescedEncodeBusy=\(snapshot.encode, privacy: .public) coalescedNetwork=\(snapshot.network, privacy: .public)")
-    }
-
-    func noteAck(message: OwnedMediaControlMessage, admissionMode: OwnedMediaCadenceMode, unackedFrames: Int, unackedBytes: Int) {
-        let now = DispatchTime.now().uptimeNanoseconds
-        let snapshot = lock.withLock {
-            fpsWindow.incrementAcked()
-            var lifecycle = lifecycleByFrameId[message.frameId]
-            lifecycle?.ackUptimeNs = now
-            if let lifecycle {
-                lifecycleByFrameId[message.frameId] = lifecycle
-            }
-            lifecycleByFrameId = lifecycleByFrameId.filter { $0.key >= message.frameId }
-            return (lifecycle, fpsWindow.flushIfDue(nowUptimeNs: now))
-        }
-        logFpsIfNeeded(snapshot.1)
-        guard let lifecycle = snapshot.0 else {
-            logger.notice("owned media host-frame-ack frame=\(message.frameId, privacy: .public) missingLifecycle=true unacked=\(unackedFrames, privacy: .public) bytes=\(unackedBytes, privacy: .public) mode=\(String(describing: admissionMode), privacy: .public)")
-            return
-        }
-        logger.notice("owned media host-frame-ack frame=\(message.frameId, privacy: .public) ackRttMs=\(Self.ms(from: lifecycle.sendEndUptimeNs, to: now), privacy: .public) captureToAckMs=\(Self.ms(from: lifecycle.capturedAtUptimeNs, to: now), privacy: .public) captureToAdmissionMs=\(Self.ms(from: lifecycle.capturedAtUptimeNs, to: lifecycle.admissionUptimeNs), privacy: .public) encodeMs=\(Self.ms(from: lifecycle.encodeStartUptimeNs, to: lifecycle.encodeEndUptimeNs), privacy: .public) sendMs=\(Self.ms(from: lifecycle.sendStartUptimeNs, to: lifecycle.sendEndUptimeNs), privacy: .public) renderGapMs=\(message.renderGapMs ?? 0, privacy: .public) frameAgeMs=\(message.frameAgeMs ?? 0, privacy: .public) unacked=\(unackedFrames, privacy: .public) bytes=\(unackedBytes, privacy: .public) mode=\(String(describing: admissionMode), privacy: .public)")
+        logger.notice("owned media admission-hold-diagnostic reason=\(reason ?? "unknown", privacy: .public)")
     }
 
     private func logFpsIfNeeded(_ sample: OwnedMediaDiagnosticsFpsSample?) {
@@ -400,12 +258,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var videoSource: VideoFrameSource?
     private var frameMailbox: LatestCapturedFrameMailbox?
     private var encodePumpTask: Task<Void, Never>?
-    private var admission = OwnedMediaEncodeAdmission()
     private var graphicsBackpressure = GraphicsBackpressure(maxUnacked: Config.hybridMaxUnackedFrames)
     private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?
     private var graphicsRecoveryState: HybridGraphicsRecoveryState = .idle
     private let graphicsAckWaiter = OwnedGraphicsAckWaiter()
-    private var motionBudgetState = OwnedMediaMotionBudgetState()
     private var diagnostics = OwnedMediaHostDiagnostics()
     private let frameScaler = OwnedMediaFrameScaler()
     private var started = false
@@ -761,7 +617,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         mailbox: LatestCapturedFrameMailbox,
         diagnostics: OwnedMediaHostDiagnostics
     ) async {
-        var cadenceScheduler = OwnedMediaCadenceScheduler()
         var scrollDeltaEngine = ScrollDeltaEngine(
             maxDecodedResetStripePayloadBytes: Config.hybridResetStripeMaxDecodedBytes,
             maxWireResetStripeBytes: Config.hybridResetStripeMaxWireBytes
@@ -779,44 +634,14 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         for await _ in mailbox.stream {
             guard !Task.isCancelled else { return }
             diagnostics.setPhase(.idle)
-            guard var frame = mailbox.takeLatest() else { continue }
-
-            var timing = currentEncodeTiming(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
-            var intervalNs = UInt64(timing.intervalMs) * 1_000_000
-            let delayNs = cadenceScheduler.delayBeforeNextAdmission(
-                nowUptimeNs: DispatchTime.now().uptimeNanoseconds,
-                intervalMs: timing.intervalMs
-            )
-            var totalDelayNs = delayNs
-            if delayNs > 0 {
-                try? await Task.sleep(nanoseconds: delayNs)
-                if let newest = mailbox.takeLatest() {
-                    frame = newest
-                }
-                timing = currentEncodeTiming(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
-                let additionalDelayNs = cadenceScheduler.delayBeforeNextAdmission(
-                    nowUptimeNs: DispatchTime.now().uptimeNanoseconds,
-                    intervalMs: timing.intervalMs
-                )
-                if additionalDelayNs > 0 {
-                    totalDelayNs += additionalDelayNs
-                    try? await Task.sleep(nanoseconds: additionalDelayNs)
-                    if let newest = mailbox.takeLatest() {
-                        frame = newest
-                    }
-                    timing = currentEncodeTiming(nowUptimeNs: DispatchTime.now().uptimeNanoseconds)
-                }
-                intervalNs = UInt64(timing.intervalMs) * 1_000_000
-            }
-            _ = intervalNs
-            _ = timing
+            guard let frame = mailbox.takeLatest() else { continue }
 
             // Single reliable media path: the damage-driven graphics channel.
             // Without an active graphics channel there is nothing to send, so the
             // frame is dropped. There is no HEVC encoder and no datagram channel
             // to fall through to.
             guard let graphicsChannel = latestGraphicsChannel() else {
-                diagnostics.noteAdmissionHold(reason: "graphics-disconnected", mode: currentAdmissionMode())
+                diagnostics.noteAdmissionHold(reason: "graphics-disconnected")
                 continue
             }
             if peekPendingGraphicsResetRequest() != nil {
@@ -827,7 +652,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 // At the unacked-frame cap. Hold this frame entirely. The mailbox
                 // coalesces dirtyRects while stalled, so the next produced frame
                 // carries the freshest damage.
-                diagnostics.noteAdmissionHold(reason: "backpressure-cap", mode: currentAdmissionMode())
+                diagnostics.noteAdmissionHold(reason: "backpressure-cap")
                 logger.notice("owned graphics backpressure-hold reason=unacked-cap maxUnacked=\(Config.hybridMaxUnackedFrames, privacy: .public)")
                 heldSinceLastProduce += 1
                 continue
@@ -848,7 +673,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             switch graphics.kind {
             case .accepted:
                 guard let envelope = graphics.envelope else {
-                    diagnostics.noteAdmissionHold(reason: "graphics-accepted-no-envelope", mode: currentAdmissionMode())
+                    diagnostics.noteAdmissionHold(reason: "graphics-accepted-no-envelope")
                     continue
                 }
                 do {
@@ -949,85 +774,15 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             case .noChange:
                 // The damage classifier saw nothing worth sending. The retained
                 // surface already matches the screen.
-                diagnostics.noteAdmissionHold(reason: "graphics-damage-nochange", mode: currentAdmissionMode())
+                diagnostics.noteAdmissionHold(reason: "graphics-damage-nochange")
                 continue
             case .timeout, .rejected:
                 // The damage path does not return these now. There is no HEVC
                 // fallback; hold the frame.
-                diagnostics.noteAdmissionHold(reason: "graphics-no-update", mode: currentAdmissionMode())
+                diagnostics.noteAdmissionHold(reason: "graphics-no-update")
                 continue
             }
         }
-    }
-
-    private static func cadenceLateNs(
-        scheduler: OwnedMediaCadenceScheduler,
-        admissionUptimeNs: UInt64,
-        intervalMs: Int
-    ) -> UInt64 {
-        guard let lastAdmissionStartedAtUptimeNs = scheduler.lastAdmissionStartedAtUptimeNs else { return 0 }
-        let expectedAdmissionNs = lastAdmissionStartedAtUptimeNs &+ UInt64(max(intervalMs, 1)) * 1_000_000
-        guard admissionUptimeNs > expectedAdmissionNs else { return 0 }
-        return admissionUptimeNs - expectedAdmissionNs
-    }
-
-    private func resolvedKeyframeReason(
-        frameId: UInt64,
-        decision: OwnedMediaAdmissionDecision
-    ) -> OwnedMediaKeyframeReason? {
-        if frameId == 1 {
-            return .initial
-        }
-        if let keyframeReason = decision.keyframeReason {
-            return keyframeReason
-        }
-        if decision.allowPeriodicKeyframe,
-           frameId.isMultiple(of: UInt64(configuration.keyframeIntervalFrames)) {
-            return .periodic
-        }
-        return nil
-    }
-
-    private func currentEncodeTiming(nowUptimeNs: UInt64) -> OwnedMediaEncodeTiming {
-        lock.withLock {
-            let config = makeBackpressureConfig()
-            let decision = admission.decision(nowUptimeNs: nowUptimeNs, config: config)
-            let budget = motionBudgetState.choose(
-                policy: makeMotionBudgetPolicy(),
-                mode: admission.mode,
-                frameAgeMs: admission.latestClientFrameAgeMs,
-                backlogFrames: admission.latestClientBacklogFrames,
-                unacknowledgedBytes: admission.unacknowledgedBytes,
-                nowUptimeNs: nowUptimeNs
-            )
-            let admissionIntervalMs = admission.encodeIntervalMs(config: config)
-            let intervalMs = OwnedMediaEncodeCadencePolicy.intervalMs(
-                admissionIntervalMs: admissionIntervalMs,
-                budget: budget
-            )
-            return OwnedMediaEncodeTiming(
-                decision: decision,
-                budget: budget,
-                admissionIntervalMs: admissionIntervalMs,
-                intervalMs: intervalMs
-            )
-        }
-    }
-
-    private func makeMotionBudgetPolicy() -> OwnedMediaMotionBudgetPolicy {
-        OwnedMediaMotionBudgetPolicy(
-            enabled: Config.ownedMediaMotionBudgetEnabled,
-            restBitrateKbps: configuration.targetBitrateKbps,
-            restFps: configuration.expectedFrameRate,
-            restScaleDown: Config.ownedMediaCaptureScaleDown,
-            motionBitrateKbps: Config.ownedMediaMotionBitrateKbps,
-            motionFps: Config.ownedMediaMotionFps,
-            motionScaleDown: Config.ownedMediaMotionScaleDown,
-            motionFrameAgeMs: Config.ownedMediaMotionFrameAgeMs,
-            motionBacklogFrames: Config.ownedMediaMotionBacklogFrames,
-            motionInflightBytes: Config.ownedMediaMotionInflightBytes,
-            restBudgetHoldMs: Config.ownedMediaRestBudgetHoldMs
-        )
     }
 
     private static func pixelSize(_ pixelBuffer: CVPixelBuffer) -> CapturePixelSize {
@@ -1035,38 +790,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             width: CVPixelBufferGetWidth(pixelBuffer),
             height: CVPixelBufferGetHeight(pixelBuffer)
         )
-    }
-
-    private func noteAdmissionSent(_ envelope: OwnedMediaFrameEnvelope, decision: OwnedMediaAdmissionDecision) {
-        let now = DispatchTime.now().uptimeNanoseconds
-        let snapshot = lock.withLock {
-            let previousMode = admission.mode
-            admission.noteSent(
-                frameId: envelope.header.frameId,
-                bytes: envelope.payload.count,
-                capturedAtUptimeNs: envelope.header.capturedAtUptimeNs,
-                isKeyframe: envelope.header.isKeyframe,
-                nowUptimeNs: now,
-                config: makeBackpressureConfig()
-            )
-            return (
-                mode: admission.mode,
-                previousMode: previousMode,
-                unacked: admission.unacknowledgedFrameCount,
-                bytes: admission.unacknowledgedBytes
-            )
-        }
-        logger.notice("owned media admission-state mode=\(String(describing: snapshot.mode), privacy: .public) sent=\(envelope.header.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) unacked=\(snapshot.unacked, privacy: .public) bytes=\(snapshot.bytes, privacy: .public)")
-        if snapshot.previousMode != .draining && snapshot.mode == .draining {
-            logger.notice("owned media drain-enter afterSend=\(envelope.header.frameId, privacy: .public)")
-        }
-        if decision.mode == .draining && decision.forceKeyframe && envelope.header.isKeyframe {
-            logger.notice("owned media keyframe-sent-after-drain frame=\(envelope.header.frameId, privacy: .public)")
-        }
-    }
-
-    private func currentAdmissionMode() -> OwnedMediaCadenceMode {
-        lock.withLock { admission.mode }
     }
 
     private func claimStartIfReady() -> VideoFrameSource? {
@@ -1080,93 +803,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         lock.unlock()
         guard hasGraphicsChannel, let source, !alreadyStarted else { return nil }
         return source
-    }
-
-    private func handleControlMessage(_ message: OwnedMediaControlMessage) {
-        switch message.kind {
-        case .keyframeRequest:
-            logger.notice("owned media keyframe requested after client frame=\(message.frameId, privacy: .public)")
-            requestKeyframe()
-        case .frameAck:
-            noteFrameAck(message)
-        case .packetResendRequest:
-            break
-        case .graphicsResetRequest:
-            let request = OwnedGraphicsResetRequest(
-                reason: message.reason ?? "media-fallback",
-                lastCommittedSurfaceGeneration: message.graphicsSurfaceGeneration ?? 0,
-                lastCommittedFrameId: message.frameId
-            )
-            logger.notice("owned graphics reset fallback received reason=\(request.reason, privacy: .public) generation=\(request.lastCommittedSurfaceGeneration, privacy: .public) frame=\(request.lastCommittedFrameId, privacy: .public)")
-            handleGraphicsResetRequest(request)
-        case .keepalive:
-            break
-        }
-    }
-
-    private func noteFrameAck(_ message: OwnedMediaControlMessage) {
-        let snapshot = lock.withLock {
-            let events = admission.noteAck(
-                frameId: message.frameId,
-                renderGapMs: message.renderGapMs,
-                frameAgeMs: message.frameAgeMs,
-                clientBacklogFrames: message.clientBacklogFrames,
-                clientBacklogBytes: message.clientBacklogBytes,
-                nowUptimeNs: DispatchTime.now().uptimeNanoseconds,
-                config: makeBackpressureConfig()
-            )
-            return (
-                events: events,
-                mode: admission.mode,
-                unacked: admission.unacknowledgedFrameCount,
-                bytes: admission.unacknowledgedBytes,
-                diagnostics: diagnostics
-            )
-        }
-        snapshot.diagnostics.noteAck(
-            message: message,
-            admissionMode: snapshot.mode,
-            unackedFrames: snapshot.unacked,
-            unackedBytes: snapshot.bytes
-        )
-        if snapshot.events.enteredDrain {
-            logger.notice("owned media drain-enter frameAgeMs=\(message.frameAgeMs ?? 0, privacy: .public) afterAck=\(message.frameId, privacy: .public)")
-        }
-        if snapshot.events.exitedDrain {
-            logger.notice("owned media drain-exit afterAck=\(message.frameId, privacy: .public)")
-        }
-    }
-
-    private func makeBackpressureConfig() -> OwnedMediaBackpressureConfig {
-        OwnedMediaBackpressureConfig(
-            frameAgeMs: Config.ownedMediaBackpressureFrameAgeMs,
-            severeFrameAgeMs: Config.ownedMediaBackpressureSevereFrameAgeMs,
-            maxInflightFrames: Config.ownedMediaBackpressureMaxInflightFrames,
-            maxInflightBytes: Config.ownedMediaBackpressureMaxInflightBytes,
-            expectedFrameRate: configuration.expectedFrameRate,
-            behindEncodeIntervalMs: Config.ownedMediaBackpressureEncodeIntervalMs,
-            severeEncodeIntervalMs: Config.ownedMediaBackpressureSevereEncodeIntervalMs,
-            drainTimeoutMs: Config.ownedMediaDrainTimeoutMs,
-            keyframeCooldownMs: Config.ownedMediaKeyframeCooldownMs,
-            normalMaxUnackedFrames: Config.ownedMediaNormalMaxUnackedFrames,
-            behindMaxUnackedFrames: Config.ownedMediaBehindMaxUnackedFrames,
-            staleUnackedMs: Config.ownedMediaStaleUnackedMs
-        )
-    }
-
-    private func logStaleUnackedAbandonment(_ decision: OwnedMediaAdmissionDecision) {
-        guard decision.abandonedStaleUnackedCount > 0 else { return }
-        logger.notice("owned media stale-unacked-abandoned oldest=\(decision.abandonedStaleUnackedOldestFrameId ?? 0, privacy: .public) count=\(decision.abandonedStaleUnackedCount, privacy: .public) bytes=\(decision.abandonedStaleUnackedBytes, privacy: .public)")
-    }
-
-    private func requestKeyframe() {
-        let mode = lock.withLock {
-            admission.noteKeyframeRequested()
-            return admission.mode
-        }
-        if mode == .draining {
-            logger.notice("owned media keyframe-deferred reason=draining")
-        }
     }
 
     private func graphicsBackpressureCanProduce() -> Bool {
