@@ -10,10 +10,15 @@ import Foundation
 // it is dropped and the transport requests a keyframe to resync.
 
 // The enqueue target, abstracted so the decode state machine can be tested without
-// a real display layer.
+// a real display layer. displayStatus / requiresFlushToResumeDecoding expose the
+// layer health the recovery policy reads; flushAndRemoveImage clears a wedged
+// (failed) layer, unlike flush which keeps the last image and the decode error.
 protocol OwnedMediaVideoEnqueuing: AnyObject {
     func enqueue(_ sampleBuffer: CMSampleBuffer)
     func flush()
+    func flushAndRemoveImage()
+    var displayStatus: String { get }
+    var requiresFlushToResumeDecoding: Bool { get }
 }
 
 enum OwnedMediaVideoDecodeResult: Equatable {
@@ -21,6 +26,9 @@ enum OwnedMediaVideoDecodeResult: Equatable {
     case droppedPendingKeyframe
     case formatDescriptionUnavailable
     case sampleBufferBuildFailed
+    // ADR-0027: a wedged layer (failed / requiresFlush) was reset, but this frame was
+    // a delta so the stream cannot resync until a keyframe. The caller requests one.
+    case recoveredRequestKeyframe
 }
 
 final class OwnedMediaVideoDecoder {
@@ -39,6 +47,26 @@ final class OwnedMediaVideoDecoder {
     @discardableResult
     func decodeAndEnqueue(_ envelope: OwnedMediaFrameEnvelope) -> OwnedMediaVideoDecodeResult {
         let header = envelope.header
+        // ADR-0027: recover a wedged layer before anything else. A delta decoded
+        // against a reference lost to packet drop can leave the layer .failed /
+        // requiresFlushToResumeDecoding; flush() keeps that failed image and does not
+        // clear the decode error, so blank the layer and force a keyframe resync. If
+        // this very frame is the keyframe, fall through and let it resync now;
+        // otherwise tell the caller to request one.
+        var recovered = false
+        if OwnedMediaDisplayQueuePolicy.action(
+            displayStatus: layer.displayStatus,
+            requiresFlushToResumeDecoding: layer.requiresFlushToResumeDecoding,
+            isKeyframe: header.isKeyframe,
+            renderGapMs: nil
+        ) == .flushAndRemoveImage {
+            layer.flushAndRemoveImage()
+            formatDescription = nil
+            recovered = true
+            if !header.isKeyframe {
+                return .recoveredRequestKeyframe
+            }
+        }
         if header.isKeyframe {
             guard let parameterSets = header.parameterSets,
                   let description = makeFormatDescription(parameterSets, header.codec) else {
@@ -47,7 +75,8 @@ final class OwnedMediaVideoDecoder {
             // A keyframe is a fresh sync point. Drop any pending (undisplayed) queue so
             // the keyframe shows next instead of a stale delta. flush() keeps the
             // current image up until the keyframe decodes, so there is no black frame.
-            layer.flush()
+            // Skip it right after a recovery, which already blanked the layer.
+            if !recovered { layer.flush() }
             formatDescription = description
         }
         guard let description = formatDescription else {
@@ -215,5 +244,25 @@ final class OwnedMediaVideoLayerEnqueuer: OwnedMediaVideoEnqueuing {
         // periodic flash). flush() keeps the last frame visible until the keyframe
         // decodes, so the keyframe is a sharpen, not a black blink.
         displayLayer.flush()
+    }
+
+    func flushAndRemoveImage() {
+        // Clears the failed/wedged decode state, unlike flush(). Reserved for the
+        // recovery path (ADR-0027), where the layer is already failed so there is no
+        // good image to keep.
+        displayLayer.flushAndRemoveImage()
+    }
+
+    var displayStatus: String {
+        switch displayLayer.status {
+        case .unknown: return "unknown"
+        case .rendering: return "rendering"
+        case .failed: return "failed"
+        @unknown default: return "unknown"
+        }
+    }
+
+    var requiresFlushToResumeDecoding: Bool {
+        displayLayer.requiresFlushToResumeDecoding
     }
 }

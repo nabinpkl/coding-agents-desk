@@ -96,6 +96,15 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         self.sink = sink
         self.onFallbackResetRequest = onFallbackResetRequest
         self.onDisconnected = onDisconnected
+        // ADR-0027: give the sink a way to ask the host for a keyframe (render-stall
+        // watchdog and wedged-layer recovery). Rides the existing host-bound datagram
+        // control path beside the repair-buffer keyframe request. A request before the
+        // group exists no-ops in sendVideoControl.
+        Task { @MainActor [weak self] in
+            self?.sink?.setVideoKeyframeRequestHandler { [weak self] in
+                self?.sendVideoControl(OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 0))
+            }
+        }
     }
 
     func start() async throws {

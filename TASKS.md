@@ -36,9 +36,9 @@ Phase goal: no produced frame, keyframe included, may burst past the link budget
 
 Phase goal: a stalled or `.failed` decoder self-heals instead of holding a frozen frame.
 
-- [ ] R84. Wire `OwnedMediaDisplayQueuePolicy.action` (`client/AgentDeskClient/SharedTypes.swift:1568`) into the live render path. In `client/AgentDeskClient/OwnedMediaVideoDecoder.swift`, read `displayLayer.status` / `requiresFlushToResumeDecoding` before enqueue and, when the policy returns `.flushAndRemoveImage`, call `flushAndRemoveImage()` and drop the pending format description so the next frame must be a keyframe. Surface the action to `OwnedMediaVideoSink` so it can request a keyframe.
-- [ ] R85. Add a render-stall watchdog in `client/AgentDeskClient/OwnedMediaVideoSink.swift` keyed off `lastRenderUptimeNs`: if no video frame has displayed within `Config.ownedMediaRenderStallMs` (client `Config`, env `AGENTDESK_OWNED_MEDIA_RENDER_STALL_MS`), flush the layer and send one `keyframeRequest` over the carrier (`OwnedMediaTransport.sendVideoControl`), rate-limited so a dead link does not spam requests. The watchdog is independent of `MediaDatagramFrameRepairBuffer`'s deadline, which only fires on packet loss, not on a decoder that stops presenting.
-- [ ] R86. Tests: a `OwnedMediaVideoDecoder` unit proving a `.failed` status triggers `flushAndRemoveImage` and forces keyframe-pending state on the next frame; a watchdog unit (against an injected clock) proving a stall past the threshold emits exactly one rate-limited keyframe request and that a resumed frame clears the stall. Extend `client/AgentDeskClientTests/OwnedMediaVideoDecoderTests.swift`.
+- [x] D84. Wired `OwnedMediaDisplayQueuePolicy.action` into the live render path. `OwnedMediaVideoDecoder` reads `displayStatus` / `requiresFlushToResumeDecoding` (added to `OwnedMediaVideoEnqueuing`) before enqueue; on `.flushAndRemoveImage` it blanks the layer and drops the format description so a keyframe must resync. A delta on a wedged layer returns the new `.recoveredRequestKeyframe`, which `OwnedMediaVideoSink` turns into a keyframe request; a keyframe resyncs in place.
+- [x] D85. Render-stall watchdog `OwnedMediaRenderStallWatchdog` in `OwnedMediaVideoSink.swift`, driven by a main-queue `DispatchSourceTimer`. It fires only while frames are arriving (host sending) but none have enqueued for `Config.ownedMediaRenderStallMs` (env `AGENTDESK_OWNED_MEDIA_RENDER_STALL_MS`, default 1000), so a quiet host never triggers it. On fire it flushes (keeps last image), requires a keyframe, and sends one rate-limited request via a handler the `OwnedGraphicsTransport` installs (`sendVideoControl`). Independent of the repair-buffer deadline, which only fires on packet loss.
+- [x] D86. Tests in `client/AgentDeskClientTests/OwnedMediaVideoDecoderTests.swift`: wedged-layer delta recovers, blanks once (not flush), drops the delta, and stays keyframe-pending; wedged-layer keyframe resyncs in place without a second flush; watchdog fires when arriving-but-not-enqueuing, stays quiet for a quiet host, respects the rate limit, and requires a prior enqueue. All six pass on the simulator client suite.
 
 ## v0 Phase 3: closed-loop adaptive bitrate
 
@@ -82,7 +82,7 @@ Opens only if Phase 3's keyframe-only recovery under the adaptive loop still gli
 R34-R80      2026-06-26  archived    retained-scroll / content-tile-cache ledger moved to tasks/archive (retired by ADR-0026 video-primary pivot)
 R81          2026-06-26  committed   ADR-0027 drafted: congestion-adaptive video, Option B now / Option C target, static-knob-only rejected
 D82-D83      2026-06-26  committed   encoder DataRateLimits hard ceiling (ratio knob, 1s window) + ceiling-contract and within-cap tests
-R84-R86      pending     pending     client freeze recovery: wire OwnedMediaDisplayQueuePolicy, render-stall watchdog, decoder/watchdog tests
+D84-D86      2026-06-26  committed   client freeze recovery: wedged-layer recovery wired into decoder, render-stall watchdog with keyframe-request handler, six decoder/watchdog tests green on sim
 R87-R90      pending     pending     closed-loop adaptive bitrate: link-health control message, client emit, host VideoBitrateController, controller tests
 R91          pending     pending     constrained-link physical acceptance (throttled / LTE) and blocker classification
 ```

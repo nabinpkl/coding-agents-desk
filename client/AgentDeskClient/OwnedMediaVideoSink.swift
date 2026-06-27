@@ -14,11 +14,43 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
     @MainActor func currentGraphicsResetRequest(reason: String) -> OwnedGraphicsResetRequest
     @MainActor func consumePendingGraphicsResetRequest() -> OwnedGraphicsResetRequest?
     @MainActor func setOwnedMediaDebugStatus(_ status: String)
+    // ADR-0027: the transport installs how the sink asks for a keyframe (the render
+    // -stall watchdog and the wedged-layer recovery both use it).
+    @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void)
 }
 
-// Default no-op so non-video conformers (test stubs) need not implement it.
+// Default no-ops so non-video conformers (test stubs) need not implement them.
 extension OwnedMediaFrameSink {
     @MainActor func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope) {}
+    @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void) {}
+}
+
+// Render-stall watchdog for the video carrier (ADR-0027). The carrier can wedge:
+// frames keep arriving but the decoder stops presenting (a delta decoded against a
+// reference lost to packet drop leaves the layer failed). This decides, from the
+// last frame arrival, the last successful enqueue, and the last request, whether to
+// ask the host for a fresh keyframe. It fires only while frames are arriving (the
+// host is sending), so a quiet host (rest, or a dead link) never triggers a keyframe
+// storm. Pure so it can be driven by a test clock.
+struct OwnedMediaRenderStallWatchdog {
+    let activeWindowNs: UInt64
+    let stallThresholdNs: UInt64
+    let minRequestIntervalNs: UInt64
+
+    func shouldRequestKeyframe(
+        lastArrivalNs: UInt64?,
+        lastEnqueueNs: UInt64?,
+        lastRequestNs: UInt64?,
+        nowNs: UInt64
+    ) -> Bool {
+        // Host must be actively sending: an arrival within the active window.
+        guard let lastArrivalNs, nowNs <= lastArrivalNs &+ activeWindowNs else { return false }
+        // And nothing has presented for the stall threshold.
+        guard let lastEnqueueNs, nowNs >= lastEnqueueNs &+ stallThresholdNs else { return false }
+        // Rate-limit so a sustained stall asks at most once per interval.
+        if let lastRequestNs, nowNs < lastRequestNs &+ minRequestIntervalNs { return false }
+        return true
+    }
 }
 
 @MainActor
@@ -38,8 +70,26 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     private var compositor = OwnedSurfaceCompositor()
     private var lastRenderUptimeNs: UInt64?
     private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?
+    // ADR-0027 render-stall watchdog state. lastVideoArrivalUptimeNs is set on every
+    // video frame that reaches the sink (the host is sending); lastVideoEnqueueUptimeNs
+    // only on a frame that actually presented. The watchdog asks for a keyframe when
+    // arrivals are fresh but nothing has enqueued for the stall window, rate-limited by
+    // lastKeyframeRequestUptimeNs.
+    private var lastVideoArrivalUptimeNs: UInt64?
+    private var lastVideoEnqueueUptimeNs: UInt64?
+    private var lastKeyframeRequestUptimeNs: UInt64?
+    private var videoKeyframeRequestHandler: (@Sendable () -> Void)?
+    private let stallWatchdog: OwnedMediaRenderStallWatchdog
+    private let stallTimer: DispatchSourceTimer
 
     init() {
+        let stallNs = UInt64(Config.ownedMediaRenderStallMs) * 1_000_000
+        stallWatchdog = OwnedMediaRenderStallWatchdog(
+            activeWindowNs: stallNs,
+            stallThresholdNs: stallNs,
+            minRequestIntervalNs: stallNs
+        )
+        stallTimer = DispatchSource.makeTimerSource(queue: .main)
         let container = LayerBackedVideoContainerView()
         container.backgroundColor = .black
         view = container
@@ -70,19 +120,79 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             self.surfaceLayer.frame = bounds
             self.videoLayer.frame = bounds
         }
+        // Poll for a render stall at a fraction of the stall window so detection
+        // latency stays bounded. The check is cheap (a few timestamp compares) and a
+        // quiet host makes it a no-op.
+        let pollSeconds = max(0.25, Double(Config.ownedMediaRenderStallMs) / 1000.0 / 2.0)
+        stallTimer.schedule(deadline: .now() + pollSeconds, repeating: pollSeconds)
+        stallTimer.setEventHandler { [weak self] in
+            Task { @MainActor in self?.checkRenderStall() }
+        }
+        stallTimer.resume()
+    }
+
+    deinit {
+        stallTimer.cancel()
+    }
+
+    func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void) {
+        videoKeyframeRequestHandler = handler
+    }
+
+    // Timer-driven: ask the host for a keyframe if the carrier has wedged (frames
+    // arriving, nothing presenting). Keeps the last frame up via the decoder reset and
+    // requires a keyframe to resync. ADR-0027.
+    private func checkRenderStall() {
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard stallWatchdog.shouldRequestKeyframe(
+            lastArrivalNs: lastVideoArrivalUptimeNs,
+            lastEnqueueNs: lastVideoEnqueueUptimeNs,
+            lastRequestNs: lastKeyframeRequestUptimeNs,
+            nowNs: now
+        ) else { return }
+        logger.notice("owned media video render-stall keyframe-request enqueueAgeMs=\(self.ageMs(self.lastVideoEnqueueUptimeNs, now), privacy: .public) arrivalAgeMs=\(self.ageMs(self.lastVideoArrivalUptimeNs, now), privacy: .public)")
+        ownedMediaStderrTrace("video-render-stall-keyframe-request enqueueAgeMs=\(ageMs(lastVideoEnqueueUptimeNs, now)) arrivalAgeMs=\(ageMs(lastVideoArrivalUptimeNs, now))")
+        requestKeyframe(now: now)
+        videoDecoder.reset()
+    }
+
+    // Single rate-limited keyframe-request point shared by the watchdog and the
+    // wedged-layer recovery in renderOwnedVideoFrame.
+    private func requestKeyframe(now: UInt64) {
+        if let last = lastKeyframeRequestUptimeNs,
+           now < last &+ UInt64(Config.ownedMediaRenderStallMs) * 1_000_000 {
+            return
+        }
+        lastKeyframeRequestUptimeNs = now
+        videoKeyframeRequestHandler?()
+    }
+
+    private func ageMs(_ thenNs: UInt64?, _ nowNs: UInt64) -> Double {
+        guard let thenNs, nowNs >= thenNs else { return -1 }
+        return Double(nowNs - thenNs) / 1_000_000.0
     }
 
     // ADR-0025: a decoded HEVC motion frame. Enqueue it on the video layer and, on
     // the first video frame of a scroll, swap the video layer in front of the tiles.
     func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope) {
+        let now = DispatchTime.now().uptimeNanoseconds
+        lastVideoArrivalUptimeNs = now
         let result = videoDecoder.decodeAndEnqueue(envelope)
-        if result == .droppedPendingKeyframe || result == .formatDescriptionUnavailable {
+        switch result {
+        case .enqueued:
+            lastVideoEnqueueUptimeNs = now
+        case .recoveredRequestKeyframe:
+            // ADR-0027: the layer was wedged and this frame was a delta; the decoder
+            // blanked it and needs a keyframe to resync, so ask for one now.
+            ownedMediaStderrTrace("video-frame-recovered frame=\(envelope.header.frameId)")
+            requestKeyframe(now: now)
+        case .droppedPendingKeyframe, .formatDescriptionUnavailable, .sampleBufferBuildFailed:
             ownedMediaStderrTrace("video-frame-dropped frame=\(envelope.header.frameId) reason=\(result)")
         }
         if handoff.motionStateChanged(to: .scrolling) == .video {
             applyVisibleSurface()
         }
-        lastRenderUptimeNs = DispatchTime.now().uptimeNanoseconds
+        lastRenderUptimeNs = now
     }
 
     // Reflect the handoff's chosen surface in layer visibility.

@@ -10,8 +10,12 @@ final class OwnedMediaVideoDecoderTests: XCTestCase {
     private final class SpyEnqueuer: OwnedMediaVideoEnqueuing {
         var enqueued: [CMSampleBuffer] = []
         var flushCount = 0
+        var flushAndRemoveImageCount = 0
+        var displayStatus = "rendering"
+        var requiresFlushToResumeDecoding = false
         func enqueue(_ sampleBuffer: CMSampleBuffer) { enqueued.append(sampleBuffer) }
         func flush() { flushCount += 1 }
+        func flushAndRemoveImage() { flushAndRemoveImageCount += 1 }
     }
 
     private func stubFormatDescription() -> CMVideoFormatDescription {
@@ -77,6 +81,88 @@ final class OwnedMediaVideoDecoderTests: XCTestCase {
         decoder.reset()
         let result = decoder.decodeAndEnqueue(envelope(frameId: 2, keyframe: false, hasParameterSets: false))
         XCTAssertEqual(result, .droppedPendingKeyframe, "after reset a delta has no format description")
+    }
+
+    // ADR-0027 R84: a wedged layer (failed status) on a delta is reset and the caller
+    // is told to request a keyframe. flushAndRemoveImage clears the failed state;
+    // flush() (which keeps the failed image) is not used here.
+    func testWedgedLayerOnDeltaRecoversAndRequestsKeyframe() {
+        let spy = SpyEnqueuer()
+        let decoder = makeDecoder(spy)
+        XCTAssertEqual(decoder.decodeAndEnqueue(envelope(frameId: 1, keyframe: true, hasParameterSets: true)), .enqueued)
+        spy.displayStatus = "failed"
+        let recovered = decoder.decodeAndEnqueue(envelope(frameId: 2, keyframe: false, hasParameterSets: false))
+        XCTAssertEqual(recovered, .recoveredRequestKeyframe)
+        XCTAssertEqual(spy.flushAndRemoveImageCount, 1, "the failed layer is blanked, not flush()-kept")
+        XCTAssertEqual(spy.enqueued.count, 1, "the delta is not enqueued onto a wedged layer")
+        // After recovery the format description is gone, so a delta keeps dropping
+        // until a keyframe resyncs.
+        spy.displayStatus = "rendering"
+        XCTAssertEqual(decoder.decodeAndEnqueue(envelope(frameId: 3, keyframe: false, hasParameterSets: false)), .droppedPendingKeyframe)
+        XCTAssertEqual(decoder.decodeAndEnqueue(envelope(frameId: 4, keyframe: true, hasParameterSets: true)), .enqueued)
+    }
+
+    // A wedged layer when the incoming frame is itself a keyframe resyncs in place:
+    // blank once, then enqueue the keyframe. The keyframe-path flush() is skipped
+    // because the recovery already blanked the layer.
+    func testWedgedLayerOnKeyframeResyncsInPlace() {
+        let spy = SpyEnqueuer()
+        let decoder = makeDecoder(spy)
+        spy.requiresFlushToResumeDecoding = true
+        let result = decoder.decodeAndEnqueue(envelope(frameId: 1, keyframe: true, hasParameterSets: true))
+        XCTAssertEqual(result, .enqueued)
+        XCTAssertEqual(spy.flushAndRemoveImageCount, 1)
+        XCTAssertEqual(spy.flushCount, 0, "no flush() on top of the recovery blank")
+        XCTAssertEqual(spy.enqueued.count, 1)
+    }
+
+    // ADR-0027 R85: the render-stall watchdog, against an injected clock.
+    private func watchdog() -> OwnedMediaRenderStallWatchdog {
+        OwnedMediaRenderStallWatchdog(
+            activeWindowNs: 1_000_000_000,
+            stallThresholdNs: 1_000_000_000,
+            minRequestIntervalNs: 1_000_000_000
+        )
+    }
+
+    func testWatchdogFiresWhenArrivingButNotEnqueuing() {
+        let now: UInt64 = 10_000_000_000
+        XCTAssertTrue(watchdog().shouldRequestKeyframe(
+            lastArrivalNs: now - 100_000_000,   // 0.1s ago: host is sending
+            lastEnqueueNs: now - 2_000_000_000, // 2s ago: nothing presented
+            lastRequestNs: nil,
+            nowNs: now
+        ))
+    }
+
+    func testWatchdogQuietHostDoesNotFire() {
+        let now: UInt64 = 10_000_000_000
+        XCTAssertFalse(watchdog().shouldRequestKeyframe(
+            lastArrivalNs: now - 2_000_000_000, // 2s ago: no recent arrival
+            lastEnqueueNs: now - 5_000_000_000,
+            lastRequestNs: nil,
+            nowNs: now
+        ), "a quiet host (rest or dead link) must not trigger a keyframe storm")
+    }
+
+    func testWatchdogRespectsRateLimit() {
+        let now: UInt64 = 10_000_000_000
+        XCTAssertFalse(watchdog().shouldRequestKeyframe(
+            lastArrivalNs: now - 100_000_000,
+            lastEnqueueNs: now - 2_000_000_000,
+            lastRequestNs: now - 500_000_000,   // 0.5s ago: within the 1s interval
+            nowNs: now
+        ))
+    }
+
+    func testWatchdogRequiresAPriorEnqueue() {
+        let now: UInt64 = 10_000_000_000
+        XCTAssertFalse(watchdog().shouldRequestKeyframe(
+            lastArrivalNs: now - 100_000_000,
+            lastEnqueueNs: nil,                 // never presented: startup, covered elsewhere
+            lastRequestNs: nil,
+            nowNs: now
+        ))
     }
 
     func testRealFactoryRejectsEmptyParameterSets() {

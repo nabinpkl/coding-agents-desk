@@ -51,6 +51,16 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
         defaultValue: 256
     )
+    // ADR-0027 render-stall watchdog. The carrier can wedge: frames keep arriving but
+    // the decoder stops presenting (a delta decoded against a reference lost to packet
+    // drop leaves AVSampleBufferDisplayLayer failed). When frames are arriving (host is
+    // sending) but none have enqueued for this long, the sink flushes and asks for a
+    // fresh keyframe to resync, rate-limited to once per this interval. A quiet host
+    // (rest, or a dead link) shows no recent arrivals and does not trigger it.
+    static let ownedMediaRenderStallMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_RENDER_STALL_MS",
+        defaultValue: 1_000
+    )
     // ADR-0025 carrier keepalive cadence. The datagram carrier is host->client only,
     // so with nothing flowing back the host's QUIC idle timer fires (~30s) and drops
     // the carrier. A small keepalive control datagram on this interval keeps the host
