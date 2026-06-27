@@ -86,6 +86,48 @@ struct ScrollDeltaEngineDamageRoutingTests {
         #expect(tiles.first?.1 == .jpeg)
     }
 
+    // Motion-adaptive quality: a fullframe emitted while a scroll hint is active
+    // (mid-flick) must be encoded at the lower motion quality, so its payload is
+    // smaller than the same fullframe emitted with no hint (settled/at rest). Both
+    // frames carry full-surface damage with content no shift explains, so each
+    // classifies fullframe; only the hint presence differs.
+    @Test func fullFrameUsesSmallerMotionQualityWhenScrollHintActive() throws {
+        func fullframeBytes(withHint: Bool) throws -> Int {
+            var engine = ScrollDeltaEngine()
+            let width = 256
+            let height = 256
+            let solid = try Self.makeBGRAFrame(width: width, height: height) { _, _ in [10, 10, 10, 0xff] }
+            #expect(engine.evaluate(solid).kind == .reset)
+            engine.commitPendingSurface()
+            let full = PixelRect(x: 0, y: 0, width: width, height: height)
+            let churned = try Self.makeBGRAFrame(
+                width: width,
+                height: height,
+                damageRects: [full],
+                contentRectPixels: full
+            ) { x, y in
+                // A smooth diagonal ramp so JPEG quality visibly changes the size.
+                let v = UInt8((x + y) & 0xff)
+                return [v, v, v, 0xff]
+            }
+            let hint: ScrollActivityHint? = withHint
+                ? ScrollActivityHint(axis: .vertical, sign: 1, predictedOffsetPx: 40, candidateOffsets: [40], activeUntilUptimeNs: .max, eventCount: 4)
+                : nil
+            let result = engine.evaluate(churned, scrollHint: hint)
+            guard case .bitmapTile(_, _, _, _, .jpeg, _)? = result.envelope?.commands.first else {
+                Issue.record("expected a fullframe JPEG tile")
+                return 0
+            }
+            return result.envelope?.payload.count ?? 0
+        }
+
+        let motionBytes = try fullframeBytes(withHint: true)
+        let restBytes = try fullframeBytes(withHint: false)
+        #expect(motionBytes > 0)
+        #expect(restBytes > 0)
+        #expect(motionBytes < restBytes)
+    }
+
     // The fullframe JPEG must survive the round trip without a vertical flip. Prime
     // a surface, deliver a fullframe whose top half is bright and bottom half dark,
     // then decode the emitted JPEG exactly as the client does (CGImageSource into a

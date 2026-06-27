@@ -249,21 +249,25 @@ struct ScrollDeltaEngine {
     private let damageClassifier: DamageScrollClassifier
     // Fixed grid cell size in surface pixels for damage tile emission (H2).
     private let tileGridPx: Int
-    // Lossy quality for the fullframe JPEG fallback (0...1).
-    private let fullframeJpegQuality: Double
+    // Lossy quality for the fullframe JPEG fallback (0...1). Rest is crisp; motion
+    // is low so a mid-scroll fullframe stays small and holds cadence.
+    private let fullframeJpegQualityRest: Double
+    private let fullframeJpegQualityMotion: Double
 
     init(
         maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes,
         maxWireResetStripeBytes: Int = Self.defaultMaxWireResetStripeBytes,
         damageClassifier: DamageScrollClassifier = DamageScrollClassifier(),
         tileGridPx: Int = Config.hybridTileGridPx,
-        fullframeJpegQuality: Double = Config.hybridFullframeJpegQuality
+        fullframeJpegQuality: Double = Config.hybridFullframeJpegQuality,
+        fullframeJpegQualityMotion: Double = Config.hybridFullframeJpegQualityMotion
     ) {
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
         self.damageClassifier = damageClassifier
         self.tileGridPx = max(1, tileGridPx)
-        self.fullframeJpegQuality = min(1, max(0.1, fullframeJpegQuality))
+        self.fullframeJpegQualityRest = min(1, max(0.1, fullframeJpegQuality))
+        self.fullframeJpegQualityMotion = min(1, max(0.1, fullframeJpegQualityMotion))
     }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
@@ -655,7 +659,11 @@ struct ScrollDeltaEngine {
             let region = frame.damageRects.isEmpty
                 ? contentRegion
                 : (PixelRect.union(of: frame.damageRects)?.clamped(toWidth: current.width, height: current.height) ?? contentRegion)
-            guard let envelope = makeJPEGFrameEnvelope(current: current, region: region, capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
+            // Motion-adaptive quality: an active scroll hint means this fullframe is
+            // mid-flick, so encode it small (motion quality). With no hint the screen
+            // is settling or a discrete change at rest, so encode it crisp.
+            let quality = scrollHint != nil ? fullframeJpegQualityMotion : fullframeJpegQualityRest
+            guard let envelope = makeJPEGFrameEnvelope(current: current, region: region, quality: quality, capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
                 pendingSurface = nil
                 return ScrollDeltaResult(
                     kind: .rejected("damage-fullframe-jpeg-build-failed-\(reason)"),
@@ -734,11 +742,11 @@ struct ScrollDeltaEngine {
     // saturate the reliable channel and freeze the screen. The region is clamped
     // to the surface; the client decodes the JPEG back to BGRA and paints it like
     // any other bitmap tile.
-    private func makeJPEGFrameEnvelope(current: Surface, region: PixelRect, capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
+    private func makeJPEGFrameEnvelope(current: Surface, region: PixelRect, quality: Double, capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
         let clamped = region.clamped(toWidth: current.width, height: current.height)
         guard clamped.width > 0, clamped.height > 0,
               let bgra = tileData(surface: current, x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height),
-              let jpeg = compressJPEG(bgra, width: clamped.width, height: clamped.height) else { return nil }
+              let jpeg = compressJPEG(bgra, width: clamped.width, height: clamped.height, quality: quality) else { return nil }
         let command = OwnedGraphicsCommand.bitmapTile(
             x: clamped.x,
             y: clamped.y,
@@ -763,7 +771,7 @@ struct ScrollDeltaEngine {
     // BGRA (32-bit little-endian, alpha ignored) -> JPEG via CoreGraphics. Kept
     // symmetric with the client's CGImage decoder (both top-down, row 0 is top) so
     // the round trip never introduces a vertical flip.
-    private func compressJPEG(_ bgra: Data, width: Int, height: Int) -> Data? {
+    private func compressJPEG(_ bgra: Data, width: Int, height: Int, quality: Double) -> Data? {
         let bytesPerRow = width * 4
         guard bgra.count >= bytesPerRow * height,
               let provider = CGDataProvider(data: bgra as CFData),
@@ -794,7 +802,7 @@ struct ScrollDeltaEngine {
         CGImageDestinationAddImage(
             destination,
             image,
-            [kCGImageDestinationLossyCompressionQuality: fullframeJpegQuality] as CFDictionary
+            [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary
         )
         guard CGImageDestinationFinalize(destination) else { return nil }
         return output as Data

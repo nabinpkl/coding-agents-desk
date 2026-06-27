@@ -348,14 +348,23 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_ACTIVE_WINDOW_MS",
         defaultValue: 600
     )
-    // JPEG quality for the fullframe fallback tile. A whole-screen change ships
-    // as one lossy JPEG instead of multi-MB raw LZFSE, the fix for the link
-    // saturation that froze the screen. 0.82 keeps text legible while cutting the
-    // payload ~10x; small text-only changes still go lossless LZFSE, so this lossy
-    // path only ever covers large motion that a lossless codec cannot afford.
+    // JPEG quality for the fullframe fallback, motion-adaptive. A whole-screen
+    // change ships as one lossy JPEG instead of multi-MB raw LZFSE (the fix for
+    // the link saturation that froze the screen); small text-only changes still go
+    // lossless LZFSE, so this lossy path only ever covers large motion.
+    //
+    // Rest quality is high so a settled screen is crisp. Motion quality is low: a
+    // fullframe emitted while the scroll hint is active is mid-flick, where the eye
+    // cannot resolve detail and a smaller frame holds cadence (less stepping). The
+    // moment scrolling stops the hint lapses and the next settling frame lands at
+    // rest quality, so the resting image self-sharpens.
     static let hybridFullframeJpegQuality = positiveDouble(
         environmentKey: "AGENTDESK_HYBRID_FULLFRAME_JPEG_QUALITY",
-        defaultValue: 0.82
+        defaultValue: 0.85
+    )
+    static let hybridFullframeJpegQualityMotion = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_FULLFRAME_JPEG_QUALITY_MOTION",
+        defaultValue: 0.4
     )
     static let hybridScrollViewportMinWidth = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_SCROLL_VIEWPORT_MIN_WIDTH",
