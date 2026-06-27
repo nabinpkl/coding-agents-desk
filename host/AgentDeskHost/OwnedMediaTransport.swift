@@ -8,7 +8,6 @@ import Network
 import Security
 import os
 
-typealias OwnedMediaDatagramAuthorizer = @Sendable (MediaChannelHello) async -> MediaCapabilityValidationResult
 typealias OwnedGraphicsChannelAuthorizer = @Sendable (GraphicsChannelHello) async -> MediaCapabilityValidationResult
 
 final class OwnedGraphicsChannelServer: @unchecked Sendable {
@@ -117,18 +116,15 @@ final class OwnedGraphicsChannelServer: @unchecked Sendable {
 
 final class OwnedMediaTransportFactory: MediaTransportFactory {
     private let configuration: OwnedMediaEncodingConfiguration
-    private let authorizer: OwnedMediaDatagramAuthorizer
     private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
     private let scrollActivityHintProvider: @Sendable () -> ScrollActivityHint?
 
     init(
         configuration: OwnedMediaEncodingConfiguration = .default,
-        authorizer: @escaping OwnedMediaDatagramAuthorizer,
         graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer,
         scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
     ) {
         self.configuration = configuration
-        self.authorizer = authorizer
         self.graphicsAuthorizer = graphicsAuthorizer
         self.scrollActivityHintProvider = scrollActivityHintProvider
     }
@@ -136,7 +132,6 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
     func make() -> MediaTransport {
         OwnedMediaTransport(
             configuration: configuration,
-            authorizer: authorizer,
             graphicsAuthorizer: graphicsAuthorizer,
             scrollActivityHintProvider: scrollActivityHintProvider
         )
@@ -242,7 +237,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
     private let configuration: OwnedMediaEncodingConfiguration
-    private let authorizer: OwnedMediaDatagramAuthorizer
     private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
     private let scrollActivityHintProvider: @Sendable () -> ScrollActivityHint?
     private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic")
@@ -265,12 +259,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
     init(
         configuration: OwnedMediaEncodingConfiguration = .default,
-        authorizer: @escaping OwnedMediaDatagramAuthorizer,
         graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer,
         scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
     ) {
         self.configuration = configuration
-        self.authorizer = authorizer
         self.graphicsAuthorizer = graphicsAuthorizer
         self.scrollActivityHintProvider = scrollActivityHintProvider
         var continuation: AsyncStream<MediaConnectionState>.Continuation!

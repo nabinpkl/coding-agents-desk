@@ -90,17 +90,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let sessions = SessionRegistry()
     private let scrollActivityHints = ScrollActivityHintStore()
     private lazy var mediaFactory: MediaTransportFactory = MediaStack.makeFactory(
-        ownedDatagramAuthorizer: { [weak self] hello in
-            await MainActor.run {
-                guard let self else {
-                    return .rejected(.unauthorized)
-                }
-                guard (try? self.pairing.lookup(deviceFingerprint: hello.deviceFingerprint)) != nil else {
-                    return .rejected(.unauthorized)
-                }
-                return self.sessions.validateMediaCapability(hello)
-            }
-        },
         ownedGraphicsAuthorizer: { [weak self] hello in
             await MainActor.run {
                 guard let self else {
