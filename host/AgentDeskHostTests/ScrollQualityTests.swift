@@ -150,6 +150,26 @@ struct ScrollQualityTests {
         ) == .allow)
     }
 
+    @Test func hybridScrollFallbackHevcRateLimitsDuringActiveScroll() {
+        var admission = HybridScrollHEVCAdmission()
+
+        // 12 fps is a ~83ms minimum interval. The first fallback frame admits, a
+        // frame within the interval is held (so non-translatable scroll frames
+        // cannot flood the client), and a frame past the interval admits again.
+        // The calls mutate the admission, so they run outside #expect.
+        let first = admission.admitScrollFallbackHEVC(nowUptimeNs: 1_000_000_000, maxFps: 12)
+        let withinInterval = admission.admitScrollFallbackHEVC(nowUptimeNs: 1_040_000_000, maxFps: 12)
+        let pastInterval = admission.admitScrollFallbackHEVC(nowUptimeNs: 1_084_000_000, maxFps: 12)
+        #expect(first)
+        #expect(!withinInterval)
+        #expect(pastInterval)
+
+        // maxFps 0 suppresses the fallback entirely while scrolling.
+        var suppressed = HybridScrollHEVCAdmission()
+        let suppressedAdmit = suppressed.admitScrollFallbackHEVC(nowUptimeNs: 5_000_000_000, maxFps: 0)
+        #expect(!suppressedAdmit)
+    }
+
     @Test func hybridScrollHevcAdmissionEmitsExactlyOneIdleRefresh() {
         var admission = HybridScrollHEVCAdmission()
 

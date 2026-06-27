@@ -283,6 +283,15 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_HEVC_FPS",
         defaultValue: 0
     )
+    // Cap on full-frame HEVC fallback frames per second while a scroll is active.
+    // Scroll frames the graphics path cannot copyRect otherwise each emit a full
+    // HEVC frame at capture rate and flood the client (R77: backlog 327, 10.9s
+    // freeze). The copyRect stream carries the translatable motion; these are
+    // periodic full-frame corrections, so a low rate suffices. 0 suppresses them.
+    static let hybridScrollFallbackHEVCFps = nonNegativeInt(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_FALLBACK_HEVC_FPS",
+        defaultValue: 12
+    )
     static let hybridScrollIdleRefreshMs = nonNegativeInt(
         environmentKey: "AGENTDESK_HYBRID_SCROLL_IDLE_REFRESH_MS",
         defaultValue: 250

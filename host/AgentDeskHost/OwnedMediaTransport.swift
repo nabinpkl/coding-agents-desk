@@ -1236,6 +1236,16 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                             diagnostics.noteAdmissionHold(reason: "graphics-active-scroll-suppressed-hevc", mode: currentAdmissionMode())
                             continue
                         }
+                        // The graphics path could not copyRect this frame, but the
+                        // user is actively scrolling. Sending a full HEVC frame for
+                        // every such frame at capture rate floods the client while
+                        // the copyRect stream already carries the motion, so cap the
+                        // fallback to a low rate (periodic full-frame corrections).
+                        if scrollDiagnostics.hintActive,
+                           !scrollHevcAdmission.admitScrollFallbackHEVC(nowUptimeNs: nowNs, maxFps: Config.hybridScrollFallbackHEVCFps) {
+                            diagnostics.noteAdmissionHold(reason: "graphics-active-scroll-hevc-rate-limited", mode: currentAdmissionMode())
+                            continue
+                        }
                     } else {
                         logger.notice("owned graphics scroll-rejected reason=\(reason, privacy: .public)")
                         let nowNs = DispatchTime.now().uptimeNanoseconds

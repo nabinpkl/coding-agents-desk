@@ -1684,6 +1684,22 @@ struct HybridScrollHEVCAdmission: Equatable {
         return .allow
     }
 
+    // Rate-limit the full-frame HEVC fallback during an active scroll. Frames the
+    // graphics path cannot copyRect (new content, momentum, redraws) otherwise
+    // each send a full HEVC frame at capture rate and flood the client while the
+    // copyRect stream is already carrying the translatable motion. Returns true if
+    // this fallback frame may send. maxFps == 0 suppresses it entirely.
+    mutating func admitScrollFallbackHEVC(nowUptimeNs: UInt64, maxFps: Int) -> Bool {
+        guard maxFps > 0 else { return false }
+        let minIntervalNs = 1_000_000_000 / UInt64(maxFps)
+        if let lastScrollHevcRefreshAtUptimeNs,
+           nowUptimeNs &- lastScrollHevcRefreshAtUptimeNs < minIntervalNs {
+            return false
+        }
+        lastScrollHevcRefreshAtUptimeNs = nowUptimeNs
+        return true
+    }
+
     func allowsHintTimeoutFallback(nowUptimeNs: UInt64, fallbackGraceMs: Int) -> Bool {
         guard let lastAcceptedScrollAtUptimeNs else { return true }
         return nowUptimeNs &- lastAcceptedScrollAtUptimeNs >= UInt64(max(0, fallbackGraceMs)) * 1_000_000
