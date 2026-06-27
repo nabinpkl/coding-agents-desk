@@ -205,10 +205,20 @@ struct OwnedSurfaceCompositor {
         for command in validatedCommands {
             switch command {
             case let .resetSurface(_, width, height, baseline):
+                // Black-flash fix (ADR-0022): a reset only bumps the generation and
+                // clears the content cache; the reset's own stripes (or the next
+                // periodic heal) repaint the whole surface. When the dimensions are
+                // unchanged (the common case: a coherence reset, not a resize), keep
+                // the last-good pixels visible so the surface shows a slightly-stale
+                // frame instead of flashing black until the repaint arrives. Only a
+                // genuine resize (rare) reallocates and clears to black.
+                let dimsUnchanged = width == self.width && height == self.height && pixels.count == width * 4 * height
                 self.width = width
                 self.height = height
                 bytesPerRow = width * 4
-                pixels = Data(count: bytesPerRow * height)
+                if !dimsUnchanged {
+                    pixels = Data(count: bytesPerRow * height)
+                }
                 slotBitmaps.removeAll()
                 committedUpdateId = baseline
             case let .copyRect(srcX, srcY, dstX, dstY, width, height):

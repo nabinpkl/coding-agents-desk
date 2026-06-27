@@ -328,6 +328,45 @@ struct OwnedSurfaceCompositorCacheTests {
         }
     }
 
+    // Black-flash fix part A (ADR-0022): a same-dimensions reset keeps the last-good
+    // pixels visible (only the cache clears) so the surface does not flash black
+    // before the reset stripes or the next heal repaint it.
+    @Test func resetSameDimsKeepsPixels() throws {
+        let w = 128, h = 128
+        var compositor = OwnedSurfaceCompositor()
+        let seedPixels = Data(repeating: 0xAB, count: w * h * 4)
+        _ = try compositor.applyGraphicsFrame(Self.makeSeedSurfaceEnvelope(surfaceGeneration: 1, frameId: 1, width: w, height: h, pixels: seedPixels))
+        #expect(compositor.pixelBytesForDiagnostics().allSatisfy { $0 == 0xAB })
+
+        // A bare reset at the SAME dimensions, new generation. The pixels must remain.
+        let reset = OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(surfaceGeneration: 2, frameId: 2, capturedAtUptimeNs: 200, commandCount: 1, payloadLength: 0),
+            commands: [.resetSurface(surfaceGeneration: 2, width: w, height: h, pixelFormat: .bgra)],
+            payload: Data()
+        )
+        _ = try compositor.applyGraphicsFrame(reset)
+        #expect(compositor.pixelBytesForDiagnostics().allSatisfy { $0 == 0xAB }, "a same-dims reset must keep the last-good pixels, not zero them")
+    }
+
+    // A genuine resize reset (different dimensions) reallocates and clears to black,
+    // because the old pixels no longer fit the new surface.
+    @Test func resetChangedDimsZeroesPixels() throws {
+        let w = 128, h = 128
+        var compositor = OwnedSurfaceCompositor()
+        let seedPixels = Data(repeating: 0xAB, count: w * h * 4)
+        _ = try compositor.applyGraphicsFrame(Self.makeSeedSurfaceEnvelope(surfaceGeneration: 1, frameId: 1, width: w, height: h, pixels: seedPixels))
+
+        let reset = OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(surfaceGeneration: 2, frameId: 2, capturedAtUptimeNs: 200, commandCount: 1, payloadLength: 0),
+            commands: [.resetSurface(surfaceGeneration: 2, width: 64, height: 64, pixelFormat: .bgra)],
+            payload: Data()
+        )
+        _ = try compositor.applyGraphicsFrame(reset)
+        let after = compositor.pixelBytesForDiagnostics()
+        #expect(after.count == 64 * 64 * 4)
+        #expect(after.allSatisfy { $0 == 0 }, "a resize reset must reallocate and clear to black")
+    }
+
     // The client must decode the exact wire shape the host encodes for copyRect
     // (kind=copyRect, keys sx/sy/dx/dy/w/h). This is the byte-level contract that
     // lets the host emit the scroll fast path and the client apply it.
