@@ -173,18 +173,18 @@ struct DamageScrollClassifierTests {
         #expect(result == .scroll(region: band, dx: 0, dy: dy))
     }
 
-    @Test func rejectsScrollWhenHintSignContradictsContent() {
+    @Test func findsTrueVerticalOffsetWhenHintSignIsWrong() {
         let width = 640
         let height = 480
         let dy = 24
         let previous = Self.surface(width: width, height: height, rowValue: Self.rowPattern)
-        // Content scrolled down (+24), but the hint claims an upward scroll.
+        // Content scrolled down (+24), but the hint claims an upward scroll. The
+        // input sign jitters frame to frame, so the search probes both directions
+        // and must still recover the true +24 offset.
         let current = Self.surface(width: width, height: height) { Self.rowPattern($0 - dy) }
         let band = PixelRect(x: 100, y: 100, width: 400, height: 300)
         let classifier = DamageScrollClassifier()
 
-        // Directed search only probes the hinted sign, so a wrong-sign hint finds
-        // no aligned offset and the frame must not become a torn copy.
         let result = classifier.classify(
             damageRects: [band],
             contentRect: PixelRect(x: 0, y: 0, width: width, height: height),
@@ -193,8 +193,39 @@ struct DamageScrollClassifierTests {
             hint: Self.verticalHint(candidateOffsets: [16, 24, 32], sign: -1)
         )
 
+        #expect(result == .scroll(region: band, dx: 0, dy: dy))
+    }
+
+    @Test func rejectsScrollWhenHintAxisContradictsContent() {
+        let width = 640
+        let height = 480
+        let dy = 24
+        let previous = Self.surface(width: width, height: height, rowValue: Self.rowPattern)
+        // Content scrolled vertically, but the hint claims a horizontal scroll.
+        let current = Self.surface(width: width, height: height) { Self.rowPattern($0 - dy) }
+        let band = PixelRect(x: 100, y: 100, width: 400, height: 300)
+        let classifier = DamageScrollClassifier()
+
+        // The axis is the one reliable part of the hint; searching the wrong axis
+        // finds no aligned offset, so the frame must not become a torn copy.
+        let horizontalHint = ScrollActivityHint(
+            axis: .horizontal,
+            sign: 1,
+            predictedOffsetPx: 24,
+            candidateOffsets: [16, 24, 32],
+            activeUntilUptimeNs: .max,
+            eventCount: 4
+        )
+        let result = classifier.classify(
+            damageRects: [band],
+            contentRect: PixelRect(x: 0, y: 0, width: width, height: height),
+            previous: previous,
+            current: current,
+            hint: horizontalHint
+        )
+
         if case .scroll = result {
-            Issue.record("must not accept a scroll whose direction contradicts the hint sign")
+            Issue.record("must not accept a scroll on the wrong axis")
         }
     }
 
