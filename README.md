@@ -77,10 +77,10 @@ v0 is done when the author uses it as a daily driver without reaching for AnyDes
 For a development run on the connected iPhone:
 
 ```sh
-just fresh-install
+just fresh-consoled-install
 ```
 
-`fresh-install` rebuilds and relaunches the Mac host, reinstalls the iPhone client, and launches it with the console attached, preserving owned-media diagnostics in `/tmp/agentdesk-client-console.log`. Configuration (the always_video carrier, keyframe interval, and so on) comes from baked code defaults and `.env`; see `.env.example` for the knobs. Pass `dev` (`just fresh-install dev`) to drive the side-by-side AgentDesk Dev build without disturbing the stable install.
+`fresh-consoled-install` rebuilds and relaunches the Mac host, reinstalls the iPhone client, and launches it with the console attached, preserving owned-media diagnostics in `/tmp/agentdesk-client-console.log`. Configuration (the always_video carrier, keyframe interval, and so on) comes from baked code defaults and `.env`; see `.env.example` for the knobs. The launch comes in three modes: `fresh-install` (no console, returns immediately), `fresh-consoled-install` (console attached, blocks), and `fresh-consoled-install-detached` (console captured to the log file, returns). Suffix any with `-dev` to drive the side-by-side AgentDesk Dev build without disturbing the stable install.
 
 ## Repository layout
 
