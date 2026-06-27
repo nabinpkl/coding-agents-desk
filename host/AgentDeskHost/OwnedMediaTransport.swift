@@ -156,26 +156,6 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
     }
 }
 
-struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
-    let targetBitrateKbps: Int
-    let expectedFrameRate: Int
-    let keyframeIntervalFrames: Int
-
-    static let `default` = OwnedMediaEncodingConfiguration(
-        targetBitrateKbps: Config.ownedMediaBitrateKbps,
-        expectedFrameRate: 30,
-        keyframeIntervalFrames: 120
-    )
-
-    static func fromConfig() -> OwnedMediaEncodingConfiguration {
-        OwnedMediaEncodingConfiguration(
-            targetBitrateKbps: Config.ownedMediaBitrateKbps,
-            expectedFrameRate: Config.ownedMediaExpectedFrameRate,
-            keyframeIntervalFrames: Config.ownedMediaKeyframeIntervalFrames
-        )
-    }
-}
-
 enum OwnedMediaPipelinePhase: String, Equatable {
     case idle
     case admissionHold = "admission-hold"

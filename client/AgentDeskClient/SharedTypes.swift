@@ -583,6 +583,146 @@ struct OwnedSurfaceUpdateId: Codable, Equatable, Comparable {
     }
 }
 
+// Owned-media video wire types, revived for the mixed-mode renderer (ADR-0025):
+// scrolling motion rides a hardware HEVC stream over QUIC datagrams while rest
+// keeps the retained-tile graphics stream. These are the carrier-agnostic frame
+// shapes; the host encoder fills them and the client video layer decodes them.
+// Length-prefixed NAL payload, parameter sets carried on keyframes only.
+
+enum OwnedMediaCodec: String, Codable, Equatable {
+    case hevc
+    case h264
+}
+
+enum OwnedMediaPayloadFormat: String, Codable, Equatable {
+    case lengthPrefixedNal = "length-prefixed-nal"
+}
+
+enum OwnedMediaRefreshReason: String, Codable, Equatable {
+    case initial
+    case rest
+    case scrollCorrectness = "scroll-correctness"
+    case reset
+}
+
+struct OwnedMediaParameterSets: Codable, Equatable {
+    let vps: Data?
+    let sps: Data
+    let pps: Data
+
+    init(vps: Data? = nil, sps: Data, pps: Data) {
+        self.vps = vps
+        self.sps = sps
+        self.pps = pps
+    }
+}
+
+struct OwnedMediaFrameHeader: Codable, Equatable {
+    let surfaceGeneration: UInt32
+    let frameId: UInt64
+    let codec: OwnedMediaCodec
+    let width: Int
+    let height: Int
+    let capturedAtUptimeNs: UInt64
+    let presentationTimeNs: UInt64
+    let isKeyframe: Bool
+    let parameterSets: OwnedMediaParameterSets?
+    let payloadFormat: OwnedMediaPayloadFormat
+    let refreshReason: OwnedMediaRefreshReason
+
+    var updateId: OwnedSurfaceUpdateId {
+        OwnedSurfaceUpdateId(surfaceGeneration: surfaceGeneration, frameId: frameId)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case surfaceGeneration = "sg"
+        case frameId = "id"
+        case codec = "c"
+        case width = "w"
+        case height = "h"
+        case capturedAtUptimeNs = "cu"
+        case presentationTimeNs = "pt"
+        case isKeyframe = "k"
+        case parameterSets = "ps"
+        case payloadFormat = "pf"
+        case refreshReason = "rr"
+    }
+
+    init(
+        surfaceGeneration: UInt32,
+        frameId: UInt64,
+        codec: OwnedMediaCodec,
+        width: Int,
+        height: Int,
+        capturedAtUptimeNs: UInt64,
+        presentationTimeNs: UInt64,
+        isKeyframe: Bool,
+        parameterSets: OwnedMediaParameterSets?,
+        payloadFormat: OwnedMediaPayloadFormat = .lengthPrefixedNal,
+        refreshReason: OwnedMediaRefreshReason
+    ) {
+        self.surfaceGeneration = surfaceGeneration
+        self.frameId = frameId
+        self.codec = codec
+        self.width = width
+        self.height = height
+        self.capturedAtUptimeNs = capturedAtUptimeNs
+        self.presentationTimeNs = presentationTimeNs
+        self.isKeyframe = isKeyframe
+        self.parameterSets = parameterSets
+        self.payloadFormat = payloadFormat
+        self.refreshReason = refreshReason
+    }
+}
+
+struct OwnedMediaFrameEnvelope: Equatable {
+    static let magic = [UInt8]("ADMF".utf8)
+    static let version: UInt8 = 1
+    static let fixedHeaderByteCount = 9
+
+    let header: OwnedMediaFrameHeader
+    let payload: Data
+
+    init(header: OwnedMediaFrameHeader, payload: Data) {
+        self.header = header
+        self.payload = payload
+    }
+
+    func encode() throws -> Data {
+        let headerData = try JSONEncoder().encode(header)
+        guard headerData.count <= Int(UInt32.max) else {
+            throw SessionRejected(reason: .malformed)
+        }
+        var encoded = Data(Self.magic)
+        encoded.append(Self.version)
+        var headerLength = UInt32(headerData.count).bigEndian
+        withUnsafeBytes(of: &headerLength) { encoded.append(contentsOf: $0) }
+        encoded.append(headerData)
+        encoded.append(payload)
+        return encoded
+    }
+
+    static func decode(_ data: Data) throws -> OwnedMediaFrameEnvelope {
+        guard data.count >= fixedHeaderByteCount else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let bytes = [UInt8](data.prefix(fixedHeaderByteCount))
+        guard Array(bytes[0..<4]) == magic, bytes[4] == version else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let headerLength = bytes[5..<9].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+        let headerStart = fixedHeaderByteCount
+        let headerEnd = headerStart + Int(headerLength)
+        guard data.count >= headerEnd else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let headerData = data[headerStart..<headerEnd]
+        let header = try JSONDecoder().decode(OwnedMediaFrameHeader.self, from: headerData)
+        let payload = data[headerEnd..<data.count]
+        return OwnedMediaFrameEnvelope(header: header, payload: payload)
+    }
+}
+
 enum SessionSigning {
     static let domainPrefix = "agentdesk-session"
 

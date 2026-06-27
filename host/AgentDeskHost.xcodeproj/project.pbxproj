@@ -126,6 +126,9 @@
 		A00000000000000000000DF1 /* TileContentCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DF0 /* TileContentCache.swift */; };
 		A00000000000000000000DF2 /* TileContentCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DF0 /* TileContentCache.swift */; };
 		A00000000000000000000DF4 /* TileContentCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DF3 /* TileContentCacheTests.swift */; };
+		A00000000000000000000F51 /* VideoToolboxOwnedMediaEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F50 /* VideoToolboxOwnedMediaEncoder.swift */; };
+		A00000000000000000000F52 /* VideoToolboxOwnedMediaEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F50 /* VideoToolboxOwnedMediaEncoder.swift */; };
+		A00000000000000000000F54 /* VideoToolboxOwnedMediaEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F53 /* VideoToolboxOwnedMediaEncoderTests.swift */; };
 		A00000000000000000000E02 /* OwnedGraphicsCommandCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E01 /* OwnedGraphicsCommandCodecTests.swift */; };
 		A00000000000000000000E04 /* HybridTileEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E03 /* HybridTileEncodingTests.swift */; };
 		A00000000000000000000E06 /* FullFrameTilerRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E05 /* FullFrameTilerRoutingTests.swift */; };
@@ -225,6 +228,8 @@
 		A0000000000000000000015A /* AgentSayLocalServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSayLocalServerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DF0 /* TileContentCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileContentCache.swift; sourceTree = "<group>"; };
 		A00000000000000000000DF3 /* TileContentCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileContentCacheTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000F50 /* VideoToolboxOwnedMediaEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoToolboxOwnedMediaEncoder.swift; sourceTree = "<group>"; };
+		A00000000000000000000F53 /* VideoToolboxOwnedMediaEncoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoToolboxOwnedMediaEncoderTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000E01 /* OwnedGraphicsCommandCodecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedGraphicsCommandCodecTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000E03 /* HybridTileEncodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HybridTileEncodingTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000E05 /* FullFrameTilerRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullFrameTilerRoutingTests.swift; sourceTree = "<group>"; };
@@ -326,6 +331,7 @@
 				A000000000000000000009A0 /* CursorMonitor.swift */,
 				A00000000000000000000127 /* SpaceThumbnailProvider.swift */,
 				A00000000000000000000DF0 /* TileContentCache.swift */,
+				A00000000000000000000F50 /* VideoToolboxOwnedMediaEncoder.swift */,
 				A0000000000000000000011B /* Assets.xcassets */,
 				A0000000000000000000010C /* Info.plist */,
 			);
@@ -387,6 +393,7 @@
 				A00000000000000000000A10 /* ScrollActivityTrackerTests.swift */,
 				A00000000000000000000E23 /* MotionGovernorTests.swift */,
 				A00000000000000000000DF3 /* TileContentCacheTests.swift */,
+				A00000000000000000000F53 /* VideoToolboxOwnedMediaEncoderTests.swift */,
 				A00000000000000000000E01 /* OwnedGraphicsCommandCodecTests.swift */,
 				A00000000000000000000E03 /* HybridTileEncodingTests.swift */,
 				A00000000000000000000E05 /* FullFrameTilerRoutingTests.swift */,
@@ -558,6 +565,7 @@
 				A0000000000000000000025E /* VoiceChildController.swift in Sources */,
 				A00000000000000000000262 /* AgentSayLocalServer.swift in Sources */,
 				A00000000000000000000DF1 /* TileContentCache.swift in Sources */,
+				A00000000000000000000F51 /* VideoToolboxOwnedMediaEncoder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -628,6 +636,8 @@
 				A0000000000000000000024A /* WAVEncoderTests.swift in Sources */,
 				A00000000000000000000DF2 /* TileContentCache.swift in Sources */,
 				A00000000000000000000DF4 /* TileContentCacheTests.swift in Sources */,
+				A00000000000000000000F52 /* VideoToolboxOwnedMediaEncoder.swift in Sources */,
+				A00000000000000000000F54 /* VideoToolboxOwnedMediaEncoderTests.swift in Sources */,
 				A00000000000000000000E02 /* OwnedGraphicsCommandCodecTests.swift in Sources */,
 				A00000000000000000000E04 /* HybridTileEncodingTests.swift in Sources */,
 				A00000000000000000000E06 /* FullFrameTilerRoutingTests.swift in Sources */,
