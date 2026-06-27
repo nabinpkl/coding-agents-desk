@@ -69,11 +69,14 @@ struct DamageScrollClassifierTests {
         #expect(result == .scroll(region: band, dx: 0, dy: dy))
     }
 
-    @Test func noChangeWhenDamageEmpty() {
+    @Test func fullFrameWhenDamageEmpty() {
         let previous = Self.surface(width: 320, height: 240, rowValue: Self.rowPattern)
         let current = previous
         let classifier = DamageScrollClassifier()
 
+        // Empty damage means the OS gave no usable change geometry for a frame
+        // it nonetheless delivered, so the safe action is a full refresh, not a
+        // skipped (stale) frame.
         let result = classifier.classify(
             damageRects: [],
             contentRect: PixelRect(x: 0, y: 0, width: 320, height: 240),
@@ -82,7 +85,30 @@ struct DamageScrollClassifierTests {
             hint: nil
         )
 
-        #expect(result == .noChange)
+        #expect(result == .fullFrame(reason: "no-damage-info"))
+    }
+
+    @Test func rejectsScrollOnLowDetailContentWhereAnyOffsetMatches() {
+        // Constant-luma content: every offset (including no shift) matches, so a
+        // naive absolute-confidence accept would emit a torn copy. The
+        // best-vs-static margin must reject it.
+        let width = 640
+        let height = 480
+        let flat = Self.surface(width: width, height: height) { _ in 128 }
+        let band = PixelRect(x: 100, y: 100, width: 480, height: 360)
+        let classifier = DamageScrollClassifier()
+
+        let result = classifier.classify(
+            damageRects: [band],
+            contentRect: PixelRect(x: 0, y: 0, width: width, height: height),
+            previous: flat,
+            current: flat,
+            hint: Self.verticalHint(candidateOffsets: [24], sign: 1)
+        )
+
+        if case .scroll = result {
+            Issue.record("must not accept a scroll on content that matches at every offset")
+        }
     }
 
     @Test func tilesSmallDamageWithoutScrollHint() {
