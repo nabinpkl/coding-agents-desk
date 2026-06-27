@@ -1643,7 +1643,21 @@ enum HybridScrollHEVCDecision: Equatable {
 struct HybridScrollHEVCAdmission: Equatable {
     private(set) var lastAcceptedScrollAtUptimeNs: UInt64?
     private(set) var lastScrollHevcRefreshAtUptimeNs: UInt64?
+    private(set) var lastScrollSignalAtUptimeNs: UInt64?
     private(set) var pendingIdleRefresh = false
+
+    // Record a live scroll input signal. Used to hold a hysteresis window open
+    // across a flick and its momentum tail, independent of whether any frame was
+    // accepted as a copyRect, so the HEVC fallback stays rate-limited even when
+    // fast frames cannot be copyRect'd and the input hint has expired.
+    mutating func noteScrollSignal(nowUptimeNs: UInt64) {
+        lastScrollSignalAtUptimeNs = nowUptimeNs
+    }
+
+    func withinScrollHysteresis(nowUptimeNs: UInt64, windowMs: Int) -> Bool {
+        guard let lastScrollSignalAtUptimeNs else { return false }
+        return nowUptimeNs &- lastScrollSignalAtUptimeNs < UInt64(max(0, windowMs)) * 1_000_000
+    }
 
     mutating func noteAcceptedScroll(nowUptimeNs: UInt64) {
         lastAcceptedScrollAtUptimeNs = nowUptimeNs

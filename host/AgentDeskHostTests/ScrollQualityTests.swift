@@ -170,6 +170,20 @@ struct ScrollQualityTests {
         #expect(!suppressedAdmit)
     }
 
+    @Test func hybridScrollHysteresisCoversMomentumAfterLastInput() {
+        var admission = HybridScrollHEVCAdmission()
+
+        // No scroll input seen yet: not within hysteresis.
+        #expect(!admission.withinScrollHysteresis(nowUptimeNs: 1_000_000_000, windowMs: 1500))
+
+        admission.noteScrollSignal(nowUptimeNs: 1_000_000_000)
+        // A momentum frame 1.4s after the last input is still covered, so its HEVC
+        // fallback is rate-limited rather than flooding.
+        #expect(admission.withinScrollHysteresis(nowUptimeNs: 2_400_000_000, windowMs: 1500))
+        // Past the window the scroll is considered over and HEVC is unthrottled.
+        #expect(!admission.withinScrollHysteresis(nowUptimeNs: 2_600_000_000, windowMs: 1500))
+    }
+
     @Test func hybridScrollHevcAdmissionEmitsExactlyOneIdleRefresh() {
         var admission = HybridScrollHEVCAdmission()
 

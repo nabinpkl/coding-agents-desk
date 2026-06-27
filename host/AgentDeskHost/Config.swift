@@ -292,6 +292,15 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_FALLBACK_HEVC_FPS",
         defaultValue: 12
     )
+    // How long after the last scroll input the HEVC fallback stays rate-limited.
+    // A flick's momentum keeps generating damage after the input hint expires and
+    // those frames usually cannot be copyRect'd; without hysteresis they reject to
+    // full-frame HEVC and flood (R77b: 435 rejected, only 11 rate-limited). Covers
+    // the momentum tail of a flick.
+    static let hybridScrollFallbackHysteresisMs = nonNegativeInt(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_FALLBACK_HYSTERESIS_MS",
+        defaultValue: 1500
+    )
     static let hybridScrollIdleRefreshMs = nonNegativeInt(
         environmentKey: "AGENTDESK_HYBRID_SCROLL_IDLE_REFRESH_MS",
         defaultValue: 250

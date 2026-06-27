@@ -940,6 +940,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             let pumpNowNs = DispatchTime.now().uptimeNanoseconds
             let pumpInputScrollHint = scrollActivityHintProvider()
             scrollCopyOwnership.observeInputHint(pumpInputScrollHint)
+            if pumpInputScrollHint?.isActive(nowUptimeNs: pumpNowNs) == true {
+                scrollHevcAdmission.noteScrollSignal(nowUptimeNs: pumpNowNs)
+            }
             if pumpInputScrollHint?.isActive(nowUptimeNs: pumpNowNs) == true ||
                 scrollCopyOwnership.isActive(nowUptimeNs: pumpNowNs) {
                 scrollHevcAdmission.noteActiveScroll(nowUptimeNs: pumpNowNs)
@@ -1063,6 +1066,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                                 logger.notice("owned graphics scroll-ownership ownership=accepted frame=\(ownershipUpdate.frameId, privacy: .public) axis=\(ownershipUpdate.axis.rawValue, privacy: .public) offset=\(ownershipUpdate.offsetPx, privacy: .public) ttlMs=\(Config.hybridScrollOwnershipMs, privacy: .public)")
                             }
                             scrollHevcAdmission.noteAcceptedScroll(nowUptimeNs: nowNs)
+                            // An accepted scroll is also a scroll signal: it keeps
+                            // the fallback-HEVC hysteresis open through momentum,
+                            // when the input hint has expired but copyRects are
+                            // still landing between the rejected frames.
+                            scrollHevcAdmission.noteScrollSignal(nowUptimeNs: nowNs)
                             scrollIdleRefreshWakeTask?.cancel()
                             scrollIdleRefreshWakeTask = Task { [mailbox] in
                                 try? await Task.sleep(nanoseconds: UInt64(Config.hybridScrollIdleRefreshMs) * 1_000_000)
@@ -1236,12 +1244,17 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                             diagnostics.noteAdmissionHold(reason: "graphics-active-scroll-suppressed-hevc", mode: currentAdmissionMode())
                             continue
                         }
-                        // The graphics path could not copyRect this frame, but the
-                        // user is actively scrolling. Sending a full HEVC frame for
-                        // every such frame at capture rate floods the client while
-                        // the copyRect stream already carries the motion, so cap the
+                        // The graphics path could not copyRect this frame, but a
+                        // scroll is in progress. Sending a full HEVC frame for every
+                        // such frame at capture rate floods the client while the
+                        // copyRect stream already carries the motion, so cap the
                         // fallback to a low rate (periodic full-frame corrections).
-                        if scrollDiagnostics.hintActive,
+                        // This covers momentum: after the finger lifts the input
+                        // hint expires (~180ms) but content keeps moving, so gate on
+                        // a recent accepted scroll as well as a live input hint.
+                        let scrollInProgress = scrollDiagnostics.hintActive
+                            || scrollHevcAdmission.withinScrollHysteresis(nowUptimeNs: nowNs, windowMs: Config.hybridScrollFallbackHysteresisMs)
+                        if scrollInProgress,
                            !scrollHevcAdmission.admitScrollFallbackHEVC(nowUptimeNs: nowNs, maxFps: Config.hybridScrollFallbackHEVCFps) {
                             diagnostics.noteAdmissionHold(reason: "graphics-active-scroll-hevc-rate-limited", mode: currentAdmissionMode())
                             continue
