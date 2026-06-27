@@ -66,42 +66,6 @@ enum Config {
     static let ownedMediaChroma = OwnedMediaChroma(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_CHROMA"]
     )
-    static let ownedMediaDatagramBurstPacketCount = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PACKET_COUNT",
-        defaultValue: 32
-    )
-    static let ownedMediaDatagramBurstPauseUs = nonNegativeInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PAUSE_US",
-        defaultValue: 1_000
-    )
-    static let ownedMediaLargeFramePacketThreshold = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_LARGE_FRAME_PACKET_THRESHOLD",
-        defaultValue: 64
-    )
-    static let ownedMediaJumboFramePacketThreshold = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_JUMBO_FRAME_PACKET_THRESHOLD",
-        defaultValue: 128
-    )
-    static let ownedMediaLargeFrameBurstPacketCount = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_LARGE_FRAME_BURST_PACKET_COUNT",
-        defaultValue: 24
-    )
-    static let ownedMediaLargeFrameBurstPauseUs = nonNegativeInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_LARGE_FRAME_BURST_PAUSE_US",
-        defaultValue: 1_500
-    )
-    static let ownedMediaJumboFrameBurstPacketCount = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_JUMBO_FRAME_BURST_PACKET_COUNT",
-        defaultValue: 16
-    )
-    static let ownedMediaJumboFrameBurstPauseUs = nonNegativeInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_JUMBO_FRAME_BURST_PAUSE_US",
-        defaultValue: 1_500
-    )
-    static let ownedMediaQuicMaxDatagramBytes = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_QUIC_MAX_DATAGRAM_BYTES",
-        defaultValue: 1_200
-    )
     static let ownedMediaCaptureScaleDown = positiveDouble(
         environmentKey: "AGENTDESK_OWNED_MEDIA_CAPTURE_SCALE_DOWN",
         defaultValue: 1.0
@@ -117,66 +81,6 @@ enum Config {
     static let ownedMediaKeyframeIntervalFrames = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES",
         defaultValue: 120
-    )
-    static let ownedMediaResendRingFrames = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_RESEND_RING_FRAMES",
-        defaultValue: 8
-    )
-    static let ownedMediaMaxResendPackets = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
-        defaultValue: 256
-    )
-    static let ownedMediaBackpressureFrameAgeMs = positiveDouble(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_FRAME_AGE_MS",
-        defaultValue: 80
-    )
-    static let ownedMediaBackpressureSevereFrameAgeMs = positiveDouble(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_SEVERE_FRAME_AGE_MS",
-        defaultValue: 500
-    )
-    static let ownedMediaBackpressureMaxInflightFrames = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_MAX_INFLIGHT_FRAMES",
-        defaultValue: 2
-    )
-    static let ownedMediaBackpressureMaxInflightBytes = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_MAX_INFLIGHT_BYTES",
-        defaultValue: 300_000
-    )
-    static let ownedMediaBackpressureBurstPacketCount = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_BURST_PACKET_COUNT",
-        defaultValue: 16
-    )
-    static let ownedMediaBackpressureBurstPauseUs = nonNegativeInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_BURST_PAUSE_US",
-        defaultValue: 2_500
-    )
-    static let ownedMediaBackpressureEncodeIntervalMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_ENCODE_INTERVAL_MS",
-        defaultValue: 67
-    )
-    static let ownedMediaBackpressureSevereEncodeIntervalMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_SEVERE_ENCODE_INTERVAL_MS",
-        defaultValue: 200
-    )
-    static let ownedMediaDrainTimeoutMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_DRAIN_TIMEOUT_MS",
-        defaultValue: 700
-    )
-    static let ownedMediaKeyframeCooldownMs = nonNegativeInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_COOLDOWN_MS",
-        defaultValue: 1_000
-    )
-    static let ownedMediaNormalMaxUnackedFrames = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_NORMAL_MAX_UNACKED_FRAMES",
-        defaultValue: 2
-    )
-    static let ownedMediaBehindMaxUnackedFrames = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_BEHIND_MAX_UNACKED_FRAMES",
-        defaultValue: 1
-    )
-    static let ownedMediaStaleUnackedMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_STALE_UNACKED_MS",
-        defaultValue: 350
     )
     // ADR-0021: damage is emitted as tiles snapped to a fixed grid in surface
     // pixel space. A fixed cell size bounds per-tile bytes and gives each tile a

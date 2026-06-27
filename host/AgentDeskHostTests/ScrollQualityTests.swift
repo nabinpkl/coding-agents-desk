@@ -63,33 +63,6 @@ struct ScrollQualityTests {
         #expect(sample?.fps(2) == 2)
     }
 
-    @Test func ownedMediaEncoderMapsClientKeyframeToResetRefreshReason() {
-        #expect(OwnedMediaRefreshReason.fromEncodedFrame(
-            frameId: 1,
-            isKeyframe: true,
-            requestedKeyframeReason: nil,
-            expectedKeyframeReason: .initial
-        ) == .initial)
-        #expect(OwnedMediaRefreshReason.fromEncodedFrame(
-            frameId: 20,
-            isKeyframe: false,
-            requestedKeyframeReason: .clientRequest,
-            expectedKeyframeReason: .clientRequest
-        ) == .rest)
-        #expect(OwnedMediaRefreshReason.fromEncodedFrame(
-            frameId: 21,
-            isKeyframe: true,
-            requestedKeyframeReason: .periodic,
-            expectedKeyframeReason: .periodic
-        ) == .rest)
-        #expect(OwnedMediaRefreshReason.fromEncodedFrame(
-            frameId: 22,
-            isKeyframe: true,
-            requestedKeyframeReason: .clientRequest,
-            expectedKeyframeReason: .clientRequest
-        ) == .reset)
-    }
-
     @Test func ownedCaptureSizingSupportsConfiguredScaleDown() {
         let size = CaptureSizing.pixelSize(
             displayWidthPoints: 1800,
@@ -456,23 +429,6 @@ struct ScrollQualityTests {
         #expect(reset.kind == ScrollDeltaKind.reset)
         #expect(reset.envelope?.header.surfaceGeneration == 2)
         #expect(engine.reserveRefreshUpdateId().surfaceGeneration == 2)
-    }
-
-    private static func backpressureConfig() -> OwnedMediaBackpressureConfig {
-        OwnedMediaBackpressureConfig(
-            frameAgeMs: 80,
-            severeFrameAgeMs: 500,
-            maxInflightFrames: 2,
-            maxInflightBytes: 300_000,
-            expectedFrameRate: 30,
-            behindEncodeIntervalMs: 67,
-            severeEncodeIntervalMs: 200,
-            drainTimeoutMs: 700,
-            keyframeCooldownMs: 1_000,
-            normalMaxUnackedFrames: 2,
-            behindMaxUnackedFrames: 1,
-            staleUnackedMs: 350
-        )
     }
 
     private static func makeGraphicsEnvelope(frameId: UInt64) -> OwnedGraphicsFrameEnvelope {

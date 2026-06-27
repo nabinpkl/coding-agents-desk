@@ -132,47 +132,6 @@ struct SignalingFrameRoutingTests {
         #expect(decoded.sessionId == "session-123")
     }
 
-    @Test func ownedMediaControlMessageRoundTripsThroughCodable() throws {
-        let message = OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 42)
-        let data = try JSONEncoder().encode(message)
-        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
-
-        #expect(decoded == message)
-        #expect(decoded.type == "owned-media-control")
-        #expect(decoded.kind == .keyframeRequest)
-        #expect(decoded.frameId == 42)
-        #expect(decoded.packetIndexes.isEmpty)
-        #expect(decoded.totalFramesDecoded == nil)
-        #expect(decoded.renderGapMs == nil)
-        #expect(decoded.frameAgeMs == nil)
-        #expect(decoded.clientBacklogFrames == nil)
-        #expect(decoded.clientBacklogBytes == nil)
-    }
-
-    @Test func ownedMediaKeepaliveControlMessageRoundTripsThroughCodable() throws {
-        let message = OwnedMediaControlMessage(kind: .keepalive, frameId: 0)
-        let data = try JSONEncoder().encode(message)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
-
-        #expect(decoded == message)
-        #expect(decoded.type == "owned-media-control")
-        #expect(decoded.kind == .keepalive)
-        #expect(decoded.frameId == 0)
-        #expect(decoded.packetIndexes.isEmpty)
-        #expect(decoded.totalFramesDecoded == nil)
-        #expect(decoded.renderGapMs == nil)
-        #expect(decoded.frameAgeMs == nil)
-        #expect(decoded.clientBacklogFrames == nil)
-        #expect(decoded.clientBacklogBytes == nil)
-        #expect(json.contains("\"k\":\"keepalive\""))
-        #expect(!json.contains("\"px\""))
-        #expect(!json.contains("\"td\""))
-        #expect(!json.contains("\"rg\""))
-        #expect(!json.contains("\"qf\""))
-        #expect(!json.contains("\"qb\""))
-    }
-
     @Test func ownedSurfaceUpdateIdOrdersOnlyGenerationThenFrame() {
         let committed = OwnedSurfaceUpdateId(surfaceGeneration: 2, frameId: 10)
 
@@ -198,147 +157,12 @@ struct SignalingFrameRoutingTests {
         ) == nil)
     }
 
-    @Test func ownedMediaUpdateOrderingIgnoresCaptureTimestampDiagnostics() {
-        let committed = OwnedSurfaceUpdateId(surfaceGeneration: 5, frameId: 10)
-        let staleCaptureNewerFrame = OwnedMediaFrameHeader(
-            surfaceGeneration: 5,
-            frameId: 11,
-            codec: .hevc,
-            width: 1920,
-            height: 1080,
-            capturedAtUptimeNs: 1,
-            presentationTimeNs: 120,
-            isKeyframe: false,
-            parameterSets: nil,
-            refreshReason: .rest
-        )
-        let newerCaptureStaleFrame = OwnedMediaFrameHeader(
-            surfaceGeneration: 5,
-            frameId: 9,
-            codec: .hevc,
-            width: 1920,
-            height: 1080,
-            capturedAtUptimeNs: 9_999,
-            presentationTimeNs: 120,
-            isKeyframe: false,
-            parameterSets: nil,
-            refreshReason: .rest
-        )
-
-        #expect(staleCaptureNewerFrame.updateId.isStrictlyNewer(than: committed))
-        #expect(!newerCaptureStaleFrame.updateId.isStrictlyNewer(than: committed))
-    }
-
-    @Test func ownedMediaPacketResendControlMessageRoundTripsThroughCodable() throws {
-        let message = OwnedMediaControlMessage(
-            kind: .packetResendRequest,
-            frameId: 42,
-            packetIndexes: [1, 3]
-        )
-        let data = try JSONEncoder().encode(message)
-        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
-
-        #expect(decoded == message)
-        #expect(decoded.type == "owned-media-control")
-        #expect(decoded.kind == .packetResendRequest)
-        #expect(decoded.frameId == 42)
-        #expect(decoded.packetIndexes == [1, 3])
-        #expect(decoded.totalFramesDecoded == nil)
-        #expect(decoded.renderGapMs == nil)
-        #expect(decoded.frameAgeMs == nil)
-        #expect(decoded.clientBacklogFrames == nil)
-        #expect(decoded.clientBacklogBytes == nil)
-    }
-
-    @Test func ownedMediaFrameAckControlMessageRoundTripsThroughCodable() throws {
-        let message = OwnedMediaControlMessage(
-            kind: .frameAck,
-            frameId: 42,
-            totalFramesDecoded: 10,
-            renderGapMs: 83.5,
-            clientBacklogFrames: 1,
-            clientBacklogBytes: 180_000
-        )
-        let data = try JSONEncoder().encode(message)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
-
-        #expect(decoded == message)
-        #expect(decoded.type == "owned-media-control")
-        #expect(decoded.kind == .frameAck)
-        #expect(decoded.frameId == 42)
-        #expect(decoded.totalFramesDecoded == 10)
-        #expect(decoded.renderGapMs == 83.5)
-        #expect(decoded.frameAgeMs == nil)
-        #expect(decoded.clientBacklogFrames == 1)
-        #expect(decoded.clientBacklogBytes == 180_000)
-        #expect(json.contains("\"td\":10"))
-        #expect(json.contains("\"rg\":83.5"))
-        #expect(!json.contains("\"fa\""))
-        #expect(json.contains("\"qf\":1"))
-        #expect(json.contains("\"qb\":180000"))
-        #expect(!json.contains("\"px\""))
-    }
-
-    @Test func ownedMediaGraphicsResetFallbackControlMessageRoundTripsThroughCodable() throws {
-        let message = OwnedMediaControlMessage(
-            kind: .graphicsResetRequest,
-            frameId: 44,
-            graphicsSurfaceGeneration: 7,
-            reason: "graphics-stream-NWError"
-        )
-        let data = try JSONEncoder().encode(message)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
-
-        #expect(decoded == message)
-        #expect(decoded.type == "owned-media-control")
-        #expect(decoded.kind == .graphicsResetRequest)
-        #expect(decoded.frameId == 44)
-        #expect(decoded.graphicsSurfaceGeneration == 7)
-        #expect(decoded.reason == "graphics-stream-NWError")
-        #expect(json.contains("\"k\":\"graphics-reset-request\""))
-        #expect(json.contains("\"id\":44"))
-        #expect(json.contains("\"sg\":7"))
-        #expect(json.contains("\"r\":\"graphics-stream-NWError\""))
-        #expect(!json.contains("\"px\""))
-        #expect(!json.contains("\"td\""))
-        #expect(!json.contains("\"rg\""))
-    }
-
     @Test func sessionReadyDefaultsOldFixturesToNoMediaCapability() throws {
         let data = Data(#"{"t":"session-ready","sid":"session-123","ic":"capability","ie":1800000060}"#.utf8)
         let decoded = try JSONDecoder().decode(SessionReady.self, from: data)
 
         #expect(decoded.mediaCapability == "")
         #expect(decoded.mediaCapabilityExpiresAt == 0)
-    }
-
-    @Test func ownedMediaEnvelopeRoundTripsHeaderAndPayload() throws {
-        let header = OwnedMediaFrameHeader(
-            surfaceGeneration: 7,
-            frameId: 42,
-            codec: .hevc,
-            width: 1920,
-            height: 1080,
-            capturedAtUptimeNs: 100,
-            presentationTimeNs: 120,
-            isKeyframe: true,
-            parameterSets: OwnedMediaParameterSets(
-                vps: Data([0x01]),
-                sps: Data([0x02, 0x03]),
-                pps: Data([0x04])
-            ),
-            refreshReason: .scrollCorrectness
-        )
-        let envelope = OwnedMediaFrameEnvelope(header: header, payload: Data([0xaa, 0xbb, 0xcc]))
-        let encoded = try envelope.encode()
-        let decoded = try OwnedMediaFrameEnvelope.decode(encoded)
-
-        #expect(Array(encoded.prefix(4)) == OwnedMediaFrameEnvelope.magic)
-        #expect(decoded == envelope)
-        #expect(decoded.header.surfaceGeneration == 7)
-        #expect(decoded.header.refreshReason == .scrollCorrectness)
     }
 
     @Test func graphicsHelloAndReadyRoundTripWithCompactKeys() throws {
