@@ -84,7 +84,7 @@ Two client apps can coexist on one iPhone: the **stable** daily-driver (`com.exa
 
 - One target, one scheme. The variant is a build-time override axis, not a duplicated target: the dev build overrides `PRODUCT_BUNDLE_IDENTIFIER`, `ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev`, and `BUNDLE_DISPLAY_NAME` inline, and builds into a separate derived-data dir (`{{derived_data}}-dev`).
 - The runtime self-namespaces by bundle id: `Config.logSubsystem` and `Config.keychainService` derive from `Bundle.main.bundleIdentifier`, so each variant's os_log lines and keychain are separate.
-- Most client recipes take a `variant` arg (`stable` default | `dev`) with thin `-dev` wrappers: `client-install-dev`, `fresh-install-dev`, `iphone-console-run-dev`, `iphone-log-collect-dev`, `fresh-consoled-run-dev`, `client-archive-dev`, `testflight-upload-dev`. The dev bundle id is env-overridable via `AGENTDESK_CLIENT_DEV_BUNDLE_ID`.
+- Most client recipes take a `variant` arg (`stable` default | `dev`) with thin `-dev` wrappers: `client-install-dev`, `fresh-install-dev`, `iphone-console-run-dev`, `iphone-log-collect-dev`, `client-archive-dev`, `testflight-upload-dev`. The dev bundle id is env-overridable via `AGENTDESK_CLIENT_DEV_BUNDLE_ID`.
 - Both variants register the `agentdesk://` scheme. Dev pairing injects the URL via `devicectl --environment-variables` into a specific bundle id (read in `SceneDelegate`), bypassing system URL routing, so the shared scheme does not affect pairing.
 
 ## Agent-run device sessions

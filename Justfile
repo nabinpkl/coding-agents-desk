@@ -330,12 +330,11 @@ motion-verify variant="dev" video="1" seconds="60":
 iphone-log-collect-dev:
     just iphone-log-collect dev
 
+# One-shot dev path: rebuild and relaunch the host (kills any stale host first),
+# reinstall the side-by-side dev client, and launch it with the console attached
+# so owned-media diagnostics stream to {{iphone_console_log}}. The default for dev
+# feel runs per AGENTS.md.
 fresh-install-dev:
-    just host-run
-    just client-reinstall dev
-    just pair-iphone dev
-
-fresh-consoled-run-dev:
     just host-run
     just client-reinstall dev
     just iphone-console-run dev
