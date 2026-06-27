@@ -558,22 +558,50 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
 struct VideoBitrateControllerConfig: Equatable {
     let ceilingKbps: Int
     let floorKbps: Int
+    let survivalFloorKbps: Int
     let downStep: Double
     let upStep: Double
     let lossDownPermille: Int
     let raiseCleanWindows: Int
-    // ADR-0029: cadence axis. fps only leaves the ceiling once bitrate is pinned at
-    // floor and still losing (spend cadence when sharpness can no longer pay), and
-    // recovers only after bitrate is restored to the ceiling.
+    // ADR-0029: survival axis. fps and effective bitrate only leave their normal
+    // floors once bitrate is pinned at the normal floor and still losing; recovery
+    // restores bitrate before cadence.
     let fpsCeiling: Int
     let fpsFloor: Int
     let fpsDownStep: Double
     let fpsUpStep: Double
 
+    init(
+        ceilingKbps: Int,
+        floorKbps: Int,
+        survivalFloorKbps: Int,
+        downStep: Double,
+        upStep: Double,
+        lossDownPermille: Int,
+        raiseCleanWindows: Int,
+        fpsCeiling: Int,
+        fpsFloor: Int,
+        fpsDownStep: Double,
+        fpsUpStep: Double
+    ) {
+        self.ceilingKbps = max(1, ceilingKbps)
+        self.floorKbps = min(max(1, floorKbps), self.ceilingKbps)
+        self.survivalFloorKbps = min(max(1, survivalFloorKbps), self.floorKbps)
+        self.downStep = min(max(downStep, 0.01), 0.99)
+        self.upStep = max(upStep, 1.01)
+        self.lossDownPermille = max(1, lossDownPermille)
+        self.raiseCleanWindows = max(1, raiseCleanWindows)
+        self.fpsCeiling = max(1, fpsCeiling)
+        self.fpsFloor = min(max(1, fpsFloor), self.fpsCeiling)
+        self.fpsDownStep = min(max(fpsDownStep, 0.01), 0.99)
+        self.fpsUpStep = max(fpsUpStep, 1.01)
+    }
+
     static func fromConfig() -> VideoBitrateControllerConfig {
         VideoBitrateControllerConfig(
             ceilingKbps: Config.ownedMediaBitrateKbps,
             floorKbps: Config.ownedMediaBitrateFloorKbps,
+            survivalFloorKbps: Config.ownedMediaSurvivalBitrateFloorKbps,
             downStep: Config.ownedMediaBitrateDownStep,
             upStep: Config.ownedMediaBitrateUpStep,
             lossDownPermille: Config.ownedMediaBitrateLossDownPermille,
@@ -608,8 +636,9 @@ struct VideoBitrateController {
 
     // Observe one report window. An empty window (idle/rest, no frames) holds and is
     // neither clean nor lossy, so a quiet stream never drifts the target. Bitrate is
-    // the primary axis; cadence (fps) is the deeper lever, touched only once bitrate is
-    // exhausted (ADR-0029), so on a link with headroom this behaves exactly as before.
+    // the primary axis; survival mode is the deeper lever, touched only once normal
+    // bitrate is exhausted (ADR-0029), so on a link with headroom this behaves exactly
+    // as before.
     mutating func observe(completedFrames: Int, expiredFrames: Int) -> Outcome {
         let completed = max(0, completedFrames)
         let expired = max(0, expiredFrames)
@@ -621,23 +650,35 @@ struct VideoBitrateController {
         if lossPermille >= config.lossDownPermille {
             cleanStreak = 0
             // Spend bitrate first; only when it is pinned at the floor and the link is
-            // still losing do we step cadence down.
+            // still losing do we enter survival mode: lower cadence and the effective
+            // wire bitrate together, so a link below the normal floor gets a lower byte
+            // target instead of only fewer, larger frames.
             if targetKbps > config.floorKbps {
                 let previous = targetKbps
                 targetKbps = max(config.floorKbps, Int((Double(targetKbps) * config.downStep).rounded()))
                 return outcome(changed: targetKbps != previous, fpsChanged: false, reason: targetKbps != previous ? "loss-down" : "at-floor")
             }
+            let previousKbps = targetKbps
             let previousFps = targetFps
             targetFps = max(config.fpsFloor, Int((Double(targetFps) * config.fpsDownStep).rounded()))
-            return outcome(changed: false, fpsChanged: targetFps != previousFps, reason: targetFps != previousFps ? "fps-down" : "at-fps-floor")
+            targetKbps = survivalBitrateKbps(for: targetFps)
+            let bitrateChanged = targetKbps != previousKbps
+            let fpsChanged = targetFps != previousFps
+            return outcome(
+                changed: bitrateChanged,
+                fpsChanged: fpsChanged,
+                reason: bitrateChanged || fpsChanged ? "survival-down" : "at-survival-floor"
+            )
         }
         cleanStreak += 1
         if cleanStreak >= config.raiseCleanWindows {
             cleanStreak = 0
-            // Restore sharpness first: bitrate climbs back to the ceiling, then cadence.
+            // Restore sharpness first: survival bitrate climbs back to the normal floor,
+            // then bitrate climbs to the ceiling, then cadence recovers.
             if targetKbps < config.ceilingKbps {
                 let previous = targetKbps
-                targetKbps = min(config.ceilingKbps, Int((Double(targetKbps) * config.upStep).rounded()))
+                let limit = targetKbps < config.floorKbps ? config.floorKbps : config.ceilingKbps
+                targetKbps = min(limit, Int((Double(targetKbps) * config.upStep).rounded()))
                 return outcome(changed: targetKbps != previous, fpsChanged: false, reason: targetKbps != previous ? "clean-up" : "at-ceiling")
             }
             let previousFps = targetFps
@@ -649,5 +690,13 @@ struct VideoBitrateController {
 
     private func outcome(changed: Bool, fpsChanged: Bool, reason: String) -> Outcome {
         Outcome(targetKbps: targetKbps, targetFps: targetFps, changed: changed, fpsChanged: fpsChanged, reason: reason)
+    }
+
+    private func survivalBitrateKbps(for fps: Int) -> Int {
+        guard config.fpsCeiling > 0 else {
+            return max(config.survivalFloorKbps, config.floorKbps)
+        }
+        let fpsRatio = Double(fps) / Double(config.fpsCeiling)
+        return max(config.survivalFloorKbps, Int((Double(config.floorKbps) * fpsRatio).rounded()))
     }
 }

@@ -485,13 +485,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             result.encoder?.updateBitrate(result.outcome.targetKbps)
             logger.notice("owned media video bitrate-step target=\(result.outcome.targetKbps, privacy: .public)kbps reason=\(result.outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
         }
-        // ADR-0029: cadence rung moved (only once bitrate is pinned at floor under loss,
-        // or restored at ceiling on recovery). The produce loop reads targetFps for the
-        // cadence cap; updating the encoder's expected frame rate keeps its bit
-        // allocation matched to the lower cadence.
+        // ADR-0029: survival cadence moved. The produce loop reads targetFps for the
+        // cadence cap; updateExpectedFrameRate matches encoder allocation, while any
+        // paired survival bitrate movement was applied above through updateBitrate.
         if result.outcome.fpsChanged {
             result.encoder?.updateExpectedFrameRate(result.outcome.targetFps)
-            logger.notice("owned media video fps-step target=\(result.outcome.targetFps, privacy: .public)fps reason=\(result.outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
+            logger.notice("owned media video fps-step target=\(result.outcome.targetFps, privacy: .public)fps bitrate=\(result.outcome.targetKbps, privacy: .public)kbps reason=\(result.outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
         }
     }
 
@@ -918,9 +917,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             // link cannot drain. The mailbox keeps the freshest damage for the next
             // produce; readability is preserved by spending cadence, not quality.
             // ADR-0029: a second cadence input. When the adaptive controller has spent
-            // its bitrate floor and is still losing, it steps a target fps below the
-            // ceiling; we widen the produce interval to match, spending frames the slow
-            // link cannot carry. Dormant at ceiling fps (interval 0), so the validated
+            // its normal bitrate floor and is still losing, it steps target fps below
+            // the ceiling and lowers the effective bitrate; we widen the produce
+            // interval to match. Dormant at ceiling fps (interval 0), so the validated
             // healthy path is unchanged. max() with the governor: the slower wins.
             let capacityFps = lock.withLock { videoBitrateController?.targetFps } ?? Config.ownedMediaExpectedFrameRate
             let capacityIntervalNs: UInt64 = (capacityFps > 0 && capacityFps < Config.ownedMediaExpectedFrameRate)
@@ -1254,4 +1253,3 @@ final class LatestCapturedFrameMailbox: @unchecked Sendable {
         continuation.finish()
     }
 }
-

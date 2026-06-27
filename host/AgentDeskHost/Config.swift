@@ -105,6 +105,14 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_FLOOR_KBPS",
         defaultValue: 800
     )
+    // ADR-0029 survival rung. When the normal bitrate floor is pinned and loss
+    // persists, the controller may lower the effective wire target below the normal
+    // floor while also lowering fps. This keeps the stream alive on links that cannot
+    // carry 800 kbps, at the cost of visible softness until resolution downscale lands.
+    static let ownedMediaSurvivalBitrateFloorKbps = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_SURVIVAL_BITRATE_FLOOR_KBPS",
+        defaultValue: 300
+    )
     static let ownedMediaBitrateDownStep = positiveDouble(
         environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_DOWN_STEP",
         defaultValue: 0.7
@@ -140,11 +148,10 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS",
         defaultValue: 30
     )
-    // ADR-0029: capacity-driven cadence floor. When the adaptive controller has spent
-    // its bitrate floor and the link is still losing, it steps the produce/encode fps
-    // down toward this floor (spending cadence the slow link cannot carry), recovering
-    // toward ownedMediaExpectedFrameRate once bitrate is restored. Dormant on a link
-    // with bitrate headroom, so the validated healthy path is unaffected.
+    // ADR-0029 survival cadence floor. When the adaptive controller has spent its
+    // normal bitrate floor and the link is still losing, it steps produce/encode fps
+    // down toward this floor while also lowering the effective bitrate. Dormant on a
+    // link with bitrate headroom, so the validated healthy path is unaffected.
     static let ownedMediaFpsFloor = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS_FLOOR",
         defaultValue: 10
