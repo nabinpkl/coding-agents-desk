@@ -1024,17 +1024,30 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                         let encodedBytes = try await graphicsChannel.send(envelope)
                         noteGraphicsFrameSent(envelope, encodedBytes: encodedBytes)
                         logger.notice("owned graphics reset stripe sent frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) stripe=\(index + 1, privacy: .public) stripes=\(envelopes.count, privacy: .public) commands=\(envelope.commands.count, privacy: .public) bytes=\(envelope.payload.count, privacy: .public) maxDecodedBytes=\(Config.hybridResetStripeMaxDecodedBytes, privacy: .public)")
-                        let acked = await graphicsAckWaiter.wait(
-                            for: envelope.header.updateId,
-                            timeoutMs: Config.hybridResetStripeAckTimeoutMs
-                        )
-                        if acked {
-                            logger.notice("owned graphics reset-stripe-ack frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) stripe=\(index + 1, privacy: .public) stripes=\(envelopes.count, privacy: .public)")
-                        } else if !isActiveGraphicsConnection(resetConnectionId) {
-                            logger.notice("owned graphics reset wait abandoned reason=stale-channel frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public)")
-                            throw OwnedGraphicsResetSendError.staleChannel(envelope.header.updateId)
-                        } else {
-                            throw OwnedGraphicsResetSendError.ackTimeout(envelope.header.updateId)
+                        // Tolerate a slow link: re-wait for the stripe ack, checking
+                        // the connection each round, instead of closing on the first
+                        // timeout. Closing would re-sync the whole surface and make a
+                        // slow link worse (the freeze cascade). A genuinely dead
+                        // channel still aborts within one timeout (connection goes
+                        // inactive); only a truly stuck ack hits the full grace.
+                        var ackAttempt = 0
+                        while true {
+                            if await graphicsAckWaiter.wait(
+                                for: envelope.header.updateId,
+                                timeoutMs: Config.hybridResetStripeAckTimeoutMs
+                            ) {
+                                logger.notice("owned graphics reset-stripe-ack frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) stripe=\(index + 1, privacy: .public) stripes=\(envelopes.count, privacy: .public)")
+                                break
+                            }
+                            if !isActiveGraphicsConnection(resetConnectionId) {
+                                logger.notice("owned graphics reset wait abandoned reason=stale-channel frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public)")
+                                throw OwnedGraphicsResetSendError.staleChannel(envelope.header.updateId)
+                            }
+                            ackAttempt += 1
+                            if ackAttempt >= Config.hybridResetStripeAckMaxAttempts {
+                                throw OwnedGraphicsResetSendError.ackTimeout(envelope.header.updateId)
+                            }
+                            logger.notice("owned graphics reset-stripe-ack-slow frame=\(envelope.header.frameId, privacy: .public) generation=\(envelope.header.surfaceGeneration, privacy: .public) attempt=\(ackAttempt, privacy: .public) maxAttempts=\(Config.hybridResetStripeAckMaxAttempts, privacy: .public)")
                         }
                     }
                     scrollDeltaEngine.commitPendingSurface()

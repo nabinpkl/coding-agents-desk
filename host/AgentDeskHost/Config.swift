@@ -420,6 +420,17 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_RESET_STRIPE_ACK_TIMEOUT_MS",
         defaultValue: 1_000
     )
+    // How many times the reset path re-waits for a stripe ack before declaring the
+    // channel dead. A weak link can take several seconds to ack a reset stripe;
+    // closing the channel on the first timeout re-syncs the whole surface and makes
+    // a slow link worse, the freeze cascade (device run on far wifi: gen 1->2->3).
+    // Retrying re-checks the connection each round, so a genuinely dead channel
+    // still aborts within one timeout while a merely slow one is tolerated for the
+    // full grace (attempts x timeout). A slow link is backpressure, not failure.
+    static let hybridResetStripeAckMaxAttempts = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_RESET_STRIPE_ACK_MAX_ATTEMPTS",
+        defaultValue: 6
+    )
     static let hybridGraphicsFallbackMinIntervalMs = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_GRAPHICS_FALLBACK_MIN_INTERVAL_MS",
         defaultValue: 1_500
