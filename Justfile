@@ -201,12 +201,12 @@ iphone-console-run variant="stable":
     URL="$(cat "{{last_pair_url_path}}")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\",\"AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED\":\"$VIDEO\"}" "$BID" "$URL" 2>&1 | tee "{{iphone_console_log}}"
 
 # Physical-device feel runs. Two console modes x two client variants. Both rebuild
-# and relaunch the host and reinstall the client; they differ only in how the client
-# is launched:
-#   fresh-install            no console, returns immediately ("just use it")
-#   fresh-consoled-install   console attached, blocks until the app exits, tees the log
+# and relaunch the host and reinstall the client (the "fresh" prefix is the reinstall);
+# they differ only in how the client is launched:
+#   fresh-install        no console, returns immediately ("just use it")
+#   fresh-consoled-run   console attached, blocks until the app exits, tees the log
 # Suffix -dev to drive the side-by-side AgentDesk Dev build instead of the stable
-# daily driver. The consoled mode is the AGENTS.md default for feel/diagnostic work.
+# daily driver. The consoled run is the AGENTS.md default for feel/diagnostic work.
 # (There is no detached-console composite on purpose: a backgrounded console grows
 # {{iphone_console_log}} unbounded with no teardown. For bounded background capture
 # use `motion-verify`, which tears the stream down after a fixed window.)
@@ -220,12 +220,12 @@ fresh-install-dev:
     just client-reinstall dev
     just pair-iphone dev
 
-fresh-consoled-install:
+fresh-consoled-run:
     just host-run
     just client-reinstall stable
     just iphone-console-run stable
 
-fresh-consoled-install-dev:
+fresh-consoled-run-dev:
     just host-run
     just client-reinstall dev
     just iphone-console-run dev
