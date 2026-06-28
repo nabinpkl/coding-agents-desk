@@ -117,20 +117,17 @@ final class OwnedGraphicsChannelServer: @unchecked Sendable {
 }
 
 final class OwnedMediaTransportFactory: MediaTransportFactory {
-    private let codec: OwnedMediaCodec
     private let configuration: OwnedMediaEncodingConfiguration
     private let authorizer: OwnedMediaDatagramAuthorizer
     private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
     private let scrollActivityHintProvider: @Sendable () -> ScrollActivityHint?
 
     init(
-        codec: OwnedMediaCodec,
         configuration: OwnedMediaEncodingConfiguration = .default,
         authorizer: @escaping OwnedMediaDatagramAuthorizer,
         graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer,
         scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
     ) {
-        self.codec = codec
         self.configuration = configuration
         self.authorizer = authorizer
         self.graphicsAuthorizer = graphicsAuthorizer
@@ -139,7 +136,6 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
 
     func make() -> MediaTransport {
         OwnedMediaTransport(
-            codec: codec,
             configuration: configuration,
             authorizer: authorizer,
             graphicsAuthorizer: graphicsAuthorizer,
@@ -149,17 +145,11 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
 }
 
 struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
-    let expectedPixelFormat: OSType?
-    let hevcProfileLevel: String?
-    let maxAllowedFrameQP: Int?
     let targetBitrateKbps: Int
     let expectedFrameRate: Int
     let keyframeIntervalFrames: Int
 
     static let `default` = OwnedMediaEncodingConfiguration(
-        expectedPixelFormat: nil,
-        hevcProfileLevel: nil,
-        maxAllowedFrameQP: nil,
         targetBitrateKbps: Config.ownedMediaBitrateKbps,
         expectedFrameRate: 30,
         keyframeIntervalFrames: 120
@@ -167,9 +157,6 @@ struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
 
     static func fromConfig() -> OwnedMediaEncodingConfiguration {
         OwnedMediaEncodingConfiguration(
-            expectedPixelFormat: Config.ownedMediaChroma.expectedPixelFormat,
-            hevcProfileLevel: Config.ownedMediaHEVCProfile?.profileLevel,
-            maxAllowedFrameQP: Config.ownedMediaMaxQP,
             targetBitrateKbps: Config.ownedMediaBitrateKbps,
             expectedFrameRate: Config.ownedMediaExpectedFrameRate,
             keyframeIntervalFrames: Config.ownedMediaKeyframeIntervalFrames
@@ -398,7 +385,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     let connectionState: AsyncStream<MediaConnectionState>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
-    private let codec: OwnedMediaCodec
     private let configuration: OwnedMediaEncodingConfiguration
     private let authorizer: OwnedMediaDatagramAuthorizer
     private let graphicsAuthorizer: OwnedGraphicsChannelAuthorizer
@@ -426,13 +412,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private var started = false
 
     init(
-        codec: OwnedMediaCodec,
         configuration: OwnedMediaEncodingConfiguration = .default,
         authorizer: @escaping OwnedMediaDatagramAuthorizer,
         graphicsAuthorizer: @escaping OwnedGraphicsChannelAuthorizer,
         scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
     ) {
-        self.codec = codec
         self.configuration = configuration
         self.authorizer = authorizer
         self.graphicsAuthorizer = graphicsAuthorizer
@@ -1295,32 +1279,3 @@ final class LatestCapturedFrameMailbox: @unchecked Sendable {
     }
 }
 
-private extension Config.OwnedMediaChroma {
-    var expectedPixelFormat: OSType {
-        switch self {
-        case .yuv420:
-            return kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-        case .yuv444:
-            return kCVPixelFormatType_444YpCbCr8BiPlanarFullRange
-        case .bgra:
-            return kCVPixelFormatType_32BGRA
-        }
-    }
-}
-
-private extension Config.OwnedMediaHEVCProfile {
-    var profileLevel: String {
-        switch self {
-        case .main:
-            return kVTProfileLevel_HEVC_Main_AutoLevel as String
-        case .main10:
-            return kVTProfileLevel_HEVC_Main10_AutoLevel as String
-        case .main42210:
-            return kVTProfileLevel_HEVC_Main42210_AutoLevel as String
-        case .main444:
-            return "HEVC_Main444_AutoLevel"
-        case .main44410:
-            return "HEVC_Main44410_AutoLevel"
-        }
-    }
-}

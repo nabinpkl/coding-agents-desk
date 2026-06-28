@@ -8,7 +8,6 @@ enum MediaStack {
         scrollActivityHintProvider: @escaping @Sendable () -> ScrollActivityHint? = { nil }
     ) -> MediaTransportFactory {
         OwnedMediaTransportFactory(
-            codec: Config.ownedMediaCodec.wireCodec,
             configuration: .fromConfig(),
             authorizer: ownedDatagramAuthorizer,
             graphicsAuthorizer: ownedGraphicsAuthorizer,
