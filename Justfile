@@ -33,13 +33,24 @@ host_marketing_version := env_var_or_default("AGENTDESK_HOST_VERSION", "1.3.1")
 client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.3.1")
 apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
 
+# Fast correctness gate: guard scripts plus the host build and tests. Excludes
+# the client simulator tests, which need a booted simulator and dominate the
+# wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
+# everything with `just check-all`.
 check:
     sh tools/media-architecture-guard.sh
     sh tools/launch-env-tests.sh
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
     sh tools/testflight-upload-tests.sh
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -derivedDataPath '{{derived_data}}' build test
+
+# Client simulator tests. Boots the iPhone simulator and is the slow leg split
+# out of `check`. Run before committing client-side changes.
+sim-test:
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
+
+# Full gate: the fast host-side check plus the client simulator tests.
+check-all: check sim-test
 
 dev:
     open host/AgentDeskHost.xcodeproj
