@@ -228,10 +228,16 @@ struct QuicSessionHostMediaStateTests {
             upStep: 1.15,
             lossDownPermille: 50,
             raiseCleanWindows: 4,
+            cadenceDownWindows: 2,
             fpsCeiling: 30,
             fpsFloor: 10,
             ackHoldP95Ms: 180,
             ackDownP95Ms: 350,
+            cadenceGapMs: 500,
+            freezeGapMs: 1_000,
+            freezeFpsCeiling: 3,
+            recoveryMaxGapMs: 300,
+            recoveryMinFpsPermille: 800,
             capacity1Kbps: 650,
             capacity1Fps: 24,
             capacity1Scale: 0.75,
@@ -334,7 +340,7 @@ struct QuicSessionHostMediaStateTests {
         #expect(decision.observation.windowId == 1)
         #expect(decision.observation.sample.completedFrames == 80)
         #expect(decision.observation.sample.expiredFrames == 20)
-        #expect(decision.observation.signals.loss)
+        #expect(decision.observation.signals.lossPressure)
         #expect(decision.changedAxes == "bitrate,rung")
         #expect(state.targetKbps < 2500)
         #expect(state.targetFps == 30)
@@ -374,9 +380,57 @@ struct QuicSessionHostMediaStateTests {
         #expect(decision.observation.inFlightFrames == 0)
         #expect(decision.observation.inFlightBytes == 0)
         #expect(decision.observation.staleRecoveryCount == 1)
-        #expect(decision.observation.signals.backpressureStale)
+        #expect(decision.observation.signals.stalePressure)
         #expect(decision.observation.signals.cadencePressure)
+        #expect(decision.outcome.target.rung == .capacity1)
+        #expect(decision.changedAxes == "bitrate,fps,resolution,rung")
         #expect(decision.observation.ackCount == 0)
+    }
+
+    @Test func smoothnessCapacityDecisionReportsResolutionAxisAndReason() {
+        var state = makeState()
+
+        let hold = state.observeLinkHealth(
+            completedFrames: 100,
+            expiredFrames: 0,
+            productionSummary: MediaProductionSummary(
+                actualFps: 10,
+                targetFps: 30,
+                fpsDeficit: 20,
+                frames: 10,
+                keyframes: 0,
+                sentKbps: 900,
+                targetKbps: 2_500,
+                maxGapMs: 650,
+                resolutionScale: 1.0,
+                windowMs: 1_000
+            ),
+            nowNs: 1_000_000_000
+        )
+        #expect(!hold.outcome.changed)
+        #expect(hold.outcome.reason == "cadence-hold")
+
+        let down = state.observeLinkHealth(
+            completedFrames: 100,
+            expiredFrames: 0,
+            productionSummary: MediaProductionSummary(
+                actualFps: 10,
+                targetFps: 30,
+                fpsDeficit: 20,
+                frames: 10,
+                keyframes: 0,
+                sentKbps: 900,
+                targetKbps: 2_500,
+                maxGapMs: 650,
+                resolutionScale: 1.0,
+                windowMs: 1_000
+            ),
+            nowNs: 2_000_000_000
+        )
+
+        #expect(down.outcome.reason == "cadence-capacity-down")
+        #expect(down.changedAxes == "bitrate,fps,resolution,rung")
+        #expect(down.outcome.target.resolutionScale == 0.75)
     }
 
     @Test func ackAgeIsComputedFromSentFrameTime() throws {

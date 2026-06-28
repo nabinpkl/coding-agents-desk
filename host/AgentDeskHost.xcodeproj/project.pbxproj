@@ -126,6 +126,8 @@
 		A00000000000000000000F51 /* VideoToolboxOwnedMediaEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F50 /* VideoToolboxOwnedMediaEncoder.swift */; };
 		A00000000000000000000F52 /* VideoToolboxOwnedMediaEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F50 /* VideoToolboxOwnedMediaEncoder.swift */; };
 		A00000000000000000000F54 /* VideoToolboxOwnedMediaEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F53 /* VideoToolboxOwnedMediaEncoderTests.swift */; };
+		A00000000000000000001011 /* MediaQualityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001010 /* MediaQualityController.swift */; };
+		A00000000000000000001012 /* MediaQualityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001010 /* MediaQualityController.swift */; };
 		A00000000000000000000F61 /* MediaDatagramFramePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F60 /* MediaDatagramFramePacket.swift */; };
 		A00000000000000000000F62 /* MediaDatagramFramePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F60 /* MediaDatagramFramePacket.swift */; };
 		A00000000000000000000F64 /* OwnedMediaResendRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F63 /* OwnedMediaResendRing.swift */; };
@@ -235,6 +237,7 @@
 		A00000000000000000000DF3 /* TileContentCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileContentCacheTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000F50 /* VideoToolboxOwnedMediaEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoToolboxOwnedMediaEncoder.swift; sourceTree = "<group>"; };
 		A00000000000000000000F53 /* VideoToolboxOwnedMediaEncoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoToolboxOwnedMediaEncoderTests.swift; sourceTree = "<group>"; };
+		A00000000000000000001010 /* MediaQualityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaQualityController.swift; sourceTree = "<group>"; };
 		A00000000000000000000F60 /* MediaDatagramFramePacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDatagramFramePacket.swift; sourceTree = "<group>"; };
 		A00000000000000000000F63 /* OwnedMediaResendRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaResendRing.swift; sourceTree = "<group>"; };
 		A00000000000000000000F66 /* MediaDatagramCarrierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDatagramCarrierTests.swift; sourceTree = "<group>"; };
@@ -340,6 +343,7 @@
 				A000000000000000000009A0 /* CursorMonitor.swift */,
 				A00000000000000000000127 /* SpaceThumbnailProvider.swift */,
 				A00000000000000000000DF0 /* TileContentCache.swift */,
+				A00000000000000000001010 /* MediaQualityController.swift */,
 				A00000000000000000000F50 /* VideoToolboxOwnedMediaEncoder.swift */,
 				A00000000000000000000F60 /* MediaDatagramFramePacket.swift */,
 				A00000000000000000000F63 /* OwnedMediaResendRing.swift */,
@@ -578,6 +582,7 @@
 				A0000000000000000000025E /* VoiceChildController.swift in Sources */,
 				A00000000000000000000262 /* AgentSayLocalServer.swift in Sources */,
 				A00000000000000000000DF1 /* TileContentCache.swift in Sources */,
+				A00000000000000000001011 /* MediaQualityController.swift in Sources */,
 				A00000000000000000000F51 /* VideoToolboxOwnedMediaEncoder.swift in Sources */,
 				A00000000000000000000F61 /* MediaDatagramFramePacket.swift in Sources */,
 				A00000000000000000000F64 /* OwnedMediaResendRing.swift in Sources */,
@@ -651,6 +656,7 @@
 				A0000000000000000000024A /* WAVEncoderTests.swift in Sources */,
 				A00000000000000000000DF2 /* TileContentCache.swift in Sources */,
 				A00000000000000000000DF4 /* TileContentCacheTests.swift in Sources */,
+				A00000000000000000001012 /* MediaQualityController.swift in Sources */,
 				A00000000000000000000F52 /* VideoToolboxOwnedMediaEncoder.swift in Sources */,
 				A00000000000000000000F54 /* VideoToolboxOwnedMediaEncoderTests.swift in Sources */,
 				A00000000000000000000F62 /* MediaDatagramFramePacket.swift in Sources */,

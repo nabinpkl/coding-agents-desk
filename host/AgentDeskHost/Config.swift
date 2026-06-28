@@ -129,6 +129,12 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_RAISE_CLEAN_WINDOWS",
         defaultValue: 4
     )
+    // Consecutive low-production windows before cadence pressure alone steps down
+    // to a capacity rung. Queue pressure or stale recovery can step down sooner.
+    static let ownedMediaCadenceDownWindows = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CADENCE_DOWN_WINDOWS",
+        defaultValue: 2
+    )
     // ADR-0033 latency heuristics for the host-derived frame ACK age. High ACK age
     // alone holds the current rung because a high-latency path can still be healthy;
     // high ACK age plus repaired loss or frame expiry downshifts.
@@ -139,6 +145,28 @@ enum Config {
     static let ownedMediaAckDownP95Ms = positiveDouble(
         environmentKey: "AGENTDESK_OWNED_MEDIA_ACK_DOWN_P95_MS",
         defaultValue: 350
+    )
+    // Smoothness-first ladder thresholds. A cadence gap means the host cannot keep
+    // motion fluid at the current target. A freeze gap skips bitrate-only spending.
+    static let ownedMediaCadenceGapMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CADENCE_GAP_MS",
+        defaultValue: 500
+    )
+    static let ownedMediaFreezeGapMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_FREEZE_GAP_MS",
+        defaultValue: 1_000
+    )
+    static let ownedMediaFreezeFpsCeiling = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_FREEZE_FPS_CEILING",
+        defaultValue: 3
+    )
+    static let ownedMediaRecoveryMaxGapMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_RECOVERY_MAX_GAP_MS",
+        defaultValue: 300
+    )
+    static let ownedMediaRecoveryMinFpsPermille = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_RECOVERY_MIN_FPS_PERMILLE",
+        defaultValue: 800
     )
     // ADR-0027: hard data-rate ceiling as a multiple of the average bitrate.
     // AverageBitRate only bounds the long-run average, so a single keyframe can

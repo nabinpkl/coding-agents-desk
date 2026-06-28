@@ -11,13 +11,14 @@ refines:
 
 ## Context and Problem Statement
 
-ADR-0027 added bitrate adaptation, ADR-0028 added selective resend, and ADR-0029 added a frame-rate survival rung. That still left resolution as a separate deferred lever, even though slow-link byte pressure is the product of bitrate, cadence, and pixels. The media path needs one host-owned policy that chooses bitrate, frame rate, and capture resolution together from the same observations: repaired loss, expired frames, keyframe fallback, and host-derived frame ACK age. Scope: `MediaQualityController`, `QuicSessionHostMediaState`, `QuicSessionHostMediaTransport`, `ScreenCaptureKitFrameSource`, and the client video decoder's resolution-change guard.
+ADR-0027 added bitrate adaptation, ADR-0028 added selective resend, and ADR-0029 added a frame-rate survival rung. That still left resolution as a separate deferred lever, even though slow-link byte pressure is the product of bitrate, cadence, and pixels. The first implementation also logged host cadence pressure and stale in-flight recovery without making those signals load-bearing in the policy, so slow LTE could stay at full-resolution, 30 fps, mostly changing bitrate while motion froze. The media path needs one host-owned policy that chooses bitrate, frame rate, and capture resolution together from packet repair, frame expiry, keyframe fallback, ACK age, host production cadence, and backpressure recovery. Scope: `MediaQualityController`, `QuicSessionHostMediaState`, `QuicSessionHostMediaTransport`, `ScreenCaptureKitFrameSource`, and the client video decoder's resolution-change guard.
 
 ## Decision Drivers
 
 - Keep the quality policy host-owned; the client reports observations, not desired quality.
 - Avoid a bolt-on resolution fallback. Bitrate, cadence, and pixels are one adaptive target.
-- High-latency links are not automatically bad. Queue age alone should hold; queue age plus loss or expiry should downshift.
+- Smoothness is the first priority on constrained paths. Full-resolution text is allowed only while host production cadence is healthy.
+- High-latency links are not automatically bad. Queue age alone should hold; queue age plus bad cadence, loss, expiry, or repair pressure should downshift.
 - A resolution change is a stream sync point: restart capture, force a keyframe, and discard stale pending capture/encode state.
 
 ## Considered Options
@@ -30,16 +31,37 @@ ADR-0027 added bitrate adaptation, ADR-0028 added selective resend, and ADR-0029
 
 Chose **Option B**. Option A is rejected because it keeps three independent levers that can fight each other, for example lower fps while retaining oversized frames. Option C is rejected because it splits policy ownership across peers and turns client render symptoms into quality commands. The host already sees send admission, ACK age, keyframe requests, and client link-health reports, so one host controller can choose a coherent target and apply it atomically.
 
+The controller consumes one observation input per window: packet results, ACK p50/p95/max/count, host production actual fps and max send gap, in-flight byte/frame counts, oldest in-flight age, and stale recovery count. The same controller derives the logged pressure classes and the policy decision, so diagnostics cannot drift from behavior.
+
+Pressure classes:
+
+- `lossPressure`: frame expiry, keyframe fallback, or resend pressure.
+- `queuePressure`: ACK p95 at or above the downshift threshold.
+- `cadencePressure`: host production FPS far below target or max send gap above the cadence threshold.
+- `stalePressure`: stale in-flight recovery reopened admission.
+- `freezePressure`: max send gap around one second or actual FPS collapsed to the freeze floor.
+
+Downshift policy:
+
+- Queue pressure alone holds.
+- Loss pressure spends bitrate first while cadence is acceptable, then steps into capacity rungs.
+- Sustained cadence pressure steps into capacity rungs even without packet loss.
+- Queue pressure plus cadence pressure steps into capacity rungs immediately.
+- Stale pressure steps into capacity rungs immediately.
+- Freeze pressure skips bitrate-only loss control and enters a capacity rung.
+
+Recovery is deliberately conservative: no recovery while cadence pressure remains true, no recovery without ACK samples, and no recovery until clean windows show no expiry, no stale recovery, ACK p95 below the hold threshold, actual FPS close to target, and max send gap below the recovery smoothness threshold. Bitrate rises before rung promotion; when a rung promotion changes resolution and FPS together, transport applies resolution before FPS so the capture stream establishes the new sync point first.
+
 ### Consequences
 
-- Good, because capacity failures degrade through readable rungs instead of freezing or producing fewer oversized frames.
+- Good, because capacity failures degrade through readable rungs instead of freezing or producing fewer oversized full-resolution frames.
 - Good, because the same heuristic works on LTE, weak Wi-Fi, tailnet path changes, or any other constrained path.
 - Bad, because capture resolution changes restart ScreenCaptureKit and force a keyframe, which is visible as a quality step.
 - Neutral, because the wire protocol stays at version 3; existing media frame headers already carry frame dimensions.
 
 ### Confirmation
 
-Pure controller tests assert the downshift order, latency-hold behavior, and conservative recovery. Host tests assert ACK age is measured from sent-frame time and resolution changes clear stale admission state. Client tests assert keyframes can resync to new dimensions and mismatched deltas are dropped with a keyframe request.
+Pure controller tests assert the downshift order, latency-hold behavior, cadence-pressure capacity shifts, freeze-pressure capacity shifts, stale-pressure capacity shifts, and conservative recovery. Host tests assert ACK age is measured from sent-frame time, diagnostics carry the same pressure classes the policy used, and resolution changes clear stale admission state. Client tests assert keyframes can resync to new dimensions and mismatched deltas are dropped with a keyframe request.
 
 ## Pros and Cons of the Options
 

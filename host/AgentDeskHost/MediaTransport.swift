@@ -76,15 +76,6 @@ struct MediaProductionSummary: Equatable {
     let windowMs: Int
 }
 
-struct MediaQualityObservationSignals: Equatable {
-    let loss: Bool
-    let repairPressure: Bool
-    let ackQueued: Bool
-    let cadencePressure: Bool
-    let backpressureStale: Bool
-    let lossPermille: Int
-}
-
 struct MediaQualityObservation: Equatable {
     let windowId: UInt64
     let sample: MediaQualitySample
