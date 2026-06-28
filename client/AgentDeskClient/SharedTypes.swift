@@ -733,6 +733,9 @@ enum OwnedMediaControlKind: String, Codable, Equatable {
     case frameAck = "frame-ack"
     case graphicsResetRequest = "graphics-reset-request"
     case keepalive = "keepalive"
+    // ADR-0027: client->host link-health report carrying the window's completed and
+    // expired (lost) frame counts, which drive the host adaptive bitrate controller.
+    case linkHealth = "link-health"
 }
 
 struct OwnedMediaControlMessage: Codable, Equatable {
@@ -747,6 +750,10 @@ struct OwnedMediaControlMessage: Codable, Equatable {
     let clientBacklogBytes: Int?
     let graphicsSurfaceGeneration: UInt32?
     let reason: String?
+    // ADR-0027 link-health: frames completed and frames expired (lost past repair)
+    // in the report window. Present only on a .linkHealth message.
+    let linkHealthCompletedFrames: Int?
+    let linkHealthExpiredFrames: Int?
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
@@ -759,6 +766,8 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         case clientBacklogBytes = "qb"
         case graphicsSurfaceGeneration = "sg"
         case reason = "r"
+        case linkHealthCompletedFrames = "lc"
+        case linkHealthExpiredFrames = "le"
     }
 
     init(
@@ -771,7 +780,9 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         clientBacklogFrames: Int? = nil,
         clientBacklogBytes: Int? = nil,
         graphicsSurfaceGeneration: UInt32? = nil,
-        reason: String? = nil
+        reason: String? = nil,
+        linkHealthCompletedFrames: Int? = nil,
+        linkHealthExpiredFrames: Int? = nil
     ) {
         self.type = "owned-media-control"
         self.kind = kind
@@ -784,6 +795,8 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         self.clientBacklogBytes = clientBacklogBytes
         self.graphicsSurfaceGeneration = graphicsSurfaceGeneration
         self.reason = reason
+        self.linkHealthCompletedFrames = linkHealthCompletedFrames
+        self.linkHealthExpiredFrames = linkHealthExpiredFrames
     }
 
     init(from decoder: Decoder) throws {
@@ -799,6 +812,8 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         clientBacklogBytes = try container.decodeIfPresent(Int.self, forKey: .clientBacklogBytes)
         graphicsSurfaceGeneration = try container.decodeIfPresent(UInt32.self, forKey: .graphicsSurfaceGeneration)
         reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        linkHealthCompletedFrames = try container.decodeIfPresent(Int.self, forKey: .linkHealthCompletedFrames)
+        linkHealthExpiredFrames = try container.decodeIfPresent(Int.self, forKey: .linkHealthExpiredFrames)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -815,6 +830,8 @@ struct OwnedMediaControlMessage: Codable, Equatable {
         try container.encodeIfPresent(clientBacklogBytes, forKey: .clientBacklogBytes)
         try container.encodeIfPresent(graphicsSurfaceGeneration, forKey: .graphicsSurfaceGeneration)
         try container.encodeIfPresent(reason, forKey: .reason)
+        try container.encodeIfPresent(linkHealthCompletedFrames, forKey: .linkHealthCompletedFrames)
+        try container.encodeIfPresent(linkHealthExpiredFrames, forKey: .linkHealthExpiredFrames)
     }
 }
 

@@ -98,4 +98,19 @@ final class MediaDatagramCarrierTests: XCTestCase {
             XCTAssertEqual(decoded.packetIndexes, message.packetIndexes)
         }
     }
+
+    // ADR-0027 R87: the link-health message carries the window's completed/expired
+    // counts through the same JSON control codec.
+    func testLinkHealthMessageRoundTrips() throws {
+        let message = OwnedMediaControlMessage(
+            kind: .linkHealth, frameId: 0,
+            linkHealthCompletedFrames: 142, linkHealthExpiredFrames: 7
+        )
+        let decoded = try JSONDecoder().decode(
+            OwnedMediaControlMessage.self, from: JSONEncoder().encode(message)
+        )
+        XCTAssertEqual(decoded.kind, .linkHealth)
+        XCTAssertEqual(decoded.linkHealthCompletedFrames, 142)
+        XCTAssertEqual(decoded.linkHealthExpiredFrames, 7)
+    }
 }

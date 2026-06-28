@@ -69,6 +69,13 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEEPALIVE_INTERVAL_MS",
         defaultValue: 5_000
     )
+    // ADR-0027: how often the client reports link health (window completed/expired
+    // frame counts) to the host adaptive bitrate controller. Faster than keepalive so
+    // the controller reacts within a second; each report carries that window's counts.
+    static let ownedMediaLinkHealthIntervalMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_LINK_HEALTH_INTERVAL_MS",
+        defaultValue: 500
+    )
     // ADR-0025 motion carrier switch (mirrors the host). ON by default now that the
     // video path is device-validated: the client accepts the HEVC datagram stream and
     // renders the video layer. Set the env var to 0/false to render only the retained

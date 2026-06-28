@@ -286,6 +286,9 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         serverNonce: Data()
     )
     private var videoEncoder: VideoToolboxOwnedMediaEncoder?
+    // ADR-0027: adaptive bitrate controller fed by client link-health reports. Lives
+    // beside the encoder; created and cleared with it by the encode pump.
+    private var videoBitrateController: VideoBitrateController?
     // ADR-0025 motion carrier: the dedicated isDatagram transport that carries the HEVC
     // video (host -> client) and the keyframe requests (client -> host). nil when the
     // carrier flag is off. Its diagnosticsSnapshot() feeds the encode pump's per-frame log.
@@ -413,10 +416,17 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                 burstPauseUs: Config.ownedMediaDatagramBurstPauseUs
             ),
             onControlMessage: { [weak self] message in
-                guard let self, message.kind == .keyframeRequest else { return }
-                let encoder = self.lock.withLock { self.videoEncoder }
-                encoder?.requestKeyframe()
-                self.logger.notice("owned media video keyframe-request from client frame=\(message.frameId, privacy: .public)")
+                guard let self else { return }
+                switch message.kind {
+                case .keyframeRequest:
+                    let encoder = self.lock.withLock { self.videoEncoder }
+                    encoder?.requestKeyframe()
+                    self.logger.notice("owned media video keyframe-request from client frame=\(message.frameId, privacy: .public)")
+                case .linkHealth:
+                    self.handleLinkHealth(message)
+                default:
+                    break
+                }
             }
         )
         do {
@@ -426,6 +436,23 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         } catch {
             logger.error("owned media datagram server start failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    // ADR-0027: feed one client link-health window to the adaptive controller and, if
+    // the target moved, retarget the live encoder. Controller is a value type, mutated
+    // under the lock and written back.
+    private func handleLinkHealth(_ message: OwnedMediaControlMessage) {
+        let completed = message.linkHealthCompletedFrames ?? 0
+        let expired = message.linkHealthExpiredFrames ?? 0
+        let result: (outcome: VideoBitrateController.Outcome, encoder: VideoToolboxOwnedMediaEncoder?)? = lock.withLock {
+            guard var controller = videoBitrateController else { return nil }
+            let outcome = controller.observe(completedFrames: completed, expiredFrames: expired)
+            videoBitrateController = controller
+            return (outcome, videoEncoder)
+        }
+        guard let result, result.outcome.changed else { return }
+        result.encoder?.updateBitrate(result.outcome.targetKbps)
+        logger.notice("owned media video bitrate-step target=\(result.outcome.targetKbps, privacy: .public)kbps reason=\(result.outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
     }
 
     private static func makeQuicParameters(configuration: OwnedQuicListenerConfiguration) throws -> NWParameters {
@@ -790,11 +817,18 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             )
             : nil
         // Publish the encoder so the group's datagram receive handler can honor a
-        // client keyframe request; clear it when the pump ends.
-        lock.withLock { self.videoEncoder = videoEncoder }
+        // client keyframe request; clear it when the pump ends. The adaptive bitrate
+        // controller (ADR-0027) is published alongside, fed by link-health reports.
+        lock.withLock {
+            self.videoEncoder = videoEncoder
+            self.videoBitrateController = videoEncoder == nil ? nil : VideoBitrateController(config: .fromConfig())
+        }
         defer {
             videoEncoder?.invalidate()
-            lock.withLock { self.videoEncoder = nil }
+            lock.withLock {
+                self.videoEncoder = nil
+                self.videoBitrateController = nil
+            }
         }
         var videoFrameId: UInt64 = 0
         var wasScrollingForVideo = false

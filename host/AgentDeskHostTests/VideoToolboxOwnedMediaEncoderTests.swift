@@ -161,6 +161,51 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertLessThanOrEqual(Double(total), cap, "keyframe-interval bytes exceeded the DataRateLimits window cap")
     }
 
+    // ADR-0027 R90: the adaptive bitrate controller, pure-logic against fixed inputs.
+    private func bitrateControllerConfig() -> VideoBitrateControllerConfig {
+        VideoBitrateControllerConfig(
+            ceilingKbps: 2500, floorKbps: 800, downStep: 0.7, upStep: 1.15,
+            lossDownPermille: 50, raiseCleanWindows: 4
+        )
+    }
+
+    func testBitrateControllerSustainedLossStepsToFloorNotBelow() {
+        var controller = VideoBitrateController(config: bitrateControllerConfig())
+        XCTAssertEqual(controller.targetKbps, 2500, "starts at the ceiling")
+        var last = controller.targetKbps
+        for _ in 0..<20 { last = controller.observe(completedFrames: 80, expiredFrames: 20).targetKbps }
+        XCTAssertEqual(last, 800, "sustained 20 percent loss converges to the floor and not below")
+    }
+
+    func testBitrateControllerRaisesOnlyAfterCleanStreak() {
+        var controller = VideoBitrateController(config: bitrateControllerConfig())
+        let down = controller.observe(completedFrames: 50, expiredFrames: 50)
+        XCTAssertEqual(down.reason, "loss-down")
+        let afterDown = controller.targetKbps
+        XCTAssertLessThan(afterDown, 2500)
+        XCTAssertFalse(controller.observe(completedFrames: 100, expiredFrames: 0).changed)
+        XCTAssertFalse(controller.observe(completedFrames: 100, expiredFrames: 0).changed)
+        XCTAssertFalse(controller.observe(completedFrames: 100, expiredFrames: 0).changed)
+        XCTAssertEqual(controller.targetKbps, afterDown, "three clean windows do not raise; hysteresis needs four")
+        let up = controller.observe(completedFrames: 100, expiredFrames: 0)
+        XCTAssertEqual(up.reason, "clean-up")
+        XCTAssertGreaterThan(controller.targetKbps, afterDown)
+    }
+
+    func testBitrateControllerNeverExceedsCeiling() {
+        var controller = VideoBitrateController(config: bitrateControllerConfig())
+        for _ in 0..<40 { _ = controller.observe(completedFrames: 100, expiredFrames: 0) }
+        XCTAssertEqual(controller.targetKbps, 2500, "clean windows cannot raise above the ceiling")
+    }
+
+    func testBitrateControllerIdleWindowHolds() {
+        var controller = VideoBitrateController(config: bitrateControllerConfig())
+        let outcome = controller.observe(completedFrames: 0, expiredFrames: 0)
+        XCTAssertFalse(outcome.changed)
+        XCTAssertEqual(outcome.reason, "idle")
+        XCTAssertEqual(controller.targetKbps, 2500)
+    }
+
     func testClientRequestKeyframeMarksReset() async throws {
         let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config(keyframeInterval: 120))
         defer { encoder.invalidate() }

@@ -52,6 +52,12 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     // ADR-0025 carrier keepalive timer. Runs on `queue`; sends a keepalive control
     // datagram so the host's idle timer never fires on the one-directional carrier.
     private var keepaliveTimer: DispatchSourceTimer?
+    // ADR-0027 link-health reporting. Counters tally this window's completed and
+    // expired (lost) frames from the repair buffer; the timer reports and resets them
+    // for the host adaptive bitrate controller. All touched only on `queue`.
+    private var linkHealthTimer: DispatchSourceTimer?
+    private var linkHealthCompletedInWindow = 0
+    private var linkHealthExpiredInWindow = 0
     private var connection: NWConnection?
     private var controlConnection: NWConnection?
     private var pendingConnection: NWConnection?
@@ -274,8 +280,10 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
             case .ready:
                 ownedMediaStderrTrace("video-datagram-carrier-ready")
                 self?.startCarrierKeepalive()
+                self?.startLinkHealthReporting()
             case .failed, .cancelled:
                 self?.stopCarrierKeepalive()
+                self?.stopLinkHealthReporting()
             default:
                 break
             }
@@ -309,8 +317,44 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         keepaliveTimer = nil
     }
 
+    // ADR-0027: report link health to the host on a fixed cadence. Each report carries
+    // this window's completed/expired counts and resets them, so the host controller
+    // sees per-window loss. Runs on `queue`, same as the rx handler that tallies.
+    private func startLinkHealthReporting() {
+        let intervalMs = Config.ownedMediaLinkHealthIntervalMs
+        guard intervalMs > 0 else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        let interval = DispatchTimeInterval.milliseconds(intervalMs)
+        timer.schedule(deadline: .now() + interval, repeating: interval)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            let completed = self.linkHealthCompletedInWindow
+            let expired = self.linkHealthExpiredInWindow
+            self.linkHealthCompletedInWindow = 0
+            self.linkHealthExpiredInWindow = 0
+            guard completed > 0 || expired > 0 else { return }
+            self.sendVideoControl(OwnedMediaControlMessage(
+                kind: .linkHealth,
+                frameId: 0,
+                linkHealthCompletedFrames: completed,
+                linkHealthExpiredFrames: expired
+            ))
+        }
+        linkHealthTimer?.cancel()
+        linkHealthTimer = timer
+        timer.resume()
+    }
+
+    private func stopLinkHealthReporting() {
+        linkHealthTimer?.cancel()
+        linkHealthTimer = nil
+        linkHealthCompletedInWindow = 0
+        linkHealthExpiredInWindow = 0
+    }
+
     func stop() {
         stopCarrierKeepalive()
+        stopLinkHealthReporting()
         receiveTask?.cancel()
         receiveTask = nil
         self.pendingConnection?.cancel()
@@ -493,6 +537,10 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
             ownedMediaStderrTrace("video-datagram-rx rx=\(self.videoDatagramRxCount) frame=\(packet.frameId) idx=\(packet.packetIndex)/\(packet.packetCount) key=\(packet.isKeyframe) bytes=\(data.count)")
         }
         let result = videoRepairBuffer.accept(packet, now: DispatchTime.now().uptimeNanoseconds)
+        // ADR-0027: tally this window's delivered and lost frames for the next
+        // link-health report. Touched only on `queue`, same as the timer that reads them.
+        linkHealthCompletedInWindow += result.completedFrames.count
+        linkHealthExpiredInWindow += result.expiredFrames.count
         for completed in result.completedFrames {
             guard let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else {
                 logger.notice("owned media video frame-complete decode-failed frame=\(completed.frameId, privacy: .public) bytes=\(completed.data.count, privacy: .public)")

@@ -102,7 +102,10 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
     private let codec: OwnedMediaCodec
-    private let targetBitrateKbps: Int
+    // ADR-0027: the live bitrate target. Starts at the configured value and the
+    // adaptive controller updates it via updateBitrate; ensureSession applies the
+    // current value so a session recreate (resize) keeps the adapted rate.
+    private var currentBitrateKbps: Int
     private let expectedFrameRate: Int
     private let configuration: OwnedMediaEncodingConfiguration
     private let lock = NSLock()
@@ -118,7 +121,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         configuration: OwnedMediaEncodingConfiguration = .default
     ) {
         self.codec = codec
-        self.targetBitrateKbps = configuration.targetBitrateKbps
+        self.currentBitrateKbps = configuration.targetBitrateKbps
         self.expectedFrameRate = configuration.expectedFrameRate
         self.configuration = configuration
     }
@@ -239,6 +242,26 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         lock.unlock()
     }
 
+    // ADR-0027: retarget the live session's bitrate (and its derived burst cap) without
+    // recreating it, so the adaptive controller can step it under loss. A no-op if no
+    // session yet; the new value is remembered so the next ensureSession applies it.
+    func updateBitrate(_ kbps: Int) {
+        lock.lock()
+        currentBitrateKbps = kbps
+        let session = self.session
+        let ratio = configuration.dataRateLimitRatio
+        lock.unlock()
+        guard let session else { return }
+        let limits = Self.dataRateLimits(targetBitrateKbps: kbps, ratio: ratio)
+        let limitsValue = [
+            NSNumber(value: Int(limits.bytesPerWindow)),
+            NSNumber(value: limits.windowSeconds)
+        ] as CFArray
+        _ = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: kbps * 1000))
+        _ = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitsValue)
+        logger.notice("owned encoder bitrate-updated kbps=\(kbps, privacy: .public) dataRateCapBytes=\(Int(limits.bytesPerWindow), privacy: .public)")
+    }
+
     private func ensureSession(for pixelBuffer: CVPixelBuffer) throws {
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
@@ -272,12 +295,12 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         try setProperty(kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue, on: newSession)
         try setProperty(kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse, on: newSession)
         try setProperty(kVTCompressionPropertyKey_ExpectedFrameRate, value: NSNumber(value: expectedFrameRate), on: newSession)
-        try setProperty(kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: targetBitrateKbps * 1000), on: newSession)
+        try setProperty(kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: currentBitrateKbps * 1000), on: newSession)
         // ADR-0027: hard windowed ceiling so a keyframe cannot burst past the link
         // budget. AverageBitRate above only bounds the long-run average; this bounds
         // the instantaneous burst that froze constrained links. VideoToolbox wants the
         // byte count as an integer CFNumber and the window as a seconds CFNumber.
-        let dataRateLimits = Self.dataRateLimits(targetBitrateKbps: targetBitrateKbps, ratio: configuration.dataRateLimitRatio)
+        let dataRateLimits = Self.dataRateLimits(targetBitrateKbps: currentBitrateKbps, ratio: configuration.dataRateLimitRatio)
         let dataRateLimitsValue = [
             NSNumber(value: Int(dataRateLimits.bytesPerWindow)),
             NSNumber(value: dataRateLimits.windowSeconds)
@@ -286,7 +309,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         VTCompressionSessionPrepareToEncodeFrames(newSession)
         session = newSession
         size = (width, height)
-        logger.notice("owned encoder session codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) pixelFormat=\(Self.fourCC(actualPixelFormat), privacy: .public) bitrate=\(self.targetBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public) keyframeInterval=\(self.configuration.keyframeIntervalFrames, privacy: .public) dataRateCapBytes=\(Int(dataRateLimits.bytesPerWindow), privacy: .public) dataRateWindowSec=\(dataRateLimits.windowSeconds, privacy: .public)")
+        logger.notice("owned encoder session codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) pixelFormat=\(Self.fourCC(actualPixelFormat), privacy: .public) bitrate=\(self.currentBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public) keyframeInterval=\(self.configuration.keyframeIntervalFrames, privacy: .public) dataRateCapBytes=\(Int(dataRateLimits.bytesPerWindow), privacy: .public) dataRateWindowSec=\(dataRateLimits.windowSeconds, privacy: .public)")
     }
 
     private func setProperty(_ key: CFString, value: CFTypeRef, on session: VTCompressionSession) throws {
@@ -504,5 +527,75 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         }
         guard status == noErr, let pointer else { return nil }
         return Data(bytes: pointer, count: size)
+    }
+}
+
+// ADR-0027 Phase 3: closes the open loop. Each client link-health report gives one
+// window's completed/expired (lost) frame counts; the controller maps the window
+// loss ratio to a bitrate target. Down fast on loss, up slow after a clean streak,
+// clamped to [floor, ceiling]. Pure and deterministic so the policy is unit-tested
+// without a live encoder; the transport owns the instance and applies each change to
+// the running session via VideoToolboxOwnedMediaEncoder.updateBitrate.
+struct VideoBitrateControllerConfig: Equatable {
+    let ceilingKbps: Int
+    let floorKbps: Int
+    let downStep: Double
+    let upStep: Double
+    let lossDownPermille: Int
+    let raiseCleanWindows: Int
+
+    static func fromConfig() -> VideoBitrateControllerConfig {
+        VideoBitrateControllerConfig(
+            ceilingKbps: Config.ownedMediaBitrateKbps,
+            floorKbps: Config.ownedMediaBitrateFloorKbps,
+            downStep: Config.ownedMediaBitrateDownStep,
+            upStep: Config.ownedMediaBitrateUpStep,
+            lossDownPermille: Config.ownedMediaBitrateLossDownPermille,
+            raiseCleanWindows: Config.ownedMediaBitrateRaiseCleanWindows
+        )
+    }
+}
+
+struct VideoBitrateController {
+    struct Outcome: Equatable {
+        let targetKbps: Int
+        let changed: Bool
+        let reason: String
+    }
+
+    private let config: VideoBitrateControllerConfig
+    private(set) var targetKbps: Int
+    private var cleanStreak = 0
+
+    init(config: VideoBitrateControllerConfig) {
+        self.config = config
+        self.targetKbps = config.ceilingKbps
+    }
+
+    // Observe one report window. An empty window (idle/rest, no frames) holds and is
+    // neither clean nor lossy, so a quiet stream never drifts the target.
+    mutating func observe(completedFrames: Int, expiredFrames: Int) -> Outcome {
+        let completed = max(0, completedFrames)
+        let expired = max(0, expiredFrames)
+        let total = completed + expired
+        guard total > 0 else {
+            return Outcome(targetKbps: targetKbps, changed: false, reason: "idle")
+        }
+        let lossPermille = (expired * 1000) / total
+        let previous = targetKbps
+        if lossPermille >= config.lossDownPermille {
+            cleanStreak = 0
+            targetKbps = max(config.floorKbps, Int((Double(targetKbps) * config.downStep).rounded()))
+            let changed = targetKbps != previous
+            return Outcome(targetKbps: targetKbps, changed: changed, reason: changed ? "loss-down" : "at-floor")
+        }
+        cleanStreak += 1
+        if cleanStreak >= config.raiseCleanWindows {
+            cleanStreak = 0
+            targetKbps = min(config.ceilingKbps, Int((Double(targetKbps) * config.upStep).rounded()))
+            let changed = targetKbps != previous
+            return Outcome(targetKbps: targetKbps, changed: changed, reason: changed ? "clean-up" : "at-ceiling")
+        }
+        return Outcome(targetKbps: targetKbps, changed: false, reason: "clean-hold")
     }
 }

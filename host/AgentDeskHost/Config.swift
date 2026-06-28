@@ -90,9 +90,39 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_CAPTURE_SCALE_DOWN",
         defaultValue: 1.0
     )
+    // The adaptive controller's ceiling and starting target (ADR-0027). Lowered from
+    // 8000 to 2500 after device testing: a full-screen Retina text keyframe is
+    // content-bound near 140KB regardless, so 8000 bought no text-quality benefit and
+    // only saturated constrained links. The controller oscillates between
+    // ownedMediaBitrateFloorKbps and this ceiling.
     static let ownedMediaBitrateKbps = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_KBPS",
-        defaultValue: 8_000
+        defaultValue: 2_500
+    )
+    // ADR-0027 adaptive bitrate controller knobs. Down fast on loss, up slow on a
+    // clean streak; see VideoBitrateController.
+    static let ownedMediaBitrateFloorKbps = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_FLOOR_KBPS",
+        defaultValue: 800
+    )
+    static let ownedMediaBitrateDownStep = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_DOWN_STEP",
+        defaultValue: 0.7
+    )
+    static let ownedMediaBitrateUpStep = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_UP_STEP",
+        defaultValue: 1.15
+    )
+    // Window loss ratio in per mille (parts per thousand) at or above which the
+    // controller steps the bitrate down. 50 = 5 percent of frames lost past repair.
+    static let ownedMediaBitrateLossDownPermille = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_LOSS_DOWN_PERMILLE",
+        defaultValue: 50
+    )
+    // Consecutive clean report windows required before the controller steps up.
+    static let ownedMediaBitrateRaiseCleanWindows = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_RAISE_CLEAN_WINDOWS",
+        defaultValue: 4
     )
     // ADR-0027: hard data-rate ceiling as a multiple of the average bitrate.
     // AverageBitRate only bounds the long-run average, so a single keyframe can
