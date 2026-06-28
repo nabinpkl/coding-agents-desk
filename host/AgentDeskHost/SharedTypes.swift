@@ -723,6 +723,101 @@ struct OwnedMediaFrameEnvelope: Equatable {
     }
 }
 
+// Client-to-host control for the datagram carrier: a keyframe request when the
+// stream desyncs past repair, and a packet-resend request naming the missing
+// indexes of a frame. frameAck/graphicsResetRequest/keepalive round out the
+// protocol the pre-ADR-0022 carrier used.
+enum OwnedMediaControlKind: String, Codable, Equatable {
+    case keyframeRequest = "keyframe-request"
+    case packetResendRequest = "packet-resend-request"
+    case frameAck = "frame-ack"
+    case graphicsResetRequest = "graphics-reset-request"
+    case keepalive = "keepalive"
+}
+
+struct OwnedMediaControlMessage: Codable, Equatable {
+    let type: String
+    let kind: OwnedMediaControlKind
+    let frameId: UInt64
+    let packetIndexes: [UInt16]
+    let totalFramesDecoded: UInt64?
+    let renderGapMs: Double?
+    let frameAgeMs: Double?
+    let clientBacklogFrames: Int?
+    let clientBacklogBytes: Int?
+    let graphicsSurfaceGeneration: UInt32?
+    let reason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case kind = "k"
+        case frameId = "id"
+        case packetIndexes = "px"
+        case totalFramesDecoded = "td"
+        case renderGapMs = "rg"
+        case clientBacklogFrames = "qf"
+        case clientBacklogBytes = "qb"
+        case graphicsSurfaceGeneration = "sg"
+        case reason = "r"
+    }
+
+    init(
+        kind: OwnedMediaControlKind,
+        frameId: UInt64,
+        packetIndexes: [UInt16] = [],
+        totalFramesDecoded: UInt64? = nil,
+        renderGapMs: Double? = nil,
+        frameAgeMs: Double? = nil,
+        clientBacklogFrames: Int? = nil,
+        clientBacklogBytes: Int? = nil,
+        graphicsSurfaceGeneration: UInt32? = nil,
+        reason: String? = nil
+    ) {
+        self.type = "owned-media-control"
+        self.kind = kind
+        self.frameId = frameId
+        self.packetIndexes = packetIndexes
+        self.totalFramesDecoded = totalFramesDecoded
+        self.renderGapMs = renderGapMs
+        self.frameAgeMs = frameAgeMs
+        self.clientBacklogFrames = clientBacklogFrames
+        self.clientBacklogBytes = clientBacklogBytes
+        self.graphicsSurfaceGeneration = graphicsSurfaceGeneration
+        self.reason = reason
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        kind = try container.decode(OwnedMediaControlKind.self, forKey: .kind)
+        frameId = try container.decode(UInt64.self, forKey: .frameId)
+        packetIndexes = try container.decodeIfPresent([UInt16].self, forKey: .packetIndexes) ?? []
+        totalFramesDecoded = try container.decodeIfPresent(UInt64.self, forKey: .totalFramesDecoded)
+        renderGapMs = try container.decodeIfPresent(Double.self, forKey: .renderGapMs)
+        frameAgeMs = nil
+        clientBacklogFrames = try container.decodeIfPresent(Int.self, forKey: .clientBacklogFrames)
+        clientBacklogBytes = try container.decodeIfPresent(Int.self, forKey: .clientBacklogBytes)
+        graphicsSurfaceGeneration = try container.decodeIfPresent(UInt32.self, forKey: .graphicsSurfaceGeneration)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(frameId, forKey: .frameId)
+        if !packetIndexes.isEmpty {
+            try container.encode(packetIndexes, forKey: .packetIndexes)
+        }
+        try container.encodeIfPresent(totalFramesDecoded, forKey: .totalFramesDecoded)
+        try container.encodeIfPresent(renderGapMs, forKey: .renderGapMs)
+        try container.encodeIfPresent(clientBacklogFrames, forKey: .clientBacklogFrames)
+        try container.encodeIfPresent(clientBacklogBytes, forKey: .clientBacklogBytes)
+        try container.encodeIfPresent(graphicsSurfaceGeneration, forKey: .graphicsSurfaceGeneration)
+        try container.encodeIfPresent(reason, forKey: .reason)
+    }
+}
+
 enum SessionSigning {
     static let domainPrefix = "agentdesk-session"
 

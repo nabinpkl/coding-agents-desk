@@ -36,6 +36,21 @@ enum Config {
         environmentKey: "AGENTDESK_GRAPHICS_RECONNECT_MAX_ATTEMPTS",
         defaultValue: 120
     )
+    // ADR-0025 datagram carrier: how long the client holds an incomplete motion
+    // frame awaiting resends before dropping it and requesting a keyframe, how many
+    // frames it tracks at once, and the cap on missing packets named per request.
+    static let ownedMediaRepairDeadlineMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_REPAIR_DEADLINE_MS",
+        defaultValue: 40
+    )
+    static let ownedMediaTrackedFrameLimit = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_TRACKED_FRAME_LIMIT",
+        defaultValue: 8
+    )
+    static let ownedMediaMaxResendPackets = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
+        defaultValue: 64
+    )
 
     static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
         guard let raw = ProcessInfo.processInfo.environment[environmentKey],

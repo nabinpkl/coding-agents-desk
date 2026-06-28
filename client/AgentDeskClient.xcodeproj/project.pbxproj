@@ -67,6 +67,11 @@
 		B0000000000000000000022E1 /* InputChannelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000124 /* InputChannelTests.swift */; };
 		B0000000000000000000022F /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000114 /* SettingsStore.swift */; };
 		B00000000000000000000E02 /* OwnedSurfaceCompositorCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000E01 /* OwnedSurfaceCompositorCacheTests.swift */; };
+		B00000000000000000000F61 /* MediaDatagramFramePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F60 /* MediaDatagramFramePacket.swift */; };
+		B00000000000000000000F62 /* MediaDatagramFramePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F60 /* MediaDatagramFramePacket.swift */; };
+		B00000000000000000000F64 /* OwnedMediaFrameRepairBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F63 /* OwnedMediaFrameRepairBuffer.swift */; };
+		B00000000000000000000F65 /* OwnedMediaFrameRepairBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F63 /* OwnedMediaFrameRepairBuffer.swift */; };
+		B00000000000000000000F67 /* OwnedMediaFrameRepairBufferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F66 /* OwnedMediaFrameRepairBufferTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -111,6 +116,9 @@
 		B00000000000000000000123 /* KeyboardSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSurfaceTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000124 /* InputChannelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannelTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000E01 /* OwnedSurfaceCompositorCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedSurfaceCompositorCacheTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000F60 /* MediaDatagramFramePacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDatagramFramePacket.swift; sourceTree = "<group>"; };
+		B00000000000000000000F63 /* OwnedMediaFrameRepairBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaFrameRepairBuffer.swift; sourceTree = "<group>"; };
+		B00000000000000000000F66 /* OwnedMediaFrameRepairBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaFrameRepairBufferTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000141 /* AgentDeskClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000142 /* AgentDeskClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -171,6 +179,8 @@
 				B00000000000000000000110 /* WebSocketSignalingChannel.swift */,
 				B00000000000000000000A00 /* OwnedMediaTransport.swift */,
 				B00000000000000000000A02 /* OwnedMediaVideoSink.swift */,
+				B00000000000000000000F60 /* MediaDatagramFramePacket.swift */,
+				B00000000000000000000F63 /* OwnedMediaFrameRepairBuffer.swift */,
 				B00000000000000000000113 /* GestureTranslator.swift */,
 				B00000000000000000000114 /* SettingsStore.swift */,
 				B00000000000000000000115 /* SettingsViewController.swift */,
@@ -201,6 +211,7 @@
 				B00000000000000000000124 /* InputChannelTests.swift */,
 				B00000000000000000000125 /* ThumbnailStripViewTests.swift */,
 				B00000000000000000000E01 /* OwnedSurfaceCompositorCacheTests.swift */,
+				B00000000000000000000F66 /* OwnedMediaFrameRepairBufferTests.swift */,
 				B00000000000000000000128 /* EdgeFollowTests.swift */,
 			);
 			path = AgentDeskClientTests;
@@ -320,6 +331,8 @@
 				B00000000000000000000207 /* PairingViewController.swift in Sources */,
 				B00000000000000000000208 /* SceneDelegate.swift in Sources */,
 				B00000000000000000000209 /* SharedTypes.swift in Sources */,
+				B00000000000000000000F61 /* MediaDatagramFramePacket.swift in Sources */,
+				B00000000000000000000F64 /* OwnedMediaFrameRepairBuffer.swift in Sources */,
 				B0000000000000000000020A /* SessionDialer.swift in Sources */,
 				B0000000000000000000020B /* MediaTransport.swift in Sources */,
 				B0000000000000000000020C /* SignalingChannel.swift in Sources */,
@@ -376,6 +389,9 @@
 				B0000000000000000000022F4 /* EdgeFollow.swift in Sources */,
 				B0000000000000000000022E3 /* EdgeFollowTests.swift in Sources */,
 				B00000000000000000000E02 /* OwnedSurfaceCompositorCacheTests.swift in Sources */,
+				B00000000000000000000F62 /* MediaDatagramFramePacket.swift in Sources */,
+				B00000000000000000000F65 /* OwnedMediaFrameRepairBuffer.swift in Sources */,
+				B00000000000000000000F67 /* OwnedMediaFrameRepairBufferTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

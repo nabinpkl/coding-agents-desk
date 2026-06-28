@@ -82,6 +82,16 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES",
         defaultValue: 120
     )
+    // ADR-0025 datagram carrier: how many recent frames' packets the host keeps for
+    // resend, and the cap on packets served per resend request.
+    static let ownedMediaResendRingFrames = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_RESEND_RING_FRAMES",
+        defaultValue: 8
+    )
+    static let ownedMediaMaxResendPackets = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
+        defaultValue: 64
+    )
     // ADR-0021: damage is emitted as tiles snapped to a fixed grid in surface
     // pixel space. A fixed cell size bounds per-tile bytes and gives each tile a
     // stable identity for the content tile cache (see the content-tile-cache
