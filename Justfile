@@ -48,7 +48,7 @@ client_dev_ipa_path := client_dev_export_path + "/AgentDeskClient.ipa"
 # tailnet device discovery (R55); 1.3.0 = independent host/client versions +
 # protocol-version negotiation (ADR-0020, R56).
 host_marketing_version := env_var_or_default("AGENTDESK_HOST_VERSION", "1.3.1")
-client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.3.1")
+client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.4.0")
 apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
 
 # Fast correctness gate: guard scripts plus the host build and tests. Excludes
