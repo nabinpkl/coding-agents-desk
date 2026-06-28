@@ -567,6 +567,10 @@ enum Config {
     static let spaceAgentLayout = SpaceAgentLayout(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_SPACE_AGENT_LAYOUT"]
     )
+    static let spaceThumbnailCaptureTimeoutMs = positiveInt(
+        environmentKey: "AGENTDESK_SPACE_THUMBNAIL_CAPTURE_TIMEOUT_MS",
+        defaultValue: 8_000
+    )
     // Experimental local-only switch backend. Default stays on the
     // stock Dock-swipe path; direct-set is for HITL diagnostics around
     // private SkyLight behavior.

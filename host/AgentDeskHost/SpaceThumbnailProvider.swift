@@ -233,29 +233,94 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
 
         Task.detached(priority: .utility) { [weak self, reason] in
             guard let self else { return }
+            defer {
+                self.state.withLock { $0.capturing = false }
+            }
             let start = Date()
-            let result = await self.captureAsync()
+            let result = await self.captureAsyncWithTimeout()
             let elapsed = Date().timeIntervalSince(start)
-            self.logger.debug("thumbnails capture reason=\(reason, privacy: .public) spaces=\(result.thumbnails.count, privacy: .public) elapsed=\(String(format: "%.3f", elapsed), privacy: .public)s")
-            self.emit(thumbnails: result.thumbnails, topWindows: result.topWindows)
-            self.state.withLock { $0.capturing = false }
+            if let failureReason = result.failureReason {
+                self.logger.error("thumbnails capture failed reason=\(reason, privacy: .public) failure=\(failureReason, privacy: .public) elapsed=\(String(format: "%.3f", elapsed), privacy: .public)s")
+            } else {
+                self.logger.notice("thumbnails capture reason=\(reason, privacy: .public) candidates=\(result.candidateWindowCount, privacy: .public) mapped=\(result.mappedWindowCount, privacy: .public) captured=\(result.capturedWindowCount, privacy: .public) blank=\(result.blankWindowCount, privacy: .public) spaces=\(result.thumbnails.count, privacy: .public) elapsed=\(String(format: "%.3f", elapsed), privacy: .public)s")
+            }
+            self.emit(result)
         }
     }
 
-    private func emit(thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow]) {
-        let continuations = state.withLock { s -> [AsyncStream<[UInt64: Data]>.Continuation] in
-            s.latest = thumbnails
-            s.latestTopWindows = topWindows
-            return Array(s.continuations.values)
+    private final class CaptureContinuationGate: @unchecked Sendable {
+        private let lock = OSAllocatedUnfairLock<Bool>(initialState: false)
+        private let continuation: CheckedContinuation<CaptureResult, Never>
+
+        init(_ continuation: CheckedContinuation<CaptureResult, Never>) {
+            self.continuation = continuation
         }
-        for continuation in continuations {
-            continuation.yield(thumbnails)
+
+        func resumeOnce(with result: CaptureResult) -> Bool {
+            let shouldResume = lock.withLock { didResume -> Bool in
+                guard !didResume else { return false }
+                didResume = true
+                return true
+            }
+            if shouldResume {
+                continuation.resume(returning: result)
+            }
+            return shouldResume
+        }
+    }
+
+    private func captureAsyncWithTimeout() async -> CaptureResult {
+        await withCheckedContinuation { continuation in
+            let gate = CaptureContinuationGate(continuation)
+            let captureTask = Task.detached(priority: .utility) { [weak self, gate] in
+                guard let self else {
+                    _ = gate.resumeOnce(with: .failure("provider deallocated"))
+                    return
+                }
+                let result = await self.captureAsync()
+                _ = gate.resumeOnce(with: result)
+            }
+            Task.detached(priority: .utility) { [gate, captureTask] in
+                try? await Task.sleep(nanoseconds: UInt64(Config.spaceThumbnailCaptureTimeoutMs) * 1_000_000)
+                if gate.resumeOnce(with: .failure("timeout")) {
+                    captureTask.cancel()
+                }
+            }
+        }
+    }
+
+    private func emit(_ result: CaptureResult) {
+        let emission = state.withLock { s -> (
+            continuations: [AsyncStream<[UInt64: Data]>.Continuation],
+            thumbnails: [UInt64: Data]
+        ) in
+            if result.failureReason == nil {
+                s.latest = result.thumbnails
+                s.latestTopWindows = result.topWindows
+                return (Array(s.continuations.values), result.thumbnails)
+            }
+            if let latest = s.latest {
+                return (Array(s.continuations.values), latest)
+            }
+            return (Array(s.continuations.values), [:])
+        }
+        for continuation in emission.continuations {
+            continuation.yield(emission.thumbnails)
         }
     }
 
     struct CaptureResult {
         var thumbnails: [UInt64: Data]
         var topWindows: [UInt64: SpaceTopWindow]
+        var failureReason: String? = nil
+        var candidateWindowCount: Int = 0
+        var mappedWindowCount: Int = 0
+        var capturedWindowCount: Int = 0
+        var blankWindowCount: Int = 0
+
+        static func failure(_ reason: String) -> CaptureResult {
+            CaptureResult(thumbnails: [:], topWindows: [:], failureReason: reason)
+        }
     }
 
     // Detached-async capture pipeline. Per-tick total time bounded by
@@ -277,11 +342,13 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             )
         } catch {
             logger.error("SCShareableContent failed: \(String(describing: error), privacy: .public)")
-            return CaptureResult(thumbnails: [:], topWindows: [:])
+            return CaptureResult.failure("SCShareableContent: \(String(describing: error))")
         }
 
         let candidates = candidateWindows(content)
-        if candidates.isEmpty { return CaptureResult(thumbnails: [:], topWindows: [:]) }
+        if candidates.isEmpty {
+            return CaptureResult(thumbnails: [:], topWindows: [:])
+        }
 
         // Map windowID -> spaceID via SkyLight. Per-window query is
         // O(W); for v0 W is small (single-digit to low-double-digit).
@@ -297,10 +364,20 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             guard let spaceId = sky.firstSpaceContaining(windowID: wid) else { continue }
             windowsBySpace[spaceId, default: []].append(win)
         }
-        if windowsBySpace.isEmpty { return CaptureResult(thumbnails: [:], topWindows: [:]) }
+        let mappedWindowCount = windowsBySpace.values.reduce(0) { $0 + $1.count }
+        if windowsBySpace.isEmpty {
+            return CaptureResult(
+                thumbnails: [:],
+                topWindows: [:],
+                candidateWindowCount: candidates.count,
+                mappedWindowCount: 0
+            )
+        }
 
         var thumbnailsOut: [UInt64: Data] = [:]
         var topWindowsOut: [UInt64: SpaceTopWindow] = [:]
+        var capturedWindowCount = 0
+        var blankWindowCount = 0
         for (spaceId, windows) in windowsBySpace {
             // Cap per-Space windows to keep capture cost bounded. Same
             // area-sorted order is used to pick the dominant window's
@@ -318,6 +395,11 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             var captured: [(image: CGImage, frame: CGRect)] = []
             for win in topRanked {
                 if let cg = await captureWindow(win) {
+                    capturedWindowCount += 1
+                    if Self.imageIsProbablyBlank(cg) {
+                        blankWindowCount += 1
+                        continue
+                    }
                     captured.append((cg, win.frame))
                 }
             }
@@ -326,7 +408,14 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             guard let jpeg = Self.composite(captured: captured, canvas: canvas) else { continue }
             thumbnailsOut[spaceId] = jpeg
         }
-        return CaptureResult(thumbnails: thumbnailsOut, topWindows: topWindowsOut)
+        return CaptureResult(
+            thumbnails: thumbnailsOut,
+            topWindows: topWindowsOut,
+            candidateWindowCount: candidates.count,
+            mappedWindowCount: mappedWindowCount,
+            capturedWindowCount: capturedWindowCount,
+            blankWindowCount: blankWindowCount
+        )
     }
 
     // Shared window filter: drop wallpaper, dock, menu-bar, control center,
@@ -476,6 +565,44 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
         CGImageDestinationAddImage(dest, composed, props as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { return nil }
         return buffer as Data
+    }
+
+    static func imageIsProbablyBlank(_ image: CGImage) -> Bool {
+        let sampleWidth = 16
+        let sampleHeight = 16
+        var pixels = [UInt8](repeating: 0, count: sampleWidth * sampleHeight * 4)
+        return pixels.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress,
+                  let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+                  let ctx = CGContext(
+                    data: base,
+                    width: sampleWidth,
+                    height: sampleHeight,
+                    bitsPerComponent: 8,
+                    bytesPerRow: sampleWidth * 4,
+                    space: colorSpace,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                  )
+            else { return false }
+            ctx.interpolationQuality = .low
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: sampleWidth, height: sampleHeight))
+
+            let buffer = raw.bindMemory(to: UInt8.self)
+            var maxLuma = 0
+            var minLuma = 255
+            var totalLuma = 0
+            for index in stride(from: 0, to: buffer.count, by: 4) {
+                let r = Int(buffer[index])
+                let g = Int(buffer[index + 1])
+                let b = Int(buffer[index + 2])
+                let luma = (54 * r + 183 * g + 19 * b) >> 8
+                maxLuma = max(maxLuma, luma)
+                minLuma = min(minLuma, luma)
+                totalLuma += luma
+            }
+            let averageLuma = totalLuma / (sampleWidth * sampleHeight)
+            return maxLuma <= 4 && averageLuma <= 2 && (maxLuma - minLuma) <= 3
+        }
     }
 }
 
