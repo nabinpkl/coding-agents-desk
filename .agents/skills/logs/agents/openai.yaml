@@ -1,0 +1,4 @@
+interface:
+  display_name: "Logs"
+  short_description: "AgentDesk simulator and device log workflow"
+  default_prompt: "Use $logs to collect and interpret AgentDesk simulator, host, client, and durable diagnostics logs."
