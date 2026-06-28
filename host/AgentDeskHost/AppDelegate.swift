@@ -97,6 +97,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var inputDispatcher = InputDispatcher(
         displayBoundsProvider: { [displaySelection] in
             displaySelection.selectedBounds()
+        },
+        selectedDisplayIdProvider: { [displaySelection] in
+            displaySelection.selectedDisplayId
         }
     )
     private lazy var spacesProvider = SpacesProvider(

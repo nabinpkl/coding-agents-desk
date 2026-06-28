@@ -74,6 +74,88 @@ struct InputDispatcherTests {
         #expect(recorder.events[0].location == CGPoint(x: 1499, y: 500))
     }
 
+    @Test func cursorSetPostsOneMouseMovedEventAtAbsolutePoint() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero },
+            displayBoundsProvider: { CGRect(x: 100, y: 200, width: 1500, height: 1000) },
+            selectedDisplayIdProvider: { "display-a" }
+        )
+
+        dispatcher.performDispatch(.cursorSet(displayId: "display-a", x: 450, y: 650))
+
+        #expect(recorder.events.count == 1)
+        #expect(recorder.events[0].type == .mouseMoved)
+        #expect(recorder.events[0].location == CGPoint(x: 450, y: 650))
+    }
+
+    @Test func cursorSetClampsToSelectedDisplayBounds() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero },
+            displayBoundsProvider: { CGRect(x: 100, y: 200, width: 1500, height: 1000) },
+            selectedDisplayIdProvider: { "display-a" }
+        )
+
+        dispatcher.performDispatch(.cursorSet(displayId: "display-a", x: 2_000, y: 2_000))
+
+        #expect(recorder.events.count == 1)
+        #expect(recorder.events[0].location == CGPoint(x: 1599, y: 1199))
+    }
+
+    @Test func cursorSetUpdatesScrollFocusSnapshot() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero },
+            displayBoundsProvider: { CGRect(x: 100, y: 200, width: 1500, height: 1000) },
+            selectedDisplayIdProvider: { "display-a" }
+        )
+
+        dispatcher.performDispatch(.cursorSet(displayId: "display-a", x: 450, y: 650))
+        let focus = dispatcher.scrollFocusSnapshot()
+
+        #expect(focus.focusPoint == CGPoint(x: 450, y: 650))
+        #expect(focus.displayBounds == CGRect(x: 100, y: 200, width: 1500, height: 1000))
+    }
+
+    @Test func cursorSetWithStaleDisplayIdDropsEvent() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero },
+            displayBoundsProvider: { CGRect(x: 100, y: 200, width: 1500, height: 1000) },
+            selectedDisplayIdProvider: { "display-a" }
+        )
+
+        dispatcher.performDispatch(.cursorSet(displayId: "display-b", x: 450, y: 650))
+
+        #expect(recorder.events.isEmpty)
+    }
+
+    @Test func cursorMoveAfterCursorSetStartsFromSetPoint() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero },
+            displayBoundsProvider: { CGRect(x: 100, y: 200, width: 1500, height: 1000) },
+            selectedDisplayIdProvider: { "display-a" }
+        )
+
+        dispatcher.performDispatch(.cursorSet(displayId: "display-a", x: 450, y: 650))
+        dispatcher.performDispatch(.cursorMove(dx: 10, dy: -20))
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[1].location == CGPoint(x: 460, y: 630))
+    }
+
     @Test func leftClickPostsMouseDownThenMouseUpAtCurrentLocation() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(

@@ -78,8 +78,8 @@ enum Config {
     // ADR-0020: wire protocol version negotiated at the session handshake. Bumped
     // only on a breaking wire change, independent of the marketing version. The
     // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
-    static let protocolVersion = 2
-    static let minCompatibleProtocolVersion = 2
+    static let protocolVersion = 3
+    static let minCompatibleProtocolVersion = 3
     static let nonceTTL: TimeInterval = 90
     static let sessionResumeTTL: TimeInterval = 20
     static let ownedMediaChroma = OwnedMediaChroma(

@@ -13,6 +13,7 @@ final class InputDispatcher: @unchecked Sendable {
     typealias EventPoster = (CGEvent) -> Void
     typealias LocationProvider = () -> CGPoint
     typealias DisplayBoundsProvider = () -> CGRect
+    typealias SelectedDisplayIdProvider = () -> String?
     typealias Clock = () -> CFTimeInterval
     typealias SwitchSpaceGestureHandler = (NormalizedInput.SwipePhase, Float, Float) -> Void
     typealias SwitchSpaceStepHandler = (Int) -> Void
@@ -28,6 +29,7 @@ final class InputDispatcher: @unchecked Sendable {
     private let isTrusted: () -> Bool
     private let locationProvider: LocationProvider
     private let displayBoundsProvider: DisplayBoundsProvider
+    private let selectedDisplayIdProvider: SelectedDisplayIdProvider
     private let clock: Clock
     // R11: AppDelegate installs this to forward continuous
     // .switchSpaceGesture frames into the SpacesProvider dock-swipe
@@ -104,12 +106,14 @@ final class InputDispatcher: @unchecked Sendable {
         isTrusted: @escaping () -> Bool = { AXIsProcessTrusted() },
         locationProvider: @escaping LocationProvider = { CGEvent(source: nil)?.location ?? .zero },
         displayBoundsProvider: @escaping DisplayBoundsProvider = { CGDisplayBounds(CGMainDisplayID()) },
+        selectedDisplayIdProvider: @escaping SelectedDisplayIdProvider = { nil },
         clock: @escaping Clock = { CACurrentMediaTime() }
     ) {
         self.eventPoster = eventPoster
         self.isTrusted = isTrusted
         self.locationProvider = locationProvider
         self.displayBoundsProvider = displayBoundsProvider
+        self.selectedDisplayIdProvider = selectedDisplayIdProvider
         self.clock = clock
         let source = CGEventSource(stateID: .hidSystemState)
         source?.localEventsSuppressionInterval = 0.0
@@ -156,6 +160,8 @@ final class InputDispatcher: @unchecked Sendable {
         }
         loggedUntrusted = false
         switch input {
+        case .cursorSet(let displayId, let x, let y):
+            postCursorSet(displayId: displayId, x: CGFloat(x), y: CGFloat(y))
         case .cursorMove(let dx, let dy):
             postCursorMove(dx: CGFloat(dx), dy: CGFloat(dy))
         case .click(let button):
@@ -207,6 +213,23 @@ final class InputDispatcher: @unchecked Sendable {
             return pos
         }
         return currentLocation()
+    }
+
+    private func postCursorSet(displayId: String, x: CGFloat, y: CGFloat) {
+        guard selectedDisplayIdProvider() == displayId else {
+            logger.notice("dropping cursorSet for stale display id=\(displayId, privacy: .public)")
+            return
+        }
+        let next = Self.clamp(CGPoint(x: x, y: y), to: displayBoundsProvider())
+        cursorPosition = next
+        lastCursorMoveTime = clock()
+        guard let event = CGEvent(
+            mouseEventSource: cursorEventSource,
+            mouseType: .mouseMoved,
+            mouseCursorPosition: next,
+            mouseButton: .left
+        ) else { return }
+        eventPoster(event)
     }
 
     private func postCursorMove(dx: CGFloat, dy: CGFloat) {

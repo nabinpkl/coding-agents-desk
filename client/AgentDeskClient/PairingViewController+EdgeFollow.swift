@@ -59,6 +59,8 @@ extension PairingViewController: UIScrollViewDelegate {
         activeDisplayRect = newRect
         activeDisplayIdMirror = display.id
         if !isSameDisplay || cursorSourcePos == nil {
+            pendingCursorRetarget = nil
+            isManualViewportPanActive = false
             if let cx = state.cursorX, let cy = state.cursorY {
                 cursorSourcePos = EdgeFollow.advanceCursor(
                     from: CGPoint(
@@ -203,6 +205,37 @@ extension PairingViewController: UIScrollViewDelegate {
     }
 
     public func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        guard scrollView === sinkScrollView else { return }
         updateCursorDot()
+    }
+
+    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView === sinkScrollView, scrollView.zoomScale > 1.0 else { return }
+        isManualViewportPanActive = true
+    }
+
+    public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        guard scrollView === sinkScrollView else { return }
+        if !decelerate {
+            finishManualViewportPan(scrollView)
+        }
+    }
+
+    public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        guard scrollView === sinkScrollView else { return }
+        finishManualViewportPan(scrollView)
+    }
+
+    func finishManualViewportPan(_ scrollView: UIScrollView) {
+        guard isManualViewportPanActive else { return }
+        isManualViewportPanActive = false
+        pendingCursorRetarget = PointerRetargeting.viewportCenterRetarget(
+            state: lastDesktopState,
+            displayId: activeDisplayIdMirror,
+            displayBounds: activeDisplayRect,
+            sinkViewSize: scrollView.bounds.size,
+            zoomScale: scrollView.zoomScale,
+            contentOffset: scrollView.contentOffset
+        )
     }
 }

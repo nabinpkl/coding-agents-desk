@@ -40,6 +40,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var cursorSourcePos: CGPoint?
     var activeDisplayRect: CGRect = .zero
     var activeDisplayIdMirror: String?
+    var pendingCursorRetarget: CursorViewportRetarget?
+    var isManualViewportPanActive = false
     // Local cursor overlay. Moves immediately from cursorSourcePos on
     // every gesture delta so the user sees instant cursor response
     // without waiting for the Mac -> owned media -> iOS video round-trip.
@@ -391,6 +393,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         cursorDotView?.removeFromSuperview()
         cursorDotView = nil
         cursorSourcePos = nil
+        pendingCursorRetarget = nil
+        isManualViewportPanActive = false
         activeDisplayRect = .zero
         activeDisplayIdMirror = nil
         selectedDisplayIdForClientConfig = nil
@@ -408,6 +412,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         let willBeLandscape = size.width > size.height
         coordinator.animate(alongsideTransition: { _ in
             self.applyOrientationConstraints(forLandscape: willBeLandscape)
+            self.pendingCursorRetarget = nil
+            self.isManualViewportPanActive = false
             self.sinkScrollView?.setZoomScale(1.0, animated: false)
             self.sinkScrollView?.setContentOffset(.zero, animated: false)
             self.updateOrientationToggleIcon(forLandscape: willBeLandscape)

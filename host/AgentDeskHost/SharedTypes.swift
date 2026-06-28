@@ -1326,6 +1326,7 @@ enum MediaTimingMath {
 }
 
 enum NormalizedInput: Codable, Equatable {
+    case cursorSet(displayId: String, x: Float, y: Float)
     case cursorMove(dx: Float, dy: Float)
     case click(button: MouseButton)
     case scroll(dx: Float, dy: Float, phase: ScrollPhase)

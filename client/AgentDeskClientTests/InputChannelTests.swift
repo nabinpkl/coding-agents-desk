@@ -808,6 +808,20 @@ struct InputChannelTests {
         #expect(decoded.event == event)
     }
 
+    @Test func cursorSetEventFramePreservesNormalizedInput() throws {
+        let event = NormalizedInput.cursorSet(displayId: "display-a", x: 250.5, y: 500.75)
+        let frame = InputChannelEvent(event: event)
+        let data = try JSONEncoder().encode(frame)
+        let decoded = try JSONDecoder().decode(InputChannelEvent.self, from: data)
+
+        #expect(decoded.event == event)
+    }
+
+    @Test func protocolVersionIsThreeForCursorSetWireBreak() {
+        #expect(Config.protocolVersion == 3)
+        #expect(Config.minCompatibleProtocolVersion == 3)
+    }
+
     @Test func eventFrameRoundTripPreservesKeyWithModifiers() throws {
         let event = NormalizedInput.key(code: "ansi-K", modifiers: [.cmd, .ctrl, .option, .shift])
         let frame = InputChannelEvent(event: event)

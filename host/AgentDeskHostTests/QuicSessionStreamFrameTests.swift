@@ -75,7 +75,7 @@ struct QuicSessionStreamFrameTests {
             sessionId: "session-123",
             resumeId: Data([1, 2, 3]),
             clientNonce: Data([4, 5, 6]),
-            protocolVersion: 2
+            protocolVersion: 3
         )
         let challenge = SessionResumeChallenge(
             hostNonce: Data([7, 8, 9]),
@@ -99,7 +99,7 @@ struct QuicSessionStreamFrameTests {
         #expect(json.contains("\"rid\":\"AQID\""))
         #expect(!json.contains("BwgJ"))
         #expect(decoded.deviceFingerprint == DeviceFingerprint("device-fp"))
-        #expect(decoded.protocolVersion == 2)
+        #expect(decoded.protocolVersion == 3)
     }
 
     @Test func sessionResumeProofRejectsUnexpectedType() {
@@ -119,6 +119,20 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded == frame)
         #expect(decoded.type == "input-event")
         #expect(decoded.event == event)
+    }
+
+    @Test func cursorSetInputEventFrameRoundTripsThroughCodable() throws {
+        let event = NormalizedInput.cursorSet(displayId: "display-a", x: 250.5, y: 500.75)
+        let frame = InputChannelEvent(event: event)
+        let data = try JSONEncoder().encode(frame)
+        let decoded = try JSONDecoder().decode(InputChannelEvent.self, from: data)
+
+        #expect(decoded.event == event)
+    }
+
+    @Test func protocolVersionIsThreeForCursorSetWireBreak() {
+        #expect(Config.protocolVersion == 3)
+        #expect(Config.minCompatibleProtocolVersion == 3)
     }
 
     @Test func inputCloseFrameRoundTripsThroughCodable() throws {

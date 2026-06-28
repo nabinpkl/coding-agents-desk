@@ -290,6 +290,8 @@ extension PairingViewController {
         cursorTask = nil
         cursorPositionTask?.cancel()
         cursorPositionTask = nil
+        pendingCursorRetarget = nil
+        isManualViewportPanActive = false
         stopAgentSayForegroundPresentation()
         lastDesktopState = nil
         selectedDisplayIdForClientConfig = nil
@@ -386,7 +388,7 @@ extension PairingViewController {
     }
 
     @objc func rightClickTapped() {
-        sendInput(.click(button: .right))
+        sendPointerAwareInput(.click(button: .right))
     }
 
     // Match the trackpad / scroll-strip card treatment so the button

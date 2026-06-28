@@ -9,8 +9,8 @@ enum Config {
     // ADR-0020: wire protocol version negotiated at the session handshake. Bumped
     // only on a breaking wire change, independent of the marketing version. The
     // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
-    static let protocolVersion = 2
-    static let minCompatibleProtocolVersion = 2
+    static let protocolVersion = 3
+    static let minCompatibleProtocolVersion = 3
     // NWConnection can report a transient .waiting state immediately before .ready,
     // especially for simulator loopback QUIC. Treat waiting as recoverable and use
     // this bound for real dial failures.

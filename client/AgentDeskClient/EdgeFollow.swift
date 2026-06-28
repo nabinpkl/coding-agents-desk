@@ -102,3 +102,84 @@ enum EdgeFollow {
         return CGPoint(x: nextX, y: nextY)
     }
 }
+
+struct CursorViewportRetarget: Equatable {
+    let displayId: String
+    let sourcePoint: CGPoint
+    let hostPoint: CGPoint
+}
+
+enum PointerRetargeting {
+    static func viewportCenterRetarget(
+        state: DesktopState?,
+        displayId: String?,
+        displayBounds: CGRect,
+        sinkViewSize: CGSize,
+        zoomScale: CGFloat,
+        contentOffset: CGPoint
+    ) -> CursorViewportRetarget? {
+        guard let state,
+              let displayId,
+              let display = state.displays.first(where: { $0.id == displayId }),
+              displayBounds.width > 0,
+              displayBounds.height > 0,
+              sinkViewSize.width > 0,
+              sinkViewSize.height > 0,
+              zoomScale > 1.0 else {
+            return nil
+        }
+
+        let fitScale = min(
+            sinkViewSize.width / displayBounds.width,
+            sinkViewSize.height / displayBounds.height
+        )
+        guard fitScale > 0 else { return nil }
+
+        let videoWidth = displayBounds.width * fitScale
+        let videoHeight = displayBounds.height * fitScale
+        let padX = (sinkViewSize.width - videoWidth) / 2
+        let padY = (sinkViewSize.height - videoHeight) / 2
+
+        let centerContentX = contentOffset.x + sinkViewSize.width / 2
+        let centerContentY = contentOffset.y + sinkViewSize.height / 2
+        let sinkX = centerContentX / zoomScale
+        let sinkY = centerContentY / zoomScale
+        let source = CGPoint(
+            x: (sinkX - padX) / fitScale,
+            y: (sinkY - padY) / fitScale
+        )
+        let clamped = EdgeFollow.advanceCursor(
+            from: source,
+            delta: .zero,
+            displayBounds: displayBounds
+        )
+        return CursorViewportRetarget(
+            displayId: displayId,
+            sourcePoint: clamped,
+            hostPoint: CGPoint(
+                x: CGFloat(display.originX) + clamped.x,
+                y: CGFloat(display.originY) + clamped.y
+            )
+        )
+    }
+
+    static func retargetInput(
+        pending: inout CursorViewportRetarget?,
+        before input: NormalizedInput
+    ) -> CursorViewportRetarget? {
+        guard input.consumesPendingCursorRetarget, let retarget = pending else { return nil }
+        pending = nil
+        return retarget
+    }
+}
+
+extension NormalizedInput {
+    var consumesPendingCursorRetarget: Bool {
+        switch self {
+        case .cursorMove, .click, .dragStart, .scroll:
+            return true
+        case .cursorSet, .dragEnd, .switchSpaceGesture, .switchSpaceStep, .key, .modifierArm:
+            return false
+        }
+    }
+}

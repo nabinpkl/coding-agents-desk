@@ -154,4 +154,91 @@ struct EdgeFollowTests {
         )
         #expect(next == .zero)
     }
+
+    @Test func viewportCenterRetargetProjectsThroughZoomAndPadding() {
+        let state = DesktopState(
+            displays: [
+                DisplayMetadata(
+                    id: "display-a",
+                    originX: 100,
+                    originY: 200,
+                    widthPoints: 2000,
+                    heightPoints: 1000
+                )
+            ],
+            spaces: [],
+            activeDisplayId: "display-a",
+            selectedDisplayId: "display-a",
+            activeSpaceId: nil,
+            cursorX: nil,
+            cursorY: nil
+        )
+
+        let retarget = PointerRetargeting.viewportCenterRetarget(
+            state: state,
+            displayId: "display-a",
+            displayBounds: CGRect(x: 0, y: 0, width: 2000, height: 1000),
+            sinkViewSize: CGSize(width: 500, height: 500),
+            zoomScale: 2,
+            contentOffset: CGPoint(x: 250, y: 250)
+        )
+
+        #expect(retarget?.displayId == "display-a")
+        #expect(retarget?.sourcePoint == CGPoint(x: 1000, y: 500))
+        #expect(retarget?.hostPoint == CGPoint(x: 1100, y: 700))
+    }
+
+    @Test func viewportCenterRetargetClampsOutsideVideoPadding() {
+        let state = DesktopState(
+            displays: [
+                DisplayMetadata(
+                    id: "display-a",
+                    originX: 100,
+                    originY: 200,
+                    widthPoints: 2000,
+                    heightPoints: 1000
+                )
+            ],
+            spaces: [],
+            activeDisplayId: "display-a",
+            selectedDisplayId: "display-a",
+            activeSpaceId: nil,
+            cursorX: nil,
+            cursorY: nil
+        )
+
+        let retarget = PointerRetargeting.viewportCenterRetarget(
+            state: state,
+            displayId: "display-a",
+            displayBounds: CGRect(x: 0, y: 0, width: 2000, height: 1000),
+            sinkViewSize: CGSize(width: 500, height: 500),
+            zoomScale: 2,
+            contentOffset: CGPoint(x: 0, y: 0)
+        )
+
+        #expect(retarget?.sourcePoint == CGPoint(x: 500, y: 0))
+        #expect(retarget?.hostPoint == CGPoint(x: 600, y: 200))
+    }
+
+    @Test func retargetInputConsumesOnlyPointerLocationDependentInputs() {
+        var pending: CursorViewportRetarget? = CursorViewportRetarget(
+            displayId: "display-a",
+            sourcePoint: CGPoint(x: 100, y: 200),
+            hostPoint: CGPoint(x: 300, y: 400)
+        )
+
+        #expect(PointerRetargeting.retargetInput(
+            pending: &pending,
+            before: .key(code: "ansi-A", modifiers: [])
+        ) == nil)
+        #expect(pending != nil)
+
+        let retarget = PointerRetargeting.retargetInput(
+            pending: &pending,
+            before: .cursorMove(dx: 1, dy: 2)
+        )
+
+        #expect(retarget?.displayId == "display-a")
+        #expect(pending == nil)
+    }
 }

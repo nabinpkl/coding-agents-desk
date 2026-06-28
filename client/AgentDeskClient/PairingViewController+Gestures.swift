@@ -310,10 +310,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // MARK: - GestureTranslatorDelegate
 
     func gestureTranslator(_ translator: GestureTranslator, didProduce input: NormalizedInput) {
-        if case let .cursorMove(dx, dy) = input {
-            advanceCursorModel(dx: CGFloat(dx), dy: CGFloat(dy))
-        }
-        sendInput(input)
+        sendPointerAwareInput(input)
     }
 
     // MARK: - ThumbnailStripViewDelegate
@@ -398,6 +395,26 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         Task { [channel, input] in
             try? await channel.send(input)
         }
+    }
+
+    func sendPointerAwareInput(_ input: NormalizedInput) {
+        if let retarget = PointerRetargeting.retargetInput(
+            pending: &pendingCursorRetarget,
+            before: input
+        ) {
+            cursorSourcePos = retarget.sourcePoint
+            applyEdgeFollow()
+            updateCursorDot()
+            sendInput(.cursorSet(
+                displayId: retarget.displayId,
+                x: Float(retarget.hostPoint.x),
+                y: Float(retarget.hostPoint.y)
+            ))
+        }
+        if case let .cursorMove(dx, dy) = input {
+            advanceCursorModel(dx: CGFloat(dx), dy: CGFloat(dy))
+        }
+        sendInput(input)
     }
 }
 
