@@ -171,6 +171,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             ackHoldP95Ms: 180, ackDownP95Ms: 350,
             cadenceGapMs: 500, freezeGapMs: 1_000, freezeFpsCeiling: 3,
             recoveryMaxGapMs: 300, recoveryMinFpsPermille: 800,
+            transitionWarmupWindows: 1,
             capacity1Kbps: 650, capacity1Fps: 24, capacity1Scale: 0.75,
             capacity2Kbps: 400, capacity2Fps: 15, capacity2Scale: 0.5,
             emergencyKbps: 180, emergencyFps: 6, emergencyScale: 0.33,
@@ -345,7 +346,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(controller.targetResolutionScale, 0.33)
     }
 
-    func testMediaQualityControllerRecoversBitrateBeforeResolutionAndFps() {
+    func testMediaQualityControllerRecoversBitrateThenProbesResolutionThenFps() {
         var controller = MediaQualityController(config: mediaQualityConfig())
         for _ in 0..<40 { _ = controller.observe(lossInput()) }
         XCTAssertEqual(controller.targetKbps, 180)
@@ -367,8 +368,33 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         }
         for _ in 0..<4 { _ = controller.observe(cleanInput()) }
         XCTAssertEqual(controller.targetKbps, 300)
-        XCTAssertEqual(controller.targetFps, 10, "fps changes only after emergency bitrate reaches survival")
+        XCTAssertEqual(controller.targetFps, 6, "fps holds while the higher survival resolution is probed")
         XCTAssertEqual(controller.targetResolutionScale, 0.5)
+        XCTAssertEqual(controller.target.rung, .survival)
+        XCTAssertEqual(controller.target.reason, "quality-up")
+        XCTAssertEqual(controller.currentRecoveryStatus.phase, .resolutionProbe)
+
+        let warmup = controller.observe(input(
+            cleanSample(ackP95Ms: 50),
+            productionSummary: production(actualFps: 3, targetFps: 6, maxGapMs: 780)
+        ))
+        XCTAssertFalse(warmup.outcome.changed, "resolution restart warmup does not immediately undo the probe")
+        XCTAssertEqual(warmup.outcome.reason, "transition-warmup")
+        XCTAssertEqual(warmup.recoveryStatus.phase, .transitionWarmup)
+        XCTAssertEqual(controller.targetFps, 6)
+        XCTAssertEqual(controller.targetResolutionScale, 0.5)
+
+        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        XCTAssertEqual(controller.targetFps, 6, "resolution probe must be proven stable before FPS changes")
+        XCTAssertEqual(controller.currentRecoveryStatus.phase, .steady)
+
+        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        XCTAssertEqual(controller.targetFps, 10, "fps changes only after the higher resolution is stable")
+        XCTAssertEqual(controller.targetResolutionScale, 0.5)
+        XCTAssertEqual(controller.currentRecoveryStatus.phase, .fpsProbe)
+
+        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        XCTAssertEqual(controller.currentRecoveryStatus.phase, .steady)
         while controller.targetKbps < 400 {
             for _ in 0..<3 { _ = controller.observe(cleanInput()) }
             let outcome = controller.observe(cleanInput()).outcome
@@ -382,10 +408,69 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(controller.targetKbps, 400)
         XCTAssertEqual(controller.targetFps, 15, "fps changes only after bitrate reaches the next rung")
         XCTAssertEqual(controller.targetResolutionScale, 0.5)
-        for _ in 0..<80 { _ = controller.observe(cleanInput()) }
+        var recoveryWindows = 0
+        while controller.targetKbps < 2_500 && recoveryWindows < 240 {
+            _ = controller.observe(cleanInput())
+            recoveryWindows += 1
+        }
         XCTAssertEqual(controller.targetFps, 30, "cadence recovers to the ceiling and not above")
         XCTAssertEqual(controller.targetKbps, 2500)
         XCTAssertEqual(controller.targetResolutionScale, 1.0)
+    }
+
+    func testMediaQualityControllerResolutionProbeRollsBackAfterWarmupFailure() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        for _ in 0..<40 { _ = controller.observe(lossInput()) }
+        while controller.targetKbps < 300 {
+            for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        }
+        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        XCTAssertEqual(controller.target.rung, .survival)
+        XCTAssertEqual(controller.targetFps, 6)
+        XCTAssertEqual(controller.targetResolutionScale, 0.5)
+
+        _ = controller.observe(input(
+            cleanSample(ackP95Ms: 50),
+            productionSummary: production(actualFps: 3, targetFps: 6, maxGapMs: 780)
+        ))
+        let failedProbe = controller.observe(input(
+            cleanSample(ackP95Ms: 50),
+            productionSummary: production(actualFps: 3, targetFps: 6, maxGapMs: 780)
+        ))
+
+        XCTAssertEqual(failedProbe.outcome.reason, "probe-resolution-rollback")
+        XCTAssertEqual(failedProbe.outcome.target.rung, .emergency)
+        XCTAssertEqual(failedProbe.outcome.target.bitrateKbps, 300)
+        XCTAssertEqual(failedProbe.outcome.target.fps, 6)
+        XCTAssertEqual(failedProbe.outcome.target.resolutionScale, 0.33)
+    }
+
+    func testMediaQualityControllerFpsProbeRollsBackOnlyFps() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        for _ in 0..<40 { _ = controller.observe(lossInput()) }
+        while controller.targetKbps < 300 {
+            for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        }
+        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        _ = controller.observe(input(
+            cleanSample(ackP95Ms: 50),
+            productionSummary: production(actualFps: 3, targetFps: 6, maxGapMs: 780)
+        ))
+        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        XCTAssertEqual(controller.targetFps, 10)
+        XCTAssertEqual(controller.targetResolutionScale, 0.5)
+
+        let failedFpsProbe = controller.observe(input(
+            cleanSample(ackP95Ms: 50),
+            productionSummary: production(actualFps: 3, targetFps: 10, maxGapMs: 780)
+        ))
+
+        XCTAssertEqual(failedFpsProbe.outcome.reason, "probe-fps-rollback")
+        XCTAssertEqual(failedFpsProbe.outcome.target.rung, .survival)
+        XCTAssertEqual(failedFpsProbe.outcome.target.bitrateKbps, 300)
+        XCTAssertEqual(failedFpsProbe.outcome.target.fps, 6)
+        XCTAssertEqual(failedFpsProbe.outcome.target.resolutionScale, 0.5)
     }
 
     func testMediaQualityControllerLatencyHoldsWithoutLossAndDownshiftsWithLoss() {
@@ -540,6 +625,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             ackHoldP95Ms: 180, ackDownP95Ms: 350,
             cadenceGapMs: 500, freezeGapMs: 1_000, freezeFpsCeiling: 3,
             recoveryMaxGapMs: 300, recoveryMinFpsPermille: 800,
+            transitionWarmupWindows: 0,
             capacity1Kbps: 650, capacity1Fps: 24, capacity1Scale: 0.75,
             capacity2Kbps: 400, capacity2Fps: 15, capacity2Scale: 0.5,
             emergencyKbps: 180, emergencyFps: 6, emergencyScale: 0.33,
@@ -552,7 +638,8 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         ))
         XCTAssertEqual(controller.targetResolutionScale, 0.75)
 
-        _ = controller.observe(cleanInput())
+        let bitrateUp = controller.observe(cleanInput())
+        XCTAssertEqual(bitrateUp.outcome.reason, "clean-up")
         XCTAssertEqual(controller.targetResolutionScale, 0.75)
         let up = controller.observe(cleanInput())
         XCTAssertEqual(up.outcome.reason, "quality-up")
@@ -560,11 +647,11 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
 
         let failedProbe = controller.observe(input(
             cleanSample(ackP95Ms: 50),
-            productionSummary: production(actualFps: 10, targetFps: 30, maxGapMs: 650)
+            productionSummary: production(actualFps: 10, targetFps: 24, maxGapMs: 650)
         ))
-        XCTAssertEqual(failedProbe.outcome.reason, "probe-cadence-down")
+        XCTAssertEqual(failedProbe.outcome.reason, "probe-resolution-rollback")
         XCTAssertEqual(failedProbe.outcome.target.rung, .capacity1)
-        XCTAssertEqual(failedProbe.recoveryStatus.blocker, "probe-cadence-pressure")
+        XCTAssertEqual(failedProbe.recoveryStatus.blocker, "probe-resolution-pressure")
     }
 
     func testMediaQualityControllerConfigNormalizesSurvivalKnobs() {
@@ -576,6 +663,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             ackHoldP95Ms: 0, ackDownP95Ms: 0,
             cadenceGapMs: 0, freezeGapMs: 0, freezeFpsCeiling: 0,
             recoveryMaxGapMs: 0, recoveryMinFpsPermille: 2_000,
+            transitionWarmupWindows: -1,
             capacity1Kbps: 900, capacity1Fps: 60, capacity1Scale: 2,
             capacity2Kbps: 700, capacity2Fps: 40, capacity2Scale: 0.8,
             emergencyKbps: 500, emergencyFps: 40, emergencyScale: 0.9,
@@ -588,6 +676,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(config.fpsFloor, 30, "fps floor cannot exceed the fps ceiling")
         XCTAssertEqual(config.freezeGapMs, config.cadenceGapMs)
         XCTAssertEqual(config.recoveryMinFpsPermille, 1_000)
+        XCTAssertEqual(config.transitionWarmupWindows, 0)
         XCTAssertEqual(config.capacity1Kbps, 800)
         XCTAssertEqual(config.capacity1Fps, 30)
         XCTAssertEqual(config.capacity1Scale, 1.0)

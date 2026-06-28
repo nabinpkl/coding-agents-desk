@@ -124,11 +124,29 @@ struct MediaQualityOutcome: Equatable {
     var resolutionChanged: Bool { target.resolutionScale != previousTarget.resolutionScale }
 }
 
+enum MediaQualityRecoveryPhase: String, Equatable {
+    case steady
+    case bitrateRecovering
+    case resolutionProbe
+    case transitionWarmup
+    case fpsProbe
+}
+
+enum MediaQualityProbeAxis: String, Equatable {
+    case none
+    case resolution
+    case fps
+}
+
 struct MediaQualityRecoveryStatus: Equatable {
     let cleanMs: Int
     let requiredMs: Int
     let blocker: String
     let probeWindowsRemaining: Int
+    let phase: MediaQualityRecoveryPhase
+    let warmupWindowsRemaining: Int
+    let probeAxis: MediaQualityProbeAxis
+    let stableTarget: MediaQualityTarget
 }
 
 struct MediaQualityControllerConfig: Equatable {
@@ -149,6 +167,7 @@ struct MediaQualityControllerConfig: Equatable {
     let freezeFpsCeiling: Int
     let recoveryMaxGapMs: Int
     let recoveryMinFpsPermille: Int
+    let transitionWarmupWindows: Int
     let capacity1Kbps: Int
     let capacity1Fps: Int
     let capacity1Scale: Double
@@ -178,6 +197,7 @@ struct MediaQualityControllerConfig: Equatable {
         freezeFpsCeiling: Int,
         recoveryMaxGapMs: Int,
         recoveryMinFpsPermille: Int,
+        transitionWarmupWindows: Int,
         capacity1Kbps: Int,
         capacity1Fps: Int,
         capacity1Scale: Double,
@@ -206,6 +226,7 @@ struct MediaQualityControllerConfig: Equatable {
         self.freezeFpsCeiling = max(0, freezeFpsCeiling)
         self.recoveryMaxGapMs = max(1, recoveryMaxGapMs)
         self.recoveryMinFpsPermille = min(max(1, recoveryMinFpsPermille), 1_000)
+        self.transitionWarmupWindows = max(0, transitionWarmupWindows)
         self.capacity1Kbps = min(max(1, capacity1Kbps), self.floorKbps)
         self.capacity1Fps = min(max(1, capacity1Fps), self.fpsCeiling)
         self.capacity1Scale = Self.normalizedScale(capacity1Scale)
@@ -237,6 +258,7 @@ struct MediaQualityControllerConfig: Equatable {
             freezeFpsCeiling: Config.ownedMediaFreezeFpsCeiling,
             recoveryMaxGapMs: Config.ownedMediaRecoveryMaxGapMs,
             recoveryMinFpsPermille: Config.ownedMediaRecoveryMinFpsPermille,
+            transitionWarmupWindows: Config.ownedMediaTransitionWarmupWindows,
             capacity1Kbps: Config.ownedMediaCapacity1BitrateKbps,
             capacity1Fps: Config.ownedMediaCapacity1Fps,
             capacity1Scale: Config.ownedMediaCapacity1ResolutionScale,
@@ -261,22 +283,31 @@ struct MediaQualityController {
     private var cleanRecoveryMs = 0
     private var cadencePressureStreak = 0
     private var probeWindowsRemaining = 0
+    private var warmupWindowsRemaining = 0
+    private var probeAxis: MediaQualityProbeAxis = .none
+    private var recoveryPhaseState: MediaQualityRecoveryPhase = .steady
+    private var stableTarget: MediaQualityTarget
 
     init(config: MediaQualityControllerConfig) {
         self.config = config
-        self.target = MediaQualityTarget(
+        let initialTarget = MediaQualityTarget(
             bitrateKbps: config.ceilingKbps,
             fps: config.fpsCeiling,
             resolutionScale: 1.0,
             rung: .native,
             reason: "initial"
         )
+        self.target = initialTarget
+        self.stableTarget = initialTarget
     }
 
     var targetKbps: Int { target.bitrateKbps }
     var targetFps: Int { target.fps }
     var targetResolutionScale: Double { target.resolutionScale }
     var requiredRecoveryMs: Int { config.raiseCleanWindows * 1_000 }
+    var currentRecoveryStatus: MediaQualityRecoveryStatus {
+        recoveryStatus(blocker: "none")
+    }
 
     mutating func observe(_ input: MediaQualityControllerInput) -> MediaQualityEvaluation {
         let previous = target
@@ -286,18 +317,6 @@ struct MediaQualityController {
             resetPressureStreaks()
             resetRecovery()
             return evaluation(signals: signals, previous: previous, reason: "idle", recoveryBlocker: "idle")
-        }
-
-        if signals.freezePressure {
-            resetPressureStreaks()
-            resetRecovery()
-            downshiftCapacity(reason: "freeze-capacity-down")
-            return evaluation(
-                signals: signals,
-                previous: previous,
-                reason: target == previous ? floorReason : target.reason,
-                recoveryBlocker: "freeze-pressure"
-            )
         }
 
         if signals.stalePressure {
@@ -312,7 +331,62 @@ struct MediaQualityController {
             )
         }
 
+        if signals.lossPressure {
+            resetPressureStreaks()
+            resetRecovery()
+            downshiftLoss(reason: "loss-down")
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: target == previous ? floorReason : target.reason,
+                recoveryBlocker: "loss-pressure"
+            )
+        }
+
+        if warmupWindowsRemaining > 0 {
+            warmupWindowsRemaining -= 1
+            cleanRecoveryMs = 0
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: "transition-warmup",
+                recoveryBlocker: "transition-warmup"
+            )
+        }
+
+        if signals.freezePressure {
+            if probeAxis != .none {
+                let activeProbeAxis = probeAxis
+                rollbackProbe(axis: activeProbeAxis)
+                return evaluation(
+                    signals: signals,
+                    previous: previous,
+                    reason: target.reason,
+                    recoveryBlocker: "probe-\(activeProbeAxis.rawValue)-pressure"
+                )
+            }
+            resetPressureStreaks()
+            resetRecovery()
+            downshiftCapacity(reason: "freeze-capacity-down")
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: target == previous ? floorReason : target.reason,
+                recoveryBlocker: "freeze-pressure"
+            )
+        }
+
         if signals.queuePressure && signals.cadencePressure {
+            if probeAxis != .none {
+                let activeProbeAxis = probeAxis
+                rollbackProbe(axis: activeProbeAxis)
+                return evaluation(
+                    signals: signals,
+                    previous: previous,
+                    reason: target.reason,
+                    recoveryBlocker: "probe-\(activeProbeAxis.rawValue)-pressure"
+                )
+            }
             resetPressureStreaks()
             resetRecovery()
             downshiftCapacity(reason: "queue-cadence-down")
@@ -325,18 +399,18 @@ struct MediaQualityController {
         }
 
         if signals.cadencePressure {
-            let wasRecoveryProbe = probeWindowsRemaining > 0
-            resetRecovery()
-            if wasRecoveryProbe {
+            let activeProbeAxis = probeAxis
+            if activeProbeAxis != .none {
                 resetPressureStreaks()
-                downshiftCapacity(reason: "probe-cadence-down")
+                rollbackProbe(axis: activeProbeAxis)
                 return evaluation(
                     signals: signals,
                     previous: previous,
                     reason: target == previous ? floorReason : target.reason,
-                    recoveryBlocker: "probe-cadence-pressure"
+                    recoveryBlocker: "probe-\(activeProbeAxis.rawValue)-pressure"
                 )
             }
+            resetRecovery()
             cadencePressureStreak += 1
             guard cadencePressureStreak >= config.cadenceDownWindows else {
                 return evaluation(
@@ -357,17 +431,6 @@ struct MediaQualityController {
         }
 
         cadencePressureStreak = 0
-
-        if signals.lossPressure {
-            resetRecovery()
-            downshiftLoss(reason: "loss-down")
-            return evaluation(
-                signals: signals,
-                previous: previous,
-                reason: target == previous ? floorReason : target.reason,
-                recoveryBlocker: "loss-pressure"
-            )
-        }
 
         if signals.queuePressure || (input.sample.ackAgeP95Ms ?? 0) >= config.ackHoldP95Ms {
             resetRecovery()
@@ -398,10 +461,16 @@ struct MediaQualityController {
         }
         if cleanRecoveryMs >= requiredRecoveryMs {
             cleanRecoveryMs = 0
-            recover()
-            if target.rung != previous.rung {
-                probeWindowsRemaining = config.raiseCleanWindows
+            if probeAxis != .none {
+                markProbeStable()
+                return evaluation(
+                    signals: signals,
+                    previous: previous,
+                    reason: "probe-stable",
+                    recoveryBlocker: "none"
+                )
             }
+            recover()
             return evaluation(
                 signals: signals,
                 previous: previous,
@@ -483,6 +552,8 @@ struct MediaQualityController {
                 rung: .lossControl,
                 reason: reason
             )
+            stableTarget = target
+            clearProbe()
             return
         }
         downshiftCapacity(reason: target.rung >= .survival ? floorReason : "capacity-down")
@@ -505,19 +576,110 @@ struct MediaQualityController {
         case .emergency:
             target = fixedTarget(for: .emergency, reason: "at-emergency-floor")
         }
+        stableTarget = target
+        clearProbe()
     }
 
     private mutating func recover() {
         if target.rung == .native {
             return
         }
+        let canonical = fixedTarget(for: target.rung, reason: "quality-up")
+        if target.bitrateKbps < canonical.bitrateKbps {
+            recoverBitrate(toward: canonical.bitrateKbps)
+            return
+        }
+        if target.resolutionScale < canonical.resolutionScale {
+            beginProbe(
+                target.with(resolutionScale: canonical.resolutionScale, reason: "quality-up"),
+                axis: .resolution
+            )
+            return
+        }
+        if target.fps < canonical.fps {
+            beginProbe(
+                target.with(fps: canonical.fps, reason: "quality-up"),
+                axis: .fps
+            )
+            return
+        }
+
         let next = recoveryTarget(for: target.rung)
         if target.bitrateKbps < next.bitrateKbps {
-            let bitrate = min(next.bitrateKbps, Int((Double(target.bitrateKbps) * config.upStep).rounded()))
-            target = target.with(bitrateKbps: bitrate, reason: "clean-up")
+            recoverBitrate(toward: next.bitrateKbps)
+            return
+        }
+        if target.resolutionScale < next.resolutionScale {
+            beginProbe(
+                MediaQualityTarget(
+                    bitrateKbps: next.bitrateKbps,
+                    fps: target.fps,
+                    resolutionScale: next.resolutionScale,
+                    rung: next.rung,
+                    reason: "quality-up"
+                ),
+                axis: .resolution
+            )
+            return
+        }
+        if target.fps < next.fps {
+            beginProbe(
+                MediaQualityTarget(
+                    bitrateKbps: next.bitrateKbps,
+                    fps: next.fps,
+                    resolutionScale: next.resolutionScale,
+                    rung: next.rung,
+                    reason: "quality-up"
+                ),
+                axis: .fps
+            )
             return
         }
         target = next.with(reason: "quality-up")
+        stableTarget = target
+        clearProbe()
+    }
+
+    private mutating func recoverBitrate(toward nextBitrateKbps: Int) {
+        if target.bitrateKbps < nextBitrateKbps {
+            let bitrate = min(nextBitrateKbps, Int((Double(target.bitrateKbps) * config.upStep).rounded()))
+            target = target.with(bitrateKbps: bitrate, reason: "clean-up")
+            stableTarget = target
+            clearProbe()
+            recoveryPhaseState = .bitrateRecovering
+            return
+        }
+    }
+
+    private mutating func beginProbe(_ nextTarget: MediaQualityTarget, axis: MediaQualityProbeAxis) {
+        target = nextTarget
+        probeAxis = axis
+        recoveryPhaseState = axis == .resolution ? .resolutionProbe : .fpsProbe
+        probeWindowsRemaining = config.raiseCleanWindows
+        if axis == .resolution {
+            warmupWindowsRemaining = config.transitionWarmupWindows
+        } else {
+            warmupWindowsRemaining = 0
+        }
+    }
+
+    private mutating func rollbackProbe(axis: MediaQualityProbeAxis? = nil) {
+        let rollbackAxis = axis ?? probeAxis
+        target = stableTarget.with(reason: "probe-\(rollbackAxis.rawValue)-rollback")
+        clearProbe()
+        cleanRecoveryMs = 0
+    }
+
+    private mutating func markProbeStable() {
+        stableTarget = target
+        clearProbe()
+    }
+
+    private mutating func clearProbe() {
+        probeAxis = .none
+        probeWindowsRemaining = 0
+        warmupWindowsRemaining = 0
+        recoveryPhaseState = .steady
     }
 
     private func fixedTarget(for rung: MediaQualityRung, reason: String) -> MediaQualityTarget {
@@ -560,7 +722,7 @@ struct MediaQualityController {
 
     private mutating func resetRecovery() {
         cleanRecoveryMs = 0
-        probeWindowsRemaining = 0
+        clearProbe()
     }
 
     private func recoveryStatus(blocker: String) -> MediaQualityRecoveryStatus {
@@ -568,8 +730,26 @@ struct MediaQualityController {
             cleanMs: cleanRecoveryMs,
             requiredMs: requiredRecoveryMs,
             blocker: blocker,
-            probeWindowsRemaining: probeWindowsRemaining
+            probeWindowsRemaining: probeWindowsRemaining,
+            phase: recoveryPhase(blocker: blocker),
+            warmupWindowsRemaining: warmupWindowsRemaining,
+            probeAxis: probeAxis,
+            stableTarget: stableTarget
         )
+    }
+
+    private func recoveryPhase(blocker: String) -> MediaQualityRecoveryPhase {
+        if blocker == "transition-warmup" {
+            return .transitionWarmup
+        }
+        switch probeAxis {
+        case .resolution:
+            return .resolutionProbe
+        case .fps:
+            return .fpsProbe
+        case .none:
+            return recoveryPhaseState
+        }
     }
 
     private func evaluation(

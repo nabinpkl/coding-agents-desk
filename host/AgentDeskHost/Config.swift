@@ -168,6 +168,10 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_RECOVERY_MIN_FPS_PERMILLE",
         defaultValue: 800
     )
+    static let ownedMediaTransitionWarmupWindows = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_TRANSITION_WARMUP_WINDOWS",
+        defaultValue: 1
+    )
     // ADR-0027: hard data-rate ceiling as a multiple of the average bitrate.
     // AverageBitRate only bounds the long-run average, so a single keyframe can
     // burst many times the target in one frame; on a constrained link that burst is

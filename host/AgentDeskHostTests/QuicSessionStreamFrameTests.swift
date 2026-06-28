@@ -238,6 +238,7 @@ struct QuicSessionHostMediaStateTests {
             freezeFpsCeiling: 3,
             recoveryMaxGapMs: 300,
             recoveryMinFpsPermille: 800,
+            transitionWarmupWindows: 1,
             capacity1Kbps: 650,
             capacity1Fps: 24,
             capacity1Scale: 0.75,
