@@ -402,11 +402,16 @@ enum Config {
         defaultValue: 0.5
     )
     // Number of pump holds-since-last-produce that maps the instantaneous congestion
-    // signal to 1.0 (fully saturated). Device runs saturated at ~14 holds/frame, so a
-    // value below that saturates the ramp a bit before the extreme.
+    // signal to 1.0 (fully saturated, encode at the floor). A device run showed the
+    // pump holds ~2-3 frames per produce during a fullframe burst on a saturated
+    // link, so this must be small: at 2, one held frame ramps the level to 0.5 (a
+    // gentle quality dip, no downscale) and two or more piled-up frames reach the
+    // floor, matching working-version-11's aggressive congestion response without
+    // its cliff. A larger value (the first attempt used 8) left the level stuck near
+    // 0.3, so fullframes stayed near rest quality and ballooned to ~370KB.
     static let hybridCongestionSaturationHolds = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_CONGESTION_SATURATION_HOLDS",
-        defaultValue: 8
+        defaultValue: 2
     )
     // EWMA smoothing for the congestion level so a single held frame does not jump the
     // level to maximum (the binary cliff that the macroblock regression came from).
