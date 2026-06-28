@@ -75,6 +75,9 @@
 		B00000000000000000000F69 /* OwnedMediaVideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F68 /* OwnedMediaVideoDecoder.swift */; };
 		B00000000000000000000F6A /* OwnedMediaVideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F68 /* OwnedMediaVideoDecoder.swift */; };
 		B00000000000000000000F6C /* OwnedMediaVideoDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F6B /* OwnedMediaVideoDecoderTests.swift */; };
+		B00000000000000000000F6E /* OwnedMediaCarrierHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F6D /* OwnedMediaCarrierHandoff.swift */; };
+		B00000000000000000000F6F /* OwnedMediaCarrierHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F6D /* OwnedMediaCarrierHandoff.swift */; };
+		B00000000000000000000F71 /* OwnedMediaCarrierHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F70 /* OwnedMediaCarrierHandoffTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -124,6 +127,8 @@
 		B00000000000000000000F66 /* OwnedMediaFrameRepairBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaFrameRepairBufferTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000F68 /* OwnedMediaVideoDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaVideoDecoder.swift; sourceTree = "<group>"; };
 		B00000000000000000000F6B /* OwnedMediaVideoDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaVideoDecoderTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000F6D /* OwnedMediaCarrierHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaCarrierHandoff.swift; sourceTree = "<group>"; };
+		B00000000000000000000F70 /* OwnedMediaCarrierHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaCarrierHandoffTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000141 /* AgentDeskClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000142 /* AgentDeskClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -187,6 +192,7 @@
 				B00000000000000000000F60 /* MediaDatagramFramePacket.swift */,
 				B00000000000000000000F63 /* OwnedMediaFrameRepairBuffer.swift */,
 				B00000000000000000000F68 /* OwnedMediaVideoDecoder.swift */,
+				B00000000000000000000F6D /* OwnedMediaCarrierHandoff.swift */,
 				B00000000000000000000113 /* GestureTranslator.swift */,
 				B00000000000000000000114 /* SettingsStore.swift */,
 				B00000000000000000000115 /* SettingsViewController.swift */,
@@ -219,6 +225,7 @@
 				B00000000000000000000E01 /* OwnedSurfaceCompositorCacheTests.swift */,
 				B00000000000000000000F66 /* OwnedMediaFrameRepairBufferTests.swift */,
 				B00000000000000000000F6B /* OwnedMediaVideoDecoderTests.swift */,
+				B00000000000000000000F70 /* OwnedMediaCarrierHandoffTests.swift */,
 				B00000000000000000000128 /* EdgeFollowTests.swift */,
 			);
 			path = AgentDeskClientTests;
@@ -341,6 +348,7 @@
 				B00000000000000000000F61 /* MediaDatagramFramePacket.swift in Sources */,
 				B00000000000000000000F64 /* OwnedMediaFrameRepairBuffer.swift in Sources */,
 				B00000000000000000000F69 /* OwnedMediaVideoDecoder.swift in Sources */,
+				B00000000000000000000F6E /* OwnedMediaCarrierHandoff.swift in Sources */,
 				B0000000000000000000020A /* SessionDialer.swift in Sources */,
 				B0000000000000000000020B /* MediaTransport.swift in Sources */,
 				B0000000000000000000020C /* SignalingChannel.swift in Sources */,
@@ -402,6 +410,8 @@
 				B00000000000000000000F67 /* OwnedMediaFrameRepairBufferTests.swift in Sources */,
 				B00000000000000000000F6A /* OwnedMediaVideoDecoder.swift in Sources */,
 				B00000000000000000000F6C /* OwnedMediaVideoDecoderTests.swift in Sources */,
+				B00000000000000000000F6F /* OwnedMediaCarrierHandoff.swift in Sources */,
+				B00000000000000000000F71 /* OwnedMediaCarrierHandoffTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
