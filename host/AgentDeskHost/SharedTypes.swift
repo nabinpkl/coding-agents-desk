@@ -1955,7 +1955,7 @@ struct GraphicsBackpressure {
     // keeps the in-flight COUNT and in-flight BYTES exactly consistent without
     // relying on a frameId-keyed lookup that the reconnect-climbing frameId would
     // corrupt (B2).
-    private var inFlightFrames: [(id: UInt64, bytes: Int)] = []
+    private var inFlightFrames: [(id: UInt64, bytes: Int, sentAtUptimeNs: UInt64)] = []
     private var inFlightBytes = 0
     private var lastAckedFrameId: UInt64 = 0
 
@@ -1966,6 +1966,7 @@ struct GraphicsBackpressure {
 
     var inFlight: Int { inFlightFrames.count }
     var bytesInFlight: Int { inFlightBytes }
+    var oldestSentUptimeNs: UInt64? { inFlightFrames.first?.sentAtUptimeNs }
 
     // Admit when nothing is in flight (never block the first frame, so a single
     // oversized frame is never permanently stalled), else gate on BOTH the frame
@@ -1977,9 +1978,13 @@ struct GraphicsBackpressure {
         return inFlightFrames.count < maxUnacked && inFlightBytes < maxUnackedBytes
     }
 
-    mutating func noteSent(frameId: UInt64, bytes: Int = 0) {
+    mutating func noteSent(
+        frameId: UInt64,
+        bytes: Int = 0,
+        sentAtUptimeNs: UInt64 = DispatchTime.now().uptimeNanoseconds
+    ) {
         let b = max(0, bytes)
-        inFlightFrames.append((frameId, b))
+        inFlightFrames.append((frameId, b, sentAtUptimeNs))
         inFlightBytes += b
     }
 

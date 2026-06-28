@@ -188,13 +188,24 @@ struct QuicSessionHostMediaStateTests {
         )
     }
 
+    private func requireReady(
+        _ admission: QuicSessionHostMediaState.Admission,
+        _ message: @autoclosure () -> String
+    ) throws -> OwnedSurfaceUpdateId {
+        switch admission {
+        case .ready(let updateId):
+            return updateId
+        case .retry(let afterNs, let reason):
+            Issue.record("\(message()) (retry after \(afterNs)ns reason=\(reason.rawValue))")
+            throw NSError(domain: "QuicSessionStreamFrameTests.AdmissionExpectationFailed", code: 1)
+        }
+    }
+
     @Test func mediaUpdateIdsStartAboveZeroAndIncrease() throws {
         var state = makeState()
 
-        let reservedFirst = state.reserveUpdateId(nowNs: 0)
-        let first = try #require(reservedFirst)
-        let reservedSecond = state.reserveUpdateId(nowNs: 1)
-        let second = try #require(reservedSecond)
+        let first = try requireReady(state.reserveUpdateId(nowNs: 0), "expected first update id")
+        let second = try requireReady(state.reserveUpdateId(nowNs: 1), "expected second update id")
 
         #expect(first.surfaceGeneration == 1)
         #expect(first.frameId == 1)
@@ -203,25 +214,26 @@ struct QuicSessionHostMediaStateTests {
 
     @Test func inFlightAdmissionBlocksUntilAck() throws {
         var state = makeState(maxInflightFrames: 2)
-        let reservedFirst = state.reserveUpdateId(nowNs: 0)
-        let first = try #require(reservedFirst)
+        let first = try requireReady(state.reserveUpdateId(nowNs: 0), "expected first update id")
         state.noteSent(frameId: first.frameId, encodedBytes: 10, packets: [Data([1])])
-        let reservedSecond = state.reserveUpdateId(nowNs: 1)
-        let second = try #require(reservedSecond)
+        let second = try requireReady(state.reserveUpdateId(nowNs: 1), "expected second update id")
         state.noteSent(frameId: second.frameId, encodedBytes: 10, packets: [Data([2])])
 
         let blocked = state.reserveUpdateId(nowNs: 2)
-        #expect(blocked == nil)
+        if case .retry(_, let reason) = blocked {
+            #expect(reason == .backpressure)
+        } else {
+            Issue.record("expected backpressure retry while max inflight frames are still unacked")
+            throw NSError(domain: "QuicSessionStreamFrameTests.AdmissionExpectationFailed", code: 2)
+        }
         state.noteAck(frameId: first.frameId)
-        let reservedThird = state.reserveUpdateId(nowNs: 3)
-        let third = try #require(reservedThird)
+        let third = try requireReady(state.reserveUpdateId(nowNs: 3), "expected third update id after ack")
         #expect(third.frameId == 3)
     }
 
     @Test func resendRingServesRememberedPackets() throws {
         var state = makeState()
-        let reservedUpdate = state.reserveUpdateId(nowNs: 0)
-        let update = try #require(reservedUpdate)
+        let update = try requireReady(state.reserveUpdateId(nowNs: 0), "expected resend test update id")
         state.noteSent(
             frameId: update.frameId,
             encodedBytes: 2,
@@ -234,8 +246,8 @@ struct QuicSessionHostMediaStateTests {
             maxCount: 8
         )
 
-        #expect(served.packets.map(\.0) == [0, 1])
-        #expect(served.packets.map(\.1) == [Data([0]), Data([1])])
+        #expect(served.packets.map { $0.0 } == [0, 1])
+        #expect(served.packets.map { $0.1 } == [Data([0]), Data([1])])
         #expect(served.misses == [9])
     }
 
@@ -257,14 +269,20 @@ struct QuicSessionHostMediaStateTests {
         }
         #expect(state.targetFps < 30)
 
-        let reservedFirst = state.reserveUpdateId(nowNs: 0)
-        let first = try #require(reservedFirst)
+        let first = try requireReady(state.reserveUpdateId(nowNs: 0), "expected first survival update id")
         #expect(first.frameId == 1)
         let blocked = state.reserveUpdateId(nowNs: 1)
-        #expect(blocked == nil)
+        if case .retry(_, let reason) = blocked {
+            #expect(reason == .capacity)
+        } else {
+            Issue.record("expected cadence retry while survival fps gate is active")
+            throw NSError(domain: "QuicSessionStreamFrameTests.AdmissionExpectationFailed", code: 3)
+        }
 
-        let reservedAfterCapacityInterval = state.reserveUpdateId(nowNs: 70_000_000)
-        let afterCapacityInterval = try #require(reservedAfterCapacityInterval)
+        let afterCapacityInterval = try requireReady(
+            state.reserveUpdateId(nowNs: 70_000_000),
+            "expected update id after survival capacity interval"
+        )
         #expect(afterCapacityInterval.frameId == 2)
     }
 }

@@ -233,6 +233,14 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_MAX_INFLIGHT_BYTES",
         defaultValue: 300_000
     )
+    static let ownedMediaDrainRetryIntervalMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DRAIN_RETRY_INTERVAL_MS",
+        defaultValue: 250
+    )
+    static let ownedMediaBackpressureStaleTimeoutMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_STALE_TIMEOUT_MS",
+        defaultValue: 1_500
+    )
     // ADR-0021: damage is emitted as tiles snapped to a fixed grid in surface
     // pixel space. A fixed cell size bounds per-tile bytes and gives each tile a
     // stable identity for the content tile cache (see the content-tile-cache

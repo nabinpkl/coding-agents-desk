@@ -18,6 +18,7 @@ enum OwnedMediaKeyframeReason: String, Equatable, Sendable {
     case initial
     case periodic
     case clientRequest = "client-request"
+    case transportRecovery = "transport-recovery"
 }
 
 extension OwnedMediaRefreshReason {
@@ -36,7 +37,10 @@ extension OwnedMediaRefreshReason {
         guard isKeyframe else {
             return .rest
         }
-        if requestedKeyframeReason == .clientRequest || expectedKeyframeReason == .clientRequest {
+        if requestedKeyframeReason == .clientRequest ||
+            requestedKeyframeReason == .transportRecovery ||
+            expectedKeyframeReason == .clientRequest ||
+            expectedKeyframeReason == .transportRecovery {
             return .reset
         }
         return .rest
@@ -702,19 +706,34 @@ struct VideoBitrateController {
 }
 
 struct QuicSessionHostMediaState {
+    enum Admission: Equatable {
+        case ready(OwnedSurfaceUpdateId)
+        case retry(afterNs: UInt64, reason: RetryReason)
+    }
+
+    enum RetryReason: String, Equatable {
+        case capacity
+        case backpressure
+    }
+
     private var nextFrameId: UInt64 = 0
     private var lastProduceUptimeNs: UInt64?
     private var backpressure: GraphicsBackpressure
     private var bitrateController: VideoBitrateController
     private var resendRing: OwnedMediaResendRing
     private let expectedFrameRate: Int
+    private let retryIntervalNs: UInt64
+    private let staleInflightTimeoutNs: UInt64
+    private var forceRecoveryKeyframeOnNextAdmission = false
 
     init(
         maxInflightFrames: Int = Config.ownedMediaBackpressureMaxInflightFrames,
         maxInflightBytes: Int = Config.ownedMediaBackpressureMaxInflightBytes,
         expectedFrameRate: Int = Config.ownedMediaExpectedFrameRate,
         bitrateController: VideoBitrateController = VideoBitrateController(config: .fromConfig()),
-        resendRingFrames: Int = Config.ownedMediaResendRingFrames
+        resendRingFrames: Int = Config.ownedMediaResendRingFrames,
+        retryIntervalNs: UInt64 = UInt64(Config.ownedMediaDrainRetryIntervalMs) * 1_000_000,
+        staleInflightTimeoutNs: UInt64 = UInt64(Config.ownedMediaBackpressureStaleTimeoutMs) * 1_000_000
     ) {
         self.backpressure = GraphicsBackpressure(
             maxUnacked: maxInflightFrames,
@@ -723,27 +742,49 @@ struct QuicSessionHostMediaState {
         self.expectedFrameRate = max(1, expectedFrameRate)
         self.bitrateController = bitrateController
         self.resendRing = OwnedMediaResendRing(capacityFrames: resendRingFrames)
+        self.retryIntervalNs = max(1, retryIntervalNs)
+        self.staleInflightTimeoutNs = max(1, staleInflightTimeoutNs)
     }
 
     var targetKbps: Int { bitrateController.targetKbps }
     var targetFps: Int { bitrateController.targetFps }
     var inFlightFrames: Int { backpressure.inFlight }
 
-    mutating func reserveUpdateId(nowNs: UInt64) -> OwnedSurfaceUpdateId? {
-        guard backpressure.canProduce() else { return nil }
+    mutating func reserveUpdateId(nowNs: UInt64) -> Admission {
+        if !backpressure.canProduce() {
+            if let oldestSentUptimeNs = backpressure.oldestSentUptimeNs {
+                let ageNs = nowNs >= oldestSentUptimeNs ? nowNs - oldestSentUptimeNs : 0
+                if ageNs >= staleInflightTimeoutNs {
+                    backpressure.reset()
+                    forceRecoveryKeyframeOnNextAdmission = true
+                } else {
+                    return .retry(
+                        afterNs: min(retryIntervalNs, staleInflightTimeoutNs - ageNs),
+                        reason: .backpressure
+                    )
+                }
+            } else {
+                return .retry(afterNs: retryIntervalNs, reason: .backpressure)
+            }
+        }
         if let last = lastProduceUptimeNs {
             let interval = capacityIntervalNs()
             if interval > 0, nowNs &- last < interval {
-                return nil
+                return .retry(afterNs: interval - (nowNs &- last), reason: .capacity)
             }
         }
         nextFrameId &+= 1
         lastProduceUptimeNs = nowNs
-        return OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: nextFrameId)
+        return .ready(OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: nextFrameId))
     }
 
-    mutating func noteSent(frameId: UInt64, encodedBytes: Int, packets: [Data]) {
-        backpressure.noteSent(frameId: frameId, bytes: encodedBytes)
+    mutating func noteSent(
+        frameId: UInt64,
+        encodedBytes: Int,
+        packets: [Data],
+        sentAtUptimeNs: UInt64 = DispatchTime.now().uptimeNanoseconds
+    ) {
+        backpressure.noteSent(frameId: frameId, bytes: encodedBytes, sentAtUptimeNs: sentAtUptimeNs)
         resendRing.remember(frameId: frameId, packets: packets)
     }
 
@@ -767,6 +808,12 @@ struct QuicSessionHostMediaState {
             completedFrames: completedFrames,
             expiredFrames: expiredFrames
         )
+    }
+
+    mutating func takeRecoveryKeyframeRequest() -> Bool {
+        let shouldForceKeyframe = forceRecoveryKeyframeOnNextAdmission
+        forceRecoveryKeyframeOnNextAdmission = false
+        return shouldForceKeyframe
     }
 
     private func capacityIntervalNs() -> UInt64 {

@@ -72,32 +72,73 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
 
     private func drainEncodeQueue() async {
         while true {
-            let job = encodeGate.withLock { state -> EncodeJob? in
+            let step = encodeGate.withLock { state -> DrainStep in
                 guard let frame = state.latest else {
                     state.encoding = false
-                    return nil
+                    return .idle
                 }
-                guard let updateId = state.mediaState.reserveUpdateId(
+                switch state.mediaState.reserveUpdateId(
                     nowNs: DispatchTime.now().uptimeNanoseconds
-                ) else {
+                ) {
+                case .ready(let updateId):
+                    state.latest = nil
+                    let recoveryKeyframe = state.mediaState.takeRecoveryKeyframeRequest()
+                    let forceKeyframe = state.forceKeyframe || recoveryKeyframe
+                    state.forceKeyframe = false
+                    return .job(
+                        EncodeJob(
+                            frame: frame,
+                            updateId: updateId,
+                            forceKeyframe: forceKeyframe,
+                            recoveryKeyframe: recoveryKeyframe
+                        )
+                    )
+                case .retry(let afterNs, let reason):
                     state.encoding = false
-                    return nil
+                    return .retry(afterNs: afterNs, reason: reason)
                 }
-                state.latest = nil
-                let forceKeyframe = state.forceKeyframe
-                state.forceKeyframe = false
-                return EncodeJob(frame: frame, updateId: updateId, forceKeyframe: forceKeyframe)
             }
-            guard let job else { return }
-            guard let envelope = await encoder.encode(
-                job.frame,
-                updateId: job.updateId,
-                forceKeyframe: job.forceKeyframe,
-                requestedKeyframeReason: job.forceKeyframe ? OwnedMediaKeyframeReason.clientRequest : nil
-            ) else {
-                continue
+            switch step {
+            case .idle:
+                return
+            case .retry(let afterNs, _):
+                scheduleDrainRetry(afterNs: afterNs)
+                return
+            case .job(let job):
+                if job.recoveryKeyframe {
+                    logger.notice("owned media transport recovered stale in-flight admission and forced a keyframe")
+                }
+                guard let envelope = await encoder.encode(
+                    job.frame,
+                    updateId: job.updateId,
+                    forceKeyframe: job.forceKeyframe,
+                    requestedKeyframeReason: job.forceKeyframe
+                        ? (job.recoveryKeyframe ? .transportRecovery : .clientRequest)
+                        : nil
+                ) else {
+                    continue
+                }
+                await send(envelope)
             }
-            await send(envelope)
+        }
+    }
+
+    private func scheduleDrainRetry(afterNs: UInt64) {
+        let shouldSchedule = encodeGate.withLock { state -> Bool in
+            guard state.latest != nil, !state.retryScheduled else { return false }
+            state.retryScheduled = true
+            return true
+        }
+        guard shouldSchedule else { return }
+        Task { [weak self] in
+            if afterNs > 0 {
+                try? await Task.sleep(nanoseconds: afterNs)
+            }
+            guard let self else { return }
+            self.encodeGate.withLock { state in
+                state.retryScheduled = false
+            }
+            self.startDrainIfNeeded()
         }
     }
 
@@ -122,11 +163,13 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             logger.error("packetize failed: \(String(describing: error), privacy: .public)")
             return
         }
+        let sentAtUptimeNs = DispatchTime.now().uptimeNanoseconds
         encodeGate.withLock { state in
             state.mediaState.noteSent(
                 frameId: envelope.header.frameId,
                 encodedBytes: payload.count,
-                packets: packets
+                packets: packets,
+                sentAtUptimeNs: sentAtUptimeNs
             )
         }
         let sent = await enqueuePackets(packets).value
@@ -221,6 +264,13 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         let frame: CapturedVideoFrame
         let updateId: OwnedSurfaceUpdateId
         let forceKeyframe: Bool
+        let recoveryKeyframe: Bool
+    }
+
+    private enum DrainStep {
+        case idle
+        case retry(afterNs: UInt64, reason: QuicSessionHostMediaState.RetryReason)
+        case job(EncodeJob)
     }
 
     private func startControlReceiveLoop() {
@@ -247,6 +297,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             encodeGate.withLock { state in
                 state.forceKeyframe = true
             }
+            startDrainIfNeeded()
         case .packetResendRequest:
             let packets = encodeGate.withLock { state in
                 state.mediaState.packetsForResend(
@@ -270,6 +321,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     private struct EncodeState {
         var latest: CapturedVideoFrame?
         var encoding = false
+        var retryScheduled = false
         var forceKeyframe = false
         var mediaState = QuicSessionHostMediaState()
     }

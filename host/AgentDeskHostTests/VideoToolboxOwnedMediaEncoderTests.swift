@@ -285,6 +285,78 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertGreaterThan(config.fpsUpStep, 1.0, "fps up step must stay an up step")
     }
 
+    func testMediaStateReturnsCapacityRetryUntilIntervalElapses() {
+        var controller = VideoBitrateController(config: bitrateControllerConfig())
+        while controller.targetFps > 15 {
+            _ = controller.observe(completedFrames: 80, expiredFrames: 20)
+        }
+        XCTAssertEqual(controller.targetFps, 15)
+
+        var state = QuicSessionHostMediaState(
+            expectedFrameRate: 30,
+            bitrateController: controller,
+            retryIntervalNs: 50_000_000,
+            staleInflightTimeoutNs: 500_000_000
+        )
+
+        let firstAdmission = state.reserveUpdateId(nowNs: 1_000_000_000)
+        guard case .ready(let firstUpdateId) = firstAdmission else {
+            return XCTFail("expected first frame admission to succeed")
+        }
+        XCTAssertEqual(firstUpdateId.frameId, 1)
+
+        let secondAdmission = state.reserveUpdateId(nowNs: 1_030_000_000)
+        guard case .retry(let afterNs, let reason) = secondAdmission else {
+            return XCTFail("expected capacity retry while cadence gate is active")
+        }
+        XCTAssertEqual(reason, .capacity)
+        XCTAssertGreaterThan(afterNs, 0)
+        XCTAssertLessThanOrEqual(afterNs, 40_000_000)
+
+        let thirdAdmission = state.reserveUpdateId(nowNs: 1_067_000_000)
+        guard case .ready(let secondUpdateId) = thirdAdmission else {
+            return XCTFail("expected admission after capacity interval elapsed")
+        }
+        XCTAssertEqual(secondUpdateId.frameId, 2)
+    }
+
+    func testMediaStateRecoversStaleInflightBackpressureWithForcedKeyframe() {
+        var state = QuicSessionHostMediaState(
+            maxInflightFrames: 1,
+            maxInflightBytes: 10_000,
+            expectedFrameRate: 30,
+            retryIntervalNs: 50_000_000,
+            staleInflightTimeoutNs: 200_000_000
+        )
+
+        let firstAdmission = state.reserveUpdateId(nowNs: 1_000_000_000)
+        guard case .ready(let firstUpdateId) = firstAdmission else {
+            return XCTFail("expected first frame admission to succeed")
+        }
+        state.noteSent(
+            frameId: firstUpdateId.frameId,
+            encodedBytes: 2_000,
+            packets: [],
+            sentAtUptimeNs: 1_000_000_000
+        )
+
+        let blockedAdmission = state.reserveUpdateId(nowNs: 1_050_000_000)
+        guard case .retry(let afterNs, let reason) = blockedAdmission else {
+            return XCTFail("expected backpressure retry while in-flight frame is fresh")
+        }
+        XCTAssertEqual(reason, .backpressure)
+        XCTAssertEqual(afterNs, 50_000_000)
+        XCTAssertFalse(state.takeRecoveryKeyframeRequest())
+
+        let recoveredAdmission = state.reserveUpdateId(nowNs: 1_250_000_000)
+        guard case .ready(let recoveredUpdateId) = recoveredAdmission else {
+            return XCTFail("expected stale in-flight recovery to reopen admission")
+        }
+        XCTAssertEqual(recoveredUpdateId.frameId, 2)
+        XCTAssertTrue(state.takeRecoveryKeyframeRequest())
+        XCTAssertFalse(state.takeRecoveryKeyframeRequest(), "recovery keyframe request should be one-shot")
+    }
+
     func testClientRequestKeyframeMarksReset() async throws {
         let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config(keyframeInterval: 120))
         defer { encoder.invalidate() }
