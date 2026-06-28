@@ -140,7 +140,12 @@ final class ClientDiagnosticsRequester {
                 }
             case .chunk(let chunk):
                 guard chunk.requestId == requestId else { continue }
-                guard let decoded = Data(base64Encoded: chunk.payloadBase64) else {
+                let decoded: Data
+                if chunk.payloadBase64.isEmpty {
+                    decoded = Data()
+                } else if let payload = Data(base64Encoded: chunk.payloadBase64) {
+                    decoded = payload
+                } else {
                     throw ClientDiagnosticsRequesterError.malformedResponse
                 }
                 payloads[chunk.runId, default: Data()].append(decoded)

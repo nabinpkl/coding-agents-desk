@@ -1087,6 +1087,61 @@ struct InputChannelTests {
         #expect(FileManager.default.fileExists(atPath: oldestArchivePath.path))
     }
 
+    @Test func clientDiagnosticsPrepareResponseFailsWhenRunFileIsUnreadable() throws {
+        let harness = try Self.makeDiagnosticsHarness(name: #function)
+        defer { harness.cleanup() }
+
+        let counter = Counter(value: 500)
+        let store = ClientDiagnosticsStore(
+            configuration: harness.configuration,
+            nowProvider: { counter.next() }
+        )
+        store.bootstrap()
+        try FileManager.default.removeItem(at: harness.configuration.currentRunURL)
+
+        let result = store.prepareResponse(for: DiagnosticsRequest(
+            requestId: "req-missing",
+            includePreviousRuns: false
+        ))
+
+        switch result {
+        case .failure(let error):
+            #expect(error.reason == "diagnostics-read-failed")
+        case .success:
+            Issue.record("expected diagnostics-read-failed")
+        }
+    }
+
+    @Test func clientDiagnosticsPrepareResponseEmitsTerminalChunkForEmptyRunData() throws {
+        let harness = try Self.makeDiagnosticsHarness(name: #function)
+        defer { harness.cleanup() }
+
+        let counter = Counter(value: 600)
+        let store = ClientDiagnosticsStore(
+            configuration: harness.configuration,
+            nowProvider: { counter.next() }
+        )
+        store.bootstrap()
+        try Data().write(to: harness.configuration.currentRunURL, options: .atomic)
+
+        let result = store.prepareResponse(for: DiagnosticsRequest(
+            requestId: "req-empty",
+            includePreviousRuns: false
+        ))
+
+        switch result {
+        case .failure(let error):
+            Issue.record("unexpected failure \(error.reason)")
+        case .success(let prepared):
+            #expect(prepared.summary.requestId == "req-empty")
+            #expect(prepared.summary.runs.count == 1)
+            #expect(prepared.chunks.count == 1)
+            #expect(prepared.chunks[0].isFinal)
+            #expect(prepared.chunks[0].runId == prepared.summary.runs[0].runId)
+            #expect(prepared.chunks[0].payloadBase64.isEmpty == false)
+        }
+    }
+
     private static func makeResetSurfaceEnvelope(
         surfaceGeneration: UInt32,
         frameId: UInt64

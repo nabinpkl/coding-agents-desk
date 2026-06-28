@@ -38,6 +38,11 @@ struct ClientDiagnosticsPreparedResponse {
     let deliveredRunIds: [String]
 }
 
+enum ClientDiagnosticsSendResult {
+    case delivered(ClientDiagnosticsPreparedResponse)
+    case failed
+}
+
 final class ClientDiagnosticsStore: @unchecked Sendable {
     static let shared = ClientDiagnosticsStore()
 
@@ -211,14 +216,32 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
             var totalCompressedBytes = 0
             var sequence = 0
             for run in runs {
-                guard let sourceData = try? Data(contentsOf: url(for: run)) else { continue }
+                let sourceData: Data
+                do {
+                    sourceData = try Data(contentsOf: url(for: run))
+                } catch {
+                    return .failure(DiagnosticsError(requestId: request.requestId, reason: "diagnostics-read-failed"))
+                }
                 let remaining = cap - totalCompressedBytes
-                guard remaining > 0,
-                      let bounded = boundedCompressedTail(sourceData: sourceData, remainingBytes: remaining) else {
-                    continue
+                guard remaining > 0 else {
+                    return .failure(DiagnosticsError(requestId: request.requestId, reason: "diagnostics-cap-too-small"))
+                }
+                guard let bounded = boundedCompressedTail(sourceData: sourceData, remainingBytes: remaining) else {
+                    return .failure(DiagnosticsError(requestId: request.requestId, reason: "diagnostics-cap-too-small"))
                 }
                 let chunkPayloadLimit = max(1, (configuration.maxChunkEncodedBytes * 3) / 4)
                 var offset = 0
+                if bounded.compressed.isEmpty {
+                    chunks.append(DiagnosticsChunk(
+                        requestId: request.requestId,
+                        sequence: sequence,
+                        isFinal: false,
+                        runId: run.runId,
+                        uncompressedBytes: bounded.uncompressedBytes,
+                        payloadBase64: ""
+                    ))
+                    sequence += 1
+                }
                 while offset < bounded.compressed.count {
                     let next = min(offset + chunkPayloadLimit, bounded.compressed.count)
                     let payload = bounded.compressed.subdata(in: offset..<next).base64EncodedString()
@@ -307,15 +330,23 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         do {
             try fileManager.createDirectory(
                 at: configuration.diagnosticsDirectory,
-                withIntermediateDirectories: true,
-                attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
-            )
-            try? fileManager.setAttributes(
-                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
-                ofItemAtPath: configuration.diagnosticsDirectory.path
+                withIntermediateDirectories: true
             )
         } catch {
             logger.error("diagnostics directory create failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        applyFileProtectionBestEffort(to: configuration.diagnosticsDirectory)
+    }
+
+    private func applyFileProtectionBestEffort(to url: URL) {
+        do {
+            try fileManager.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: url.path
+            )
+        } catch {
+            logger.notice("diagnostics file protection unavailable path=\(url.path, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
     }
 
@@ -368,10 +399,7 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
 
     private func createEmptyCurrentFile() {
         _ = fileManager.createFile(atPath: configuration.currentRunURL.path, contents: Data())
-        try? fileManager.setAttributes(
-            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
-            ofItemAtPath: configuration.currentRunURL.path
-        )
+        applyFileProtectionBestEffort(to: configuration.currentRunURL)
     }
 
     private func recordLocked(type: String, fields: [String: String], level: OSLogType) {
@@ -448,10 +476,7 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(manifest)
             try data.write(to: configuration.manifestURL, options: .atomic)
-            try? fileManager.setAttributes(
-                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
-                ofItemAtPath: configuration.manifestURL.path
-            )
+            applyFileProtectionBestEffort(to: configuration.manifestURL)
         } catch {
             logger.error("diagnostics manifest save failed: \(String(describing: error), privacy: .public)")
         }
@@ -632,10 +657,7 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
     private func writeLines(_ lines: [Data], to url: URL) {
         let data = joinedLines(lines)
         try? data.write(to: url, options: .atomic)
-        try? fileManager.setAttributes(
-            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
-            ofItemAtPath: url.path
-        )
+        applyFileProtectionBestEffort(to: url)
     }
 }
 

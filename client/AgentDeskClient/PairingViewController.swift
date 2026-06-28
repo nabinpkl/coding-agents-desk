@@ -633,11 +633,31 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         case .failure(let error):
             try? await channel.sendDiagnosticsError(error)
         case .success(let prepared):
-            try? await channel.sendDiagnosticsSummary(prepared.summary)
-            for chunk in prepared.chunks {
-                try? await channel.sendDiagnosticsChunk(chunk)
+            switch await sendPreparedDiagnosticsResponse(prepared, on: channel) {
+            case .delivered(let delivered):
+                ClientDiagnostics.shared.completeResponse(delivered)
+            case .failed:
+                ClientDiagnostics.shared.record(
+                    type: "diagnosticsResponseSendFailed",
+                    fields: ["requestId": request.requestId],
+                    level: .error
+                )
             }
-            ClientDiagnostics.shared.completeResponse(prepared)
+        }
+    }
+
+    private func sendPreparedDiagnosticsResponse(
+        _ prepared: ClientDiagnosticsPreparedResponse,
+        on channel: InputChannel
+    ) async -> ClientDiagnosticsSendResult {
+        do {
+            try await channel.sendDiagnosticsSummary(prepared.summary)
+            for chunk in prepared.chunks {
+                try await channel.sendDiagnosticsChunk(chunk)
+            }
+            return .delivered(prepared)
+        } catch {
+            return .failed
         }
     }
 
