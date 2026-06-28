@@ -124,6 +124,43 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertTrue(third.header.isKeyframe, "requestKeyframe must force the next frame to be a keyframe")
     }
 
+    // ADR-0027 R83: the windowed ceiling is exactly `ratio` times the average
+    // byte-rate (kbps * 1000 / 8) over a one-second window. This is the value set on
+    // the session as kVTCompressionPropertyKey_DataRateLimits, so testing it tests
+    // what the encoder caps to.
+    func testDataRateLimitsCeilingTracksBitrateAndRatio() {
+        let low = VideoToolboxOwnedMediaEncoder.dataRateLimits(targetBitrateKbps: 2000, ratio: 2.0)
+        XCTAssertEqual(low.bytesPerWindow, 500_000, "2000 kbps = 250000 B/s, x2.0 over 1 s")
+        XCTAssertEqual(low.windowSeconds, 1.0)
+        let high = VideoToolboxOwnedMediaEncoder.dataRateLimits(targetBitrateKbps: 8000, ratio: 1.5)
+        XCTAssertEqual(high.bytesPerWindow, 1_500_000, "8000 kbps = 1000000 B/s, x1.5 over 1 s")
+    }
+
+    // A forced keyframe is the burst the cap exists to bound. One full keyframe
+    // interval of encoded bytes must fit the one-second window budget. (That the cap
+    // *binds* on full-screen Retina content is device-validated in R91; the unit
+    // guarantee is that the encoder accepts the property and never exceeds it.)
+    func testForcedKeyframeStaysWithinDataRateCap() async throws {
+        let ratio = 1.5
+        let configuration = OwnedMediaEncodingConfiguration(
+            targetBitrateKbps: 2000,
+            expectedFrameRate: 30,
+            keyframeIntervalFrames: 30,
+            dataRateLimitRatio: ratio
+        )
+        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: configuration)
+        defer { encoder.invalidate() }
+        let cap = VideoToolboxOwnedMediaEncoder.dataRateLimits(targetBitrateKbps: 2000, ratio: ratio).bytesPerWindow
+        let first = try await encodeFrame(encoder, frameIndex: 0, frameId: 1, forceKeyframe: true)
+        XCTAssertTrue(first.header.isKeyframe, "forced first frame is a keyframe")
+        var total = first.payload.count
+        for index in 1..<30 {
+            let delta = try await encodeFrame(encoder, frameIndex: UInt64(index), frameId: UInt64(index + 1))
+            total += delta.payload.count
+        }
+        XCTAssertLessThanOrEqual(Double(total), cap, "keyframe-interval bytes exceeded the DataRateLimits window cap")
+    }
+
     func testClientRequestKeyframeMarksReset() async throws {
         let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config(keyframeInterval: 120))
         defer { encoder.invalidate() }

@@ -94,6 +94,18 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_KBPS",
         defaultValue: 8_000
     )
+    // ADR-0027: hard data-rate ceiling as a multiple of the average bitrate.
+    // AverageBitRate only bounds the long-run average, so a single keyframe can
+    // burst many times the target in one frame; on a constrained link that burst is
+    // what freezes. The encoder sets kVTCompressionPropertyKey_DataRateLimits to a
+    // one-second window at this multiple of the average byte-rate, forcing the
+    // keyframe to compress to fit the link instead of bursting. 1.5 gives keyframes
+    // 50 percent headroom over the nominal rate. Tracks the bitrate, so lowering the
+    // bitrate lowers the cap with it.
+    static let ownedMediaDataRateLimitRatio = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DATA_RATE_LIMIT_RATIO",
+        defaultValue: 1.5
+    )
     static let ownedMediaExpectedFrameRate = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS",
         defaultValue: 30

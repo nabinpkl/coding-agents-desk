@@ -58,6 +58,23 @@ struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
     let targetBitrateKbps: Int
     let expectedFrameRate: Int
     let keyframeIntervalFrames: Int
+    // ADR-0027: multiple of the average bitrate used for the encoder's hard
+    // DataRateLimits window. Threaded through config so it tracks the bitrate and is
+    // injectable in tests; defaults to the Config knob so existing call sites are
+    // unchanged.
+    let dataRateLimitRatio: Double
+
+    init(
+        targetBitrateKbps: Int,
+        expectedFrameRate: Int,
+        keyframeIntervalFrames: Int,
+        dataRateLimitRatio: Double = Config.ownedMediaDataRateLimitRatio
+    ) {
+        self.targetBitrateKbps = targetBitrateKbps
+        self.expectedFrameRate = expectedFrameRate
+        self.keyframeIntervalFrames = keyframeIntervalFrames
+        self.dataRateLimitRatio = dataRateLimitRatio
+    }
 
     static let `default` = OwnedMediaEncodingConfiguration(
         targetBitrateKbps: Config.ownedMediaBitrateKbps,
@@ -256,10 +273,20 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         try setProperty(kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse, on: newSession)
         try setProperty(kVTCompressionPropertyKey_ExpectedFrameRate, value: NSNumber(value: expectedFrameRate), on: newSession)
         try setProperty(kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: targetBitrateKbps * 1000), on: newSession)
+        // ADR-0027: hard windowed ceiling so a keyframe cannot burst past the link
+        // budget. AverageBitRate above only bounds the long-run average; this bounds
+        // the instantaneous burst that froze constrained links. VideoToolbox wants the
+        // byte count as an integer CFNumber and the window as a seconds CFNumber.
+        let dataRateLimits = Self.dataRateLimits(targetBitrateKbps: targetBitrateKbps, ratio: configuration.dataRateLimitRatio)
+        let dataRateLimitsValue = [
+            NSNumber(value: Int(dataRateLimits.bytesPerWindow)),
+            NSNumber(value: dataRateLimits.windowSeconds)
+        ] as CFArray
+        try setProperty(kVTCompressionPropertyKey_DataRateLimits, value: dataRateLimitsValue, on: newSession)
         VTCompressionSessionPrepareToEncodeFrames(newSession)
         session = newSession
         size = (width, height)
-        logger.notice("owned encoder session codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) pixelFormat=\(Self.fourCC(actualPixelFormat), privacy: .public) bitrate=\(self.targetBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public) keyframeInterval=\(self.configuration.keyframeIntervalFrames, privacy: .public)")
+        logger.notice("owned encoder session codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) pixelFormat=\(Self.fourCC(actualPixelFormat), privacy: .public) bitrate=\(self.targetBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public) keyframeInterval=\(self.configuration.keyframeIntervalFrames, privacy: .public) dataRateCapBytes=\(Int(dataRateLimits.bytesPerWindow), privacy: .public) dataRateWindowSec=\(dataRateLimits.windowSeconds, privacy: .public)")
     }
 
     private func setProperty(_ key: CFString, value: CFTypeRef, on session: VTCompressionSession) throws {
@@ -267,6 +294,21 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         guard status == noErr || status == kVTPropertyNotSupportedErr else {
             throw SessionRejected(reason: .malformed)
         }
+    }
+
+    // kVTCompressionPropertyKey_DataRateLimits is a hard cap: the encoder emits at
+    // most `bytesPerWindow` over any `windowSeconds` window. One one-second window
+    // sized at `ratio` times the average byte-rate gives a keyframe bounded headroom
+    // over the nominal bitrate instead of the unbounded burst AverageBitRate allows.
+    // Pure so the ceiling contract is unit-testable without a live session. See ADR-0027.
+    static func dataRateLimits(
+        targetBitrateKbps: Int,
+        ratio: Double
+    ) -> (bytesPerWindow: Double, windowSeconds: Double) {
+        let averageBytesPerSecond = Double(targetBitrateKbps) * 1000.0 / 8.0
+        let windowSeconds = 1.0
+        let bytesPerWindow = (averageBytesPerSecond * ratio * windowSeconds).rounded()
+        return (bytesPerWindow, windowSeconds)
     }
 
     private static func fourCC(_ value: OSType) -> String {

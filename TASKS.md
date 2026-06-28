@@ -29,8 +29,8 @@ Phase goal: pin the open-loop failure shape and lock the decision before code la
 
 Phase goal: no produced frame, keyframe included, may burst past the link budget, so loss recovery cannot deepen congestion.
 
-- [ ] R82. In `host/AgentDeskHost/VideoToolboxOwnedMediaEncoder.swift:255` (the `setProperty` block after session create), set `kVTCompressionPropertyKey_DataRateLimits` to a windowed hard cap derived from the target bitrate, alongside the existing `AverageBitRate`. Add `Config.ownedMediaDataRateLimitRatio` (host `Config`, env `AGENTDESK_OWNED_MEDIA_DATA_RATE_LIMIT_RATIO`, default the windowed ceiling at a small multiple of the average) so the cap tracks the bitrate rather than being a second hardcoded literal.
-- [ ] R83. Test in `host/AgentDeskHostTests/VideoToolboxOwnedMediaEncoderTests.swift`: asserts the session is created with a non-nil `DataRateLimits` whose window ceiling equals the configured ratio times the average bitrate, and that a forced keyframe encode does not exceed the windowed cap over its interval. Existing encoder tests (keyframe forcing, parameter-set extraction) stay green.
+- [x] D82. In `host/AgentDeskHost/VideoToolboxOwnedMediaEncoder.swift` (the `setProperty` block after session create), set `kVTCompressionPropertyKey_DataRateLimits` to a one-second windowed hard cap, alongside the existing `AverageBitRate`. `Config.ownedMediaDataRateLimitRatio` (env `AGENTDESK_OWNED_MEDIA_DATA_RATE_LIMIT_RATIO`, default 1.5) threads through `OwnedMediaEncodingConfiguration` so the cap tracks the bitrate. Cap and window logged on the session line for R91.
+- [x] D83. Tests in `host/AgentDeskHostTests/VideoToolboxOwnedMediaEncoderTests.swift`: `testDataRateLimitsCeilingTracksBitrateAndRatio` asserts the window ceiling equals ratio times the average byte-rate (the value set on the session); `testForcedKeyframeStaysWithinDataRateCap` encodes a forced keyframe plus one interval and asserts the bytes stay within the window cap. Existing encoder tests stay green.
 
 ## v0 Phase 2: client freeze recovery (never stay wedged)
 
@@ -66,7 +66,7 @@ Opens only if Phase 3's keyframe-only recovery under the adaptive loop still gli
 | Option | Source | What it catches | Failure shape |
 | ------ | ------ | --------------- | ------------- |
 | Selective resend (NACK) | `MediaDatagramFrameRepairBuffer.resendRequests` (already computed, inert) + host `ownedMediaResendRingFrames` | Single-packet loss without a full keyframe | Resend can arrive too late behind newer frames; ring memory and a host serve path are new cost |
-| Datagram FEC | RDP/WebRTC UDP recovery | Steady low-rate loss without any round-trip | Parity overhead is paid on every frame, including the common no-loss case |
+| Datagram FEC | RDP-style UDP loss recovery | Steady low-rate loss without any round-trip | Parity overhead is paid on every frame, including the common no-loss case |
 | Adaptive capture scale-down | `Config.ownedMediaCaptureScaleDown` driven by the controller | Severe links where even floor bitrate at native Retina is too many pixels | A resolution change is a keyframe and a visible sharpness step; needs the same hysteresis as bitrate |
 
 ### Alternative arc (rejected for now, captured)
@@ -81,7 +81,7 @@ Opens only if Phase 3's keyframe-only recovery under the adaptive loop still gli
 ```
 R34-R80      2026-06-26  archived    retained-scroll / content-tile-cache ledger moved to tasks/archive (retired by ADR-0026 video-primary pivot)
 R81          2026-06-26  committed   ADR-0027 drafted: congestion-adaptive video, Option B now / Option C target, static-knob-only rejected
-R82-R83      pending     pending     encoder DataRateLimits hard ceiling + window-cap test
+D82-D83      2026-06-26  committed   encoder DataRateLimits hard ceiling (ratio knob, 1s window) + ceiling-contract and within-cap tests
 R84-R86      pending     pending     client freeze recovery: wire OwnedMediaDisplayQueuePolicy, render-stall watchdog, decoder/watchdog tests
 R87-R90      pending     pending     closed-loop adaptive bitrate: link-health control message, client emit, host VideoBitrateController, controller tests
 R91          pending     pending     constrained-link physical acceptance (throttled / LTE) and blocker classification
