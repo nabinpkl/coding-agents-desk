@@ -1996,12 +1996,14 @@ struct GraphicsBackpressure {
     // frames cleared on reset, not a lastSent-minus-lastAcked frameId delta. The
     // frameId counter keeps climbing across reconnects while reset() empties the
     // list, so a post-reset send reports an in-flight of 1, not the (large) frameId.
-    mutating func noteAck(frameId: UInt64) {
-        guard frameId > lastAckedFrameId else { return }
+    @discardableResult
+    mutating func noteAck(frameId: UInt64) -> UInt64? {
+        guard frameId > lastAckedFrameId else { return nil }
         lastAckedFrameId = frameId
-        guard !inFlightFrames.isEmpty else { return }
+        guard !inFlightFrames.isEmpty else { return nil }
         let done = inFlightFrames.removeFirst()
         inFlightBytes = max(0, inFlightBytes - done.bytes)
+        return done.sentAtUptimeNs
     }
 
     // A new connection or a surface reset abandons every prior in-flight frame:

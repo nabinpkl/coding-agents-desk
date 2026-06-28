@@ -161,140 +161,175 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertLessThanOrEqual(Double(total), cap, "keyframe-interval bytes exceeded the DataRateLimits window cap")
     }
 
-    // ADR-0027 R90: the adaptive bitrate controller, pure-logic against fixed inputs.
-    private func bitrateControllerConfig() -> VideoBitrateControllerConfig {
-        VideoBitrateControllerConfig(
+    // ADR-0033: the adaptive media-quality controller, pure-logic against fixed inputs.
+    private func mediaQualityConfig() -> MediaQualityControllerConfig {
+        MediaQualityControllerConfig(
             ceilingKbps: 2500, floorKbps: 800, survivalFloorKbps: 300,
             downStep: 0.7, upStep: 1.15,
             lossDownPermille: 50, raiseCleanWindows: 4,
-            fpsCeiling: 30, fpsFloor: 10, fpsDownStep: 0.7, fpsUpStep: 1.3
+            fpsCeiling: 30, fpsFloor: 10,
+            ackHoldP95Ms: 180, ackDownP95Ms: 350,
+            capacity1Kbps: 650, capacity1Fps: 24, capacity1Scale: 0.75,
+            capacity2Kbps: 400, capacity2Fps: 15, capacity2Scale: 0.5,
+            survivalScale: 0.5
         )
     }
 
-    func testBitrateControllerSpendsNormalFloorBeforeSurvivalMode() {
-        var controller = VideoBitrateController(config: bitrateControllerConfig())
+    private func lossySample(ackP95Ms: Double? = nil) -> MediaQualitySample {
+        MediaQualitySample(completedFrames: 80, expiredFrames: 20, ackAgeP95Ms: ackP95Ms)
+    }
+
+    private func cleanSample(ackP95Ms: Double? = nil) -> MediaQualitySample {
+        MediaQualitySample(completedFrames: 100, expiredFrames: 0, ackAgeP95Ms: ackP95Ms)
+    }
+
+    func testMediaQualityControllerSpendsBitrateBeforeResolution() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
         XCTAssertEqual(controller.targetKbps, 2500, "starts at the ceiling")
         while controller.targetKbps > 800 {
-            let outcome = controller.observe(completedFrames: 80, expiredFrames: 20)
+            let outcome = controller.observe(lossySample())
             XCTAssertEqual(outcome.reason, "loss-down")
             XCTAssertFalse(outcome.fpsChanged)
+            XCTAssertFalse(outcome.resolutionChanged)
             XCTAssertEqual(controller.targetFps, 30, "fps holds until normal bitrate floor")
+            XCTAssertEqual(controller.targetResolutionScale, 1.0, "resolution holds until normal bitrate floor")
         }
         XCTAssertEqual(controller.targetKbps, 800)
         XCTAssertEqual(controller.targetFps, 30)
+        XCTAssertEqual(controller.targetResolutionScale, 1.0)
     }
 
-    func testBitrateControllerRaisesOnlyAfterCleanStreak() {
-        var controller = VideoBitrateController(config: bitrateControllerConfig())
-        let down = controller.observe(completedFrames: 50, expiredFrames: 50)
+    func testMediaQualityControllerRaisesOnlyAfterCleanStreak() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        let down = controller.observe(MediaQualitySample(completedFrames: 50, expiredFrames: 50))
         XCTAssertEqual(down.reason, "loss-down")
         let afterDown = controller.targetKbps
         XCTAssertLessThan(afterDown, 2500)
-        XCTAssertFalse(controller.observe(completedFrames: 100, expiredFrames: 0).changed)
-        XCTAssertFalse(controller.observe(completedFrames: 100, expiredFrames: 0).changed)
-        XCTAssertFalse(controller.observe(completedFrames: 100, expiredFrames: 0).changed)
+        XCTAssertFalse(controller.observe(cleanSample()).changed)
+        XCTAssertFalse(controller.observe(cleanSample()).changed)
+        XCTAssertFalse(controller.observe(cleanSample()).changed)
         XCTAssertEqual(controller.targetKbps, afterDown, "three clean windows do not raise; hysteresis needs four")
-        let up = controller.observe(completedFrames: 100, expiredFrames: 0)
+        let up = controller.observe(cleanSample())
         XCTAssertEqual(up.reason, "clean-up")
         XCTAssertGreaterThan(controller.targetKbps, afterDown)
     }
 
-    func testBitrateControllerNeverExceedsCeiling() {
-        var controller = VideoBitrateController(config: bitrateControllerConfig())
-        for _ in 0..<40 { _ = controller.observe(completedFrames: 100, expiredFrames: 0) }
+    func testMediaQualityControllerNeverExceedsCeiling() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        for _ in 0..<40 { _ = controller.observe(cleanSample()) }
         XCTAssertEqual(controller.targetKbps, 2500, "clean windows cannot raise above the ceiling")
+        XCTAssertEqual(controller.targetFps, 30)
+        XCTAssertEqual(controller.targetResolutionScale, 1.0)
     }
 
-    func testBitrateControllerIdleWindowHolds() {
-        var controller = VideoBitrateController(config: bitrateControllerConfig())
-        let outcome = controller.observe(completedFrames: 0, expiredFrames: 0)
+    func testMediaQualityControllerIdleWindowHolds() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        let outcome = controller.observe(MediaQualitySample(completedFrames: 0, expiredFrames: 0))
         XCTAssertFalse(outcome.changed)
         XCTAssertEqual(outcome.reason, "idle")
         XCTAssertEqual(controller.targetKbps, 2500)
-        XCTAssertEqual(outcome.targetFps, 30, "fps holds at the ceiling on an idle window")
+        XCTAssertEqual(outcome.target.fps, 30, "fps holds at the ceiling on an idle window")
     }
 
-    // ADR-0029: survival mode spends cadence and effective bitrate together. fps must
-    // not move while bitrate still has room to fall; once pinned at the normal floor,
-    // further loss lowers both the produce cadence and the VideoToolbox byte target.
-    func testSurvivalModeStepsFpsAndBitrateBelowNormalFloor() {
-        var controller = VideoBitrateController(config: bitrateControllerConfig())
+    func testMediaQualityControllerStepsCapacityRungsAfterBitrateFloor() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
         while controller.targetKbps > 800 {
-            let outcome = controller.observe(completedFrames: 80, expiredFrames: 20)
+            let outcome = controller.observe(lossySample())
             XCTAssertEqual(outcome.reason, "loss-down")
             XCTAssertEqual(controller.targetFps, 30, "fps holds while bitrate is still falling")
             XCTAssertFalse(outcome.fpsChanged)
         }
-        let firstSurvival = controller.observe(completedFrames: 80, expiredFrames: 20)
-        XCTAssertEqual(firstSurvival.reason, "survival-down")
-        XCTAssertTrue(firstSurvival.changed)
-        XCTAssertTrue(firstSurvival.fpsChanged)
-        XCTAssertEqual(controller.targetFps, 21)
-        XCTAssertEqual(controller.targetKbps, 560)
-        let secondSurvival = controller.observe(completedFrames: 80, expiredFrames: 20)
-        XCTAssertEqual(secondSurvival.reason, "survival-down")
+        let capacity1 = controller.observe(lossySample())
+        XCTAssertEqual(capacity1.reason, "capacity-down")
+        XCTAssertTrue(capacity1.resolutionChanged)
+        XCTAssertEqual(controller.targetFps, 24)
+        XCTAssertEqual(controller.targetKbps, 650)
+        XCTAssertEqual(controller.targetResolutionScale, 0.75)
+        let capacity2 = controller.observe(lossySample())
+        XCTAssertEqual(capacity2.reason, "capacity-down")
         XCTAssertEqual(controller.targetFps, 15)
         XCTAssertEqual(controller.targetKbps, 400)
-        for _ in 0..<20 { _ = controller.observe(completedFrames: 80, expiredFrames: 20) }
+        XCTAssertEqual(controller.targetResolutionScale, 0.5)
+        let survival = controller.observe(lossySample())
+        XCTAssertEqual(survival.reason, "survival-down")
         XCTAssertEqual(controller.targetFps, 10, "cadence converges to the fps floor and not below")
         XCTAssertEqual(controller.targetKbps, 300, "survival bitrate converges to the survival floor and not below")
+        XCTAssertEqual(controller.targetResolutionScale, 0.5)
     }
 
-    func testSurvivalModeRecoversBitrateBeforeCadence() {
-        var controller = VideoBitrateController(config: bitrateControllerConfig())
-        for _ in 0..<40 { _ = controller.observe(completedFrames: 80, expiredFrames: 20) }
+    func testMediaQualityControllerRecoversBitrateBeforeResolutionAndFps() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        for _ in 0..<40 { _ = controller.observe(lossySample()) }
         XCTAssertEqual(controller.targetKbps, 300)
         XCTAssertEqual(controller.targetFps, 10)
-        while controller.targetKbps < 800 {
+        XCTAssertEqual(controller.targetResolutionScale, 0.5)
+        while controller.targetKbps < 400 {
             for _ in 0..<3 {
-                let hold = controller.observe(completedFrames: 100, expiredFrames: 0)
+                let hold = controller.observe(cleanSample())
                 XCTAssertFalse(hold.changed)
                 XCTAssertFalse(hold.fpsChanged)
             }
-            let outcome = controller.observe(completedFrames: 100, expiredFrames: 0)
+            let outcome = controller.observe(cleanSample())
             if outcome.changed {
                 XCTAssertEqual(outcome.reason, "clean-up")
-                XCTAssertEqual(controller.targetFps, 10, "fps holds while survival bitrate recovers to the normal floor")
-                XCTAssertLessThanOrEqual(controller.targetKbps, 800)
+                XCTAssertEqual(controller.targetFps, 10, "fps holds while survival bitrate recovers")
+                XCTAssertEqual(controller.targetResolutionScale, 0.5, "resolution holds while survival bitrate recovers")
+                XCTAssertLessThanOrEqual(controller.targetKbps, 400)
             }
         }
-        while controller.targetKbps < 2500 {
-            let outcome = controller.observe(completedFrames: 100, expiredFrames: 0)
-            if outcome.changed {
-                XCTAssertEqual(outcome.reason, "clean-up")
-                XCTAssertEqual(controller.targetFps, 10, "fps holds until bitrate is restored to ceiling")
-            }
-        }
-        for _ in 0..<40 { _ = controller.observe(completedFrames: 100, expiredFrames: 0) }
+        for _ in 0..<4 { _ = controller.observe(cleanSample()) }
+        XCTAssertEqual(controller.targetKbps, 400)
+        XCTAssertEqual(controller.targetFps, 15, "fps changes only after bitrate reaches the next rung")
+        XCTAssertEqual(controller.targetResolutionScale, 0.5)
+        for _ in 0..<80 { _ = controller.observe(cleanSample()) }
         XCTAssertEqual(controller.targetFps, 30, "cadence recovers to the ceiling and not above")
         XCTAssertEqual(controller.targetKbps, 2500)
+        XCTAssertEqual(controller.targetResolutionScale, 1.0)
     }
 
-    func testBitrateControllerConfigNormalizesSurvivalKnobs() {
-        let config = VideoBitrateControllerConfig(
+    func testMediaQualityControllerLatencyHoldsWithoutLossAndDownshiftsWithLoss() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        let highLatencyOnly = controller.observe(cleanSample(ackP95Ms: 600))
+        XCTAssertFalse(highLatencyOnly.changed)
+        XCTAssertEqual(highLatencyOnly.reason, "latency-hold")
+
+        let highLatencyWithLoss = controller.observe(lossySample(ackP95Ms: 600))
+        XCTAssertTrue(highLatencyWithLoss.changed)
+        XCTAssertEqual(highLatencyWithLoss.reason, "loss-down")
+    }
+
+    func testMediaQualityControllerConfigNormalizesSurvivalKnobs() {
+        let config = MediaQualityControllerConfig(
             ceilingKbps: 2500, floorKbps: 800, survivalFloorKbps: 1200,
             downStep: 1.5, upStep: 0.5,
             lossDownPermille: 0, raiseCleanWindows: 0,
-            fpsCeiling: 30, fpsFloor: 60, fpsDownStep: 1.5, fpsUpStep: 0.5
+            fpsCeiling: 30, fpsFloor: 60,
+            ackHoldP95Ms: 0, ackDownP95Ms: 0,
+            capacity1Kbps: 900, capacity1Fps: 60, capacity1Scale: 2,
+            capacity2Kbps: 700, capacity2Fps: 40, capacity2Scale: 0.8,
+            survivalScale: 0.9
         )
         XCTAssertEqual(config.survivalFloorKbps, 800, "survival floor cannot exceed the normal bitrate floor")
         XCTAssertLessThan(config.downStep, 1.0, "down step must stay a down step")
         XCTAssertGreaterThan(config.upStep, 1.0, "up step must stay an up step")
         XCTAssertEqual(config.fpsFloor, 30, "fps floor cannot exceed the fps ceiling")
-        XCTAssertLessThan(config.fpsDownStep, 1.0, "fps down step must stay a down step")
-        XCTAssertGreaterThan(config.fpsUpStep, 1.0, "fps up step must stay an up step")
+        XCTAssertEqual(config.capacity1Kbps, 800)
+        XCTAssertEqual(config.capacity1Fps, 30)
+        XCTAssertEqual(config.capacity1Scale, 1.0)
+        XCTAssertEqual(config.capacity2Scale, 0.8)
+        XCTAssertEqual(config.survivalScale, 0.8)
     }
 
     func testMediaStateReturnsCapacityRetryUntilIntervalElapses() {
-        var controller = VideoBitrateController(config: bitrateControllerConfig())
+        var controller = MediaQualityController(config: mediaQualityConfig())
         while controller.targetFps > 15 {
-            _ = controller.observe(completedFrames: 80, expiredFrames: 20)
+            _ = controller.observe(lossySample())
         }
         XCTAssertEqual(controller.targetFps, 15)
 
         var state = QuicSessionHostMediaState(
             expectedFrameRate: 30,
-            bitrateController: controller,
+            qualityController: controller,
             retryIntervalNs: 50_000_000,
             staleInflightTimeoutNs: 500_000_000
         )

@@ -75,3 +75,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0030 | Single QUIC session transport for v0 | accepted | 2026-06-27 |
 | ADR-0031 | Selected display projection on the client | accepted | 2026-06-27 |
 | ADR-0032 | Durable client diagnostics | accepted | 2026-06-27 |
+| ADR-0033 | Adaptive media quality ladder | proposed | 2026-06-28 |

@@ -31,13 +31,18 @@ final class OwnedMediaVideoDecoderTests: XCTestCase {
     }
 
     private func envelope(
-        frameId: UInt64, keyframe: Bool, hasParameterSets: Bool, payload: Data = Data([1, 2, 3, 4])
+        frameId: UInt64,
+        keyframe: Bool,
+        hasParameterSets: Bool,
+        width: Int = 256,
+        height: Int = 256,
+        payload: Data = Data([1, 2, 3, 4])
     ) -> OwnedMediaFrameEnvelope {
         let parameterSets = hasParameterSets
             ? OwnedMediaParameterSets(vps: Data([1]), sps: Data([2]), pps: Data([3]))
             : nil
         let header = OwnedMediaFrameHeader(
-            surfaceGeneration: 1, frameId: frameId, codec: .hevc, width: 256, height: 256,
+            surfaceGeneration: 1, frameId: frameId, codec: .hevc, width: width, height: height,
             capturedAtUptimeNs: 0, presentationTimeNs: frameId * 1_000,
             isKeyframe: keyframe, parameterSets: parameterSets,
             refreshReason: keyframe ? .initial : .rest
@@ -64,6 +69,26 @@ final class OwnedMediaVideoDecoderTests: XCTestCase {
         XCTAssertEqual(decoder.decodeAndEnqueue(envelope(frameId: 2, keyframe: false, hasParameterSets: false)), .enqueued)
         XCTAssertEqual(spy.enqueued.count, 2)
         XCTAssertEqual(spy.flushCount, 1, "the keyframe flushes the queue before enqueuing the fresh sync point")
+    }
+
+    func testKeyframeAtNewDimensionsResyncsDecoder() {
+        let spy = SpyEnqueuer()
+        let decoder = makeDecoder(spy)
+        XCTAssertEqual(decoder.decodeAndEnqueue(envelope(frameId: 1, keyframe: true, hasParameterSets: true)), .enqueued)
+        XCTAssertEqual(decoder.decodeAndEnqueue(envelope(frameId: 2, keyframe: true, hasParameterSets: true, width: 128, height: 128)), .enqueued)
+        XCTAssertEqual(decoder.decodeAndEnqueue(envelope(frameId: 3, keyframe: false, hasParameterSets: false, width: 128, height: 128)), .enqueued)
+        XCTAssertEqual(spy.enqueued.count, 3)
+        XCTAssertEqual(spy.flushCount, 2, "each keyframe sync point flushes pending queued frames")
+    }
+
+    func testDeltaAtUnexpectedDimensionsRequestsKeyframe() {
+        let spy = SpyEnqueuer()
+        let decoder = makeDecoder(spy)
+        XCTAssertEqual(decoder.decodeAndEnqueue(envelope(frameId: 1, keyframe: true, hasParameterSets: true)), .enqueued)
+        let result = decoder.decodeAndEnqueue(envelope(frameId: 2, keyframe: false, hasParameterSets: false, width: 128, height: 128))
+        XCTAssertEqual(result, .droppedMismatchedDimensionsRequestKeyframe)
+        XCTAssertEqual(spy.enqueued.count, 1)
+        XCTAssertEqual(spy.flushCount, 2, "mismatched delta flushes pending buffers and waits for a keyframe")
     }
 
     func testKeyframeWithoutParameterSetsIsUnavailable() {

@@ -60,11 +60,13 @@ enum OwnedMediaStatus: Equatable {
 struct OwnedMediaVideoStatusSnapshot: Equatable {
     let fps: Int
     let receivedKbps: Int
+    let width: Int
+    let height: Int
     let gapMs: Int
     let droppedFrames: Int
 
     var labelText: String {
-        "\(fps)fps rx\(receivedKbps)kbps gap\(gapMs) d\(droppedFrames)"
+        "\(fps)fps rx\(receivedKbps)kbps \(width)x\(height) gap\(gapMs) d\(droppedFrames)"
     }
 }
 
@@ -85,7 +87,12 @@ struct OwnedMediaVideoStatusTracker {
         droppedFrames += max(0, count)
     }
 
-    mutating func noteEnqueuedFrame(bytes: Int, nowNs: UInt64) -> OwnedMediaVideoStatusSnapshot? {
+    mutating func noteEnqueuedFrame(
+        bytes: Int,
+        width: Int,
+        height: Int,
+        nowNs: UInt64
+    ) -> OwnedMediaVideoStatusSnapshot? {
         if let lastEnqueueNs, nowNs >= lastEnqueueNs {
             lastGapMs = Double(nowNs - lastEnqueueNs) / 1_000_000.0
         }
@@ -102,6 +109,8 @@ struct OwnedMediaVideoStatusTracker {
         let snapshot = OwnedMediaVideoStatusSnapshot(
             fps: Int(round(Double(windowFrames) / elapsedSeconds)),
             receivedKbps: Int(round(Double(windowBytes * 8) / elapsedSeconds / 1_000.0)),
+            width: width,
+            height: height,
             gapMs: Int(round(lastGapMs)),
             droppedFrames: droppedFrames
         )
@@ -278,22 +287,29 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         switch result {
         case .enqueued:
             lastVideoEnqueueUptimeNs = now
-            if let snapshot = videoStatusTracker.noteEnqueuedFrame(bytes: frameBytes, nowNs: now) {
+            if let snapshot = videoStatusTracker.noteEnqueuedFrame(
+                bytes: frameBytes,
+                width: envelope.header.width,
+                height: envelope.header.height,
+                nowNs: now
+            ) {
                 setOwnedMediaStatus(.video(snapshot))
                 ClientDiagnostics.shared.record(
                     type: "mediaSummary",
                     fields: [
                         "fps": String(snapshot.fps),
                         "receivedKbps": String(snapshot.receivedKbps),
+                        "width": String(snapshot.width),
+                        "height": String(snapshot.height),
                         "gapMs": String(snapshot.gapMs),
                         "droppedFrames": String(snapshot.droppedFrames)
                     ],
                     level: .info
                 )
             }
-        case .recoveredRequestKeyframe:
-            // ADR-0027: the layer was wedged and this frame was a delta; the decoder
-            // blanked it and needs a keyframe to resync, so ask for one now.
+        case .recoveredRequestKeyframe, .droppedMismatchedDimensionsRequestKeyframe:
+            // The decoder reached a state that only a keyframe can resync: either a
+            // wedged layer or a resolution-change delta without a matching keyframe.
             ownedMediaStderrTrace("video-frame-recovered frame=\(envelope.header.frameId)")
             videoStatusTracker.noteDroppedFrames(1)
             setOwnedMediaStatus(.videoRepairing)

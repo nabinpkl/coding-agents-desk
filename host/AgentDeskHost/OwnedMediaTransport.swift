@@ -176,9 +176,13 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         guard sent else { return }
         if envelope.header.isKeyframe || envelope.header.frameId.isMultiple(of: 30) {
             let liveTargets = encodeGate.withLock { state in
-                (kbps: state.mediaState.targetKbps, fps: state.mediaState.targetFps)
+                (
+                    kbps: state.mediaState.targetKbps,
+                    fps: state.mediaState.targetFps,
+                    scale: state.mediaState.targetResolutionScale
+                )
             }
-            logger.notice("owned media video sent frame=\(envelope.header.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(payload.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(liveTargets.kbps, privacy: .public) fps=\(liveTargets.fps, privacy: .public)")
+            logger.notice("owned media video sent frame=\(envelope.header.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(payload.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(liveTargets.kbps, privacy: .public) fps=\(liveTargets.fps, privacy: .public) resolutionScale=\(liveTargets.scale, privacy: .public)")
         }
     }
 
@@ -237,7 +241,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
 
     private func handleFrameAck(_ frameId: UInt64) {
         encodeGate.withLock { state in
-            state.mediaState.noteAck(frameId: frameId)
+            _ = state.mediaState.noteAck(frameId: frameId)
         }
         startDrainIfNeeded()
     }
@@ -248,14 +252,33 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         let outcome = encodeGate.withLock { state in
             state.mediaState.observeLinkHealth(completedFrames: completed, expiredFrames: expired)
         }
-        guard outcome.changed || outcome.fpsChanged else { return }
-        if outcome.changed {
-            encoder.updateBitrate(outcome.targetKbps)
-            logger.notice("owned media video bitrate-step target=\(outcome.targetKbps, privacy: .public)kbps reason=\(outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
+        applyQualityOutcome(outcome, completed: completed, expired: expired)
+    }
+
+    private func applyQualityOutcome(
+        _ outcome: MediaQualityOutcome,
+        completed: Int,
+        expired: Int
+    ) {
+        guard outcome.changed else { return }
+        if outcome.bitrateChanged {
+            encoder.updateBitrate(outcome.target.bitrateKbps)
+            logger.notice("owned media video bitrate-step target=\(outcome.target.bitrateKbps, privacy: .public)kbps rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
         }
         if outcome.fpsChanged {
-            encoder.updateExpectedFrameRate(outcome.targetFps)
-            logger.notice("owned media video fps-step target=\(outcome.targetFps, privacy: .public)fps bitrate=\(outcome.targetKbps, privacy: .public)kbps reason=\(outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
+            encoder.updateExpectedFrameRate(outcome.target.fps)
+            logger.notice("owned media video fps-step target=\(outcome.target.fps, privacy: .public)fps bitrate=\(outcome.target.bitrateKbps, privacy: .public)kbps rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
+        }
+        if outcome.resolutionChanged {
+            if let qualitySource = source as? QualitySelectableVideoFrameSource {
+                qualitySource.setResolutionScale(outcome.target.resolutionScale)
+            }
+            encodeGate.withLock { state in
+                state.latest = nil
+                state.forceKeyframe = true
+                state.mediaState.resetForQualityChange()
+            }
+            logger.notice("owned media video resolution-step scale=\(outcome.target.resolutionScale, privacy: .public) bitrate=\(outcome.target.bitrateKbps, privacy: .public)kbps fps=\(outcome.target.fps, privacy: .public) rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public)")
         }
         startDrainIfNeeded()
     }
@@ -295,12 +318,14 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         switch message.kind {
         case .keyframeRequest:
             encodeGate.withLock { state in
+                state.mediaState.noteKeyframeRequest()
                 state.forceKeyframe = true
             }
             startDrainIfNeeded()
         case .packetResendRequest:
             let packets = encodeGate.withLock { state in
-                state.mediaState.packetsForResend(
+                state.mediaState.noteResendRequest()
+                return state.mediaState.packetsForResend(
                     frameId: message.frameId,
                     indexes: message.packetIndexes,
                     maxCount: Config.ownedMediaMaxResendPackets

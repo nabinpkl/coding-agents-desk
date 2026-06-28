@@ -21,6 +21,10 @@ protocol DisplaySelectableVideoFrameSource: AnyObject, Sendable {
     func selectDisplay(id: String?)
 }
 
+protocol QualitySelectableVideoFrameSource: AnyObject, Sendable {
+    func setResolutionScale(_ scale: Double)
+}
+
 // CVPixelBuffer is a CoreFoundation reference type; we never mutate it
 // after creation, so crossing task boundaries is safe in practice. Swift's
 // strict-concurrency checker doesn't know that, hence @unchecked.
@@ -76,6 +80,14 @@ enum CaptureSizing {
             width: evenDimension(from: Double(displayWidthPoints) * effectiveScale),
             height: evenDimension(from: Double(displayHeightPoints) * effectiveScale)
         )
+    }
+
+    static func scaleDownBy(baseScaleDownBy: Double, resolutionScale: Double) -> Double {
+        max(max(baseScaleDownBy, 1.0) / normalizedResolutionScale(resolutionScale), 1.0)
+    }
+
+    static func normalizedResolutionScale(_ scale: Double) -> Double {
+        min(max(scale, 0.1), 1.0)
     }
 
     private static func evenDimension(from value: Double) -> Int {

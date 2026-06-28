@@ -553,13 +553,84 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     }
 }
 
-// ADR-0027 Phase 3: closes the open loop. Each client link-health report gives one
-// window's completed/expired (lost) frame counts; the controller maps the window
-// loss ratio to a bitrate target. Down fast on loss, up slow after a clean streak,
-// clamped to [floor, ceiling]. Pure and deterministic so the policy is unit-tested
-// without a live encoder; the transport owns the instance and applies each change to
-// the running session via VideoToolboxOwnedMediaEncoder.updateBitrate.
-struct VideoBitrateControllerConfig: Equatable {
+// ADR-0033: one host-owned media-quality controller chooses bitrate, fps, and
+// capture resolution together from link-health heuristics. The client reports
+// observations; the host owns the quality target.
+enum MediaQualityRung: Int, Equatable, Comparable {
+    case native = 0
+    case lossControl = 1
+    case capacity1 = 2
+    case capacity2 = 3
+    case survival = 4
+
+    static func < (lhs: MediaQualityRung, rhs: MediaQualityRung) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
+struct MediaQualityTarget: Equatable {
+    let bitrateKbps: Int
+    let fps: Int
+    let resolutionScale: Double
+    let rung: MediaQualityRung
+    let reason: String
+
+    func with(
+        bitrateKbps: Int? = nil,
+        fps: Int? = nil,
+        resolutionScale: Double? = nil,
+        rung: MediaQualityRung? = nil,
+        reason: String
+    ) -> MediaQualityTarget {
+        MediaQualityTarget(
+            bitrateKbps: bitrateKbps ?? self.bitrateKbps,
+            fps: fps ?? self.fps,
+            resolutionScale: resolutionScale ?? self.resolutionScale,
+            rung: rung ?? self.rung,
+            reason: reason
+        )
+    }
+}
+
+struct MediaQualitySample: Equatable {
+    let completedFrames: Int
+    let expiredFrames: Int
+    let resendRequests: Int
+    let keyframeRequests: Int
+    let ackAgeP50Ms: Double?
+    let ackAgeP95Ms: Double?
+
+    init(
+        completedFrames: Int,
+        expiredFrames: Int,
+        resendRequests: Int = 0,
+        keyframeRequests: Int = 0,
+        ackAgeP50Ms: Double? = nil,
+        ackAgeP95Ms: Double? = nil
+    ) {
+        self.completedFrames = max(0, completedFrames)
+        self.expiredFrames = max(0, expiredFrames)
+        self.resendRequests = max(0, resendRequests)
+        self.keyframeRequests = max(0, keyframeRequests)
+        self.ackAgeP50Ms = ackAgeP50Ms
+        self.ackAgeP95Ms = ackAgeP95Ms
+    }
+}
+
+struct MediaQualityOutcome: Equatable {
+    let target: MediaQualityTarget
+    let previousTarget: MediaQualityTarget
+    let reason: String
+
+    var changed: Bool {
+        bitrateChanged || fpsChanged || resolutionChanged || target.rung != previousTarget.rung
+    }
+    var bitrateChanged: Bool { target.bitrateKbps != previousTarget.bitrateKbps }
+    var fpsChanged: Bool { target.fps != previousTarget.fps }
+    var resolutionChanged: Bool { target.resolutionScale != previousTarget.resolutionScale }
+}
+
+struct MediaQualityControllerConfig: Equatable {
     let ceilingKbps: Int
     let floorKbps: Int
     let survivalFloorKbps: Int
@@ -567,13 +638,17 @@ struct VideoBitrateControllerConfig: Equatable {
     let upStep: Double
     let lossDownPermille: Int
     let raiseCleanWindows: Int
-    // ADR-0029: survival axis. fps and effective bitrate only leave their normal
-    // floors once bitrate is pinned at the normal floor and still losing; recovery
-    // restores bitrate before cadence.
     let fpsCeiling: Int
     let fpsFloor: Int
-    let fpsDownStep: Double
-    let fpsUpStep: Double
+    let ackHoldP95Ms: Double
+    let ackDownP95Ms: Double
+    let capacity1Kbps: Int
+    let capacity1Fps: Int
+    let capacity1Scale: Double
+    let capacity2Kbps: Int
+    let capacity2Fps: Int
+    let capacity2Scale: Double
+    let survivalScale: Double
 
     init(
         ceilingKbps: Int,
@@ -585,8 +660,15 @@ struct VideoBitrateControllerConfig: Equatable {
         raiseCleanWindows: Int,
         fpsCeiling: Int,
         fpsFloor: Int,
-        fpsDownStep: Double,
-        fpsUpStep: Double
+        ackHoldP95Ms: Double,
+        ackDownP95Ms: Double,
+        capacity1Kbps: Int,
+        capacity1Fps: Int,
+        capacity1Scale: Double,
+        capacity2Kbps: Int,
+        capacity2Fps: Int,
+        capacity2Scale: Double,
+        survivalScale: Double
     ) {
         self.ceilingKbps = max(1, ceilingKbps)
         self.floorKbps = min(max(1, floorKbps), self.ceilingKbps)
@@ -597,12 +679,19 @@ struct VideoBitrateControllerConfig: Equatable {
         self.raiseCleanWindows = max(1, raiseCleanWindows)
         self.fpsCeiling = max(1, fpsCeiling)
         self.fpsFloor = min(max(1, fpsFloor), self.fpsCeiling)
-        self.fpsDownStep = min(max(fpsDownStep, 0.01), 0.99)
-        self.fpsUpStep = max(fpsUpStep, 1.01)
+        self.ackHoldP95Ms = max(1, ackHoldP95Ms)
+        self.ackDownP95Ms = max(self.ackHoldP95Ms, ackDownP95Ms)
+        self.capacity1Kbps = min(max(1, capacity1Kbps), self.floorKbps)
+        self.capacity1Fps = min(max(1, capacity1Fps), self.fpsCeiling)
+        self.capacity1Scale = Self.normalizedScale(capacity1Scale)
+        self.capacity2Kbps = min(max(1, capacity2Kbps), self.capacity1Kbps)
+        self.capacity2Fps = min(max(1, capacity2Fps), self.capacity1Fps)
+        self.capacity2Scale = min(Self.normalizedScale(capacity2Scale), self.capacity1Scale)
+        self.survivalScale = min(Self.normalizedScale(survivalScale), self.capacity2Scale)
     }
 
-    static func fromConfig() -> VideoBitrateControllerConfig {
-        VideoBitrateControllerConfig(
+    static func fromConfig() -> MediaQualityControllerConfig {
+        MediaQualityControllerConfig(
             ceilingKbps: Config.ownedMediaBitrateKbps,
             floorKbps: Config.ownedMediaBitrateFloorKbps,
             survivalFloorKbps: Config.ownedMediaSurvivalBitrateFloorKbps,
@@ -612,96 +701,146 @@ struct VideoBitrateControllerConfig: Equatable {
             raiseCleanWindows: Config.ownedMediaBitrateRaiseCleanWindows,
             fpsCeiling: Config.ownedMediaExpectedFrameRate,
             fpsFloor: Config.ownedMediaFpsFloor,
-            fpsDownStep: Config.ownedMediaFpsDownStep,
-            fpsUpStep: Config.ownedMediaFpsUpStep
+            ackHoldP95Ms: Config.ownedMediaAckHoldP95Ms,
+            ackDownP95Ms: Config.ownedMediaAckDownP95Ms,
+            capacity1Kbps: Config.ownedMediaCapacity1BitrateKbps,
+            capacity1Fps: Config.ownedMediaCapacity1Fps,
+            capacity1Scale: Config.ownedMediaCapacity1ResolutionScale,
+            capacity2Kbps: Config.ownedMediaCapacity2BitrateKbps,
+            capacity2Fps: Config.ownedMediaCapacity2Fps,
+            capacity2Scale: Config.ownedMediaCapacity2ResolutionScale,
+            survivalScale: Config.ownedMediaSurvivalResolutionScale
         )
+    }
+
+    static func normalizedScale(_ scale: Double) -> Double {
+        min(max(scale, 0.1), 1.0)
     }
 }
 
-struct VideoBitrateController {
-    struct Outcome: Equatable {
-        let targetKbps: Int
-        let targetFps: Int
-        let changed: Bool
-        let fpsChanged: Bool
-        let reason: String
-    }
-
-    private let config: VideoBitrateControllerConfig
-    private(set) var targetKbps: Int
-    private(set) var targetFps: Int
+struct MediaQualityController {
+    private let config: MediaQualityControllerConfig
+    private(set) var target: MediaQualityTarget
     private var cleanStreak = 0
 
-    init(config: VideoBitrateControllerConfig) {
+    init(config: MediaQualityControllerConfig) {
         self.config = config
-        self.targetKbps = config.ceilingKbps
-        self.targetFps = config.fpsCeiling
+        self.target = MediaQualityTarget(
+            bitrateKbps: config.ceilingKbps,
+            fps: config.fpsCeiling,
+            resolutionScale: 1.0,
+            rung: .native,
+            reason: "initial"
+        )
     }
 
-    // Observe one report window. An empty window (idle/rest, no frames) holds and is
-    // neither clean nor lossy, so a quiet stream never drifts the target. Bitrate is
-    // the primary axis; survival mode is the deeper lever, touched only once normal
-    // bitrate is exhausted (ADR-0029), so on a link with headroom this behaves exactly
-    // as before.
-    mutating func observe(completedFrames: Int, expiredFrames: Int) -> Outcome {
-        let completed = max(0, completedFrames)
-        let expired = max(0, expiredFrames)
-        let total = completed + expired
+    var targetKbps: Int { target.bitrateKbps }
+    var targetFps: Int { target.fps }
+    var targetResolutionScale: Double { target.resolutionScale }
+
+    mutating func observe(_ sample: MediaQualitySample) -> MediaQualityOutcome {
+        let previous = target
+        let total = sample.completedFrames + sample.expiredFrames
         guard total > 0 else {
-            return outcome(changed: false, fpsChanged: false, reason: "idle")
+            return outcome(previous: previous, reason: "idle")
         }
-        let lossPermille = (expired * 1000) / total
-        if lossPermille >= config.lossDownPermille {
+        let lossPermille = (sample.expiredFrames * 1000) / total
+        let hasLoss = lossPermille >= config.lossDownPermille ||
+            sample.expiredFrames > 0 ||
+            sample.keyframeRequests > 0
+        let hasRepairPressure = sample.resendRequests > 0
+        let ackP95 = sample.ackAgeP95Ms ?? 0
+        let queued = ackP95 >= config.ackDownP95Ms
+        if queued && !hasLoss && !hasRepairPressure {
             cleanStreak = 0
-            // Spend bitrate first; only when it is pinned at the floor and the link is
-            // still losing do we enter survival mode: lower cadence and the effective
-            // wire bitrate together, so a link below the normal floor gets a lower byte
-            // target instead of only fewer, larger frames.
-            if targetKbps > config.floorKbps {
-                let previous = targetKbps
-                targetKbps = max(config.floorKbps, Int((Double(targetKbps) * config.downStep).rounded()))
-                return outcome(changed: targetKbps != previous, fpsChanged: false, reason: targetKbps != previous ? "loss-down" : "at-floor")
-            }
-            let previousKbps = targetKbps
-            let previousFps = targetFps
-            targetFps = max(config.fpsFloor, Int((Double(targetFps) * config.fpsDownStep).rounded()))
-            targetKbps = survivalBitrateKbps(for: targetFps)
-            let bitrateChanged = targetKbps != previousKbps
-            let fpsChanged = targetFps != previousFps
-            return outcome(
-                changed: bitrateChanged,
-                fpsChanged: fpsChanged,
-                reason: bitrateChanged || fpsChanged ? "survival-down" : "at-survival-floor"
-            )
+            return outcome(previous: previous, reason: "latency-hold")
+        }
+        if hasLoss || (queued && hasRepairPressure) {
+            cleanStreak = 0
+            downshift(reason: hasLoss ? "loss-down" : "queue-loss-down")
+            return outcome(previous: previous, reason: target == previous ? "at-survival-floor" : target.reason)
+        }
+        if ackP95 >= config.ackHoldP95Ms {
+            cleanStreak = 0
+            return outcome(previous: previous, reason: "latency-hold")
         }
         cleanStreak += 1
         if cleanStreak >= config.raiseCleanWindows {
             cleanStreak = 0
-            // Restore sharpness first: survival bitrate climbs back to the normal floor,
-            // then bitrate climbs to the ceiling, then cadence recovers.
-            if targetKbps < config.ceilingKbps {
-                let previous = targetKbps
-                let limit = targetKbps < config.floorKbps ? config.floorKbps : config.ceilingKbps
-                targetKbps = min(limit, Int((Double(targetKbps) * config.upStep).rounded()))
-                return outcome(changed: targetKbps != previous, fpsChanged: false, reason: targetKbps != previous ? "clean-up" : "at-ceiling")
-            }
-            let previousFps = targetFps
-            targetFps = min(config.fpsCeiling, Int((Double(targetFps) * config.fpsUpStep).rounded()))
-            return outcome(changed: false, fpsChanged: targetFps != previousFps, reason: targetFps != previousFps ? "fps-up" : "at-fps-ceiling")
+            recover()
+            return outcome(previous: previous, reason: target == previous ? "at-native" : target.reason)
         }
-        return outcome(changed: false, fpsChanged: false, reason: "clean-hold")
+        return outcome(previous: previous, reason: "clean-hold")
     }
 
-    private func outcome(changed: Bool, fpsChanged: Bool, reason: String) -> Outcome {
-        Outcome(targetKbps: targetKbps, targetFps: targetFps, changed: changed, fpsChanged: fpsChanged, reason: reason)
+    private mutating func downshift(reason: String) {
+        if target.bitrateKbps > config.floorKbps && target.rung <= .lossControl {
+            let bitrate = max(config.floorKbps, Int((Double(target.bitrateKbps) * config.downStep).rounded()))
+            let rung: MediaQualityRung = bitrate == config.ceilingKbps ? .native : .lossControl
+            target = target.with(bitrateKbps: bitrate, fps: config.fpsCeiling, resolutionScale: 1.0, rung: rung, reason: reason)
+            return
+        }
+        switch target.rung {
+        case .native, .lossControl:
+            target = fixedTarget(for: .capacity1, reason: "capacity-down")
+        case .capacity1:
+            target = fixedTarget(for: .capacity2, reason: "capacity-down")
+        case .capacity2:
+            target = fixedTarget(for: .survival, reason: "survival-down")
+        case .survival:
+            target = fixedTarget(for: .survival, reason: "at-survival-floor")
+        }
     }
 
-    private func survivalBitrateKbps(for fps: Int) -> Int {
-        guard config.fpsCeiling > 0 else {
-            return max(config.survivalFloorKbps, config.floorKbps)
+    private mutating func recover() {
+        if target.rung == .native {
+            return
         }
-        let fpsRatio = Double(fps) / Double(config.fpsCeiling)
-        return max(config.survivalFloorKbps, Int((Double(config.floorKbps) * fpsRatio).rounded()))
+        let next = recoveryTarget(for: target.rung)
+        if target.bitrateKbps < next.bitrateKbps {
+            let bitrate = min(next.bitrateKbps, Int((Double(target.bitrateKbps) * config.upStep).rounded()))
+            target = target.with(bitrateKbps: bitrate, reason: "clean-up")
+            return
+        }
+        target = next.with(reason: "quality-up")
+    }
+
+    private func fixedTarget(for rung: MediaQualityRung, reason: String) -> MediaQualityTarget {
+        switch rung {
+        case .native:
+            MediaQualityTarget(bitrateKbps: config.ceilingKbps, fps: config.fpsCeiling, resolutionScale: 1.0, rung: .native, reason: reason)
+        case .lossControl:
+            MediaQualityTarget(bitrateKbps: config.floorKbps, fps: config.fpsCeiling, resolutionScale: 1.0, rung: .lossControl, reason: reason)
+        case .capacity1:
+            MediaQualityTarget(bitrateKbps: config.capacity1Kbps, fps: config.capacity1Fps, resolutionScale: config.capacity1Scale, rung: .capacity1, reason: reason)
+        case .capacity2:
+            MediaQualityTarget(bitrateKbps: config.capacity2Kbps, fps: config.capacity2Fps, resolutionScale: config.capacity2Scale, rung: .capacity2, reason: reason)
+        case .survival:
+            MediaQualityTarget(bitrateKbps: config.survivalFloorKbps, fps: config.fpsFloor, resolutionScale: config.survivalScale, rung: .survival, reason: reason)
+        }
+    }
+
+    private func recoveryTarget(for rung: MediaQualityRung) -> MediaQualityTarget {
+        switch rung {
+        case .survival:
+            fixedTarget(for: .capacity2, reason: "quality-up")
+        case .capacity2:
+            fixedTarget(for: .capacity1, reason: "quality-up")
+        case .capacity1:
+            fixedTarget(for: .lossControl, reason: "quality-up")
+        case .lossControl:
+            fixedTarget(for: .native, reason: "quality-up")
+        case .native:
+            fixedTarget(for: .native, reason: "quality-up")
+        }
+    }
+
+    private func outcome(previous: MediaQualityTarget, reason: String) -> MediaQualityOutcome {
+        MediaQualityOutcome(
+            target: target.with(reason: reason),
+            previousTarget: previous,
+            reason: reason
+        )
     }
 }
 
@@ -719,18 +858,21 @@ struct QuicSessionHostMediaState {
     private var nextFrameId: UInt64 = 0
     private var lastProduceUptimeNs: UInt64?
     private var backpressure: GraphicsBackpressure
-    private var bitrateController: VideoBitrateController
+    private var qualityController: MediaQualityController
     private var resendRing: OwnedMediaResendRing
     private let expectedFrameRate: Int
     private let retryIntervalNs: UInt64
     private let staleInflightTimeoutNs: UInt64
     private var forceRecoveryKeyframeOnNextAdmission = false
+    private var resendRequestsInWindow = 0
+    private var keyframeRequestsInWindow = 0
+    private var ackAgesMs: [Double] = []
 
     init(
         maxInflightFrames: Int = Config.ownedMediaBackpressureMaxInflightFrames,
         maxInflightBytes: Int = Config.ownedMediaBackpressureMaxInflightBytes,
         expectedFrameRate: Int = Config.ownedMediaExpectedFrameRate,
-        bitrateController: VideoBitrateController = VideoBitrateController(config: .fromConfig()),
+        qualityController: MediaQualityController = MediaQualityController(config: .fromConfig()),
         resendRingFrames: Int = Config.ownedMediaResendRingFrames,
         retryIntervalNs: UInt64 = UInt64(Config.ownedMediaDrainRetryIntervalMs) * 1_000_000,
         staleInflightTimeoutNs: UInt64 = UInt64(Config.ownedMediaBackpressureStaleTimeoutMs) * 1_000_000
@@ -740,14 +882,15 @@ struct QuicSessionHostMediaState {
             maxUnackedBytes: maxInflightBytes
         )
         self.expectedFrameRate = max(1, expectedFrameRate)
-        self.bitrateController = bitrateController
+        self.qualityController = qualityController
         self.resendRing = OwnedMediaResendRing(capacityFrames: resendRingFrames)
         self.retryIntervalNs = max(1, retryIntervalNs)
         self.staleInflightTimeoutNs = max(1, staleInflightTimeoutNs)
     }
 
-    var targetKbps: Int { bitrateController.targetKbps }
-    var targetFps: Int { bitrateController.targetFps }
+    var targetKbps: Int { qualityController.targetKbps }
+    var targetFps: Int { qualityController.targetFps }
+    var targetResolutionScale: Double { qualityController.targetResolutionScale }
     var inFlightFrames: Int { backpressure.inFlight }
 
     mutating func reserveUpdateId(nowNs: UInt64) -> Admission {
@@ -788,8 +931,13 @@ struct QuicSessionHostMediaState {
         resendRing.remember(frameId: frameId, packets: packets)
     }
 
-    mutating func noteAck(frameId: UInt64) {
-        backpressure.noteAck(frameId: frameId)
+    @discardableResult
+    mutating func noteAck(frameId: UInt64, nowNs: UInt64 = DispatchTime.now().uptimeNanoseconds) -> Double? {
+        guard let sentAtUptimeNs = backpressure.noteAck(frameId: frameId) else { return nil }
+        let ageNs = nowNs >= sentAtUptimeNs ? nowNs - sentAtUptimeNs : 0
+        let ageMs = Double(ageNs) / 1_000_000.0
+        ackAgesMs.append(ageMs)
+        return ageMs
     }
 
     mutating func packetsForResend(
@@ -800,14 +948,35 @@ struct QuicSessionHostMediaState {
         resendRing.packets(frameId: frameId, indexes: indexes, maxCount: maxCount)
     }
 
+    mutating func noteResendRequest() {
+        resendRequestsInWindow += 1
+    }
+
+    mutating func noteKeyframeRequest() {
+        keyframeRequestsInWindow += 1
+    }
+
+    mutating func resetForQualityChange() {
+        backpressure.reset()
+        forceRecoveryKeyframeOnNextAdmission = false
+    }
+
     mutating func observeLinkHealth(
         completedFrames: Int,
         expiredFrames: Int
-    ) -> VideoBitrateController.Outcome {
-        bitrateController.observe(
+    ) -> MediaQualityOutcome {
+        let sample = MediaQualitySample(
             completedFrames: completedFrames,
-            expiredFrames: expiredFrames
+            expiredFrames: expiredFrames,
+            resendRequests: resendRequestsInWindow,
+            keyframeRequests: keyframeRequestsInWindow,
+            ackAgeP50Ms: percentile(0.50),
+            ackAgeP95Ms: percentile(0.95)
         )
+        resendRequestsInWindow = 0
+        keyframeRequestsInWindow = 0
+        ackAgesMs.removeAll(keepingCapacity: true)
+        return qualityController.observe(sample)
     }
 
     mutating func takeRecoveryKeyframeRequest() -> Bool {
@@ -817,8 +986,16 @@ struct QuicSessionHostMediaState {
     }
 
     private func capacityIntervalNs() -> UInt64 {
-        let fps = bitrateController.targetFps
+        let fps = qualityController.targetFps
         guard fps > 0, fps < expectedFrameRate else { return 0 }
         return UInt64(1_000_000_000 / fps)
+    }
+
+    private func percentile(_ fraction: Double) -> Double? {
+        guard !ackAgesMs.isEmpty else { return nil }
+        let sorted = ackAgesMs.sorted()
+        let clamped = min(max(fraction, 0), 1)
+        let index = min(sorted.count - 1, Int((Double(sorted.count - 1) * clamped).rounded(.up)))
+        return sorted[index]
     }
 }

@@ -11,10 +11,10 @@ import os
 // using the configured capture pixel format. Selection comes from the
 // input-channel client config and falls back to the first display.
 
-final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySelectableVideoFrameSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySelectableVideoFrameSource, QualitySelectableVideoFrameSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "capture")
     private let sampleQueue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.scstream", qos: .userInteractive)
-    private let scaleDownBy: Double
+    private let baseScaleDownBy: Double
     private let pixelFormat: OSType
     private var stream: SCStream?
     private let controlState = OSAllocatedUnfairLock(
@@ -26,7 +26,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         pixelFormat: OSType = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
         selectedDisplayIdProvider: @escaping @Sendable () -> String? = { nil }
     ) {
-        self.scaleDownBy = max(scaleDownBy, 1.0)
+        self.baseScaleDownBy = max(scaleDownBy, 1.0)
         self.pixelFormat = pixelFormat
         super.init()
         controlState.withLock { state in
@@ -47,6 +47,20 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         let shouldRestart = controlState.withLock { state -> Bool in
             let changed = state.selectedDisplayId != id
             state.selectedDisplayId = id
+            return changed && state.isRunning && state.onFrame != nil
+        }
+        guard shouldRestart else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.restartCurrentSelection()
+        }
+    }
+
+    func setResolutionScale(_ scale: Double) {
+        let shouldRestart = controlState.withLock { state -> Bool in
+            let normalized = CaptureSizing.normalizedResolutionScale(scale)
+            let changed = abs(state.resolutionScale - normalized) > 0.001
+            state.resolutionScale = normalized
             return changed && state.isRunning && state.onFrame != nil
         }
         guard shouldRestart else { return }
@@ -89,11 +103,16 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         // before encode, leaving text consistently soft on the phone.
         // The backing scale comes from NSScreen matched by displayID.
         let scale = Self.backingScale(for: display.displayID)
+        let resolutionScale = controlState.withLock { $0.resolutionScale }
+        let effectiveScaleDownBy = CaptureSizing.scaleDownBy(
+            baseScaleDownBy: baseScaleDownBy,
+            resolutionScale: resolutionScale
+        )
         let pixelSize = CaptureSizing.pixelSize(
             displayWidthPoints: display.width,
             displayHeightPoints: display.height,
             backingScale: Double(scale),
-            scaleDownBy: scaleDownBy
+            scaleDownBy: effectiveScaleDownBy
         )
         config.width = pixelSize.width
         config.height = pixelSize.height
@@ -114,7 +133,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         try await stream.startCapture()
         self.stream = stream
-        logger.notice("screen capture started \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) backingScale=\(scale, privacy: .public) captureScaleDown=\(self.scaleDownBy, privacy: .public) pixelFormat=\(Self.fourCC(self.pixelFormat), privacy: .public)")
+        logger.notice("screen capture started \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) backingScale=\(scale, privacy: .public) resolutionScale=\(resolutionScale, privacy: .public) captureScaleDown=\(effectiveScaleDownBy, privacy: .public) pixelFormat=\(Self.fourCC(self.pixelFormat), privacy: .public)")
     }
 
     private func selectDisplay(from displays: [SCDisplay]) -> SCDisplay? {
@@ -278,6 +297,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
 
 private struct CaptureControlState: Sendable {
     var selectedDisplayId: String?
+    var resolutionScale = 1.0
     var isRunning = false
     var forceKeyframeNextFrame = true
     var onFrame: (@Sendable (CapturedVideoFrame) -> Void)?

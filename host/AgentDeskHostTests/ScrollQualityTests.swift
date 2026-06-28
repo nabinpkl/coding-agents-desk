@@ -54,6 +54,35 @@ struct ScrollQualityTests {
         #expect(size.height.isMultiple(of: 2))
     }
 
+    @Test func ownedCaptureSizingSupportsQualityResolutionScales() {
+        let native = CaptureSizing.pixelSize(
+            displayWidthPoints: 1800,
+            displayHeightPoints: 1169,
+            backingScale: 2.0,
+            scaleDownBy: CaptureSizing.scaleDownBy(baseScaleDownBy: 1.0, resolutionScale: 1.0)
+        )
+        let capacity1 = CaptureSizing.pixelSize(
+            displayWidthPoints: 1800,
+            displayHeightPoints: 1169,
+            backingScale: 2.0,
+            scaleDownBy: CaptureSizing.scaleDownBy(baseScaleDownBy: 1.0, resolutionScale: 0.75)
+        )
+        let capacity2 = CaptureSizing.pixelSize(
+            displayWidthPoints: 1800,
+            displayHeightPoints: 1169,
+            backingScale: 2.0,
+            scaleDownBy: CaptureSizing.scaleDownBy(baseScaleDownBy: 1.0, resolutionScale: 0.5)
+        )
+
+        #expect(native.width == 3600)
+        #expect(native.height == 2338)
+        #expect(capacity1.width == 2700)
+        #expect(capacity1.height == 1752)
+        #expect(capacity2.width == 1800)
+        #expect(capacity2.height == 1168)
+        #expect([native, capacity1, capacity2].allSatisfy { $0.width.isMultiple(of: 2) && $0.height.isMultiple(of: 2) })
+    }
+
     @Test func ownedMediaFrameScalerReturnsOriginalFrameWhenScaleIsOne() throws {
         let scaler = OwnedMediaFrameScaler()
         let frame = try Self.makePixelBufferFrame(width: 640, height: 480)

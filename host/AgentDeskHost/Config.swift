@@ -98,16 +98,14 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_KBPS",
         defaultValue: 2_500
     )
-    // ADR-0027 adaptive bitrate controller knobs. Down fast on loss, up slow on a
-    // clean streak; see VideoBitrateController.
+    // ADR-0033 adaptive media-quality controller knobs. Down fast on loss, up slow
+    // on a clean streak; see MediaQualityController.
     static let ownedMediaBitrateFloorKbps = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_FLOOR_KBPS",
         defaultValue: 800
     )
-    // ADR-0029 survival rung. When the normal bitrate floor is pinned and loss
-    // persists, the controller may lower the effective wire target below the normal
-    // floor while also lowering fps. This keeps the stream alive on links that cannot
-    // carry 800 kbps, at the cost of visible softness until resolution downscale lands.
+    // ADR-0033 survival rung bitrate. This is the last fixed target after the
+    // controller has spent bitrate, resolution, and fps.
     static let ownedMediaSurvivalBitrateFloorKbps = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_SURVIVAL_BITRATE_FLOOR_KBPS",
         defaultValue: 300
@@ -131,6 +129,17 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_RAISE_CLEAN_WINDOWS",
         defaultValue: 4
     )
+    // ADR-0033 latency heuristics for the host-derived frame ACK age. High ACK age
+    // alone holds the current rung because a high-latency path can still be healthy;
+    // high ACK age plus repaired loss or frame expiry downshifts.
+    static let ownedMediaAckHoldP95Ms = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_ACK_HOLD_P95_MS",
+        defaultValue: 180
+    )
+    static let ownedMediaAckDownP95Ms = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_ACK_DOWN_P95_MS",
+        defaultValue: 350
+    )
     // ADR-0027: hard data-rate ceiling as a multiple of the average bitrate.
     // AverageBitRate only bounds the long-run average, so a single keyframe can
     // burst many times the target in one frame; on a constrained link that burst is
@@ -147,21 +156,42 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS",
         defaultValue: 30
     )
-    // ADR-0029 survival cadence floor. When the adaptive controller has spent its
-    // normal bitrate floor and the link is still losing, it steps produce/encode fps
-    // down toward this floor while also lowering the effective bitrate. Dormant on a
-    // link with bitrate headroom, so the validated healthy path is unaffected.
+    // ADR-0033 fixed capacity rungs. Once bitrate has been spent to the normal floor
+    // and the link still shows loss/expiry, the controller changes resolution, fps,
+    // and bitrate together instead of bolting resolution onto a separate loop.
+    static let ownedMediaCapacity1BitrateKbps = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY1_BITRATE_KBPS",
+        defaultValue: 650
+    )
+    static let ownedMediaCapacity1Fps = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY1_FPS",
+        defaultValue: 24
+    )
+    static let ownedMediaCapacity1ResolutionScale = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY1_RESOLUTION_SCALE",
+        defaultValue: 0.75
+    )
+    static let ownedMediaCapacity2BitrateKbps = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY2_BITRATE_KBPS",
+        defaultValue: 400
+    )
+    static let ownedMediaCapacity2Fps = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY2_FPS",
+        defaultValue: 15
+    )
+    static let ownedMediaCapacity2ResolutionScale = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY2_RESOLUTION_SCALE",
+        defaultValue: 0.5
+    )
+    static let ownedMediaSurvivalResolutionScale = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_SURVIVAL_RESOLUTION_SCALE",
+        defaultValue: 0.5
+    )
+    // ADR-0033 survival cadence floor. The survival rung is the last fixed rung,
+    // not a separate controller.
     static let ownedMediaFpsFloor = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS_FLOOR",
         defaultValue: 10
-    )
-    static let ownedMediaFpsDownStep = positiveDouble(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_FPS_DOWN_STEP",
-        defaultValue: 0.7
-    )
-    static let ownedMediaFpsUpStep = positiveDouble(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_FPS_UP_STEP",
-        defaultValue: 1.3
     )
     // Tile-path periodic full-surface heal cadence (ScrollDeltaEngine.healIntervalFrames).
     // Named for the heal it actually drives, not a video keyframe. The video GOP is the

@@ -173,8 +173,8 @@ struct QuicSessionStreamFrameTests {
 }
 
 struct QuicSessionHostMediaStateTests {
-    private func controllerConfig() -> VideoBitrateControllerConfig {
-        VideoBitrateControllerConfig(
+    private func controllerConfig() -> MediaQualityControllerConfig {
+        MediaQualityControllerConfig(
             ceilingKbps: 2500,
             floorKbps: 800,
             survivalFloorKbps: 300,
@@ -184,8 +184,15 @@ struct QuicSessionHostMediaStateTests {
             raiseCleanWindows: 4,
             fpsCeiling: 30,
             fpsFloor: 10,
-            fpsDownStep: 0.7,
-            fpsUpStep: 1.3
+            ackHoldP95Ms: 180,
+            ackDownP95Ms: 350,
+            capacity1Kbps: 650,
+            capacity1Fps: 24,
+            capacity1Scale: 0.75,
+            capacity2Kbps: 400,
+            capacity2Fps: 15,
+            capacity2Scale: 0.5,
+            survivalScale: 0.5
         )
     }
 
@@ -197,7 +204,7 @@ struct QuicSessionHostMediaStateTests {
             maxInflightFrames: maxInflightFrames,
             maxInflightBytes: maxInflightBytes,
             expectedFrameRate: 30,
-            bitrateController: VideoBitrateController(config: controllerConfig()),
+            qualityController: MediaQualityController(config: controllerConfig()),
             resendRingFrames: 4
         )
     }
@@ -276,6 +283,21 @@ struct QuicSessionHostMediaStateTests {
         #expect(state.targetFps == 30)
     }
 
+    @Test func ackAgeIsComputedFromSentFrameTime() throws {
+        var state = makeState()
+        let update = try requireReady(state.reserveUpdateId(nowNs: 1_000_000_000), "expected ack-age update id")
+        state.noteSent(
+            frameId: update.frameId,
+            encodedBytes: 10,
+            packets: [Data([1])],
+            sentAtUptimeNs: 1_000_000_000
+        )
+
+        let ageMs = state.noteAck(frameId: update.frameId, nowNs: 1_120_000_000)
+
+        #expect(ageMs == 120)
+    }
+
     @Test func survivalFpsAddsCapacityAdmissionInterval() throws {
         var state = makeState()
         while state.targetFps == 30 {
@@ -298,5 +320,18 @@ struct QuicSessionHostMediaStateTests {
             "expected update id after survival capacity interval"
         )
         #expect(afterCapacityInterval.frameId == 2)
+    }
+
+    @Test func qualityChangeResetReopensAdmissionAndForcesKeyframe() throws {
+        var state = makeState(maxInflightFrames: 1)
+        let first = try requireReady(state.reserveUpdateId(nowNs: 0), "expected first update id")
+        state.noteSent(frameId: first.frameId, encodedBytes: 10, packets: [Data([1])])
+
+        state.resetForQualityChange()
+
+        let second = try requireReady(state.reserveUpdateId(nowNs: 1), "expected quality-reset update id")
+        #expect(second.frameId == 2)
+        let forcedKeyframe = state.takeRecoveryKeyframeRequest()
+        #expect(!forcedKeyframe)
     }
 }

@@ -29,12 +29,16 @@ enum OwnedMediaVideoDecodeResult: Equatable {
     // ADR-0027: a wedged layer (failed / requiresFlush) was reset, but this frame was
     // a delta so the stream cannot resync until a keyframe. The caller requests one.
     case recoveredRequestKeyframe
+    // ADR-0033: resolution changes are accepted only at keyframes. A delta with a new
+    // size cannot be decoded against the current format description.
+    case droppedMismatchedDimensionsRequestKeyframe
 }
 
 final class OwnedMediaVideoDecoder {
     private let layer: OwnedMediaVideoEnqueuing
     private let makeFormatDescription: (OwnedMediaParameterSets, OwnedMediaCodec) -> CMVideoFormatDescription?
     private var formatDescription: CMVideoFormatDescription?
+    private var currentDimensions: (width: Int, height: Int)?
 
     init(
         layer: OwnedMediaVideoEnqueuing,
@@ -78,6 +82,13 @@ final class OwnedMediaVideoDecoder {
             // Skip it right after a recovery, which already blanked the layer.
             if !recovered { layer.flush() }
             formatDescription = description
+            currentDimensions = (header.width, header.height)
+        } else if let currentDimensions,
+                  currentDimensions.width != header.width || currentDimensions.height != header.height {
+            formatDescription = nil
+            self.currentDimensions = nil
+            layer.flush()
+            return .droppedMismatchedDimensionsRequestKeyframe
         }
         guard let description = formatDescription else {
             return .droppedPendingKeyframe
@@ -97,6 +108,7 @@ final class OwnedMediaVideoDecoder {
     // a keyframe.
     func reset() {
         formatDescription = nil
+        currentDimensions = nil
         layer.flush()
     }
 
