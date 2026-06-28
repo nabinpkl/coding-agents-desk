@@ -318,10 +318,10 @@ motion-verify variant="dev" video="1" seconds="60":
         CJSON="$CJSON,\"$k\":\"$v\""
     done < <(env | grep '^AGENTDESK_OWNED_MEDIA_')
     CJSON="$CJSON}"
-    echo "client env JSON: $CJSON"
+    echo "client env JSON: <redacted launch URL; media knobs forwarded>"
     xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing \
         --environment-variables "$CJSON" \
-        "$BID" "$URL" >"{{motion_client_log}}" 2>&1 &
+        "$BID" >"{{motion_client_log}}" 2>&1 &
     CONSOLE_PID=$!
 
     echo "== [5/5] capturing for {{seconds}}s -- SCROLL A WINDOW NOW =="

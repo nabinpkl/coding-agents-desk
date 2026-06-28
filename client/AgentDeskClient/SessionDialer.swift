@@ -93,7 +93,7 @@ final class SessionDialer {
         )
 
         let ready = try decodeControl(SessionReady.self, expectedType: "session-ready", from: try await receiveControlPayload(on: control))
-        try verifyReadySignature(
+        try SessionHostSignatureVerifier.verifyReadySignature(
             ready,
             hostPublicKey: hostPub,
             hostFingerprint: hostFingerprint,
@@ -181,7 +181,7 @@ final class SessionDialer {
         guard challenge.resumeExpiresAt >= Int(now().timeIntervalSince1970) else {
             throw SessionRejected(reason: .expiredResume)
         }
-        try verifySignature(
+        try SessionHostSignatureVerifier.verifySignature(
             challenge.hostSignature,
             hostPublicKey: hostPub,
             input: SessionResumeSigning.challengeInput(
@@ -217,7 +217,7 @@ final class SessionDialer {
         guard ready.sessionId == active.sessionId else {
             throw SessionRejected(reason: .unauthorized)
         }
-        try verifyReadySignature(
+        try SessionHostSignatureVerifier.verifyReadySignature(
             ready,
             hostPublicKey: hostPub,
             hostFingerprint: hostFingerprint,
@@ -329,7 +329,23 @@ final class SessionDialer {
         return try JSONDecoder().decode(type, from: data)
     }
 
-    private func verifyReadySignature(
+    private struct Envelope: Decodable {
+        let type: String
+        enum CodingKeys: String, CodingKey { case type = "t" }
+    }
+
+    nonisolated static func systemRandomBytes(_ count: Int) throws -> Data {
+        var bytes = [UInt8](repeating: 0, count: count)
+        let status = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
+        guard status == errSecSuccess else {
+            throw SessionRejected(reason: .malformed)
+        }
+        return Data(bytes)
+    }
+}
+
+enum SessionHostSignatureVerifier {
+    static func verifyReadySignature(
         _ ready: SessionReady,
         hostPublicKey: P256.Signing.PublicKey,
         hostFingerprint: String,
@@ -352,7 +368,7 @@ final class SessionDialer {
         )
     }
 
-    private func verifySignature(
+    static func verifySignature(
         _ signatureData: Data,
         hostPublicKey: P256.Signing.PublicKey,
         input: Data
@@ -366,20 +382,6 @@ final class SessionDialer {
         guard hostPublicKey.isValidSignature(signature, for: input) else {
             throw SessionRejected(reason: .badSignature)
         }
-    }
-
-    private struct Envelope: Decodable {
-        let type: String
-        enum CodingKeys: String, CodingKey { case type = "t" }
-    }
-
-    nonisolated static func systemRandomBytes(_ count: Int) throws -> Data {
-        var bytes = [UInt8](repeating: 0, count: count)
-        let status = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
-        guard status == errSecSuccess else {
-            throw SessionRejected(reason: .malformed)
-        }
-        return Data(bytes)
     }
 }
 

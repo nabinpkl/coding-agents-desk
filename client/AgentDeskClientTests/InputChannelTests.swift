@@ -1,5 +1,6 @@
 import Foundation
 import Compression
+import CryptoKit
 import Testing
 import UIKit
 
@@ -50,6 +51,67 @@ struct InputChannelTests {
 
         #expect(throws: DecodingError.self) {
             _ = try JSONDecoder().decode(SessionResumeProof.self, from: data)
+        }
+    }
+
+    @Test func sessionReadyHostSignatureRejectsTamperedMaterial() throws {
+        let hostKey = P256.Signing.PrivateKey()
+        let hostFingerprint = hostKey.publicKey.agentDeskFingerprint
+        let deviceFingerprint = DeviceFingerprint("device-fp")
+        let clientNonce = Data(repeating: 4, count: 32)
+        let hostNonce = Data(repeating: 5, count: 32)
+        let unsignedReady = SessionReady(
+            sessionId: "session-123",
+            resumeId: Data(repeating: 6, count: 32),
+            resumeSecret: Data(repeating: 7, count: 32),
+            resumeExpiresAt: 1_800_000_020,
+            mediaKeySalt: Data(repeating: 8, count: 32),
+            hostSignature: Data()
+        )
+        let signature = try hostKey.signature(for: SessionResumeSigning.readyInput(
+            ready: unsignedReady,
+            deviceFingerprint: deviceFingerprint,
+            clientNonce: clientNonce,
+            hostNonce: hostNonce,
+            protocolVersion: Config.protocolVersion,
+            hostFingerprint: hostFingerprint
+        )).rawRepresentation
+        let signedReady = SessionReady(
+            sessionId: unsignedReady.sessionId,
+            resumeId: unsignedReady.resumeId,
+            resumeSecret: unsignedReady.resumeSecret,
+            resumeExpiresAt: unsignedReady.resumeExpiresAt,
+            mediaKeySalt: unsignedReady.mediaKeySalt,
+            hostSignature: signature
+        )
+        let tamperedReady = SessionReady(
+            sessionId: unsignedReady.sessionId,
+            resumeId: unsignedReady.resumeId,
+            resumeSecret: Data(repeating: 9, count: 32),
+            resumeExpiresAt: unsignedReady.resumeExpiresAt,
+            mediaKeySalt: unsignedReady.mediaKeySalt,
+            hostSignature: signature
+        )
+
+        try SessionHostSignatureVerifier.verifyReadySignature(
+            signedReady,
+            hostPublicKey: hostKey.publicKey,
+            hostFingerprint: hostFingerprint,
+            deviceFingerprint: deviceFingerprint,
+            clientNonce: clientNonce,
+            hostNonce: hostNonce,
+            protocolVersion: Config.protocolVersion
+        )
+        #expect(throws: SessionRejected(reason: .badSignature)) {
+            try SessionHostSignatureVerifier.verifyReadySignature(
+                tamperedReady,
+                hostPublicKey: hostKey.publicKey,
+                hostFingerprint: hostFingerprint,
+                deviceFingerprint: deviceFingerprint,
+                clientNonce: clientNonce,
+                hostNonce: hostNonce,
+                protocolVersion: Config.protocolVersion
+            )
         }
     }
 
