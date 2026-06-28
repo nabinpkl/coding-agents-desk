@@ -35,7 +35,7 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 6. **TailnetDiscovery.** Parses `tailscale status --json` into online tailnet peers (`TailnetDeviceOption`), keeping iOS peers with a tailnet IPv4 and ordering online ones first. The JSON parser is split out for unit testing without running `tailscale`.
 7. **PairingOfferSender.** Outbound plain-TCP `NWConnection` to a picked peer's offer port. Writes one length-prefixed `PairingPayload` and closes. Plaintext is acceptable: WireGuard encrypts the peer hop, the host public key in the payload is already public, and the nonce is one-use and pre-approval-gated.
 8. **TailnetIdentityProber.** Outbound `whois` probe on the offer port. An unpaired client whose listener is running replies with a display-only `DeviceIdentity`; the picker lists only the peers that answered, by their reported name. Display-only and pre-auth: tailnet membership is the trust boundary and the signed handshake still gates pairing.
-9. **SessionAuthenticator.** Runs the per-connection mutual challenge-response on the session QUIC control stream. Rejects a peer whose advertised `protocolVersion` is below the host's `minCompatibleProtocolVersion` with `incompatible-protocol` (ADR-0020). Produces `SessionReady` with the session id, memory-only resume token, resume expiry, and media key salt.
+9. **SessionAuthenticator.** Runs the per-connection mutual challenge-response on the session QUIC control stream. Rejects a peer whose advertised `protocolVersion` is below the host's `minCompatibleProtocolVersion` with `incompatible-protocol` (ADR-0020). Produces `SessionReady` with the session id, memory-only resume id, resume secret, resume expiry, and media key salt.
 10. **QuicSessionTransport.** Owns the single live `NetworkConnection<QUIC>` and routes lanes by role. The control stream carries session init, challenge, proof, ready, resume, revoke, and heartbeat. The input stream carries `InputChannelEvent`, `ClientConfig`, and host pushes. The datagram lane carries authenticated `ADMD` media packets, packet resend requests, keyframe requests, ACKs, and link-health reports.
 11. **MediaTransport.** Sends HEVC full-frame refreshes over the session datagram lane. The media packet key is derived per session from fresh handshake material, the session id, and the `SessionReady.mediaKeySalt`; no static datagram key or separate media listener remains.
 12. **ScrollDeltaEngine.** Rest-state retained-graphics producer (ADR-0025), retained as local crisp-repair/compositor machinery. Damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`), omitting cells that already match the retained baseline. It does not own a separate network connection.
@@ -129,11 +129,21 @@ SessionInit       { deviceFingerprint, sessionToken, clientNonce,
                     protocolVersion, minCompatibleProtocolVersion }   // pv must be >= 2
 SessionChallenge  { hostNonce, hostSignature, protocolVersion }
 SessionProof      { clientSignature }
-SessionReady      { sessionId, resumeToken, resumeExpiresAt, mediaKeySalt }
-SessionResumeInit { deviceFingerprint, sessionId, resumeToken, clientNonce,
+SessionReady      { sessionId, resumeId, resumeSecret, resumeExpiresAt, mediaKeySalt }
+SessionResumeInit { deviceFingerprint, sessionId, resumeId, clientNonce,
                     protocolVersion }
+SessionResumeChallenge { hostNonce, resumeExpiresAt }
+SessionResumeProof     { proof }
 SessionRejected   { reason }   // reason includes "incompatible-protocol", "expired-resume"
 ```
+
+`SessionResumeInit` does not carry a bearer secret. The host accepts the public
+`resumeId` only long enough to issue one pending `SessionResumeChallenge`, then
+requires `SessionResumeProof` to be an HMAC over the session id, device
+fingerprint, resume id, client nonce, host nonce, protocol version, and session
+ALPN using the memory-only `resumeSecret`. Success consumes the pending challenge
+and rotates resume id, resume secret, and media key salt in the next
+`SessionReady`.
 
 Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. v0 now sets both to `2`; older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
 
@@ -259,7 +269,7 @@ DesktopStatePush   { state: DesktopState }                            // t: "des
 - Space Agent appears while the host runs and captures thumbnails only through owner-scoped demand.
 - Session states are `connecting`, `connected`, `suspended`, `resuming`, and `ended`.
 - QUIC `.waiting` and short path loss map to `suspended`, not `ended`. The host keeps session state and frame/input plumbing suspended for a 20 second grace window.
-- A foreground client can resume inside the grace window by re-dialing QUIC with the memory-only `SessionReady.resumeToken`; the host reattaches lanes to the same session id and rotates resume material.
+- A foreground client can resume inside the grace window by re-dialing QUIC with the public `SessionReady.resumeId`, answering a one-time resume challenge with an HMAC proof using the memory-only `SessionReady.resumeSecret`; the host reattaches lanes to the same session id and rotates resume material.
 - Grace expiry, background policy, revoke, auth failure, user forget, or terminal connection close ends the session.
 - Client suspends on background; the QUIC session closes within one second while Keychain token and host public key persist. Foreground starts a fresh connect or grace-window resume using stored pairing.
 

@@ -2,7 +2,8 @@ import CryptoKit
 import Foundation
 
 struct SessionResumeMaterial: Equatable, Sendable {
-    let token: Data
+    let id: Data
+    let secret: Data
     let expiresAt: Int
     let mediaKeySalt: Data
     let clientNonce: Data

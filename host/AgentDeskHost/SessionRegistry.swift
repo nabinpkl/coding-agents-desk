@@ -14,12 +14,25 @@ enum SessionResumeValidationResult: Equatable {
     case rejected(SessionRejectionReason)
 }
 
+enum SessionResumeChallengeResult: Equatable {
+    case accepted(SessionResumeChallenge)
+    case rejected(SessionRejectionReason)
+}
+
+private struct PendingResumeProof {
+    let resumeId: Data
+    let clientNonce: Data
+    let hostNonce: Data
+}
+
 private struct ActiveSessionRecord {
     var session: ActiveSession
     var state: SessionLifecycleState
-    var resumeToken: Data
+    var resumeId: Data
+    var resumeSecret: Data
     var resumeExpiresAt: Int
     var mediaKeySalt: Data
+    var pendingResumeProof: PendingResumeProof?
 }
 
 // ADR-0030: per-fingerprint live-session state. The QUIC connection owns
@@ -59,9 +72,11 @@ final class SessionRegistry {
         records[session.deviceFingerprint] = ActiveSessionRecord(
             session: session,
             state: .connected,
-            resumeToken: ready.resumeToken,
+            resumeId: ready.resumeId,
+            resumeSecret: ready.resumeSecret,
             resumeExpiresAt: ready.resumeExpiresAt,
-            mediaKeySalt: ready.mediaKeySalt
+            mediaKeySalt: ready.mediaKeySalt,
+            pendingResumeProof: nil
         )
         if let transport {
             transports[session.deviceFingerprint] = transport
@@ -82,7 +97,7 @@ final class SessionRegistry {
         transports.removeValue(forKey: fingerprint)
     }
 
-    func validateResume(_ request: SessionResumeInit) -> SessionResumeValidationResult {
+    func makeResumeChallenge(_ request: SessionResumeInit) -> SessionResumeChallengeResult {
         guard var record = records[request.deviceFingerprint],
               record.session.sessionId == request.sessionId
         else {
@@ -94,10 +109,63 @@ final class SessionRegistry {
         guard Int(now().timeIntervalSince1970) <= record.resumeExpiresAt else {
             return .rejected(.expiredResume)
         }
-        guard record.resumeToken == request.resumeToken else {
+        guard !request.resumeId.isEmpty,
+              !request.clientNonce.isEmpty,
+              record.resumeId == request.resumeId else {
+            return .rejected(.unauthorized)
+        }
+        let hostNonce: Data
+        do {
+            hostNonce = try randomBytes(32)
+        } catch {
+            return .rejected(.malformed)
+        }
+        record.pendingResumeProof = PendingResumeProof(
+            resumeId: request.resumeId,
+            clientNonce: request.clientNonce,
+            hostNonce: hostNonce
+        )
+        records[request.deviceFingerprint] = record
+        return .accepted(SessionResumeChallenge(
+            hostNonce: hostNonce,
+            resumeExpiresAt: record.resumeExpiresAt
+        ))
+    }
+
+    func validateResume(_ request: SessionResumeInit, proof: SessionResumeProof) -> SessionResumeValidationResult {
+        guard var record = records[request.deviceFingerprint],
+              record.session.sessionId == request.sessionId
+        else {
+            return .rejected(.unauthorized)
+        }
+        guard request.protocolVersion >= Config.minCompatibleProtocolVersion else {
+            return .rejected(.incompatibleProtocol)
+        }
+        guard Int(now().timeIntervalSince1970) <= record.resumeExpiresAt else {
+            return .rejected(.expiredResume)
+        }
+        guard let pending = record.pendingResumeProof,
+              pending.resumeId == request.resumeId,
+              pending.clientNonce == request.clientNonce,
+              record.resumeId == request.resumeId else {
+            return .rejected(.unauthorized)
+        }
+        guard SessionResumeSigning.isValid(
+            proof.proof,
+            sessionId: record.session.sessionId,
+            deviceFingerprint: request.deviceFingerprint,
+            resumeId: request.resumeId,
+            clientNonce: request.clientNonce,
+            hostNonce: pending.hostNonce,
+            protocolVersion: request.protocolVersion,
+            secret: record.resumeSecret
+        ) else {
+            record.pendingResumeProof = nil
+            records[request.deviceFingerprint] = record
             return .rejected(.unauthorized)
         }
         record.state = .resuming
+        record.pendingResumeProof = nil
         records[request.deviceFingerprint] = record
         return .accepted(record.session)
     }
@@ -105,9 +173,11 @@ final class SessionRegistry {
     func noteResumed(_ fingerprint: DeviceFingerprint, ready: SessionReady, transport: MediaTransport? = nil) {
         guard var record = records[fingerprint] else { return }
         record.state = .connected
-        record.resumeToken = ready.resumeToken
+        record.resumeId = ready.resumeId
+        record.resumeSecret = ready.resumeSecret
         record.resumeExpiresAt = ready.resumeExpiresAt
         record.mediaKeySalt = ready.mediaKeySalt
+        record.pendingResumeProof = nil
         records[fingerprint] = record
         resumeTimers[fingerprint]?.cancel()
         resumeTimers.removeValue(forKey: fingerprint)
@@ -183,7 +253,8 @@ final class SessionRegistry {
         }
         return SessionReady(
             sessionId: record.session.sessionId,
-            resumeToken: try randomBytes(32),
+            resumeId: try randomBytes(32),
+            resumeSecret: try randomBytes(32),
             resumeExpiresAt: Int(now().addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970),
             mediaKeySalt: try randomBytes(32)
         )

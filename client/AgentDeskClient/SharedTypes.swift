@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 struct DeviceFingerprint: Codable, Hashable, Equatable, CustomStringConvertible {
@@ -368,27 +369,31 @@ struct SessionProof: Codable, Equatable {
 struct SessionReady: Codable, Equatable {
     let type: String
     let sessionId: String
-    let resumeToken: Data
+    let resumeId: Data
+    let resumeSecret: Data
     let resumeExpiresAt: Int
     let mediaKeySalt: Data
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case sessionId = "sid"
-        case resumeToken = "rt"
+        case resumeId = "rid"
+        case resumeSecret = "rs"
         case resumeExpiresAt = "re"
         case mediaKeySalt = "mk"
     }
 
     init(
         sessionId: String,
-        resumeToken: Data,
+        resumeId: Data,
+        resumeSecret: Data,
         resumeExpiresAt: Int,
         mediaKeySalt: Data
     ) {
         self.type = "session-ready"
         self.sessionId = sessionId
-        self.resumeToken = resumeToken
+        self.resumeId = resumeId
+        self.resumeSecret = resumeSecret
         self.resumeExpiresAt = resumeExpiresAt
         self.mediaKeySalt = mediaKeySalt
     }
@@ -397,7 +402,8 @@ struct SessionReady: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         type = try container.decode(String.self, forKey: .type)
         sessionId = try container.decode(String.self, forKey: .sessionId)
-        resumeToken = try Data(base64URLEncoded: container.decode(String.self, forKey: .resumeToken))
+        resumeId = try Data(base64URLEncoded: container.decode(String.self, forKey: .resumeId))
+        resumeSecret = try Data(base64URLEncoded: container.decode(String.self, forKey: .resumeSecret))
         resumeExpiresAt = try container.decode(Int.self, forKey: .resumeExpiresAt)
         mediaKeySalt = try Data(base64URLEncoded: container.decode(String.self, forKey: .mediaKeySalt))
     }
@@ -406,7 +412,8 @@ struct SessionReady: Codable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(type, forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(resumeToken.base64URLEncodedString(), forKey: .resumeToken)
+        try container.encode(resumeId.base64URLEncodedString(), forKey: .resumeId)
+        try container.encode(resumeSecret.base64URLEncodedString(), forKey: .resumeSecret)
         try container.encode(resumeExpiresAt, forKey: .resumeExpiresAt)
         try container.encode(mediaKeySalt.base64URLEncodedString(), forKey: .mediaKeySalt)
     }
@@ -416,7 +423,7 @@ struct SessionResumeInit: Codable, Equatable {
     let type: String
     let deviceFingerprint: DeviceFingerprint
     let sessionId: String
-    let resumeToken: Data
+    let resumeId: Data
     let clientNonce: Data
     let protocolVersion: Int
 
@@ -424,7 +431,7 @@ struct SessionResumeInit: Codable, Equatable {
         case type = "t"
         case deviceFingerprint = "d"
         case sessionId = "sid"
-        case resumeToken = "rt"
+        case resumeId = "rid"
         case clientNonce = "cn"
         case protocolVersion = "pv"
     }
@@ -432,14 +439,14 @@ struct SessionResumeInit: Codable, Equatable {
     init(
         deviceFingerprint: DeviceFingerprint,
         sessionId: String,
-        resumeToken: Data,
+        resumeId: Data,
         clientNonce: Data = Data(),
         protocolVersion: Int = Config.protocolVersion
     ) {
         self.type = "session-resume"
         self.deviceFingerprint = deviceFingerprint
         self.sessionId = sessionId
-        self.resumeToken = resumeToken
+        self.resumeId = resumeId
         self.clientNonce = clientNonce
         self.protocolVersion = protocolVersion
     }
@@ -449,7 +456,7 @@ struct SessionResumeInit: Codable, Equatable {
         type = try container.decode(String.self, forKey: .type)
         deviceFingerprint = try container.decode(DeviceFingerprint.self, forKey: .deviceFingerprint)
         sessionId = try container.decode(String.self, forKey: .sessionId)
-        resumeToken = try Data(base64URLEncoded: container.decode(String.self, forKey: .resumeToken))
+        resumeId = try Data(base64URLEncoded: container.decode(String.self, forKey: .resumeId))
         clientNonce = try Data(base64URLEncoded: container.decode(String.self, forKey: .clientNonce))
         protocolVersion = try container.decode(Int.self, forKey: .protocolVersion)
     }
@@ -459,9 +466,157 @@ struct SessionResumeInit: Codable, Equatable {
         try container.encode(type, forKey: .type)
         try container.encode(deviceFingerprint, forKey: .deviceFingerprint)
         try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(resumeToken.base64URLEncodedString(), forKey: .resumeToken)
+        try container.encode(resumeId.base64URLEncodedString(), forKey: .resumeId)
         try container.encode(clientNonce.base64URLEncodedString(), forKey: .clientNonce)
         try container.encode(protocolVersion, forKey: .protocolVersion)
+    }
+}
+
+struct SessionResumeChallenge: Codable, Equatable {
+    let type: String
+    let hostNonce: Data
+    let resumeExpiresAt: Int
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case hostNonce = "hn"
+        case resumeExpiresAt = "re"
+    }
+
+    init(hostNonce: Data, resumeExpiresAt: Int) {
+        self.type = "session-resume-challenge"
+        self.hostNonce = hostNonce
+        self.resumeExpiresAt = resumeExpiresAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        hostNonce = try Data(base64URLEncoded: container.decode(String.self, forKey: .hostNonce))
+        resumeExpiresAt = try container.decode(Int.self, forKey: .resumeExpiresAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(hostNonce.base64URLEncodedString(), forKey: .hostNonce)
+        try container.encode(resumeExpiresAt, forKey: .resumeExpiresAt)
+    }
+}
+
+struct SessionResumeProof: Codable, Equatable {
+    let type: String
+    let proof: Data
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case proof = "p"
+    }
+
+    init(proof: Data) {
+        self.type = "session-resume-proof"
+        self.proof = proof
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedType = try container.decode(String.self, forKey: .type)
+        guard decodedType == "session-resume-proof" else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Unexpected session resume proof type"
+            )
+        }
+        type = decodedType
+        proof = try Data(base64URLEncoded: container.decode(String.self, forKey: .proof))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(proof.base64URLEncodedString(), forKey: .proof)
+    }
+}
+
+enum SessionResumeSigning {
+    private static let domainPrefix = "agentdesk-session-resume-v2"
+
+    static func proof(
+        sessionId: String,
+        deviceFingerprint: DeviceFingerprint,
+        resumeId: Data,
+        clientNonce: Data,
+        hostNonce: Data,
+        protocolVersion: Int,
+        secret: Data
+    ) -> Data {
+        let input = canonicalInput(
+            sessionId: sessionId,
+            deviceFingerprint: deviceFingerprint,
+            resumeId: resumeId,
+            clientNonce: clientNonce,
+            hostNonce: hostNonce,
+            protocolVersion: protocolVersion
+        )
+        let code = HMAC<SHA256>.authenticationCode(
+            for: input,
+            using: SymmetricKey(data: secret)
+        )
+        return Data(code)
+    }
+
+    static func isValid(
+        _ proof: Data,
+        sessionId: String,
+        deviceFingerprint: DeviceFingerprint,
+        resumeId: Data,
+        clientNonce: Data,
+        hostNonce: Data,
+        protocolVersion: Int,
+        secret: Data
+    ) -> Bool {
+        let input = canonicalInput(
+            sessionId: sessionId,
+            deviceFingerprint: deviceFingerprint,
+            resumeId: resumeId,
+            clientNonce: clientNonce,
+            hostNonce: hostNonce,
+            protocolVersion: protocolVersion
+        )
+        return HMAC<SHA256>.isValidAuthenticationCode(
+            proof,
+            authenticating: input,
+            using: SymmetricKey(data: secret)
+        )
+    }
+
+    private static func canonicalInput(
+        sessionId: String,
+        deviceFingerprint: DeviceFingerprint,
+        resumeId: Data,
+        clientNonce: Data,
+        hostNonce: Data,
+        protocolVersion: Int
+    ) -> Data {
+        var data = Data()
+        appendField(Data(domainPrefix.utf8), to: &data)
+        appendField(Data(Config.sessionQuicALPN.utf8), to: &data)
+        appendField(Data(sessionId.utf8), to: &data)
+        appendField(Data(deviceFingerprint.rawValue.utf8), to: &data)
+        appendField(resumeId, to: &data)
+        appendField(clientNonce, to: &data)
+        appendField(hostNonce, to: &data)
+        appendField(Data(String(protocolVersion).utf8), to: &data)
+        return data
+    }
+
+    private static func appendField(_ field: Data, to data: inout Data) {
+        data.append(UInt8((field.count >> 24) & 0xff))
+        data.append(UInt8((field.count >> 16) & 0xff))
+        data.append(UInt8((field.count >> 8) & 0xff))
+        data.append(UInt8(field.count & 0xff))
+        data.append(field)
     }
 }
 

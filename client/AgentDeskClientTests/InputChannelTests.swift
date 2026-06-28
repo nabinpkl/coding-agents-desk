@@ -27,7 +27,8 @@ struct InputChannelTests {
     @Test func sessionReadyCarriesResumeAndMediaKeySalt() throws {
         let ready = SessionReady(
             sessionId: "session-123",
-            resumeToken: Data([1, 2, 3]),
+            resumeId: Data([1, 2, 3]),
+            resumeSecret: Data([7, 8, 9]),
             resumeExpiresAt: 1_800_000_020,
             mediaKeySalt: Data([4, 5, 6])
         )
@@ -37,8 +38,17 @@ struct InputChannelTests {
         let decoded = try JSONDecoder().decode(SessionReady.self, from: data)
         #expect(decoded == ready)
         #expect(json.contains("\"sid\":\"session-123\""))
-        #expect(json.contains("\"rt\":\"AQID\""))
+        #expect(json.contains("\"rid\":\"AQID\""))
+        #expect(json.contains("\"rs\":\"BwgJ\""))
         #expect(json.contains("\"mk\":\"BAUG\""))
+    }
+
+    @Test func sessionResumeProofRejectsUnexpectedType() {
+        let data = Data(#"{"t":"session-ready","p":"AQID"}"#.utf8)
+
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(SessionResumeProof.self, from: data)
+        }
     }
 
     @Test func ownedSurfaceUpdateIdOrdersOnlyGenerationThenFrame() {

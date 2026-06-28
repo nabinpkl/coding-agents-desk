@@ -49,7 +49,8 @@ struct QuicSessionStreamFrameTests {
     @Test func sessionReadyCarriesResumeAndMediaKeySalt() throws {
         let ready = SessionReady(
             sessionId: "session-123",
-            resumeToken: Data([1, 2, 3]),
+            resumeId: Data([1, 2, 3]),
+            resumeSecret: Data([7, 8, 9]),
             resumeExpiresAt: 1_800_000_020,
             mediaKeySalt: Data([4, 5, 6])
         )
@@ -61,26 +62,49 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded == ready)
         #expect(json.contains("\"t\":\"session-ready\""))
         #expect(json.contains("\"sid\":\"session-123\""))
-        #expect(json.contains("\"rt\":\"AQID\""))
+        #expect(json.contains("\"rid\":\"AQID\""))
+        #expect(json.contains("\"rs\":\"BwgJ\""))
         #expect(json.contains("\"mk\":\"BAUG\""))
     }
 
-    @Test func sessionResumeInitRoundTripsWithCompactKeys() throws {
+    @Test func sessionResumeChallengeAndProofRoundTripWithCompactKeys() throws {
         let resume = SessionResumeInit(
             deviceFingerprint: DeviceFingerprint("device-fp"),
             sessionId: "session-123",
-            resumeToken: Data([1, 2, 3]),
+            resumeId: Data([1, 2, 3]),
+            clientNonce: Data([4, 5, 6]),
             protocolVersion: 2
         )
+        let challenge = SessionResumeChallenge(
+            hostNonce: Data([7, 8, 9]),
+            resumeExpiresAt: 1_800_000_020
+        )
+        let proof = SessionResumeProof(proof: Data([10, 11, 12]))
 
-        let data = try JSONEncoder().encode(resume)
-        let decoded = try JSONDecoder().decode(SessionResumeInit.self, from: data)
-        let json = String(data: data, encoding: .utf8) ?? ""
+        let resumeData = try JSONEncoder().encode(resume)
+        let challengeData = try JSONEncoder().encode(challenge)
+        let proofData = try JSONEncoder().encode(proof)
+        let decoded = try JSONDecoder().decode(SessionResumeInit.self, from: resumeData)
+        let challengeDecoded = try JSONDecoder().decode(SessionResumeChallenge.self, from: challengeData)
+        let proofDecoded = try JSONDecoder().decode(SessionResumeProof.self, from: proofData)
+        let json = String(data: resumeData, encoding: .utf8) ?? ""
 
         #expect(decoded == resume)
+        #expect(challengeDecoded == challenge)
+        #expect(proofDecoded == proof)
         #expect(json.contains("\"t\":\"session-resume\""))
+        #expect(json.contains("\"rid\":\"AQID\""))
+        #expect(!json.contains("BwgJ"))
         #expect(decoded.deviceFingerprint == DeviceFingerprint("device-fp"))
         #expect(decoded.protocolVersion == 2)
+    }
+
+    @Test func sessionResumeProofRejectsUnexpectedType() {
+        let data = Data(#"{"t":"session-ready","p":"AQID"}"#.utf8)
+
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(SessionResumeProof.self, from: data)
+        }
     }
 
     @Test func inputEventFrameRoundTripsThroughCodable() throws {

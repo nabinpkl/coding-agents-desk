@@ -99,7 +99,8 @@ final class SessionAuthenticator {
         try pairing.markSeen(deviceFingerprint: pending.deviceFingerprint)
         let sessionId = try randomBytes(32).base64URLEncodedString()
         let establishedAt = now()
-        let resumeToken = try randomBytes(32)
+        let resumeId = try randomBytes(32)
+        let resumeSecret = try randomBytes(32)
         let mediaKeySalt = try randomBytes(32)
         let resumeExpiresAt = Int(establishedAt.addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970)
         let session = ActiveSession(
@@ -111,7 +112,8 @@ final class SessionAuthenticator {
         return (
             SessionReady(
                 sessionId: sessionId,
-                resumeToken: resumeToken,
+                resumeId: resumeId,
+                resumeSecret: resumeSecret,
                 resumeExpiresAt: resumeExpiresAt,
                 mediaKeySalt: mediaKeySalt
             ),

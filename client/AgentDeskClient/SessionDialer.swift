@@ -118,7 +118,8 @@ final class SessionDialer {
             active: active,
             transport: transport,
             resume: SessionResumeMaterial(
-                token: ready.resumeToken,
+                id: ready.resumeId,
+                secret: ready.resumeSecret,
                 expiresAt: ready.resumeExpiresAt,
                 mediaKeySalt: ready.mediaKeySalt,
                 clientNonce: clientNonce,
@@ -149,9 +150,31 @@ final class SessionDialer {
             SessionResumeInit(
                 deviceFingerprint: deviceFingerprint,
                 sessionId: active.sessionId,
-                resumeToken: resume.token,
+                resumeId: resume.id,
                 clientNonce: clientNonce
             ),
+            role: .control,
+            on: control
+        )
+        let challenge = try decodeControl(
+            SessionResumeChallenge.self,
+            expectedType: "session-resume-challenge",
+            from: try await receiveControlPayload(on: control)
+        )
+        guard challenge.resumeExpiresAt >= Int(now().timeIntervalSince1970) else {
+            throw SessionRejected(reason: .expiredResume)
+        }
+        let proof = SessionResumeSigning.proof(
+            sessionId: active.sessionId,
+            deviceFingerprint: deviceFingerprint,
+            resumeId: resume.id,
+            clientNonce: clientNonce,
+            hostNonce: challenge.hostNonce,
+            protocolVersion: Config.protocolVersion,
+            secret: resume.secret
+        )
+        try await QuicSessionStreamIO.send(
+            SessionResumeProof(proof: proof),
             role: .control,
             on: control
         )
@@ -169,7 +192,7 @@ final class SessionDialer {
         let mediaKey = MediaDatagramCrypto.sessionKey(
             sessionId: ready.sessionId,
             clientNonce: clientNonce,
-            hostNonce: ready.resumeToken,
+            hostNonce: challenge.hostNonce,
             mediaKeySalt: ready.mediaKeySalt
         )
         let transport = QuicSessionClientTransport(
@@ -184,11 +207,12 @@ final class SessionDialer {
             active: active,
             transport: transport,
             resume: SessionResumeMaterial(
-                token: ready.resumeToken,
+                id: ready.resumeId,
+                secret: ready.resumeSecret,
                 expiresAt: ready.resumeExpiresAt,
                 mediaKeySalt: ready.mediaKeySalt,
                 clientNonce: clientNonce,
-                hostNonce: ready.resumeToken
+                hostNonce: challenge.hostNonce
             )
         )
     }

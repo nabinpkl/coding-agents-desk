@@ -269,10 +269,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.handleSessionReady(active, ready: ready, datagrams: datagrams, mediaKey: mediaKey)
                 }
             },
-            sessionResumeHandler: { [weak self] request in
+            sessionResumeChallengeHandler: { [weak self] request in
                 try await MainActor.run {
                     guard let self else { throw SessionRejected(reason: .unauthorized) }
-                    return try self.handleSessionResume(request)
+                    return try self.handleSessionResumeChallenge(request)
+                }
+            },
+            sessionResumeHandler: { [weak self] request, proof in
+                try await MainActor.run {
+                    guard let self else { throw SessionRejected(reason: .unauthorized) }
+                    return try self.handleSessionResume(request, proof: proof)
                 }
             },
             sessionSuspendedHandler: { [weak self] fingerprint, sessionId in
@@ -326,10 +332,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshConnectedState()
     }
 
-    private func handleSessionResume(_ request: SessionResumeInit) throws -> (ActiveSession, SessionReady) {
-        switch sessions.validateResume(request) {
+    private func handleSessionResumeChallenge(_ request: SessionResumeInit) throws -> SessionResumeChallenge {
+        guard (try? pairing.lookup(deviceFingerprint: request.deviceFingerprint)) != nil else {
+            throw SessionRejected(reason: .unknownDevice)
+        }
+        switch sessions.makeResumeChallenge(request) {
+        case .accepted(let challenge):
+            return challenge
+        case .rejected(let reason):
+            throw SessionRejected(reason: reason)
+        }
+    }
+
+    private func handleSessionResume(_ request: SessionResumeInit, proof: SessionResumeProof) throws -> (ActiveSession, SessionReady) {
+        switch sessions.validateResume(request, proof: proof) {
         case .accepted(let active):
             guard (try? pairing.lookup(deviceFingerprint: active.deviceFingerprint)) != nil else {
+                sessions.endSession(active.deviceFingerprint, sessionId: active.sessionId)
                 throw SessionRejected(reason: .unknownDevice)
             }
             let ready = try sessions.makeResumeReady(for: active.deviceFingerprint)

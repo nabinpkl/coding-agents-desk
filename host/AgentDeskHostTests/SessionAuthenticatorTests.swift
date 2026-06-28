@@ -13,7 +13,8 @@ struct SessionAuthenticatorTests {
 
         #expect(ready.type == "session-ready")
         #expect(!ready.sessionId.isEmpty)
-        #expect(ready.resumeToken.count == 32)
+        #expect(ready.resumeId.count == 32)
+        #expect(ready.resumeSecret.count == 32)
         #expect(ready.resumeExpiresAt == Int(fixture.clock.addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970))
         #expect(ready.mediaKeySalt.count == 32)
         #expect(active.sessionId == ready.sessionId)
@@ -109,24 +110,19 @@ struct SessionRegistryTests {
         let registry = SessionRegistry(now: { now }, randomBytes: random.bytes(count:))
         let fingerprint = DeviceFingerprint("device-fp")
         let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
-        let ready = SessionReady(
-            sessionId: "session-1",
-            resumeToken: Data(repeating: 7, count: 32),
-            resumeExpiresAt: Int(now.addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970),
-            mediaKeySalt: Data(repeating: 8, count: 32)
-        )
+        let ready = makeReady(now: now)
+        let request = makeResumeRequest(ready: ready, fingerprint: fingerprint)
 
         registry.noteAttempt(fingerprint)
         registry.noteReady(active, ready: ready)
+        let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
+        let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
 
         #expect(registry.state(for: fingerprint) == .connected)
         #expect(registry.isActive(fingerprint))
         #expect(!registry.isAttempting(fingerprint))
-        #expect(registry.validateResume(SessionResumeInit(
-            deviceFingerprint: fingerprint,
-            sessionId: "session-1",
-            resumeToken: ready.resumeToken
-        )) == .accepted(active))
+        #expect(challenge.hostNonce == Data(repeating: 1, count: 32))
+        #expect(registry.validateResume(request, proof: proof) == .accepted(active))
     }
 
     @Test func suspendClosesLanesButKeepsSessionResumable() throws {
@@ -134,12 +130,8 @@ struct SessionRegistryTests {
         let registry = SessionRegistry(now: { now })
         let fingerprint = DeviceFingerprint("device-fp")
         let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
-        let ready = SessionReady(
-            sessionId: "session-1",
-            resumeToken: Data(repeating: 7, count: 32),
-            resumeExpiresAt: Int(now.addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970),
-            mediaKeySalt: Data(repeating: 8, count: 32)
-        )
+        let ready = makeReady(now: now)
+        let request = makeResumeRequest(ready: ready, fingerprint: fingerprint)
         let inputServer = FakeInputChannelServer()
         let mediaTransport = FakeMediaTransport()
         let inputTask = Task<Void, Never> {
@@ -156,45 +148,43 @@ struct SessionRegistryTests {
         #expect(inputServer.closed)
         #expect(mediaTransport.stopped)
         #expect(inputTask.isCancelled)
-        #expect(registry.validateResume(SessionResumeInit(
-            deviceFingerprint: fingerprint,
-            sessionId: "session-1",
-            resumeToken: ready.resumeToken
-        )) == .accepted(active))
+        let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
+        let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
+        #expect(registry.validateResume(request, proof: proof) == .accepted(active))
     }
 
-    @Test func forgedStaleAndIncompatibleResumeTokensAreRejected() {
+    @Test func forgedStaleAndIncompatibleResumeProofsAreRejected() throws {
         var now = Date(timeIntervalSince1970: 1_800_000_000)
         let registry = SessionRegistry(now: { now })
         let fingerprint = DeviceFingerprint("device-fp")
         let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
-        let ready = SessionReady(
-            sessionId: "session-1",
-            resumeToken: Data(repeating: 7, count: 32),
-            resumeExpiresAt: Int(now.addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970),
-            mediaKeySalt: Data(repeating: 8, count: 32)
-        )
+        let ready = makeReady(now: now)
         registry.noteReady(active, ready: ready)
 
-        #expect(registry.validateResume(SessionResumeInit(
+        #expect(registry.makeResumeChallenge(SessionResumeInit(
             deviceFingerprint: fingerprint,
             sessionId: "session-1",
-            resumeToken: Data(repeating: 9, count: 32)
+            resumeId: Data(repeating: 9, count: 32),
+            clientNonce: Data(repeating: 4, count: 32)
         )) == .rejected(.unauthorized))
 
-        #expect(registry.validateResume(SessionResumeInit(
+        #expect(registry.makeResumeChallenge(SessionResumeInit(
             deviceFingerprint: fingerprint,
             sessionId: "session-1",
-            resumeToken: ready.resumeToken,
+            resumeId: ready.resumeId,
+            clientNonce: Data(repeating: 4, count: 32),
             protocolVersion: Config.minCompatibleProtocolVersion - 1
         )) == .rejected(.incompatibleProtocol))
 
+        let request = makeResumeRequest(ready: ready, fingerprint: fingerprint)
+        _ = try acceptedChallenge(from: registry.makeResumeChallenge(request))
+        let forgedProof = SessionResumeProof(proof: Data(repeating: 0xab, count: 32))
+        #expect(registry.validateResume(request, proof: forgedProof) == .rejected(.unauthorized))
+
+        let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
+        let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
         now = now.addingTimeInterval(Config.sessionResumeTTL + 1)
-        #expect(registry.validateResume(SessionResumeInit(
-            deviceFingerprint: fingerprint,
-            sessionId: "session-1",
-            resumeToken: ready.resumeToken
-        )) == .rejected(.expiredResume))
+        #expect(registry.validateResume(request, proof: proof) == .rejected(.expiredResume))
     }
 
     @Test func noteResumedReusesSessionIdAndRotatesResumeMaterial() throws {
@@ -203,32 +193,24 @@ struct SessionRegistryTests {
         let registry = SessionRegistry(now: { now }, randomBytes: random.bytes(count:))
         let fingerprint = DeviceFingerprint("device-fp")
         let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
-        let ready = SessionReady(
-            sessionId: "session-1",
-            resumeToken: Data(repeating: 7, count: 32),
-            resumeExpiresAt: Int(now.addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970),
-            mediaKeySalt: Data(repeating: 8, count: 32)
-        )
+        let ready = makeReady(now: now)
+        let request = makeResumeRequest(ready: ready, fingerprint: fingerprint)
         registry.noteReady(active, ready: ready)
         registry.markSuspended(fingerprint, sessionId: "session-1")
-        #expect(registry.validateResume(SessionResumeInit(
-            deviceFingerprint: fingerprint,
-            sessionId: "session-1",
-            resumeToken: ready.resumeToken
-        )) == .accepted(active))
+        let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
+        let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
+        #expect(registry.validateResume(request, proof: proof) == .accepted(active))
 
         let resumedReady = try registry.makeResumeReady(for: fingerprint)
         registry.noteResumed(fingerprint, ready: resumedReady)
 
         #expect(resumedReady.sessionId == "session-1")
-        #expect(resumedReady.resumeToken == Data(repeating: 1, count: 32))
-        #expect(resumedReady.mediaKeySalt == Data(repeating: 2, count: 32))
+        #expect(resumedReady.resumeId == Data(repeating: 2, count: 32))
+        #expect(resumedReady.resumeSecret == Data(repeating: 3, count: 32))
+        #expect(resumedReady.mediaKeySalt == Data(repeating: 4, count: 32))
         #expect(registry.state(for: fingerprint) == .connected)
-        #expect(registry.validateResume(SessionResumeInit(
-            deviceFingerprint: fingerprint,
-            sessionId: "session-1",
-            resumeToken: ready.resumeToken
-        )) == .rejected(.unauthorized))
+        #expect(registry.makeResumeChallenge(request) == .rejected(.unauthorized))
+        #expect(registry.validateResume(request, proof: proof) == .rejected(.unauthorized))
     }
 
     @Test func endSessionTearsDownActiveSurfacesAndRejectsResume() {
@@ -236,12 +218,8 @@ struct SessionRegistryTests {
         let registry = SessionRegistry(now: { now })
         let fingerprint = DeviceFingerprint("device-fp")
         let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
-        let ready = SessionReady(
-            sessionId: "session-1",
-            resumeToken: Data(repeating: 7, count: 32),
-            resumeExpiresAt: Int(now.addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970),
-            mediaKeySalt: Data(repeating: 8, count: 32)
-        )
+        let ready = makeReady(now: now)
+        let request = makeResumeRequest(ready: ready, fingerprint: fingerprint)
         let inputServer = FakeInputChannelServer()
         let mediaTransport = FakeMediaTransport()
         let inputTask = Task<Void, Never> {
@@ -257,11 +235,53 @@ struct SessionRegistryTests {
         #expect(inputServer.closed)
         #expect(mediaTransport.stopped)
         #expect(inputTask.isCancelled)
-        #expect(registry.validateResume(SessionResumeInit(
+        #expect(registry.makeResumeChallenge(request) == .rejected(.unauthorized))
+    }
+
+    private func makeReady(now: Date, sessionId: String = "session-1") -> SessionReady {
+        SessionReady(
+            sessionId: sessionId,
+            resumeId: Data(repeating: 7, count: 32),
+            resumeSecret: Data(repeating: 6, count: 32),
+            resumeExpiresAt: Int(now.addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970),
+            mediaKeySalt: Data(repeating: 8, count: 32)
+        )
+    }
+
+    private func makeResumeRequest(
+        ready: SessionReady,
+        fingerprint: DeviceFingerprint,
+        clientNonce: Data = Data(repeating: 4, count: 32)
+    ) -> SessionResumeInit {
+        SessionResumeInit(
             deviceFingerprint: fingerprint,
-            sessionId: "session-1",
-            resumeToken: ready.resumeToken
-        )) == .rejected(.unauthorized))
+            sessionId: ready.sessionId,
+            resumeId: ready.resumeId,
+            clientNonce: clientNonce
+        )
+    }
+
+    private func makeResumeProof(
+        ready: SessionReady,
+        request: SessionResumeInit,
+        challenge: SessionResumeChallenge
+    ) -> SessionResumeProof {
+        SessionResumeProof(proof: SessionResumeSigning.proof(
+            sessionId: request.sessionId,
+            deviceFingerprint: request.deviceFingerprint,
+            resumeId: request.resumeId,
+            clientNonce: request.clientNonce,
+            hostNonce: challenge.hostNonce,
+            protocolVersion: request.protocolVersion,
+            secret: ready.resumeSecret
+        ))
+    }
+
+    private func acceptedChallenge(from result: SessionResumeChallengeResult) throws -> SessionResumeChallenge {
+        guard case .accepted(let challenge) = result else {
+            throw SessionRejected(reason: .unauthorized)
+        }
+        return challenge
     }
 }
 
