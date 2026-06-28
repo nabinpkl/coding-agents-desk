@@ -592,20 +592,25 @@ struct ScrollDeltaEngine {
         // were sent.
         switch classification {
         case .scroll(let region, let dx, let dy):
-            // The core win: shift the stable region with one copyRect and tile only
-            // the thin exposed strip through the cache ladder, instead of re-tiling
-            // the whole band every frame. The host commits pendingSurface = current;
-            // copyRect + strip reproduce current on the client (see makeScrollEnvelopes
-            // for the coherence argument). A build failure recovers by tiling the band
-            // (still readable), never rejecting.
+            // The core win (ADR-0024): predict the scroll with one copyRect, then tile
+            // only the residual (diff of current vs the shifted previous) through the
+            // cache ladder, instead of re-tiling the whole band. The host commits
+            // pendingSurface = current; copyRect + residual reproduce current on the
+            // client (see makeScrollEnvelopes for the coherence argument). When the
+            // shift does not help, makeScrollEnvelopes returns plain tiles with no
+            // copyRect; a build failure recovers by tiling the band, never rejecting.
             let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
             pendingSurface = current
             switch makeScrollEnvelopes(current: current, previous: previous, region: region, dx: dx, dy: dy, policy: policy, capturedAtUptimeNs: frame.capturedAtUptimeNs) {
             case .built(let envelopes):
+                // The shift was used iff a copyRect leads the first envelope; otherwise
+                // makeScrollEnvelopes dropped it and plain-tiled the band.
+                let usedShift: Bool
+                if case .copyRect = envelopes.first?.commands.first { usedShift = true } else { usedShift = false }
                 return ScrollDeltaResult(
                     kind: .accepted,
                     envelope: envelopes.first,
-                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), region: region, motion: motion, trace: trace, acceptedBy: "scroll", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight, acceptedDx: dx, acceptedDy: dy),
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), region: region, motion: motion, trace: trace, acceptedBy: usedShift ? "scroll" : "scroll-no-shift-tiles", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight, acceptedDx: usedShift ? dx : nil, acceptedDy: usedShift ? dy : nil),
                     envelopes: envelopes
                 )
             case .allUnchanged:
@@ -870,23 +875,24 @@ struct ScrollDeltaEngine {
         return .built(envelopes)
     }
 
-    // The scroll fast path: one copyRect shifts the stable region by (dx, dy), then
-    // the newly-exposed strip is tiled through the SAME rung-1/2/3 cache ladder and
-    // progressive-repaint splitter as any damage (makeTileEnvelope). So a scroll-back
-    // over seen content references cached slots (drawCachedTile, zero payload), a tall
-    // flick strip streams in bounded envelopes, and the strip's encoding is the same
-    // content-gated LZFSE/JPEG with the governor's quality, no second downscale path.
-    // The copyRect is PREPENDED to the first strip envelope so the client shifts the
-    // stable pixels before painting the exposed strip over the remainder.
+    // The scroll fast path, predict-and-correct (ADR-0024). One copyRect shifts the
+    // stable region by (dx, dy) as a PREDICTION, then the residual = diff(current,
+    // shiftedPrevious) over the whole band is coded through the EXISTING rung-1/2/3
+    // cache ladder and progressive splitter (makeTileEnvelope). Cells the shift nailed
+    // are rung-1 omitted (zero bytes); the exposed edge and any imperfect (sub-pixel)
+    // cells tile. The copyRect is prepended to the first residual envelope. There is no
+    // verify gate: a good shift ships a blit plus a sliver, a useless shift is dropped
+    // by the did-it-help guard and the band plain-tiles (exactly the no-scroll cost),
+    // never worse. This is motion + residual, the structure every screen-content codec
+    // uses, built from primitives we already own.
     //
-    // Coherence: the host commits pendingSurface = current (the OS already shifted its
-    // framebuffer). copyRect shifts the client's pixels by the same (dx, dy) over the
-    // same region; the strip overwrites the exposed remainder with current's pixels;
-    // outside region, current == previous (damage covers all change). So the client
-    // pixels end byte-identical to the committed current. Slots are content-addressed
-    // (FNV-1a over raw BGRA), so copyRect moves pixels, not slots, and a later
-    // drawCachedTile stays correct. The copyRect (stable region) and the strip cells
-    // (exposed region) are disjoint by the geometry guards.
+    // Coherence: the client shows previous; its copyRect transforms its pixels to
+    // shiftedPrevious (the host builds that surface identically, same overlap-safe
+    // memmove, exposed edge left stale); the residual tiles, chosen by diffing against
+    // shiftedPrevious, carry it to current. The host commits pendingSurface = current,
+    // so the client ends byte-identical. Slots are content-addressed (FNV-1a over raw
+    // BGRA), so copyRect moves pixels, not slots, and a later drawCachedTile stays
+    // correct.
     private mutating func makeScrollEnvelopes(
         current: Surface,
         previous: Surface,
@@ -896,30 +902,46 @@ struct ScrollDeltaEngine {
         policy: MotionGovernor.Policy,
         capturedAtUptimeNs: UInt64
     ) -> TileBuild {
-        let copyCommand: OwnedGraphicsCommand
-        let stripRect: PixelRect
+        // The copyRect that shifts the stable region, or nil when the offset spans the
+        // whole band (no stable region to shift).
+        let shift: (srcX: Int, srcY: Int, dstX: Int, dstY: Int, width: Int, height: Int)?
         if dy != 0 {
             let exposedHeight = abs(dy)
             let stableHeight = rect.height - exposedHeight
-            guard stableHeight > 0 else { return .failed }
-            copyCommand = dy > 0
-                ? .copyRect(srcX: rect.x, srcY: rect.y, dstX: rect.x, dstY: rect.y + dy, width: rect.width, height: stableHeight)
-                : .copyRect(srcX: rect.x, srcY: rect.y + exposedHeight, dstX: rect.x, dstY: rect.y, width: rect.width, height: stableHeight)
-            let exposedY = dy > 0 ? rect.y : rect.maxY - exposedHeight
-            stripRect = PixelRect(x: rect.x, y: exposedY, width: rect.width, height: exposedHeight)
+            shift = stableHeight > 0
+                ? (dy > 0
+                    ? (rect.x, rect.y, rect.x, rect.y + dy, rect.width, stableHeight)
+                    : (rect.x, rect.y + exposedHeight, rect.x, rect.y, rect.width, stableHeight))
+                : nil
         } else {
             let exposedWidth = abs(dx)
             let stableWidth = rect.width - exposedWidth
-            guard stableWidth > 0 else { return .failed }
-            copyCommand = dx > 0
-                ? .copyRect(srcX: rect.x, srcY: rect.y, dstX: rect.x + dx, dstY: rect.y, width: stableWidth, height: rect.height)
-                : .copyRect(srcX: rect.x + exposedWidth, srcY: rect.y, dstX: rect.x, dstY: rect.y, width: stableWidth, height: rect.height)
-            let exposedX = dx > 0 ? rect.x : rect.maxX - exposedWidth
-            stripRect = PixelRect(x: exposedX, y: rect.y, width: exposedWidth, height: rect.height)
+            shift = stableWidth > 0
+                ? (dx > 0
+                    ? (rect.x, rect.y, rect.x + dx, rect.y, stableWidth, rect.height)
+                    : (rect.x + exposedWidth, rect.y, rect.x, rect.y, stableWidth, rect.height))
+                : nil
         }
 
-        switch makeTileEnvelope(current: current, previous: previous, rects: [stripRect], policy: policy, capturedAtUptimeNs: capturedAtUptimeNs) {
+        // No stable region: nothing to shift, just tile the band.
+        guard let s = shift else {
+            return makeTileEnvelope(current: current, previous: previous, rects: [rect], policy: policy, capturedAtUptimeNs: capturedAtUptimeNs)
+        }
+
+        let copyCommand = OwnedGraphicsCommand.copyRect(srcX: s.srcX, srcY: s.srcY, dstX: s.dstX, dstY: s.dstY, width: s.width, height: s.height)
+        let shiftedPrevious = applyCopyRect(to: previous, srcX: s.srcX, srcY: s.srcY, dstX: s.dstX, dstY: s.dstY, width: s.width, height: s.height)
+        let bandCellCount = TileGrid.cells(covering: [rect], surfaceWidth: current.width, surfaceHeight: current.height, gridPx: tileGridPx).count
+
+        switch makeTileEnvelope(current: current, previous: shiftedPrevious, rects: [rect], policy: policy, capturedAtUptimeNs: capturedAtUptimeNs) {
         case .built(var envelopes):
+            // Did the shift help? It nailed a cell iff fewer cells were emitted than the
+            // band holds. If it nailed nothing (every cell emitted), the copyRect is pure
+            // waste and would churn cache-slot positions: drop it and tile against
+            // previous instead.
+            let emitted = envelopes.reduce(0) { $0 + $1.commands.filter(\.isTileBearing).count }
+            guard emitted < bandCellCount else {
+                return makeTileEnvelope(current: current, previous: previous, rects: [rect], policy: policy, capturedAtUptimeNs: capturedAtUptimeNs)
+            }
             let first = envelopes[0]
             let commands = [copyCommand] + first.commands
             envelopes[0] = OwnedGraphicsFrameEnvelope(
@@ -935,9 +957,8 @@ struct ScrollDeltaEngine {
             )
             return .built(envelopes)
         case .allUnchanged:
-            // The exposed strip already equals the prior surface (scrolling over
-            // identical content). The copyRect alone still shifts the stable region,
-            // so emit a single copyRect-only, zero-payload envelope.
+            // The shift reproduced current exactly across the band (scrolling over
+            // identical content): the copyRect alone suffices, zero payload.
             graphicsFrameId &+= 1
             return .built([OwnedGraphicsFrameEnvelope(
                 header: OwnedGraphicsFrameHeader(
@@ -953,6 +974,36 @@ struct ScrollDeltaEngine {
         case .failed:
             return .failed
         }
+    }
+
+    // Apply a copyRect to a copy of a surface, byte-identically to the client blit in
+    // OwnedMediaVideoSink.copyRect: a full-width band is one memmove; a sub-width band
+    // goes row by row, bottom-up when moving down and top-down when moving up, so a row
+    // is read before it is overwritten. The exposed edge is left as the original pixels
+    // (the copyRect destination does not cover it), matching what the client surface
+    // holds after it applies the same command. The source is not mutated (Data is COW).
+    private func applyCopyRect(to surface: Surface, srcX: Int, srcY: Int, dstX: Int, dstY: Int, width: Int, height: Int) -> Surface {
+        var pixels = surface.pixels
+        let bytesPerRow = surface.bytesPerRow
+        let copyBytesPerRow = width * 4
+        pixels.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            if srcX == 0, dstX == 0, width == surface.width {
+                let source = base.advanced(by: srcY * bytesPerRow)
+                let target = base.advanced(by: dstY * bytesPerRow)
+                memmove(target, source, copyBytesPerRow * height)
+                return
+            }
+            let rows: AnySequence<Int> = dstY > srcY
+                ? AnySequence(stride(from: height - 1, through: 0, by: -1))
+                : AnySequence(0..<height)
+            for row in rows {
+                let source = base.advanced(by: (srcY + row) * bytesPerRow + srcX * 4)
+                let target = base.advanced(by: (dstY + row) * bytesPerRow + dstX * 4)
+                memmove(target, source, copyBytesPerRow)
+            }
+        }
+        return ScrollDeltaSurface(width: surface.width, height: surface.height, bytesPerRow: bytesPerRow, pixels: pixels)
     }
 
     // Encoding choice for buildTile. LZFSE keeps text crisp; JPEG carries the

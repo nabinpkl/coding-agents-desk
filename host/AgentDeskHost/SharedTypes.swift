@@ -1043,6 +1043,15 @@ enum OwnedGraphicsCommand: Equatable {
         return false
     }
 
+    // Carries or references tile pixels (as opposed to copyRect/resetSurface, which
+    // address whole regions). Used to count how many grid cells a tile build emitted.
+    var isTileBearing: Bool {
+        switch self {
+        case .bitmapTile, .cacheTile, .drawCachedTile: return true
+        case .resetSurface, .copyRect: return false
+        }
+    }
+
     var kindIsReset: Bool {
         if case .resetSurface = self { return true }
         return false

@@ -460,6 +460,52 @@ struct ScrollDeltaEngineDamageRoutingTests {
         #expect(copyRectCount == 1)
     }
 
+    // The [x, y] grid-cell origin a tile-bearing command addresses, or nil otherwise.
+    private static func cellOrigin(_ c: OwnedGraphicsCommand) -> [Int]? {
+        switch c {
+        case let .cacheTile(_, x, y, _, _, _, _): return [x, y]
+        case let .bitmapTile(x, y, _, _, _, _): return [x, y]
+        case let .drawCachedTile(_, x, y, _, _): return [x, y]
+        default: return nil
+        }
+    }
+
+    // ADR-0024 predict-and-correct: a scroll with a local imperfection (a small patch
+    // that did not translate) copyRects the shift and tiles ONLY the cells that differ
+    // from the shifted surface (the exposed strip plus the patched cell), not the whole
+    // band. The clean stable cell is reproduced by the shift and omitted.
+    @Test func imperfectScrollTilesOnlyAffectedCellsNotWholeBand() throws {
+        var engine = ScrollDeltaEngine()
+        let side = 256
+        let full = PixelRect(x: 0, y: 0, width: side, height: side)
+        let dy = 16
+
+        let base = try Self.makeBGRAFrame(width: side, height: side) { _, y in
+            let v = Self.scrollRowValue(y); return [v, v, v, 0xff]
+        }
+        #expect(engine.evaluate(base).kind == .reset)
+        engine.commitPendingSurface()
+
+        // Scroll down by dy, but perturb a 16x16 patch inside the pure-stable cell at
+        // (0,128) so that one cell no longer matches the clean shift.
+        let scrolled = try Self.makeBGRAFrame(width: side, height: side, damageRects: [full], contentRectPixels: full) { x, y in
+            if (40..<56).contains(x) && (160..<176).contains(y) { return [7, 7, 7, 0xff] }
+            let v = Self.scrollRowValue(y - dy); return [v, v, v, 0xff]
+        }
+        let r = engine.evaluate(scrolled, motion: MotionSignal(axis: .vertical, sign: 1))
+        #expect(r.diagnostics?.acceptedBy == "scroll")
+
+        let cmds = r.envelopes.flatMap { $0.commands }
+        #expect(cmds.contains { if case .copyRect = $0 { return true }; return false })
+        let tiledCells = Set(cmds.compactMap { Self.cellOrigin($0) })
+        // The clean stable cell was reproduced by the shift, so it is omitted.
+        #expect(!tiledCells.contains([128, 128]))
+        // The perturbed stable cell is tiled (the residual).
+        #expect(tiledCells.contains([0, 128]))
+        // Not every cell of the 4-cell band is tiled: the shift saved at least one.
+        #expect(tiledCells.count < 4, "residual must tile only affected cells, not the whole band")
+    }
+
     private static func kindLabel(_ c: OwnedGraphicsCommand) -> String {
         switch c {
         case .resetSurface: return "reset"
