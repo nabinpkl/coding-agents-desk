@@ -579,6 +579,37 @@ struct DamageScrollClassifierTests {
         }
     }
 
+    // Part 3: with .fullFrame now riding the cache ladder (rung 1/2/3, byte-budget
+    // bounded), the coverage gate no longer separates cheap from freeze, it
+    // separates "grid the damage rects" from "grid the whole surface". A regional
+    // change that is not a detectable scroll, with coverage above the old 0.15
+    // ceiling but below the raised default, must route to .tiles (damage-only grid)
+    // rather than .fullFrame (whole-surface grid). This is the second stale gate
+    // Phase C clears: at 0.15 a 1/4-to-1/2-screen repaint was force-fullframed.
+    @Test func regionalNonScrollRoutesToTilesUnderRaisedCoverageCeiling() {
+        let width = 400
+        let height = 480
+        // Single sub-surface band, ~0.4 coverage: above the old 0.15 ceiling, below
+        // the raised default. Content is fully scrambled (no shift), so the geometry
+        // path finds no offset and the frame reaches the coverage gate.
+        let band = PixelRect(x: 0, y: 0, width: 320, height: 240)
+        let previous = Self.surface2D(width: width, height: height, value: Self.pixelPattern)
+        let current = Self.surface2D(width: width, height: height) { x, y in
+            Self.pixelPattern(x &+ 11, y &+ 777)
+        }
+        let classifier = DamageScrollClassifier()
+
+        let result = classifier.classify(
+            damageRects: [band],
+            contentRect: PixelRect(x: 0, y: 0, width: width, height: height),
+            previous: previous,
+            current: current,
+            hint: nil
+        )
+
+        #expect(result == .tiles([band]))
+    }
+
     // Part 1 wiring: the production default sources every threshold from Config, so
     // a representative sample must equal the central knobs (no inlined literals).
     @Test func defaultConfigMirrorsCentralConfig() {

@@ -169,9 +169,20 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_VERIFY_EXTENT",
         defaultValue: 256
     )
+    // Coverage above which a non-scroll change is gridded as a whole-surface
+    // fullframe instead of damage-only tiles. This was 0.15 when an un-scrolled
+    // tile was a raw LZFSE bitmap on the reliable channel and a near-full tile
+    // (~600KB) froze the pump (R75 confirmed 0.6 froze). That premise is gone:
+    // .tiles and .fullFrame now share the rung-1/2/3 cache ladder bounded by
+    // hybridFrameByteBudget, so a high-coverage tiles set references cached cells
+    // (zero payload) and forces JPEG on genuinely-new cells once the budget is
+    // crossed, the same cost ceiling as fullframe. Raised to 0.6 so a regional
+    // 1/4-to-1/2-screen repaint or a scroll-detection miss stays a damage-only
+    // grid rather than a whole-surface resend. The exact ceiling is a device-data
+    // decision; this is the safe higher default, env-overridable for tuning.
     static let hybridClassifierMaxTileCoverageRatio = positiveDouble(
         environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MAX_TILE_COVERAGE_RATIO",
-        defaultValue: 0.15
+        defaultValue: 0.6
     )
     // JPEG quality for the fullframe fallback, motion-adaptive. A whole-screen
     // change ships as one lossy JPEG instead of multi-MB raw LZFSE (the fix for
