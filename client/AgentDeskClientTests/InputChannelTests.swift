@@ -211,7 +211,12 @@ struct InputChannelTests {
             width: 1280,
             height: 720,
             gapMs: 33,
+            maxGapMs: 33,
             droppedFrames: 0,
+            renderStallCount: 0,
+            decodeDropCount: 0,
+            repairRequestedCount: 0,
+            repairExpiredCount: 0,
             windowMs: 1_000
         )).labelText == "30/30fps rx1250kbps 1280x720 gap33 d0")
         #expect(OwnedMediaStatus.videoRepairing.labelText == "video repairing")
@@ -225,6 +230,10 @@ struct InputChannelTests {
 
         #expect(tracker.noteEnqueuedFrame(bytes: 125_000, width: 1280, height: 720, nowNs: 0) == nil)
         tracker.noteDroppedFrames(2)
+        tracker.noteRepairRequested(3)
+        tracker.noteRepairExpired(1)
+        tracker.noteRenderStall()
+        tracker.noteDecodeDrop()
         #expect(tracker.noteEnqueuedFrame(bytes: 125_000, width: 1280, height: 720, nowNs: 500_000_000) == nil)
         let snapshot = tracker.noteEnqueuedFrame(bytes: 125_000, width: 960, height: 540, nowNs: 1_000_000_000)
 
@@ -236,9 +245,16 @@ struct InputChannelTests {
             width: 960,
             height: 540,
             gapMs: 500,
+            maxGapMs: 500,
             droppedFrames: 2,
+            renderStallCount: 1,
+            decodeDropCount: 1,
+            repairRequestedCount: 3,
+            repairExpiredCount: 1,
             windowMs: 1_000
         ))
+        #expect(snapshot?.diagnosticsFields["maxGapMs"] == "500")
+        #expect(snapshot?.diagnosticsFields["renderStallCount"] == "1")
     }
 
     @MainActor

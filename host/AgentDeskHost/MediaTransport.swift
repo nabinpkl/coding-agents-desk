@@ -76,6 +76,43 @@ struct MediaProductionSummary: Equatable {
     let windowMs: Int
 }
 
+struct MediaQualityObservationSignals: Equatable {
+    let loss: Bool
+    let repairPressure: Bool
+    let ackQueued: Bool
+    let cadencePressure: Bool
+    let backpressureStale: Bool
+    let lossPermille: Int
+}
+
+struct MediaQualityObservation: Equatable {
+    let windowId: UInt64
+    let sample: MediaQualitySample
+    let previousTarget: MediaQualityTarget
+    let productionSummary: MediaProductionSummary?
+    let ackCount: Int
+    let ackAgeMaxMs: Double?
+    let inFlightFrames: Int
+    let inFlightBytes: Int
+    let oldestInflightMs: Double?
+    let staleRecoveryCount: Int
+    let signals: MediaQualityObservationSignals
+}
+
+struct MediaQualityDecision: Equatable {
+    let observation: MediaQualityObservation
+    let outcome: MediaQualityOutcome
+
+    var changedAxes: String {
+        var axes: [String] = []
+        if outcome.bitrateChanged { axes.append("bitrate") }
+        if outcome.fpsChanged { axes.append("fps") }
+        if outcome.resolutionChanged { axes.append("resolution") }
+        if outcome.target.rung != outcome.previousTarget.rung { axes.append("rung") }
+        return axes.isEmpty ? "none" : axes.joined(separator: ",")
+    }
+}
+
 struct MediaProductionDiagnosticsTracker: Equatable {
     private let publishIntervalNs: UInt64
     private var windowStartNs: UInt64?

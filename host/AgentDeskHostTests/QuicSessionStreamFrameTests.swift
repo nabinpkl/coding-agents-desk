@@ -321,12 +321,62 @@ struct QuicSessionHostMediaStateTests {
     @Test func linkHealthMovesAdaptiveTargets() {
         var state = makeState()
 
-        let outcome = state.observeLinkHealth(completedFrames: 80, expiredFrames: 20)
+        let decision = state.observeLinkHealth(
+            completedFrames: 80,
+            expiredFrames: 20,
+            productionSummary: nil,
+            nowNs: 0
+        )
+        let outcome = decision.outcome
 
         #expect(outcome.changed)
         #expect(outcome.reason == "loss-down")
+        #expect(decision.observation.windowId == 1)
+        #expect(decision.observation.sample.completedFrames == 80)
+        #expect(decision.observation.sample.expiredFrames == 20)
+        #expect(decision.observation.signals.loss)
+        #expect(decision.changedAxes == "bitrate,rung")
         #expect(state.targetKbps < 2500)
         #expect(state.targetFps == 30)
+    }
+
+    @Test func qualityObservationIncludesAckAndBackpressureDiagnostics() throws {
+        var state = makeState(maxInflightFrames: 1)
+        let update = try requireReady(
+            state.reserveUpdateId(nowNs: 1_000_000_000),
+            "expected diagnostics update id"
+        )
+        state.noteSent(
+            frameId: update.frameId,
+            encodedBytes: 42,
+            packets: [Data([1])],
+            sentAtUptimeNs: 1_000_000_000
+        )
+        _ = state.reserveUpdateId(nowNs: 2_600_000_000)
+        let decision = state.observeLinkHealth(
+            completedFrames: 1,
+            expiredFrames: 0,
+            productionSummary: MediaProductionSummary(
+                actualFps: 1,
+                targetFps: 30,
+                fpsDeficit: 29,
+                frames: 1,
+                keyframes: 1,
+                sentKbps: 500,
+                targetKbps: 2_500,
+                maxGapMs: 1_600,
+                resolutionScale: 1.0,
+                windowMs: 1_000
+            ),
+            nowNs: 2_700_000_000
+        )
+
+        #expect(decision.observation.inFlightFrames == 0)
+        #expect(decision.observation.inFlightBytes == 0)
+        #expect(decision.observation.staleRecoveryCount == 1)
+        #expect(decision.observation.signals.backpressureStale)
+        #expect(decision.observation.signals.cadencePressure)
+        #expect(decision.observation.ackCount == 0)
     }
 
     @Test func ackAgeIsComputedFromSentFrameTime() throws {
@@ -342,12 +392,22 @@ struct QuicSessionHostMediaStateTests {
         let ageMs = state.noteAck(frameId: update.frameId, nowNs: 1_120_000_000)
 
         #expect(ageMs == 120)
+        let decision = state.observeLinkHealth(
+            completedFrames: 1,
+            expiredFrames: 0,
+            productionSummary: nil,
+            nowNs: 1_120_000_000
+        )
+        #expect(decision.observation.ackCount == 1)
+        #expect(decision.observation.sample.ackAgeP50Ms == 120)
+        #expect(decision.observation.sample.ackAgeP95Ms == 120)
+        #expect(decision.observation.ackAgeMaxMs == 120)
     }
 
     @Test func survivalFpsAddsCapacityAdmissionInterval() throws {
         var state = makeState()
         while state.targetFps == 30 {
-            _ = state.observeLinkHealth(completedFrames: 80, expiredFrames: 20)
+            _ = state.observeLinkHealth(completedFrames: 80, expiredFrames: 20, productionSummary: nil)
         }
         #expect(state.targetFps < 30)
 

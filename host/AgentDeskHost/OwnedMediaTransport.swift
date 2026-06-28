@@ -175,18 +175,22 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         let sent = await enqueuePackets(packets).value
         guard sent else { return }
         let liveTargets = encodeGate.withLock { state in
-            (
+            let summary = state.productionDiagnostics.noteSent(
+                bytes: payload.count,
+                isKeyframe: envelope.header.isKeyframe,
+                targetKbps: state.mediaState.targetKbps,
+                targetFps: state.mediaState.targetFps,
+                resolutionScale: state.mediaState.targetResolutionScale,
+                nowNs: sentAtUptimeNs
+            )
+            if let summary {
+                state.latestProductionSummary = summary
+            }
+            return (
                 kbps: state.mediaState.targetKbps,
                 fps: state.mediaState.targetFps,
                 scale: state.mediaState.targetResolutionScale,
-                productionSummary: state.productionDiagnostics.noteSent(
-                    bytes: payload.count,
-                    isKeyframe: envelope.header.isKeyframe,
-                    targetKbps: state.mediaState.targetKbps,
-                    targetFps: state.mediaState.targetFps,
-                    resolutionScale: state.mediaState.targetResolutionScale,
-                    nowNs: sentAtUptimeNs
-                )
+                productionSummary: summary
             )
         }
         if envelope.header.isKeyframe || envelope.header.frameId.isMultiple(of: 30) {
@@ -262,38 +266,71 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     private func handleLinkHealth(_ message: OwnedMediaControlMessage) {
         let completed = message.linkHealthCompletedFrames ?? 0
         let expired = message.linkHealthExpiredFrames ?? 0
-        let outcome = encodeGate.withLock { state in
-            state.mediaState.observeLinkHealth(completedFrames: completed, expiredFrames: expired)
+        let decision = encodeGate.withLock { state in
+            let productionSummary = state.latestProductionSummary
+            state.latestProductionSummary = nil
+            return state.mediaState.observeLinkHealth(
+                completedFrames: completed,
+                expiredFrames: expired,
+                productionSummary: productionSummary
+            )
         }
-        applyQualityOutcome(outcome, completed: completed, expired: expired)
+        logQualityDecision(decision)
+        applyQualityDecision(decision, completed: completed, expired: expired)
     }
 
-    private func applyQualityOutcome(
-        _ outcome: MediaQualityOutcome,
+    private func applyQualityDecision(
+        _ decision: MediaQualityDecision,
         completed: Int,
         expired: Int
     ) {
+        let outcome = decision.outcome
         guard outcome.changed else { return }
         if outcome.bitrateChanged {
             encoder.updateBitrate(outcome.target.bitrateKbps)
-            logger.notice("owned media video bitrate-step target=\(outcome.target.bitrateKbps, privacy: .public)kbps rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
+            logger.notice("owned media video bitrate-step windowId=\(decision.observation.windowId, privacy: .public) target=\(outcome.target.bitrateKbps, privacy: .public)kbps rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
         }
         if outcome.fpsChanged {
             encoder.updateExpectedFrameRate(outcome.target.fps)
-            logger.notice("owned media video fps-step target=\(outcome.target.fps, privacy: .public)fps bitrate=\(outcome.target.bitrateKbps, privacy: .public)kbps rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
+            logger.notice("owned media video fps-step windowId=\(decision.observation.windowId, privacy: .public) target=\(outcome.target.fps, privacy: .public)fps bitrate=\(outcome.target.bitrateKbps, privacy: .public)kbps rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
         }
         if outcome.resolutionChanged {
             if let qualitySource = source as? QualitySelectableVideoFrameSource {
-                qualitySource.setResolutionScale(outcome.target.resolutionScale)
+                qualitySource.setResolutionScale(
+                    outcome.target.resolutionScale,
+                    context: MediaCaptureScaleChangeContext(
+                        windowId: decision.observation.windowId,
+                        previousResolutionScale: outcome.previousTarget.resolutionScale,
+                        nextResolutionScale: outcome.target.resolutionScale
+                    )
+                )
             }
             encodeGate.withLock { state in
                 state.latest = nil
                 state.forceKeyframe = true
                 state.mediaState.resetForQualityChange()
             }
-            logger.notice("owned media video resolution-step scale=\(outcome.target.resolutionScale, privacy: .public) bitrate=\(outcome.target.bitrateKbps, privacy: .public)kbps fps=\(outcome.target.fps, privacy: .public) rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public)")
+            logger.notice("owned media video resolution-step windowId=\(decision.observation.windowId, privacy: .public) scale=\(outcome.target.resolutionScale, privacy: .public) bitrate=\(outcome.target.bitrateKbps, privacy: .public)kbps fps=\(outcome.target.fps, privacy: .public) rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public)")
         }
+        logger.notice("mediaQualityTargetApplied windowId=\(decision.observation.windowId, privacy: .public) rung=\(outcome.target.rung.rawValue, privacy: .public) bitrateKbps=\(outcome.target.bitrateKbps, privacy: .public) fps=\(outcome.target.fps, privacy: .public) resolutionScale=\(outcome.target.resolutionScale, privacy: .public) bitrateApplied=\(outcome.bitrateChanged, privacy: .public) fpsApplied=\(outcome.fpsChanged, privacy: .public) resolutionApplied=\(outcome.resolutionChanged, privacy: .public) forcedKeyframe=\(outcome.resolutionChanged, privacy: .public) reason=\(outcome.reason, privacy: .public)")
         startDrainIfNeeded()
+    }
+
+    private func logQualityDecision(_ decision: MediaQualityDecision) {
+        let observation = decision.observation
+        let sample = observation.sample
+        let production = observation.productionSummary
+        logger.notice(
+            "mediaQualityWindow windowId=\(observation.windowId, privacy: .public) currentRung=\(observation.previousTarget.rung.rawValue, privacy: .public) currentBitrateKbps=\(observation.previousTarget.bitrateKbps, privacy: .public) currentFps=\(observation.previousTarget.fps, privacy: .public) currentResolutionScale=\(observation.previousTarget.resolutionScale, privacy: .public) actualFps=\(production?.actualFps ?? -1, privacy: .public) fpsDeficit=\(production?.fpsDeficit ?? -1, privacy: .public) sentKbps=\(production?.sentKbps ?? -1, privacy: .public) frames=\(production?.frames ?? -1, privacy: .public) keyframes=\(production?.keyframes ?? -1, privacy: .public) maxSendGapMs=\(production?.maxGapMs ?? -1, privacy: .public) productionWindowMs=\(production?.windowMs ?? -1, privacy: .public) ackCount=\(observation.ackCount, privacy: .public) ackAgeP50Ms=\(self.formatMs(sample.ackAgeP50Ms), privacy: .public) ackAgeP95Ms=\(self.formatMs(sample.ackAgeP95Ms), privacy: .public) ackAgeMaxMs=\(self.formatMs(observation.ackAgeMaxMs), privacy: .public) inFlightFrames=\(observation.inFlightFrames, privacy: .public) inFlightBytes=\(observation.inFlightBytes, privacy: .public) oldestInflightMs=\(self.formatMs(observation.oldestInflightMs), privacy: .public) staleRecoveryCount=\(observation.staleRecoveryCount, privacy: .public) completedFrames=\(sample.completedFrames, privacy: .public) expiredFrames=\(sample.expiredFrames, privacy: .public) resendRequests=\(sample.resendRequests, privacy: .public) keyframeRequests=\(sample.keyframeRequests, privacy: .public) lossPermille=\(observation.signals.lossPermille, privacy: .public)"
+        )
+        logger.notice(
+            "mediaQualityDecision windowId=\(observation.windowId, privacy: .public) previousRung=\(decision.outcome.previousTarget.rung.rawValue, privacy: .public) previousBitrateKbps=\(decision.outcome.previousTarget.bitrateKbps, privacy: .public) previousFps=\(decision.outcome.previousTarget.fps, privacy: .public) previousResolutionScale=\(decision.outcome.previousTarget.resolutionScale, privacy: .public) nextRung=\(decision.outcome.target.rung.rawValue, privacy: .public) nextBitrateKbps=\(decision.outcome.target.bitrateKbps, privacy: .public) nextFps=\(decision.outcome.target.fps, privacy: .public) nextResolutionScale=\(decision.outcome.target.resolutionScale, privacy: .public) reason=\(decision.outcome.reason, privacy: .public) changedAxes=\(decision.changedAxes, privacy: .public) loss=\(observation.signals.loss, privacy: .public) repairPressure=\(observation.signals.repairPressure, privacy: .public) ackQueued=\(observation.signals.ackQueued, privacy: .public) cadencePressure=\(observation.signals.cadencePressure, privacy: .public) backpressureStale=\(observation.signals.backpressureStale, privacy: .public) expiredFrames=\(sample.expiredFrames, privacy: .public) lossPermille=\(observation.signals.lossPermille, privacy: .public) ackAgeP95Ms=\(self.formatMs(sample.ackAgeP95Ms), privacy: .public) fpsDeficit=\(production?.fpsDeficit ?? -1, privacy: .public) maxSendGapMs=\(production?.maxGapMs ?? -1, privacy: .public) staleRecoveryCount=\(observation.staleRecoveryCount, privacy: .public)"
+        )
+    }
+
+    private func formatMs(_ value: Double?) -> String {
+        guard let value else { return "nil" }
+        return String(format: "%.1f", value)
     }
 
     private struct EncodeJob {
@@ -363,6 +400,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var forceKeyframe = false
         var mediaState = QuicSessionHostMediaState()
         var productionDiagnostics = MediaProductionDiagnosticsTracker()
+        var latestProductionSummary: MediaProductionSummary?
     }
 
     private struct MediaSendQueueState {

@@ -254,6 +254,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             }
         }
         for request in result.resendRequests {
+            Task { @MainActor [weak self] in
+                self?.sink?.noteOwnedMediaRepairRequested(1)
+            }
             ClientDiagnostics.shared.record(
                 type: "mediaRepairRequested",
                 fields: [
@@ -272,6 +275,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             let expiredCount = result.expiredFrames.count
             Task { @MainActor [weak self] in
                 self?.sink?.noteOwnedMediaDroppedFrames(expiredCount)
+                self?.sink?.noteOwnedMediaRepairExpired(expiredCount)
             }
             ClientDiagnostics.shared.record(
                 type: "mediaRepairDeadlineMissed",

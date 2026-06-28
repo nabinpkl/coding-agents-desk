@@ -56,11 +56,19 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         }
     }
 
-    func setResolutionScale(_ scale: Double) {
+    func setResolutionScale(_ scale: Double, context: MediaCaptureScaleChangeContext? = nil) {
         let shouldRestart = controlState.withLock { state -> Bool in
             let normalized = CaptureSizing.normalizedResolutionScale(scale)
+            let previous = state.resolutionScale
             let changed = abs(state.resolutionScale - normalized) > 0.001
             state.resolutionScale = normalized
+            if changed {
+                state.pendingScaleChangeContext = context ?? MediaCaptureScaleChangeContext(
+                    windowId: 0,
+                    previousResolutionScale: previous,
+                    nextResolutionScale: normalized
+                )
+            }
             return changed && state.isRunning && state.onFrame != nil
         }
         guard shouldRestart else { return }
@@ -116,6 +124,9 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         )
         config.width = pixelSize.width
         config.height = pixelSize.height
+        controlState.withLock { state in
+            state.currentPixelSize = pixelSize
+        }
         // queueDepth=3 minimizes capture-side buffering while staying within
         // SCStreamConfiguration's valid range (3..8). queueDepth=1 silently
         // makes the stream stop delivering frames altogether. Default 5
@@ -146,6 +157,10 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
     }
 
     private func restartCurrentSelection() async {
+        let restartStartedNs = DispatchTime.now().uptimeNanoseconds
+        let restartContext = controlState.withLock { state in
+            (context: state.pendingScaleChangeContext, previousPixelSize: state.currentPixelSize)
+        }
         let oldStream = stream
         stream = nil
         if let oldStream {
@@ -155,10 +170,34 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
             state.forceKeyframeNextFrame = true
             return state.onFrame
         }
-        guard let callback else { return }
+        guard let callback else {
+            controlState.withLock { state in
+                state.pendingScaleChangeContext = nil
+            }
+            return
+        }
         do {
             try await start(onFrame: callback)
+            let restartEndedNs = DispatchTime.now().uptimeNanoseconds
+            let nextPixelSize = controlState.withLock { state -> CapturePixelSize? in
+                state.pendingScaleChangeContext = nil
+                return state.currentPixelSize
+            }
+            if let context = restartContext.context {
+                logger.notice(
+                    "mediaCaptureScaleApplied windowId=\(context.windowId, privacy: .public) previousResolutionScale=\(context.previousResolutionScale, privacy: .public) nextResolutionScale=\(context.nextResolutionScale, privacy: .public) previousSize=\(Self.describe(restartContext.previousPixelSize), privacy: .public) nextSize=\(Self.describe(nextPixelSize), privacy: .public) restartDurationMs=\(Self.ms(restartEndedNs &- restartStartedNs), privacy: .public) firstKeyframePending=true"
+                )
+            }
         } catch {
+            let restartEndedNs = DispatchTime.now().uptimeNanoseconds
+            controlState.withLock { state in
+                state.pendingScaleChangeContext = nil
+            }
+            if let context = restartContext.context {
+                logger.error(
+                    "mediaCaptureScaleFailed windowId=\(context.windowId, privacy: .public) previousResolutionScale=\(context.previousResolutionScale, privacy: .public) nextResolutionScale=\(context.nextResolutionScale, privacy: .public) previousSize=\(Self.describe(restartContext.previousPixelSize), privacy: .public) restartDurationMs=\(Self.ms(restartEndedNs &- restartStartedNs), privacy: .public) failure=\(String(describing: error), privacy: .public)"
+                )
+            }
             logger.error("screen capture display switch failed: \(String(describing: error), privacy: .public)")
         }
     }
@@ -185,6 +224,15 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
             UInt8(value & 0xff)
         ]
         return String(bytes: bytes, encoding: .macOSRoman) ?? "????"
+    }
+
+    private static func describe(_ size: CapturePixelSize?) -> String {
+        guard let size else { return "unknown" }
+        return "\(size.width)x\(size.height)"
+    }
+
+    private static func ms(_ durationNs: UInt64) -> String {
+        String(format: "%.1f", Double(durationNs) / 1_000_000.0)
     }
 
     func stop() {
@@ -298,6 +346,8 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
 private struct CaptureControlState: Sendable {
     var selectedDisplayId: String?
     var resolutionScale = 1.0
+    var currentPixelSize: CapturePixelSize?
+    var pendingScaleChangeContext: MediaCaptureScaleChangeContext?
     var isRunning = false
     var forceKeyframeNextFrame = true
     var onFrame: (@Sendable (CapturedVideoFrame) -> Void)?

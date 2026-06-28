@@ -738,6 +738,32 @@ struct MediaQualityController {
     var targetFps: Int { target.fps }
     var targetResolutionScale: Double { target.resolutionScale }
 
+    func signals(
+        for sample: MediaQualitySample,
+        productionSummary: MediaProductionSummary?,
+        staleRecoveryCount: Int
+    ) -> MediaQualityObservationSignals {
+        let total = sample.completedFrames + sample.expiredFrames
+        let lossPermille = total > 0 ? (sample.expiredFrames * 1000) / total : 0
+        let loss = lossPermille >= config.lossDownPermille ||
+            sample.expiredFrames > 0 ||
+            sample.keyframeRequests > 0
+        let repairPressure = sample.resendRequests > 0
+        let ackQueued = (sample.ackAgeP95Ms ?? 0) >= config.ackDownP95Ms
+        let cadencePressure = productionSummary.map { summary in
+            summary.fpsDeficit * 2 >= max(summary.targetFps, 1) ||
+                summary.maxGapMs >= summary.windowMs
+        } ?? false
+        return MediaQualityObservationSignals(
+            loss: loss,
+            repairPressure: repairPressure,
+            ackQueued: ackQueued,
+            cadencePressure: cadencePressure,
+            backpressureStale: staleRecoveryCount > 0,
+            lossPermille: lossPermille
+        )
+    }
+
     mutating func observe(_ sample: MediaQualitySample) -> MediaQualityOutcome {
         let previous = target
         let total = sample.completedFrames + sample.expiredFrames
@@ -867,6 +893,8 @@ struct QuicSessionHostMediaState {
     private var resendRequestsInWindow = 0
     private var keyframeRequestsInWindow = 0
     private var ackAgesMs: [Double] = []
+    private var staleRecoveryCountInWindow = 0
+    private var qualityWindowId: UInt64 = 0
 
     init(
         maxInflightFrames: Int = Config.ownedMediaBackpressureMaxInflightFrames,
@@ -892,6 +920,7 @@ struct QuicSessionHostMediaState {
     var targetFps: Int { qualityController.targetFps }
     var targetResolutionScale: Double { qualityController.targetResolutionScale }
     var inFlightFrames: Int { backpressure.inFlight }
+    var inFlightBytes: Int { backpressure.bytesInFlight }
 
     mutating func reserveUpdateId(nowNs: UInt64) -> Admission {
         if !backpressure.canProduce() {
@@ -900,6 +929,7 @@ struct QuicSessionHostMediaState {
                 if ageNs >= staleInflightTimeoutNs {
                     backpressure.reset()
                     forceRecoveryKeyframeOnNextAdmission = true
+                    staleRecoveryCountInWindow += 1
                 } else {
                     return .retry(
                         afterNs: min(retryIntervalNs, staleInflightTimeoutNs - ageNs),
@@ -963,20 +993,50 @@ struct QuicSessionHostMediaState {
 
     mutating func observeLinkHealth(
         completedFrames: Int,
-        expiredFrames: Int
-    ) -> MediaQualityOutcome {
+        expiredFrames: Int,
+        productionSummary: MediaProductionSummary?,
+        nowNs: UInt64 = DispatchTime.now().uptimeNanoseconds
+    ) -> MediaQualityDecision {
+        qualityWindowId &+= 1
+        let ackStats = ackAgeStats()
         let sample = MediaQualitySample(
             completedFrames: completedFrames,
             expiredFrames: expiredFrames,
             resendRequests: resendRequestsInWindow,
             keyframeRequests: keyframeRequestsInWindow,
-            ackAgeP50Ms: percentile(0.50),
-            ackAgeP95Ms: percentile(0.95)
+            ackAgeP50Ms: ackStats.p50,
+            ackAgeP95Ms: ackStats.p95
+        )
+        let oldestInflightMs = backpressure.oldestSentUptimeNs.map { sentNs in
+            Double(nowNs >= sentNs ? nowNs - sentNs : 0) / 1_000_000.0
+        }
+        let staleRecoveryCount = staleRecoveryCountInWindow
+        let signals = qualityController.signals(
+            for: sample,
+            productionSummary: productionSummary,
+            staleRecoveryCount: staleRecoveryCount
+        )
+        let observation = MediaQualityObservation(
+            windowId: qualityWindowId,
+            sample: sample,
+            previousTarget: qualityController.target,
+            productionSummary: productionSummary,
+            ackCount: ackStats.count,
+            ackAgeMaxMs: ackStats.max,
+            inFlightFrames: backpressure.inFlight,
+            inFlightBytes: backpressure.bytesInFlight,
+            oldestInflightMs: oldestInflightMs,
+            staleRecoveryCount: staleRecoveryCount,
+            signals: signals
         )
         resendRequestsInWindow = 0
         keyframeRequestsInWindow = 0
+        staleRecoveryCountInWindow = 0
         ackAgesMs.removeAll(keepingCapacity: true)
-        return qualityController.observe(sample)
+        return MediaQualityDecision(
+            observation: observation,
+            outcome: qualityController.observe(sample)
+        )
     }
 
     mutating func takeRecoveryKeyframeRequest() -> Bool {
@@ -997,5 +1057,17 @@ struct QuicSessionHostMediaState {
         let clamped = min(max(fraction, 0), 1)
         let index = min(sorted.count - 1, Int((Double(sorted.count - 1) * clamped).rounded(.up)))
         return sorted[index]
+    }
+
+    private func ackAgeStats() -> (count: Int, p50: Double?, p95: Double?, max: Double?) {
+        guard !ackAgesMs.isEmpty else {
+            return (0, nil, nil, nil)
+        }
+        return (
+            ackAgesMs.count,
+            percentile(0.50),
+            percentile(0.95),
+            ackAgesMs.max()
+        )
     }
 }

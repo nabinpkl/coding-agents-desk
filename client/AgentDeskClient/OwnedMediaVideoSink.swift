@@ -15,6 +15,8 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
     @MainActor func consumePendingGraphicsResetRequest() -> OwnedGraphicsResetRequest?
     @MainActor func noteOwnedMediaDroppedFrames(_ count: Int)
     @MainActor func setOwnedMediaStatus(_ status: OwnedMediaStatus)
+    @MainActor func noteOwnedMediaRepairRequested(_ count: Int)
+    @MainActor func noteOwnedMediaRepairExpired(_ count: Int)
     // ADR-0027: the transport installs how the sink asks for a keyframe (the render
     // -stall watchdog and the wedged-layer recovery both use it).
     @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void)
@@ -25,6 +27,8 @@ extension OwnedMediaFrameSink {
     @MainActor func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope, frameBytes: Int) {}
     @MainActor func noteOwnedMediaDroppedFrames(_ count: Int) {}
     @MainActor func setOwnedMediaStatus(_ status: OwnedMediaStatus) {}
+    @MainActor func noteOwnedMediaRepairRequested(_ count: Int) {}
+    @MainActor func noteOwnedMediaRepairExpired(_ count: Int) {}
     @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void) {}
 }
 
@@ -65,11 +69,35 @@ struct OwnedMediaVideoStatusSnapshot: Equatable {
     let width: Int
     let height: Int
     let gapMs: Int
+    let maxGapMs: Int
     let droppedFrames: Int
+    let renderStallCount: Int
+    let decodeDropCount: Int
+    let repairRequestedCount: Int
+    let repairExpiredCount: Int
     let windowMs: Int
 
     var labelText: String {
         "\(fps)/\(expectedFps)fps rx\(receivedKbps)kbps \(width)x\(height) gap\(gapMs) d\(droppedFrames)"
+    }
+
+    var diagnosticsFields: [String: String] {
+        [
+            "fps": String(fps),
+            "expectedFps": String(expectedFps),
+            "fpsDeficit": String(fpsDeficit),
+            "receivedKbps": String(receivedKbps),
+            "width": String(width),
+            "height": String(height),
+            "gapMs": String(gapMs),
+            "maxGapMs": String(maxGapMs),
+            "droppedFrames": String(droppedFrames),
+            "renderStallCount": String(renderStallCount),
+            "decodeDropCount": String(decodeDropCount),
+            "repairRequestedCount": String(repairRequestedCount),
+            "repairExpiredCount": String(repairExpiredCount),
+            "windowMs": String(windowMs)
+        ]
     }
 }
 
@@ -81,7 +109,12 @@ struct OwnedMediaVideoStatusTracker {
     private var windowBytes = 0
     private var lastEnqueueNs: UInt64?
     private var lastGapMs = 0.0
+    private var maxGapMs = 0.0
     private(set) var droppedFrames = 0
+    private var renderStallCount = 0
+    private var decodeDropCount = 0
+    private var repairRequestedCount = 0
+    private var repairExpiredCount = 0
 
     init(
         publishIntervalNs: UInt64 = Config.diagnosticsMediaSummaryIntervalNs,
@@ -95,6 +128,22 @@ struct OwnedMediaVideoStatusTracker {
         droppedFrames += max(0, count)
     }
 
+    mutating func noteRenderStall(_ count: Int = 1) {
+        renderStallCount += max(0, count)
+    }
+
+    mutating func noteDecodeDrop(_ count: Int = 1) {
+        decodeDropCount += max(0, count)
+    }
+
+    mutating func noteRepairRequested(_ count: Int = 1) {
+        repairRequestedCount += max(0, count)
+    }
+
+    mutating func noteRepairExpired(_ count: Int = 1) {
+        repairExpiredCount += max(0, count)
+    }
+
     mutating func noteEnqueuedFrame(
         bytes: Int,
         width: Int,
@@ -103,6 +152,7 @@ struct OwnedMediaVideoStatusTracker {
     ) -> OwnedMediaVideoStatusSnapshot? {
         if let lastEnqueueNs, nowNs >= lastEnqueueNs {
             lastGapMs = Double(nowNs - lastEnqueueNs) / 1_000_000.0
+            maxGapMs = max(maxGapMs, lastGapMs)
         }
         lastEnqueueNs = nowNs
         if windowStartNs == nil {
@@ -123,12 +173,22 @@ struct OwnedMediaVideoStatusTracker {
             width: width,
             height: height,
             gapMs: Int(round(lastGapMs)),
+            maxGapMs: Int(round(maxGapMs)),
             droppedFrames: droppedFrames,
+            renderStallCount: renderStallCount,
+            decodeDropCount: decodeDropCount,
+            repairRequestedCount: repairRequestedCount,
+            repairExpiredCount: repairExpiredCount,
             windowMs: Int(round(elapsedSeconds * 1_000.0))
         )
         self.windowStartNs = nowNs
         windowFrames = 0
         windowBytes = 0
+        maxGapMs = 0
+        renderStallCount = 0
+        decodeDropCount = 0
+        repairRequestedCount = 0
+        repairExpiredCount = 0
         return snapshot
     }
 }
@@ -261,6 +321,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         ) else { return }
         logger.notice("owned media video render-stall keyframe-request enqueueAgeMs=\(self.ageMs(self.lastVideoEnqueueUptimeNs, now), privacy: .public) arrivalAgeMs=\(self.ageMs(self.lastVideoArrivalUptimeNs, now), privacy: .public)")
         ownedMediaStderrTrace("video-render-stall-keyframe-request enqueueAgeMs=\(ageMs(lastVideoEnqueueUptimeNs, now)) arrivalAgeMs=\(ageMs(lastVideoArrivalUptimeNs, now))")
+        videoStatusTracker.noteRenderStall()
         ClientDiagnostics.shared.record(
             type: "videoRenderStall",
             fields: [
@@ -308,17 +369,12 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 setOwnedMediaStatus(.video(snapshot))
                 ClientDiagnostics.shared.record(
                     type: "mediaSummary",
-                    fields: [
-                        "fps": String(snapshot.fps),
-                        "expectedFps": String(snapshot.expectedFps),
-                        "fpsDeficit": String(snapshot.fpsDeficit),
-                        "receivedKbps": String(snapshot.receivedKbps),
-                        "width": String(snapshot.width),
-                        "height": String(snapshot.height),
-                        "gapMs": String(snapshot.gapMs),
-                        "droppedFrames": String(snapshot.droppedFrames),
-                        "windowMs": String(snapshot.windowMs)
-                    ],
+                    fields: snapshot.diagnosticsFields,
+                    level: .info
+                )
+                ClientDiagnostics.shared.record(
+                    type: "mediaPresentationWindow",
+                    fields: snapshot.diagnosticsFields,
                     level: .info
                 )
             }
@@ -327,6 +383,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             // wedged layer or a resolution-change delta without a matching keyframe.
             ownedMediaStderrTrace("video-frame-recovered frame=\(envelope.header.frameId)")
             videoStatusTracker.noteDroppedFrames(1)
+            videoStatusTracker.noteDecodeDrop()
             setOwnedMediaStatus(.videoRepairing)
             ClientDiagnostics.shared.record(
                 type: "videoDecoderRecovered",
@@ -336,6 +393,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             requestKeyframe(now: now)
         case .droppedPendingKeyframe:
             videoStatusTracker.noteDroppedFrames(1)
+            videoStatusTracker.noteDecodeDrop()
             setOwnedMediaStatus(.videoWaitingKeyframe)
             ownedMediaStderrTrace("video-frame-dropped frame=\(envelope.header.frameId) reason=\(result)")
             ClientDiagnostics.shared.record(
@@ -348,6 +406,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             )
         case .formatDescriptionUnavailable, .sampleBufferBuildFailed:
             videoStatusTracker.noteDroppedFrames(1)
+            videoStatusTracker.noteDecodeDrop()
             setOwnedMediaStatus(.videoDropped)
             ownedMediaStderrTrace("video-frame-dropped frame=\(envelope.header.frameId) reason=\(result)")
             ClientDiagnostics.shared.record(
@@ -452,6 +511,14 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
 
     func noteOwnedMediaDroppedFrames(_ count: Int) {
         videoStatusTracker.noteDroppedFrames(count)
+    }
+
+    func noteOwnedMediaRepairRequested(_ count: Int) {
+        videoStatusTracker.noteRepairRequested(count)
+    }
+
+    func noteOwnedMediaRepairExpired(_ count: Int) {
+        videoStatusTracker.noteRepairExpired(count)
     }
 
     func setOwnedMediaStatus(_ status: OwnedMediaStatus) {

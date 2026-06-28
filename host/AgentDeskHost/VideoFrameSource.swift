@@ -21,8 +21,14 @@ protocol DisplaySelectableVideoFrameSource: AnyObject, Sendable {
     func selectDisplay(id: String?)
 }
 
+struct MediaCaptureScaleChangeContext: Equatable, Sendable {
+    let windowId: UInt64
+    let previousResolutionScale: Double
+    let nextResolutionScale: Double
+}
+
 protocol QualitySelectableVideoFrameSource: AnyObject, Sendable {
-    func setResolutionScale(_ scale: Double)
+    func setResolutionScale(_ scale: Double, context: MediaCaptureScaleChangeContext?)
 }
 
 // CVPixelBuffer is a CoreFoundation reference type; we never mutate it
