@@ -38,16 +38,12 @@ Before doing project work, read `PRD.md` and `SPEC.md` once. They are short on p
 - **Anything inferable from reading the code** does not need a doc. Skip the ADR.
 
 # How work is done
-
-- The unit of work is a **vertical-slice issue** on GitHub (`nabinpkl/agent-desk`). Each slice cuts through capture, transport, input, and UI as needed to demo or verify end-to-end.
-- Slices are labelled `hitl` (requires the human) or `afk` (an agent can ship it without intervention). AFK issues also carry `ready-for-agent`.
-- v0 slices are issues #2 through #10. #2 (S0) and #10 (S8) are HITL. The rest are AFK. Dependency edges live in each issue's "Blocked by" section, not here.
-- New work appends new issues. Closed issues stay as history.
+- For major features
 - Work runs through Codex native threads, not a generic subagent flow. The four standing roles are **Co-ordinator**, **Implementor**, **Reviewer**, and **Small Tasks Doer**.
 - **Co-ordinator** is the main control thread. It owns the live plan, keeps `TASKS.md` current, breaks large work into concrete R-tasks, opens or steers other Codex threads, integrates results, resolves conflicts, verifies the merged state, and decides when a task cluster is ready to commit and push.
 - **Implementor** threads take one bounded R-task or sub-task. They modify code and tests inside that scope, report the exact files changed, and hand back verification results and remaining risks.
 - **Reviewer** threads are read-only unless explicitly asked to patch. They review diffs or codepaths for correctness, regressions, security, and missing tests, with findings first and file/line references.
-- **Small Tasks Doer** handles narrow, low-risk chores that do not need decomposition: spelling fixes, small doc updates, targeted test additions, mechanical renames, and one-file bug fixes. It should not absorb broad feature work or architecture changes.
+- **Intern/Small Tasks Doer** handles narrow, low-risk chores that do not need decomposition: spelling fixes, small doc updates, targeted test additions, mechanical renames, and one-file bug fixes. It should not absorb broad feature work or architecture changes.
 - Huge feature work goes through `TASKS.md` and the Codex thread roles above. The Co-ordinator decomposes the plan, delegates bounded implementation and review work to separate threads when parallelism or isolation helps, integrates the results, updates `TASKS.md`, verifies with `just check`, then commits and pushes each green task cluster.
 
 ## Final self-review before handoff
@@ -65,13 +61,6 @@ Minimum pass:
 
 # Conventions
 
-## Voice
-
-- Postmortem voice. State what is, what was decided, what failed. No marketing tone, no hedging, no rhetorical questions for the reader.
-- No em-dashes. Use commas, periods, or "and".
-- No emoji.
-- Avoid AI tells ("As an AI...", "I hope this helps", "Certainly!").
-
 ## Scroll and slide direction
 
 The iPhone client uses the **opposite of Mac native** for any horizontal slide or scroll that moves between desktops, by default. Concretely: sliding the finger from left to right moves the active desktop right-to-left, i.e. brings the left-neighbour desktop into focus. The Mac-native mapping (finger right = right-neighbour) is the opt-in mode, exposed as a toggle in settings. This default is load-bearing for the rest-state metaphor "the strip is a scrollbar of desktops": dragging the strip right pulls the previous desktop into the indicator, the same way dragging a scrollbar right pulls earlier content into view.
@@ -83,8 +72,7 @@ When in doubt about which direction a code path should produce, the test is: fin
 - No hardcoded configs. URLs, credentials, tokens, and `~/`-rooted paths go through a central config module, never inline in random files.
 - `.env` is gitignored by reflex. If you create one, gitignore it before the first commit.
 - Iteration over compatibility. Until v0 ships, breaking changes are free. After v0, breaking changes require an ADR.
-- Tests are written for **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView** (see `SPEC.md` for why these five). `SpacesProvider`'s smoke test runs against the live SkyLight binding and is the canary for private-API surface drift across macOS versions. Other modules get tests when a bug demands one.
-- Domain glossary terms (`Space`, `Display`, `NormalizedInput`, `DesktopState`, `SessionToken`, `PairingPayload`) are stable. Renames require an ADR.
+- Tests exxists for **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView** .`SpacesProvider`'s smoke test runs against the live SkyLight binding and is the canary for private-API surface drift across macOS versions. 
 
 ## Versioning
 
@@ -141,9 +129,8 @@ Two client apps can coexist on one iPhone: the **stable** daily-driver (`com.exa
 
 - Bundle IDs and signing identity (HITL, lives in S0). The experimental client variant's bundle id (`com.example.agentdesk.AgentDeskClient.dev`) and its own App Store Connect record (a bundle id maps to exactly one record, required for the dev variant's TestFlight track) are HITL provisioning. Direct-install of the dev variant needs only the App ID, which Automatic signing can register under team `TEAMID0000`.
 - Apple Developer Program account details (HITL).
-- Anything that would change the v0 acceptance test in `PRD.md` (the 7-day daily-driver criterion).
-
-If you find yourself about to pick one of those on the user's behalf, stop and surface it instead.
+- Any ambiguites that are not clear from the user prompt.
+If you find yourself about to pick/assume on the user's behalf, stop and surface it instead.
 
 
 # Need to revisit
