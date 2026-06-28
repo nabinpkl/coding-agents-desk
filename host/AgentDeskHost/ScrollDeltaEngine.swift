@@ -243,6 +243,18 @@ struct ScrollDeltaEngine {
     // so a large repaint streams in as several bounded frames instead of one frame
     // that head-of-line blocks the channel.
     private let hybridFrameSendBudgetBytes: Int
+    // Periodic heal: every this-many frames that carry a change, promote the frame
+    // to a full-surface re-tile that bypasses rung-1 (the unchanged-vs-baseline
+    // omission). macOS dirtyRects are not always complete: a cursor move heals the
+    // vacated pixels on the real screen but SCK may not report that region as
+    // damaged, so the host commits a clean baseline while the client keeps the stale
+    // cursor (a trail). The captured surface is authoritative; a forced full re-send
+    // reconciles the client to it. Cached cells re-emit as drawCachedTile (a cheap
+    // repaint, zero payload), so the scrub is mostly commands, not pixels. 0 disables.
+    private let healIntervalFrames: Int
+    // Count of change-carrying frames since the last heal. Idle (.noChange) frames do
+    // not advance it, so a static screen is never needlessly repainted.
+    private var framesSinceHeal: Int = 0
 
     init(
         maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes,
@@ -251,7 +263,8 @@ struct ScrollDeltaEngine {
         tileGridPx: Int = Config.hybridTileGridPx,
         fullframeMaxWireBytes: Int = Config.hybridFullframeMaxWireBytes,
         hybridTileBusyBytesPerPixel: Double = Config.hybridTileBusyBytesPerPixel,
-        hybridFrameSendBudgetBytes: Int = Config.hybridFrameSendBudgetBytes
+        hybridFrameSendBudgetBytes: Int = Config.hybridFrameSendBudgetBytes,
+        healIntervalFrames: Int = Config.ownedMediaKeyframeIntervalFrames
     ) {
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
@@ -260,6 +273,7 @@ struct ScrollDeltaEngine {
         self.fullframeMaxWireBytes = max(1, fullframeMaxWireBytes)
         self.hybridTileBusyBytesPerPixel = max(0, hybridTileBusyBytesPerPixel)
         self.hybridFrameSendBudgetBytes = max(1, hybridFrameSendBudgetBytes)
+        self.healIntervalFrames = max(0, healIntervalFrames)
     }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
@@ -532,6 +546,45 @@ struct ScrollDeltaEngine {
         )
         let probeMs = elapsedMs(since: startedAt)
 
+        // Periodic heal. A frame that carries a change advances the heal counter;
+        // every healIntervalFrames such frames, this frame is promoted to a
+        // full-surface re-tile that bypasses rung-1 (forceResend), scrubbing any
+        // client/host divergence left by incomplete OS dirty rects (e.g. a cursor
+        // trail SCK never reported as damage at the vacated position). The current
+        // capture is authoritative; re-sending the whole surface reconciles the
+        // client. Cached cells re-emit as drawCachedTile, so the scrub is cheap.
+        if healIntervalFrames > 0, case .noChange = classification {} else {
+            framesSinceHeal += 1
+        }
+        if healIntervalFrames > 0, framesSinceHeal >= healIntervalFrames {
+            framesSinceHeal = 0
+            let payloadStartedAt = DispatchTime.now().uptimeNanoseconds
+            pendingSurface = current
+            let region = PixelRect(x: 0, y: 0, width: current.width, height: current.height)
+            switch makeTileEnvelope(current: current, previous: previous, rects: [region], policy: policy, capturedAtUptimeNs: frame.capturedAtUptimeNs, forceResend: true) {
+            case .built(let envelopes):
+                return ScrollDeltaResult(
+                    kind: .accepted,
+                    envelope: envelopes.first,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), region: region, motion: motion, trace: trace, acceptedBy: "damage-heal", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight),
+                    envelopes: envelopes
+                )
+            case .allUnchanged:
+                return ScrollDeltaResult(
+                    kind: .noChange,
+                    envelope: nil,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), region: region, motion: motion, trace: trace, acceptedBy: nil, surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                )
+            case .failed:
+                pendingSurface = nil
+                return ScrollDeltaResult(
+                    kind: .rejected("damage-heal-build-failed"),
+                    envelope: nil,
+                    diagnostics: damageDiagnostics(probeMs: probeMs, payloadBuildMs: elapsedMs(since: payloadStartedAt), region: region, motion: motion, trace: trace, acceptedBy: "damage-heal", surfaceWidth: surfaceWidth, surfaceHeight: surfaceHeight)
+                )
+            }
+        }
+
         // Damage covers exactly what changed, so outside the damage rects the
         // current frame already equals the previous surface. Committing
         // pendingSurface = current after a tile update therefore keeps the host
@@ -644,7 +697,7 @@ struct ScrollDeltaEngine {
     // If every dirty cell is unchanged the whole frame becomes .allUnchanged
     // (zero bytes on the wire). graphicsFrameId increments only when a frame is
     // actually built, so the client sequence counter stays tight.
-    private mutating func makeTileEnvelope(current: Surface, previous: Surface, rects: [PixelRect], policy: MotionGovernor.Policy, capturedAtUptimeNs: UInt64) -> TileBuild {
+    private mutating func makeTileEnvelope(current: Surface, previous: Surface, rects: [PixelRect], policy: MotionGovernor.Policy, capturedAtUptimeNs: UInt64, forceResend: Bool = false) -> TileBuild {
         let cells = TileGrid.cells(
             covering: rects,
             surfaceWidth: current.width,
@@ -660,8 +713,11 @@ struct ScrollDeltaEngine {
                   let tile = tileData(surface: current, x: cell.x, y: cell.y, width: cell.width, height: cell.height) else { return .failed }
             // Rung 1: the client already shows these exact pixels here (the retained
             // baseline mirrors previous), so omit the tile. macOS dirtyRects often
-            // report a redraw that produced identical pixels; this absorbs them.
-            if let prior = tileData(surface: previous, x: cell.x, y: cell.y, width: cell.width, height: cell.height), prior == tile {
+            // report a redraw that produced identical pixels; this absorbs them. A
+            // periodic heal (forceResend) skips this rung so even cells equal to the
+            // baseline are re-emitted, reconciling a client that diverged from the
+            // baseline because an earlier dirty-rect report was incomplete.
+            if !forceResend, let prior = tileData(surface: previous, x: cell.x, y: cell.y, width: cell.width, height: cell.height), prior == tile {
                 continue
             }
             if Config.hybridTileCacheEnabled {
