@@ -65,4 +65,5 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0020 | Wire protocol version negotiated at the session handshake | proposed | 2026-06-22 |
 | ADR-0021 | Damage-driven retained graphics | superseded by ADR-0022 | 2026-06-22 |
 | ADR-0022 | Multi-stream QUIC and progressive repaint, dropping pixel-guessed scroll | proposed | 2026-06-25 |
-| ADR-0023 | Revive a hardened, host-detected scroll copyRect | accepted | 2026-06-25 |
+| ADR-0023 | Revive a hardened, host-detected scroll copyRect | superseded by ADR-0024 | 2026-06-25 |
+| ADR-0024 | Predict-and-correct scroll (motion plus residual) | accepted | 2026-06-25 |

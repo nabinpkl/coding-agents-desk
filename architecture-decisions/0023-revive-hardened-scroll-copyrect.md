@@ -1,7 +1,8 @@
 ---
-status: accepted
+status: superseded by ADR-0024
 date: 2026-06-25
 amends: ADR-0022 (multi-stream QUIC and progressive repaint), reviving its dropped copyRect half
+superseded-by: ADR-0024
 ---
 
 # Revive a hardened, host-detected scroll copyRect
