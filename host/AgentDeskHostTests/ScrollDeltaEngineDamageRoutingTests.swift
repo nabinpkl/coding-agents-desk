@@ -305,6 +305,171 @@ struct ScrollDeltaEngineDamageRoutingTests {
                 "after reset, same content must be re-sent as cacheTile, not drawCachedTile")
     }
 
+    // Slice 5: a confirmed vertical scroll emits one copyRect that shifts the stable
+    // region by the measured dy, then tiles only the thin exposed strip. The diag
+    // labels it scroll and carries the offset.
+    @Test func verticalScrollEmitsCopyRectThenStrip() throws {
+        var engine = ScrollDeltaEngine()
+        let side = 256
+        let full = PixelRect(x: 0, y: 0, width: side, height: side)
+        let dy = 16
+
+        let base = try Self.makeBGRAFrame(width: side, height: side) { _, y in
+            let v = Self.scrollRowValue(y); return [v, v, v, 0xff]
+        }
+        #expect(engine.evaluate(base).kind == .reset)
+        engine.commitPendingSurface()
+
+        // Content shifts DOWN by dy: row y now shows what row y-dy showed.
+        let scrolled = try Self.makeBGRAFrame(width: side, height: side, damageRects: [full], contentRectPixels: full) { _, y in
+            let v = Self.scrollRowValue(y - dy); return [v, v, v, 0xff]
+        }
+        let r = engine.evaluate(scrolled, motion: MotionSignal(axis: .vertical, sign: 1))
+        #expect(r.kind == .accepted)
+        #expect(r.diagnostics?.acceptedBy == "scroll")
+        #expect(r.diagnostics?.acceptedDy == dy)
+
+        let cmds = r.envelope?.commands ?? []
+        guard case let .copyRect(sx, sy, dxc, dyc, w, h) = cmds.first else {
+            Issue.record("expected a leading copyRect, got \(cmds)")
+            return
+        }
+        // A downward shift copies the stable top region down by dy.
+        #expect(sx == 0 && sy == 0 && dxc == 0 && dyc == dy && w == side && h == side - dy)
+        // The rest of the commands tile the exposed top strip.
+        let stripTiles = cmds.dropFirst().filter {
+            switch $0 { case .bitmapTile, .cacheTile, .drawCachedTile: return true; default: return false }
+        }
+        #expect(!stripTiles.isEmpty)
+        // Exactly one copyRect across every envelope of the frame.
+        let copyRects = r.envelopes.flatMap { $0.commands }.filter { if case .copyRect = $0 { return true }; return false }
+        #expect(copyRects.count == 1)
+    }
+
+    // Slice 5: the exposed strip rides the same content cache ladder as any tile. A
+    // second scroll whose exposed strip equals content already cached by the first
+    // scroll's strip emits drawCachedTile (zero payload), the cache-ladder win.
+    @Test func scrollExposedStripRidesCacheLadder() throws {
+        var engine = ScrollDeltaEngine()
+        let width = 256
+        let height = 384   // three 128px grid rows
+        let full = PixelRect(x: 0, y: 0, width: width, height: height)
+        let dy = 128       // a full grid cell, so the strip is exactly 128x128 cells
+        func docRow(_ y: Int) -> UInt8 { Self.scrollRowValue(y) }
+        // A distinct 128-row block, cached at the bottom by a non-scroll frame, then
+        // re-revealed at the top by a scroll.
+        func blockC(_ row: Int) -> UInt8 { Self.scrollRowValue(row &+ 2000) }
+
+        let base = try Self.makeBGRAFrame(width: width, height: height) { _, y in
+            let v = docRow(y); return [v, v, v, 0xff]
+        }
+        #expect(engine.evaluate(base).kind == .reset)
+        engine.commitPendingSurface()
+
+        // Cache block C in the bottom cell row via a plain (non-scroll) tiles change.
+        // Only the bottom cells differ from the baseline, so they emit cacheTile.
+        let bottomCellRow = PixelRect(x: 0, y: height - dy, width: width, height: dy)
+        let cacheSeed = try Self.makeBGRAFrame(width: width, height: height, damageRects: [bottomCellRow], contentRectPixels: full) { _, y in
+            let v = y >= height - dy ? blockC(y - (height - dy)) : docRow(y)
+            return [v, v, v, 0xff]
+        }
+        let rSeed = engine.evaluate(cacheSeed, motion: nil)
+        #expect(rSeed.kind == .accepted)
+        #expect(rSeed.envelopes.flatMap { $0.commands }.contains { if case .cacheTile = $0 { return true }; return false })
+        engine.commitPendingSurface()
+
+        // Now scroll DOWN by 128: the exposed top strip carries block C. The current
+        // surface shows document content (not C) at the top, so rung-1 does not omit
+        // it, and the cache recognizes C from the seed frame: drawCachedTile. The
+        // 256-row overlap below the strip fixes the offset at +128.
+        let scrolled = try Self.makeBGRAFrame(width: width, height: height, damageRects: [full], contentRectPixels: full) { _, y in
+            // current committed surface is [doc(0..256), C]; shifting it down by 128
+            // gives [C(exposed) | doc(0..256)].
+            let v: UInt8
+            if y < dy { v = blockC(y) } else { v = docRow(y - dy) }
+            return [v, v, v, 0xff]
+        }
+        let rScroll = engine.evaluate(scrolled, motion: MotionSignal(axis: .vertical, sign: 1))
+        let kinds = rScroll.envelopes.flatMap { $0.commands }.map { Self.kindLabel($0) }
+        #expect(rScroll.diagnostics?.acceptedBy == "scroll", "kinds=\(kinds)")
+        let hasDrawCached = rScroll.envelopes.flatMap { $0.commands }.contains {
+            if case .drawCachedTile = $0 { return true }; return false
+        }
+        #expect(hasDrawCached, "the re-exposed strip must hit the cache as drawCachedTile; kinds=\(kinds)")
+    }
+
+    // Slice 5: input declares a scroll but the band does not translate (an unrelated
+    // repaint). The estimator returns nil, so the engine tiles the band, never emits
+    // a copyRect.
+    @Test func scrollMissTilesTheRegionWithoutCopyRect() throws {
+        var engine = ScrollDeltaEngine()
+        let side = 256
+        let full = PixelRect(x: 0, y: 0, width: side, height: side)
+
+        let base = try Self.makeBGRAFrame(width: side, height: side) { _, y in
+            let v = Self.scrollRowValue(y); return [v, v, v, 0xff]
+        }
+        #expect(engine.evaluate(base).kind == .reset)
+        engine.commitPendingSurface()
+
+        // A small, non-translating repaint with a scroll hint: unrelated new content.
+        let band = PixelRect(x: 0, y: 0, width: 128, height: 160)
+        let changed = try Self.makeBGRAFrame(width: side, height: side, damageRects: [band], contentRectPixels: full) { x, y in
+            if x < 128 && y < 160 { let v = UInt8((x &* 31 &+ y &* 17) & 0xff); return [v, v, v, 0xff] }
+            let v = Self.scrollRowValue(y); return [v, v, v, 0xff]
+        }
+        let r = engine.evaluate(changed, motion: MotionSignal(axis: .vertical, sign: 1))
+        #expect(r.kind == .accepted)
+        #expect(r.diagnostics?.acceptedBy != "scroll")
+        let hasCopyRect = r.envelopes.flatMap { $0.commands }.contains { if case .copyRect = $0 { return true }; return false }
+        #expect(!hasCopyRect, "a scroll miss must not emit a copyRect")
+    }
+
+    // Slice 5: whatever the envelope count, exactly one copyRect appears and it is the
+    // first command of the first envelope, and every envelope is self-consistent
+    // (commandCount matches and each command validates). Guards the prepend/rebuild.
+    @Test func scrollEnvelopesAreSelfConsistentWithSingleLeadingCopyRect() throws {
+        var engine = ScrollDeltaEngine()
+        let side = 256
+        let full = PixelRect(x: 0, y: 0, width: side, height: side)
+        let dy = 24
+
+        let base = try Self.makeBGRAFrame(width: side, height: side) { _, y in
+            let v = Self.scrollRowValue(y); return [v, v, v, 0xff]
+        }
+        #expect(engine.evaluate(base).kind == .reset)
+        engine.commitPendingSurface()
+
+        let scrolled = try Self.makeBGRAFrame(width: side, height: side, damageRects: [full], contentRectPixels: full) { _, y in
+            let v = Self.scrollRowValue(y - dy); return [v, v, v, 0xff]
+        }
+        let r = engine.evaluate(scrolled, motion: MotionSignal(axis: .vertical, sign: 1))
+        #expect(r.diagnostics?.acceptedBy == "scroll")
+
+        var copyRectCount = 0
+        for (index, envelope) in r.envelopes.enumerated() {
+            #expect(envelope.header.commandCount == envelope.commands.count)
+            for (cmdIndex, command) in envelope.commands.enumerated() {
+                if case .copyRect = command {
+                    copyRectCount += 1
+                    #expect(index == 0 && cmdIndex == 0, "copyRect must be the first command of the first envelope")
+                }
+                try command.validateForCurrentScope(payloadLength: envelope.payload.count)
+            }
+        }
+        #expect(copyRectCount == 1)
+    }
+
+    private static func kindLabel(_ c: OwnedGraphicsCommand) -> String {
+        switch c {
+        case .resetSurface: return "reset"
+        case let .copyRect(_, _, _, dy, _, h): return "copyRect(dy=\(dy),h=\(h))"
+        case let .bitmapTile(x, y, _, _, _, _): return "bitmap(\(x),\(y))"
+        case let .cacheTile(s, x, y, _, _, _, _): return "cache(s=\(s),\(x),\(y))"
+        case let .drawCachedTile(s, x, y, _, _): return "draw(s=\(s),\(x),\(y))"
+        }
+    }
+
     private static func makeBGRAFrame(
         width: Int,
         height: Int,
