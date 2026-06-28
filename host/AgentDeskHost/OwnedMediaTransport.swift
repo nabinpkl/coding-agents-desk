@@ -174,15 +174,28 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         }
         let sent = await enqueuePackets(packets).value
         guard sent else { return }
-        if envelope.header.isKeyframe || envelope.header.frameId.isMultiple(of: 30) {
-            let liveTargets = encodeGate.withLock { state in
-                (
-                    kbps: state.mediaState.targetKbps,
-                    fps: state.mediaState.targetFps,
-                    scale: state.mediaState.targetResolutionScale
+        let liveTargets = encodeGate.withLock { state in
+            (
+                kbps: state.mediaState.targetKbps,
+                fps: state.mediaState.targetFps,
+                scale: state.mediaState.targetResolutionScale,
+                productionSummary: state.productionDiagnostics.noteSent(
+                    bytes: payload.count,
+                    isKeyframe: envelope.header.isKeyframe,
+                    targetKbps: state.mediaState.targetKbps,
+                    targetFps: state.mediaState.targetFps,
+                    resolutionScale: state.mediaState.targetResolutionScale,
+                    nowNs: sentAtUptimeNs
                 )
-            }
+            )
+        }
+        if envelope.header.isKeyframe || envelope.header.frameId.isMultiple(of: 30) {
             logger.notice("owned media video sent frame=\(envelope.header.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(payload.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(liveTargets.kbps, privacy: .public) fps=\(liveTargets.fps, privacy: .public) resolutionScale=\(liveTargets.scale, privacy: .public)")
+        }
+        if let summary = liveTargets.productionSummary {
+            logger.notice(
+                "owned media production summary actualFps=\(summary.actualFps, privacy: .public) targetFps=\(summary.targetFps, privacy: .public) fpsDeficit=\(summary.fpsDeficit, privacy: .public) frames=\(summary.frames, privacy: .public) keyframes=\(summary.keyframes, privacy: .public) sentKbps=\(summary.sentKbps, privacy: .public) targetKbps=\(summary.targetKbps, privacy: .public) maxGapMs=\(summary.maxGapMs, privacy: .public) resolutionScale=\(summary.resolutionScale, privacy: .public) windowMs=\(summary.windowMs, privacy: .public)"
+            )
         }
     }
 
@@ -349,6 +362,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var retryScheduled = false
         var forceKeyframe = false
         var mediaState = QuicSessionHostMediaState()
+        var productionDiagnostics = MediaProductionDiagnosticsTracker()
     }
 
     private struct MediaSendQueueState {

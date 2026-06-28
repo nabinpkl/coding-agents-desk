@@ -205,12 +205,15 @@ struct InputChannelTests {
         #expect(OwnedMediaStatus.connected.labelText == "media connected")
         #expect(OwnedMediaStatus.video(OwnedMediaVideoStatusSnapshot(
             fps: 30,
+            expectedFps: 30,
+            fpsDeficit: 0,
             receivedKbps: 1_250,
             width: 1280,
             height: 720,
             gapMs: 33,
-            droppedFrames: 0
-        )).labelText == "30fps rx1250kbps 1280x720 gap33 d0")
+            droppedFrames: 0,
+            windowMs: 1_000
+        )).labelText == "30/30fps rx1250kbps 1280x720 gap33 d0")
         #expect(OwnedMediaStatus.videoRepairing.labelText == "video repairing")
         #expect(OwnedMediaStatus.videoWaitingKeyframe.labelText == "video waiting keyframe")
         #expect(OwnedMediaStatus.videoDropped.labelText == "video dropped")
@@ -227,11 +230,14 @@ struct InputChannelTests {
 
         #expect(snapshot == OwnedMediaVideoStatusSnapshot(
             fps: 3,
+            expectedFps: 30,
+            fpsDeficit: 27,
             receivedKbps: 3_000,
             width: 960,
             height: 540,
             gapMs: 500,
-            droppedFrames: 2
+            droppedFrames: 2,
+            windowMs: 1_000
         ))
     }
 

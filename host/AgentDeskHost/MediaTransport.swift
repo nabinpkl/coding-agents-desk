@@ -63,6 +63,80 @@ struct OwnedMediaDiagnosticsFpsSample: Equatable {
     }
 }
 
+struct MediaProductionSummary: Equatable {
+    let actualFps: Int
+    let targetFps: Int
+    let fpsDeficit: Int
+    let frames: Int
+    let keyframes: Int
+    let sentKbps: Int
+    let targetKbps: Int
+    let maxGapMs: Int
+    let resolutionScale: Double
+    let windowMs: Int
+}
+
+struct MediaProductionDiagnosticsTracker: Equatable {
+    private let publishIntervalNs: UInt64
+    private var windowStartNs: UInt64?
+    private var lastSentNs: UInt64?
+    private var frames = 0
+    private var keyframes = 0
+    private var bytes = 0
+    private var maxGapMs = 0
+
+    init(publishIntervalNs: UInt64 = 1_000_000_000) {
+        self.publishIntervalNs = max(1, publishIntervalNs)
+    }
+
+    mutating func noteSent(
+        bytes: Int,
+        isKeyframe: Bool,
+        targetKbps: Int,
+        targetFps: Int,
+        resolutionScale: Double,
+        nowNs: UInt64
+    ) -> MediaProductionSummary? {
+        if let lastSentNs, nowNs >= lastSentNs {
+            maxGapMs = max(maxGapMs, Int(round(Double(nowNs - lastSentNs) / 1_000_000.0)))
+        }
+        lastSentNs = nowNs
+        if windowStartNs == nil {
+            windowStartNs = nowNs
+        }
+        frames += 1
+        self.bytes += max(0, bytes)
+        if isKeyframe {
+            keyframes += 1
+        }
+
+        guard let windowStartNs, nowNs >= windowStartNs + publishIntervalNs else {
+            return nil
+        }
+        let elapsedSeconds = Double(nowNs - windowStartNs) / 1_000_000_000.0
+        let actualFps = Int(round(Double(frames) / elapsedSeconds))
+        let sentKbps = Int(round(Double(self.bytes * 8) / elapsedSeconds / 1_000.0))
+        let summary = MediaProductionSummary(
+            actualFps: actualFps,
+            targetFps: targetFps,
+            fpsDeficit: max(0, targetFps - actualFps),
+            frames: frames,
+            keyframes: keyframes,
+            sentKbps: sentKbps,
+            targetKbps: targetKbps,
+            maxGapMs: maxGapMs,
+            resolutionScale: resolutionScale,
+            windowMs: Int(round(elapsedSeconds * 1_000.0))
+        )
+        self.windowStartNs = nowNs
+        frames = 0
+        keyframes = 0
+        self.bytes = 0
+        maxGapMs = 0
+        return summary
+    }
+}
+
 enum MediaConnectionState: Equatable {
     case connecting
     case connected

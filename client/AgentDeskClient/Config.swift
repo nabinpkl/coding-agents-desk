@@ -52,6 +52,10 @@ enum Config {
     static let diagnosticsMaxChunkEncodedBytes = 48 * 1024
     static let diagnosticsAuthMaxSkewSeconds = 60
     static let diagnosticsMediaSummaryIntervalNs: UInt64 = 1_000_000_000
+    static let ownedMediaExpectedFrameRate = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_EXPECTED_FRAME_RATE",
+        defaultValue: 30
+    )
     // ADR-0025 datagram carrier: how long the client holds an incomplete motion
     // frame awaiting resends before dropping it and requesting a keyframe, how many
     // frames it tracks at once, and the cap on missing packets named per request.

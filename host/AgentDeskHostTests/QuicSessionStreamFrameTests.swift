@@ -135,6 +135,52 @@ struct QuicSessionStreamFrameTests {
         #expect(Config.minCompatibleProtocolVersion == 3)
     }
 
+    @available(macOS 26.0, *)
+    @Test func productionDiagnosticsPublishesActualFpsAgainstTargetFps() {
+        var tracker = MediaProductionDiagnosticsTracker(
+            publishIntervalNs: 1_000_000_000
+        )
+
+        #expect(tracker.noteSent(
+            bytes: 125_000,
+            isKeyframe: true,
+            targetKbps: 2_500,
+            targetFps: 30,
+            resolutionScale: 1.0,
+            nowNs: 0
+        ) == nil)
+        #expect(tracker.noteSent(
+            bytes: 125_000,
+            isKeyframe: false,
+            targetKbps: 2_500,
+            targetFps: 30,
+            resolutionScale: 1.0,
+            nowNs: 500_000_000
+        ) == nil)
+
+        let summary = tracker.noteSent(
+            bytes: 125_000,
+            isKeyframe: false,
+            targetKbps: 2_500,
+            targetFps: 30,
+            resolutionScale: 1.0,
+            nowNs: 1_000_000_000
+        )
+
+        #expect(summary == MediaProductionSummary(
+            actualFps: 3,
+            targetFps: 30,
+            fpsDeficit: 27,
+            frames: 3,
+            keyframes: 1,
+            sentKbps: 3_000,
+            targetKbps: 2_500,
+            maxGapMs: 500,
+            resolutionScale: 1.0,
+            windowMs: 1_000
+        ))
+    }
+
     @Test func inputCloseFrameRoundTripsThroughCodable() throws {
         let close = InputChannelClose(reason: "revoked")
         let data = try JSONEncoder().encode(close)

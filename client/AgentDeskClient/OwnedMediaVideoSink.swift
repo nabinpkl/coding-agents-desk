@@ -59,19 +59,23 @@ enum OwnedMediaStatus: Equatable {
 
 struct OwnedMediaVideoStatusSnapshot: Equatable {
     let fps: Int
+    let expectedFps: Int
+    let fpsDeficit: Int
     let receivedKbps: Int
     let width: Int
     let height: Int
     let gapMs: Int
     let droppedFrames: Int
+    let windowMs: Int
 
     var labelText: String {
-        "\(fps)fps rx\(receivedKbps)kbps \(width)x\(height) gap\(gapMs) d\(droppedFrames)"
+        "\(fps)/\(expectedFps)fps rx\(receivedKbps)kbps \(width)x\(height) gap\(gapMs) d\(droppedFrames)"
     }
 }
 
 struct OwnedMediaVideoStatusTracker {
     private let publishIntervalNs: UInt64
+    private let expectedFps: Int
     private var windowStartNs: UInt64?
     private var windowFrames = 0
     private var windowBytes = 0
@@ -79,8 +83,12 @@ struct OwnedMediaVideoStatusTracker {
     private var lastGapMs = 0.0
     private(set) var droppedFrames = 0
 
-    init(publishIntervalNs: UInt64 = 1_000_000_000) {
+    init(
+        publishIntervalNs: UInt64 = Config.diagnosticsMediaSummaryIntervalNs,
+        expectedFps: Int = Config.ownedMediaExpectedFrameRate
+    ) {
         self.publishIntervalNs = publishIntervalNs
+        self.expectedFps = max(1, expectedFps)
     }
 
     mutating func noteDroppedFrames(_ count: Int) {
@@ -106,13 +114,17 @@ struct OwnedMediaVideoStatusTracker {
             return nil
         }
         let elapsedSeconds = Double(nowNs - windowStartNs) / 1_000_000_000.0
+        let fps = Int(round(Double(windowFrames) / elapsedSeconds))
         let snapshot = OwnedMediaVideoStatusSnapshot(
-            fps: Int(round(Double(windowFrames) / elapsedSeconds)),
+            fps: fps,
+            expectedFps: expectedFps,
+            fpsDeficit: max(0, expectedFps - fps),
             receivedKbps: Int(round(Double(windowBytes * 8) / elapsedSeconds / 1_000.0)),
             width: width,
             height: height,
             gapMs: Int(round(lastGapMs)),
-            droppedFrames: droppedFrames
+            droppedFrames: droppedFrames,
+            windowMs: Int(round(elapsedSeconds * 1_000.0))
         )
         self.windowStartNs = nowNs
         windowFrames = 0
@@ -298,11 +310,14 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                     type: "mediaSummary",
                     fields: [
                         "fps": String(snapshot.fps),
+                        "expectedFps": String(snapshot.expectedFps),
+                        "fpsDeficit": String(snapshot.fpsDeficit),
                         "receivedKbps": String(snapshot.receivedKbps),
                         "width": String(snapshot.width),
                         "height": String(snapshot.height),
                         "gapMs": String(snapshot.gapMs),
-                        "droppedFrames": String(snapshot.droppedFrames)
+                        "droppedFrames": String(snapshot.droppedFrames),
+                        "windowMs": String(snapshot.windowMs)
                     ],
                     level: .info
                 )
