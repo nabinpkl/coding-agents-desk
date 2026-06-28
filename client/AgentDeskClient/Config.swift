@@ -14,22 +14,6 @@ enum Config {
     static let keychainService = "com.example.agentdesk.AgentDeskClient"
     static let keychainAccessGroup: String? = nil
     static let storedPairingAccount = "session-token"
-    static let ownedMediaRepairDeadlineMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_REPAIR_DEADLINE_MS",
-        defaultValue: 50
-    )
-    static let ownedMediaResendRingFrames = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_RESEND_RING_FRAMES",
-        defaultValue: 8
-    )
-    static let ownedMediaMaxResendPackets = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
-        defaultValue: 256
-    )
-    static let ownedMediaKeepaliveIntervalMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_KEEPALIVE_INTERVAL_MS",
-        defaultValue: 5_000
-    )
     static let graphicsReconnectInitialDelayMs = positiveInt(
         environmentKey: "AGENTDESK_GRAPHICS_RECONNECT_INITIAL_DELAY_MS",
         defaultValue: 250
