@@ -58,6 +58,16 @@ Phase goal: prove the freeze is gone on a real constrained link and the loop tra
 
 - [x] R91. Throttled-LTE device run (`just fresh-consoled-run-dev`) passed. No permanent freeze across WiFi-to-LTE; the controller drove the full cycle (2500 -> 986 kbps under loss, recovering 986 -> 2500 in steps, 7 down / 14 up); `dataRateCapBytes` tracked each step; loss-driven keyframe-requests fell to 8 per session (vs 16-19 at a fixed bitrate). ADR-0027 accepted. Remaining open item is tuning, not correctness: `lossDownPermille=50` trips a down-step on a single lost frame in ~19, so the rate is slightly twitchy though it recovers fast; revisit the threshold with more device data.
 
+## v0 Phase 5: selective resend (ADR-0028)
+
+Phase goal: stop the LTE keyframe-storm. A single dropped packet is repaired by re-sending that packet, not by forcing a full keyframe that is itself too large to cross the lossy link.
+
+Trigger: R91 proved keyframe-only recovery insufficient on LTE. The host log showed scroll keyframes at 230-288 packets and a recovery keyframe-storm (frames 387/391 double-request, two 240 KB keyframes back to back). The repair buffer already computes `resendRequests` and the wire (`.packetResendRequest` + `packetIndexes`) and host `OwnedMediaResendRing` exist but are inert; this phase wires them. See ADR-0028.
+
+- [ ] R92. Activate NACK end to end. Client `OwnedMediaTransport.handleVideoDatagram` sends each `result.resendRequests` entry as a `.packetResendRequest` (frameId + missing `packetIndexes`). Host remembers every sent frame's packets in `OwnedMediaResendRing` at the datagram send site, and the datagram control handler serves `.packetResendRequest` by re-emitting the named indexes from the ring (capped by `ownedMediaMaxResendPackets`). Purely additive and loss-triggered, so a clean link sends and serves nothing. Tests: ring remember/serve/miss/cap/evict, and a `.packetResendRequest` round-trip through the control codec.
+- [ ] R93. In-flight keyframe-request suppression on the client expiry path, so a loss burst cannot fan out into a keyframe storm before resend lands. Bounded by `Config.ownedMediaKeyframeRequestMinGapMs` (env, ~1 LTE RTT) so a genuinely lost keyframe still re-requests after the gap. Complements R92; keyframe recovery stays the past-deadline fallback.
+- [ ] R94. Throttled-LTE device validation gate (`just fresh-consoled-run-dev`). Acceptance: host log shows resends served, loss-driven keyframe-requests per session below the R91 baseline of 8, and the steppy/lag easing with no WiFi regression. Flip ADR-0028 to accepted on a pass.
+
 ---
 
 ## v0 adaptive-recovery scope (captured, not started)
@@ -66,7 +76,7 @@ Opens only if Phase 3's keyframe-only recovery under the adaptive loop still gli
 
 | Option | Source | What it catches | Failure shape |
 | ------ | ------ | --------------- | ------------- |
-| Selective resend (NACK) | `MediaDatagramFrameRepairBuffer.resendRequests` (already computed, inert) + host `ownedMediaResendRingFrames` | Single-packet loss without a full keyframe | Resend can arrive too late behind newer frames; ring memory and a host serve path are new cost |
+| Selective resend (NACK) | PROMOTED to ADR-0028 / Phase 5 (R92): `MediaDatagramFrameRepairBuffer.resendRequests` wired to `.packetResendRequest` + host `OwnedMediaResendRing` | Single-packet loss without a full keyframe | Resend can arrive too late behind newer frames; ring memory and a host serve path are new cost |
 | Datagram FEC | RDP-style UDP loss recovery | Steady low-rate loss without any round-trip | Parity overhead is paid on every frame, including the common no-loss case |
 | Adaptive capture scale-down | `Config.ownedMediaCaptureScaleDown` driven by the controller | Severe links where even floor bitrate at native Retina is too many pixels | A resolution change is a keyframe and a visible sharpness step; needs the same hysteresis as bitrate |
 
@@ -88,4 +98,5 @@ R82-R86      2026-06-26  device      throttled-LTE run: cap applied (dataRateCap
 D87-D90      2026-06-26  committed   closed-loop adaptive bitrate: .linkHealth wire message + round-trips, client per-window emit, host VideoBitrateController applied live via updateBitrate, 5 controller tests; default bitrate 8000->2500
 R91          2026-06-26  done        throttled-LTE run passed: full down-up controller cycle (2500<->986), cap tracked, keyframe-requests 8/session, no permanent freeze; ADR-0027 accepted
 LogFix       2026-06-26  committed   video-sent log shows the live adapted bitrate, not the static ceiling
+R92-R94      2026-06-26  planned     ADR-0028 drafted: selective resend (NACK) promoted from captured non-goal on R91 evidence (LTE keyframe-storm); wire dormant resend scaffolding, add in-flight keyframe suppression
 ```

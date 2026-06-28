@@ -293,6 +293,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     // video (host -> client) and the keyframe requests (client -> host). nil when the
     // carrier flag is off. Its diagnosticsSnapshot() feeds the encode pump's per-frame log.
     private var videoDatagramServer: OwnedMediaVideoDatagramServer?
+    // ADR-0028: bounded ring of recently-sent frame packets so a client
+    // .packetResendRequest is served by re-emitting the named packets, without
+    // re-encoding or a full keyframe. Mutated and read only under `lock`.
+    private var videoResendRing = OwnedMediaResendRing(
+        capacityFrames: Config.ownedMediaResendRingFrames
+    )
 
     init(
         configuration: OwnedMediaEncodingConfiguration = .default,
@@ -422,6 +428,8 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     let encoder = self.lock.withLock { self.videoEncoder }
                     encoder?.requestKeyframe()
                     self.logger.notice("owned media video keyframe-request from client frame=\(message.frameId, privacy: .public)")
+                case .packetResendRequest:
+                    self.handlePacketResendRequest(message)
                 case .linkHealth:
                     self.handleLinkHealth(message)
                 default:
@@ -436,6 +444,28 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         } catch {
             logger.error("owned media datagram server start failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    // ADR-0028: serve a client packet-resend request from the ring, re-emitting the
+    // named packets so an isolated loss is repaired without a full keyframe. Capped per
+    // request; an unknown frame (already evicted) serves nothing and the client's
+    // keyframe fallback handles it.
+    private func handlePacketResendRequest(_ message: OwnedMediaControlMessage) {
+        guard !message.packetIndexes.isEmpty else { return }
+        let result: (server: OwnedMediaVideoDatagramServer?, packets: [(UInt16, Data)], misses: [UInt16]) = lock.withLock {
+            let served = videoResendRing.packets(
+                frameId: message.frameId,
+                indexes: message.packetIndexes,
+                maxCount: Config.ownedMediaMaxResendPackets
+            )
+            return (videoDatagramServer, served.packets, served.misses)
+        }
+        guard !result.packets.isEmpty else {
+            logger.notice("owned media video resend-miss frame=\(message.frameId, privacy: .public) requested=\(message.packetIndexes.count, privacy: .public)")
+            return
+        }
+        result.server?.send(result.packets.map { $0.1 })
+        logger.notice("owned media video resend-served frame=\(message.frameId, privacy: .public) served=\(result.packets.count, privacy: .public) misses=\(result.misses.count, privacy: .public)")
     }
 
     // ADR-0027: feed one client link-health window to the adaptive controller and, if
@@ -919,7 +949,12 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
                     payload: data,
                     key: Self.videoDatagramKey
                 ) {
-                    let server = lock.withLock { videoDatagramServer }
+                    let server = lock.withLock { () -> OwnedMediaVideoDatagramServer? in
+                        // ADR-0028: retain this frame's packets so a later resend request
+                        // can be served from the ring. Bounded; older frames evict.
+                        videoResendRing.remember(frameId: videoFrameId, packets: packets)
+                        return videoDatagramServer
+                    }
                     server?.send(packets)
                     let shouldLog = envelope.header.isKeyframe || videoFrameId.isMultiple(of: 30)
                     if shouldLog {

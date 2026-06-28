@@ -85,6 +85,10 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     // whether the host -> client datagram path delivers at all (the receive handler
     // firing) versus a decode/reassembly fault. Touched only on `queue`.
     private var videoDatagramRxCount = 0
+    // ADR-0028: timestamp of the last expiry-path keyframe request, gating the next one
+    // by `ownedMediaKeyframeRequestMinGapMs` so a loss burst cannot storm the host with
+    // keyframe requests. Touched only on `queue`, same as handleVideoDatagram.
+    private var lastVideoKeyframeRequestUptimeNs: UInt64 = 0
     private let onFallbackResetRequest: @Sendable (OwnedGraphicsResetRequest) async -> Void
     private let onDisconnected: @Sendable (String) -> Void
 
@@ -550,9 +554,35 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
             ownedMediaStderrTrace("video-frame-complete frame=\(completed.frameId) bytes=\(completed.data.count)")
             Task { @MainActor [weak self] in self?.sink?.renderOwnedVideoFrame(envelope) }
         }
+        // ADR-0028: repair an isolated loss by re-requesting just the missing packets,
+        // not a full keyframe. The repair buffer names them on a frame a newer frame has
+        // overtaken; the host serves them from its resend ring. Loss-triggered only, so a
+        // clean link emits nothing here.
+        for request in result.resendRequests {
+            sendVideoControl(OwnedMediaControlMessage(
+                kind: .packetResendRequest,
+                frameId: request.frameId,
+                packetIndexes: request.packetIndexes
+            ))
+        }
+        if let resendCount = result.resendRequests.isEmpty ? nil : result.resendRequests.count {
+            ownedMediaStderrTrace("video-resend-request frames=\(resendCount)")
+        }
+        // ADR-0028: keyframe recovery is the past-deadline fallback for a frame resend
+        // could not save in time, gated so a loss burst cannot fan out into a storm.
         if let expired = result.expiredFrames.last {
-            sendVideoControl(OwnedMediaControlMessage(kind: .keyframeRequest, frameId: expired.frameId))
-            logger.notice("owned media video keyframe-request frame=\(expired.frameId, privacy: .public) missing=\(expired.missingIndexes.count, privacy: .public)")
+            let now = DispatchTime.now().uptimeNanoseconds
+            let minGapNs = UInt64(Config.ownedMediaKeyframeRequestMinGapMs) * 1_000_000
+            let gated = lastVideoKeyframeRequestUptimeNs != 0
+                && now >= lastVideoKeyframeRequestUptimeNs
+                && now &- lastVideoKeyframeRequestUptimeNs < minGapNs
+            if gated {
+                ownedMediaStderrTrace("video-keyframe-request-suppressed frame=\(expired.frameId)")
+            } else {
+                lastVideoKeyframeRequestUptimeNs = now
+                sendVideoControl(OwnedMediaControlMessage(kind: .keyframeRequest, frameId: expired.frameId))
+                logger.notice("owned media video keyframe-request frame=\(expired.frameId, privacy: .public) missing=\(expired.missingIndexes.count, privacy: .public)")
+            }
         }
     }
 

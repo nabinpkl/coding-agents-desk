@@ -76,6 +76,15 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_LINK_HEALTH_INTERVAL_MS",
         defaultValue: 500
     )
+    // ADR-0028: minimum gap between expiry-path keyframe requests, so a loss burst
+    // cannot fan out into a keyframe storm on a lossy link before a packet resend
+    // lands. Roughly one LTE round trip; a genuinely lost keyframe still re-requests
+    // after the gap. Selective resend (R92) is the primary recovery; this bounds the
+    // keyframe fallback.
+    static let ownedMediaKeyframeRequestMinGapMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_REQUEST_MIN_GAP_MS",
+        defaultValue: 300
+    )
     // ADR-0025 motion carrier switch (mirrors the host). ON by default now that the
     // video path is device-validated: the client accepts the HEVC datagram stream and
     // renders the video layer. Set the env var to 0/false to render only the retained
