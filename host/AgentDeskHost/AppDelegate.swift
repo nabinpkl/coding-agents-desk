@@ -528,6 +528,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let provider = spaceThumbnailProvider
         let clientFingerprint = fingerprint
         let thumbnailOwner = SpaceThumbnailDemandOwner.client(fingerprint.rawValue)
+        thumbnailsLogger.notice("client thumbnail default demand fp=\(clientFingerprint.rawValue, privacy: .public) enabled=true")
+        thumbnailEnabledClients.insert(clientFingerprint)
+        provider.setDemand(owner: thumbnailOwner, enabled: true)
+        provider.forceRefresh()
         server.configHandler = { [weak self, server] config in
             let enabled = config.thumbnailsEnabled
             let refresh = config.thumbnailRefresh

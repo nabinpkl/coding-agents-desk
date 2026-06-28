@@ -262,6 +262,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                     if let channel = self.pairingClient.activeInputChannel {
                         self.startDiagnosticsHandlingIfNeeded(channel: channel)
                         self.sendReconnectDiagnosticsAnnouncementIfNeeded(channel: channel)
+                        self.sendCurrentClientConfig()
                     }
                     self.render()
                     return

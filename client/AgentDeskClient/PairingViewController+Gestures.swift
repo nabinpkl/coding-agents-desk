@@ -45,6 +45,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
                     self?.thumbnailStripView.apply(state: state)
                     self?.refreshThumbnailStripVisibility()
                     self?.applyDesktopStateForCursorModel(state)
+                    self?.sendCurrentClientConfig()
                 }
             }
         }
@@ -61,6 +62,14 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         thumbnailsTask = Task { [weak self, channel] in
             for await thumbnails in channel.thumbnailsUpdates {
                 await MainActor.run {
+                    ClientDiagnostics.shared.record(
+                        type: "thumbnailPushReceived",
+                        fields: [
+                            "count": String(thumbnails.count),
+                            "ids": thumbnails.keys.sorted().joined(separator: ",")
+                        ],
+                        level: .info
+                    )
                     self?.thumbnailStripView.apply(thumbnails: thumbnails)
                     self?.refreshThumbnailStripVisibility()
                 }
@@ -259,8 +268,32 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             thumbnailsEnabled: SettingsStore.shared.showSpacePreviews,
             selectedDisplayId: selectedDisplayIdForConfig()
         )
+        ClientDiagnostics.shared.record(
+            type: "clientConfigSendStarted",
+            fields: [
+                "thumbnailsEnabled": String(config.thumbnailsEnabled),
+                "selectedDisplayId": config.selectedDisplayId ?? "nil"
+            ],
+            level: .info
+        )
         Task { [channel, config] in
-            try? await channel.sendConfig(config)
+            do {
+                try await channel.sendConfig(config)
+                ClientDiagnostics.shared.record(
+                    type: "clientConfigSendSucceeded",
+                    fields: [
+                        "thumbnailsEnabled": String(config.thumbnailsEnabled),
+                        "selectedDisplayId": config.selectedDisplayId ?? "nil"
+                    ],
+                    level: .info
+                )
+            } catch {
+                ClientDiagnostics.shared.record(
+                    type: "clientConfigSendFailed",
+                    fields: ["error": String(describing: error)],
+                    level: .error
+                )
+            }
         }
     }
 

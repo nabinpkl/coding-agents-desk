@@ -108,7 +108,7 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
             loadManifest()
             let priorUncleanRunId = rotatePriorCurrentRunIfPresent()
             startNewCurrentRun()
-            recordLocked(type: "runStarted", fields: [:], level: .default)
+            recordLocked(type: "runStarted", fields: Self.buildIdentityFields(), level: .default)
             if let priorUncleanRunId {
                 recordLocked(type: "previousRunUncleanExit", fields: ["priorRunId": priorUncleanRunId], level: .error)
             }
@@ -125,6 +125,16 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
             recordLocked(type: type, fields: fields, level: level)
             saveManifest()
         }
+    }
+
+    private static func buildIdentityFields() -> [String: String] {
+        let info = Bundle.main.infoDictionary
+        return [
+            "bundleId": Bundle.main.bundleIdentifier ?? "?",
+            "version": info?["CFBundleShortVersionString"] as? String ?? "?",
+            "build": info?["CFBundleVersion"] as? String ?? "?",
+            "gitSha": (info?["AgentDeskGitSHA"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "dev"
+        ]
     }
 
     func markCleanShutdown(reason: String) {
