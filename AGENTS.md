@@ -50,6 +50,19 @@ Before doing project work, read `PRD.md` and `SPEC.md` once. They are short on p
 - **Small Tasks Doer** handles narrow, low-risk chores that do not need decomposition: spelling fixes, small doc updates, targeted test additions, mechanical renames, and one-file bug fixes. It should not absorb broad feature work or architecture changes.
 - Huge feature work goes through `TASKS.md` and the Codex thread roles above. The Co-ordinator decomposes the plan, delegates bounded implementation and review work to separate threads when parallelism or isolation helps, integrates the results, updates `TASKS.md`, verifies with `just check`, then commits and pushes each green task cluster.
 
+## Final self-review before handoff
+
+Every agent reviews its own completed diff before handing work back to the human or another Codex thread. This is separate from testing and separate from an external Reviewer pass.
+
+The review exists because edits are temporal: the first file changed was written without seeing the middle and last files that would later land. After the full change exists, re-read the diff as one system and fix incoherencies before reporting completion.
+
+Minimum pass:
+- Re-open the files touched earliest and check them against the final shape of the later files.
+- Check naming, wire shapes, config keys, actor or threading assumptions, lifecycle cleanup, tests, docs, and log messages for cross-file agreement.
+- Look for stale assumptions introduced mid-task: duplicated state, old fallback behavior, mismatched comments, tests that assert an earlier design, and docs that describe only part of the final implementation.
+- Fix issues found in this self-review before handoff. Do not leave obvious integration cleanup as a note for the human unless it is blocked by missing information or an explicit scope boundary.
+- In the final report, state that self-review happened and name any remaining risk.
+
 # Conventions
 
 ## Voice
