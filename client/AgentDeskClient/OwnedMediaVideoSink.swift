@@ -468,10 +468,15 @@ struct OwnedSurfaceCompositor {
     // host CGImage encoder: both use the top-down row-0-is-top convention, so the
     // decoded buffer aligns with the surface without a vertical flip.
     private static func decodeJPEG(_ data: Data, width: Int, height: Int) throws -> Data {
+        // The host may encode the fullframe JPEG smaller than the destination tile
+        // (congestion downscale), so accept any source no larger than the tile and
+        // let the context scale it up to fill. A larger-than-destination image is
+        // malformed (the host never upsizes). LZFSE tiles still decode at exact dims.
         guard width > 0, height > 0,
               let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
-              image.width == width, image.height == height else {
+              image.width > 0, image.height > 0,
+              image.width <= width, image.height <= height else {
             throw SessionRejected(reason: .malformed)
         }
         let bytesPerRow = width * 4
@@ -488,6 +493,8 @@ struct OwnedSurfaceCompositor {
                     space: CGColorSpaceCreateDeviceRGB(),
                     bitmapInfo: bitmapInfo
                   ) else { return false }
+            // Smooth the upscale of a downscaled fullframe; a no-op when dims match.
+            context.interpolationQuality = .medium
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
         }

@@ -1,3 +1,4 @@
+import Accelerate
 import Compression
 import CoreImage
 import CoreVideo
@@ -256,6 +257,10 @@ struct ScrollDeltaEngine {
     private let fullframeJpegQualityCongested: Double
     // Hard wire-byte ceiling for a fullframe JPEG; quality steps down to fit it.
     private let fullframeMaxWireBytes: Int
+    // Resolution scale for a congested fullframe JPEG (0.1...1). The client upscales
+    // the decoded image into the full destination rect, so halving this cuts encoded
+    // pixels ~4x when the link, not the codec, is the limit.
+    private let fullframeCongestedScale: Double
 
     init(
         maxDecodedResetStripePayloadBytes: Int = Self.defaultMaxDecodedResetStripePayloadBytes,
@@ -265,7 +270,8 @@ struct ScrollDeltaEngine {
         fullframeJpegQuality: Double = Config.hybridFullframeJpegQuality,
         fullframeJpegQualityMotion: Double = Config.hybridFullframeJpegQualityMotion,
         fullframeJpegQualityCongested: Double = Config.hybridFullframeJpegQualityCongested,
-        fullframeMaxWireBytes: Int = Config.hybridFullframeMaxWireBytes
+        fullframeMaxWireBytes: Int = Config.hybridFullframeMaxWireBytes,
+        fullframeCongestedScale: Double = Config.hybridFullframeCongestedScale
     ) {
         self.maxDecodedResetStripePayloadBytes = max(1, maxDecodedResetStripePayloadBytes)
         self.maxWireResetStripeBytes = max(1, maxWireResetStripeBytes)
@@ -275,6 +281,7 @@ struct ScrollDeltaEngine {
         self.fullframeJpegQualityMotion = min(1, max(0.1, fullframeJpegQualityMotion))
         self.fullframeJpegQualityCongested = min(1, max(0.1, fullframeJpegQualityCongested))
         self.fullframeMaxWireBytes = max(1, fullframeMaxWireBytes)
+        self.fullframeCongestedScale = min(1, max(0.1, fullframeCongestedScale))
     }
 
     mutating func reserveRefreshUpdateId() -> OwnedSurfaceUpdateId {
@@ -680,7 +687,11 @@ struct ScrollDeltaEngine {
             } else {
                 quality = scrollHint != nil ? fullframeJpegQualityMotion : fullframeJpegQualityRest
             }
-            guard let envelope = makeJPEGFrameEnvelope(current: current, region: region, quality: quality, capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
+            // Downscale only when congested: quality alone bottoms out on a thin link,
+            // so halving resolution is what actually drops the wire bytes. Rest and
+            // motion fullframes stay full resolution and re-sharpen once the link drains.
+            let scale = congested ? fullframeCongestedScale : 1.0
+            guard let envelope = makeJPEGFrameEnvelope(current: current, region: region, quality: quality, scale: scale, capturedAtUptimeNs: frame.capturedAtUptimeNs) else {
                 pendingSurface = nil
                 return ScrollDeltaResult(
                     kind: .rejected("damage-fullframe-jpeg-build-failed-\(reason)"),
@@ -759,11 +770,32 @@ struct ScrollDeltaEngine {
     // saturate the reliable channel and freeze the screen. The region is clamped
     // to the surface; the client decodes the JPEG back to BGRA and paints it like
     // any other bitmap tile.
-    private func makeJPEGFrameEnvelope(current: Surface, region: PixelRect, quality: Double, capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
+    private func makeJPEGFrameEnvelope(current: Surface, region: PixelRect, quality: Double, scale: Double, capturedAtUptimeNs: UInt64) -> OwnedGraphicsFrameEnvelope? {
         let clamped = region.clamped(toWidth: current.width, height: current.height)
         guard clamped.width > 0, clamped.height > 0,
-              let bgra = tileData(surface: current, x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height),
-              let jpeg = compressJPEGWithinBudget(bgra, width: clamped.width, height: clamped.height, startQuality: quality) else { return nil }
+              let bgra = tileData(surface: current, x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height) else { return nil }
+        // The tile command always carries the full destination size; the JPEG may be
+        // encoded smaller (congestion downscale) and the client upscales it into the
+        // destination. JPEG is self-describing, so no wire field is needed to carry
+        // the encoded size. Scale on the raw BGRA with vImage (row-order preserving)
+        // so the smaller buffer feeds the identical CGImage path and the round trip
+        // stays orientation-correct.
+        let scaledWidth = max(1, Int((Double(clamped.width) * scale).rounded()))
+        let scaledHeight = max(1, Int((Double(clamped.height) * scale).rounded()))
+        let encodeBytes: Data
+        let encodeWidth: Int
+        let encodeHeight: Int
+        if scale < 1.0, scaledWidth < clamped.width, scaledHeight < clamped.height,
+           let downscaled = downscaleBGRA(bgra, width: clamped.width, height: clamped.height, toWidth: scaledWidth, toHeight: scaledHeight) {
+            encodeBytes = downscaled
+            encodeWidth = scaledWidth
+            encodeHeight = scaledHeight
+        } else {
+            encodeBytes = bgra
+            encodeWidth = clamped.width
+            encodeHeight = clamped.height
+        }
+        guard let jpeg = compressJPEGWithinBudget(encodeBytes, width: encodeWidth, height: encodeHeight, startQuality: quality) else { return nil }
         let command = OwnedGraphicsCommand.bitmapTile(
             x: clamped.x,
             y: clamped.y,
@@ -803,6 +835,40 @@ struct ScrollDeltaEngine {
             }
         }
         return smallest
+    }
+
+    // Scale a top-down BGRA buffer to a smaller top-down BGRA buffer with vImage.
+    // vImage scales each of the 4 channels independently and preserves row order, so
+    // the result feeds the same top-down CGImage path as a native-size buffer and the
+    // JPEG round trip stays orientation-correct (no CoreGraphics coordinate flip to
+    // reason about). High-quality resampling keeps scrolled text legible after the
+    // client upscales it back.
+    private func downscaleBGRA(_ bgra: Data, width: Int, height: Int, toWidth: Int, toHeight: Int) -> Data? {
+        let srcRowBytes = width * 4
+        let dstRowBytes = toWidth * 4
+        guard width > 0, height > 0, toWidth > 0, toHeight > 0,
+              bgra.count >= srcRowBytes * height else { return nil }
+        var source = bgra
+        var destination = Data(count: dstRowBytes * toHeight)
+        let ok = source.withUnsafeMutableBytes { srcRaw -> Bool in
+            destination.withUnsafeMutableBytes { dstRaw -> Bool in
+                guard let srcBase = srcRaw.baseAddress, let dstBase = dstRaw.baseAddress else { return false }
+                var srcBuffer = vImage_Buffer(
+                    data: srcBase,
+                    height: vImagePixelCount(height),
+                    width: vImagePixelCount(width),
+                    rowBytes: srcRowBytes
+                )
+                var dstBuffer = vImage_Buffer(
+                    data: dstBase,
+                    height: vImagePixelCount(toHeight),
+                    width: vImagePixelCount(toWidth),
+                    rowBytes: dstRowBytes
+                )
+                return vImageScale_ARGB8888(&srcBuffer, &dstBuffer, nil, vImage_Flags(kvImageHighQualityResampling)) == kvImageNoError
+            }
+        }
+        return ok ? destination : nil
     }
 
     // BGRA (32-bit little-endian, alpha ignored) -> JPEG via CoreGraphics. Kept

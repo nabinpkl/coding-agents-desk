@@ -423,6 +423,83 @@ struct DamageScrollClassifierTests {
         #expect(result == .scroll(region: band, dx: 0, dy: dy))
     }
 
+    // Config identical to the production default except the two fields under test,
+    // so the A/B pair isolates the certainConfidence bypass from every other gate.
+    private static func config(minChangedFraction: Double, certainConfidence: Double) -> DamageScrollClassifierConfig {
+        DamageScrollClassifierConfig(
+            minScrollExtentPx: 120,
+            minCrossExtentPx: 64,
+            acceptConfidence: 0.7,
+            acceptConfidenceWithPrior: 0.55,
+            minChangedFraction: minChangedFraction,
+            certainConfidence: certainConfidence,
+            minCertainExplainedSamples: 24,
+            sampleStep: 8,
+            lumaTolerance: 24,
+            coarseStep: 8,
+            maxSearchOffsetPx: 400,
+            verifyExtent: 256,
+            maxTileCoverageRatio: 0.15
+        )
+    }
+
+    // A slow scroll over mostly-uniform content: a thin feature band shifts down by
+    // dy while the rest of the surface is flat. The shift explains essentially all of
+    // the (few) changed pixels, so confidence is ~1.0, but the changed FRACTION is
+    // small. The minChangedFraction gate, meant only to reject coincidental matches
+    // on near-static frames, wrongly rejected these to a ~200KB fullframe on device
+    // (decision=fullframe-scroll-miss confidence=1.000000). With the certainConfidence
+    // bypass, a near-perfect explanation over a floor of moved pixels is accepted as a
+    // copyRect even though the changed fraction is below minChangedFraction.
+    @Test func acceptsHighConfidenceScrollBelowChangedFractionViaCertainBypass() {
+        let width = 640
+        let height = 320
+        let dy = 8
+        let feature = 128..<144
+        let previous = Self.surface(width: width, height: height) { feature.contains($0) ? Self.rowPattern($0) : 100 }
+        let current = Self.surface(width: width, height: height) { feature.contains($0 - dy) ? Self.rowPattern($0 - dy) : 100 }
+        let band = PixelRect(x: 0, y: 0, width: width, height: height)
+        // minChangedFraction 0.30 is above this frame's changed fraction, so the clean
+        // and input-corroborated paths cannot accept; only the certain bypass can.
+        let classifier = DamageScrollClassifier(config: Self.config(minChangedFraction: 0.30, certainConfidence: 0.95))
+
+        let result = classifier.classify(
+            damageRects: [band],
+            contentRect: band,
+            previous: previous,
+            current: current,
+            hint: Self.verticalHint(candidateOffsets: [dy], sign: 1)
+        )
+
+        #expect(result == .scroll(region: band, dx: 0, dy: dy))
+    }
+
+    // Control: same frame, bypass disabled (certainConfidence unreachable). With the
+    // changed fraction below minChangedFraction and no certain bypass, the frame falls
+    // to the whole-surface fallback, the exact behavior the bypass exists to fix.
+    @Test func rejectsHighConfidenceLowChangeScrollWhenCertainBypassDisabled() {
+        let width = 640
+        let height = 320
+        let dy = 8
+        let feature = 128..<144
+        let previous = Self.surface(width: width, height: height) { feature.contains($0) ? Self.rowPattern($0) : 100 }
+        let current = Self.surface(width: width, height: height) { feature.contains($0 - dy) ? Self.rowPattern($0 - dy) : 100 }
+        let band = PixelRect(x: 0, y: 0, width: width, height: height)
+        let classifier = DamageScrollClassifier(config: Self.config(minChangedFraction: 0.30, certainConfidence: 1.5))
+
+        let result = classifier.classify(
+            damageRects: [band],
+            contentRect: band,
+            previous: previous,
+            current: current,
+            hint: Self.verticalHint(candidateOffsets: [dy], sign: 1)
+        )
+
+        if case .scroll = result {
+            Issue.record("bypass disabled must not accept a sub-threshold scroll, got \(result)")
+        }
+    }
+
     @Test func pixelRectUnionCoversAllRects() {
         let rects = [
             PixelRect(x: 10, y: 20, width: 30, height: 40),

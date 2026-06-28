@@ -251,6 +251,106 @@ struct ScrollDeltaEngineDamageRoutingTests {
         #expect(bottomLuma < 80)
     }
 
+    // Congestion downscale: when the pump is backed up, the fullframe JPEG is
+    // encoded at a fraction of the destination resolution (the client upscales it),
+    // because on a thin link JPEG quality alone bottoms out and only fewer encoded
+    // pixels drops the wire bytes. The bitmap tile still carries the full destination
+    // size; only the JPEG's own pixel dimensions shrink. A non-congested fullframe
+    // stays full resolution.
+    @Test func congestedFullframeDownscalesEncodedJpegBelowDestination() throws {
+        func sizes(congested: Bool) throws -> (destination: Int, encoded: Int) {
+            var engine = ScrollDeltaEngine()
+            let width = 256
+            let height = 256
+            let solid = try Self.makeBGRAFrame(width: width, height: height) { _, _ in [10, 10, 10, 0xff] }
+            #expect(engine.evaluate(solid).kind == .reset)
+            engine.commitPendingSurface()
+            let full = PixelRect(x: 0, y: 0, width: width, height: height)
+            let churned = try Self.makeBGRAFrame(
+                width: width,
+                height: height,
+                damageRects: [full],
+                contentRectPixels: full
+            ) { x, y in
+                let v = UInt8((x &* 37 &+ y &* 101) & 0xff)
+                return [v, v, v, 0xff]
+            }
+            let hint = ScrollActivityHint(axis: .vertical, sign: 1, predictedOffsetPx: 40, candidateOffsets: [40], activeUntilUptimeNs: .max, eventCount: 4)
+            let result = engine.evaluate(churned, scrollHint: hint, congested: congested)
+            guard case let .bitmapTile(_, _, tileWidth, _, .jpeg, byteRange)? =
+                    result.envelope?.commands.first(where: { $0.kindIsBitmapTile }),
+                  let payload = result.envelope?.payload else {
+                Issue.record("expected a fullframe JPEG tile")
+                return (0, 0)
+            }
+            let jpeg = Data(payload[byteRange.offset..<(byteRange.offset + byteRange.length)])
+            guard let encoded = Self.jpegPixelWidth(jpeg) else {
+                Issue.record("could not read JPEG pixel size")
+                return (0, 0)
+            }
+            return (tileWidth, encoded)
+        }
+
+        let congested = try sizes(congested: true)
+        let rest = try sizes(congested: false)
+        // Destination tile is full size in both; only the encoded JPEG shrinks.
+        #expect(congested.destination == 256)
+        #expect(rest.destination == 256)
+        #expect(rest.encoded == 256)
+        #expect(congested.encoded < 256)
+        // Default congested scale is 0.5, so ~128 px wide.
+        #expect(congested.encoded <= 130)
+    }
+
+    // A downscaled congested fullframe must still survive the round trip without a
+    // vertical flip: vImage downscale on the host plus the client's CGContext upscale
+    // must preserve orientation. Top half bright, bottom half dark; after a 0.5
+    // downscale and full-size decode the top must stay bright and the bottom dark.
+    @Test func congestedDownscaledFullframeRoundTripPreservesOrientation() throws {
+        var engine = ScrollDeltaEngine()
+        let width = 256
+        let height = 256
+
+        let first = try Self.makeBGRAFrame(width: width, height: height) { _, _ in [10, 10, 10, 0xff] }
+        #expect(engine.evaluate(first).kind == .reset)
+        engine.commitPendingSurface()
+
+        let full = PixelRect(x: 0, y: 0, width: width, height: height)
+        let gradient = try Self.makeBGRAFrame(
+            width: width,
+            height: height,
+            damageRects: [full],
+            contentRectPixels: full
+        ) { _, y in
+            let v: UInt8 = y < height / 2 ? 240 : 16
+            return [v, v, v, 0xff]
+        }
+        let hint = ScrollActivityHint(axis: .vertical, sign: 1, predictedOffsetPx: 40, candidateOffsets: [40], activeUntilUptimeNs: .max, eventCount: 4)
+        let result = engine.evaluate(gradient, scrollHint: hint, congested: true)
+
+        guard case let .bitmapTile(_, _, tileWidth, tileHeight, compression, byteRange)? =
+                result.envelope?.commands.first(where: { $0.kindIsBitmapTile }),
+              let payload = result.envelope?.payload else {
+            Issue.record("fullframe must emit a bitmap tile")
+            return
+        }
+        #expect(compression == .jpeg)
+
+        let jpeg = payload[byteRange.offset..<(byteRange.offset + byteRange.length)]
+        // Decode into the FULL destination size, exactly as the client upscales it.
+        let decoded = try Self.decodeJPEGForTest(Data(jpeg), width: tileWidth, height: tileHeight)
+        let topLuma = Self.luma(decoded, x: 8, y: 8, width: tileWidth)
+        let bottomLuma = Self.luma(decoded, x: 8, y: tileHeight - 8, width: tileWidth)
+        #expect(topLuma > 180)
+        #expect(bottomLuma < 80)
+    }
+
+    private static func jpegPixelWidth(_ data: Data) -> Int? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        return image.width
+    }
+
     // Mirrors the client's OwnedMediaVideoSink JPEG decode so the host test
     // validates the exact round trip the device runs.
     private static func decodeJPEGForTest(_ data: Data, width: Int, height: Int) throws -> Data {

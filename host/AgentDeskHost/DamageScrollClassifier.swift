@@ -145,6 +145,20 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
     // confident scroll, so a near-static frame (nothing moved) cannot be accepted
     // on a coincidental shift match.
     let minChangedFraction: Double
+    // A near-perfect explanation is a true scroll even when the changed fraction is
+    // below minChangedFraction. minChangedFraction exists only to reject a
+    // coincidental shift match on a near-static frame; a shift that explains this
+    // fraction or more of the changed pixels is not coincidental, it is a slow
+    // scroll over low-detail content (a page of mostly-uniform background moved a
+    // few pixels). Without this bypass those frames scored confidence ~1.0 yet fell
+    // to a ~200KB fullframe (device run: fullframe-scroll-miss confidence=1.000000),
+    // when they should have been a few-KB copyRect. The absolute floor below guards
+    // against accepting on a handful of noise pixels.
+    let certainConfidence: Double
+    // Absolute floor of explained changed-pixel samples for the certainConfidence
+    // bypass, so a frame where only one or two pixels changed (explainedFraction is
+    // statistically meaningless there) cannot be promoted to a copyRect.
+    let minCertainExplainedSamples: Int
     let sampleStep: Int
     let lumaTolerance: Int
     // Directed offset search: probe magnitudes at this stride (coarse), then
@@ -174,6 +188,8 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
         acceptConfidence: 0.7,
         acceptConfidenceWithPrior: 0.55,
         minChangedFraction: 0.05,
+        certainConfidence: 0.97,
+        minCertainExplainedSamples: 24,
         sampleStep: 8,
         lumaTolerance: 24,
         coarseStep: 8,
@@ -313,6 +329,7 @@ struct DamageScrollClassifier {
         var bestOffset = 0
         var bestExplained = -1.0
         var bestChangedFraction = 0.0
+        var bestExplainedCount = 0
         for sign in [1, -1] {
             var magnitude = coarseStep
             while magnitude <= maxMagnitude {
@@ -320,6 +337,7 @@ struct DamageScrollClassifier {
                 if m.explainedFraction > bestExplained {
                     bestExplained = m.explainedFraction
                     bestChangedFraction = m.changedFraction
+                    bestExplainedCount = m.explainedCount
                     bestOffset = sign * magnitude
                 }
                 magnitude += coarseStep
@@ -340,6 +358,7 @@ struct DamageScrollClassifier {
                     if m.explainedFraction > bestExplained {
                         bestExplained = m.explainedFraction
                         bestChangedFraction = m.changedFraction
+                        bestExplainedCount = m.explainedCount
                         bestOffset = sign * fine
                     }
                 }
@@ -353,9 +372,18 @@ struct DamageScrollClassifier {
 
         // High-confidence path: the surface-best shift cleanly explains the changed
         // pixels on its own, no input corroboration needed (a clean scroll, full
-        // overlap). Unchanged behavior.
-        if bestExplained >= config.acceptConfidence,
-           bestChangedFraction >= config.minChangedFraction {
+        // overlap). The certainConfidence bypass also accepts a near-perfect
+        // explanation whose changed fraction is below minChangedFraction: a slow
+        // scroll over low-detail content moves few pixels but the shift still
+        // explains essentially all of them, and minChangedFraction (a guard against
+        // coincidental matches on near-static frames) wrongly rejected those to a
+        // ~200KB fullframe. The absolute explained-sample floor keeps a noise-only
+        // frame from passing.
+        let cleanScroll = bestExplained >= config.acceptConfidence
+            && bestChangedFraction >= config.minChangedFraction
+        let certainScroll = bestExplained >= config.certainConfidence
+            && bestExplainedCount >= config.minCertainExplainedSamples
+        if cleanScroll || certainScroll {
             let resolved = axis == .vertical
                 ? ScrollDeltaOffset(dx: 0, dy: bestOffset)
                 : ScrollDeltaOffset(dx: bestOffset, dy: 0)
@@ -420,8 +448,12 @@ struct DamageScrollClassifier {
         // Fraction of all sampled pixels that changed, so a near-static frame
         // (little changed) is not accepted on a coincidental shift match.
         let changedFraction: Double
+        // Absolute count of changed pixels the shift explained, so the certain-scroll
+        // bypass can require a floor of real moved pixels (not just a high fraction
+        // over one or two samples).
+        let explainedCount: Int
 
-        static let zero = ShiftMatch(explainedFraction: 0, changedFraction: 0)
+        static let zero = ShiftMatch(explainedFraction: 0, changedFraction: 0, explainedCount: 0)
     }
 
     // Measure how well shifting previous by the offset explains the pixels that
@@ -491,7 +523,7 @@ struct DamageScrollClassifier {
                 }
                 let explainedFraction = changed > 0 ? Double(explained) / Double(changed) : 0
                 let changedFraction = samples > 0 ? Double(changed) / Double(samples) : 0
-                return ShiftMatch(explainedFraction: explainedFraction, changedFraction: changedFraction)
+                return ShiftMatch(explainedFraction: explainedFraction, changedFraction: changedFraction, explainedCount: explained)
             }
         }
     }

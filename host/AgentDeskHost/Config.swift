@@ -388,6 +388,19 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_FULLFRAME_MAX_WIRE_BYTES",
         defaultValue: 450_000
     )
+    // Congestion resolution scale: when the pump is backed up, the fullframe JPEG is
+    // encoded at this fraction of the damage region's native size and the client
+    // upscales it into the full destination rect. On a thin link JPEG quality alone
+    // bottoms out (a whole-band JPEG of a Retina desktop is ~200KB even at the q0.15
+    // floor), so halving the resolution cuts the encoded pixels ~4x and the wire
+    // bytes with them, which is what actually lifts the frame rate when the link, not
+    // the codec, is the limit. Softer during motion only; rest/motion fullframes stay
+    // full resolution and the image re-sharpens the moment the link drains. 1.0
+    // disables the downscale.
+    static let hybridFullframeCongestedScale = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_FULLFRAME_CONGESTED_SCALE",
+        defaultValue: 0.5
+    )
     static let hybridScrollViewportMinWidth = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_SCROLL_VIEWPORT_MIN_WIDTH",
         defaultValue: 320
