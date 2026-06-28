@@ -113,6 +113,66 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_ACTIVE_WINDOW_MS",
         defaultValue: 600
     )
+    // Damage-scroll classifier thresholds (ADR-0021). These were inlined in
+    // DamageScrollClassifierConfig.default; they are central, env-overridable
+    // config like every other tunable. The rationale for each lives on the
+    // matching field in DamageScrollClassifier.swift; the values here are the
+    // calibrated defaults. minScrollExtentPx/minCrossExtentPx gate the band
+    // geometry; acceptConfidence and acceptConfidenceWithPrior are the strict
+    // and input-corroborated acceptance bars; the rest tune the offset search
+    // and verify stripe.
+    static let hybridClassifierMinScrollExtentPx = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_SCROLL_EXTENT_PX",
+        defaultValue: 120
+    )
+    static let hybridClassifierMinCrossExtentPx = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_CROSS_EXTENT_PX",
+        defaultValue: 64
+    )
+    static let hybridClassifierAcceptConfidence = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_ACCEPT_CONFIDENCE",
+        defaultValue: 0.7
+    )
+    static let hybridClassifierAcceptConfidenceWithPrior = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_ACCEPT_CONFIDENCE_WITH_PRIOR",
+        defaultValue: 0.55
+    )
+    static let hybridClassifierMinChangedFraction = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_CHANGED_FRACTION",
+        defaultValue: 0.05
+    )
+    static let hybridClassifierCertainConfidence = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_CERTAIN_CONFIDENCE",
+        defaultValue: 0.97
+    )
+    static let hybridClassifierMinCertainExplainedSamples = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_CERTAIN_EXPLAINED_SAMPLES",
+        defaultValue: 24
+    )
+    static let hybridClassifierSampleStep = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_SAMPLE_STEP",
+        defaultValue: 8
+    )
+    static let hybridClassifierLumaTolerance = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_LUMA_TOLERANCE",
+        defaultValue: 24
+    )
+    static let hybridClassifierCoarseStep = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_COARSE_STEP",
+        defaultValue: 8
+    )
+    static let hybridClassifierMaxSearchOffsetPx = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MAX_SEARCH_OFFSET_PX",
+        defaultValue: 400
+    )
+    static let hybridClassifierVerifyExtent = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_VERIFY_EXTENT",
+        defaultValue: 256
+    )
+    static let hybridClassifierMaxTileCoverageRatio = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MAX_TILE_COVERAGE_RATIO",
+        defaultValue: 0.15
+    )
     // JPEG quality for the fullframe fallback, motion-adaptive. A whole-screen
     // change ships as one lossy JPEG instead of multi-MB raw LZFSE (the fix for
     // the link saturation that froze the screen); small text-only changes still go

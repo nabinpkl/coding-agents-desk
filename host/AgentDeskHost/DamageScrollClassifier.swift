@@ -176,33 +176,23 @@ struct DamageScrollClassifierConfig: Equatable, Sendable {
     let verifyExtent: Int
     let maxTileCoverageRatio: Double
 
-    // Provisional defaults. The spike log (/tmp/agentdesk-capture-damage.log)
-    // is the data to calibrate these against before they are locked.
-    //
-    // maxTileCoverageRatio is deliberately small: an un-scrolled tile is a raw
-    // LZFSE bitmap sent over the RELIABLE graphics channel, so a near-full-frame
-    // tile (~600KB) saturates the single-unacked-frame fence and freezes the
-    // pump. Anything bigger than this fraction is rejected to fullFrame (the pump
-    // drops it; there is no HEVC path). R75 device run confirmed 0.6 froze.
+    // Defaults are sourced from Config (env-overridable, AGENTDESK_HYBRID_CLASSIFIER_*).
+    // The rationale for each value lives on the matching field above; the
+    // calibrated numbers and their env keys live in Config.swift.
     static let `default` = DamageScrollClassifierConfig(
-        minScrollExtentPx: 120,
-        minCrossExtentPx: 64,
-        acceptConfidence: 0.7,
-        acceptConfidenceWithPrior: 0.55,
-        minChangedFraction: 0.05,
-        certainConfidence: 0.97,
-        minCertainExplainedSamples: 24,
-        sampleStep: 8,
-        lumaTolerance: 24,
-        coarseStep: 8,
-        // Scroll acceleration amplifies a momentum flick well past the raw input
-        // delta, so one captured frame can move content more than 200px. A 200px
-        // cap left the search unable to reach the true offset on fast flicks, which
-        // then fell to fullframe. The hinted search is bounded (band extent caps it
-        // and the gate rejects non-scroll bands), so a higher ceiling is cheap.
-        maxSearchOffsetPx: 400,
-        verifyExtent: 256,
-        maxTileCoverageRatio: 0.15
+        minScrollExtentPx: Config.hybridClassifierMinScrollExtentPx,
+        minCrossExtentPx: Config.hybridClassifierMinCrossExtentPx,
+        acceptConfidence: Config.hybridClassifierAcceptConfidence,
+        acceptConfidenceWithPrior: Config.hybridClassifierAcceptConfidenceWithPrior,
+        minChangedFraction: Config.hybridClassifierMinChangedFraction,
+        certainConfidence: Config.hybridClassifierCertainConfidence,
+        minCertainExplainedSamples: Config.hybridClassifierMinCertainExplainedSamples,
+        sampleStep: Config.hybridClassifierSampleStep,
+        lumaTolerance: Config.hybridClassifierLumaTolerance,
+        coarseStep: Config.hybridClassifierCoarseStep,
+        maxSearchOffsetPx: Config.hybridClassifierMaxSearchOffsetPx,
+        verifyExtent: Config.hybridClassifierVerifyExtent,
+        maxTileCoverageRatio: Config.hybridClassifierMaxTileCoverageRatio
     )
 }
 
