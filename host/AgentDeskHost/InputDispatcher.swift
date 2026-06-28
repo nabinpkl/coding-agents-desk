@@ -18,6 +18,7 @@ final class InputDispatcher: @unchecked Sendable {
     typealias SwitchSpaceGestureHandler = (NormalizedInput.SwipePhase, Float, Float) -> Void
     typealias SwitchSpaceStepHandler = (Int) -> Void
     typealias ScrollFocusHandler = @Sendable (NormalizedInput, ScrollFocusSnapshot) -> Void
+    typealias CursorPositionHandler = (CGPoint) -> Void
 
     struct ScrollFocusSnapshot: Sendable {
         let focusPoint: CGPoint
@@ -42,6 +43,7 @@ final class InputDispatcher: @unchecked Sendable {
     // queue inside SpacesProvider. Default no-op so unit tests can
     // leave it unset.
     var switchSpaceStepHandler: SwitchSpaceStepHandler?
+    var cursorPositionHandler: CursorPositionHandler?
     private var loggedUntrusted = false
     // Custom event source so we can disable the 0.25s synthetic-event
     // suppression interval macOS otherwise applies. Without this, posted
@@ -87,11 +89,13 @@ final class InputDispatcher: @unchecked Sendable {
     // cursor locked to the client's predicted dot.
     private var cursorPosition: CGPoint?
     private var lastCursorMoveTime: CFTimeInterval = 0
+    private var lastCursorPositionEmitTime: CFTimeInterval = -Double.infinity
     // Re-sync the held position from the OS when the move stream has been
     // idle this long, so a physical mouse / trackpad move between remote
     // strokes is picked up. During an active stream we trust our own
     // integrated position over the lagging OS query.
     private static let cursorResyncIdleInterval: CFTimeInterval = 0.2
+    private static let cursorPositionEmitInterval: CFTimeInterval = 0.05
     // Serial queue so dispatch() is callable from any context (network
     // Task, MainActor, tests) without racing on loggedUntrusted /
     // scrollRemainder. Previously the AppDelegate forced every input
@@ -230,6 +234,7 @@ final class InputDispatcher: @unchecked Sendable {
             mouseButton: .left
         ) else { return }
         eventPoster(event)
+        emitCursorPosition(next, force: true)
     }
 
     private func postCursorMove(dx: CGFloat, dy: CGFloat) {
@@ -264,6 +269,14 @@ final class InputDispatcher: @unchecked Sendable {
             event.setIntegerValueField(.mouseEventClickState, value: dragClickState)
         }
         eventPoster(event)
+        emitCursorPosition(next, force: false)
+    }
+
+    private func emitCursorPosition(_ point: CGPoint, force: Bool) {
+        let now = clock()
+        guard force || now - lastCursorPositionEmitTime >= Self.cursorPositionEmitInterval else { return }
+        lastCursorPositionEmitTime = now
+        cursorPositionHandler?(point)
     }
 
     private func postDragStart() {

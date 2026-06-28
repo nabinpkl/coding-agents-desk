@@ -760,28 +760,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cursorMonitor.start()
     }
 
-    // Cursor position correction: while the iPhone is driving cursor deltas,
-    // the client and host dead-reckon from the same stream. When the remote
-    // stream is idle, a physical Mac mouse / trackpad move changes the host
-    // cursor behind the client's model, so broadcast a low-rate correction.
+    // Cursor position correction. Remote cursor moves are echoed back at a
+    // bounded cadence so the client overlay can reconcile if dead-reckoning
+    // diverges. When the remote stream is idle, CursorMonitor also catches
+    // physical Mac mouse / trackpad moves behind the client's model.
     private func installCursorPositionMonitor() {
+        inputDispatcher.cursorPositionHandler = { [weak self] position in
+            Task { @MainActor [weak self] in
+                self?.broadcastCursorPosition(position)
+            }
+        }
         cursorMonitor.shouldEmitPosition = { [weak self] in
             guard let self else { return false }
             return !self.inputDispatcher.isCursorInputActive()
         }
         cursorMonitor.onPositionChange = { [weak self] position in
-            guard let self else { return }
-            let displayId = self.displaySelection.selectedDisplayId
-            let bounds = self.displaySelection.selectedBounds()
-            let clamped = InputDispatcher.clamp(position, to: bounds)
-            let push = CursorPositionPush(
-                displayId: displayId,
-                cursorX: Float(clamped.x),
-                cursorY: Float(clamped.y)
-            )
-            for server in self.sessions.allInputChannelServers() {
-                server.pushCursorPosition(push)
-            }
+            self?.broadcastCursorPosition(position)
+        }
+    }
+
+    private func broadcastCursorPosition(_ position: CGPoint) {
+        let displayId = displaySelection.selectedDisplayId
+        let bounds = displaySelection.selectedBounds()
+        let clamped = InputDispatcher.clamp(position, to: bounds)
+        let push = CursorPositionPush(
+            displayId: displayId,
+            cursorX: Float(clamped.x),
+            cursorY: Float(clamped.y)
+        )
+        for server in sessions.allInputChannelServers() {
+            server.pushCursorPosition(push)
         }
     }
 
