@@ -17,6 +17,17 @@ derived_data := env_var_or_default("AGENTDESK_DERIVED_DATA_PATH", justfile_direc
 host_app := derived_data + "/Build/Products/Debug/AgentDeskHost.app"
 client_app := derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
 client_sim_app := derived_data + "/Build/Products/Debug-iphonesimulator/AgentDeskClient.app"
+# Two coexisting client installs: the stable daily-driver and an experimental
+# "dev" build under test. They differ only by bundle id, so iOS keeps both on
+# the phone. The dev build outputs to a SEPARATE derived-data dir because both
+# variants share PRODUCT_NAME (AgentDeskClient.app) and would otherwise clobber
+# each other on disk. The dev bundle id is a HITL-provisioned App ID (AGENTS.md);
+# override either id via env. Most client recipes take a `variant` arg
+# ("stable" default | "dev"); thin `-dev` wrappers pass it.
+client_bundle_id := env_var_or_default("AGENTDESK_CLIENT_BUNDLE_ID", "com.example.agentdesk.AgentDeskClient")
+client_dev_bundle_id := env_var_or_default("AGENTDESK_CLIENT_DEV_BUNDLE_ID", "com.example.agentdesk.AgentDeskClient.dev")
+dev_derived_data := derived_data + "-dev"
+client_dev_app := dev_derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
 client_archive_path := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_PATH", justfile_directory() + "/.build/testflight/AgentDeskClient.xcarchive")
 client_export_path := env_var_or_default("AGENTDESK_CLIENT_EXPORT_PATH", justfile_directory() + "/.build/testflight/export")
 client_ipa_path := env_var_or_default("AGENTDESK_CLIENT_IPA_PATH", client_export_path + "/AgentDeskClient.ipa")
@@ -71,14 +82,17 @@ host-logs:
 # does not accept the CoreDevice identifier used by devicectl. Set
 # AGENTDESK_IOS_DEVICE_UDID when multiple devices are reachable over USB
 # or Wi-Fi.
-iphone-log-collect:
+iphone-log-collect variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; else BID='{{client_bundle_id}}'; fi
     rm -rf "{{iphone_log_archive}}"
-    @if [ -n "{{iphone_log_device_udid}}" ]; then \
-        sudo /usr/bin/log collect --device-udid "{{iphone_log_device_udid}}" --last "{{iphone_log_minutes}}m" --predicate 'subsystem == "com.example.agentdesk.AgentDeskClient"' --output "{{iphone_log_archive}}"; \
-    else \
-        sudo /usr/bin/log collect --device --last "{{iphone_log_minutes}}m" --predicate 'subsystem == "com.example.agentdesk.AgentDeskClient"' --output "{{iphone_log_archive}}"; \
+    if [ -n "{{iphone_log_device_udid}}" ]; then
+        sudo /usr/bin/log collect --device-udid "{{iphone_log_device_udid}}" --last "{{iphone_log_minutes}}m" --predicate "subsystem == \"$BID\"" --output "{{iphone_log_archive}}"
+    else
+        sudo /usr/bin/log collect --device --last "{{iphone_log_minutes}}m" --predicate "subsystem == \"$BID\"" --output "{{iphone_log_archive}}"
     fi
-    /usr/bin/log show --style compact --info --debug --predicate 'subsystem == "com.example.agentdesk.AgentDeskClient"' "{{iphone_log_archive}}"
+    /usr/bin/log show --style compact --info --debug --predicate "subsystem == \"$BID\"" "{{iphone_log_archive}}"
 
 # Build host Debug and (re)launch it via LaunchServices so macOS TCC
 # attributes Screen Recording (and any other privacy prompt) to
@@ -115,44 +129,63 @@ host-run:
     pgrep -lf AgentDeskHost
 
 # Build client Debug for the iPhone and install (does not launch).
-client-install:
-    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' build >/dev/null
-    xcrun devicectl device install app --device {{ios_device}} "{{client_app}}"
+# variant: "stable" (default) or "dev" (the experimental side-by-side install:
+# bundle id {{client_dev_bundle_id}}, DEV icon, "AgentDesk Dev" name, separate
+# build dir). The dev variant overrides the three identity build settings inline.
+client-install variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{variant}}" = "dev" ]; then
+        xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{dev_derived_data}}' -destination 'platform=iOS,id={{ios_device}}' PRODUCT_BUNDLE_IDENTIFIER='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev' build >/dev/null
+        xcrun devicectl device install app --device {{ios_device}} '{{client_dev_app}}'
+    else
+        xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' build >/dev/null
+        xcrun devicectl device install app --device {{ios_device}} '{{client_app}}'
+    fi
 
 # Uninstall + clean install. iOS caches device-family and other bundle
 # metadata for an installed bundle id; rebuilding alone does not flush
 # that cache. Use this after changes to TARGETED_DEVICE_FAMILY,
 # UIRequires*, or anything else iOS reads at install time.
-client-reinstall:
-    -xcrun devicectl device uninstall app --device {{ios_device}} com.example.agentdesk.AgentDeskClient 2>/dev/null || true
-    just client-install
+client-reinstall variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; else BID='{{client_bundle_id}}'; fi
+    xcrun devicectl device uninstall app --device {{ios_device}} "$BID" 2>/dev/null || true
+    just client-install {{variant}}
 
 # Trigger pairing without scanning the QR. Sends SIGUSR1 to the running host
 # (which mints a fresh URL and writes it to {{last_pair_url_path}}), then
 # launches the iPhone client with the URL as a CommandLine argument so
 # SceneDelegate routes it via handleIncomingPairingURL. The user just runs
 # this; no menubar click, no camera, no manual paste.
-pair-iphone:
-    @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
+pair-iphone variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
+    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; else BID='{{client_bundle_id}}'; fi
     rm -f "{{last_pair_url_path}}"
     kill -USR1 $(pgrep -f AgentDeskHost)
-    @i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
-    @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
-    @echo "URL: $(cat '{{last_pair_url_path}}')"
-    URL="$(cat '{{last_pair_url_path}}')"; xcrun devicectl device process launch --device {{ios_device}} --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\"}" com.example.agentdesk.AgentDeskClient "$URL"
+    i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
+    echo "URL: $(cat '{{last_pair_url_path}}')"
+    URL="$(cat '{{last_pair_url_path}}')"; xcrun devicectl device process launch --device {{ios_device}} --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\"}" "$BID" "$URL"
 
 # Pair-launch the physical iPhone client with stdio attached. This blocks
 # until the app exits, and mirrors stdout/stderr to the configured log file.
 # Owned media stderr tracing is enabled so packet-repair diagnostics have a
 # live path separate from iOS unified logging.
-iphone-console-run:
-    @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
+iphone-console-run variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
+    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; else BID='{{client_bundle_id}}'; fi
     rm -f "{{last_pair_url_path}}" "{{iphone_console_log}}"
     kill -USR1 $(pgrep -f AgentDeskHost)
-    @i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
-    @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
-    @echo "URL: $(cat '{{last_pair_url_path}}')"
-    bash -o pipefail -c 'URL="$(cat "{{last_pair_url_path}}")"; xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\"}" com.example.agentdesk.AgentDeskClient "$URL" 2>&1 | tee "{{iphone_console_log}}"'
+    i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
+    echo "URL: $(cat '{{last_pair_url_path}}')"
+    URL="$(cat "{{last_pair_url_path}}")"; xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\"}" "$BID" "$URL" 2>&1 | tee "{{iphone_console_log}}"
 
 fresh-install:
     just host-run
@@ -165,6 +198,31 @@ fresh-consoled-run:
     just host-run
     just client-reinstall
     just iphone-console-run
+
+# Experimental "dev" variant wrappers. These install/launch the side-by-side
+# AgentDesk Dev app ({{client_dev_bundle_id}}) without touching the stable
+# install, so risky graphics work is tested without losing the daily driver.
+client-install-dev:
+    just client-install dev
+
+client-reinstall-dev:
+    just client-reinstall dev
+
+iphone-console-run-dev:
+    just iphone-console-run dev
+
+iphone-log-collect-dev:
+    just iphone-log-collect dev
+
+fresh-install-dev:
+    just host-run
+    just client-reinstall dev
+    just pair-iphone dev
+
+fresh-consoled-run-dev:
+    just host-run
+    just client-reinstall dev
+    just iphone-console-run dev
 
 # Branch-local scroll-first hybrid retained-graphics run. This keeps the
 # physical iPhone attached console path and preserves
