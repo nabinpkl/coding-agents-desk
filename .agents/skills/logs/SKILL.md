@@ -1,6 +1,6 @@
 ---
 name: logs
-description: AgentDesk log collection and interpretation workflow for simulator, physical iPhone, host unified logs, attached console logs, durable client diagnostics, and media-freeze verification. Use when asked to inspect logs, verify simulator or physical runs, investigate client video freezes, explain console warnings, collect host/client evidence, or hand an intern/reviewer a bounded log-validation task.
+description: Use for AgentDesk log inspection, simulator or physical run verification, client video freeze diagnosis, durable diagnostics retrieval, and host/client media telemetry review.
 ---
 
 # Logs
