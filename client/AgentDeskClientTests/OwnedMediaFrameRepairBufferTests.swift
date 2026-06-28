@@ -68,7 +68,12 @@ final class OwnedMediaFrameRepairBufferTests: XCTestCase {
     }
 
     func testPacketWireRoundTripsOnClient() throws {
-        let key = MediaDatagramCrypto.key(mediaCapability: "owned-hevc", clientNonce: Data([1]), serverNonce: Data([2]))
+        let key = MediaDatagramCrypto.sessionKey(
+            sessionId: "session-test",
+            clientNonce: Data([1]),
+            hostNonce: Data([2]),
+            mediaKeySalt: Data([3])
+        )
         let payload = Data((0..<500).map { UInt8($0 % 256) })
         let packets = try MediaDatagramFramePacket.packetize(
             frameId: 3, isKeyframe: true, sentAtUptimeNs: 7, payload: payload, key: key

@@ -1,61 +1,40 @@
 import Foundation
 import Security
 
-enum InputCapabilityValidationResult: Equatable {
-    case accepted(DeviceFingerprint)
+enum SessionLifecycleState: Equatable {
+    case connecting
+    case connected
+    case suspended
+    case resuming
+    case ended
+}
+
+enum SessionResumeValidationResult: Equatable {
+    case accepted(ActiveSession)
     case rejected(SessionRejectionReason)
 }
 
-enum MediaCapabilityValidationResult: Equatable {
-    case accepted(DeviceFingerprint)
-    case rejected(SessionRejectionReason)
+private struct ActiveSessionRecord {
+    var session: ActiveSession
+    var state: SessionLifecycleState
+    var resumeToken: Data
+    var resumeExpiresAt: Int
+    var mediaKeySalt: Data
 }
 
-private struct InputCapabilityRecord {
-    let sessionId: String
-    let inputCapability: String
-    let expiresAt: Int
-}
-
-private struct MediaCapabilityRecord {
-    let sessionId: String
-    let mediaCapability: String
-    let expiresAt: Int
-}
-
-private struct InputCapabilityKey: Hashable {
-    let deviceFingerprint: DeviceFingerprint
-    let sessionId: String
-    let inputCapability: String
-}
-
-private struct StaleInputCapabilityRecord {
-    let expiresAt: Int
-}
-
-// Per-fingerprint state for in-flight and active host sessions. Lives
-// outside AppDelegate so the bookkeeping (which dictionary entries belong
-// to which lifecycle phase, what the teardown order is) sits in one
-// inspectable type instead of being smeared across handler methods.
-//
-// MainActor-isolated because every call site is already on MainActor
-// (signaling callbacks hop here via Task { @MainActor in }) and the
-// underlying state has no thread-safety story of its own.
+// ADR-0030: per-fingerprint live-session state. The QUIC connection owns
+// liveness; input and media are lanes attached to one authenticated session.
+// Capability grants are gone because lanes no longer authenticate separately.
 @MainActor
 final class SessionRegistry {
     private let now: () -> Date
     private let randomBytes: (Int) throws -> Data
-    private var active: Set<DeviceFingerprint> = []
+    private var records: [DeviceFingerprint: ActiveSessionRecord] = [:]
     private var attempting: Set<DeviceFingerprint> = []
-    private var sessionIds: [DeviceFingerprint: String] = [:]
-    private var channels: [DeviceFingerprint: SignalingChannel] = [:]
-    private var transports: [DeviceFingerprint: MediaTransport] = [:]
-    private var iceGraceTimers: [DeviceFingerprint: Task<Void, Never>] = [:]
+    private var resumeTimers: [DeviceFingerprint: Task<Void, Never>] = [:]
     private var inputTasks: [DeviceFingerprint: Task<Void, Never>] = [:]
     private var inputChannelServers: [DeviceFingerprint: any InputChannelServing] = [:]
-    private var inputCapabilities: [DeviceFingerprint: InputCapabilityRecord] = [:]
-    private var staleInputCapabilities: [InputCapabilityKey: StaleInputCapabilityRecord] = [:]
-    private var mediaCapabilities: [DeviceFingerprint: MediaCapabilityRecord] = [:]
+    private var transports: [DeviceFingerprint: MediaTransport] = [:]
 
     init(
         now: @escaping () -> Date = Date.init,
@@ -65,180 +44,101 @@ final class SessionRegistry {
         self.randomBytes = randomBytes
     }
 
-    // Phase transitions
     func noteAttempt(_ fingerprint: DeviceFingerprint) {
         attempting.insert(fingerprint)
     }
 
-    func noteReady(
-        _ session: ActiveSession,
-        channel: SignalingChannel,
-        inputCapability: String,
-        inputCapabilityExpiresAt: Int,
-        mediaCapability: String = "",
-        mediaCapabilityExpiresAt: Int = 0
-    ) {
-        var priorChannel: SignalingChannel?
-        if let priorSessionId = sessionIds[session.deviceFingerprint],
-           priorSessionId != session.sessionId {
-            priorChannel = channels[session.deviceFingerprint]
-            endSession(session.deviceFingerprint, sessionId: priorSessionId)
+    func noteReady(_ session: ActiveSession, ready: SessionReady, transport: MediaTransport? = nil) {
+        if let prior = records[session.deviceFingerprint],
+           prior.session.sessionId != session.sessionId {
+            endSession(session.deviceFingerprint, sessionId: prior.session.sessionId)
         }
         attempting.remove(session.deviceFingerprint)
-        active.insert(session.deviceFingerprint)
-        sessionIds[session.deviceFingerprint] = session.sessionId
-        channels[session.deviceFingerprint] = channel
-        inputCapabilities[session.deviceFingerprint] = InputCapabilityRecord(
-            sessionId: session.sessionId,
-            inputCapability: inputCapability,
-            expiresAt: inputCapabilityExpiresAt
+        resumeTimers[session.deviceFingerprint]?.cancel()
+        resumeTimers.removeValue(forKey: session.deviceFingerprint)
+        records[session.deviceFingerprint] = ActiveSessionRecord(
+            session: session,
+            state: .connected,
+            resumeToken: ready.resumeToken,
+            resumeExpiresAt: ready.resumeExpiresAt,
+            mediaKeySalt: ready.mediaKeySalt
         )
-        mediaCapabilities[session.deviceFingerprint] = MediaCapabilityRecord(
-            sessionId: session.sessionId,
-            mediaCapability: mediaCapability,
-            expiresAt: mediaCapabilityExpiresAt
-        )
-        priorChannel?.close()
+        if let transport {
+            transports[session.deviceFingerprint] = transport
+        }
     }
 
-    // Tears down all per-fingerprint state in a defined order: cancel
-    // timers and tasks first so their continuations stop touching state,
-    // then stop the media transport. Normal connection-close paths leave
-    // the signaling channel for the caller, because closing it fires
-    // connectionDidClose and re-enters here. Revocation passes
-    // closeSignaling=true after the allowlist row is deleted.
-    func endSession(_ fingerprint: DeviceFingerprint, sessionId: String? = nil, closeSignaling: Bool = false) {
-        if let sessionId,
-           let currentSessionId = sessionIds[fingerprint],
-           currentSessionId != sessionId {
-            return
-        }
-        let channel = channels.removeValue(forKey: fingerprint)
-        attempting.remove(fingerprint)
-        active.remove(fingerprint)
-        sessionIds.removeValue(forKey: fingerprint)
-        iceGraceTimers[fingerprint]?.cancel()
-        iceGraceTimers.removeValue(forKey: fingerprint)
+    func markSuspended(_ fingerprint: DeviceFingerprint, sessionId: String? = nil) {
+        guard var record = records[fingerprint],
+              sessionId == nil || record.session.sessionId == sessionId
+        else { return }
+        record.state = .suspended
+        records[fingerprint] = record
         inputTasks[fingerprint]?.cancel()
         inputTasks.removeValue(forKey: fingerprint)
         inputChannelServers[fingerprint]?.close()
         inputChannelServers.removeValue(forKey: fingerprint)
-        if let transport = transports.removeValue(forKey: fingerprint) {
-            transport.stop()
-        }
-        inputCapabilities.removeValue(forKey: fingerprint)
-        staleInputCapabilities = staleInputCapabilities.filter { $0.key.deviceFingerprint != fingerprint }
-        mediaCapabilities.removeValue(forKey: fingerprint)
-        if closeSignaling {
-            channel?.close()
-        }
+        transports[fingerprint]?.stop()
+        transports.removeValue(forKey: fingerprint)
     }
 
-    func validateInputCapability(_ hello: InputChannelHello) -> InputCapabilityValidationResult {
-        pruneExpiredStaleInputCapabilities()
-        let presented = InputCapabilityKey(
-            deviceFingerprint: hello.deviceFingerprint,
-            sessionId: hello.sessionId,
-            inputCapability: hello.inputCapability
-        )
-        if staleInputCapabilities[presented] != nil {
-            return .rejected(.staleInputCapability)
-        }
-        guard active.contains(hello.deviceFingerprint),
-              sessionIds[hello.deviceFingerprint] == hello.sessionId,
-              let current = inputCapabilities[hello.deviceFingerprint],
-              current.sessionId == hello.sessionId
+    func validateResume(_ request: SessionResumeInit) -> SessionResumeValidationResult {
+        guard var record = records[request.deviceFingerprint],
+              record.session.sessionId == request.sessionId
         else {
             return .rejected(.unauthorized)
         }
-        guard current.inputCapability == hello.inputCapability else {
+        guard request.protocolVersion >= Config.minCompatibleProtocolVersion else {
+            return .rejected(.incompatibleProtocol)
+        }
+        guard Int(now().timeIntervalSince1970) <= record.resumeExpiresAt else {
+            return .rejected(.expiredResume)
+        }
+        guard record.resumeToken == request.resumeToken else {
             return .rejected(.unauthorized)
         }
-        guard Int(now().timeIntervalSince1970) <= current.expiresAt else {
-            return .rejected(.expiredInputCapability)
-        }
-        markStaleInputCapability(presented, originalExpiresAt: current.expiresAt)
-        do {
-            inputCapabilities[hello.deviceFingerprint] = try makeCapabilityRecord(sessionId: hello.sessionId)
-        } catch {
-            return .rejected(.malformed)
-        }
-        return .accepted(hello.deviceFingerprint)
+        record.state = .resuming
+        records[request.deviceFingerprint] = record
+        return .accepted(record.session)
     }
 
-    func validateGraphicsCapability(_ hello: GraphicsChannelHello) -> MediaCapabilityValidationResult {
-        guard active.contains(hello.deviceFingerprint),
-              sessionIds[hello.deviceFingerprint] == hello.sessionId,
-              let current = mediaCapabilities[hello.deviceFingerprint],
-              current.sessionId == hello.sessionId
-        else {
-            return .rejected(.unauthorized)
-        }
-        guard current.mediaCapability == hello.graphicsCapability else {
-            return .rejected(.unauthorized)
-        }
-        guard Int(now().timeIntervalSince1970) <= current.expiresAt else {
-            return .rejected(.expiredMediaCapability)
-        }
-        return .accepted(hello.deviceFingerprint)
-    }
-
-    func refreshInputCapability(
-        deviceFingerprint: DeviceFingerprint,
-        sessionId: String
-    ) -> Result<InputCapabilityGrant, SessionRejectionReason> {
-        pruneExpiredStaleInputCapabilities()
-        guard active.contains(deviceFingerprint),
-              sessionIds[deviceFingerprint] == sessionId
-        else {
-            return .failure(.unauthorized)
-        }
-        if let current = inputCapabilities[deviceFingerprint] {
-            markStaleInputCapability(
-                InputCapabilityKey(
-                    deviceFingerprint: deviceFingerprint,
-                    sessionId: current.sessionId,
-                    inputCapability: current.inputCapability
-                ),
-                originalExpiresAt: current.expiresAt
-            )
-        }
-        do {
-            let record = try makeCapabilityRecord(sessionId: sessionId)
-            inputCapabilities[deviceFingerprint] = record
-            return .success(InputCapabilityGrant(
-                sessionId: sessionId,
-                inputCapability: record.inputCapability,
-                inputCapabilityExpiresAt: record.expiresAt
-            ))
-        } catch {
-            return .failure(.malformed)
+    func noteResumed(_ fingerprint: DeviceFingerprint, ready: SessionReady, transport: MediaTransport? = nil) {
+        guard var record = records[fingerprint] else { return }
+        record.state = .connected
+        record.resumeToken = ready.resumeToken
+        record.resumeExpiresAt = ready.resumeExpiresAt
+        record.mediaKeySalt = ready.mediaKeySalt
+        records[fingerprint] = record
+        resumeTimers[fingerprint]?.cancel()
+        resumeTimers.removeValue(forKey: fingerprint)
+        if let transport {
+            transports[fingerprint] = transport
         }
     }
 
-    func refreshMediaCapability(
-        deviceFingerprint: DeviceFingerprint,
-        sessionId: String
-    ) -> Result<MediaCapabilityGrant, SessionRejectionReason> {
-        guard active.contains(deviceFingerprint),
-              sessionIds[deviceFingerprint] == sessionId
-        else {
-            return .failure(.unauthorized)
-        }
-        do {
-            let record = try makeMediaCapabilityRecord(sessionId: sessionId)
-            mediaCapabilities[deviceFingerprint] = record
-            return .success(MediaCapabilityGrant(
-                sessionId: sessionId,
-                mediaCapability: record.mediaCapability,
-                mediaCapabilityExpiresAt: record.expiresAt
-            ))
-        } catch {
-            return .failure(.malformed)
-        }
+    func scheduleResumeGrace(_ task: Task<Void, Never>, for fingerprint: DeviceFingerprint) {
+        resumeTimers[fingerprint]?.cancel()
+        resumeTimers[fingerprint] = task
     }
 
-    // Attachments
+    func endSession(_ fingerprint: DeviceFingerprint, sessionId: String? = nil) {
+        if let sessionId,
+           let current = records[fingerprint],
+           current.session.sessionId != sessionId {
+            return
+        }
+        attempting.remove(fingerprint)
+        records.removeValue(forKey: fingerprint)
+        resumeTimers[fingerprint]?.cancel()
+        resumeTimers.removeValue(forKey: fingerprint)
+        inputTasks[fingerprint]?.cancel()
+        inputTasks.removeValue(forKey: fingerprint)
+        inputChannelServers[fingerprint]?.close()
+        inputChannelServers.removeValue(forKey: fingerprint)
+        transports[fingerprint]?.stop()
+        transports.removeValue(forKey: fingerprint)
+    }
+
     func attachTransport(_ transport: MediaTransport, for fingerprint: DeviceFingerprint) {
         transports[fingerprint] = transport
     }
@@ -252,43 +152,23 @@ final class SessionRegistry {
         inputTasks[fingerprint] = task
     }
 
-    // ADR-0005: input channel server has its own NWConnection independent
-    // of the media channel. Registry owns its close() so session
-    // teardown reliably tears it down without each call site having to
-    // remember.
     func attachInputChannelServer(_ server: any InputChannelServing, for fingerprint: DeviceFingerprint) {
         inputChannelServers[fingerprint]?.close()
         inputChannelServers[fingerprint] = server
     }
 
-    func scheduleIceGrace(_ task: Task<Void, Never>, for fingerprint: DeviceFingerprint) {
-        iceGraceTimers[fingerprint]?.cancel()
-        iceGraceTimers[fingerprint] = task
-    }
-
-    func cancelIceGrace(for fingerprint: DeviceFingerprint) {
-        iceGraceTimers[fingerprint]?.cancel()
-        iceGraceTimers.removeValue(forKey: fingerprint)
-    }
-
-    // Reads
     func isActive(_ fingerprint: DeviceFingerprint) -> Bool {
-        active.contains(fingerprint)
+        records[fingerprint]?.state == .connected
     }
 
     func isAttempting(_ fingerprint: DeviceFingerprint) -> Bool {
         attempting.contains(fingerprint)
     }
 
-    func signalingChannel(for fingerprint: DeviceFingerprint) -> SignalingChannel? {
-        channels[fingerprint]
+    func state(for fingerprint: DeviceFingerprint) -> SessionLifecycleState? {
+        records[fingerprint]?.state
     }
 
-    // R11: AppDelegate's switchSpaceHandler needs to push the new
-    // DesktopState after each successful Spaces switch. The handler
-    // captures the registry weakly and walks every active input
-    // channel server to push (v0 has at most one; v1 may grow to
-    // multiple paired clients).
     func allInputChannelServers() -> [any InputChannelServing] {
         Array(inputChannelServers.values)
     }
@@ -297,34 +177,16 @@ final class SessionRegistry {
         inputChannelServers.map { ($0.key, $0.value) }
     }
 
-    private func makeCapabilityRecord(sessionId: String) throws -> InputCapabilityRecord {
-        let issuedAt = now()
-        return InputCapabilityRecord(
-            sessionId: sessionId,
-            inputCapability: try randomBytes(32).base64URLEncodedString(),
-            expiresAt: Int(issuedAt.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
+    func makeResumeReady(for fingerprint: DeviceFingerprint) throws -> SessionReady {
+        guard let record = records[fingerprint] else {
+            throw SessionRejected(reason: .unauthorized)
+        }
+        return SessionReady(
+            sessionId: record.session.sessionId,
+            resumeToken: try randomBytes(32),
+            resumeExpiresAt: Int(now().addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970),
+            mediaKeySalt: try randomBytes(32)
         )
-    }
-
-    private func makeMediaCapabilityRecord(sessionId: String) throws -> MediaCapabilityRecord {
-        let issuedAt = now()
-        return MediaCapabilityRecord(
-            sessionId: sessionId,
-            mediaCapability: try randomBytes(32).base64URLEncodedString(),
-            expiresAt: Int(issuedAt.addingTimeInterval(Config.mediaCapabilityTTL).timeIntervalSince1970)
-        )
-    }
-
-    private func markStaleInputCapability(_ key: InputCapabilityKey, originalExpiresAt: Int) {
-        let ttlExpiresAt = Int(now().addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
-        staleInputCapabilities[key] = StaleInputCapabilityRecord(
-            expiresAt: min(originalExpiresAt, ttlExpiresAt)
-        )
-    }
-
-    private func pruneExpiredStaleInputCapabilities() {
-        let currentTime = Int(now().timeIntervalSince1970)
-        staleInputCapabilities = staleInputCapabilities.filter { $0.value.expiresAt >= currentTime }
     }
 
     nonisolated private static func systemRandomBytes(_ count: Int) throws -> Data {

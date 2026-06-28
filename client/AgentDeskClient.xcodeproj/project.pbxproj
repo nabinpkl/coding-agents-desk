@@ -21,8 +21,9 @@
 		B0000000000000000000020B /* MediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010C /* MediaTransport.swift */; };
 		B0000000000000000000020C /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010D /* SignalingChannel.swift */; };
 		B0000000000000000000020E /* MediaStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010F /* MediaStack.swift */; };
-		B0000000000000000000020F /* WebSocketSignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* WebSocketSignalingChannel.swift */; };
+		B0000000000000000000020F /* SessionConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* SessionConnection.swift */; };
 		B00000000000000000000A01 /* OwnedMediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000A00 /* OwnedMediaTransport.swift */; };
+		B00000000000000000000A05 /* OwnedMediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000A00 /* OwnedMediaTransport.swift */; };
 		B00000000000000000000A03 /* OwnedMediaVideoSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000A02 /* OwnedMediaVideoSink.swift */; };
 		B00000000000000000000A04 /* OwnedMediaVideoSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000A02 /* OwnedMediaVideoSink.swift */; };
 		B00000000000000000000212 /* GestureTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000113 /* GestureTranslator.swift */; };
@@ -57,7 +58,7 @@
 		B00000000000000000000226 /* SharedTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000109 /* SharedTypes.swift */; };
 		B00000000000000000000227 /* PairingClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000121 /* PairingClientTests.swift */; };
 		B00000000000000000000228 /* SessionDialer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010B /* SessionDialer.swift */; };
-		B00000000000000000000229 /* WebSocketSignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* WebSocketSignalingChannel.swift */; };
+		B00000000000000000000229 /* SessionConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* SessionConnection.swift */; };
 		B0000000000000000000022A /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010D /* SignalingChannel.swift */; };
 		B0000000000000000000022A1 /* MediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010C /* MediaTransport.swift */; };
 		B0000000000000000000022B /* GestureTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000113 /* GestureTranslator.swift */; };
@@ -96,7 +97,7 @@
 		B0000000000000000000010C /* MediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTransport.swift; sourceTree = "<group>"; };
 		B0000000000000000000010D /* SignalingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingChannel.swift; sourceTree = "<group>"; };
 		B0000000000000000000010F /* MediaStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaStack.swift; sourceTree = "<group>"; };
-		B00000000000000000000110 /* WebSocketSignalingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketSignalingChannel.swift; sourceTree = "<group>"; };
+		B00000000000000000000110 /* SessionConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConnection.swift; sourceTree = "<group>"; };
 		B00000000000000000000A00 /* OwnedMediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaTransport.swift; sourceTree = "<group>"; };
 		B00000000000000000000A02 /* OwnedMediaVideoSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaVideoSink.swift; sourceTree = "<group>"; };
 		B00000000000000000000113 /* GestureTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureTranslator.swift; sourceTree = "<group>"; };
@@ -186,7 +187,7 @@
 				B0000000000000000000010C /* MediaTransport.swift */,
 				B0000000000000000000010D /* SignalingChannel.swift */,
 				B0000000000000000000010F /* MediaStack.swift */,
-				B00000000000000000000110 /* WebSocketSignalingChannel.swift */,
+				B00000000000000000000110 /* SessionConnection.swift */,
 				B00000000000000000000A00 /* OwnedMediaTransport.swift */,
 				B00000000000000000000A02 /* OwnedMediaVideoSink.swift */,
 				B00000000000000000000F60 /* MediaDatagramFramePacket.swift */,
@@ -353,7 +354,7 @@
 				B0000000000000000000020B /* MediaTransport.swift in Sources */,
 				B0000000000000000000020C /* SignalingChannel.swift in Sources */,
 				B0000000000000000000020E /* MediaStack.swift in Sources */,
-				B0000000000000000000020F /* WebSocketSignalingChannel.swift in Sources */,
+				B0000000000000000000020F /* SessionConnection.swift in Sources */,
 				B00000000000000000000A01 /* OwnedMediaTransport.swift in Sources */,
 				B00000000000000000000A03 /* OwnedMediaVideoSink.swift in Sources */,
 				B00000000000000000000212 /* GestureTranslator.swift in Sources */,
@@ -388,9 +389,10 @@
 				B000000000000000000009C3 /* CursorImageStore.swift in Sources */,
 				B00000000000000000000227 /* PairingClientTests.swift in Sources */,
 				B00000000000000000000228 /* SessionDialer.swift in Sources */,
-					B00000000000000000000229 /* WebSocketSignalingChannel.swift in Sources */,
+					B00000000000000000000229 /* SessionConnection.swift in Sources */,
 					B0000000000000000000022A /* SignalingChannel.swift in Sources */,
 					B0000000000000000000022A1 /* MediaTransport.swift in Sources */,
+					B00000000000000000000A05 /* OwnedMediaTransport.swift in Sources */,
 					B00000000000000000000A04 /* OwnedMediaVideoSink.swift in Sources */,
 					B0000000000000000000022B /* GestureTranslator.swift in Sources */,
 				B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */,
@@ -466,7 +468,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -519,7 +521,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -541,7 +543,7 @@
 				DEVELOPMENT_TEAM = TEAMID0000;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AgentDeskClient/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -567,7 +569,7 @@
 				DEVELOPMENT_TEAM = TEAMID0000;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AgentDeskClient/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -588,7 +590,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@loader_path/Frameworks",
@@ -608,7 +610,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@loader_path/Frameworks",

@@ -2,15 +2,15 @@ import Foundation
 
 enum Config {
     static let signalingPort: UInt16 = 41888
-    static let graphicsPort = port(environmentKey: "AGENTDESK_GRAPHICS_PORT", defaultValue: 41_889)
+    static let sessionQuicALPN = "agentdesk-session-quic-v2"
     // ADR-0019: plain-TCP port the iPhone listens on for a Mac-pushed pairing
     // offer. Must match the host's offer port.
     static let offerPort = port(environmentKey: "AGENTDESK_OFFER_PORT", defaultValue: 41_890)
     // ADR-0020: wire protocol version negotiated at the session handshake. Bumped
     // only on a breaking wire change, independent of the marketing version. The
     // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
-    static let protocolVersion = 1
-    static let minCompatibleProtocolVersion = 1
+    static let protocolVersion = 2
+    static let minCompatibleProtocolVersion = 2
     // The stable and experimental client installs differ only by bundle id.
     // Deriving the log subsystem and keychain namespace from the running
     // bundle id keeps each variant's diagnostics and stored credentials
@@ -24,18 +24,6 @@ enum Config {
     static let keychainService = bundleIdentifier
     static let keychainAccessGroup: String? = nil
     static let storedPairingAccount = "session-token"
-    static let graphicsReconnectInitialDelayMs = positiveInt(
-        environmentKey: "AGENTDESK_GRAPHICS_RECONNECT_INITIAL_DELAY_MS",
-        defaultValue: 250
-    )
-    static let graphicsReconnectMaxDelayMs = positiveInt(
-        environmentKey: "AGENTDESK_GRAPHICS_RECONNECT_MAX_DELAY_MS",
-        defaultValue: 2_000
-    )
-    static let graphicsReconnectMaxAttempts = positiveInt(
-        environmentKey: "AGENTDESK_GRAPHICS_RECONNECT_MAX_ATTEMPTS",
-        defaultValue: 120
-    )
     // ADR-0025 datagram carrier: how long the client holds an incomplete motion
     // frame awaiting resends before dropping it and requesting a keyframe, how many
     // frames it tracks at once, and the cap on missing packets named per request.
@@ -99,13 +87,7 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_DATAGRAM_FRAME_SIZE",
         defaultValue: 1300
     )
-    // ADR-0025 motion carrier: the host's dedicated QUIC datagram listener port. The
-    // client opens an isDatagram connection here for the HEVC video. Must match the
-    // host's AGENTDESK_OWNED_MEDIA_DATAGRAM_PORT.
-    static let ownedMediaDatagramPort = port(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_PORT",
-        defaultValue: 41_891
-    )
+    // ADR-0030: video datagrams ride the authenticated session QUIC connection.
 
     // MARK: - Durable env config
     //

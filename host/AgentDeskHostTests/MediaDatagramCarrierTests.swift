@@ -7,10 +7,11 @@ import XCTest
 // message codec without a live socket; the round-trips are what the device path
 // relies on.
 final class MediaDatagramCarrierTests: XCTestCase {
-    private let key = MediaDatagramCrypto.key(
-        mediaCapability: "owned-hevc",
+    private let key = MediaDatagramCrypto.sessionKey(
+        sessionId: "session-test",
         clientNonce: Data([1, 2, 3, 4]),
-        serverNonce: Data([5, 6, 7, 8])
+        hostNonce: Data([5, 6, 7, 8]),
+        mediaKeySalt: Data([9, 10, 11, 12])
     )
 
     private func reassemble(_ packets: [Data]) throws -> Data {

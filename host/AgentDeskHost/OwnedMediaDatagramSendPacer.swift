@@ -3,7 +3,7 @@ import Foundation
 // ADR-0025 motion carrier: splits a frame's datagram packets into paced bursts so a
 // large frame (170+ packets) does not flood the QUIC datagram send buffer in one tight
 // loop, which on device manifested as dropped packets and cancelled sends. Pure
-// decision logic; OwnedMediaVideoDatagramServer applies the pauses on its send queue.
+// decision logic; QuicSessionHostMediaTransport applies the pauses on its send queue.
 struct OwnedMediaDatagramSendPacer: Equatable {
     let burstPacketCount: Int
     let burstPauseUs: Int

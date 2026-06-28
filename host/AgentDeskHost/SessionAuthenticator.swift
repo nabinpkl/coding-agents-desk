@@ -69,7 +69,7 @@ final class SessionAuthenticator {
         return SessionChallenge(hostNonce: hostNonce, hostSignature: signature.rawRepresentation)
     }
 
-    func processProof(_ message: SessionProof) throws -> (SessionReady, ActiveSession) {
+    func processProof(_ message: SessionProof) throws -> (SessionReady, ActiveSession, PendingSessionHandshake) {
         guard let pending else {
             throw SessionRejected(reason: .malformed)
         }
@@ -98,11 +98,10 @@ final class SessionAuthenticator {
         }
         try pairing.markSeen(deviceFingerprint: pending.deviceFingerprint)
         let sessionId = try randomBytes(32).base64URLEncodedString()
-        let inputCapability = try randomBytes(32).base64URLEncodedString()
-        let mediaCapability = try randomBytes(32).base64URLEncodedString()
         let establishedAt = now()
-        let inputCapabilityExpiresAt = Int(establishedAt.addingTimeInterval(Config.inputCapabilityTTL).timeIntervalSince1970)
-        let mediaCapabilityExpiresAt = Int(establishedAt.addingTimeInterval(Config.mediaCapabilityTTL).timeIntervalSince1970)
+        let resumeToken = try randomBytes(32)
+        let mediaKeySalt = try randomBytes(32)
+        let resumeExpiresAt = Int(establishedAt.addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970)
         let session = ActiveSession(
             sessionId: sessionId,
             deviceFingerprint: pending.deviceFingerprint,
@@ -112,12 +111,12 @@ final class SessionAuthenticator {
         return (
             SessionReady(
                 sessionId: sessionId,
-                inputCapability: inputCapability,
-                inputCapabilityExpiresAt: inputCapabilityExpiresAt,
-                mediaCapability: mediaCapability,
-                mediaCapabilityExpiresAt: mediaCapabilityExpiresAt
+                resumeToken: resumeToken,
+                resumeExpiresAt: resumeExpiresAt,
+                mediaKeySalt: mediaKeySalt
             ),
-            session
+            session,
+            pending
         )
     }
 

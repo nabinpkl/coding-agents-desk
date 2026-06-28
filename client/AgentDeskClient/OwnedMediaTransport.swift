@@ -1,563 +1,222 @@
+import CryptoKit
 import Foundation
 import Network
 import OSLog
 import Security
 
-final class OwnedMediaTransportFactory: MediaTransportFactory {
-    private let host: String
-    private let graphicsPort: UInt16
-    private let active: ActiveSession
-    private let mediaCapability: MediaCapabilityGrant
-    private let mediaCapabilityRefresher: MediaCapabilityRefreshing?
-
-    init(
-        host: String,
-        graphicsPort: UInt16 = Config.graphicsPort,
-        active: ActiveSession,
-        mediaCapability: MediaCapabilityGrant,
-        mediaCapabilityRefresher: MediaCapabilityRefreshing?
-    ) {
-        self.host = host
-        self.graphicsPort = graphicsPort
-        self.active = active
-        self.mediaCapability = mediaCapability
-        self.mediaCapabilityRefresher = mediaCapabilityRefresher
-    }
-
-    func make() -> MediaTransport {
-        OwnedMediaTransport(
-            host: host,
-            graphicsPort: graphicsPort,
-            active: active,
-            mediaCapability: mediaCapability,
-            mediaCapabilityRefresher: mediaCapabilityRefresher
-        )
-    }
-}
-
-final class OwnedGraphicsTransport: @unchecked Sendable {
-    private let logger = Logger(subsystem: Config.logSubsystem, category: "owned-graphics")
-    private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.client.owned-graphics-quic")
-    private let plan: ClientGraphicsConnectionPlan
-    private let active: ActiveSession
-    private let mediaCapability: MediaCapabilityGrant
-    private var group: NWConnectionGroup?
-    // ADR-0025 motion carrier: a dedicated isDatagram QUIC connection to the host's
-    // datagram listener, carrying the HEVC video (host -> client) and keyframe requests
-    // (client -> host). nil when the carrier flag is off.
-    // ADR-0025 motion carrier: the QUIC datagram group carrying HEVC (host -> client)
-    // and keyframe requests (client -> host). Datagrams flow at the group level via
-    // setReceiveHandler / group.send; there is no per-stream member connection.
-    private var videoDatagramGroup: NWConnectionGroup?
-    // ADR-0025 carrier keepalive timer. Runs on `queue`; sends a keepalive control
-    // datagram so the host's idle timer never fires on the one-directional carrier.
-    private var keepaliveTimer: DispatchSourceTimer?
-    // ADR-0027 link-health reporting. Counters tally this window's completed and
-    // expired (lost) frames from the repair buffer; the timer reports and resets them
-    // for the host adaptive bitrate controller. All touched only on `queue`.
-    private var linkHealthTimer: DispatchSourceTimer?
-    private var linkHealthCompletedInWindow = 0
-    private var linkHealthExpiredInWindow = 0
-    private var connection: NWConnection?
-    private var controlConnection: NWConnection?
-    private var pendingConnection: NWConnection?
-    private var pendingControlConnection: NWConnection?
-    private var pendingResetRequest: OwnedGraphicsResetRequest?
-    private let resetFallbackLock = NSLock()
-    private var resetFallbackGate = OwnedGraphicsResetFallbackGate()
-    private var receiveTask: Task<Void, Never>?
-    private weak var sink: (any OwnedMediaFrameSink)?
-    // ADR-0025 motion carrier receive state. The repair buffer reassembles the HEVC
-    // datagram stream under loss; it is only touched from the group's receive handler,
-    // which runs serialized on `queue`. The key matches the host's shared constant
-    // (QUIC already secures the channel).
-    private static let videoDatagramKey = MediaDatagramCrypto.key(
-        mediaCapability: "owned-hevc-motion",
-        clientNonce: Data(),
-        serverNonce: Data()
-    )
-    private lazy var videoRepairBuffer = MediaDatagramFrameRepairBuffer(
+@available(iOS 26.0, *)
+final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTransport, @unchecked Sendable {
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "session-quic")
+    private let connection: NetworkConnection<QUIC>
+    private let inputStream: QUIC.Stream<QUICStream>
+    private let datagrams: QUIC.Datagrams<QUICDatagram>
+    private let mediaRepairBuffer = MediaDatagramFrameRepairBuffer(
         repairDeadlineNs: UInt64(Config.ownedMediaRepairDeadlineMs) * 1_000_000,
         trackedFrameLimit: Config.ownedMediaTrackedFrameLimit,
         maxResendPackets: Config.ownedMediaMaxResendPackets
     )
-    // ADR-0025 diagnostic: counts inbound video datagrams so a device run can prove
-    // whether the host -> client datagram path delivers at all (the receive handler
-    // firing) versus a decode/reassembly fault. Touched only on `queue`.
-    private var videoDatagramRxCount = 0
-    // ADR-0028: timestamp of the last expiry-path keyframe request, gating the next one
-    // by `ownedMediaKeyframeRequestMinGapMs` so a loss burst cannot storm the host with
-    // keyframe requests. Touched only on `queue`, same as handleVideoDatagram.
-    private var lastVideoKeyframeRequestUptimeNs: UInt64 = 0
-    private let onFallbackResetRequest: @Sendable (OwnedGraphicsResetRequest) async -> Void
-    private let onDisconnected: @Sendable (String) -> Void
+    private let desktopStateContinuation: AsyncStream<DesktopState>.Continuation
+    let desktopStateUpdates: AsyncStream<DesktopState>
+    private let thumbnailsContinuation: AsyncStream<[String: String]>.Continuation
+    let thumbnailsUpdates: AsyncStream<[String: String]>
+    private let topWindowsContinuation: AsyncStream<[String: SpaceTopWindow]>.Continuation
+    let topWindowsUpdates: AsyncStream<[String: SpaceTopWindow]>
+    private let agentSayContinuation: AsyncStream<AgentSayPush>.Continuation
+    let agentSayUpdates: AsyncStream<AgentSayPush>
+    private let cursorContinuation: AsyncStream<CursorImagePush>.Continuation
+    let cursorUpdates: AsyncStream<CursorImagePush>
+    private let closedContinuation: AsyncStream<Void>.Continuation
+    let closed: AsyncStream<Void>
+    private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
+    let connectionState: AsyncStream<MediaConnectionState>
+    private let lock = OSAllocatedUnfairLock<State>(initialState: State())
+    private var datagramReceiveTask: Task<Void, Never>?
+    private var inputReceiveTask: Task<Void, Never>?
+    private var linkHealthTask: Task<Void, Never>?
+    private weak var sink: (any OwnedMediaFrameSink)?
+
+    let activeSession: ActiveSession
+    let mediaKey: SymmetricKey
 
     init(
-        plan: ClientGraphicsConnectionPlan,
-        active: ActiveSession,
-        mediaCapability: MediaCapabilityGrant,
-        sink: (any OwnedMediaFrameSink)?,
-        onFallbackResetRequest: @escaping @Sendable (OwnedGraphicsResetRequest) async -> Void,
-        onDisconnected: @escaping @Sendable (String) -> Void
+        connection: NetworkConnection<QUIC>,
+        inputStream: QUIC.Stream<QUICStream>,
+        datagrams: QUIC.Datagrams<QUICDatagram>,
+        activeSession: ActiveSession,
+        mediaKey: SymmetricKey
     ) {
-        self.plan = plan
-        self.active = active
-        self.mediaCapability = mediaCapability
-        self.sink = sink
-        self.onFallbackResetRequest = onFallbackResetRequest
-        self.onDisconnected = onDisconnected
-        // ADR-0027: give the sink a way to ask the host for a keyframe (render-stall
-        // watchdog and wedged-layer recovery). Rides the existing host-bound datagram
-        // control path beside the repair-buffer keyframe request. A request before the
-        // group exists no-ops in sendVideoControl.
-        Task { @MainActor [weak self] in
-            self?.sink?.setVideoKeyframeRequestHandler { [weak self] in
-                self?.sendVideoControl(OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 0))
-            }
+        self.connection = connection
+        self.inputStream = inputStream
+        self.datagrams = datagrams
+        self.activeSession = activeSession
+        self.mediaKey = mediaKey
+
+        var dsCont: AsyncStream<DesktopState>.Continuation!
+        desktopStateUpdates = AsyncStream { dsCont = $0 }
+        desktopStateContinuation = dsCont
+        var thCont: AsyncStream<[String: String]>.Continuation!
+        thumbnailsUpdates = AsyncStream { thCont = $0 }
+        thumbnailsContinuation = thCont
+        var twCont: AsyncStream<[String: SpaceTopWindow]>.Continuation!
+        topWindowsUpdates = AsyncStream { twCont = $0 }
+        topWindowsContinuation = twCont
+        var sayCont: AsyncStream<AgentSayPush>.Continuation!
+        agentSayUpdates = AsyncStream { sayCont = $0 }
+        agentSayContinuation = sayCont
+        var cursorCont: AsyncStream<CursorImagePush>.Continuation!
+        cursorUpdates = AsyncStream { cursorCont = $0 }
+        cursorContinuation = cursorCont
+        var closedCont: AsyncStream<Void>.Continuation!
+        closed = AsyncStream { closedCont = $0 }
+        closedContinuation = closedCont
+        var stateCont: AsyncStream<MediaConnectionState>.Continuation!
+        connectionState = AsyncStream { stateCont = $0 }
+        stateContinuation = stateCont
+
+        connection.onStateUpdate { [weak self] _, state in
+            self?.handleConnectionState(state)
         }
+        startInputReceiveLoop()
+        startDatagramReceiveLoop()
     }
 
-    func start() async throws {
-        guard let endpointPort = NWEndpoint.Port(rawValue: self.plan.port) else {
-            throw SessionRejected(reason: .malformed)
-        }
-        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(self.plan.host), port: endpointPort)
-        // ADR-0022: ONE QUIC connection (an NWConnectionGroup) carrying two streams.
-        // Frames ride the graphics stream; acks and reset-requests ride the
-        // interactive stream, so a large frame cannot head-of-line-block control.
-        let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: Self.makeReliableQuicParameters(alpn: self.plan.alpn))
-        self.group = group
-        var didStart = false
-        defer {
-            if !didStart {
-                self.group = nil
-                self.pendingConnection = nil
-                self.pendingControlConnection = nil
-                self.pendingResetRequest = nil
-                group.cancel()
-            }
-        }
-        // A client NWMultiplexGroup is INERT until a newConnectionHandler is set before
-        // start(): without it the group never initiates the QUIC handshake (no state
-        // transitions at all) and NWConnection(from:) returns nil forever. With it, the
-        // group drives the handshake and reaches .ready on its own; only then can it
-        // vend member connections. We never expect server-initiated streams, so accept
-        // and drop any. A connection timeout recycles a stalled handshake via the
-        // reconnect loop instead of hanging.
-        group.newConnectionHandler = { stream in stream.cancel() }
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            // The group handler and the timeout both run serialized on self.queue, so
-            // this flag is safe; mark it unsafe to satisfy the concurrency checker.
-            nonisolated(unsafe) var resumed = false
-            group.stateUpdateHandler = { [weak self] state in
-                self?.logger.notice("owned graphics quic group state=\(String(describing: state), privacy: .public)")
-                switch state {
-                case .ready:
-                    if !resumed { resumed = true; cont.resume() }
-                case .failed(let error):
-                    if !resumed { resumed = true; cont.resume(throwing: error) }
-                case .cancelled:
-                    if !resumed { resumed = true; cont.resume(throwing: CancellationError()) }
-                default:
-                    break
+    func start(videoSource: VideoFrameSource?, videoSink: VideoFrameSink?) async throws {
+        stateContinuation.yield(.connected)
+        if let mediaSink = videoSink as? any OwnedMediaFrameSink {
+            sink = mediaSink
+            let datagrams = self.datagrams
+            await MainActor.run { [datagrams, weak mediaSink] in
+                mediaSink?.setVideoKeyframeRequestHandler {
+                    Task { [datagrams] in
+                        let message = OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 0)
+                        guard let data = try? JSONEncoder().encode(message) else { return }
+                        try? await datagrams.send(data)
+                    }
                 }
             }
-            group.start(queue: self.queue)
-            self.queue.asyncAfter(deadline: .now() + 6) {
-                if !resumed { resumed = true; cont.resume(throwing: SessionRejected(reason: .malformed)) }
-            }
+            startLinkHealthReporting()
         }
-        // Steady-state group handler: tear the session down if the connection fails.
-        group.stateUpdateHandler = { [weak self] state in
-            self?.logger.notice("owned graphics quic group state=\(String(describing: state), privacy: .public)")
-            if case .failed = state { self?.onDisconnected("group-failed") }
-        }
-
-        // Graphics stream: role 'G' + hello, then ready. (Every app stream is created
-        // explicitly; the group's implicit stream 0 is not used.) Now that the group is
-        // ready it can vend a member connection; starting it drives stream setup.
-        guard let graphics = NWConnection(from: group, to: endpoint) else {
-            throw SessionRejected(reason: .malformed)
-        }
-        self.pendingConnection = graphics
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            // The stream state handler is serialized on `self.queue`, so a plain flag
-            // is safe here; mark it unsafe to satisfy the concurrency checker.
-            nonisolated(unsafe) var resumed = false
-            graphics.stateUpdateHandler = { [weak self] state in
-                self?.logger.notice("owned graphics quic stream state=\(String(describing: state), privacy: .public)")
-                switch state {
-                case .ready:
-                    if !resumed { resumed = true; cont.resume() }
-                case .failed(let error):
-                    if !resumed { resumed = true; cont.resume(throwing: error) }
-                case .cancelled:
-                    if !resumed { resumed = true; cont.resume(throwing: CancellationError()) }
-                default:
-                    break
-                }
-            }
-            graphics.start(queue: self.queue)
-        }
-        // Steady-state stream handler: drop the gating closure now that it is ready.
-        graphics.stateUpdateHandler = { [weak self] state in
-            self?.logger.notice("owned graphics quic stream state=\(String(describing: state), privacy: .public)")
-        }
-        let hello = ClientGraphicsChannelHandshake.makeHello(
-            active: self.active,
-            mediaCapability: self.mediaCapability,
-            clientNonce: try Self.randomBytes(count: 32)
-        )
-        try await self.send(Data([OwnedGraphicsStreamRole.graphics.rawValue]) + (try JSONEncoder().encode(hello)), on: graphics)
-        _ = try await self.receiveReady(expectedSessionId: self.active.sessionId, on: graphics)
-
-        // Interactive stream: role 'I' only. Trusted as a sibling on the same
-        // authenticated QUIC connection; no second hello.
-        guard let interactive = NWConnection(from: group, to: endpoint) else {
-            throw SessionRejected(reason: .malformed)
-        }
-        interactive.stateUpdateHandler = { [weak self] state in
-            self?.logger.notice("owned graphics control quic stream state=\(String(describing: state), privacy: .public)")
-        }
-        interactive.start(queue: self.queue)
-        self.pendingControlConnection = interactive
-        try await self.send(Data([OwnedGraphicsStreamRole.interactive.rawValue]), on: interactive)
-
-        self.pendingConnection = nil
-        self.pendingControlConnection = nil
-        self.connection = graphics
-        self.controlConnection = interactive
-        resetFallbackLock.withLock {
-            resetFallbackGate.startConnection()
-        }
-        if let pendingResetRequest {
-            self.pendingResetRequest = nil
-            do {
-                try await send(OwnedGraphicsControlStreamFrame.encode(pendingResetRequest), on: interactive)
-                ownedMediaStderrTrace("graphics-reset-request reason=\(pendingResetRequest.reason) generation=\(pendingResetRequest.lastCommittedSurfaceGeneration) frame=\(pendingResetRequest.lastCommittedFrameId) state=drained-pending")
-            } catch {
-                logger.error("owned graphics pending reset request failed: \(String(describing: error), privacy: .public)")
-                ownedMediaStderrTrace("graphics-reset-request-failed reason=\(pendingResetRequest.reason) generation=\(pendingResetRequest.lastCommittedSurfaceGeneration) frame=\(pendingResetRequest.lastCommittedFrameId) error=\(String(describing: error)) state=drained-pending")
-                await sendFallbackResetIfAllowed(pendingResetRequest, state: "drained-pending", marksGenerationFailed: true)
-                onDisconnected("reset-send-failed")
-                throw error
-            }
-        }
-        // ADR-0025 motion carrier: open the dedicated isDatagram connection for HEVC
-        // video once the reliable channel is up. Gated on the flag; off by default, so
-        // the daily driver opens only the reliable group.
-        startVideoDatagramConnection()
-        didStart = true
-        self.logger.notice("owned graphics quic ready port=\(Int(self.plan.port), privacy: .public)")
-        receiveTask = Task { [weak self, graphics] in
-            await self?.receiveFrames(on: graphics)
-        }
-    }
-
-    // ADR-0025 motion carrier: stand up the client's datagram channel to the host's
-    // datagram listener. QUIC datagrams operate at the NWConnectionGroup level, NOT on a
-    // member connection: inbound HEVC arrives via the group's setReceiveHandler and the
-    // keyframe requests go back via group.send. A vended member (NWConnection(from:))
-    // carries a STREAM and never surfaces datagrams, which is why an earlier member-based
-    // receive read rx=0 even though the host's sends succeeded. The group also drives its
-    // own QUIC handshake on start(). Failures here do not fail the session; the reliable
-    // tile path stays the source of truth.
-    private func startVideoDatagramConnection() {
-        guard Config.ownedMediaVideoMotionEnabled else { return }
-        guard let port = NWEndpoint.Port(rawValue: Config.ownedMediaDatagramPort) else { return }
-        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(self.plan.host), port: port)
-        let group = NWConnectionGroup(
-            with: NWMultiplexGroup(to: endpoint),
-            using: Self.makeDatagramQuicParameters(alpn: ClientGraphicsChannelHandshake.datagramALPN)
-        )
-        self.videoDatagramGroup = group
-        // Receive inbound datagrams at the group level. The handler stays armed for the
-        // session, so there is no per-message re-receive call as there is for a stream.
-        group.setReceiveHandler(maximumMessageSize: 64 * 1024, rejectOversizedMessages: false) { [weak self] _, content, _ in
-            guard let self, let content, !content.isEmpty else { return }
-            self.handleVideoDatagram(content)
-        }
-        group.stateUpdateHandler = { [weak self] state in
-            self?.logger.notice("owned media datagram group state=\(String(describing: state), privacy: .public)")
-            ownedMediaStderrTrace("video-datagram-group-state state=\(String(describing: state))")
-            switch state {
-            case .ready:
-                ownedMediaStderrTrace("video-datagram-carrier-ready")
-                self?.startCarrierKeepalive()
-                self?.startLinkHealthReporting()
-            case .failed, .cancelled:
-                self?.stopCarrierKeepalive()
-                self?.stopLinkHealthReporting()
-            default:
-                break
-            }
-        }
-        ownedMediaStderrTrace("video-datagram-dial host=\(self.plan.host) port=\(Config.ownedMediaDatagramPort)")
-        group.start(queue: self.queue)
-    }
-
-    // ADR-0025 carrier keepalive. The carrier is host->client only, so with no traffic
-    // flowing back the host's QUIC idle timer fires (~30s) and drops the connection (the
-    // periodic black flash and carrier re-dial). A keepalive control datagram every
-    // keepaliveIntervalMs keeps the host hearing from the client, so the carrier stays
-    // warm through idle periods. The host ignores the keepalive for keyframe purposes;
-    // its only effect is resetting the connection's idle timer.
-    private func startCarrierKeepalive() {
-        let intervalMs = Config.ownedMediaKeepaliveIntervalMs
-        guard intervalMs > 0 else { return }
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        let interval = DispatchTimeInterval.milliseconds(intervalMs)
-        timer.schedule(deadline: .now() + interval, repeating: interval)
-        timer.setEventHandler { [weak self] in
-            self?.sendVideoControl(OwnedMediaControlMessage(kind: .keepalive, frameId: 0))
-        }
-        keepaliveTimer?.cancel()
-        keepaliveTimer = timer
-        timer.resume()
-    }
-
-    private func stopCarrierKeepalive() {
-        keepaliveTimer?.cancel()
-        keepaliveTimer = nil
-    }
-
-    // ADR-0027: report link health to the host on a fixed cadence. Each report carries
-    // this window's completed/expired counts and resets them, so the host controller
-    // sees per-window loss. Runs on `queue`, same as the rx handler that tallies.
-    private func startLinkHealthReporting() {
-        let intervalMs = Config.ownedMediaLinkHealthIntervalMs
-        guard intervalMs > 0 else { return }
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        let interval = DispatchTimeInterval.milliseconds(intervalMs)
-        timer.schedule(deadline: .now() + interval, repeating: interval)
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            let completed = self.linkHealthCompletedInWindow
-            let expired = self.linkHealthExpiredInWindow
-            self.linkHealthCompletedInWindow = 0
-            self.linkHealthExpiredInWindow = 0
-            guard completed > 0 || expired > 0 else { return }
-            self.sendVideoControl(OwnedMediaControlMessage(
-                kind: .linkHealth,
-                frameId: 0,
-                linkHealthCompletedFrames: completed,
-                linkHealthExpiredFrames: expired
-            ))
-        }
-        linkHealthTimer?.cancel()
-        linkHealthTimer = timer
-        timer.resume()
-    }
-
-    private func stopLinkHealthReporting() {
-        linkHealthTimer?.cancel()
-        linkHealthTimer = nil
-        linkHealthCompletedInWindow = 0
-        linkHealthExpiredInWindow = 0
     }
 
     func stop() {
-        stopCarrierKeepalive()
-        stopLinkHealthReporting()
-        receiveTask?.cancel()
-        receiveTask = nil
-        self.pendingConnection?.cancel()
-        self.pendingConnection = nil
-        self.pendingControlConnection?.cancel()
-        self.pendingControlConnection = nil
-        self.pendingResetRequest = nil
-        self.connection?.cancel()
-        self.connection = nil
-        self.controlConnection?.cancel()
-        self.controlConnection = nil
-        self.videoDatagramGroup?.cancel()
-        self.videoDatagramGroup = nil
-        self.group?.cancel()
-        self.group = nil
+        close()
     }
 
-    func sendResetRequest(_ request: OwnedGraphicsResetRequest) async {
-        guard let controlConnection else {
-            if pendingControlConnection != nil {
-                pendingResetRequest = request
-                ownedMediaStderrTrace("graphics-reset-request-pending reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=pending-connection")
-                return
+    func send(_ input: NormalizedInput) async throws {
+        try await QuicSessionStreamIO.send(
+            InputChannelEvent(event: input),
+            role: .input,
+            on: inputStream
+        )
+    }
+
+    func sendConfig(_ config: ClientConfig) async throws {
+        try await QuicSessionStreamIO.send(config, role: .input, on: inputStream)
+    }
+
+    func close() {
+        guard lock.withLock({ state in
+            if state.closed { return false }
+            state.closed = true
+            return true
+        }) else { return }
+        datagramReceiveTask?.cancel()
+        inputReceiveTask?.cancel()
+        linkHealthTask?.cancel()
+        desktopStateContinuation.finish()
+        thumbnailsContinuation.finish()
+        topWindowsContinuation.finish()
+        agentSayContinuation.finish()
+        cursorContinuation.finish()
+        closedContinuation.yield(())
+        closedContinuation.finish()
+        stateContinuation.yield(.closed)
+        stateContinuation.finish()
+        connection.applicationError = .init(code: 0, reason: "client-close")
+    }
+
+    private func startInputReceiveLoop() {
+        inputReceiveTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                do {
+                    let frame = try await QuicSessionStreamIO.receiveFrame(on: inputStream)
+                    guard frame.role == .input else { continue }
+                    handleInputPayload(frame.payload)
+                } catch {
+                    logger.notice("input lane receive ended: \(String(describing: error), privacy: .public)")
+                    close()
+                    return
+                }
             }
-            await sendFallbackResetIfAllowed(request, state: "no-connection", marksGenerationFailed: true)
-            onDisconnected("reset-no-connection")
+        }
+    }
+
+    private func startDatagramReceiveLoop() {
+        datagramReceiveTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                do {
+                    let message = try await datagrams.receive()
+                    handleVideoDatagram(message.content)
+                } catch {
+                    logger.notice("video datagram receive ended: \(String(describing: error), privacy: .public)")
+                    return
+                }
+            }
+        }
+    }
+
+    private func handleInputPayload(_ data: Data) {
+        guard let header = try? JSONDecoder().decode(InputFrameHeader.self, from: data) else {
             return
         }
-        do {
-            try await send(OwnedGraphicsControlStreamFrame.encode(request), on: controlConnection)
-            ownedMediaStderrTrace("graphics-reset-request reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId)")
-        } catch {
-            logger.error("owned graphics reset request failed: \(String(describing: error), privacy: .public)")
-            ownedMediaStderrTrace("graphics-reset-request-failed reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) error=\(String(describing: error))")
-            await sendFallbackResetIfAllowed(request, state: "reset-send-failed", marksGenerationFailed: true)
-            onDisconnected("reset-send-failed")
-        }
-    }
-
-    private func receiveFrames(on connection: NWConnection) async {
-        var framer = OwnedGraphicsStreamFrameParser()
-        while !Task.isCancelled {
-            do {
-                let chunk = try await receive(on: connection, maximumLength: 256 * 1024)
-                let frames = try framer.append(chunk)
-                for (index, frame) in frames.enumerated() {
-                    let queuedFrames = max(0, frames.count - index - 1)
-                    let queueDepthBytes = frames.dropFirst(index + 1).reduce(0) { partial, queuedFrame in
-                        partial + queuedFrame.wireByteCount
-                    }
-                    let queueDepth = OwnedGraphicsQueueDepth(
-                        queuedFrames: queuedFrames,
-                        queueDepthBytes: queueDepthBytes
-                    )
-                    let ack = await MainActor.run { [weak self] in
-                        self?.sink?.renderOwnedGraphicsFrame(frame, queueDepth: queueDepth)
-                    }
-                    if let ack, let controlConnection = self.controlConnection {
-                        // Acks ride the interactive connection so a large frame in
-                        // flight on the graphics connection cannot delay them.
-                        try await send(OwnedGraphicsControlStreamFrame.encode(ack), on: controlConnection)
-                        ownedMediaStderrTrace("graphics-ack frame=\(ack.frameId) generation=\(ack.surfaceGeneration) queuedFrames=\(ack.queuedFrames) queueDepthBytes=\(ack.queueDepthBytes) totalGraphicsApplied=\(ack.totalGraphicsFramesApplied) compositorMs=\(Self.formatDouble(ack.compositorMs)) stale=\(ack.staleDiscardCount)")
-                    }
-                    let resetRequest = await MainActor.run { [weak self] in
-                        self?.sink?.consumePendingGraphicsResetRequest()
-                    }
-                    if let resetRequest {
-                        await sendResetRequest(resetRequest)
-                    }
-                }
-            } catch is CancellationError {
-                return
-            } catch {
-                let request = await MainActor.run { [weak self] in
-                    self?.sink?.currentGraphicsResetRequest(reason: "graphics-stream-\(String(describing: error))")
-                }
-                if let request {
-                    await sendFallbackResetIfAllowed(request, state: "receive-failed", marksGenerationFailed: false)
-                }
-                logger.error("owned graphics quic receive failed: \(String(describing: error), privacy: .public)")
-                connection.cancel()
-                self.connection = nil
-                // Tear down the sibling interactive stream and the group: a session
-                // is the whole connection, so recovery re-establishes the pair.
-                self.controlConnection?.cancel()
-                self.controlConnection = nil
-                self.group?.cancel()
-                self.group = nil
-                onDisconnected("receive-failed")
-                return
+        switch header.type {
+        case "desktop-state":
+            if let push = try? JSONDecoder().decode(DesktopStatePush.self, from: data) {
+                desktopStateContinuation.yield(push.state)
             }
-        }
-    }
-
-    private func receiveReady(
-        expectedSessionId: String,
-        on connection: NWConnection
-    ) async throws -> GraphicsChannelReady {
-        let data = try await receive(on: connection)
-        if let rejected = try? JSONDecoder().decode(SessionRejected.self, from: data),
-           rejected.type == "session-rejected" {
-            throw rejected
-        }
-        do {
-            let ready = try JSONDecoder().decode(GraphicsChannelReady.self, from: data)
-            return try ClientGraphicsChannelHandshake.validateReady(ready, expectedSessionId: expectedSessionId)
-        } catch {
-            throw OwnedGraphicsTransportError.controlMalformed
-        }
-    }
-
-    private func send(_ data: Data, on connection: NWConnection) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            connection.send(content: data, completion: .contentProcessed { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
-            })
-        }
-    }
-
-    private func receive(on connection: NWConnection, maximumLength: Int = 4_096) async throws -> Data {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-            connection.receive(minimumIncompleteLength: 1, maximumLength: maximumLength) { data, _, _, error in
-                continuation.resume(with: Result { try OwnedGraphicsStreamRead.unwrap(data: data, error: error) })
+        case "thumbnails-push":
+            if let push = try? JSONDecoder().decode(ThumbnailsPush.self, from: data) {
+                thumbnailsContinuation.yield(push.thumbnails)
+                topWindowsContinuation.yield(push.topWindows ?? [:])
             }
-        }
-    }
-
-    private func sendFallbackResetIfAllowed(
-        _ request: OwnedGraphicsResetRequest,
-        state: String,
-        marksGenerationFailed: Bool
-    ) async {
-        let decision = resetFallbackLock.withLock {
-            resetFallbackGate.beginFallbackIfAllowed(for: request)
-        }
-        guard decision == .send else {
-            if case let .suppress(reason) = decision {
-                ownedMediaStderrTrace("graphics-reset-request-fallback-suppressed reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=\(state) suppress=\(reason)")
+        case "agent-say":
+            if let push = try? JSONDecoder().decode(AgentSayPush.self, from: data) {
+                agentSayContinuation.yield(push)
             }
-            return
-        }
-
-        await onFallbackResetRequest(request)
-        resetFallbackLock.withLock {
-            if marksGenerationFailed {
-                resetFallbackGate.noteFallbackFailed(for: request)
-            } else {
-                resetFallbackGate.noteFallbackCompleted(for: request)
+        case "cursor":
+            if let push = try? JSONDecoder().decode(CursorImagePush.self, from: data) {
+                cursorContinuation.yield(push)
             }
+        case "session-rejected":
+            close()
+        default:
+            logger.debug("input lane ignored frame type=\(header.type, privacy: .public)")
         }
-        ownedMediaStderrTrace("graphics-reset-request-fallback reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=\(state)")
     }
 
-    private static func randomBytes(count: Int) throws -> Data {
-        var bytes = [UInt8](repeating: 0, count: count)
-        let status = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
-        guard status == errSecSuccess else {
-            throw SessionRejected(reason: .malformed)
-        }
-        return Data(bytes)
-    }
-
-    // ADR-0025: a video datagram arrived. Decode the packet, feed the repair buffer,
-    // hand each completed frame to the sink on the main actor, and ask for a keyframe
-    // when a frame is dropped past its repair deadline. Runs serialized on `queue`.
     private func handleVideoDatagram(_ data: Data) {
-        videoDatagramRxCount &+= 1
-        guard let packet = try? MediaDatagramFramePacket.decode(data, key: Self.videoDatagramKey) else {
-            if videoDatagramRxCount <= 8 {
-                logger.notice("owned media video datagram decode-failed rx=\(self.videoDatagramRxCount, privacy: .public) bytes=\(data.count, privacy: .public)")
-            }
+        if let control = try? JSONDecoder().decode(SessionRejected.self, from: data),
+           control.type == "session-rejected" {
+            close()
             return
         }
-        if videoDatagramRxCount <= 8 || videoDatagramRxCount.isMultiple(of: 120) {
-            logger.notice("owned media video datagram rx=\(self.videoDatagramRxCount, privacy: .public) frame=\(packet.frameId, privacy: .public) idx=\(packet.packetIndex, privacy: .public)/\(packet.packetCount, privacy: .public) key=\(packet.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public)")
-            ownedMediaStderrTrace("video-datagram-rx rx=\(self.videoDatagramRxCount) frame=\(packet.frameId) idx=\(packet.packetIndex)/\(packet.packetCount) key=\(packet.isKeyframe) bytes=\(data.count)")
+        guard let packet = try? MediaDatagramFramePacket.decode(data, key: mediaKey) else {
+            return
         }
-        let result = videoRepairBuffer.accept(packet, now: DispatchTime.now().uptimeNanoseconds)
-        // ADR-0027: tally this window's delivered and lost frames for the next
-        // link-health report. Touched only on `queue`, same as the timer that reads them.
-        linkHealthCompletedInWindow += result.completedFrames.count
-        linkHealthExpiredInWindow += result.expiredFrames.count
+        let result = lock.withLock { state in
+            let accepted = mediaRepairBuffer.accept(packet, now: DispatchTime.now().uptimeNanoseconds)
+            state.completedFrames += accepted.completedFrames.count
+            state.expiredFrames += accepted.expiredFrames.count
+            return accepted
+        }
         for completed in result.completedFrames {
-            guard let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else {
-                logger.notice("owned media video frame-complete decode-failed frame=\(completed.frameId, privacy: .public) bytes=\(completed.data.count, privacy: .public)")
-                continue
+            guard let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else { continue }
+            Task { @MainActor [weak self] in
+                self?.sink?.renderOwnedVideoFrame(envelope)
             }
-            logger.notice("owned media video frame-complete frame=\(completed.frameId, privacy: .public) bytes=\(completed.data.count, privacy: .public)")
-            ownedMediaStderrTrace("video-frame-complete frame=\(completed.frameId) bytes=\(completed.data.count)")
-            Task { @MainActor [weak self] in self?.sink?.renderOwnedVideoFrame(envelope) }
         }
-        // ADR-0028: repair an isolated loss by re-requesting just the missing packets,
-        // not a full keyframe. The repair buffer names them on a frame a newer frame has
-        // overtaken; the host serves them from its resend ring. Loss-triggered only, so a
-        // clean link emits nothing here.
         for request in result.resendRequests {
             sendVideoControl(OwnedMediaControlMessage(
                 kind: .packetResendRequest,
@@ -565,318 +224,71 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
                 packetIndexes: request.packetIndexes
             ))
         }
-        if let resendCount = result.resendRequests.isEmpty ? nil : result.resendRequests.count {
-            ownedMediaStderrTrace("video-resend-request frames=\(resendCount)")
-        }
-        // ADR-0028: keyframe recovery is the past-deadline fallback for a frame resend
-        // could not save in time, gated so a loss burst cannot fan out into a storm.
         if let expired = result.expiredFrames.last {
-            let now = DispatchTime.now().uptimeNanoseconds
-            let minGapNs = UInt64(Config.ownedMediaKeyframeRequestMinGapMs) * 1_000_000
-            let gated = lastVideoKeyframeRequestUptimeNs != 0
-                && now >= lastVideoKeyframeRequestUptimeNs
-                && now &- lastVideoKeyframeRequestUptimeNs < minGapNs
-            if gated {
-                ownedMediaStderrTrace("video-keyframe-request-suppressed frame=\(expired.frameId)")
-            } else {
-                lastVideoKeyframeRequestUptimeNs = now
-                sendVideoControl(OwnedMediaControlMessage(kind: .keyframeRequest, frameId: expired.frameId))
-                logger.notice("owned media video keyframe-request frame=\(expired.frameId, privacy: .public) missing=\(expired.missingIndexes.count, privacy: .public)")
+            sendVideoControl(OwnedMediaControlMessage(kind: .keyframeRequest, frameId: expired.frameId))
+        }
+    }
+
+    private func startLinkHealthReporting() {
+        guard linkHealthTask == nil else { return }
+        let intervalMs = Config.ownedMediaLinkHealthIntervalMs
+        guard intervalMs > 0 else { return }
+        linkHealthTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(intervalMs) * 1_000_000)
+                self?.flushLinkHealth()
             }
         }
+    }
+
+    private func flushLinkHealth() {
+        let counts = lock.withLock { state -> (Int, Int) in
+            let counts = (state.completedFrames, state.expiredFrames)
+            state.completedFrames = 0
+            state.expiredFrames = 0
+            return counts
+        }
+        guard counts.0 > 0 || counts.1 > 0 else { return }
+        sendVideoControl(OwnedMediaControlMessage(
+            kind: .linkHealth,
+            frameId: 0,
+            linkHealthCompletedFrames: counts.0,
+            linkHealthExpiredFrames: counts.1
+        ))
     }
 
     private func sendVideoControl(_ message: OwnedMediaControlMessage) {
-        // Keyframe requests ride the same group datagram channel back to the host.
-        guard let group = videoDatagramGroup, let data = try? JSONEncoder().encode(message) else { return }
-        group.send(content: data) { _ in }
-    }
-
-    private static func makeReliableQuicParameters(alpn: String) -> NWParameters {
-        let options = NWProtocolQUIC.Options(alpn: [alpn])
-        options.direction = .bidirectional
-        options.isDatagram = false
-        // Park the reliable channel. Under always_video it carries no frames after the
-        // handshake, so the default ~30s QUIC idle timeout would fire and its reconnect
-        // and surface-reset churn blanks the screen (the black flash) since there is no
-        // tile surface to fall back to. A long idle timeout keeps it quietly alive for
-        // the session; carrier liveness is the keepalive, not this channel. Negotiated
-        // as the min of both ends, so the host sets the same. Bridge until the reliable
-        // channel is retired for video-only (carrier-auth follow-up / ADR).
-        options.idleTimeout = 86_400_000
-        // The reliable graphics group carries only streams. The motion carrier's
-        // datagrams ride a separate isDatagram connection, never this group.
-        // ADR-0022: two app streams per connection (plus the group's implicit
-        // stream 0). Allow several streams; the default is too small.
-        options.initialMaxStreamsBidirectional = 8
-        options.initialMaxStreamsUnidirectional = 8
-        #if DEBUG
-        sec_protocol_options_set_verify_block(options.securityProtocolOptions, { _, _, complete in
-            complete(true)
-        }, DispatchQueue.main)
-        #endif
-        return NWParameters(quic: options)
-    }
-
-    // ADR-0025 motion carrier: parameters for the dedicated datagram connection.
-    // isDatagram = true carries QUIC DATAGRAM frames only; maxDatagramFrameSize must be
-    // advertised so the host can send them (the host advertises the mirror).
-    private static func makeDatagramQuicParameters(alpn: String) -> NWParameters {
-        let options = NWProtocolQUIC.Options(alpn: [alpn])
-        options.direction = .bidirectional
-        options.isDatagram = true
-        options.maxDatagramFrameSize = Config.ownedMediaMaxDatagramFrameSize
-        #if DEBUG
-        sec_protocol_options_set_verify_block(options.securityProtocolOptions, { _, _, complete in
-            complete(true)
-        }, DispatchQueue.main)
-        #endif
-        return NWParameters(quic: options)
-    }
-
-    private static func formatDouble(_ value: Double) -> String {
-        String(format: "%.1f", value)
-    }
-}
-
-// Graphics-only media transport. The owned-media datagram channel and the HEVC
-// decode path were deleted in the damage-driven single-channel collapse, so this
-// transport now connects only on the reliable `agentdesk-owned-graphics` channel
-// via OwnedGraphicsTransport. It owns the graphics-channel lifecycle: connect,
-// capability refresh, and bounded reconnect. There is no second channel, so a
-// graphics reset request has nowhere to fall back to and is driven entirely by
-// OwnedGraphicsTransport's own pending/reconnect path.
-final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
-    let connectionState: AsyncStream<MediaConnectionState>
-    private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
-    private let logger = Logger(subsystem: Config.logSubsystem, category: "owned-media")
-    private let lifecycleLock = NSLock()
-    private let graphicsReconnectPolicy = GraphicsReconnectPolicy(
-        initialDelayMs: Config.graphicsReconnectInitialDelayMs,
-        maxDelayMs: Config.graphicsReconnectMaxDelayMs,
-        maxAttempts: Config.graphicsReconnectMaxAttempts
-    )
-    private let host: String
-    private let graphicsPort: UInt16
-    private let active: ActiveSession
-    private var mediaCapability: MediaCapabilityGrant
-    private let mediaCapabilityRefresher: MediaCapabilityRefreshing?
-    private var graphicsTransport: OwnedGraphicsTransport?
-    private var graphicsTask: Task<Void, Never>?
-    private var graphicsReconnectTask: Task<Void, Never>?
-    private weak var sink: (any OwnedMediaFrameSink)?
-    private var isStopped = false
-    private var graphicsReconnectGeneration: UInt64 = 0
-    private var graphicsReconnectAttempt = 0
-    private var graphicsReconnectScheduled = false
-
-    init(
-        host: String,
-        graphicsPort: UInt16 = Config.graphicsPort,
-        active: ActiveSession,
-        mediaCapability: MediaCapabilityGrant,
-        mediaCapabilityRefresher: MediaCapabilityRefreshing?
-    ) {
-        self.host = host
-        self.graphicsPort = graphicsPort
-        self.active = active
-        self.mediaCapability = mediaCapability
-        self.mediaCapabilityRefresher = mediaCapabilityRefresher
-        var continuation: AsyncStream<MediaConnectionState>.Continuation!
-        connectionState = AsyncStream { continuation = $0 }
-        self.stateContinuation = continuation
-    }
-
-    func start(videoSource: VideoFrameSource?, videoSink: VideoFrameSink?) async throws {
-        guard let sink = videoSink as? any OwnedMediaFrameSink else {
-            throw MediaTransportError.notYetImplemented
-        }
-        lifecycleLock.withLock {
-            isStopped = false
-            graphicsReconnectGeneration &+= 1
-            graphicsReconnectAttempt = 0
-            graphicsReconnectScheduled = false
-        }
-        self.sink = sink
-        stateContinuation.yield(.connecting)
-        startGraphicsChannel(refreshCapability: false)
-    }
-
-    func stop() {
-        lifecycleLock.withLock {
-            isStopped = true
-            graphicsReconnectGeneration &+= 1
-            graphicsReconnectAttempt = 0
-            graphicsReconnectScheduled = false
-        }
-        graphicsTask?.cancel()
-        graphicsTask = nil
-        graphicsReconnectTask?.cancel()
-        graphicsReconnectTask = nil
-        graphicsTransport?.stop()
-        graphicsTransport = nil
-        stateContinuation.yield(.closed)
-        stateContinuation.finish()
-    }
-
-    private func startGraphicsChannel(refreshCapability: Bool) {
-        let generation = nextGraphicsLifecycleGeneration()
-        guard let generation else { return }
-        graphicsTask?.cancel()
-        graphicsTransport?.stop()
-        graphicsReconnectTask?.cancel()
-        graphicsReconnectTask = nil
-        graphicsTask = Task { [weak self] in
-            guard let self else { return }
-            let grant: MediaCapabilityGrant
-            do {
-                grant = try await self.mediaCapabilityForGraphicsConnect(refreshCapability: refreshCapability)
-            } catch is CancellationError {
-                return
-            } catch {
-                self.failMediaTransportAfterCapabilityRefresh(error)
-                return
-            }
-            do {
-                guard self.lifecycleLock.withLock({ !self.isStopped && self.graphicsReconnectGeneration == generation }) else {
-                    return
-                }
-                let transport = OwnedGraphicsTransport(
-                    plan: ClientGraphicsConnectionPlan(host: self.host, port: self.graphicsPort),
-                    active: self.active,
-                    mediaCapability: grant,
-                    sink: self.sink,
-                    onFallbackResetRequest: { request in
-                        ownedMediaStderrTrace("graphics-reset-fallback-dropped reason=\(request.reason) generation=\(request.lastCommittedSurfaceGeneration) frame=\(request.lastCommittedFrameId) state=no-fallback-channel")
-                    },
-                    onDisconnected: { [weak self] reason in
-                        self?.scheduleGraphicsReconnect(reason: reason, generation: generation)
-                    }
-                )
-                self.graphicsTransport = transport
-                try await transport.start()
-                self.noteGraphicsConnected(generation: generation)
-                self.stateContinuation.yield(.connected)
-            } catch is CancellationError {
-                return
-            } catch {
-                self.logger.error("owned graphics quic connect failed: \(String(describing: error), privacy: .public)")
-                ownedMediaStderrTrace("graphics-reconnect-failed error=\(String(describing: error))")
-                self.scheduleGraphicsReconnect(reason: "connect-failed", generation: generation)
-            }
+        Task { [datagrams] in
+            guard let data = try? JSONEncoder().encode(message) else { return }
+            try? await datagrams.send(data)
         }
     }
 
-    private func mediaCapabilityForGraphicsConnect(refreshCapability: Bool) async throws -> MediaCapabilityGrant {
-        guard refreshCapability else {
-            return lifecycleLock.withLock { mediaCapability }
-        }
-        guard let mediaCapabilityRefresher else {
-            throw SessionRejected(reason: .malformed)
-        }
-        ownedMediaStderrTrace("graphics-capability-refresh-request session=\(active.sessionId)")
-        let refreshed = try await mediaCapabilityRefresher.refreshMediaCapability(
-            deviceFingerprint: active.deviceFingerprint,
-            sessionId: active.sessionId
-        )
-        lifecycleLock.withLock {
-            mediaCapability = refreshed
-        }
-        ownedMediaStderrTrace("graphics-capability-refreshed session=\(refreshed.sessionId) expiresAt=\(refreshed.mediaCapabilityExpiresAt)")
-        return refreshed
-    }
-
-    private func failMediaTransportAfterCapabilityRefresh(_ error: Error) {
-        logger.error("owned graphics capability refresh failed: \(String(describing: error), privacy: .public)")
-        ownedMediaStderrTrace("graphics-capability-refresh-failed error=\(String(describing: error))")
-        lifecycleLock.withLock {
-            isStopped = true
-            graphicsReconnectGeneration &+= 1
-            graphicsReconnectAttempt = 0
-            graphicsReconnectScheduled = false
-        }
-        graphicsReconnectTask?.cancel()
-        graphicsReconnectTask = nil
-        graphicsTransport?.stop()
-        graphicsTransport = nil
-        stateContinuation.yield(.failed(error as? SessionRejected))
-    }
-
-    private func nextGraphicsLifecycleGeneration() -> UInt64? {
-        lifecycleLock.withLock {
-            guard !isStopped else { return nil }
-            graphicsReconnectGeneration &+= 1
-            graphicsReconnectScheduled = false
-            return graphicsReconnectGeneration
-        }
-    }
-
-    private func noteGraphicsConnected(generation: UInt64) {
-        lifecycleLock.withLock {
-            guard generation == graphicsReconnectGeneration else { return }
-            graphicsReconnectAttempt = 0
-            graphicsReconnectScheduled = false
-        }
-    }
-
-    private func nextReconnectDelay(reason: String, generation: UInt64) -> (attempt: Int, delayMs: Int)? {
-        lifecycleLock.withLock {
-            guard !isStopped,
-                  generation == graphicsReconnectGeneration,
-                  !graphicsReconnectScheduled else {
-                return nil
-            }
-            let nextAttempt = graphicsReconnectAttempt + 1
-            guard let delayMs = graphicsReconnectPolicy.delayMs(forAttempt: nextAttempt) else {
-                logger.error("owned graphics reconnect stopped reason=\(reason, privacy: .public) attempts=\(self.graphicsReconnectAttempt, privacy: .public)")
-                ownedMediaStderrTrace("graphics-reconnect-stopped reason=\(reason) attempts=\(self.graphicsReconnectAttempt)")
-                return nil
-            }
-            graphicsReconnectAttempt = nextAttempt
-            graphicsReconnectScheduled = true
-            return (nextAttempt, delayMs)
-        }
-    }
-
-    private func scheduleGraphicsReconnect(reason: String, generation: UInt64) {
-        guard let plan = nextReconnectDelay(reason: reason, generation: generation) else {
+    private func handleConnectionState(_ state: NetworkChannel<QUIC>.State) {
+        logger.notice("session quic state=\(String(describing: state), privacy: .public)")
+        switch state {
+        case .ready:
+            stateContinuation.yield(.connected)
+        case .waiting:
+            stateContinuation.yield(.disconnected)
+        case .failed:
             stateContinuation.yield(.failed(nil))
-            return
-        }
-        logger.notice("owned graphics reconnecting reason=\(reason, privacy: .public) attempt=\(plan.attempt, privacy: .public) delayMs=\(plan.delayMs, privacy: .public)")
-        ownedMediaStderrTrace("graphics-reconnecting reason=\(reason) attempt=\(plan.attempt) delayMs=\(plan.delayMs)")
-        stateContinuation.yield(.disconnected)
-        let task = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(plan.delayMs) * 1_000_000)
-            guard let self, !Task.isCancelled else { return }
-            let canReconnect = self.lifecycleLock.withLock {
-                guard generation == self.graphicsReconnectGeneration,
-                      !self.isStopped else {
-                    return false
-                }
-                self.graphicsReconnectScheduled = false
-                self.graphicsReconnectTask = nil
-                return true
-            }
-            guard canReconnect else { return }
-            self.startGraphicsChannel(refreshCapability: true)
-        }
-        lifecycleLock.withLock {
-            if !isStopped,
-               generation == graphicsReconnectGeneration,
-               graphicsReconnectScheduled {
-                graphicsReconnectTask = task
-            } else {
-                task.cancel()
-            }
+            close()
+        case .cancelled:
+            close()
+        default:
+            break
         }
     }
-}
 
-private func ownedMediaStderrTrace(_ message: String) {
-    guard ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_STDERR_TRACE"] == "1",
-          let data = "[owned-media] \(message)\n".data(using: .utf8) else {
-        return
+    private struct State {
+        var closed = false
+        var completedFrames = 0
+        var expiredFrames = 0
     }
-    FileHandle.standardError.write(data)
+
+    private struct InputFrameHeader: Decodable {
+        let type: String
+        enum CodingKeys: String, CodingKey { case type = "t" }
+    }
 }

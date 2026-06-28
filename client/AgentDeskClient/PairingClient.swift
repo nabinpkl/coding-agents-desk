@@ -185,23 +185,26 @@ final class PairingClient {
 
     func clearStoredCredentials() {
         try? tokenStore.clear()
-        activeSignaling?.close()
-        activeSignaling = nil
         inputReconnectTask?.cancel()
         inputReconnectTask = nil
         activeInputChannel?.close()
         activeInputChannel = nil
+        activeSessionTransport?.close()
+        activeSessionTransport = nil
+        activeResumeMaterial = nil
+        pendingResume = nil
         resetActiveMediaSession()
         state = .unpaired
     }
 
-    private(set) var activeSignaling: SignalingChannel?
-    // ADR-0005: dedicated input transport. PairingViewController.sendInput
-    // routes through this instead of the deleted MediaTransport.send.
+    private(set) var activeSessionTransport: QuicSessionClientTransport?
+    // ADR-0030: dedicated input lane. PairingViewController.sendInput
+    // routes through this instead of the media datagram lane.
     private(set) var activeInputChannel: InputChannel?
-    private(set) var activeMediaCapability: MediaCapabilityGrant?
     private(set) var activeHost: String?
     private(set) var activePort: UInt16 = Config.signalingPort
+    private var activeResumeMaterial: SessionResumeMaterial?
+    private var pendingResume: (active: ActiveSession, resume: SessionResumeMaterial)?
     private var inputReconnectTask: Task<Void, Never>?
 
     /// Called by PairingViewController when the owned media channel reports
@@ -209,12 +212,17 @@ final class PairingClient {
     /// and transitions to .pairedDisconnected so the foreground auto-dial
     /// path can retry on next willEnterForeground.
     func handleMediaSessionFailed(rejection: SessionRejected? = nil) {
-        activeSignaling?.close()
-        activeSignaling = nil
         inputReconnectTask?.cancel()
         inputReconnectTask = nil
         activeInputChannel?.close()
         activeInputChannel = nil
+        activeSessionTransport?.close()
+        activeSessionTransport = nil
+        if case .connected(let active) = state,
+           let resume = activeResumeMaterial {
+            pendingResume = (active, resume)
+        }
+        activeResumeMaterial = nil
         resetActiveMediaSession()
         if let rejection {
             applyRejection(rejection)
@@ -241,62 +249,51 @@ final class PairingClient {
         state = .sessionConnecting
 
         let host = resolvedHost(fqdn: record.tailnetFQDN, ipv4: record.tailnetIPv4)
-        guard let url = URL(string: "wss://\(host):\(port)/session") else {
-            state = .pairedDisconnected
-            throw PairingClientError.malformedURL
-        }
         do {
-            let connection = try await dialer.dial(
-                url: url,
-                deviceFingerprint: DeviceFingerprint(try deviceKeyProvider.publicKey.agentDeskFingerprint),
-                sessionToken: record.token,
-                hostPublicKey: record.hostPublicKey,
-                deviceKey: deviceKeyProvider,
-                urlSession: urlSession
-            )
-            // ADR-0005: open the dedicated input channel alongside the
-            // session signaling channel. Same host, same port, different
-            // URL path. Failure to open the input channel fails the
-            // whole session attempt -- a session with no input is not
-            // useful and we'd rather retry the dial than half-connect.
-            let inputChannel: InputChannel
-            do {
-                inputChannel = try await InputChannelOpener.open(
+            let fingerprint = DeviceFingerprint(try deviceKeyProvider.publicKey.agentDeskFingerprint)
+            let connection: SessionHandshakeOutcome
+            if let resume = pendingResume,
+               resume.resume.expiresAt >= Int(Date().timeIntervalSince1970) {
+                connection = try await dialer.resume(
                     host: host,
                     port: port,
-                    deviceFingerprint: connection.active.deviceFingerprint,
-                    sessionId: connection.active.sessionId,
-                    inputCapability: connection.inputCapability.inputCapability,
-                    urlSession: urlSession
+                    deviceFingerprint: fingerprint,
+                    active: resume.active,
+                    resume: resume.resume
                 )
-            } catch {
-                connection.signaling.close()
-                throw error
+            } else {
+                pendingResume = nil
+                connection = try await dialer.dial(
+                    host: host,
+                    port: port,
+                    deviceFingerprint: fingerprint,
+                    sessionToken: record.token,
+                    hostPublicKey: record.hostPublicKey,
+                    deviceKey: deviceKeyProvider
+                )
             }
             let session = SessionConnection(
                 active: connection.active,
-                signaling: connection.signaling,
-                inputChannel: inputChannel,
-                mediaCapability: connection.mediaCapability,
+                transport: connection.transport,
+                inputChannel: connection.transport,
+                mediaTransport: connection.transport,
+                resume: connection.resume,
                 host: host,
                 port: port
             )
-            activeSignaling = session.signaling
+            activeSessionTransport = session.transport
             activeInputChannel = session.inputChannel
-            activeMediaCapability = session.mediaCapability
             activeHost = session.host
             activePort = session.port
-            startInputReconnectMonitor(
-                host: host,
-                port: port,
-                active: session.active,
-                signaling: session.signaling,
-                channel: session.inputChannel
-            )
+            activeResumeMaterial = session.resume
+            pendingResume = nil
+            startInputReconnectMonitor(active: session.active, channel: session.inputChannel)
             state = .connected(session.active)
             return session
         } catch let rejection as SessionRejected {
             resetActiveMediaSession()
+            activeResumeMaterial = nil
+            pendingResume = nil
             applyRejection(rejection)
             throw rejection
         } catch {
@@ -311,8 +308,7 @@ final class PairingClient {
         case .revoked, .unknownDevice, .badSignature, .unauthorized:
             try? tokenStore.clear()
             state = .revoked
-        case .replay, .malformed, .expiredInputCapability, .staleInputCapability,
-             .expiredMediaCapability:
+        case .replay, .malformed, .expiredResume:
             state = .pairedDisconnected
         case .incompatibleProtocol:
             // Not recoverable by retrying; keep the token but surface that an app
@@ -322,118 +318,59 @@ final class PairingClient {
     }
 
     private func startInputReconnectMonitor(
-        host: String,
-        port: UInt16,
         active: ActiveSession,
-        signaling: SignalingChannel,
         channel: InputChannel
     ) {
         inputReconnectTask?.cancel()
-        inputReconnectTask = Task { [weak self, channel, signaling] in
+        inputReconnectTask = Task { [weak self, channel] in
             for await _ in channel.closed {
-                await self?.handleInputChannelClosed(
-                    host: host,
-                    port: port,
-                    active: active,
-                    signaling: signaling,
-                    closedChannel: channel
-                )
+                await self?.handleInputChannelClosed(active: active, closedChannel: channel)
                 break
             }
         }
     }
 
     private func handleInputChannelClosed(
-        host: String,
-        port: UInt16,
         active: ActiveSession,
-        signaling: SignalingChannel,
         closedChannel: InputChannel
     ) async {
         guard activeInputChannel === closedChannel,
               case .connected(let current) = state,
-              current == active,
-              let refresher = signaling as? InputCapabilityRefreshing
+              current == active
         else {
             return
         }
-        do {
-            let grant = try await refresher.refreshInputCapability(
-                deviceFingerprint: active.deviceFingerprint,
-                sessionId: active.sessionId
-            )
-            let replacement = try await InputChannelOpener.open(
-                host: host,
-                port: port,
-                deviceFingerprint: active.deviceFingerprint,
-                sessionId: active.sessionId,
-                inputCapability: grant.inputCapability,
-                urlSession: urlSession
-            )
-            activeInputChannel = replacement
-            startInputReconnectMonitor(
-                host: host,
-                port: port,
-                active: active,
-                signaling: signaling,
-                channel: replacement
-            )
-        } catch let rejection as SessionRejected {
-            activeSignaling?.close()
-            activeSignaling = nil
-            activeInputChannel = nil
-            inputReconnectTask = nil
-            resetActiveMediaSession()
-            applyRejection(rejection)
-        } catch {
-            activeSignaling?.close()
-            activeSignaling = nil
-            activeInputChannel = nil
-            inputReconnectTask = nil
-            resetActiveMediaSession()
-            state = .pairedDisconnected
+        activeSessionTransport?.close()
+        activeSessionTransport = nil
+        activeInputChannel = nil
+        if let resume = activeResumeMaterial {
+            pendingResume = (active, resume)
         }
+        activeResumeMaterial = nil
+        inputReconnectTask = nil
+        resetActiveMediaSession()
+        state = .pairedDisconnected
     }
 
     private func resetActiveMediaSession() {
-        activeMediaCapability = nil
         activeHost = nil
         activePort = Config.signalingPort
     }
 
     func performHandshake(for payload: PairingPayload) async throws {
         let host = resolvedHost(for: payload)
-        guard let url = URL(string: "wss://\(host):\(Config.signalingPort)/pair") else {
-            throw PairingClientError.malformedURL
-        }
-        let task = urlSession.webSocketTask(with: url)
-        task.resume()
         let request = PairingHandshakeRequest(
             type: "pair",
             devicePublicKey: try deviceKeyProvider.publicKey.x963Representation,
             oneTimeNonce: payload.oneTimeNonce,
             deviceName: deviceDisplayName()
         )
-        let data = try JSONEncoder().encode(request)
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw PairingClientError.malformedURL
-        }
-        try await task.send(.string(text))
         state = .awaitingApproval(payload)
-        let message = try await task.receive()
-        task.cancel(with: .normalClosure, reason: nil)
-
-        let responseData: Data
-        switch message {
-        case .data(let data):
-            responseData = data
-        case .string(let string):
-            responseData = Data(string.utf8)
-        @unknown default:
-            throw PairingClientError.websocketRejected("unknown-response")
-        }
-
-        let response = try JSONDecoder().decode(PairingHandshakeResponse.self, from: responseData)
+        let response = try await SessionDialer().performPairingHandshake(
+            host: host,
+            port: Config.signalingPort,
+            request: request
+        )
         guard response.type == "approved", let token = response.token else {
             state = .rejected(response.error ?? "rejected")
             throw PairingClientError.websocketRejected(response.error ?? "rejected")

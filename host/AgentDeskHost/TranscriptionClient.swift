@@ -2,8 +2,8 @@ import Foundation
 
 // POSTs an in-memory WAV clip to the host-local transcription service as
 // multipart/form-data (field name "file") and returns the recognised text.
-// First and only outbound HTTP path on the host; everything else is the
-// Tailscale WebSocket plane.
+// First and only outbound HTTP path on the host; live sessions use the
+// Tailscale QUIC session plane.
 struct TranscriptionClient {
     enum TranscriptionError: Error {
         case notConfigured

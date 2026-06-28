@@ -318,8 +318,8 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         }
     }
 
-    // ADR-0005: input rides its own WebSocket Secure channel,
-    // independent of the owned media channel. The channel send is async;
+    // ADR-0030: input rides its own ordered stream inside the authenticated
+    // session QUIC connection. The channel send is async;
     // fire-and-forget into a detached Task so the trackpad / keyboard
     // caller stays synchronous and main-thread.
     func sendInput(_ input: NormalizedInput) {

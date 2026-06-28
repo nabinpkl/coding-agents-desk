@@ -252,9 +252,8 @@ struct SessionToken: Codable, Equatable {
     }
 }
 
-// ADR-0003 session-establishment wire shapes. Sent over the existing TLS
-// WebSocket on the /session path; first-frame `type` field dispatches between
-// pairing and session handlers.
+// ADR-0003 and ADR-0030 session-establishment wire shapes. Sent on the control
+// stream inside the authenticated session QUIC connection.
 
 struct SessionInit: Codable, Equatable {
     let type: String
@@ -369,131 +368,100 @@ struct SessionProof: Codable, Equatable {
 struct SessionReady: Codable, Equatable {
     let type: String
     let sessionId: String
-    let inputCapability: String
-    let inputCapabilityExpiresAt: Int
-    let mediaCapability: String
-    let mediaCapabilityExpiresAt: Int
+    let resumeToken: Data
+    let resumeExpiresAt: Int
+    let mediaKeySalt: Data
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case sessionId = "sid"
-        case inputCapability = "ic"
-        case inputCapabilityExpiresAt = "ie"
-        case mediaCapability = "mc"
-        case mediaCapabilityExpiresAt = "me"
+        case resumeToken = "rt"
+        case resumeExpiresAt = "re"
+        case mediaKeySalt = "mk"
     }
 
     init(
         sessionId: String,
-        inputCapability: String,
-        inputCapabilityExpiresAt: Int,
-        mediaCapability: String = "",
-        mediaCapabilityExpiresAt: Int = 0
+        resumeToken: Data,
+        resumeExpiresAt: Int,
+        mediaKeySalt: Data
     ) {
         self.type = "session-ready"
         self.sessionId = sessionId
-        self.inputCapability = inputCapability
-        self.inputCapabilityExpiresAt = inputCapabilityExpiresAt
-        self.mediaCapability = mediaCapability
-        self.mediaCapabilityExpiresAt = mediaCapabilityExpiresAt
+        self.resumeToken = resumeToken
+        self.resumeExpiresAt = resumeExpiresAt
+        self.mediaKeySalt = mediaKeySalt
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         type = try container.decode(String.self, forKey: .type)
         sessionId = try container.decode(String.self, forKey: .sessionId)
-        inputCapability = try container.decode(String.self, forKey: .inputCapability)
-        inputCapabilityExpiresAt = try container.decode(Int.self, forKey: .inputCapabilityExpiresAt)
-        mediaCapability = try container.decodeIfPresent(String.self, forKey: .mediaCapability) ?? ""
-        mediaCapabilityExpiresAt = try container.decodeIfPresent(Int.self, forKey: .mediaCapabilityExpiresAt) ?? 0
+        resumeToken = try Data(base64URLEncoded: container.decode(String.self, forKey: .resumeToken))
+        resumeExpiresAt = try container.decode(Int.self, forKey: .resumeExpiresAt)
+        mediaKeySalt = try Data(base64URLEncoded: container.decode(String.self, forKey: .mediaKeySalt))
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(type, forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(inputCapability, forKey: .inputCapability)
-        try container.encode(inputCapabilityExpiresAt, forKey: .inputCapabilityExpiresAt)
-        try container.encode(mediaCapability, forKey: .mediaCapability)
-        try container.encode(mediaCapabilityExpiresAt, forKey: .mediaCapabilityExpiresAt)
+        try container.encode(resumeToken.base64URLEncodedString(), forKey: .resumeToken)
+        try container.encode(resumeExpiresAt, forKey: .resumeExpiresAt)
+        try container.encode(mediaKeySalt.base64URLEncodedString(), forKey: .mediaKeySalt)
     }
 }
 
-struct MediaCapabilityGrant: Codable, Equatable {
-    let type: String
-    let sessionId: String
-    let mediaCapability: String
-    let mediaCapabilityExpiresAt: Int
-
-    enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case sessionId = "sid"
-        case mediaCapability = "mc"
-        case mediaCapabilityExpiresAt = "me"
-    }
-
-    init(sessionId: String, mediaCapability: String, mediaCapabilityExpiresAt: Int) {
-        self.type = "media-capability-grant"
-        self.sessionId = sessionId
-        self.mediaCapability = mediaCapability
-        self.mediaCapabilityExpiresAt = mediaCapabilityExpiresAt
-    }
-}
-
-struct MediaCapabilityRefreshRequest: Codable, Equatable {
+struct SessionResumeInit: Codable, Equatable {
     let type: String
     let deviceFingerprint: DeviceFingerprint
     let sessionId: String
+    let resumeToken: Data
+    let clientNonce: Data
+    let protocolVersion: Int
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case deviceFingerprint = "d"
         case sessionId = "sid"
+        case resumeToken = "rt"
+        case clientNonce = "cn"
+        case protocolVersion = "pv"
     }
 
-    init(deviceFingerprint: DeviceFingerprint, sessionId: String) {
-        self.type = "media-capability-refresh"
+    init(
+        deviceFingerprint: DeviceFingerprint,
+        sessionId: String,
+        resumeToken: Data,
+        clientNonce: Data = Data(),
+        protocolVersion: Int = Config.protocolVersion
+    ) {
+        self.type = "session-resume"
         self.deviceFingerprint = deviceFingerprint
         self.sessionId = sessionId
-    }
-}
-
-struct InputCapabilityRefreshRequest: Codable, Equatable {
-    let type: String
-    let deviceFingerprint: DeviceFingerprint
-    let sessionId: String
-
-    enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case deviceFingerprint = "d"
-        case sessionId = "sid"
+        self.resumeToken = resumeToken
+        self.clientNonce = clientNonce
+        self.protocolVersion = protocolVersion
     }
 
-    init(deviceFingerprint: DeviceFingerprint, sessionId: String) {
-        self.type = "input-capability-refresh"
-        self.deviceFingerprint = deviceFingerprint
-        self.sessionId = sessionId
-    }
-}
-
-struct InputCapabilityGrant: Codable, Equatable {
-    let type: String
-    let sessionId: String
-    let inputCapability: String
-    let inputCapabilityExpiresAt: Int
-
-    enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case sessionId = "sid"
-        case inputCapability = "ic"
-        case inputCapabilityExpiresAt = "ie"
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        deviceFingerprint = try container.decode(DeviceFingerprint.self, forKey: .deviceFingerprint)
+        sessionId = try container.decode(String.self, forKey: .sessionId)
+        resumeToken = try Data(base64URLEncoded: container.decode(String.self, forKey: .resumeToken))
+        clientNonce = try Data(base64URLEncoded: container.decode(String.self, forKey: .clientNonce))
+        protocolVersion = try container.decode(Int.self, forKey: .protocolVersion)
     }
 
-    init(sessionId: String, inputCapability: String, inputCapabilityExpiresAt: Int) {
-        self.type = "input-capability-grant"
-        self.sessionId = sessionId
-        self.inputCapability = inputCapability
-        self.inputCapabilityExpiresAt = inputCapabilityExpiresAt
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(deviceFingerprint, forKey: .deviceFingerprint)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(resumeToken.base64URLEncodedString(), forKey: .resumeToken)
+        try container.encode(clientNonce.base64URLEncodedString(), forKey: .clientNonce)
+        try container.encode(protocolVersion, forKey: .protocolVersion)
     }
 }
 
@@ -504,9 +472,7 @@ enum SessionRejectionReason: String, Codable, Equatable, Error {
     case badSignature = "bad-signature"
     case malformed
     case unauthorized
-    case expiredInputCapability = "expired-input-capability"
-    case staleInputCapability = "stale-input-capability"
-    case expiredMediaCapability = "expired-media-capability"
+    case expiredResume = "expired-resume"
     // ADR-0020: peer's wire protocol version is incompatible; the user must
     // update the older app. Not recoverable by retrying.
     case incompatibleProtocol = "incompatible-protocol"
@@ -583,10 +549,9 @@ struct OwnedSurfaceUpdateId: Codable, Equatable, Comparable {
     }
 }
 
-// Owned-media video wire types, revived for the mixed-mode renderer (ADR-0025):
-// scrolling motion rides a hardware HEVC stream over QUIC datagrams while rest
-// keeps the retained-tile graphics stream. These are the carrier-agnostic frame
-// shapes; the host encoder fills them and the client video layer decodes them.
+// Owned-media video wire types. Scrolling motion rides hardware HEVC over the
+// session QUIC datagram lane. These are the carrier-agnostic frame shapes; the
+// host encoder fills them and the client video layer decodes them.
 // Length-prefixed NAL payload, parameter sets carried on keyframes only.
 
 enum OwnedMediaCodec: String, Codable, Equatable {
@@ -933,86 +898,6 @@ enum NormalizedInput: Codable, Equatable {
         case momentumBegan    // first inertia event after lift
         case momentumChanged  // subsequent inertia events
         case momentumEnded    // inertia decayed below cutoff
-    }
-}
-
-// ADR-0005 input-channel wire shapes. Mirror of host's definition.
-
-struct InputChannelHello: Codable, Equatable {
-    let type: String
-    let deviceFingerprint: DeviceFingerprint
-    let sessionId: String
-    let inputCapability: String
-
-    enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case deviceFingerprint = "d"
-        case sessionId = "sid"
-        case inputCapability = "ic"
-    }
-
-    init(deviceFingerprint: DeviceFingerprint, sessionId: String, inputCapability: String) {
-        self.type = "input-hello"
-        self.deviceFingerprint = deviceFingerprint
-        self.sessionId = sessionId
-        self.inputCapability = inputCapability
-    }
-}
-
-struct InputChannelReady: Codable, Equatable {
-    let type: String
-    let sessionId: String
-
-    enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case sessionId = "sid"
-    }
-
-    init(sessionId: String) {
-        self.type = "input-ready"
-        self.sessionId = sessionId
-    }
-}
-
-struct GraphicsChannelHello: Codable, Equatable {
-    let type: String
-    let deviceFingerprint: DeviceFingerprint
-    let sessionId: String
-    let graphicsCapability: String
-    let clientNonce: Data
-
-    enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case deviceFingerprint = "d"
-        case sessionId = "sid"
-        case graphicsCapability = "gc"
-        case clientNonce = "cn"
-    }
-
-    init(deviceFingerprint: DeviceFingerprint, sessionId: String, graphicsCapability: String, clientNonce: Data = Data()) {
-        self.type = "graphics-hello"
-        self.deviceFingerprint = deviceFingerprint
-        self.sessionId = sessionId
-        self.graphicsCapability = graphicsCapability
-        self.clientNonce = clientNonce
-    }
-}
-
-struct GraphicsChannelReady: Codable, Equatable {
-    let type: String
-    let sessionId: String
-    let serverNonce: Data
-
-    enum CodingKeys: String, CodingKey {
-        case type = "t"
-        case sessionId = "sid"
-        case serverNonce = "sn"
-    }
-
-    init(sessionId: String, serverNonce: Data = Data()) {
-        self.type = "graphics-ready"
-        self.sessionId = sessionId
-        self.serverNonce = serverNonce
     }
 }
 
@@ -1643,7 +1528,7 @@ struct InputChannelClose: Codable, Equatable {
 }
 
 // R11 DesktopState. Mirror of host's definition. Pushed host -> client
-// over the input WSS; drives the dots band rendering.
+// over the session input stream; drives the dots band rendering.
 
 struct DisplayMetadata: Codable, Equatable {
     let id: String

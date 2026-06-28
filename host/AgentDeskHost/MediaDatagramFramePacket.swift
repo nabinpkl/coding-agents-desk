@@ -125,11 +125,12 @@ struct MediaDatagramFramePacket: Equatable {
 }
 
 struct MediaDatagramCrypto {
-    static func key(mediaCapability: String, clientNonce: Data, serverNonce: Data) -> SymmetricKey {
-        var seed = Data("agentdesk-owned-media-datagram-v2".utf8)
-        seed.append(Data(mediaCapability.utf8))
+    static func sessionKey(sessionId: String, clientNonce: Data, hostNonce: Data, mediaKeySalt: Data) -> SymmetricKey {
+        var seed = Data("agentdesk-session-media-datagram-v2".utf8)
+        seed.append(Data(sessionId.utf8))
         seed.append(clientNonce)
-        seed.append(serverNonce)
+        seed.append(hostNonce)
+        seed.append(mediaKeySalt)
         let digest = SHA256.hash(data: seed)
         return SymmetricKey(data: Data(digest))
     }

@@ -72,3 +72,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0027 | Congestion-adaptive video for constrained links | accepted | 2026-06-26 |
 | ADR-0028 | Selective packet resend (NACK) and bounded keyframe recovery | proposed | 2026-06-26 |
 | ADR-0029 | Capacity survival rung: trade frame rate and bitrate for a slow link | proposed | 2026-06-26 |
+| ADR-0030 | Single QUIC session transport for v0 | accepted | 2026-06-27 |

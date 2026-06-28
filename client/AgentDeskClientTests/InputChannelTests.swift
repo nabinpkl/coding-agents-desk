@@ -3,80 +3,42 @@ import Compression
 import Testing
 import UIKit
 
-// ADR-0005 input channel: schema and close-gating tests. The
-// WebSocket-transport happy path is exercised by the Maestro flow
-// (just ui-flow type-tap-keys) since URLSessionWebSocketTask isn't
-// cleanly mockable without a live socket.
-
 struct InputChannelTests {
-    @Test func helloFrameSerializesWithCompactKeysAndCorrectType() throws {
-        let hello = InputChannelHello(
-            deviceFingerprint: DeviceFingerprint("device-fp-xyz"),
-            sessionId: "session-123",
-            inputCapability: "capability-abc"
-        )
-        let data = try JSONEncoder().encode(hello)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        // Compact keys for type, device fingerprint, session id, and capability.
-        #expect(json.contains("\"t\":\"input-hello\""))
-        #expect(json.contains("\"d\""))
-        #expect(json.contains("device-fp-xyz"))
-        #expect(json.contains("\"sid\":\"session-123\""))
-        #expect(json.contains("\"ic\":\"capability-abc\""))
+    @Test func quicSessionFrameRoundTripsInputPayload() throws {
+        let event = InputChannelEvent(event: .key(code: "ansi-A", modifiers: [.cmd]))
+        let payload = try JSONEncoder().encode(event)
+        let encoded = try QuicSessionStreamFrame.encode(role: .input, payload: payload)
+        let frame = try QuicSessionStreamFrame.decode(encoded)
+        let decoded = try JSONDecoder().decode(InputChannelEvent.self, from: frame.payload)
+
+        #expect(frame.role == .input)
+        #expect(decoded == event)
     }
 
-    @Test func readyFrameSerializesWithCompactKeysAndCorrectType() throws {
-        let ready = InputChannelReady(sessionId: "session-123")
-        let data = try JSONEncoder().encode(ready)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        #expect(json.contains("\"t\":\"input-ready\""))
-        #expect(json.contains("\"sid\":\"session-123\""))
-
-        let decoded = try JSONDecoder().decode(InputChannelReady.self, from: data)
-        #expect(decoded == ready)
+    @Test func quicSessionFrameRejectsMalformedFrames() throws {
+        #expect(throws: QuicSessionFrameError.malformed) {
+            _ = try QuicSessionStreamFrame.decode(Data())
+        }
+        #expect(throws: QuicSessionFrameError.malformed) {
+            _ = try QuicSessionStreamFrame.decode(Data([0xff, 0, 0, 0, 0]))
+        }
     }
 
-    @Test func sessionReadyCarriesOwnedMediaCapability() throws {
+    @Test func sessionReadyCarriesResumeAndMediaKeySalt() throws {
         let ready = SessionReady(
             sessionId: "session-123",
-            inputCapability: "input-capability",
-            inputCapabilityExpiresAt: 1_800_000_060,
-            mediaCapability: "media-capability",
-            mediaCapabilityExpiresAt: 1_800_000_060
+            resumeToken: Data([1, 2, 3]),
+            resumeExpiresAt: 1_800_000_020,
+            mediaKeySalt: Data([4, 5, 6])
         )
         let data = try JSONEncoder().encode(ready)
         let json = String(data: data, encoding: .utf8) ?? ""
-        #expect(json.contains("\"mc\":\"media-capability\""))
-        #expect(json.contains("\"me\":1800000060"))
-        #expect(!json.contains("\"mm\""))
-        #expect(!json.contains("\"mp\""))
 
         let decoded = try JSONDecoder().decode(SessionReady.self, from: data)
         #expect(decoded == ready)
-    }
-
-    @Test func oldSessionReadyFixturesDefaultToNoMediaCapability() throws {
-        let data = Data(#"{"t":"session-ready","sid":"session-123","ic":"capability","ie":1800000060}"#.utf8)
-        let decoded = try JSONDecoder().decode(SessionReady.self, from: data)
-
-        #expect(decoded.mediaCapability == "")
-        #expect(decoded.mediaCapabilityExpiresAt == 0)
-    }
-
-    @Test func mediaCapabilityRefreshFrameSerializesWithCompactKeys() throws {
-        let request = MediaCapabilityRefreshRequest(
-            deviceFingerprint: DeviceFingerprint("device-fp-xyz"),
-            sessionId: "session-123"
-        )
-        let data = try JSONEncoder().encode(request)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        let decoded = try JSONDecoder().decode(MediaCapabilityRefreshRequest.self, from: data)
-
-        #expect(decoded == request)
-        #expect(json.contains("\"t\":\"media-capability-refresh\""))
-        #expect(json.contains("\"d\""))
-        #expect(json.contains("device-fp-xyz"))
         #expect(json.contains("\"sid\":\"session-123\""))
+        #expect(json.contains("\"rt\":\"AQID\""))
+        #expect(json.contains("\"mk\":\"BAUG\""))
     }
 
     @Test func ownedSurfaceUpdateIdOrdersOnlyGenerationThenFrame() {
@@ -273,100 +235,6 @@ struct InputChannelTests {
         #expect(underOneFrame.bytes == 0)
         #expect(overBudget.frames == 1)
         #expect(overBudget.bytes == 200_000)
-    }
-
-    @Test func graphicsHelloAndReadyRoundTripWithCompactKeys() throws {
-        let hello = GraphicsChannelHello(
-            deviceFingerprint: DeviceFingerprint("device-fp"),
-            sessionId: "session-123",
-            graphicsCapability: "graphics-capability",
-            clientNonce: Data([1, 2, 3])
-        )
-        let helloData = try JSONEncoder().encode(hello)
-        let helloJson = String(data: helloData, encoding: .utf8) ?? ""
-        let decodedHello = try JSONDecoder().decode(GraphicsChannelHello.self, from: helloData)
-        #expect(decodedHello == hello)
-        #expect(helloJson.contains("\"t\":\"graphics-hello\""))
-        #expect(helloJson.contains("\"gc\":\"graphics-capability\""))
-
-        let ready = GraphicsChannelReady(sessionId: "session-123", serverNonce: Data([4, 5, 6]))
-        let readyData = try JSONEncoder().encode(ready)
-        let readyJson = String(data: readyData, encoding: .utf8) ?? ""
-        let decodedReady = try JSONDecoder().decode(GraphicsChannelReady.self, from: readyData)
-        #expect(decodedReady == ready)
-        #expect(readyJson.contains("\"t\":\"graphics-ready\""))
-        #expect(readyJson.contains("\"sn\""))
-    }
-
-    @Test func graphicsConnectionPlanUsesGraphicsPortAndReliableQuic() {
-        let plan = ClientGraphicsConnectionPlan(host: "mac.tailnet.test")
-
-        #expect(plan.host == "mac.tailnet.test")
-        #expect(plan.port == Config.graphicsPort)
-        #expect(plan.port != Config.signalingPort)
-        #expect(plan.alpn == ClientGraphicsChannelHandshake.quicALPN)
-        #expect(!plan.usesDatagrams)
-    }
-
-    @Test func graphicsReconnectPolicyBacksOffAndStopsAtConfiguredAttemptLimit() {
-        let policy = GraphicsReconnectPolicy(initialDelayMs: 250, maxDelayMs: 2_000, maxAttempts: 5)
-
-        #expect(policy.delayMs(forAttempt: 0) == nil)
-        #expect(policy.delayMs(forAttempt: 1) == 250)
-        #expect(policy.delayMs(forAttempt: 2) == 500)
-        #expect(policy.delayMs(forAttempt: 3) == 1_000)
-        #expect(policy.delayMs(forAttempt: 4) == 2_000)
-        #expect(policy.delayMs(forAttempt: 5) == 2_000)
-        #expect(policy.delayMs(forAttempt: 6) == nil)
-    }
-
-    @Test func graphicsHelloUsesActiveSessionAndMediaCapability() {
-        let active = ActiveSession(
-            sessionId: "session-123",
-            deviceFingerprint: DeviceFingerprint("device-fp"),
-            establishedAt: 1_800_000_000
-        )
-        let mediaCapability = MediaCapabilityGrant(
-            sessionId: "session-123",
-            mediaCapability: "media-capability",
-            mediaCapabilityExpiresAt: 1_800_000_060
-        )
-        let hello = ClientGraphicsChannelHandshake.makeHello(
-            active: active,
-            mediaCapability: mediaCapability,
-            clientNonce: Data([1, 2, 3, 4])
-        )
-
-        #expect(hello.deviceFingerprint == active.deviceFingerprint)
-        #expect(hello.sessionId == active.sessionId)
-        #expect(hello.graphicsCapability == "media-capability")
-        #expect(hello.clientNonce == Data([1, 2, 3, 4]))
-    }
-
-    @Test func graphicsReadyValidationRejectsWrongSessionOrEmptyNonce() throws {
-        let ready = GraphicsChannelReady(sessionId: "session-123", serverNonce: Data([4, 5, 6]))
-        #expect(try ClientGraphicsChannelHandshake.validateReady(ready, expectedSessionId: "session-123") == ready)
-
-        #expect(throws: SessionRejected(reason: .malformed)) {
-            _ = try ClientGraphicsChannelHandshake.validateReady(
-                GraphicsChannelReady(sessionId: "other-session", serverNonce: Data([4, 5, 6])),
-                expectedSessionId: "session-123"
-            )
-        }
-        #expect(throws: SessionRejected(reason: .malformed)) {
-            _ = try ClientGraphicsChannelHandshake.validateReady(
-                GraphicsChannelReady(sessionId: "session-123", serverNonce: Data()),
-                expectedSessionId: "session-123"
-            )
-        }
-
-        let wrongTypeData = """
-        {"t":"not-graphics-ready","sid":"session-123","sn":"BAUG"}
-        """.data(using: .utf8) ?? Data()
-        let wrongType = try JSONDecoder().decode(GraphicsChannelReady.self, from: wrongTypeData)
-        #expect(throws: SessionRejected(reason: .malformed)) {
-            _ = try ClientGraphicsChannelHandshake.validateReady(wrongType, expectedSessionId: "session-123")
-        }
     }
 
     @Test func graphicsFrameHeaderRoundTripsThroughCodable() throws {
@@ -824,25 +692,20 @@ struct InputChannelTests {
         #expect(decoded.event == event)
     }
 
-    @Test func agentSayFrameSerializesWithCompactKeysAndChannelYieldsIt() async throws {
+    @Test func agentSayFrameSerializesWithCompactKeys() throws {
         let push = AgentSayPush(id: "utterance-1", phase: "chunk", sequence: 0, text: "hello")
         let data = try JSONEncoder().encode(push)
         let json = String(data: data, encoding: .utf8) ?? ""
+        let decoded = try JSONDecoder().decode(AgentSayPush.self, from: data)
+
         #expect(json.contains("\"t\":\"agent-say\""))
         #expect(json.contains("\"p\":\"chunk\""))
         #expect(json.contains("\"q\":0"))
         #expect(json.contains("\"x\":\"hello\""))
-
-        let task = FakeInputWebSocketTask()
-        let channel = WebSocketInputChannel(task: task)
-        var iterator = channel.agentSayUpdates.makeAsyncIterator()
-        try task.enqueueReceive(.string(json))
-        let received = await iterator.next()
-        #expect(received == push)
-        channel.close()
+        #expect(decoded == push)
     }
 
-    @Test func cursorFrameDecodesAndChannelYieldsIt() async throws {
+    @Test func cursorFrameDecodes() throws {
         let push = CursorImagePush(
             hash: "abc123",
             png: "Zm9v",
@@ -854,15 +717,10 @@ struct InputChannelTests {
         )
         let data = try JSONEncoder().encode(push)
         let json = String(data: data, encoding: .utf8) ?? ""
-        #expect(json.contains("\"t\":\"cursor\""))
+        let decoded = try JSONDecoder().decode(CursorImagePush.self, from: data)
 
-        let task = FakeInputWebSocketTask()
-        let channel = WebSocketInputChannel(task: task)
-        var iterator = channel.cursorUpdates.makeAsyncIterator()
-        try task.enqueueReceive(.string(json))
-        let received = await iterator.next()
-        #expect(received == push)
-        channel.close()
+        #expect(json.contains("\"t\":\"cursor\""))
+        #expect(decoded == push)
     }
 
     @Test func cursorImageStoreCachesByHashAndServesNilPayloadFromCache() {
@@ -917,74 +775,6 @@ struct InputChannelTests {
         #expect(MediaTimingMath.millisecondsBetween(currentNs: 1_250_000, previousNs: 1_000_000) == 0.25)
         #expect(MediaTimingMath.formatMilliseconds(1.234) == "1.23")
         #expect(MediaTimingMath.formatMilliseconds(nil) == "?")
-    }
-
-    @Test func openerReturnsOnlyAfterInputReady() async throws {
-        let task = FakeInputWebSocketTask()
-        let completed = LockedBool(false)
-        let openTask = Task {
-            let channel = try await InputChannelOpener.open(
-                host: "mac.tailnet.ts.net",
-                port: 41888,
-                deviceFingerprint: DeviceFingerprint("device-fp"),
-                sessionId: "session-123",
-                inputCapability: "capability-abc",
-                taskFactory: FakeInputWebSocketTaskFactory(task: task)
-            )
-            completed.set(true)
-            return channel
-        }
-
-        try await waitUntil { task.sentTexts.count == 1 }
-        #expect(task.didResume)
-        #expect(task.sentTexts.count == 1)
-        #expect(task.receiveWaiterCount == 1)
-        #expect(completed.value == false)
-
-        try task.enqueueReceive(.string(String(data: JSONEncoder().encode(InputChannelReady(sessionId: "session-123")), encoding: .utf8)!))
-        let channel = try await openTask.value
-        #expect(completed.value)
-        channel.close()
-    }
-
-    @Test func openerThrowsDecodedSessionRejectedBeforeReady() async throws {
-        let task = FakeInputWebSocketTask()
-        try task.enqueueReceive(.string(String(data: JSONEncoder().encode(SessionRejected(reason: .revoked)), encoding: .utf8)!))
-
-        do {
-            _ = try await InputChannelOpener.open(
-                host: "mac.tailnet.ts.net",
-                port: 41888,
-                deviceFingerprint: DeviceFingerprint("device-fp"),
-                sessionId: "session-123",
-                inputCapability: "capability-abc",
-                taskFactory: FakeInputWebSocketTaskFactory(task: task)
-            )
-            Issue.record("input opener unexpectedly returned a channel")
-        } catch let rejection as SessionRejected {
-            #expect(rejection.reason == .revoked)
-        }
-        #expect(task.cancelCode == .protocolError)
-    }
-
-    @Test func openerTreatsUnknownPreReadyFrameAsMalformedAndCloses() async throws {
-        let task = FakeInputWebSocketTask()
-        try task.enqueueReceive(.string(#"{"t":"desktop-state"}"#))
-
-        do {
-            _ = try await InputChannelOpener.open(
-                host: "mac.tailnet.ts.net",
-                port: 41888,
-                deviceFingerprint: DeviceFingerprint("device-fp"),
-                sessionId: "session-123",
-                inputCapability: "capability-abc",
-                taskFactory: FakeInputWebSocketTaskFactory(task: task)
-            )
-            Issue.record("input opener unexpectedly returned a channel")
-        } catch let rejection as SessionRejected {
-            #expect(rejection.reason == .malformed)
-        }
-        #expect(task.cancelCode == .protocolError)
     }
 
     private static func makeResetSurfaceEnvelope(
@@ -1070,132 +860,5 @@ struct InputChannelTests {
             outputSize *= 2
         }
         throw SessionRejected(reason: .malformed)
-    }
-}
-
-private struct FakeInputWebSocketTaskFactory: InputWebSocketTaskFactory {
-    let task: FakeInputWebSocketTask
-
-    func makeTask(url: URL) -> InputWebSocketTask {
-        task
-    }
-}
-
-private final class FakeInputWebSocketTask: InputWebSocketTask, @unchecked Sendable {
-    private let lock = NSLock()
-    private var receiveResults: [Result<URLSessionWebSocketTask.Message, Error>] = []
-    private var receiveContinuations: [CheckedContinuation<URLSessionWebSocketTask.Message, Error>] = []
-    private var cancelled = false
-    private var _didResume = false
-    private var _sentTexts: [String] = []
-    private var _cancelCode: URLSessionWebSocketTask.CloseCode?
-
-    var didResume: Bool { lock.withLock { _didResume } }
-    var sentTexts: [String] { lock.withLock { _sentTexts } }
-    var receiveWaiterCount: Int { lock.withLock { receiveContinuations.count } }
-    var cancelCode: URLSessionWebSocketTask.CloseCode? { lock.withLock { _cancelCode } }
-
-    func resume() {
-        lock.withLock { _didResume = true }
-    }
-
-    func send(_ message: URLSessionWebSocketTask.Message) async throws {
-        lock.withLock {
-            switch message {
-            case .string(let text):
-                _sentTexts.append(text)
-            case .data(let data):
-                _sentTexts.append(String(data: data, encoding: .utf8) ?? "")
-            @unknown default:
-                break
-            }
-        }
-    }
-
-    func receive() async throws -> URLSessionWebSocketTask.Message {
-        try await withCheckedThrowingContinuation { continuation in
-            if let immediate = takeReceiveOrStore(continuation) {
-                continuation.resume(with: immediate)
-            }
-        }
-    }
-
-    private func takeReceiveOrStore(
-        _ continuation: CheckedContinuation<URLSessionWebSocketTask.Message, Error>
-    ) -> Result<URLSessionWebSocketTask.Message, Error>? {
-        lock.withLock {
-            if cancelled {
-                return .failure(CancellationError())
-            }
-            if !receiveResults.isEmpty {
-                return receiveResults.removeFirst()
-            }
-            receiveContinuations.append(continuation)
-            return nil
-        }
-    }
-
-    func cancel(with closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-        let continuations: [CheckedContinuation<URLSessionWebSocketTask.Message, Error>]
-        lock.lock()
-        cancelled = true
-        _cancelCode = closeCode
-        continuations = receiveContinuations
-        receiveContinuations.removeAll()
-        lock.unlock()
-
-        for continuation in continuations {
-            continuation.resume(throwing: CancellationError())
-        }
-    }
-
-    func enqueueReceive(_ message: URLSessionWebSocketTask.Message) throws {
-        enqueueReceive(.success(message))
-    }
-
-    private func enqueueReceive(_ result: Result<URLSessionWebSocketTask.Message, Error>) {
-        if let continuation = takeContinuationOrStore(result) {
-            continuation.resume(with: result)
-        }
-    }
-
-    private func takeContinuationOrStore(
-        _ result: Result<URLSessionWebSocketTask.Message, Error>
-    ) -> CheckedContinuation<URLSessionWebSocketTask.Message, Error>? {
-        lock.withLock {
-            if receiveContinuations.isEmpty {
-                receiveResults.append(result)
-                return nil
-            }
-            return receiveContinuations.removeFirst()
-        }
-    }
-}
-
-private final class LockedBool: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: Bool
-
-    init(_ value: Bool) {
-        stored = value
-    }
-
-    var value: Bool {
-        lock.withLock { stored }
-    }
-
-    func set(_ value: Bool) {
-        lock.withLock { stored = value }
-    }
-}
-
-private func waitUntil(
-    timeoutNanoseconds: UInt64 = 1_000_000_000,
-    _ predicate: @escaping @Sendable () -> Bool
-) async throws {
-    let deadline = ContinuousClock.now + .nanoseconds(Int(timeoutNanoseconds))
-    while !predicate() {
-        if ContinuousClock.now >= deadline { return }
-        try await Task.sleep(nanoseconds: 5_000_000)
     }
 }

@@ -1,9 +1,7 @@
 import CryptoKit
 import Foundation
+import Network
 import Security
-
-// ADR-0003 session establishment, client side. One dial attempt per call.
-// Retry policy and state transitions live in PairingClient.attemptSession.
 
 @MainActor
 final class SessionDialer {
@@ -18,13 +16,28 @@ final class SessionDialer {
         self.now = now
     }
 
+    @available(iOS 26.0, *)
+    func performPairingHandshake(
+        host: String,
+        port: UInt16,
+        request: PairingHandshakeRequest
+    ) async throws -> PairingHandshakeResponse {
+        let connection = try await openConnection(host: host, port: port)
+        defer { connection.applicationError = .init(code: 0, reason: "pairing-done") }
+        let control = try await connection.openStream()
+        try await QuicSessionStreamIO.send(request, role: .control, on: control)
+        let responseData = try await receiveControlPayload(on: control)
+        return try JSONDecoder().decode(PairingHandshakeResponse.self, from: responseData)
+    }
+
+    @available(iOS 26.0, *)
     func dial(
-        url: URL,
+        host: String,
+        port: UInt16,
         deviceFingerprint: DeviceFingerprint,
         sessionToken: SessionToken,
         hostPublicKey: Data,
-        deviceKey: DeviceSigningKeyProviding,
-        urlSession: URLSession
+        deviceKey: DeviceSigningKeyProviding
     ) async throws -> SessionHandshakeOutcome {
         let hostPub: P256.Signing.PublicKey
         do {
@@ -33,24 +46,27 @@ final class SessionDialer {
             throw SessionRejected(reason: .badSignature)
         }
         let hostFingerprint = hostPub.agentDeskFingerprint
-
-        let task = urlSession.webSocketTask(with: url)
-        task.resume()
-
+        let connection = try await openConnection(host: host, port: port)
         var success = false
-        defer { if !success { task.cancel(with: .normalClosure, reason: nil) } }
+        defer {
+            if !success {
+                connection.applicationError = .init(code: 1, reason: "session-failed")
+            }
+        }
 
+        let control = try await connection.openStream()
         let clientNonce = try randomBytes(32)
-        let initMessage = SessionInit(
-            deviceFingerprint: deviceFingerprint,
-            sessionToken: sessionToken,
-            clientNonce: clientNonce
+        try await QuicSessionStreamIO.send(
+            SessionInit(
+                deviceFingerprint: deviceFingerprint,
+                sessionToken: sessionToken,
+                clientNonce: clientNonce
+            ),
+            role: .control,
+            on: control
         )
-        try await send(initMessage, on: task)
 
-        let challenge = try await receive(SessionChallenge.self, expectedType: "session-challenge", on: task)
-        // ADR-0020: reject a host whose wire protocol predates what this client
-        // still supports (the host applied the symmetric check on session-init).
+        let challenge = try decodeControl(SessionChallenge.self, expectedType: "session-challenge", from: try await receiveControlPayload(on: control))
         guard challenge.protocolVersion >= Config.minCompatibleProtocolVersion else {
             throw SessionRejected(reason: .incompatibleProtocol)
         }
@@ -70,137 +86,183 @@ final class SessionDialer {
             throw SessionRejected(reason: .badSignature)
         }
 
-        let clientSignature = try deviceKey.signature(for: signingInput).rawRepresentation
-        try await send(SessionProof(clientSignature: clientSignature), on: task)
+        try await QuicSessionStreamIO.send(
+            SessionProof(clientSignature: try deviceKey.signature(for: signingInput).rawRepresentation),
+            role: .control,
+            on: control
+        )
 
-        let ready = try await receive(SessionReady.self, expectedType: "session-ready", on: task)
-        let inputCapability = InputCapabilityGrant(
+        let ready = try decodeControl(SessionReady.self, expectedType: "session-ready", from: try await receiveControlPayload(on: control))
+        let active = ActiveSession(
             sessionId: ready.sessionId,
-            inputCapability: ready.inputCapability,
-            inputCapabilityExpiresAt: ready.inputCapabilityExpiresAt
+            deviceFingerprint: deviceFingerprint,
+            establishedAt: Int(now().timeIntervalSince1970)
         )
-        let mediaCapability = MediaCapabilityGrant(
+        let inputStream = try await connection.openStream()
+        let datagrams = try await connection.datagrams
+        let mediaKey = MediaDatagramCrypto.sessionKey(
             sessionId: ready.sessionId,
-            mediaCapability: ready.mediaCapability,
-            mediaCapabilityExpiresAt: ready.mediaCapabilityExpiresAt
+            clientNonce: clientNonce,
+            hostNonce: challenge.hostNonce,
+            mediaKeySalt: ready.mediaKeySalt
         )
-
-        let channel = WebSocketSignalingChannel(
-            capabilityRequestSender: { request in
-                let data = try JSONEncoder().encode(request)
-                guard let text = String(data: data, encoding: .utf8) else {
-                    throw SessionRejected(reason: .malformed)
-                }
-                try await task.send(.string(text))
-            },
-            mediaCapabilityRequestSender: { request in
-                let data = try JSONEncoder().encode(request)
-                guard let text = String(data: data, encoding: .utf8) else {
-                    throw SessionRejected(reason: .malformed)
-                }
-                try await task.send(.string(text))
-            },
-            closer: {
-                task.cancel(with: .normalClosure, reason: nil)
-            }
+        let transport = QuicSessionClientTransport(
+            connection: connection,
+            inputStream: inputStream,
+            datagrams: datagrams,
+            activeSession: active,
+            mediaKey: mediaKey
         )
-
-        // Background receive loop. Exits when the task closes or yields a
-        // non-decodable frame. Closing the channel on exit propagates the
-        // end-of-stream signal to consumers.
-        Task.detached { [task, channel] in
-            while !Task.isCancelled {
-                do {
-                    let message = try await task.receive()
-                    let data: Data
-                    switch message {
-                    case .data(let bytes): data = bytes
-                    case .string(let text): data = Data(text.utf8)
-                    @unknown default:
-                        channel.close()
-                        return
-                    }
-                    if let grant = try? JSONDecoder().decode(InputCapabilityGrant.self, from: data),
-                              grant.type == "input-capability-grant" {
-                        channel.deliver(grant)
-                    } else if let grant = try? JSONDecoder().decode(MediaCapabilityGrant.self, from: data),
-                              grant.type == "media-capability-grant" {
-                        channel.deliver(grant)
-                    } else if let rejected = try? JSONDecoder().decode(SessionRejected.self, from: data),
-                              rejected.type == "session-rejected" {
-                        channel.deliver(rejected)
-                        channel.close()
-                        return
-                    } else {
-                        channel.close()
-                        return
-                    }
-                } catch {
-                    channel.close()
-                    return
-                }
-            }
-        }
-
         success = true
         return SessionHandshakeOutcome(
-            active: ActiveSession(
-                sessionId: ready.sessionId,
-                deviceFingerprint: deviceFingerprint,
-                establishedAt: Int(now().timeIntervalSince1970)
-            ),
-            signaling: channel,
-            inputCapability: inputCapability,
-            mediaCapability: mediaCapability
+            active: active,
+            transport: transport,
+            resume: SessionResumeMaterial(
+                token: ready.resumeToken,
+                expiresAt: ready.resumeExpiresAt,
+                mediaKeySalt: ready.mediaKeySalt,
+                clientNonce: clientNonce,
+                hostNonce: challenge.hostNonce
+            )
         )
     }
 
-    private func send<T: Encodable>(_ message: T, on task: URLSessionWebSocketTask) async throws {
-        let data = try JSONEncoder().encode(message)
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw SessionRejected(reason: .malformed)
+    @available(iOS 26.0, *)
+    func resume(
+        host: String,
+        port: UInt16,
+        deviceFingerprint: DeviceFingerprint,
+        active: ActiveSession,
+        resume: SessionResumeMaterial
+    ) async throws -> SessionHandshakeOutcome {
+        let connection = try await openConnection(host: host, port: port)
+        var success = false
+        defer {
+            if !success {
+                connection.applicationError = .init(code: 1, reason: "resume-failed")
+            }
         }
-        try await task.send(.string(text))
+
+        let control = try await connection.openStream()
+        let clientNonce = try randomBytes(32)
+        try await QuicSessionStreamIO.send(
+            SessionResumeInit(
+                deviceFingerprint: deviceFingerprint,
+                sessionId: active.sessionId,
+                resumeToken: resume.token,
+                clientNonce: clientNonce
+            ),
+            role: .control,
+            on: control
+        )
+        let ready = try decodeControl(
+            SessionReady.self,
+            expectedType: "session-ready",
+            from: try await receiveControlPayload(on: control)
+        )
+        guard ready.sessionId == active.sessionId else {
+            throw SessionRejected(reason: .unauthorized)
+        }
+
+        let inputStream = try await connection.openStream()
+        let datagrams = try await connection.datagrams
+        let mediaKey = MediaDatagramCrypto.sessionKey(
+            sessionId: ready.sessionId,
+            clientNonce: clientNonce,
+            hostNonce: ready.resumeToken,
+            mediaKeySalt: ready.mediaKeySalt
+        )
+        let transport = QuicSessionClientTransport(
+            connection: connection,
+            inputStream: inputStream,
+            datagrams: datagrams,
+            activeSession: active,
+            mediaKey: mediaKey
+        )
+        success = true
+        return SessionHandshakeOutcome(
+            active: active,
+            transport: transport,
+            resume: SessionResumeMaterial(
+                token: ready.resumeToken,
+                expiresAt: ready.resumeExpiresAt,
+                mediaKeySalt: ready.mediaKeySalt,
+                clientNonce: clientNonce,
+                hostNonce: ready.resumeToken
+            )
+        )
     }
 
-    private func receive<T: Decodable>(
+    @available(iOS 26.0, *)
+    private func openConnection(host: String, port: UInt16) async throws -> NetworkConnection<QUIC> {
+        guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
+            throw SessionRejected(reason: .malformed)
+        }
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: endpointPort)
+        let connection = NetworkConnection<QUIC>(
+            to: endpoint,
+            using: NWParametersBuilder(auto: {
+                QUIC(alpn: [Config.sessionQuicALPN])
+                    .maxDatagramFrameSize(Config.ownedMediaMaxDatagramFrameSize)
+                    .initialMaxBidirectionalStreams(8)
+                    .idleTimeout(30_000)
+                    .tls.certificateValidator { _, _ in
+                        // The signed ADR-0003 application handshake authenticates the
+                        // paired host key. This validator intentionally avoids IP-literal
+                        // hostname failure on tailnet CGNAT addresses.
+                        true
+                    }
+            })
+        )
+        try await waitUntilReady(connection)
+        return connection
+    }
+
+    @available(iOS 26.0, *)
+    private func waitUntilReady(_ connection: NetworkConnection<QUIC>) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let gate = ResumeGate()
+            connection.onStateUpdate { _, state in
+                switch state {
+                case .ready:
+                    if gate.claim() { continuation.resume() }
+                case .failed(let error), .waiting(let error):
+                    if gate.claim() { continuation.resume(throwing: error) }
+                case .cancelled:
+                    if gate.claim() { continuation.resume(throwing: CancellationError()) }
+                default:
+                    break
+                }
+            }
+            connection.start()
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private func receiveControlPayload(on stream: QUIC.Stream<QUICStream>) async throws -> Data {
+        let frame = try await QuicSessionStreamIO.receiveFrame(on: stream)
+        guard frame.role == .control else { throw SessionRejected(reason: .malformed) }
+        if let rejected = try? JSONDecoder().decode(SessionRejected.self, from: frame.payload),
+           rejected.type == "session-rejected" {
+            throw rejected
+        }
+        return frame.payload
+    }
+
+    private func decodeControl<T: Decodable>(
         _ type: T.Type,
         expectedType: String,
-        on task: URLSessionWebSocketTask
-    ) async throws -> T {
-        let message = try await task.receive()
-        let data: Data
-        switch message {
-        case .data(let bytes):
-            data = bytes
-        case .string(let text):
-            data = Data(text.utf8)
-        @unknown default:
+        from data: Data
+    ) throws -> T {
+        let envelope = try JSONDecoder().decode(Envelope.self, from: data)
+        if envelope.type == "session-rejected",
+           let rejected = try? JSONDecoder().decode(SessionRejected.self, from: data) {
+            throw rejected
+        }
+        guard envelope.type == expectedType else {
             throw SessionRejected(reason: .malformed)
         }
-        let envelope = try Self.decodeEnvelope(from: data)
-        if envelope.type == expectedType {
-            do {
-                return try JSONDecoder().decode(type, from: data)
-            } catch {
-                throw SessionRejected(reason: .malformed)
-            }
-        }
-        if envelope.type == "session-rejected" {
-            if let rejected = try? JSONDecoder().decode(SessionRejected.self, from: data) {
-                throw rejected
-            }
-            throw SessionRejected(reason: .malformed)
-        }
-        throw SessionRejected(reason: .malformed)
-    }
-
-    private static func decodeEnvelope(from data: Data) throws -> Envelope {
-        do {
-            return try JSONDecoder().decode(Envelope.self, from: data)
-        } catch {
-            throw SessionRejected(reason: .malformed)
-        }
+        return try JSONDecoder().decode(type, from: data)
     }
 
     private struct Envelope: Decodable {
@@ -215,5 +277,18 @@ final class SessionDialer {
             throw SessionRejected(reason: .malformed)
         }
         return Data(bytes)
+    }
+}
+
+private final class ResumeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var resumed = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if resumed { return false }
+        resumed = true
+        return true
     }
 }

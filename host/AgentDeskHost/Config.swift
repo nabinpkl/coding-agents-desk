@@ -70,7 +70,7 @@ enum Config {
     }
 
     static let signalingPort: UInt16 = 41888
-    static let graphicsPort = graphicsPort(environment: ProcessInfo.processInfo.environment)
+    static let sessionQuicALPN = "agentdesk-session-quic-v2"
     // ADR-0019: dedicated plain-TCP port the Mac dials to push a pairing offer
     // to a chosen tailnet device. Separate from the TLS signaling port so the
     // offer path never touches the IP-literal-cert problem.
@@ -78,11 +78,10 @@ enum Config {
     // ADR-0020: wire protocol version negotiated at the session handshake. Bumped
     // only on a breaking wire change, independent of the marketing version. The
     // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
-    static let protocolVersion = 1
-    static let minCompatibleProtocolVersion = 1
+    static let protocolVersion = 2
+    static let minCompatibleProtocolVersion = 2
     static let nonceTTL: TimeInterval = 90
-    static let inputCapabilityTTL: TimeInterval = 60
-    static let mediaCapabilityTTL: TimeInterval = 60
+    static let sessionResumeTTL: TimeInterval = 20
     static let ownedMediaChroma = OwnedMediaChroma(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_CHROMA"]
     )
@@ -211,13 +210,7 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES",
         defaultValue: 120
     )
-    // ADR-0025 motion carrier: the dedicated QUIC datagram listener's port, distinct
-    // from graphicsPort (41889) and offerPort (41890). Only bound when the motion
-    // carrier flag is on.
-    static let ownedMediaDatagramPort = port(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_PORT",
-        defaultValue: 41_891
-    )
+    // ADR-0030: video datagrams ride the authenticated session QUIC connection.
     // ADR-0025 motion carrier: a frame's HEVC packets are sent in paced bursts so a
     // large frame (170+ packets) does not flood the QUIC datagram send buffer in one
     // tight loop. burstPacketCount packets go back-to-back, then a burstPauseUs gap.
@@ -447,15 +440,6 @@ enum Config {
         defaultValue: true,
         environment: ProcessInfo.processInfo.environment
     )
-    static func graphicsPort(environment: [String: String]) -> UInt16 {
-        guard let raw = environment["AGENTDESK_GRAPHICS_PORT"],
-              let value = UInt16(raw),
-              value > 0
-        else {
-            return 41_889
-        }
-        return value
-    }
     static func offerPort(environment: [String: String]) -> UInt16 {
         guard let raw = environment["AGENTDESK_OFFER_PORT"],
               let value = UInt16(raw),

@@ -8,18 +8,18 @@
 | --- | --- | --- |
 | macOS host | Swift, AppKit menu-bar app via `NSStatusItem` plus a floating `NSPanel` Space Agent | Fresh implementation, owned end-to-end. The menu-bar host remains the server/status process; Space Agent is a local desktop navigator. |
 | iOS client | Swift, UIKit, current `AVSampleBufferDisplayLayer` baseline with a retained BGRA compositor target in this worktree | Native required for text crispness and gesture fidelity. Browser path rejected in `PRD.md`. The branch target decodes HEVC through `VTDecompressionSession` into one retained compositor surface. |
-| Capture | `ScreenCaptureKit` on macOS 12.3+ | First-party active-display capture without composition tricks. |
+| Capture | `ScreenCaptureKit` on macOS 26+ | First-party active-display capture without composition tricks. |
 | Encode / decode | Hardware-required VideoToolbox, HEVC by default and H.264 as an explicit owned-media codec setting | Rest-state text crispness depends on hardware screen-content quality. In this worktree HEVC remains the full-frame refresh path while retained graphics commands target scroll motion. |
-| Transport | Owned authenticated QUIC datagrams for HEVC full-frame refreshes, sibling reliable QUIC graphics command channel, dedicated TLS WebSocket for input | ADR-0016 is the current worktree media architecture. Input stays reliable and independent. HEVC owns packet repair, stale-frame skip, and keyframe recovery. Graphics uses `AGENTDESK_GRAPHICS_PORT` for scroll-first retained commands. |
+| Transport | One authenticated `NetworkConnection<QUIC>` per live session, ALPN `agentdesk-session-quic-v2` | ADR-0030 is the current live-session architecture. Control and input use ordered QUIC streams. HEVC media uses the same connection's datagram lane. Session liveness belongs to the QUIC connection, not to media, so media loss or decode failure must not end input. |
 | Network | Tailscale only | No public rendezvous, relay, or internet routing. Both peers are on the tailnet. |
 | Pairing | Mac-initiated tailnet device picker (ADR-0019), QR fallback | The Mac enumerates online iOS tailnet peers, probes each on the plain-TCP offer port (`AGENTDESK_OFFER_PORT`, default 41890) for a self-reported display name, and pushes a pre-approved signed offer to the picked device. The pick is the authorization. The iPhone runs the unchanged signed handshake. Signed token stored in Keychain on both sides. |
-| Wire compatibility | Protocol version negotiated at the handshake (ADR-0020) | Host and client version independently; the wire protocol, not the app version, is the compatibility contract. `SessionInit`/`SessionChallenge` advertise `protocolVersion` and `minCompatibleProtocolVersion`; a peer below the other's minimum is rejected with `incompatible-protocol`. |
+| Wire compatibility | Protocol version 2 only (ADR-0020, ADR-0030) | Host and client version independently; the wire protocol, not the app version, is the compatibility contract. `SessionInit`/`SessionChallenge` advertise `protocolVersion` and `minCompatibleProtocolVersion`; v0 rejects any peer below `2` with `incompatible-protocol`. There is no legacy WebSocket fallback. |
 | Spaces enumeration | Private SkyLight/CoreGraphics symbols bound with `dlopen` and `dlsym` | No public API exists. Risk is acceptable because App Store distribution is not the v0 target. |
 | Spaces switch | Synthesize Dock swipe `CGEvent`s via `SpacesProvider.postDockSwipeFrame` and `commitStep(delta:)` | Stock macOS path that preserves live Space transition animation. |
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
 
-ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the current scroll-first hybrid retained-graphics worktree architecture. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 and ADR-0022 record the damage-driven retained-graphics and multi-stream-QUIC iterations. ADR-0023 records the hardened, host-detected scroll copyRect (verify-or-fallback), superseded by ADR-0024 (predict-and-correct, hash-proposed offset), both superseded by ADR-0025. ADR-0025 records the mixed-mode renderer that the current pipeline runs: scrolling motion plays as full-surface hardware HEVC over QUIC datagrams while rest keeps the retained-tile content-cache path, with the hand-rolled scroll machinery removed. ADR-0022's multi-stream split and tile/cache half stand; only its scroll bet is superseded.
+ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with control, input, and media lanes, protocol version `2`, and no WebSocket or separate media/graphics fallback.
 
 ## Module Boundaries
 
@@ -35,12 +35,12 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 6. **TailnetDiscovery.** Parses `tailscale status --json` into online tailnet peers (`TailnetDeviceOption`), keeping iOS peers with a tailnet IPv4 and ordering online ones first. The JSON parser is split out for unit testing without running `tailscale`.
 7. **PairingOfferSender.** Outbound plain-TCP `NWConnection` to a picked peer's offer port. Writes one length-prefixed `PairingPayload` and closes. Plaintext is acceptable: WireGuard encrypts the peer hop, the host public key in the payload is already public, and the nonce is one-use and pre-approval-gated.
 8. **TailnetIdentityProber.** Outbound `whois` probe on the offer port. An unpaired client whose listener is running replies with a display-only `DeviceIdentity`; the picker lists only the peers that answered, by their reported name. Display-only and pre-auth: tailnet membership is the trust boundary and the signed handshake still gates pairing.
-9. **SessionAuthenticator.** Runs the per-connection mutual challenge-response on the authenticated session socket. Rejects a peer whose advertised `protocolVersion` is below the host's `minCompatibleProtocolVersion` with `incompatible-protocol` (ADR-0020). Produces `SessionReady` with input and media capabilities.
-10. **MediaTransport.** Starts one owned QUIC media channel. The first datagram is `MediaChannelHello`; the host validates the media capability through `SessionRegistry`, replies with `MediaChannelReady`, derives the per-session HMAC key, and sends authenticated `ADMD` v2 packets carrying HEVC full-frame refreshes.
-11. **GraphicsTransport.** Planned sibling reliable QUIC stream for retained graphics commands. It uses the same TLS identity as owned media, an explicit graphics hello/ready nonce handshake, ALPN `agentdesk-owned-graphics`, and `AGENTDESK_GRAPHICS_PORT`.
-12. **ScrollDeltaEngine.** Rest-state retained-graphics producer (ADR-0025). Damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`), omitting cells that already match the retained baseline. The hand-rolled scroll path (`ScrollOffsetEstimator`, `copyRect`) is removed; scrolling motion is carried by the hardware HEVC datagram path (`VideoToolboxOwnedMediaEncoder`, `MediaDatagramFramePacket`, client `OwnedMediaVideoDecoder` / `OwnedMediaCarrierHandoff`), not by this engine.
-13. **InputChannelServer.** Owns the host side of the dedicated input WebSocket. Validates `InputChannelHello` against `SessionRegistry`, drains `InputChannelEvent` frames into `NormalizedInput`, and pushes desktop state, thumbnails, cursor updates, and agent speech events.
-14. **SignalingChannel.** Wraps the authenticated session WebSocket after `SessionReady`. It carries low-frequency input capability refresh messages only.
+9. **SessionAuthenticator.** Runs the per-connection mutual challenge-response on the session QUIC control stream. Rejects a peer whose advertised `protocolVersion` is below the host's `minCompatibleProtocolVersion` with `incompatible-protocol` (ADR-0020). Produces `SessionReady` with the session id, memory-only resume token, resume expiry, and media key salt.
+10. **QuicSessionTransport.** Owns the single live `NetworkConnection<QUIC>` and routes lanes by role. The control stream carries session init, challenge, proof, ready, resume, revoke, and heartbeat. The input stream carries `InputChannelEvent`, `ClientConfig`, and host pushes. The datagram lane carries authenticated `ADMD` media packets, packet resend requests, keyframe requests, ACKs, and link-health reports.
+11. **MediaTransport.** Sends HEVC full-frame refreshes over the session datagram lane. The media packet key is derived per session from fresh handshake material, the session id, and the `SessionReady.mediaKeySalt`; no static datagram key or separate media listener remains.
+12. **ScrollDeltaEngine.** Rest-state retained-graphics producer (ADR-0025), retained as local crisp-repair/compositor machinery. Damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`), omitting cells that already match the retained baseline. It does not own a separate network connection.
+13. **InputChannelServer.** Owns the host side of the session input stream. Drains `InputChannelEvent` frames into `NormalizedInput`, and pushes desktop state, thumbnails, cursor updates, and agent speech events on the same ordered lane.
+14. **SignalingChannel.** Supplies length-prefixed QUIC stream framing and role routing for the session control and input streams. It is not a WebSocket wrapper.
 15. **VideoFrameSource.** Concrete implementation `ScreenCaptureKitFrameSource` captures one stream for the active display. `TestPatternFrameSource` exists as a diagnostic source.
 16. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces, enabled by owner-scoped demand.
 17. **SpaceAgent.** Host-local overlay under `host/AgentDeskHost/SpaceAgent/`, showing the draggable spaceship and active-display Spaces strip.
@@ -54,12 +54,12 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 4. **KeyboardSurface.** Compact keyboard plus accessory row. Emits key and modifier input frames.
 5. **PairingClient.** QR decode, token verification, and Keychain write. Reports the device display name (`UIDevice` name or hardware model identifier plus a short per-device id) in the handshake so the host labels the paired record. Its `TailnetServerTrustDelegate` applies strict TLS validation to FQDN dials and, for a tailnet CGNAT IPv4 literal (100.64.0.0/10), validates the cert chain but skips the hostname match, because the FQDN-only `tailscale cert` cannot pass a hostname check on an IP literal (ADR-0019). The L3 WireGuard peer auth plus the signed handshake are the real authentication.
 6. **PairingOfferListener.** `NWListener` on the offer port, running only while the app is foregrounded and unpaired. Routes length-prefixed offer-port frames: a pairing offer feeds `handleIncomingPairingURL` (reusing the QR path, host auto-approves the pre-approved nonce); a `whois` probe is answered with this device's display-only `DeviceIdentity`. Prefers the `utun` tailnet IPv4 (100.x) over a carrier-CGNAT address when reporting its own address.
-7. **SessionDialer.** Client mirror of session authentication. Rejects a host whose `protocolVersion` is below the client minimum with `incompatible-protocol` (ADR-0020). Owns the connected/disconnected UI machine and clears stored credentials on terminal rejection.
-8. **MediaTransport.** Opens one QUIC datagram connection to the host, performs the media nonce handshake, verifies `ADMD` v2 packets, repairs missing packet indexes before deadline, skips stale delta frames, and asks for keyframe recovery only when decoder continuity requires it.
-9. **GraphicsTransport.** Planned reliable graphics stream client. It dials `AGENTDESK_GRAPHICS_PORT`, performs the graphics nonce handshake, reads ordered `ADGC` frames, sends graphics ACKs, and sends reset requests without sharing the HEVC datagram control path.
+7. **SessionDialer.** Client mirror of session authentication. Rejects a host whose `protocolVersion` is below the client minimum with `incompatible-protocol` (ADR-0020). Opens the single QUIC session connection, authenticates on the control stream, resumes with a memory-only token inside the grace window, and clears stored credentials on terminal rejection.
+8. **QuicSessionTransport.** Owns the connected client QUIC session. Input/control sends are immediate. Media datagrams are paced and are the first lane to drop or degrade under pressure.
+9. **MediaTransport.** Uses the session datagram lane to verify `ADMD` v2 packets, repair missing packet indexes before deadline, skip stale delta frames, and ask for keyframe recovery only when decoder continuity requires it.
 10. **OwnedHEVCFrameDecoder.** Planned `VTDecompressionSession` bridge for the hybrid worktree. It decodes HEVC refreshes into `CVPixelBuffer` output instead of enqueueing directly into `AVSampleBufferDisplayLayer`.
 11. **OwnedSurfaceCompositor.** Planned `@MainActor` single writer for the retained BGRA surface. It applies HEVC full-surface refreshes and retained graphics commands in strict `(surfaceGeneration, frameId)` order, then commits the visible layer.
-12. **InputChannel.** Dedicated TLS WebSocket for remote input and host pushes. It opens alongside the authenticated session using the input capability from `SessionReady`.
+12. **InputChannel.** Reliable input lane inside the authenticated session QUIC connection. It stays logically independent from media even though both lanes share the same connection.
 
 Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView.** Additional owned-media contract tests pin wire shapes, packet repair, and decoder recovery behavior where regressions are expensive.
 
@@ -119,27 +119,27 @@ DeviceIdentity        { t: "id", n: displayName }     // client's display-only r
 
 The offer is an untagged `PairingPayload`; the iPhone synthesizes its `pairingURL()` locally and reuses the QR handshake path. `whois`/`id` carry only a display name for the picker and are pre-auth; the signed handshake still gates pairing.
 
-Session establishment is locked by ADR-0003 and ADR-0011. The handshake-negotiated wire protocol version is locked by ADR-0020.
+Session establishment is locked by ADR-0003, ADR-0011, ADR-0020, and ADR-0030. Frames on QUIC streams are length-prefixed JSON payloads.
 
 ```
+QuicStreamFrame   = UInt8 role || UInt32BE length || body
+role              = 1 control | 2 input
+
 SessionInit       { deviceFingerprint, sessionToken, clientNonce,
-                    protocolVersion, minCompatibleProtocolVersion }   // pv defaults to 1 when absent
+                    protocolVersion, minCompatibleProtocolVersion }   // pv must be >= 2
 SessionChallenge  { hostNonce, hostSignature, protocolVersion }
 SessionProof      { clientSignature }
-SessionReady      { sessionId, inputCapability, inputCapabilityExpiresAt,
-                    mediaCapability, mediaCapabilityExpiresAt }
-InputCapabilityRefreshRequest { deviceFingerprint, sessionId }       // t: "input-capability-refresh"
-InputCapabilityGrant { sessionId, inputCapability, inputCapabilityExpiresAt } // t: "input-capability-grant"
-SessionRejected   { reason }   // reason ∈ { ..., "incompatible-protocol" }
+SessionReady      { sessionId, resumeToken, resumeExpiresAt, mediaKeySalt }
+SessionResumeInit { deviceFingerprint, sessionId, resumeToken, clientNonce,
+                    protocolVersion }
+SessionRejected   { reason }   // reason includes "incompatible-protocol", "expired-resume"
 ```
 
-Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. The version fields decode-tolerant to `1` when absent, so an older build still parses. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
+Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. v0 now sets both to `2`; older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
 
-Owned media travels over QUIC datagrams after `SessionReady`.
+Owned media travels over the unified QUIC session's datagram lane after `SessionReady`.
 
 ```
-MediaChannelHello { deviceFingerprint, sessionId, mediaCapability, clientNonce } // t: "media-hello"
-MediaChannelReady { sessionId, serverNonce }                                      // t: "media-ready"
 OwnedMediaControlMessage { kind: "keyframe-request", frameId }                    // t: "owned-media-control"
 OwnedMediaControlMessage { kind: "packet-resend-request", frameId, packetIndexes } // compact key px
 OwnedMediaControlMessage { kind: "frame-ack", frameId, totalFramesDecoded,
@@ -150,6 +150,10 @@ The host derives `frameAgeMs` for admission by matching `frame-ack.frameId` to
 its sent-frame table and comparing the original capture timestamp with host
 uptime when the ACK arrives. The iPhone does not send this value because host
 and device monotonic clocks are not comparable.
+
+The media packet HMAC key is derived per session from the authenticated handshake
+material, session id, and `SessionReady.mediaKeySalt`. Static datagram keys are
+not valid in protocol version 2.
 
 ADMD packet =
   "ADMD" || version=2 || kind=3 || flags: UInt8 ||
@@ -177,7 +181,7 @@ OwnedMediaFrameHeader {
 
 The payload is the VideoToolbox access-unit sample data with length-prefixed NAL units. Keyframes carry codec parameter sets in the JSON header so the iOS receiver can create or refresh its `CMVideoFormatDescription` before enqueueing the sample buffer.
 
-Hybrid retained-graphics placeholders are locked by ADR-0016 for this worktree. R28 and R29 will add the shared types and tests before the graphics stream carries commands.
+Retained-graphics payload shapes remain as local crisp-repair/compositor contracts. They are not a separate live-session transport in ADR-0030.
 
 ```
 OwnedSurfaceUpdateId { surfaceGeneration, frameId }
@@ -189,9 +193,6 @@ OwnedMediaFrameHeader {
   capturedAtUptimeNs,   // diagnostics only
   refreshReason: "initial" | "rest" | "scroll-correctness" | "reset"
 }
-
-GraphicsChannelHello { deviceFingerprint, sessionId, graphicsCapability, clientNonce } // t: "graphics-hello"
-GraphicsChannelReady { sessionId, serverNonce }                                         // t: "graphics-ready"
 
 ADGC frame =
   "ADGC" || version=1 || headerLength: UInt32BE || headerJSON || payload
@@ -210,7 +211,7 @@ OwnedGraphicsCommand =
   | { kind: "cacheTile", slot, x, y, width, height, compression, byteRange }
   | { kind: "drawCachedTile", slot, x, y, width, height }
 
-// ADR-0025 motion carrier, on QUIC datagrams (not this reliable stream):
+// ADR-0025 motion carrier, on the session QUIC datagram lane:
 OwnedMediaFrameEnvelope { header: OwnedMediaFrameHeader, payload }  // length-prefixed NAL
 MediaDatagramFramePacket  // "ADMD", HMAC-authenticated MTU fragments of an envelope
 OwnedMediaControlMessage { kind: "keyframe-request" | "packet-resend-request", frameId, packetIndexes }
@@ -219,13 +220,11 @@ OwnedGraphicsFrameAck { surfaceGeneration, frameId, compositorMs, staleDiscardCo
 OwnedGraphicsResetRequest { reason, lastCommittedSurfaceGeneration, lastCommittedFrameId }
 ```
 
-All tile updates compare only `(surfaceGeneration, frameId)`. `capturedAtUptimeNs` is never an ordering key. `resetSurface` accepts only a strictly newer `surfaceGeneration`, initializes committed order to `(surfaceGeneration, 0)`, then applies reset tiles. Rest-state damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`). Scrolling motion does not ride this stream at all: it plays as full-surface hardware HEVC over QUIC datagrams (`OwnedMediaFrameEnvelope` fragmented into `MediaDatagramFramePacket`s), decoded by display on the client; on scroll-stop the host sends one full-surface tile refresh and the client swaps the video layer back to tiles only after applying it (ADR-0025).
+All tile updates compare only `(surfaceGeneration, frameId)`. `capturedAtUptimeNs` is never an ordering key. `resetSurface` accepts only a strictly newer `surfaceGeneration`, initializes committed order to `(surfaceGeneration, 0)`, then applies reset tiles. Rest-state damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`). Scrolling motion does not ride a retained-graphics stream: it plays as full-surface hardware HEVC over the session QUIC datagram lane (`OwnedMediaFrameEnvelope` fragmented into `MediaDatagramFramePacket`s), decoded by display on the client. Local retained surface code remains available for crisp repair.
 
-Input-channel wire shapes are locked by ADR-0005 and ADR-0011.
+Input-lane wire shapes are locked by ADR-0005, ADR-0011, and ADR-0030.
 
 ```
-InputChannelHello  { deviceFingerprint, sessionId, inputCapability } // t: "input-hello"
-InputChannelReady  { sessionId }                                      // t: "input-ready"
 InputChannelEvent  { event: NormalizedInput }                         // t: "input-event"
 InputChannelClose  { reason }                                         // t: "input-close"
 DesktopStatePush   { state: DesktopState }                            // t: "desktop-state"
@@ -245,6 +244,7 @@ DesktopStatePush   { state: DesktopState }                            // t: "des
 - An expired delta frame is skipped as stale output.
 - An expired keyframe, decoder failure, malformed packet, or authentication failure requests keyframe recovery.
 - Stale unacknowledged host frames and drain timeouts do not force keyframe recovery. Keyframe recovery is reserved for decoder continuity failures, incomplete keyframes, malformed/auth failures, and explicit client requests.
+- Media lane failure or decoder failure does not end the session. Control and input stay live unless the QUIC session itself is revoked, fails auth, is backgrounded by iOS policy, or exceeds the resume grace window.
 
 ## Performance Budgets
 
@@ -257,9 +257,11 @@ DesktopStatePush   { state: DesktopState }                            // t: "des
 
 - Host runs only when the user opens it. No auto-launch on boot.
 - Space Agent appears while the host runs and captures thumbnails only through owner-scoped demand.
-- Client suspends on background; media and input channels close within one second while Keychain token and host public key persist.
-- Foreground reconnect runs the session-establishment exchange using the stored approval token plus a fresh client signature.
-- Video failure does not tear down input, and input failure does not tear down video. Host-side revocation deletes the allowlist row and tears down active signaling, input, media transport, input task, input capability, and media capability state for that device.
+- Session states are `connecting`, `connected`, `suspended`, `resuming`, and `ended`.
+- QUIC `.waiting` and short path loss map to `suspended`, not `ended`. The host keeps session state and frame/input plumbing suspended for a 20 second grace window.
+- A foreground client can resume inside the grace window by re-dialing QUIC with the memory-only `SessionReady.resumeToken`; the host reattaches lanes to the same session id and rotates resume material.
+- Grace expiry, background policy, revoke, auth failure, user forget, or terminal connection close ends the session.
+- Client suspends on background; the QUIC session closes within one second while Keychain token and host public key persist. Foreground starts a fresh connect or grace-window resume using stored pairing.
 
 ## Risks Tracked Outside This Doc
 

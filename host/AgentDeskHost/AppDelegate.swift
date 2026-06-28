@@ -1,5 +1,7 @@
 import AppKit
+import CryptoKit
 import Foundation
+import Network
 import os
 
 @MainActor
@@ -89,22 +91,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var signalingServer: PairingSignalingServer?
     private let sessions = SessionRegistry()
     private let scrollActivityHints = ScrollActivityStore()
-    private lazy var mediaFactory: MediaTransportFactory = MediaStack.makeFactory(
-        ownedGraphicsAuthorizer: { [weak self] hello in
-            await MainActor.run {
-                guard let self else {
-                    return .rejected(.unauthorized)
-                }
-                guard (try? self.pairing.lookup(deviceFingerprint: hello.deviceFingerprint)) != nil else {
-                    return .rejected(.unauthorized)
-                }
-                return self.sessions.validateGraphicsCapability(hello)
-            }
-        },
-        motionSignalProvider: { [scrollActivityHints] in
-            scrollActivityHints.motionSignal()
-        }
-    )
     private let inputDispatcher = InputDispatcher()
     private let spacesProvider = SpacesProvider()
     private let spaceThumbnailProvider = SpaceThumbnailProvider()
@@ -278,9 +264,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.handleSessionAttemptStarted(fingerprint)
                 }
             },
-            sessionReadyHandler: { [weak self] active, channel, ready in
+            sessionReadyHandler: { [weak self] active, ready, datagrams, mediaKey in
                 Task { @MainActor in
-                    self?.handleSessionReady(active, channel: channel, ready: ready)
+                    self?.handleSessionReady(active, ready: ready, datagrams: datagrams, mediaKey: mediaKey)
+                }
+            },
+            sessionResumeHandler: { [weak self] request in
+                try await MainActor.run {
+                    guard let self else { throw SessionRejected(reason: .unauthorized) }
+                    return try self.handleSessionResume(request)
+                }
+            },
+            sessionSuspendedHandler: { [weak self] fingerprint, sessionId in
+                Task { @MainActor in
+                    self?.handleSessionSuspended(fingerprint, sessionId: sessionId)
                 }
             },
             sessionEndedHandler: { [weak self] fingerprint, sessionId in
@@ -288,54 +285,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.handleSessionEnded(fingerprint, sessionId: sessionId)
                 }
             },
-            inputChannelAuthorizeHandler: { [weak self] hello, completion in
+            inputLaneReadyHandler: { [weak self] fingerprint, server in
                 Task { @MainActor in
-                    guard let self else {
-                        completion(.rejected(.unauthorized))
-                        return
-                    }
-                    guard (try? self.pairing.lookup(deviceFingerprint: hello.deviceFingerprint)) != nil else {
-                        completion(.rejected(.unauthorized))
-                        return
-                    }
-                    completion(self.sessions.validateInputCapability(hello))
-                }
-            },
-            inputChannelReadyHandler: { [weak self] fingerprint, server in
-                Task { @MainActor in
-                    self?.handleInputChannelReady(fingerprint, server: server)
-                }
-            },
-            inputCapabilityRefreshHandler: { [weak self] request, completion in
-                Task { @MainActor in
-                    guard let self else {
-                        completion(.failure(.unauthorized))
-                        return
-                    }
-                    guard (try? self.pairing.lookup(deviceFingerprint: request.deviceFingerprint)) != nil else {
-                        completion(.failure(.revoked))
-                        return
-                    }
-                    completion(self.sessions.refreshInputCapability(
-                        deviceFingerprint: request.deviceFingerprint,
-                        sessionId: request.sessionId
-                    ))
-                }
-            },
-            mediaCapabilityRefreshHandler: { [weak self] request, completion in
-                Task { @MainActor in
-                    guard let self else {
-                        completion(.failure(.unauthorized))
-                        return
-                    }
-                    guard (try? self.pairing.lookup(deviceFingerprint: request.deviceFingerprint)) != nil else {
-                        completion(.failure(.revoked))
-                        return
-                    }
-                    completion(self.sessions.refreshMediaCapability(
-                        deviceFingerprint: request.deviceFingerprint,
-                        sessionId: request.sessionId
-                    ))
+                    self?.handleInputLaneReady(fingerprint, server: server)
                 }
             }
         )
@@ -357,17 +309,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshConnectedState()
     }
 
-    private func handleSessionReady(_ active: ActiveSession, channel: SignalingChannel, ready: SessionReady) {
-        sessions.noteReady(
-            active,
-            channel: channel,
-            inputCapability: ready.inputCapability,
-            inputCapabilityExpiresAt: ready.inputCapabilityExpiresAt,
-            mediaCapability: ready.mediaCapability,
-            mediaCapabilityExpiresAt: ready.mediaCapabilityExpiresAt
+    private func handleSessionReady(
+        _ active: ActiveSession,
+        ready: SessionReady,
+        datagrams: QUIC.Datagrams<QUICDatagram>,
+        mediaKey: SymmetricKey
+    ) {
+        let transport = QuicSessionHostMediaTransport(
+            source: frameSource,
+            datagrams: datagrams,
+            mediaKey: mediaKey
         )
+        sessions.noteReady(active, ready: ready, transport: transport)
         signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public) session=\(active.sessionId, privacy: .public)")
-        startMediaTransport(for: active)
+        startMediaTransport(transport, for: active)
+        refreshConnectedState()
+    }
+
+    private func handleSessionResume(_ request: SessionResumeInit) throws -> (ActiveSession, SessionReady) {
+        switch sessions.validateResume(request) {
+        case .accepted(let active):
+            guard (try? pairing.lookup(deviceFingerprint: active.deviceFingerprint)) != nil else {
+                throw SessionRejected(reason: .unknownDevice)
+            }
+            let ready = try sessions.makeResumeReady(for: active.deviceFingerprint)
+            signalingLogger.notice("session resuming fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public) session=\(active.sessionId, privacy: .public)")
+            return (active, ready)
+        case .rejected(let reason):
+            throw SessionRejected(reason: reason)
+        }
+    }
+
+    private func handleSessionSuspended(_ fingerprint: DeviceFingerprint, sessionId: String?) {
+        sessions.markSuspended(fingerprint, sessionId: sessionId)
+        signalingLogger.notice("session suspended fingerprint=\(fingerprint.rawValue, privacy: .public)")
+        let graceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Config.sessionResumeTTL * 1_000_000_000))
+            await MainActor.run { [weak self] in
+                guard let self,
+                      self.sessions.state(for: fingerprint) == .suspended else { return }
+                self.handleSessionEnded(fingerprint, sessionId: sessionId)
+            }
+        }
+        sessions.scheduleResumeGrace(graceTask, for: fingerprint)
         refreshConnectedState()
     }
 
@@ -378,15 +362,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ) {
         thumbnailEnabledClients.remove(fingerprint)
         spaceThumbnailProvider.setDemand(owner: .client(fingerprint.rawValue), enabled: false)
-        sessions.endSession(fingerprint, sessionId: sessionId, closeSignaling: closeSignaling)
+        sessions.endSession(fingerprint, sessionId: sessionId)
         signalingLogger.notice("session ended fingerprint=\(fingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
     }
 
-    private func startMediaTransport(for active: ActiveSession) {
-        let transport = mediaFactory.make()
-        sessions.attachTransport(transport, for: active.deviceFingerprint)
-        let frameSource = self.frameSource
+    private func startMediaTransport(_ transport: MediaTransport, for active: ActiveSession) {
         let fingerprint = active.deviceFingerprint
 
         Task { [weak self, transport] in
@@ -395,15 +376,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // ADR-0005: input does not ride on the media transport; the
-        // input dispatch task is wired in handleInputChannelReady when
-        // the client opens its dedicated WSS. Media transport here is
-        // video-only.
-
-        Task { [signalingLogger, transport, frameSource] in
+        Task { [signalingLogger, transport] in
             do {
                 try await transport.start(
-                    videoSource: frameSource,
+                    videoSource: nil,
                     videoSink: nil
                 )
                 signalingLogger.notice("media transport started")
@@ -413,12 +389,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // ADR-0005: client opened its input WSS; wire the server's event
-    // stream into the dispatcher. Off-MainActor like the previous
-    // data-channel-input task (dispatcher owns its serial queue so
-    // CGEvent.post never serialises behind UI work).
-    private func handleInputChannelReady(_ fingerprint: DeviceFingerprint, server: InputChannelServer) {
-        signalingLogger.notice("input channel ready fp=\(fingerprint.rawValue, privacy: .public)")
+    // ADR-0030: the client opened the input stream inside the session QUIC
+    // connection. Off-MainActor like the previous data-channel-input task
+    // because the dispatcher owns its serial queue, so CGEvent.post never
+    // serialises behind UI work.
+    private func handleInputLaneReady(_ fingerprint: DeviceFingerprint, server: InputChannelServer) {
+        signalingLogger.notice("input lane ready fp=\(fingerprint.rawValue, privacy: .public)")
         sessions.attachInputChannelServer(server, for: fingerprint)
         // R11: push the current DesktopState as soon as the channel is
         // attached so the client can render the dots band immediately
@@ -651,28 +627,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .connecting:
             break
         case .connected:
-            sessions.cancelIceGrace(for: fingerprint)
+            break
         case .disconnected:
-            sessions.scheduleIceGrace(
-                Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: 5_000_000_000)
-                    guard !Task.isCancelled else { return }
-                    self?.terminateMediaSession(for: fingerprint, reason: "ice-disconnected-grace")
-                },
-                for: fingerprint
-            )
+            sessions.markSuspended(fingerprint)
         case .failed, .closed:
-            sessions.cancelIceGrace(for: fingerprint)
-            terminateMediaSession(for: fingerprint, reason: "media-\(state)")
+            handleSessionEnded(fingerprint)
         }
-    }
-
-    private func terminateMediaSession(for fingerprint: DeviceFingerprint, reason: String) {
-        signalingLogger.notice("terminating session reason=\(reason, privacy: .public) fingerprint=\(fingerprint.rawValue, privacy: .public)")
-        sessions.signalingChannel(for: fingerprint)?.close()
-        // connectionDidClose on the NWConnection fires sessionEndedHandler
-        // which calls sessions.endSession via handleSessionEnded, tearing
-        // down transport / tasks / timers in one place.
     }
 
     private func revokeDevice(_ fingerprint: DeviceFingerprint) {

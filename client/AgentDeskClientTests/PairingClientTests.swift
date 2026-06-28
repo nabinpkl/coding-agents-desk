@@ -73,65 +73,6 @@ struct PairingClientTests {
         #expect(rejectingClient.state == .rejected("signature-mismatch"))
     }
 
-    @Test func postReadySessionRejectedSurfacesThroughCapabilityRefresh() async throws {
-        let channel = WebSocketSignalingChannel(
-            capabilityRequestSender: { _ in },
-            closer: {}
-        )
-        let refresh = Task {
-            try await channel.refreshInputCapability(
-                deviceFingerprint: DeviceFingerprint("device-fp"),
-                sessionId: "session-123"
-            )
-        }
-
-        try await Task.sleep(nanoseconds: 10_000_000)
-        channel.deliver(SessionRejected(reason: .revoked))
-
-        do {
-            _ = try await refresh.value
-            Issue.record("capability refresh unexpectedly succeeded")
-        } catch let rejection as SessionRejected {
-            #expect(rejection.reason == .revoked)
-        }
-    }
-
-    @Test func mediaCapabilityRefreshSendsRequestAndResumesWithGrant() async throws {
-        let requests = MediaRefreshRequests()
-        let channel = WebSocketSignalingChannel(
-            capabilityRequestSender: { _ in },
-            mediaCapabilityRequestSender: { request in
-                await requests.append(request)
-            },
-            closer: {}
-        )
-        let refresh = Task {
-            try await channel.refreshMediaCapability(
-                deviceFingerprint: DeviceFingerprint("device-fp"),
-                sessionId: "session-123"
-            )
-        }
-
-        try await waitUntil {
-            await requests.values.count == 1
-        }
-        #expect(await requests.values == [
-            MediaCapabilityRefreshRequest(
-                deviceFingerprint: DeviceFingerprint("device-fp"),
-                sessionId: "session-123"
-            )
-        ])
-        channel.deliver(MediaCapabilityGrant(
-            sessionId: "session-123",
-            mediaCapability: "media-capability-fresh",
-            mediaCapabilityExpiresAt: 1_800_000_060
-        ))
-
-        let grant = try await refresh.value
-        #expect(grant.mediaCapability == "media-capability-fresh")
-        #expect(grant.mediaCapabilityExpiresAt == 1_800_000_060)
-    }
-
     @Test func mediaSessionRevokedFailureClearsStoredCredentials() throws {
         let hostKey = P256.Signing.PrivateKey()
         let token = try signedToken(hostKey: hostKey, deviceFingerprint: DeviceFingerprint("device"))
@@ -168,13 +109,13 @@ struct PairingClientTests {
         #expect(try store.load() == nil)
     }
 
-    @Test func staleAndExpiredRefreshRejectionsStayPairedDisconnected() throws {
+    @Test func transientSessionRejectionsStayPairedDisconnected() throws {
         let hostKey = P256.Signing.PrivateKey()
         let token = try signedToken(hostKey: hostKey, deviceFingerprint: DeviceFingerprint("device"))
         for reason in [
-            SessionRejectionReason.staleInputCapability,
-            .expiredInputCapability,
-            .expiredMediaCapability
+            SessionRejectionReason.replay,
+            .malformed,
+            .expiredResume
         ] {
             let store = InMemorySessionTokenStore()
             try store.store(StoredPairingRecord(
@@ -240,32 +181,6 @@ private struct InMemoryDeviceSigningKeyProvider: DeviceSigningKeyProviding {
 private struct StaticResolver: DNSResolving {
     func canResolve(_ host: String) -> Bool {
         true
-    }
-}
-
-private actor MediaRefreshRequests {
-    private var storage: [MediaCapabilityRefreshRequest] = []
-
-    var values: [MediaCapabilityRefreshRequest] {
-        storage
-    }
-
-    func append(_ request: MediaCapabilityRefreshRequest) {
-        storage.append(request)
-    }
-}
-
-@MainActor
-private func waitUntil(
-    timeoutNs: UInt64 = 1_000_000_000,
-    predicate: @escaping @Sendable () async -> Bool
-) async throws {
-    let startedAt = DispatchTime.now().uptimeNanoseconds
-    while !(await predicate()) {
-        if DispatchTime.now().uptimeNanoseconds &- startedAt > timeoutNs {
-            throw SessionRejected(reason: .malformed)
-        }
-        try await Task.sleep(nanoseconds: 5_000_000)
     }
 }
 

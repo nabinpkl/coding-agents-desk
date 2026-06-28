@@ -128,9 +128,8 @@ iphone-log-collect variant="stable":
 # value the user pinned into launchd out-of-band survives.
 #
 # AGENTDESK_OWNED_MEDIA_* is forwarded for one-shot owned media feel runs
-# with `just fresh-install`. The scroll-hybrid worktree also documents
-# AGENTDESK_GRAPHICS_PORT and AGENTDESK_HYBRID_* in .env.example; those
-# knobs become active when the graphics stream and cadence wiring land.
+# with `just fresh-install`. The retained-tile repair knobs are documented
+# as AGENTDESK_HYBRID_* in .env.example.
 host-run:
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true

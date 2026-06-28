@@ -218,7 +218,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // The offer listener only makes sense in the foreground; iOS would tear
         // the NWListener down on suspend anyway, so stop it explicitly.
         stopOfferListener()
-        // Closes activeSignaling + activeInputChannel and flips state
+        // Closes the active QUIC session transport and flips state
         // .connected -> .pairedDisconnected. Idempotent for other
         // states.
         pairingClient.handleMediaSessionFailed()
@@ -255,15 +255,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     func startMediaTransportIfNeeded() {
         guard mediaTransport == nil,
-              pairingClient.activeSignaling != nil else { return }
+              let transport = pairingClient.activeSessionTransport else { return }
         let sink = MediaStack.makeVideoSink()
-        let mediaFactory = MediaStack.makeFactory(
-            host: pairingClient.activeHost,
-            active: activeSessionForMedia(),
-            mediaCapability: pairingClient.activeMediaCapability,
-            mediaCapabilityRefresher: pairingClient.activeSignaling as? MediaCapabilityRefreshing
-        )
-        let transport = mediaFactory.make()
         videoSink = sink
         mediaTransport = transport
         mountSinkView(sink.view)
