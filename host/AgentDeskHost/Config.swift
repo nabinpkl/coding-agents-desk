@@ -151,7 +151,7 @@ enum Config {
     // resend, and the cap on packets served per resend request.
     static let ownedMediaResendRingFrames = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_RESEND_RING_FRAMES",
-        defaultValue: 8
+        defaultValue: 240
     )
     static let ownedMediaMaxResendPackets = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",

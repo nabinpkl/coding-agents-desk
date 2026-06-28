@@ -36,12 +36,14 @@ Chose **Option B as the fix, with Option A's in-flight keyframe suppression as a
 - Good, because an isolated packet loss is repaired with a few packets instead of a ~288-packet keyframe, so recovery stops being the thing that saturates the link.
 - Good, because the validated WiFi path is untouched: no loss means no resend traffic on either end.
 - Good, because keyframe recovery remains as the bounded fallback for a frame resend cannot save, so the stream still re-syncs in the worst case.
-- Bad, because the host now keeps a bounded ring of recent packets (memory) and serves resends (a new control path), and a resend can still arrive too late behind newer frames.
+- Bad, because the host now keeps a bounded ring of recent packets (memory) and serves resends (a new control path), and a resend can still arrive too late behind newer frames. The first device validation proved the original 8-frame ring was too small for LTE request latency, so the default is 240 frames.
 - Neutral, because the wire type already carries the fields and chroma stays 4:2:0; this activates dormant scaffolding rather than adding a protocol surface.
 
 ### Confirmation
 
-Unit tests assert `OwnedMediaResendRing` serves the requested indexes of a remembered frame, reports misses for unknown frames or indexes, honors the per-request cap, and evicts past capacity; and that a `.packetResendRequest` carrying `packetIndexes` round-trips through the control codec on both ends. A throttled-LTE device run is the acceptance: the host log shows resends served, loss-driven keyframe-requests per session falling below the adaptive-only baseline (8 per session from R91), and the steppy/lag easing without a WiFi regression.
+Unit tests assert `OwnedMediaResendRing` serves the requested indexes of a remembered frame, reports misses for unknown frames or indexes, honors the per-request cap, and evicts past capacity; that a `.packetResendRequest` carrying `packetIndexes` round-trips through the control codec on both ends; and that the client evicts locally dropped frames before emitting resend requests, so it does not NACK frames it has already abandoned.
+
+The first throttled-LTE validation attempt on 2026-06-26 did not pass: host logs showed `resend-miss` lines and continued keyframe fallback, with no `resend-served` evidence. The follow-up fix keeps 240 host frames in the resend ring and drops hopeless client frames before NACK. ADR-0028 remains proposed until a new throttled-LTE run shows resends served, loss-driven keyframe-requests per session below the adaptive-only baseline (8 per session from R91), and the steppy/lag easing without a WiFi regression.
 
 ## Non-goals (captured, not in this decision)
 

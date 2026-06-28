@@ -82,12 +82,12 @@ final class MediaDatagramFrameRepairBuffer {
         }
 
         var result = MediaDatagramRepairResult.empty
-        result.resendRequests.append(contentsOf: requestMissingPackets(now: now))
         result.expiredFrames.append(contentsOf: expirePastDeadline(now: now))
         result.expiredFrames.append(contentsOf: enforceTrackedFrameLimit())
         let completed = drainCompletedFrames()
         result.repairedFrameCount += completed.filter(\.wasRepaired).count
         result.completedFrames.append(contentsOf: completed)
+        result.resendRequests.append(contentsOf: requestMissingPackets(now: now))
         return result
     }
 

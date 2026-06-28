@@ -49,6 +49,14 @@ final class OwnedMediaFrameRepairBufferTests: XCTestCase {
         XCTAssertEqual(result.completedFrames.map(\.frameId), [2, 3], "frames 2 and 3 drain once the gap is dropped")
     }
 
+    func testTrackedLimitEvictsBeforeRequestingResend() {
+        let buffer = MediaDatagramFrameRepairBuffer(repairDeadlineNs: 100_000, trackedFrameLimit: 1, maxResendPackets: 64)
+        _ = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([1])), now: 0)
+        let result = buffer.accept(packet(frame: 2, index: 0, count: 2, payload: Data([2])), now: 10)
+        XCTAssertEqual(result.expiredFrames.map(\.frameId), [1])
+        XCTAssertEqual(result.resendRequests, [], "do not NACK a frame we already evicted locally")
+    }
+
     func testLatePacketBeforeDeadlineCompletesAsRepaired() {
         let buffer = MediaDatagramFrameRepairBuffer(repairDeadlineNs: 100_000, trackedFrameLimit: 8, maxResendPackets: 64)
         _ = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([10])), now: 0)
