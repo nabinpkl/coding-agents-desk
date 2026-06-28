@@ -404,21 +404,4 @@ struct OwnedSurfaceCompositorCacheTests {
         #expect(after.allSatisfy { $0 == 0 }, "a resize reset must reallocate and clear to black")
     }
 
-    // The client must decode the exact wire shape the host encodes for copyRect
-    // (kind=copyRect, keys sx/sy/dx/dy/w/h). This is the byte-level contract that
-    // lets the host emit the scroll fast path and the client apply it.
-    @Test func clientDecodesHostCopyRectWireShape() throws {
-        let wire = """
-        {"k":"copyRect","sx":0,"sy":64,"dx":0,"dy":0,"w":1170,"h":2000}
-        """.data(using: .utf8)!
-        let decoded = try JSONDecoder().decode(OwnedGraphicsCommand.self, from: wire)
-        #expect(decoded == .copyRect(srcX: 0, srcY: 64, dstX: 0, dstY: 0, width: 1170, height: 2000))
-        try decoded.validateForCurrentScope()
-    }
-
-    @Test func clientRoundTripsCopyRect() throws {
-        let c = OwnedGraphicsCommand.copyRect(srcX: 5, srcY: 64, dstX: 5, dstY: 0, width: 800, height: 600)
-        let data = try JSONEncoder().encode(c)
-        #expect(try JSONDecoder().decode(OwnedGraphicsCommand.self, from: data) == c)
-    }
 }

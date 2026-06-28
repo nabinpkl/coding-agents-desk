@@ -82,7 +82,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             // surfaceLayer now, so every applied frame is a screen update. Stamp
             // the render clock here so renderGapMs reflects real frame spacing.
             lastRenderUptimeNs = DispatchTime.now().uptimeNanoseconds
-            ownedMediaStderrTrace("graphics-frame frame=\(envelope.header.frameId) generation=\(envelope.header.surfaceGeneration) commands=\(envelope.commands.count) bytes=\(envelope.payload.count) action=\(stats.action) compositorMs=\(Self.formatDouble(stats.compositorMs)) copyRectMs=\(Self.formatDouble(stats.copyRectMs)) tileDecodeMs=\(Self.formatDouble(stats.tileDecodeMs)) tilePaintMs=\(Self.formatDouble(stats.tilePaintMs)) makeImageMs=\(Self.formatDouble(makeImageMs)) stale=\(stats.staleDiscardCount) copyRects=\(stats.copyRectCount) tileBytes=\(stats.tileBytes) queuedFrames=\(queueDepth.queuedFrames) queueDepthBytes=\(queueDepth.queueDepthBytes) totalGraphicsApplied=\(stats.totalGraphicsFramesApplied)")
+            ownedMediaStderrTrace("graphics-frame frame=\(envelope.header.frameId) generation=\(envelope.header.surfaceGeneration) commands=\(envelope.commands.count) bytes=\(envelope.payload.count) action=\(stats.action) compositorMs=\(Self.formatDouble(stats.compositorMs)) tileDecodeMs=\(Self.formatDouble(stats.tileDecodeMs)) tilePaintMs=\(Self.formatDouble(stats.tilePaintMs)) makeImageMs=\(Self.formatDouble(makeImageMs)) stale=\(stats.staleDiscardCount) tileBytes=\(stats.tileBytes) queuedFrames=\(queueDepth.queuedFrames) queueDepthBytes=\(queueDepth.queueDepthBytes) totalGraphicsApplied=\(stats.totalGraphicsFramesApplied)")
             return OwnedGraphicsFrameAck(
                 surfaceGeneration: envelope.header.surfaceGeneration,
                 frameId: envelope.header.frameId,
@@ -144,24 +144,20 @@ private extension OwnedMediaVideoSink {
 struct OwnedSurfaceCompositorStats: Equatable {
     let action: String
     let compositorMs: Double
-    let copyRectMs: Double
     let tileDecodeMs: Double
     let tilePaintMs: Double
     let staleDiscardCount: Int
     let totalGraphicsFramesApplied: UInt64
     let tileBytes: Int
-    let copyRectCount: Int
 }
 
 private struct OwnedSurfaceCompositorTiming {
-    var copyRectMs = 0.0
     var tileDecodeMs = 0.0
     var tilePaintMs = 0.0
 }
 
 private enum OwnedSurfaceValidatedCommand {
     case resetSurface(surfaceGeneration: UInt32, width: Int, height: Int, baseline: OwnedSurfaceUpdateId)
-    case copyRect(srcX: Int, srcY: Int, dstX: Int, dstY: Int, width: Int, height: Int)
     case bitmapTile(x: Int, y: Int, width: Int, height: Int, decoded: Data)
     case cacheTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int, decoded: Data)
     case drawCachedTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int)
@@ -201,7 +197,6 @@ struct OwnedSurfaceCompositor {
             return stats(action: "stale-reset", startNs: startNs, timing: timing, tileBytes: 0)
         }
         var tileBytes = 0
-        var copyRects = 0
         for command in validatedCommands {
             switch command {
             case let .resetSurface(_, width, height, baseline):
@@ -221,14 +216,6 @@ struct OwnedSurfaceCompositor {
                 }
                 slotBitmaps.removeAll()
                 committedUpdateId = baseline
-            case let .copyRect(srcX, srcY, dstX, dstY, width, height):
-                let copyStartNs = DispatchTime.now().uptimeNanoseconds
-                try copyRect(srcX: srcX, srcY: srcY, dstX: dstX, dstY: dstY, width: width, height: height)
-                timing.copyRectMs += OwnedMediaRenderTiming.elapsedMs(
-                    from: copyStartNs,
-                    to: DispatchTime.now().uptimeNanoseconds
-                )
-                copyRects += 1
             case let .bitmapTile(x, y, width, height, decoded):
                 let paintStartNs = DispatchTime.now().uptimeNanoseconds
                 try paintTile(decoded, x: x, y: y, width: width, height: height)
@@ -270,7 +257,7 @@ struct OwnedSurfaceCompositor {
             committedUpdateId = updateId
         }
         totalGraphicsFramesApplied += 1
-        return stats(action: "graphics", startNs: startNs, timing: timing, tileBytes: tileBytes, copyRects: copyRects)
+        return stats(action: "graphics", startNs: startNs, timing: timing, tileBytes: tileBytes)
     }
 
     func makeImage() -> CGImage? {
@@ -301,19 +288,16 @@ struct OwnedSurfaceCompositor {
         action: String,
         startNs: UInt64,
         timing: OwnedSurfaceCompositorTiming,
-        tileBytes: Int,
-        copyRects: Int = 0
+        tileBytes: Int
     ) -> OwnedSurfaceCompositorStats {
         OwnedSurfaceCompositorStats(
             action: action,
             compositorMs: Double(DispatchTime.now().uptimeNanoseconds &- startNs) / 1_000_000.0,
-            copyRectMs: timing.copyRectMs,
             tileDecodeMs: timing.tileDecodeMs,
             tilePaintMs: timing.tilePaintMs,
             staleDiscardCount: staleDiscardCount,
             totalGraphicsFramesApplied: totalGraphicsFramesApplied,
-            tileBytes: tileBytes,
-            copyRectCount: copyRects
+            tileBytes: tileBytes
         )
     }
 
@@ -430,34 +414,6 @@ struct OwnedSurfaceCompositor {
                     to: DispatchTime.now().uptimeNanoseconds
                 )
                 validated.append(.cacheTile(slot: slot, x: x, y: y, width: width, height: height, decoded: cacheDecoded))
-            case let .copyRect(srcX, srcY, dstX, dstY, width, height):
-                guard updateId.isStrictlyNewer(than: candidateCommittedUpdateId) else {
-                    throw SessionRejected(reason: .malformed)
-                }
-                // Both the source the pixels come from and the destination they land
-                // on must lie inside the surface, or the blit reads or writes out of
-                // bounds.
-                try Self.validateRect(
-                    x: srcX,
-                    y: srcY,
-                    width: width,
-                    height: height,
-                    surfaceWidth: candidateWidth,
-                    surfaceHeight: candidateHeight,
-                    bytesPerRow: candidateBytesPerRow,
-                    pixelCount: candidatePixelCount
-                )
-                try Self.validateRect(
-                    x: dstX,
-                    y: dstY,
-                    width: width,
-                    height: height,
-                    surfaceWidth: candidateWidth,
-                    surfaceHeight: candidateHeight,
-                    bytesPerRow: candidateBytesPerRow,
-                    pixelCount: candidatePixelCount
-                )
-                validated.append(.copyRect(srcX: srcX, srcY: srcY, dstX: dstX, dstY: dstY, width: width, height: height))
             case let .drawCachedTile(slot, x, y, width, height):
                 guard updateId.isStrictlyNewer(than: candidateCommittedUpdateId) else {
                     throw SessionRejected(reason: .malformed)
@@ -506,38 +462,6 @@ struct OwnedSurfaceCompositor {
               y <= surfaceHeight - height,
               pixelCount == bytesPerRow * surfaceHeight else {
             throw SessionRejected(reason: .malformed)
-        }
-    }
-
-    // Shift an already-painted region within the surface. The source and
-    // destination overlap when scrolling, so the copy is overlap-safe: a full-width
-    // shift is one memmove over the contiguous band; a sub-width shift goes row by
-    // row, bottom-up when moving down and top-down when moving up, so a row is read
-    // before the shifted copy overwrites it.
-    private mutating func copyRect(srcX: Int, srcY: Int, dstX: Int, dstY: Int, width: Int, height: Int) throws {
-        try validateRect(x: srcX, y: srcY, width: width, height: height)
-        try validateRect(x: dstX, y: dstY, width: width, height: height)
-        let copyBytesPerRow = width * 4
-        pixels.withUnsafeMutableBytes { targetBytes in
-            guard let base = targetBytes.baseAddress else { return }
-            if srcX == 0, dstX == 0, width == self.width {
-                let source = base.advanced(by: srcY * bytesPerRow)
-                let target = base.advanced(by: dstY * bytesPerRow)
-                memmove(target, source, copyBytesPerRow * height)
-                return
-            }
-
-            let rows: AnySequence<Int>
-            if dstY > srcY {
-                rows = AnySequence(stride(from: height - 1, through: 0, by: -1))
-            } else {
-                rows = AnySequence(0..<height)
-            }
-            for row in rows {
-                let source = base.advanced(by: (srcY + row) * bytesPerRow + srcX * 4)
-                let target = base.advanced(by: (dstY + row) * bytesPerRow + dstX * 4)
-                memmove(target, source, copyBytesPerRow)
-            }
         }
     }
 

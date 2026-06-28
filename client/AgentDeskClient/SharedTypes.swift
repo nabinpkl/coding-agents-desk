@@ -1069,17 +1069,12 @@ enum OwnedGraphicsStreamRole: UInt8 {
 
 enum OwnedGraphicsCommand: Equatable {
     case resetSurface(surfaceGeneration: UInt32, width: Int, height: Int, pixelFormat: OwnedGraphicsPixelFormat)
-    // Shift an already-painted region of the client surface by (dstX-srcX, dstY-srcY)
-    // without re-sending its pixels. The scroll fast path: a vertical scroll moves the
-    // stable region with one copyRect and re-tiles only the thin newly-exposed strip.
-    case copyRect(srcX: Int, srcY: Int, dstX: Int, dstY: Int, width: Int, height: Int)
     case bitmapTile(x: Int, y: Int, width: Int, height: Int, compression: OwnedGraphicsTileCompression, byteRange: OwnedGraphicsByteRange)
     case cacheTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int, compression: OwnedGraphicsTileCompression, byteRange: OwnedGraphicsByteRange)
     case drawCachedTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int)
 
     enum Kind: String, Codable {
         case resetSurface
-        case copyRect
         case bitmapTile
         case cacheTile
         case drawCachedTile
@@ -1091,10 +1086,6 @@ enum OwnedGraphicsCommand: Equatable {
         case width = "w"
         case height = "h"
         case pixelFormat = "pf"
-        case srcX = "sx"
-        case srcY = "sy"
-        case dstX = "dx"
-        case dstY = "dy"
         case x
         case y
         case compression = "comp"
@@ -1106,10 +1097,6 @@ enum OwnedGraphicsCommand: Equatable {
         switch self {
         case let .resetSurface(_, width, height, _):
             guard width > 0, height > 0 else {
-                throw SessionRejected(reason: .malformed)
-            }
-        case let .copyRect(srcX, srcY, dstX, dstY, width, height):
-            guard srcX >= 0, srcY >= 0, dstX >= 0, dstY >= 0, width > 0, height > 0 else {
                 throw SessionRejected(reason: .malformed)
             }
         case let .bitmapTile(x, y, width, height, _, byteRange):
@@ -1143,15 +1130,6 @@ extension OwnedGraphicsCommand: Codable {
                 width: try container.decode(Int.self, forKey: .width),
                 height: try container.decode(Int.self, forKey: .height),
                 pixelFormat: try container.decode(OwnedGraphicsPixelFormat.self, forKey: .pixelFormat)
-            )
-        case .copyRect:
-            self = .copyRect(
-                srcX: try container.decode(Int.self, forKey: .srcX),
-                srcY: try container.decode(Int.self, forKey: .srcY),
-                dstX: try container.decode(Int.self, forKey: .dstX),
-                dstY: try container.decode(Int.self, forKey: .dstY),
-                width: try container.decode(Int.self, forKey: .width),
-                height: try container.decode(Int.self, forKey: .height)
             )
         case .bitmapTile:
             self = .bitmapTile(
@@ -1192,14 +1170,6 @@ extension OwnedGraphicsCommand: Codable {
             try container.encode(width, forKey: .width)
             try container.encode(height, forKey: .height)
             try container.encode(pixelFormat, forKey: .pixelFormat)
-        case let .copyRect(srcX, srcY, dstX, dstY, width, height):
-            try container.encode(Kind.copyRect, forKey: .kind)
-            try container.encode(srcX, forKey: .srcX)
-            try container.encode(srcY, forKey: .srcY)
-            try container.encode(dstX, forKey: .dstX)
-            try container.encode(dstY, forKey: .dstY)
-            try container.encode(width, forKey: .width)
-            try container.encode(height, forKey: .height)
         case let .bitmapTile(x, y, width, height, compression, byteRange):
             try container.encode(Kind.bitmapTile, forKey: .kind)
             try container.encode(x, forKey: .x)
