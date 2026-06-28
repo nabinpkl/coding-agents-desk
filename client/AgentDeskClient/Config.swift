@@ -51,6 +51,19 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
         defaultValue: 64
     )
+    // ADR-0025 mixed-mode kill switch (mirrors the host). Off by default: the client
+    // renders only the retained-tile path. On: it accepts the HEVC datagram motion
+    // stream and swaps to the video layer while scrolling.
+    static let ownedMediaVideoMotionEnabled: Bool = {
+        switch ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED"]?.lowercased() {
+        case "1", "true", "yes", "on": return true
+        default: return false
+        }
+    }()
+    static let ownedMediaMaxDatagramFrameSize = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_DATAGRAM_FRAME_SIZE",
+        defaultValue: 1300
+    )
 
     static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
         guard let raw = ProcessInfo.processInfo.environment[environmentKey],

@@ -1,3 +1,4 @@
+import AVFoundation
 import Compression
 import ImageIO
 import UIKit
@@ -8,15 +9,30 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
         _ envelope: OwnedGraphicsFrameEnvelope,
         queueDepth: OwnedGraphicsQueueDepth
     ) -> OwnedGraphicsFrameAck
+    // ADR-0025: a decoded HEVC motion frame from the datagram carrier.
+    @MainActor func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope)
     @MainActor func currentGraphicsResetRequest(reason: String) -> OwnedGraphicsResetRequest
     @MainActor func consumePendingGraphicsResetRequest() -> OwnedGraphicsResetRequest?
     @MainActor func setOwnedMediaDebugStatus(_ status: String)
+}
+
+// Default no-op so non-video conformers (test stubs) need not implement it.
+extension OwnedMediaFrameSink {
+    @MainActor func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope) {}
 }
 
 @MainActor
 final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     let view: UIView
     private let surfaceLayer = CALayer()
+    // ADR-0025: the motion video layer, a sibling of the tile surface. While
+    // scrolling it is visible and the tile surface hidden; on scroll-stop the
+    // handoff reveals the tiles only after the post-motion refresh has been applied.
+    private let videoLayer = AVSampleBufferDisplayLayer()
+    private let handoff = OwnedMediaCarrierHandoff()
+    private lazy var videoDecoder = OwnedMediaVideoDecoder(
+        layer: OwnedMediaVideoLayerEnqueuer(displayLayer: videoLayer)
+    )
     private let debugLabel = UILabel()
     private let logger = Logger(subsystem: Config.logSubsystem, category: "owned-media")
     private var compositor = OwnedSurfaceCompositor()
@@ -31,6 +47,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         surfaceLayer.backgroundColor = UIColor.black.cgColor
         surfaceLayer.isHidden = true
         container.layer.addSublayer(surfaceLayer)
+        videoLayer.videoGravity = .resizeAspect
+        videoLayer.backgroundColor = UIColor.black.cgColor
+        videoLayer.isHidden = true
+        container.layer.addSublayer(videoLayer)
         debugLabel.backgroundColor = UIColor.black.withAlphaComponent(0.72)
         debugLabel.textColor = .white
         debugLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -48,6 +68,32 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         container.layoutHandler = { [weak self, weak container] in
             guard let self, let bounds = container?.bounds else { return }
             self.surfaceLayer.frame = bounds
+            self.videoLayer.frame = bounds
+        }
+    }
+
+    // ADR-0025: a decoded HEVC motion frame. Enqueue it on the video layer and, on
+    // the first video frame of a scroll, swap the video layer in front of the tiles.
+    func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope) {
+        let result = videoDecoder.decodeAndEnqueue(envelope)
+        if result == .droppedPendingKeyframe || result == .formatDescriptionUnavailable {
+            ownedMediaStderrTrace("video-frame-dropped frame=\(envelope.header.frameId) reason=\(result)")
+        }
+        if handoff.motionStateChanged(to: .scrolling) == .video {
+            applyVisibleSurface()
+        }
+        lastRenderUptimeNs = DispatchTime.now().uptimeNanoseconds
+    }
+
+    // Reflect the handoff's chosen surface in layer visibility.
+    private func applyVisibleSurface() {
+        switch handoff.visibleSurface {
+        case .video:
+            videoLayer.isHidden = false
+            surfaceLayer.isHidden = true
+        case .tiles:
+            surfaceLayer.isHidden = false
+            videoLayer.isHidden = true
         }
     }
 
@@ -70,8 +116,16 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 from: makeImageStartNs,
                 to: DispatchTime.now().uptimeNanoseconds
             )
-            surfaceLayer.isHidden = false
-            // Graphics frames are the only render path now, so reflect liveness
+            // ADR-0025: a tile frame applied while the video layer is up is the
+            // post-motion full-surface refresh. It carries the same pixels the video
+            // last showed, so the swap to crisp tiles is a sharpen, not a jump: only
+            // now reveal the tiles and hide the video (no black gap, no stale jump).
+            if handoff.visibleSurface == .video {
+                handoff.motionStateChanged(to: .rest)
+                handoff.tileRefreshCommitted()
+            }
+            applyVisibleSurface()
+            // Graphics frames are the only retained-tile render path, so reflect liveness
             // in the debug overlay here. The old datagram/HEVC path used to drive
             // setOwnedMediaDebugStatus; without this the label stayed on its
             // initial "waiting" text forever even while frames flowed. Only

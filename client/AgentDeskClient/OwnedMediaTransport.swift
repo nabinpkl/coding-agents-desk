@@ -51,6 +51,20 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
     private var resetFallbackGate = OwnedGraphicsResetFallbackGate()
     private var receiveTask: Task<Void, Never>?
     private weak var sink: (any OwnedMediaFrameSink)?
+    // ADR-0025 motion carrier receive state. The repair buffer reassembles the HEVC
+    // datagram stream under loss; it is only touched from the group's receive handler,
+    // which runs serialized on `queue`. The key matches the host's shared constant
+    // (QUIC already secures the channel).
+    private static let videoDatagramKey = MediaDatagramCrypto.key(
+        mediaCapability: "owned-hevc-motion",
+        clientNonce: Data(),
+        serverNonce: Data()
+    )
+    private lazy var videoRepairBuffer = MediaDatagramFrameRepairBuffer(
+        repairDeadlineNs: UInt64(Config.ownedMediaRepairDeadlineMs) * 1_000_000,
+        trackedFrameLimit: Config.ownedMediaTrackedFrameLimit,
+        maxResendPackets: Config.ownedMediaMaxResendPackets
+    )
     private let onFallbackResetRequest: @Sendable (OwnedGraphicsResetRequest) async -> Void
     private let onDisconnected: @Sendable (String) -> Void
 
@@ -124,6 +138,13 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         group.stateUpdateHandler = { [weak self] state in
             self?.logger.notice("owned graphics quic group state=\(String(describing: state), privacy: .public)")
             if case .failed = state { self?.onDisconnected("group-failed") }
+        }
+        // ADR-0025: receive the HEVC motion datagrams on the group (host -> client).
+        if Config.ownedMediaVideoMotionEnabled {
+            group.setReceiveHandler(maximumMessageSize: 64 * 1024, rejectOversizedMessages: false) { [weak self] _, content, _ in
+                guard let self, let content, !content.isEmpty else { return }
+                self.handleVideoDatagram(content)
+            }
         }
 
         // Graphics stream: role 'G' + hello, then ready. (Every app stream is created
@@ -368,10 +389,37 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
         return Data(bytes)
     }
 
+    // ADR-0025: a video datagram arrived. Decode the packet, feed the repair buffer,
+    // hand each completed frame to the sink on the main actor, and ask for a keyframe
+    // when a frame is dropped past its repair deadline. Runs serialized on `queue`.
+    private func handleVideoDatagram(_ data: Data) {
+        guard let packet = try? MediaDatagramFramePacket.decode(data, key: Self.videoDatagramKey) else { return }
+        let result = videoRepairBuffer.accept(packet, now: DispatchTime.now().uptimeNanoseconds)
+        for completed in result.completedFrames {
+            guard let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else { continue }
+            Task { @MainActor [weak self] in self?.sink?.renderOwnedVideoFrame(envelope) }
+        }
+        if let expired = result.expiredFrames.last {
+            sendVideoControl(OwnedMediaControlMessage(kind: .keyframeRequest, frameId: expired.frameId))
+            logger.notice("owned media video keyframe-request frame=\(expired.frameId, privacy: .public) missing=\(expired.missingIndexes.count, privacy: .public)")
+        }
+    }
+
+    private func sendVideoControl(_ message: OwnedMediaControlMessage) {
+        guard let group, let data = try? JSONEncoder().encode(message) else { return }
+        group.send(content: data, completion: { _ in })
+    }
+
     private static func makeReliableQuicParameters(alpn: String) -> NWParameters {
         let options = NWProtocolQUIC.Options(alpn: [alpn])
         options.direction = .bidirectional
         options.isDatagram = false
+        // ADR-0025: advertise QUIC DATAGRAM frames when the motion carrier is on, so
+        // the HEVC video stream rides this group; isDatagram stays false so the
+        // reliable streams are unaffected. Off by default, identical to before.
+        if Config.ownedMediaVideoMotionEnabled {
+            options.maxDatagramFrameSize = Config.ownedMediaMaxDatagramFrameSize
+        }
         // ADR-0022: two app streams per connection (plus the group's implicit
         // stream 0). Allow several streams; the default is too small.
         options.initialMaxStreamsBidirectional = 8
