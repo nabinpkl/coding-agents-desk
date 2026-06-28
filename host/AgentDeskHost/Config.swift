@@ -151,6 +151,33 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MAX_TILE_COVERAGE_RATIO",
         defaultValue: 0.6
     )
+    // ScrollOffsetEstimator gates (ADR-0022). Input declares a scroll and its axis;
+    // the estimator measures the exact pixel offset and a thin 2-D stripe verifies
+    // it. A band must be long enough along the motion axis and wide enough across it
+    // to be a credible scroll, the luma tolerance absorbs JPEG noise, the verify
+    // stripe extent bounds the verify cost, and the verify floor is the single
+    // correctness gate: a candidate offset must explain at least this fraction of the
+    // stripe's changed pixels or the engine tiles the band instead of copying it.
+    static let hybridClassifierMinScrollExtentPx = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_SCROLL_EXTENT_PX",
+        defaultValue: 120
+    )
+    static let hybridClassifierMinCrossExtentPx = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MIN_CROSS_EXTENT_PX",
+        defaultValue: 64
+    )
+    static let hybridClassifierLumaTolerance = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_LUMA_TOLERANCE",
+        defaultValue: 24
+    )
+    static let hybridClassifierVerifyExtent = positiveInt(
+        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_VERIFY_EXTENT",
+        defaultValue: 256
+    )
+    static let hybridScrollOffsetVerifyFloor = positiveDouble(
+        environmentKey: "AGENTDESK_HYBRID_SCROLL_OFFSET_VERIFY_FLOOR",
+        defaultValue: 0.8
+    )
     // MotionGovernor policy table. These few knobs replace the deleted
     // congestion-EWMA trio and the three fullframe-quality knobs with one
     // cadence-first ladder (see MotionGovernor).
