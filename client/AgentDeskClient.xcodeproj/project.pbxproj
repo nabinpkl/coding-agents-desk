@@ -67,6 +67,7 @@
 		B0000000000000000000022E1 /* InputChannelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000124 /* InputChannelTests.swift */; };
 		B0000000000000000000022F /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000114 /* SettingsStore.swift */; };
 		B00000000000000000000E02 /* OwnedSurfaceCompositorCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000E01 /* OwnedSurfaceCompositorCacheTests.swift */; };
+		B00000000000000000000F02 /* OwnedSurfaceCompositorCopyRectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F01 /* OwnedSurfaceCompositorCopyRectTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -111,6 +112,7 @@
 		B00000000000000000000123 /* KeyboardSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSurfaceTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000124 /* InputChannelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannelTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000E01 /* OwnedSurfaceCompositorCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedSurfaceCompositorCacheTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000F01 /* OwnedSurfaceCompositorCopyRectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedSurfaceCompositorCopyRectTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000141 /* AgentDeskClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000142 /* AgentDeskClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -201,6 +203,7 @@
 				B00000000000000000000124 /* InputChannelTests.swift */,
 				B00000000000000000000125 /* ThumbnailStripViewTests.swift */,
 				B00000000000000000000E01 /* OwnedSurfaceCompositorCacheTests.swift */,
+				B00000000000000000000F01 /* OwnedSurfaceCompositorCopyRectTests.swift */,
 				B00000000000000000000128 /* EdgeFollowTests.swift */,
 			);
 			path = AgentDeskClientTests;
@@ -376,6 +379,7 @@
 				B0000000000000000000022F4 /* EdgeFollow.swift in Sources */,
 				B0000000000000000000022E3 /* EdgeFollowTests.swift in Sources */,
 				B00000000000000000000E02 /* OwnedSurfaceCompositorCacheTests.swift in Sources */,
+				B00000000000000000000F02 /* OwnedSurfaceCompositorCopyRectTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
