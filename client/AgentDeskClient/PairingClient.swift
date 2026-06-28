@@ -29,6 +29,13 @@ struct PairingHandshakeRequest: Codable {
     // ADR-0019: this device's self-reported name, so the host can label the pair
     // with what the phone calls itself instead of the tailnet "localhost".
     let deviceName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case devicePublicKey
+        case oneTimeNonce
+        case deviceName
+    }
 }
 
 struct PairingHandshakeResponse: Codable {

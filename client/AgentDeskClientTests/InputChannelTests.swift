@@ -190,6 +190,15 @@ struct InputChannelTests {
         #expect(OwnedGraphicsStreamRole.interactive.rawValue == 0x49)
     }
 
+    @Test func sessionConnectionReadinessKeepsWaitingTransient() {
+        #expect(SessionConnectionReadiness.decision(for: .setup) == .keepWaiting)
+        #expect(SessionConnectionReadiness.decision(for: .preparing) == .keepWaiting)
+        #expect(SessionConnectionReadiness.decision(for: .waiting("Network is down")) == .keepWaiting)
+        #expect(SessionConnectionReadiness.decision(for: .ready) == .ready)
+        #expect(SessionConnectionReadiness.decision(for: .failed("Socket is not connected")) == .fail("Socket is not connected"))
+        #expect(SessionConnectionReadiness.decision(for: .cancelled) == .fail(String(describing: CancellationError())))
+    }
+
     @MainActor
     @Test func ownedMediaVideoSinkQueuesResetRequestWhenGraphicsFrameFails() {
         let sink = OwnedMediaVideoSink()

@@ -257,7 +257,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         signalingServer = PairingSignalingServer(
             pairing: pairing,
             approvalHandler: { [weak self] fingerprint, completion in
-                self?.showApprovalSheet(for: fingerprint, completion: completion)
+                Task { @MainActor in
+                    self?.showApprovalSheet(for: fingerprint, completion: completion)
+                }
             },
             sessionAttemptStartedHandler: { [weak self] fingerprint in
                 Task { @MainActor in

@@ -8,6 +8,13 @@ struct PairingHandshakeRequest: Codable {
     let devicePublicKey: Data
     let oneTimeNonce: Data
     let deviceName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case devicePublicKey
+        case oneTimeNonce
+        case deviceName
+    }
 }
 
 struct PairingHandshakeResponse: Codable {

@@ -25,6 +25,23 @@ struct PairingClientTests {
         }
     }
 
+    @Test func pairingHandshakeRequestUsesControlDiscriminatorKey() throws {
+        let request = PairingHandshakeRequest(
+            type: "pair",
+            devicePublicKey: Data([1, 2, 3]),
+            oneTimeNonce: Data([4, 5, 6]),
+            deviceName: "sim"
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let decoded = try JSONDecoder().decode(PairingHandshakeRequest.self, from: data)
+        let json = String(data: data, encoding: .utf8) ?? ""
+
+        #expect(decoded.type == "pair")
+        #expect(json.contains("\"t\":\"pair\""))
+        #expect(!json.contains("\"type\""))
+    }
+
     @Test func stateMachineConnectsAndRejectsSignatureMismatch() throws {
         let hostKey = P256.Signing.PrivateKey()
         let deviceFingerprint = DeviceFingerprint("device")

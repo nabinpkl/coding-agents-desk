@@ -286,15 +286,20 @@ final class SessionDialer {
     private func waitUntilReady(_ connection: NetworkConnection<QUIC>) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let gate = ResumeGate()
+            let timeoutTask = Task { [gate] in
+                try? await Task.sleep(nanoseconds: UInt64(Config.sessionConnectionReadyTimeoutMs) * 1_000_000)
+                guard !Task.isCancelled, gate.claim() else { return }
+                continuation.resume(throwing: SessionConnectionReadyTimeout())
+            }
             connection.onStateUpdate { _, state in
-                switch state {
+                switch SessionConnectionReadiness.decision(for: state) {
                 case .ready:
+                    timeoutTask.cancel()
                     if gate.claim() { continuation.resume() }
-                case .failed(let error), .waiting(let error):
+                case .fail(let error):
+                    timeoutTask.cancel()
                     if gate.claim() { continuation.resume(throwing: error) }
-                case .cancelled:
-                    if gate.claim() { continuation.resume(throwing: CancellationError()) }
-                default:
+                case .keepWaiting:
                     break
                 }
             }
@@ -382,6 +387,65 @@ enum SessionHostSignatureVerifier {
         guard hostPublicKey.isValidSignature(signature, for: input) else {
             throw SessionRejected(reason: .badSignature)
         }
+    }
+}
+
+enum SessionConnectionReadinessDecision: Equatable {
+    case keepWaiting
+    case ready
+    case fail(String)
+}
+
+enum SessionConnectionReadinessEvent {
+    case setup
+    case preparing
+    case waiting(String)
+    case ready
+    case failed(String)
+    case cancelled
+}
+
+enum SessionConnectionReadiness {
+    static func decision(for event: SessionConnectionReadinessEvent) -> SessionConnectionReadinessDecision {
+        switch event {
+        case .ready:
+            .ready
+        case .failed(let description):
+            .fail(description)
+        case .cancelled:
+            .fail(String(describing: CancellationError()))
+        case .setup, .preparing, .waiting:
+            .keepWaiting
+        }
+    }
+
+    @available(iOS 26.0, *)
+    static func decision(for state: NetworkChannel<QUIC>.State) -> SessionConnectionReadyRuntimeDecision {
+        switch state {
+        case .ready:
+            .ready
+        case .failed(let error):
+            .fail(error)
+        case .cancelled:
+            .fail(CancellationError())
+        case .setup, .preparing, .waiting:
+            .keepWaiting
+        default:
+            .keepWaiting
+        }
+    }
+}
+
+@available(iOS 26.0, *)
+enum SessionConnectionReadyRuntimeDecision {
+    case keepWaiting
+    case ready
+    case fail(Error)
+}
+
+struct SessionConnectionReadyTimeout: Error, CustomStringConvertible {
+    var description: String {
+        "session connection did not become ready within \(Config.sessionConnectionReadyTimeoutMs)ms"
     }
 }
 

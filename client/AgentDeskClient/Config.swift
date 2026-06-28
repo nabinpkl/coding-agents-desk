@@ -11,6 +11,13 @@ enum Config {
     // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
     static let protocolVersion = 2
     static let minCompatibleProtocolVersion = 2
+    // NWConnection can report a transient .waiting state immediately before .ready,
+    // especially for simulator loopback QUIC. Treat waiting as recoverable and use
+    // this bound for real dial failures.
+    static let sessionConnectionReadyTimeoutMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_CONNECTION_READY_TIMEOUT_MS",
+        defaultValue: 10_000
+    )
     // The stable and experimental client installs differ only by bundle id.
     // Deriving the log subsystem and keychain namespace from the running
     // bundle id keeps each variant's diagnostics and stored credentials
