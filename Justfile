@@ -184,13 +184,11 @@ pair-iphone variant="stable":
     echo "URL: $(cat '{{last_pair_url_path}}')"
     URL="$(cat '{{last_pair_url_path}}')"; xcrun devicectl device process launch --device {{ios_device}} --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\"}" "$BID" "$URL"
 
-# Pair-launch the physical iPhone client with the console captured. Owned-media
-# stderr tracing is enabled so packet-repair diagnostics have a path separate from
-# iOS unified logging; both modes write {{iphone_console_log}}.
-#   variant : stable (default) | dev   which client bundle to pair-launch
-#   mode    : attached (default)       block until the app exits, also tee to terminal
-#           | detached                 launch in the background, log to file, return
-iphone-console-run variant="stable" mode="attached":
+# Pair-launch the physical iPhone client with the console attached. Blocks until
+# the app exits and tees stdout/stderr to {{iphone_console_log}}. Owned-media stderr
+# tracing is enabled so packet-repair diagnostics have a path separate from iOS
+# unified logging. variant: stable (default) | dev.
+iphone-console-run variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
     test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
@@ -200,23 +198,18 @@ iphone-console-run variant="stable" mode="attached":
     i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: $(cat '{{last_pair_url_path}}')"
-    URL="$(cat "{{last_pair_url_path}}")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"
-    CENV="{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\",\"AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED\":\"$VIDEO\"}"
-    if [ "{{mode}}" = "detached" ]; then
-        nohup xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing --environment-variables "$CENV" "$BID" "$URL" >"{{iphone_console_log}}" 2>&1 &
-        echo "launched detached (pid $!); console -> {{iphone_console_log}} (survives this shell via nohup)"
-    else
-        xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing --environment-variables "$CENV" "$BID" "$URL" 2>&1 | tee "{{iphone_console_log}}"
-    fi
+    URL="$(cat "{{last_pair_url_path}}")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing --environment-variables "{\"AGENTDESK_LAUNCH_URL\":\"$URL\",\"AGENTDESK_OWNED_MEDIA_STDERR_TRACE\":\"1\",\"AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED\":\"$VIDEO\"}" "$BID" "$URL" 2>&1 | tee "{{iphone_console_log}}"
 
-# Physical-device feel runs. Three console modes x two client variants. All three
-# rebuild+relaunch the host and reinstall the client; they differ only in how the
-# client is launched:
-#   fresh-install                  no console, returns immediately ("just use it")
-#   fresh-consoled-install         console attached, blocks until the app exits
-#   fresh-consoled-install-detached console captured to {{iphone_console_log}}, returns
+# Physical-device feel runs. Two console modes x two client variants. Both rebuild
+# and relaunch the host and reinstall the client; they differ only in how the client
+# is launched:
+#   fresh-install            no console, returns immediately ("just use it")
+#   fresh-consoled-install   console attached, blocks until the app exits, tees the log
 # Suffix -dev to drive the side-by-side AgentDesk Dev build instead of the stable
-# daily driver. The consoled modes are the AGENTS.md default for feel/diagnostic work.
+# daily driver. The consoled mode is the AGENTS.md default for feel/diagnostic work.
+# (There is no detached-console composite on purpose: a backgrounded console grows
+# {{iphone_console_log}} unbounded with no teardown. For bounded background capture
+# use `motion-verify`, which tears the stream down after a fixed window.)
 fresh-install:
     just host-run
     just client-reinstall stable
@@ -230,22 +223,12 @@ fresh-install-dev:
 fresh-consoled-install:
     just host-run
     just client-reinstall stable
-    just iphone-console-run stable attached
+    just iphone-console-run stable
 
 fresh-consoled-install-dev:
     just host-run
     just client-reinstall dev
-    just iphone-console-run dev attached
-
-fresh-consoled-install-detached:
-    just host-run
-    just client-reinstall stable
-    just iphone-console-run stable detached
-
-fresh-consoled-install-detached-dev:
-    just host-run
-    just client-reinstall dev
-    just iphone-console-run dev detached
+    just iphone-console-run dev
 
 # One-shot, deterministic motion-carrier device verification (ADR-0025). Rebuilds
 # and reinstalls host + client, launches both with the motion flag on, records
