@@ -19,7 +19,7 @@
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
 
-ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with control, input, and media lanes, protocol version `2`, and no WebSocket or separate media/graphics fallback. ADR-0031 records client-visible selected-display projection, keeping display choice separate from Spaces sliding.
+ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with control, input, and media lanes, protocol version `2`, and no WebSocket or separate media/graphics fallback. ADR-0031 records client-visible selected-display projection, keeping display choice separate from Spaces sliding. ADR-0032 records bounded durable client diagnostics with on-demand host retrieval over the input lane and a foreground tailnet control fallback.
 
 ## Module Boundaries
 
@@ -35,16 +35,17 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 6. **TailnetDiscovery.** Parses `tailscale status --json` into online tailnet peers (`TailnetDeviceOption`), keeping iOS peers with a tailnet IPv4 and ordering online ones first. The JSON parser is split out for unit testing without running `tailscale`.
 7. **PairingOfferSender.** Outbound plain-TCP `NWConnection` to a picked peer's offer port. Writes one length-prefixed `PairingPayload` and closes. Plaintext is acceptable: WireGuard encrypts the peer hop, the host public key in the payload is already public, and the nonce is one-use and pre-approval-gated.
 8. **TailnetIdentityProber.** Outbound `whois` probe on the offer port. An unpaired client whose listener is running replies with a display-only `DeviceIdentity`; the picker lists only the peers that answered, by their reported name. Display-only and pre-auth: tailnet membership is the trust boundary and the signed handshake still gates pairing.
-9. **SessionAuthenticator.** Runs the per-connection mutual challenge-response on the session QUIC control stream. Rejects a peer whose advertised `protocolVersion` is below the host's `minCompatibleProtocolVersion` with `incompatible-protocol` (ADR-0020). Produces `SessionReady` with the session id, memory-only resume id, resume secret, resume expiry, and media key salt.
-10. **QuicSessionTransport.** Owns the single live `NetworkConnection<QUIC>` and routes lanes by role. The control stream carries session init, challenge, proof, ready, resume, revoke, and heartbeat. The input stream carries `InputChannelEvent`, `ClientConfig`, and host pushes. The datagram lane carries authenticated `ADMD` media packets, packet resend requests, keyframe requests, ACKs, and link-health reports.
-11. **MediaTransport.** Sends HEVC full-frame refreshes over the session datagram lane. The media packet key is derived per session from fresh handshake material, the session id, and the `SessionReady.mediaKeySalt`; no static datagram key or separate media listener remains.
-12. **ScrollDeltaEngine.** Rest-state retained-graphics producer (ADR-0025), retained as local crisp-repair/compositor machinery. Damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`), omitting cells that already match the retained baseline. It does not own a separate network connection.
-13. **InputChannelServer.** Owns the host side of the session input stream. Drains `InputChannelEvent` frames into `NormalizedInput`, and pushes desktop state, thumbnails, cursor updates, and agent speech events on the same ordered lane.
-14. **SignalingChannel.** Supplies length-prefixed QUIC stream framing and role routing for the session control and input streams. It is not a WebSocket wrapper.
-15. **VideoFrameSource.** Concrete implementation `ScreenCaptureKitFrameSource` captures one stream for the selected display and exposes a display-selection hook. `TestPatternFrameSource` exists as a diagnostic source.
-16. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces, enabled by owner-scoped demand.
-17. **SpaceAgent.** Host-local overlay under `host/AgentDeskHost/SpaceAgent/`, showing the draggable spaceship and active-display Spaces strip.
-18. **DictationBar.** Host-local push-to-talk overlay under `host/AgentDeskHost/DictationBar/`, independent of the iPhone media and input channels.
+9. **ClientDiagnosticsRequester.** Host-side on-demand diagnostics collector. It requests diagnostics from the active paired client over the session input lane first, then falls back to the foreground tailnet control path on the offer port using the stored paired host key for request signing. Dev automation writes retrieved runs under `/tmp/agentdesk-client-diagnostics-<timestamp>/`.
+10. **SessionAuthenticator.** Runs the per-connection mutual challenge-response on the session QUIC control stream. Rejects a peer whose advertised `protocolVersion` is below the host's `minCompatibleProtocolVersion` with `incompatible-protocol` (ADR-0020). Produces `SessionReady` with the session id, memory-only resume id, resume secret, resume expiry, and media key salt.
+11. **QuicSessionTransport.** Owns the single live `NetworkConnection<QUIC>` and routes lanes by role. The control stream carries session init, challenge, proof, ready, resume, revoke, and heartbeat. The input stream carries `InputChannelEvent`, `ClientConfig`, diagnostics requests, and host pushes. The datagram lane carries authenticated `ADMD` media packets, packet resend requests, keyframe requests, ACKs, and link-health reports.
+12. **MediaTransport.** Sends HEVC full-frame refreshes over the session datagram lane. The media packet key is derived per session from fresh handshake material, the session id, and the `SessionReady.mediaKeySalt`; no static datagram key or separate media listener remains.
+13. **ScrollDeltaEngine.** Rest-state retained-graphics producer (ADR-0025), retained as local crisp-repair/compositor machinery. Damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`), omitting cells that already match the retained baseline. It does not own a separate network connection.
+14. **InputChannelServer.** Owns the host side of the session input stream. Drains `InputChannelEvent` frames into `NormalizedInput`, and pushes desktop state, thumbnails, cursor updates, agent speech events, and diagnostics responses on the same ordered lane.
+15. **SignalingChannel.** Supplies length-prefixed QUIC stream framing and role routing for the session control and input streams. It is not a WebSocket wrapper.
+16. **VideoFrameSource.** Concrete implementation `ScreenCaptureKitFrameSource` captures one stream for the selected display and exposes a display-selection hook. `TestPatternFrameSource` exists as a diagnostic source.
+17. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces, enabled by owner-scoped demand.
+18. **SpaceAgent.** Host-local overlay under `host/AgentDeskHost/SpaceAgent/`, showing the draggable spaceship and active-display Spaces strip.
+19. **DictationBar.** Host-local push-to-talk overlay under `host/AgentDeskHost/DictationBar/`, independent of the iPhone media and input channels.
 
 ### Client
 
@@ -54,13 +55,14 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 4. **SpacesDotsView.** One-handed Spaces switch surface driven by `DesktopStatePush` from the input channel. It filters Spaces by `selectedDisplayId` when present, falling back to `activeDisplayId`.
 5. **KeyboardSurface.** Compact keyboard plus accessory row. Emits key and modifier input frames.
 6. **PairingClient.** QR decode, token verification, and Keychain write. Reports the device display name (`UIDevice` name or hardware model identifier plus a short per-device id) in the handshake so the host labels the paired record. Its `TailnetServerTrustDelegate` applies strict TLS validation to FQDN dials and, for a tailnet CGNAT IPv4 literal (100.64.0.0/10), validates the cert chain but skips the hostname match, because the FQDN-only `tailscale cert` cannot pass a hostname check on an IP literal (ADR-0019). The L3 WireGuard peer auth plus the signed handshake are the real authentication.
-7. **PairingOfferListener.** `NWListener` on the offer port, running only while the app is foregrounded and unpaired. Routes length-prefixed offer-port frames: a pairing offer feeds `handleIncomingPairingURL` (reusing the QR path, host auto-approves the pre-approved nonce); a `whois` probe is answered with this device's display-only `DeviceIdentity`. Prefers the `utun` tailnet IPv4 (100.x) over a carrier-CGNAT address when reporting its own address.
+7. **PairingOfferListener.** `NWListener` on the offer port, running only while the app is foregrounded. When the app is unpaired it routes pairing offers and `whois` probes. When paired, it additionally accepts authenticated `diagnostics-request` frames from the paired host and returns diagnostics summaries and chunks. It prefers the `utun` tailnet IPv4 (100.x) over a carrier-CGNAT address when reporting its own address.
 8. **SessionDialer.** Client mirror of session authentication. Rejects a host whose `protocolVersion` is below the client minimum with `incompatible-protocol` (ADR-0020). Opens the single QUIC session connection, authenticates on the control stream, resumes with a memory-only token inside the grace window, and clears stored credentials on terminal rejection.
 9. **QuicSessionTransport.** Owns the connected client QUIC session. Input/control sends are immediate. Media datagrams are paced and are the first lane to drop or degrade under pressure.
 10. **MediaTransport.** Uses the session datagram lane to verify `ADMD` v2 packets, repair missing packet indexes before deadline, skip stale delta frames, and ask for keyframe recovery only when decoder continuity requires it.
 11. **OwnedHEVCFrameDecoder.** Planned `VTDecompressionSession` bridge for the hybrid worktree. It decodes HEVC refreshes into `CVPixelBuffer` output instead of enqueueing directly into `AVSampleBufferDisplayLayer`.
 12. **OwnedSurfaceCompositor.** Planned `@MainActor` single writer for the retained BGRA surface. It applies HEVC full-surface refreshes and retained graphics commands in strict `(surfaceGeneration, frameId)` order, then commits the visible layer.
-13. **InputChannel.** Reliable input lane inside the authenticated session QUIC connection. It stays logically independent from media even though both lanes share the same connection. It sends `ClientConfig.selectedDisplayId` when the user picks a display.
+13. **InputChannel.** Reliable input lane inside the authenticated session QUIC connection. It stays logically independent from media even though both lanes share the same connection. It sends `ClientConfig.selectedDisplayId` when the user picks a display, receives `DiagnosticsRequest` from the host, and returns diagnostics summaries and chunks.
+14. **ClientDiagnosticsStore.** Bounded durable client diagnostics store in `Application Support/Diagnostics`. It persists structured NDJSON essentials for the current run plus two prior runs, rotates unclean exits on bootstrap, mirrors essentials to OSLog, summarizes delayed MetricKit payloads, and serves prior-run tails on demand over the input lane or the foreground tailnet control listener.
 
 Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView.** Additional owned-media contract tests pin wire shapes, packet repair, and decoder recovery behavior where regressions are expensive.
 
@@ -116,9 +118,15 @@ OfferPortFrame    = UInt32BE length || body          // length-prefixed JSON bod
 PairingOffer      = PairingPayload                    // untagged; the offer itself
 DeviceIdentityRequest { t: "whois" }                 // Mac probes a peer
 DeviceIdentity        { t: "id", n: displayName }     // client's display-only reply
+SignedDiagnosticsRequest { t: "diagnostics-request", rid, sr?, pr, mb?,
+                           hf, ts, n, hs }
+DiagnosticsSummary      { t: "diagnostics-summary", rid, r, de, db, mk? }
+DiagnosticsChunk        { t: "diagnostics-chunk", rid, s, f, run, ub, p }
+DiagnosticsError        { t: "diagnostics-error", rid, r }
 ```
 
 The offer is an untagged `PairingPayload`; the iPhone synthesizes its `pairingURL()` locally and reuses the QR handshake path. `whois`/`id` carry only a display name for the picker and are pre-auth; the signed handshake still gates pairing.
+Foreground diagnostics fallback reuses the same offer port only when the app is paired and foregrounded. The host signs the request body with the paired host key; the client rejects a request whose host fingerprint does not match the stored pairing, whose signature fails, or whose timestamp is older than 60 seconds.
 
 Session establishment is locked by ADR-0003, ADR-0011, ADR-0020, and ADR-0030. Frames on QUIC streams are length-prefixed JSON payloads.
 
@@ -246,7 +254,24 @@ InputChannelClose  { reason }                                         // t: "inp
 DesktopStatePush   { state: DesktopState }                            // t: "desktop-state"
 ClientConfig        { thumbnailsEnabled, thumbnailRefresh?,
                       selectedDisplayId? }                             // t: "client-config"
+DiagnosticsRequest  { requestId, sinceRunId?, includePreviousRuns,
+                      maxBytes? }                                      // t: "diagnostics-request"
+DiagnosticsSummary  { requestId, runs, droppedEvents, droppedBytes,
+                      latestMetricKitPayloadAt? }                      // t: "diagnostics-summary"
+DiagnosticsChunk    { requestId, sequence, isFinal, runId,
+                      uncompressedBytes, payloadBase64 }               // t: "diagnostics-chunk"
+DiagnosticsError    { requestId, reason }                             // t: "diagnostics-error"
 ```
+
+`DiagnosticsChunk.payloadBase64` is gzipped NDJSON. The client caps each encoded payload chunk at 48 KB and the total response at 768 KB unless the host requests less.
+
+## Diagnostics Retention
+
+- The client persists structured essentials to `Application Support/Diagnostics`.
+- Retention is fixed for v0: current run plus two previous runs, 2 MB per run, 6 MB total.
+- When the current run exceeds its cap, oldest events are dropped from that run first.
+- On next launch, an unfinished current run is rotated to the archive set and surfaced as `previousRunUncleanExit`.
+- Prior unclean runs remain requestable until the host retrieves them or bounded retention evicts them.
 
 ## Recovery Policy
 

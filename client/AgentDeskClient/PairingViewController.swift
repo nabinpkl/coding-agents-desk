@@ -49,6 +49,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // Defaults describe the drawn-arrow fallback (tip hotspot, small size).
     let cursorImageStore = CursorImageStore()
     var cursorTask: Task<Void, Never>?
+    var diagnosticsTask: Task<Void, Never>?
     var cursorHotspotFrac: CGPoint = .zero
     var cursorRenderSize: CGSize = CursorPointerView.pointerSize
     var cursorHidden = false
@@ -195,6 +196,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     @objc func applicationWillEnterForeground() {
+        ClientDiagnostics.shared.record(type: "applicationWillEnterForeground", fields: [:], level: .info)
         triggerSessionIfPaired()
     }
 
@@ -206,6 +208,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // and no video. Closing here forces state to .pairedDisconnected
     // so the next foreground reliably re-attempts.
     @objc func applicationDidEnterBackground() {
+        ClientDiagnostics.shared.record(type: "applicationDidEnterBackground", fields: [:], level: .info)
         cancelSessionAttempt()
         handshakeTask?.cancel()
         handshakeTask = nil
@@ -217,6 +220,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         desktopStateTask = nil
         cursorTask?.cancel()
         cursorTask = nil
+        diagnosticsTask?.cancel()
+        diagnosticsTask = nil
         stopAgentSayForegroundPresentation()
         teardownMediaTransport()
         // The offer listener only makes sense in the foreground; iOS would tear
@@ -254,6 +259,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 do {
                     _ = try await self.pairingClient.attemptSession()
                     guard self.sessionAttemptGeneration == generation else { return }
+                    if let channel = self.pairingClient.activeInputChannel {
+                        self.startDiagnosticsHandlingIfNeeded(channel: channel)
+                        self.sendReconnectDiagnosticsAnnouncementIfNeeded(channel: channel)
+                    }
                     self.render()
                     return
                 } catch is CancellationError {
@@ -287,6 +296,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         iceGraceTask?.cancel()
         desktopStateTask?.cancel()
         cursorTask?.cancel()
+        diagnosticsTask?.cancel()
         agentSayTask?.cancel()
         agentSaySpeechTask?.cancel()
         agentSayHideTask?.cancel()
@@ -318,6 +328,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 videoSink: sink
             )
         }
+        ClientDiagnostics.shared.record(type: "mediaTransportStarted", fields: [:], level: .default)
     }
 
     private func activeSessionForMedia() -> ActiveSession? {
@@ -328,6 +339,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     func handleMediaConnectionState(_ state: MediaConnectionState) {
+        ClientDiagnostics.shared.record(
+            type: "mediaConnectionState",
+            fields: ["state": String(describing: state)],
+            level: .info
+        )
         switch state {
         case .connecting:
             break
@@ -514,14 +530,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             stopCamera()
         }
 
-        // The Mac can push a pairing offer only while this iPhone is unpaired
-        // and listening; run the listener in exactly those states.
-        switch pairingClient.state {
-        case .unpaired, .rejected:
-            startOfferListenerIfNeeded()
-        default:
-            stopOfferListener()
-        }
+        startOfferListenerIfNeeded()
+        configureOfferListener()
     }
 
     private func unpairedStatusText() -> String {
@@ -557,26 +567,78 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     func startOfferListenerIfNeeded() {
         guard pairingOfferListener == nil else { return }
         let listener = PairingOfferListener()
-        // Snapshot this device's identity so the listener can answer host whois
-        // probes and the Mac picker can list this phone by name.
-        listener.localIdentity = DeviceIdentity(displayName: pairingClient.deviceDisplayName())
-        listener.onOffer = { [weak self] payload in
-            Task { @MainActor in
-                guard let self else { return }
-                do {
-                    self.handleIncomingPairingURL(try payload.pairingURL())
-                } catch {
-                    // A malformed offer is ignored; the listener keeps running.
-                }
-            }
-        }
         pairingOfferListener = listener
+        configureOfferListener()
         listener.start()
     }
 
     func stopOfferListener() {
         pairingOfferListener?.stop()
         pairingOfferListener = nil
+    }
+
+    private func configureOfferListener() {
+        guard let listener = pairingOfferListener else { return }
+        switch pairingClient.state {
+        case .unpaired, .rejected, .scanning, .pairing, .awaitingApproval:
+            listener.localIdentity = DeviceIdentity(displayName: pairingClient.deviceDisplayName())
+            listener.onOffer = { [weak self] payload in
+                Task { @MainActor in
+                    guard let self else { return }
+                    do {
+                        self.handleIncomingPairingURL(try payload.pairingURL())
+                    } catch {
+                        ClientDiagnostics.shared.record(
+                            type: "pairingOfferMalformed",
+                            fields: ["error": String(describing: error)],
+                            level: .error
+                        )
+                    }
+                }
+            }
+        default:
+            listener.localIdentity = nil
+            listener.onOffer = nil
+        }
+        listener.storedPairingRecordProvider = { [weak self] in
+            self?.pairingClient.storedPairingMaterial
+        }
+        listener.diagnosticsResponseProvider = { request in
+            ClientDiagnostics.shared.prepareResponse(for: request)
+        }
+    }
+
+    private func startDiagnosticsHandlingIfNeeded(channel: InputChannel) {
+        diagnosticsTask?.cancel()
+        diagnosticsTask = Task { [weak self, channel] in
+            for await update in channel.diagnosticsUpdates {
+                guard let self else { return }
+                switch update {
+                case .request(let request):
+                    await self.respondToDiagnosticsRequest(request, on: channel)
+                }
+            }
+        }
+    }
+
+    private func sendReconnectDiagnosticsAnnouncementIfNeeded(channel: InputChannel) {
+        guard let summary = ClientDiagnostics.shared.reconnectAnnouncementSummary() else { return }
+        Task {
+            try? await channel.sendDiagnosticsSummary(summary)
+        }
+    }
+
+    private func respondToDiagnosticsRequest(_ request: DiagnosticsRequest, on channel: InputChannel) async {
+        switch ClientDiagnostics.shared.prepareResponse(for: request) {
+        case .failure(let error):
+            try? await channel.sendDiagnosticsError(error)
+        case .success(let prepared):
+            try? await channel.sendDiagnosticsSummary(prepared.summary)
+            for chunk in prepared.chunks {
+                try? await channel.sendDiagnosticsChunk(chunk)
+            }
+            ClientDiagnostics.shared.completeResponse(prepared)
+        }
     }
 
     func handleIncomingPairingURL(_ url: URL) {

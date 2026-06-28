@@ -114,4 +114,43 @@ final class MediaDatagramCarrierTests: XCTestCase {
         XCTAssertEqual(decoded.linkHealthCompletedFrames, 142)
         XCTAssertEqual(decoded.linkHealthExpiredFrames, 7)
     }
+
+    func testDiagnosticsRequestWireRoundTrips() throws {
+        let request = DiagnosticsRequest(
+            requestId: "req-1",
+            sinceRunId: "run-0",
+            includePreviousRuns: true,
+            maxBytes: 32_768
+        )
+        let summary = DiagnosticsSummary(
+            requestId: "req-1",
+            runs: [
+                DiagnosticsRunSummary(
+                    runId: "run-1",
+                    startedAt: 1_800_000_000,
+                    endedAt: 1_800_000_010,
+                    cleanShutdown: false,
+                    byteCount: 1_024,
+                    eventCount: 4
+                )
+            ],
+            droppedEvents: 3,
+            droppedBytes: 256,
+            latestMetricKitPayloadAt: 1_800_000_020
+        )
+        let chunk = DiagnosticsChunk(
+            requestId: "req-1",
+            sequence: 0,
+            isFinal: true,
+            runId: "run-1",
+            uncompressedBytes: 1_024,
+            payloadBase64: Data("payload".utf8).base64EncodedString()
+        )
+        let error = DiagnosticsError(requestId: "req-1", reason: "unauthorized")
+
+        XCTAssertEqual(try JSONDecoder().decode(DiagnosticsRequest.self, from: JSONEncoder().encode(request)), request)
+        XCTAssertEqual(try JSONDecoder().decode(DiagnosticsSummary.self, from: JSONEncoder().encode(summary)), summary)
+        XCTAssertEqual(try JSONDecoder().decode(DiagnosticsChunk.self, from: JSONEncoder().encode(chunk)), chunk)
+        XCTAssertEqual(try JSONDecoder().decode(DiagnosticsError.self, from: JSONEncoder().encode(error)), error)
+    }
 }

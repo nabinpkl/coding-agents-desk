@@ -7,6 +7,16 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         configurationForConnecting connectingSceneSession: UISceneSession,
         options: UIScene.ConnectionOptions
     ) -> UISceneConfiguration {
-        UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
+        ClientDiagnostics.shared.bootstrap()
+        ClientDiagnostics.shared.record(
+            type: "appConfigurationForConnecting",
+            fields: ["sessionRole": connectingSceneSession.role.rawValue],
+            level: .info
+        )
+        return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
+    }
+
+    func applicationWillTerminate(_ application: UIApplication) {
+        ClientDiagnostics.shared.markCleanShutdown(reason: "applicationWillTerminate")
     }
 }

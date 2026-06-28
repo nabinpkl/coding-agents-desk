@@ -136,6 +136,7 @@ final class PairingClient {
     func loadStoredPairingMaterial() {
         if (try? tokenStore.load()) != nil {
             state = .pairedDisconnected
+            ClientDiagnostics.shared.record(type: "storedPairingLoaded", fields: [:], level: .info)
         }
     }
 
@@ -144,6 +145,7 @@ final class PairingClient {
             throw PairingClientError.invalidState
         }
         state = .scanning
+        ClientDiagnostics.shared.record(type: "pairingScanStarted", fields: [:], level: .info)
     }
 
     func acceptScannedCode(_ code: String) throws -> PairingPayload {
@@ -156,6 +158,11 @@ final class PairingClient {
         }
         let payload = try PairingPayload.decode(fromPairingURL: url)
         state = .pairing(payload)
+        ClientDiagnostics.shared.record(
+            type: "pairingURLAccepted",
+            fields: ["hostFingerprint": payload.hostFingerprint],
+            level: .info
+        )
         return payload
     }
 
@@ -171,6 +178,11 @@ final class PairingClient {
             throw PairingClientError.signatureMismatch
         }
         state = .approved(token)
+        ClientDiagnostics.shared.record(
+            type: "pairingApproved",
+            fields: ["hostFingerprint": token.hostFingerprint],
+            level: .info
+        )
     }
 
     func persistApprovedToken(payload: PairingPayload) throws {
@@ -184,10 +196,12 @@ final class PairingClient {
             tailnetIPv4: payload.tailnetIPv4
         ))
         state = .pairedDisconnected
+        ClientDiagnostics.shared.record(type: "pairingPersisted", fields: [:], level: .info)
     }
 
     func reject(_ reason: String) {
         state = .rejected(reason)
+        ClientDiagnostics.shared.record(type: "pairingRejected", fields: ["reason": reason], level: .error)
     }
 
     func clearStoredCredentials() {
@@ -202,6 +216,7 @@ final class PairingClient {
         pendingResume = nil
         resetActiveMediaSession()
         state = .unpaired
+        ClientDiagnostics.shared.record(type: "storedCredentialsCleared", fields: [:], level: .default)
     }
 
     private(set) var activeSessionTransport: QuicSessionClientTransport?
@@ -232,12 +247,18 @@ final class PairingClient {
         activeResumeMaterial = nil
         resetActiveMediaSession()
         if let rejection {
+            ClientDiagnostics.shared.record(
+                type: "mediaSessionFailed",
+                fields: ["reason": String(describing: rejection.reason)],
+                level: .error
+            )
             applyRejection(rejection)
             return
         }
         if case .connected = state {
             state = .pairedDisconnected
         }
+        ClientDiagnostics.shared.record(type: "mediaSessionFailed", fields: [:], level: .error)
     }
 
     func attemptSession(
@@ -256,6 +277,7 @@ final class PairingClient {
         state = .sessionConnecting
 
         let host = resolvedHost(fqdn: record.tailnetFQDN, ipv4: record.tailnetIPv4)
+        ClientDiagnostics.shared.record(type: "sessionAttemptStarted", fields: ["host": host], level: .info)
         do {
             try Task.checkCancellation()
             let fingerprint = DeviceFingerprint(try deviceKeyProvider.publicKey.agentDeskFingerprint)
@@ -304,20 +326,36 @@ final class PairingClient {
             pendingResume = nil
             startInputReconnectMonitor(active: session.active, channel: session.inputChannel)
             state = .connected(session.active)
+            ClientDiagnostics.shared.record(
+                type: "sessionConnected",
+                fields: ["host": host, "sessionId": session.active.sessionId],
+                level: .default
+            )
             return session
         } catch let rejection as SessionRejected {
             resetActiveMediaSession()
             activeResumeMaterial = nil
             pendingResume = nil
             applyRejection(rejection)
+            ClientDiagnostics.shared.record(
+                type: "sessionRejected",
+                fields: ["reason": String(describing: rejection.reason)],
+                level: .error
+            )
             throw rejection
         } catch is CancellationError {
             resetActiveMediaSession()
             state = .pairedDisconnected
+            ClientDiagnostics.shared.record(type: "sessionAttemptCancelled", fields: [:], level: .info)
             throw CancellationError()
         } catch {
             resetActiveMediaSession()
             state = .pairedDisconnected
+            ClientDiagnostics.shared.record(
+                type: "sessionAttemptFailed",
+                fields: ["error": String(describing: error)],
+                level: .error
+            )
             throw error
         }
     }
@@ -334,6 +372,11 @@ final class PairingClient {
             // update is needed. ADR-0020.
             state = .rejected("update required (incompatible version)")
         }
+        ClientDiagnostics.shared.record(
+            type: "sessionRejectionApplied",
+            fields: ["reason": String(describing: rejection.reason)],
+            level: .error
+        )
     }
 
     private func startInputReconnectMonitor(
@@ -369,6 +412,11 @@ final class PairingClient {
         inputReconnectTask = nil
         resetActiveMediaSession()
         state = .pairedDisconnected
+        ClientDiagnostics.shared.record(
+            type: "inputChannelClosed",
+            fields: ["sessionId": active.sessionId],
+            level: .error
+        )
     }
 
     private func resetActiveMediaSession() {
@@ -385,6 +433,7 @@ final class PairingClient {
             deviceName: deviceDisplayName()
         )
         state = .awaitingApproval(payload)
+        ClientDiagnostics.shared.record(type: "pairingHandshakeStarted", fields: [:], level: .info)
         let response = try await SessionDialer().performPairingHandshake(
             host: host,
             port: Config.signalingPort,

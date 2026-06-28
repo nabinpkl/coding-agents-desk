@@ -2,8 +2,15 @@ import Foundation
 import Network
 import os
 
+enum DiagnosticsChannelUpdate: Equatable, Sendable {
+    case summary(DiagnosticsSummary)
+    case chunk(DiagnosticsChunk)
+    case error(DiagnosticsError)
+}
+
 protocol InputChannelServing: AnyObject, Sendable {
     var events: AsyncStream<NormalizedInput> { get }
+    var diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate> { get }
     var configHandler: ((ClientConfig) -> Void)? { get set }
 
     func close()
@@ -11,6 +18,7 @@ protocol InputChannelServing: AnyObject, Sendable {
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow])
     func pushAgentSay(_ push: AgentSayPush)
     func pushCursor(_ push: CursorImagePush)
+    func pushDiagnosticsRequest(_ request: DiagnosticsRequest)
 }
 
 @available(macOS 26.0, *)
@@ -19,9 +27,11 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     private let stream: QUIC.Stream<QUICStream>
     private let fingerprint: DeviceFingerprint
     private var continuation: AsyncStream<NormalizedInput>.Continuation?
+    private var diagnosticsContinuation: AsyncStream<DiagnosticsChannelUpdate>.Continuation?
     private var receiveTask: Task<Void, Never>?
 
     let events: AsyncStream<NormalizedInput>
+    let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
     var configHandler: ((ClientConfig) -> Void)?
 
     init(stream: QUIC.Stream<QUICStream>, fingerprint: DeviceFingerprint) {
@@ -32,6 +42,11 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             captured = continuation
         }
         continuation = captured
+        var capturedDiagnostics: AsyncStream<DiagnosticsChannelUpdate>.Continuation?
+        diagnosticsUpdates = AsyncStream { continuation in
+            capturedDiagnostics = continuation
+        }
+        diagnosticsContinuation = capturedDiagnostics
         startReceiveLoop()
     }
 
@@ -40,6 +55,8 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         receiveTask = nil
         continuation?.finish()
         continuation = nil
+        diagnosticsContinuation?.finish()
+        diagnosticsContinuation = nil
         configHandler = nil
     }
 
@@ -53,6 +70,10 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
 
     func pushCursor(_ push: CursorImagePush) {
         sendCodableFrame(push)
+    }
+
+    func pushDiagnosticsRequest(_ request: DiagnosticsRequest) {
+        sendCodableFrame(request)
     }
 
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow] = [:]) {
@@ -125,6 +146,24 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
                 configHandler?(frame)
             } catch {
                 logger.error("client-config decode failed: \(String(describing: error), privacy: .public)")
+            }
+        case "diagnostics-summary":
+            if let summary = try? JSONDecoder().decode(DiagnosticsSummary.self, from: data) {
+                diagnosticsContinuation?.yield(.summary(summary))
+            } else {
+                logger.error("diagnostics-summary decode failed")
+            }
+        case "diagnostics-chunk":
+            if let chunk = try? JSONDecoder().decode(DiagnosticsChunk.self, from: data) {
+                diagnosticsContinuation?.yield(.chunk(chunk))
+            } else {
+                logger.error("diagnostics-chunk decode failed")
+            }
+        case "diagnostics-error":
+            if let frame = try? JSONDecoder().decode(DiagnosticsError.self, from: data) {
+                diagnosticsContinuation?.yield(.error(frame))
+            } else {
+                logger.error("diagnostics-error decode failed")
             }
         default:
             logger.notice("input lane unknown frame type=\(header.type, privacy: .public)")

@@ -1,6 +1,7 @@
 import Foundation
 import Compression
 import CryptoKit
+import OSLog
 import Testing
 import UIKit
 
@@ -900,6 +901,192 @@ struct InputChannelTests {
         #expect(MediaTimingMath.formatMilliseconds(nil) == "?")
     }
 
+    @Test func diagnosticsWireTypesRoundTripAndOfferPortClassifierRoutesMessages() throws {
+        let request = SignedDiagnosticsRequest(
+            requestId: "req-1",
+            sinceRunId: "run-0",
+            includePreviousRuns: true,
+            maxBytes: 8_192,
+            hostFingerprint: "host-fp",
+            issuedAt: 1_800_000_000,
+            nonce: Data([1, 2, 3]),
+            hostSignature: Data([4, 5, 6])
+        )
+        let summary = DiagnosticsSummary(
+            requestId: "req-1",
+            runs: [
+                DiagnosticsRunSummary(
+                    runId: "run-1",
+                    startedAt: 1_800_000_001,
+                    endedAt: 1_800_000_010,
+                    cleanShutdown: false,
+                    byteCount: 512,
+                    eventCount: 3
+                )
+            ],
+            droppedEvents: 2,
+            droppedBytes: 128,
+            latestMetricKitPayloadAt: 1_800_000_020
+        )
+        let chunk = DiagnosticsChunk(
+            requestId: "req-1",
+            sequence: 0,
+            isFinal: true,
+            runId: "run-1",
+            uncompressedBytes: 512,
+            payloadBase64: Data("hello".utf8).base64EncodedString()
+        )
+        let error = DiagnosticsError(requestId: "req-1", reason: "unavailable")
+
+        #expect(try JSONDecoder().decode(SignedDiagnosticsRequest.self, from: JSONEncoder().encode(request)) == request)
+        #expect(try JSONDecoder().decode(DiagnosticsSummary.self, from: JSONEncoder().encode(summary)) == summary)
+        #expect(try JSONDecoder().decode(DiagnosticsChunk.self, from: JSONEncoder().encode(chunk)) == chunk)
+        #expect(try JSONDecoder().decode(DiagnosticsError.self, from: JSONEncoder().encode(error)) == error)
+
+        switch OfferPortMessage.classify(try JSONEncoder().encode(request)) {
+        case .diagnosticsRequest(let decoded):
+            #expect(decoded == request)
+        default:
+            Issue.record("expected diagnostics request")
+        }
+        switch OfferPortMessage.classify(try JSONEncoder().encode(summary)) {
+        case .diagnosticsSummary(let decoded):
+            #expect(decoded == summary)
+        default:
+            Issue.record("expected diagnostics summary")
+        }
+        switch OfferPortMessage.classify(try JSONEncoder().encode(chunk)) {
+        case .diagnosticsChunk(let decoded):
+            #expect(decoded == chunk)
+        default:
+            Issue.record("expected diagnostics chunk")
+        }
+        switch OfferPortMessage.classify(try JSONEncoder().encode(error)) {
+        case .diagnosticsError(let decoded):
+            #expect(decoded == error)
+        default:
+            Issue.record("expected diagnostics error")
+        }
+    }
+
+    @Test func clientDiagnosticsStoreRedactsSecretsAndTruncatesOversizedEvents() throws {
+        let harness = try Self.makeDiagnosticsHarness(name: #function, maxEventBytes: 256)
+        defer { harness.cleanup() }
+
+        let counter = Counter(value: 10)
+        let store = ClientDiagnosticsStore(
+            configuration: harness.configuration,
+            nowProvider: { counter.next() }
+        )
+        store.bootstrap()
+        store.record(
+            type: "pairingLifecycle",
+            fields: [
+                "pairingURL": "agentdesk://pair?p=secret",
+                "token": "top-secret-token",
+                "note": "safe"
+            ],
+            level: OSLogType.info
+        )
+        store.record(
+            type: "oversizedEvent",
+            fields: ["message": String(repeating: "x", count: 2_048)],
+            level: OSLogType.error
+        )
+
+        let lines = try Self.readNDJSONLines(at: harness.configuration.currentRunURL)
+        #expect(lines.contains { $0.contains("\"type\":\"pairingLifecycle\"") && $0.contains("[redacted]") })
+        #expect(!lines.joined(separator: "\n").contains("top-secret-token"))
+        #expect(!lines.joined(separator: "\n").contains("agentdesk://pair?p=secret"))
+        #expect(lines.contains { $0.contains("\"type\":\"oversizedEvent\"") && $0.contains("\"truncated\":\"true\"") })
+    }
+
+    @Test func clientDiagnosticsStoreFlagsUncleanReopenAndSuppressesFalsePositiveAfterCleanShutdown() throws {
+        let uncleanHarness = try Self.makeDiagnosticsHarness(name: "\(#function)-unclean")
+        defer { uncleanHarness.cleanup() }
+
+        let firstCounter = Counter(value: 100)
+        let firstStore = ClientDiagnosticsStore(
+            configuration: uncleanHarness.configuration,
+            nowProvider: { firstCounter.next() }
+        )
+        firstStore.bootstrap()
+        firstStore.record(type: "mediaReceive", fields: ["state": "active"], level: .info)
+
+        let secondCounter = Counter(value: 200)
+        let reopenedStore = ClientDiagnosticsStore(
+            configuration: uncleanHarness.configuration,
+            nowProvider: { secondCounter.next() }
+        )
+        reopenedStore.bootstrap()
+
+        let reopenLines = try Self.readNDJSONLines(at: uncleanHarness.configuration.currentRunURL)
+        #expect(reopenLines.contains { $0.contains("\"type\":\"previousRunUncleanExit\"") })
+        let reconnectSummary = reopenedStore.reconnectAnnouncementSummary()
+        #expect(reconnectSummary?.runs.count == 1)
+        #expect(reconnectSummary?.runs.first?.cleanShutdown == false)
+
+        let cleanHarness = try Self.makeDiagnosticsHarness(name: "\(#function)-clean")
+        defer { cleanHarness.cleanup() }
+
+        let cleanCounter = Counter(value: 300)
+        let cleanStore = ClientDiagnosticsStore(
+            configuration: cleanHarness.configuration,
+            nowProvider: { cleanCounter.next() }
+        )
+        cleanStore.bootstrap()
+        cleanStore.record(type: "sessionConnected", fields: ["host": "mac"], level: .info)
+        cleanStore.markCleanShutdown(reason: "test")
+
+        let cleanReopenCounter = Counter(value: 400)
+        let cleanReopenedStore = ClientDiagnosticsStore(
+            configuration: cleanHarness.configuration,
+            nowProvider: { cleanReopenCounter.next() }
+        )
+        cleanReopenedStore.bootstrap()
+
+        let cleanLines = try Self.readNDJSONLines(at: cleanHarness.configuration.currentRunURL)
+        #expect(!cleanLines.contains { $0.contains("\"type\":\"previousRunUncleanExit\"") })
+        #expect(cleanReopenedStore.reconnectAnnouncementSummary() == nil)
+    }
+
+    @Test func clientDiagnosticsStoreRetainsCurrentPlusTwoPreviousRuns() throws {
+        let harness = try Self.makeDiagnosticsHarness(
+            name: #function,
+            maxEventBytes: 512,
+            maxRunBytes: 1_024,
+            maxTotalBytes: 3_072,
+            maxRuns: 3
+        )
+        defer { harness.cleanup() }
+
+        for run in 0..<4 {
+            let counter = Counter(value: 1_000 + run * 100)
+            let store = ClientDiagnosticsStore(
+                configuration: harness.configuration,
+                nowProvider: { counter.next() }
+            )
+            store.bootstrap()
+            store.record(
+                type: "mediaSummary",
+                fields: ["payload": String(repeating: "\(run)", count: 400)],
+                level: .info
+            )
+            store.markCleanShutdown(reason: "rotate")
+        }
+
+        let manifest = try Self.readManifest(at: harness.configuration.manifestURL)
+        #expect(manifest.archives.count == 2)
+        if manifest.current == nil {
+            Issue.record("expected a current diagnostics run")
+        }
+        #expect(!manifest.archives.contains(where: { !$0.cleanShutdown }))
+        #expect(manifest.droppedEvents > 0)
+        let oldestArchivePath = harness.configuration.diagnosticsDirectory
+            .appendingPathComponent("run-\(manifest.archives.first!.runId).ndjson")
+        #expect(FileManager.default.fileExists(atPath: oldestArchivePath.path))
+    }
+
     private static func makeResetSurfaceEnvelope(
         surfaceGeneration: UInt32,
         frameId: UInt64
@@ -983,5 +1170,81 @@ struct InputChannelTests {
             outputSize *= 2
         }
         throw SessionRejected(reason: .malformed)
+    }
+
+    private struct DiagnosticsHarness {
+        let configuration: ClientDiagnosticsStoreConfiguration
+        let rootDirectory: URL
+
+        func cleanup() {
+            try? FileManager.default.removeItem(at: rootDirectory)
+        }
+    }
+
+    private struct DiagnosticsManifestSnapshot: Decodable {
+        let current: DiagnosticsRunSnapshot?
+        let archives: [DiagnosticsRunSnapshot]
+        let droppedEvents: Int
+        let droppedBytes: Int
+    }
+
+    private struct DiagnosticsRunSnapshot: Decodable, Equatable {
+        let runId: String
+        let fileName: String
+        let startedAt: Int
+        let endedAt: Int?
+        let cleanShutdown: Bool
+        let retrievedAt: Int?
+        let byteCount: Int
+        let eventCount: Int
+    }
+
+    private final class Counter: @unchecked Sendable {
+        private var value: Int
+
+        init(value: Int) {
+            self.value = value
+        }
+
+        func next() -> Int {
+            value += 1
+            return value
+        }
+    }
+
+    private static func makeDiagnosticsHarness(
+        name: String,
+        maxEventBytes: Int = 8 * 1024,
+        maxRunBytes: Int = 2 * 1024 * 1024,
+        maxTotalBytes: Int = 6 * 1024 * 1024,
+        maxRuns: Int = 3
+    ) throws -> DiagnosticsHarness {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentdesk-diagnostics-\(name)-\(UUID().uuidString)", isDirectory: true)
+        let diagnosticsDirectory = root.appendingPathComponent("Diagnostics", isDirectory: true)
+        try FileManager.default.createDirectory(at: diagnosticsDirectory, withIntermediateDirectories: true)
+        let configuration = ClientDiagnosticsStoreConfiguration(
+            diagnosticsDirectory: diagnosticsDirectory,
+            manifestURL: diagnosticsDirectory.appendingPathComponent("manifest.json", isDirectory: false),
+            currentRunURL: diagnosticsDirectory.appendingPathComponent("current.ndjson", isDirectory: false),
+            maxEventBytes: maxEventBytes,
+            maxRunBytes: maxRunBytes,
+            maxTotalBytes: maxTotalBytes,
+            maxRuns: maxRuns,
+            maxResponseBytes: 768 * 1024,
+            maxChunkEncodedBytes: 48 * 1024,
+            authMaxSkewSeconds: 60
+        )
+        return DiagnosticsHarness(configuration: configuration, rootDirectory: root)
+    }
+
+    private static func readNDJSONLines(at url: URL) throws -> [String] {
+        try String(decoding: Data(contentsOf: url), as: UTF8.self)
+            .split(separator: "\n")
+            .map(String.init)
+    }
+
+    private static func readManifest(at url: URL) throws -> DiagnosticsManifestSnapshot {
+        try JSONDecoder().decode(DiagnosticsManifestSnapshot.self, from: Data(contentsOf: url))
     }
 }

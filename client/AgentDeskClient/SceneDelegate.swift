@@ -14,6 +14,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         Self.persistDevHostOverrideIfPresent()
         let window = UIWindow(windowScene: windowScene)
         let pairingVC = PairingViewController()
+        ClientDiagnostics.shared.record(
+            type: "sceneWillConnect",
+            fields: ["sessionRole": session.role.rawValue],
+            level: .info
+        )
         window.rootViewController = pairingVC
         // Locked to dark. The app sits below a screen-share video that's
         // almost always dark Mac content, and a white app canvas in
@@ -65,6 +70,19 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
               let pairingVC = window?.rootViewController as? PairingViewController else {
             return
         }
+        ClientDiagnostics.shared.record(
+            type: "sceneOpenURL",
+            fields: ["scheme": url.scheme ?? "", "host": url.host ?? ""],
+            level: .info
+        )
         pairingVC.handleIncomingPairingURL(url)
+    }
+
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        ClientDiagnostics.shared.record(type: "sceneWillEnterForeground", fields: [:], level: .info)
+    }
+
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        ClientDiagnostics.shared.markCleanShutdown(reason: "sceneDidEnterBackground")
     }
 }

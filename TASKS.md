@@ -1,4 +1,4 @@
-# TASKS: v0 constrained-link video resilience (with adaptive control captured)
+# TASKS: v0 transport durability and diagnostics (with adaptive recovery captured)
 
 `R<N>` = remaining. Flip to `D<N>` once landed and tests are green.
 
@@ -91,6 +91,16 @@ Phase goal: collapse the live session onto one authenticated QUIC connection so 
 - [x] D104. Hardened resume auth before calling ADR-0030 security-complete. Resume material is now split into a public `resumeId` and secret `resumeSecret`; `SessionResumeInit` sends only the id and fresh client nonce. The host validates id/protocol/expiry, returns a one-time `SessionResumeChallenge(hostNonce, expiresAt)`, then accepts only a `SessionResumeProof` HMAC over session id, fingerprint, resume id, client nonce, host nonce, protocol version, and ALPN using the stored secret. Proof validation consumes the pending challenge, success rotates resume id/secret plus media salt in `SessionReady`, and the resumed media key derives from the challenge transcript. Tests cover compact wire shape without raw secret in resume init, forged proof rejection, stale proof rejection, rotation invalidating old material, and valid resume preserving session id. `just check` and `just sim-test` passed.
 - [x] D105. Closed the follow-up auth review findings. Resume challenges and `SessionReady` now carry host signatures verified by the client before sending proof or accepting rotated material, pairing URLs are no longer publicly logged or passed as process arguments, the automation URL file is written only for SIGUSR1 flows with owner-only permissions, and malformed/overlapping resume challenges have explicit cleanup tests. `just check` and `just sim-test` passed.
 
+## v0 Phase 8: durable on-demand client diagnostics (ADR-0032)
+
+Phase goal: preserve iPhone-side failure evidence across crashes, relaunches, and non-consoled runs, and let the host retrieve it on demand over Tailscale without adding cloud telemetry.
+
+- [x] D106. ADR `architecture-decisions/0032-durable-client-diagnostics.md` accepted. Locks the bounded local ring-buffer decision, dual retrieval path (session input lane first, foreground tailnet control fallback second), MetricKit as delayed enrichment only, and the privacy rule that excludes tokens, pairing URLs, raw packet payloads, pixels, typed text, and raw secrets.
+- [x] D107. Shared diagnostics wire shapes landed in both `client/AgentDeskClient/SharedTypes.swift` and `host/AgentDeskHost/SharedTypes.swift`: `DiagnosticsRequest`, `DiagnosticsSummary`, `DiagnosticsChunk`, `DiagnosticsError`, and `SignedDiagnosticsRequest`. `OfferPortMessage.classify` and the session input lane now route diagnostics frames without disturbing pairing, desktop-state pushes, cursor updates, or input events.
+- [x] D108. `client/AgentDeskClient/ClientDiagnostics.swift` added the durable diagnostics store: NDJSON in `Application Support/Diagnostics`, `current` plus two previous runs, 2 MB per run / 6 MB total retention, 8 KB event truncation, redaction, `previousRunUncleanExit`, clean-shutdown markers, reconnect announcements, and MetricKit summary ingestion. `AppDelegate`, `SceneDelegate`, `PairingClient`, `OwnedMediaTransport`, `OwnedMediaVideoSink`, and `PairingViewController` now record lifecycle, pairing/session, reconnect, repair, decoder, render-stall, and periodic media-summary essentials.
+- [x] D109. Host/client transport paths landed. `host/AgentDeskHost/InputChannelServer.swift` and `client/AgentDeskClient/InputChannel.swift` now carry diagnostics request/response traffic on the active QUIC input lane. `client/AgentDeskClient/PairingOfferListener.swift` accepts authenticated foreground fallback diagnostics requests on the offer port, verified against the stored paired host key and a 60 second skew limit. `host/AgentDeskHost/ClientDiagnosticsRequester.swift`, `host/AgentDeskHost/AppDelegate.swift`, and `Justfile` add host-side retrieval and `just client-diagnostics <variant>` automation writing collections under `/tmp/agentdesk-client-diagnostics-<timestamp>/`.
+- [x] D110. Focused tests landed. `client/AgentDeskClientTests/InputChannelTests.swift` now covers diagnostics wire round-trips, offer-port classification, diagnostics-store redaction/truncation, crash-reopen unclean-run surfacing, clean-shutdown suppression, and bounded retention. `host/AgentDeskHostTests/MediaDatagramCarrierTests.swift` adds diagnostics wire round-trips on the host side. `just check` and `just sim-test` are the verification gates; physical phone validation remains pending explicit human go-ahead per repo policy.
+
 ---
 
 ## v0 adaptive-recovery scope (captured, not started)
@@ -131,4 +141,5 @@ D98-D102     2026-06-27  committed   ADR-0030 single QUIC session transport: pro
 D103         2026-06-27  committed   post-collapse media fix: nonzero monotonic video frame ids, client frame ACKs, ACK/link-health/backpressure state, one paced media datagram queue, resend serving restored on the unified media lane; check and sim green
 D104         2026-06-27  committed   resume-auth hardening: bearer resume removed from `SessionResumeInit`, challenge/proof HMAC over transcript added, rotation invalidates old material; check and sim suites green
 D105         2026-06-27  committed   auth review fixes: signed resume challenge and signed ready verification, redacted pairing URL logs/argv, owner-only automation URL file, pending challenge cleanup tests; check and sim suites green
+D106-D110    2026-06-27  committed   ADR-0032 durable client diagnostics: bounded local NDJSON store, lifecycle/media diagnostics integration, MetricKit summaries, session-lane plus foreground tailnet retrieval, host `client-diagnostics` automation, and focused client/host tests; check and sim green
 ```

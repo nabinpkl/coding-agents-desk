@@ -35,6 +35,23 @@ enum Config {
     static let keychainService = bundleIdentifier
     static let keychainAccessGroup: String? = nil
     static let storedPairingAccount = "session-token"
+    static let applicationSupportDirectory = FileManager.default
+        .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("AgentDesk", isDirectory: true)
+    static let diagnosticsDirectory = applicationSupportDirectory
+        .appendingPathComponent("Diagnostics", isDirectory: true)
+    static let diagnosticsManifestURL = diagnosticsDirectory
+        .appendingPathComponent("manifest.json", isDirectory: false)
+    static let diagnosticsCurrentRunURL = diagnosticsDirectory
+        .appendingPathComponent("current.ndjson", isDirectory: false)
+    static let diagnosticsMaxEventBytes = 8 * 1024
+    static let diagnosticsMaxRunBytes = 2 * 1024 * 1024
+    static let diagnosticsMaxTotalBytes = 6 * 1024 * 1024
+    static let diagnosticsMaxRuns = 3
+    static let diagnosticsMaxResponseBytes = 768 * 1024
+    static let diagnosticsMaxChunkEncodedBytes = 48 * 1024
+    static let diagnosticsAuthMaxSkewSeconds = 60
+    static let diagnosticsMediaSummaryIntervalNs: UInt64 = 1_000_000_000
     // ADR-0025 datagram carrier: how long the client holds an incomplete motion
     // frame awaiting resends before dropping it and requesting a keyframe, how many
     // frames it tracks at once, and the cap on missing packets named per request.

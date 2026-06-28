@@ -139,6 +139,7 @@
 		A00000000000000000000E06 /* FullFrameTilerRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E05 /* FullFrameTilerRoutingTests.swift */; };
 		A00000000000000000000E08 /* FrameByteBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E07 /* FrameByteBudgetTests.swift */; };
 		A00000000000000000000E0A /* PerTileJpegRoundTripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E09 /* PerTileJpegRoundTripTests.swift */; };
+		A00000000000000000000FA3 /* ClientDiagnosticsRequester.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000FA2 /* ClientDiagnosticsRequester.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -175,6 +176,7 @@
 		A00000000000000000000112 /* SignalingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingChannel.swift; sourceTree = "<group>"; };
 		A00000000000000000000113 /* VideoFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFrameSource.swift; sourceTree = "<group>"; };
 		A00000000000000000000114 /* MediaStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaStack.swift; sourceTree = "<group>"; };
+		A00000000000000000000FA2 /* ClientDiagnosticsRequester.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientDiagnosticsRequester.swift; sourceTree = "<group>"; };
 		A00000000000000000000A02 /* OwnedMediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaTransport.swift; sourceTree = "<group>"; };
 		A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaFrameScaler.swift; sourceTree = "<group>"; };
 		A00000000000000000000A07 /* ScrollDeltaEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaEngine.swift; sourceTree = "<group>"; };
@@ -295,6 +297,7 @@
 				A00000000000000000000134 /* AgentDeskHost.entitlements */,
 				A00000000000000000000102 /* Base64URL.swift */,
 				A00000000000000000000103 /* Config.swift */,
+				A00000000000000000000FA2 /* ClientDiagnosticsRequester.swift */,
 				A0000000000000000000012E /* WAVEncoder.swift */,
 				A0000000000000000000012F /* MicRecorder.swift */,
 				A00000000000000000000130 /* TranscriptionClient.swift */,
@@ -524,6 +527,7 @@
 				A00000000000000000000201 /* AppDelegate.swift in Sources */,
 				A00000000000000000000202 /* Base64URL.swift in Sources */,
 				A00000000000000000000203 /* Config.swift in Sources */,
+				A00000000000000000000FA3 /* ClientDiagnosticsRequester.swift in Sources */,
 				A00000000000000000000204 /* HostSigningKeyStore.swift in Sources */,
 				A00000000000000000000205 /* KeychainStore.swift in Sources */,
 				A00000000000000000000206 /* Pairing.swift in Sources */,

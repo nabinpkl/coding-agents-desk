@@ -185,12 +185,256 @@ struct DeviceIdentity: Codable, Equatable {
     }
 }
 
+struct DiagnosticsRequest: Codable, Equatable {
+    let type: String
+    let requestId: String
+    let sinceRunId: String?
+    let includePreviousRuns: Bool
+    let maxBytes: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case requestId = "rid"
+        case sinceRunId = "sr"
+        case includePreviousRuns = "pr"
+        case maxBytes = "mb"
+    }
+
+    init(
+        requestId: String,
+        sinceRunId: String? = nil,
+        includePreviousRuns: Bool = true,
+        maxBytes: Int? = nil
+    ) {
+        self.type = "diagnostics-request"
+        self.requestId = requestId
+        self.sinceRunId = sinceRunId
+        self.includePreviousRuns = includePreviousRuns
+        self.maxBytes = maxBytes
+    }
+}
+
+struct DiagnosticsRunSummary: Codable, Equatable, Sendable {
+    let runId: String
+    let startedAt: Int
+    let endedAt: Int?
+    let cleanShutdown: Bool
+    let byteCount: Int
+    let eventCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case runId = "rid"
+        case startedAt = "sa"
+        case endedAt = "ea"
+        case cleanShutdown = "cs"
+        case byteCount = "bc"
+        case eventCount = "ec"
+    }
+}
+
+struct DiagnosticsSummary: Codable, Equatable {
+    let type: String
+    let requestId: String
+    let runs: [DiagnosticsRunSummary]
+    let droppedEvents: Int
+    let droppedBytes: Int
+    let latestMetricKitPayloadAt: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case requestId = "rid"
+        case runs = "r"
+        case droppedEvents = "de"
+        case droppedBytes = "db"
+        case latestMetricKitPayloadAt = "mk"
+    }
+
+    init(
+        requestId: String,
+        runs: [DiagnosticsRunSummary],
+        droppedEvents: Int,
+        droppedBytes: Int,
+        latestMetricKitPayloadAt: Int?
+    ) {
+        self.type = "diagnostics-summary"
+        self.requestId = requestId
+        self.runs = runs
+        self.droppedEvents = droppedEvents
+        self.droppedBytes = droppedBytes
+        self.latestMetricKitPayloadAt = latestMetricKitPayloadAt
+    }
+}
+
+struct DiagnosticsChunk: Codable, Equatable {
+    let type: String
+    let requestId: String
+    let sequence: Int
+    let isFinal: Bool
+    let runId: String
+    let uncompressedBytes: Int
+    let payloadBase64: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case requestId = "rid"
+        case sequence = "s"
+        case isFinal = "f"
+        case runId = "run"
+        case uncompressedBytes = "ub"
+        case payloadBase64 = "p"
+    }
+
+    init(
+        requestId: String,
+        sequence: Int,
+        isFinal: Bool,
+        runId: String,
+        uncompressedBytes: Int,
+        payloadBase64: String
+    ) {
+        self.type = "diagnostics-chunk"
+        self.requestId = requestId
+        self.sequence = sequence
+        self.isFinal = isFinal
+        self.runId = runId
+        self.uncompressedBytes = uncompressedBytes
+        self.payloadBase64 = payloadBase64
+    }
+}
+
+struct DiagnosticsError: Codable, Equatable, Error {
+    let type: String
+    let requestId: String
+    let reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case requestId = "rid"
+        case reason = "r"
+    }
+
+    init(requestId: String, reason: String) {
+        self.type = "diagnostics-error"
+        self.requestId = requestId
+        self.reason = reason
+    }
+}
+
+struct SignedDiagnosticsRequest: Codable, Equatable {
+    let type: String
+    let requestId: String
+    let sinceRunId: String?
+    let includePreviousRuns: Bool
+    let maxBytes: Int?
+    let hostFingerprint: String
+    let issuedAt: Int
+    let nonce: Data
+    let hostSignature: Data
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case requestId = "rid"
+        case sinceRunId = "sr"
+        case includePreviousRuns = "pr"
+        case maxBytes = "mb"
+        case hostFingerprint = "hf"
+        case issuedAt = "ts"
+        case nonce = "n"
+        case hostSignature = "hs"
+    }
+
+    init(
+        requestId: String,
+        sinceRunId: String? = nil,
+        includePreviousRuns: Bool = true,
+        maxBytes: Int? = nil,
+        hostFingerprint: String,
+        issuedAt: Int,
+        nonce: Data,
+        hostSignature: Data
+    ) {
+        self.type = "diagnostics-request"
+        self.requestId = requestId
+        self.sinceRunId = sinceRunId
+        self.includePreviousRuns = includePreviousRuns
+        self.maxBytes = maxBytes
+        self.hostFingerprint = hostFingerprint
+        self.issuedAt = issuedAt
+        self.nonce = nonce
+        self.hostSignature = hostSignature
+    }
+
+    var request: DiagnosticsRequest {
+        DiagnosticsRequest(
+            requestId: requestId,
+            sinceRunId: sinceRunId,
+            includePreviousRuns: includePreviousRuns,
+            maxBytes: maxBytes
+        )
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        requestId = try container.decode(String.self, forKey: .requestId)
+        sinceRunId = try container.decodeIfPresent(String.self, forKey: .sinceRunId)
+        includePreviousRuns = try container.decodeIfPresent(Bool.self, forKey: .includePreviousRuns) ?? true
+        maxBytes = try container.decodeIfPresent(Int.self, forKey: .maxBytes)
+        hostFingerprint = try container.decode(String.self, forKey: .hostFingerprint)
+        issuedAt = try container.decode(Int.self, forKey: .issuedAt)
+        nonce = try Data(base64URLEncoded: container.decode(String.self, forKey: .nonce))
+        hostSignature = try Data(base64URLEncoded: container.decode(String.self, forKey: .hostSignature))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encodeIfPresent(sinceRunId, forKey: .sinceRunId)
+        try container.encode(includePreviousRuns, forKey: .includePreviousRuns)
+        try container.encodeIfPresent(maxBytes, forKey: .maxBytes)
+        try container.encode(hostFingerprint, forKey: .hostFingerprint)
+        try container.encode(issuedAt, forKey: .issuedAt)
+        try container.encode(nonce.base64URLEncodedString(), forKey: .nonce)
+        try container.encode(hostSignature.base64URLEncodedString(), forKey: .hostSignature)
+    }
+}
+
+enum DiagnosticsRequestSignature {
+    private struct SigningEnvelope: Encodable {
+        let request: DiagnosticsRequest
+        let hostFingerprint: String
+        let issuedAt: Int
+        let nonce: String
+    }
+
+    static func signingData(
+        request: DiagnosticsRequest,
+        hostFingerprint: String,
+        issuedAt: Int,
+        nonce: Data
+    ) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return try encoder.encode(SigningEnvelope(
+            request: request,
+            hostFingerprint: hostFingerprint,
+            issuedAt: issuedAt,
+            nonce: nonce.base64URLEncodedString()
+        ))
+    }
+}
+
 // Routes a decoded offer-port body. A pairing offer (PairingPayload) carries no
 // "t" tag; whois and identity replies do.
 enum OfferPortMessage {
     case offer(PairingPayload)
     case whois
     case identity(DeviceIdentity)
+    case diagnosticsRequest(SignedDiagnosticsRequest)
+    case diagnosticsSummary(DiagnosticsSummary)
+    case diagnosticsChunk(DiagnosticsChunk)
+    case diagnosticsError(DiagnosticsError)
     case unknown
 
     private struct TypeTag: Decodable {
@@ -205,6 +449,26 @@ enum OfferPortMessage {
         case "id":
             if let identity = try? JSONDecoder().decode(DeviceIdentity.self, from: body) {
                 return .identity(identity)
+            }
+            return .unknown
+        case "diagnostics-request":
+            if let request = try? JSONDecoder().decode(SignedDiagnosticsRequest.self, from: body) {
+                return .diagnosticsRequest(request)
+            }
+            return .unknown
+        case "diagnostics-summary":
+            if let summary = try? JSONDecoder().decode(DiagnosticsSummary.self, from: body) {
+                return .diagnosticsSummary(summary)
+            }
+            return .unknown
+        case "diagnostics-chunk":
+            if let chunk = try? JSONDecoder().decode(DiagnosticsChunk.self, from: body) {
+                return .diagnosticsChunk(chunk)
+            }
+            return .unknown
+        case "diagnostics-error":
+            if let error = try? JSONDecoder().decode(DiagnosticsError.self, from: body) {
+                return .diagnosticsError(error)
             }
             return .unknown
         default:

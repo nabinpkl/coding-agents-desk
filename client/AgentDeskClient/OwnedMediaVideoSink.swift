@@ -240,6 +240,14 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         ) else { return }
         logger.notice("owned media video render-stall keyframe-request enqueueAgeMs=\(self.ageMs(self.lastVideoEnqueueUptimeNs, now), privacy: .public) arrivalAgeMs=\(self.ageMs(self.lastVideoArrivalUptimeNs, now), privacy: .public)")
         ownedMediaStderrTrace("video-render-stall-keyframe-request enqueueAgeMs=\(ageMs(lastVideoEnqueueUptimeNs, now)) arrivalAgeMs=\(ageMs(lastVideoArrivalUptimeNs, now))")
+        ClientDiagnostics.shared.record(
+            type: "videoRenderStall",
+            fields: [
+                "enqueueAgeMs": String(Int(ageMs(lastVideoEnqueueUptimeNs, now))),
+                "arrivalAgeMs": String(Int(ageMs(lastVideoArrivalUptimeNs, now)))
+            ],
+            level: .error
+        )
         requestKeyframe(now: now)
         videoDecoder.reset()
     }
@@ -252,6 +260,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             return
         }
         lastKeyframeRequestUptimeNs = now
+        ClientDiagnostics.shared.record(type: "videoKeyframeRequested", fields: [:], level: .default)
         videoKeyframeRequestHandler?()
     }
 
@@ -271,6 +280,16 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             lastVideoEnqueueUptimeNs = now
             if let snapshot = videoStatusTracker.noteEnqueuedFrame(bytes: frameBytes, nowNs: now) {
                 setOwnedMediaStatus(.video(snapshot))
+                ClientDiagnostics.shared.record(
+                    type: "mediaSummary",
+                    fields: [
+                        "fps": String(snapshot.fps),
+                        "receivedKbps": String(snapshot.receivedKbps),
+                        "gapMs": String(snapshot.gapMs),
+                        "droppedFrames": String(snapshot.droppedFrames)
+                    ],
+                    level: .info
+                )
             }
         case .recoveredRequestKeyframe:
             // ADR-0027: the layer was wedged and this frame was a delta; the decoder
@@ -278,15 +297,36 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             ownedMediaStderrTrace("video-frame-recovered frame=\(envelope.header.frameId)")
             videoStatusTracker.noteDroppedFrames(1)
             setOwnedMediaStatus(.videoRepairing)
+            ClientDiagnostics.shared.record(
+                type: "videoDecoderRecovered",
+                fields: ["frameId": String(envelope.header.frameId)],
+                level: .error
+            )
             requestKeyframe(now: now)
         case .droppedPendingKeyframe:
             videoStatusTracker.noteDroppedFrames(1)
             setOwnedMediaStatus(.videoWaitingKeyframe)
             ownedMediaStderrTrace("video-frame-dropped frame=\(envelope.header.frameId) reason=\(result)")
+            ClientDiagnostics.shared.record(
+                type: "videoFrameDropped",
+                fields: [
+                    "frameId": String(envelope.header.frameId),
+                    "reason": String(describing: result)
+                ],
+                level: .error
+            )
         case .formatDescriptionUnavailable, .sampleBufferBuildFailed:
             videoStatusTracker.noteDroppedFrames(1)
             setOwnedMediaStatus(.videoDropped)
             ownedMediaStderrTrace("video-frame-dropped frame=\(envelope.header.frameId) reason=\(result)")
+            ClientDiagnostics.shared.record(
+                type: "videoFrameDropped",
+                fields: [
+                    "frameId": String(envelope.header.frameId),
+                    "reason": String(describing: result)
+                ],
+                level: .error
+            )
         }
         if handoff.motionStateChanged(to: .scrolling) == .video {
             applyVisibleSurface()

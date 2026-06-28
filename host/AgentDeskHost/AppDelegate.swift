@@ -88,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let tailnetDiscovery = TailscaleStatusDiscovery()
     private let launchAgentLogger = Logger(subsystem: Config.launchAgentLabel, category: "launchAgent")
     private let signalingLogger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
+    private let diagnosticsLogger = Logger(subsystem: Config.launchAgentLabel, category: "client-diagnostics")
     private var signalingServer: PairingSignalingServer?
     private let sessions = SessionRegistry()
     private let scrollActivityHints = ScrollActivityStore()
@@ -119,6 +120,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     )
     private var pairingSignalSource: DispatchSourceSignal?
+    private var diagnosticsSignalSource: DispatchSourceSignal?
+    private lazy var diagnosticsRequester = ClientDiagnosticsRequester(
+        sessions: sessions,
+        pairing: pairing,
+        tailnetDiscovery: tailnetDiscovery
+    )
     // ADR-0019: bounds the .pairingOffered state so a device that never dials
     // back does not strand the popover. Cancelled when the device starts
     // connecting or the user leaves the offered state.
@@ -132,7 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configurePopover()
         bootstrapTLSIdentity()
         startSignalingServer()
-        installPairingSignalHandler()
+        installAutomationSignalHandlers()
         refreshConnectedState()
         installSpacesSwitchHandler()
         installSpacesChangeObserver()
@@ -173,10 +180,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // SIGUSR1 fires startPairing on the main queue so `just pair-iphone` can
-    // mint a fresh URL without a menubar click. Signal is local-uid-only;
-    // same trust model as the menubar button.
-    private func installPairingSignalHandler() {
+    // mint a fresh URL without a menubar click. SIGUSR2 runs an on-demand
+    // client diagnostics collection described in ADR-0032. Both signals are
+    // local-uid-only and mirror the trust model of the menubar actions.
+    private func installAutomationSignalHandlers() {
         signal(SIGUSR1, SIG_IGN)
+        signal(SIGUSR2, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
         source.setEventHandler { [weak self] in
             self?.signalingLogger.notice("SIGUSR1 received; starting pairing")
@@ -184,6 +193,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         source.resume()
         pairingSignalSource = source
+
+        let diagnostics = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
+        diagnostics.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.diagnosticsLogger.notice("SIGUSR2 received; collecting client diagnostics")
+            Task { @MainActor in
+                await self.diagnosticsRequester.handleAutomationRequestFromDisk()
+            }
+        }
+        diagnostics.resume()
+        diagnosticsSignalSource = diagnostics
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -25,6 +25,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     let agentSayUpdates: AsyncStream<AgentSayPush>
     private let cursorContinuation: AsyncStream<CursorImagePush>.Continuation
     let cursorUpdates: AsyncStream<CursorImagePush>
+    private let diagnosticsContinuation: AsyncStream<InputChannelDiagnosticsUpdate>.Continuation
+    let diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate>
     private let closedContinuation: AsyncStream<Void>.Continuation
     let closed: AsyncStream<Void>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
@@ -66,6 +68,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         var cursorCont: AsyncStream<CursorImagePush>.Continuation!
         cursorUpdates = AsyncStream { cursorCont = $0 }
         cursorContinuation = cursorCont
+        var diagnosticsCont: AsyncStream<InputChannelDiagnosticsUpdate>.Continuation!
+        diagnosticsUpdates = AsyncStream { diagnosticsCont = $0 }
+        diagnosticsContinuation = diagnosticsCont
         var closedCont: AsyncStream<Void>.Continuation!
         closed = AsyncStream { closedCont = $0 }
         closedContinuation = closedCont
@@ -117,6 +122,18 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         try await QuicSessionStreamIO.send(config, role: .input, on: inputStream)
     }
 
+    func sendDiagnosticsSummary(_ summary: DiagnosticsSummary) async throws {
+        try await QuicSessionStreamIO.send(summary, role: .input, on: inputStream)
+    }
+
+    func sendDiagnosticsChunk(_ chunk: DiagnosticsChunk) async throws {
+        try await QuicSessionStreamIO.send(chunk, role: .input, on: inputStream)
+    }
+
+    func sendDiagnosticsError(_ error: DiagnosticsError) async throws {
+        try await QuicSessionStreamIO.send(error, role: .input, on: inputStream)
+    }
+
     func close() {
         guard lock.withLock({ state in
             if state.closed { return false }
@@ -131,6 +148,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         topWindowsContinuation.finish()
         agentSayContinuation.finish()
         cursorContinuation.finish()
+        diagnosticsContinuation.finish()
         closedContinuation.yield(())
         closedContinuation.finish()
         stateContinuation.yield(.closed)
@@ -192,6 +210,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             if let push = try? JSONDecoder().decode(CursorImagePush.self, from: data) {
                 cursorContinuation.yield(push)
             }
+        case "diagnostics-request":
+            if let request = try? JSONDecoder().decode(DiagnosticsRequest.self, from: data) {
+                diagnosticsContinuation.yield(.request(request))
+            }
         case "session-rejected":
             close()
         default:
@@ -222,6 +244,14 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             }
         }
         for request in result.resendRequests {
+            ClientDiagnostics.shared.record(
+                type: "mediaRepairRequested",
+                fields: [
+                    "frameId": String(request.frameId),
+                    "missingPacketCount": String(request.packetIndexes.count)
+                ],
+                level: .info
+            )
             sendVideoControl(OwnedMediaControlMessage(
                 kind: .packetResendRequest,
                 frameId: request.frameId,
@@ -233,6 +263,14 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             Task { @MainActor [weak self] in
                 self?.sink?.noteOwnedMediaDroppedFrames(expiredCount)
             }
+            ClientDiagnostics.shared.record(
+                type: "mediaRepairDeadlineMissed",
+                fields: [
+                    "frameId": String(expired.frameId),
+                    "expiredFrameCount": String(expiredCount)
+                ],
+                level: .error
+            )
             sendVideoControl(OwnedMediaControlMessage(kind: .keyframeRequest, frameId: expired.frameId))
         }
     }
@@ -257,6 +295,14 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             return counts
         }
         guard counts.0 > 0 || counts.1 > 0 else { return }
+        ClientDiagnostics.shared.record(
+            type: "mediaLinkHealthSummary",
+            fields: [
+                "completedFrames": String(counts.0),
+                "expiredFrames": String(counts.1)
+            ],
+            level: .info
+        )
         sendVideoControl(OwnedMediaControlMessage(
             kind: .linkHealth,
             frameId: 0,
@@ -274,6 +320,11 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
 
     private func handleConnectionState(_ state: NetworkChannel<QUIC>.State) {
         logger.notice("session quic state=\(String(describing: state), privacy: .public)")
+        ClientDiagnostics.shared.record(
+            type: "sessionTransportState",
+            fields: ["state": String(describing: state)],
+            level: .info
+        )
         switch state {
         case .ready:
             stateContinuation.yield(.connected)

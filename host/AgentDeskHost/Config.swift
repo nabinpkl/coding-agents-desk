@@ -618,6 +618,11 @@ enum Config {
         .appendingPathComponent("ad-token", isDirectory: false)
     static let devLastPairURLPath = applicationSupportDirectory
         .appendingPathComponent(".last-pair-url", isDirectory: false)
+    static let devDiagnosticsRequestPath = applicationSupportDirectory
+        .appendingPathComponent(".client-diagnostics-request.json", isDirectory: false)
+    static let devDiagnosticsResultPath = applicationSupportDirectory
+        .appendingPathComponent(".client-diagnostics-result.json", isDirectory: false)
+    static let diagnosticsRequestTimeoutSeconds: TimeInterval = 20
     static let tlsCertURL = applicationSupportDirectory
         .appendingPathComponent("host.crt", isDirectory: false)
     static let tlsKeyURL = applicationSupportDirectory

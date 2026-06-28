@@ -22,6 +22,8 @@ final class PairingOfferListener: @unchecked Sendable {
     // so the Mac picker can list this device by name. Snapshotted by the owner
     // when the listener starts.
     var localIdentity: DeviceIdentity?
+    var storedPairingRecordProvider: (() -> StoredPairingRecord?)?
+    var diagnosticsResponseProvider: ((DiagnosticsRequest) -> Result<ClientDiagnosticsPreparedResponse, DiagnosticsError>)?
 
     func start(port: UInt16 = Config.offerPort) {
         guard listener == nil else { return }
@@ -83,6 +85,13 @@ final class PairingOfferListener: @unchecked Sendable {
                             self.logger.notice("whois received")
                             self.respondToWhois(on: connection)
                             return
+                        case .diagnosticsRequest(let request):
+                            self.logger.notice("diagnostics request received")
+                            self.respondToDiagnosticsRequest(request, on: connection)
+                            return
+                        case .diagnosticsSummary, .diagnosticsChunk, .diagnosticsError:
+                            connection.cancel()
+                            return
                         case .identity, .unknown:
                             connection.cancel()
                             return
@@ -118,6 +127,75 @@ final class PairingOfferListener: @unchecked Sendable {
         } catch {
             connection.cancel()
         }
+    }
+
+    private func respondToDiagnosticsRequest(_ request: SignedDiagnosticsRequest, on connection: NWConnection) {
+        guard let record = storedPairingRecordProvider?(),
+              ClientDiagnostics.shared.validateFallbackRequest(request, record: record),
+              let responseProvider = diagnosticsResponseProvider else {
+            sendDiagnosticsFrames([
+                DiagnosticsError(requestId: request.requestId, reason: "unauthorized")
+            ], on: connection) {
+                connection.cancel()
+            }
+            return
+        }
+        switch responseProvider(request.request) {
+        case .failure(let error):
+            sendDiagnosticsFrames([error], on: connection) {
+                connection.cancel()
+            }
+        case .success(let prepared):
+            var frames: [Encodable] = [prepared.summary]
+            frames.append(contentsOf: prepared.chunks)
+            sendDiagnosticsFrames(frames, on: connection) {
+                ClientDiagnostics.shared.completeResponse(prepared)
+                connection.cancel()
+            }
+        }
+    }
+
+    private func sendDiagnosticsFrames(
+        _ frames: [any Encodable],
+        on connection: NWConnection,
+        completion: @escaping @Sendable () -> Void
+    ) {
+        let encoder = JSONEncoder()
+        let encodedFrames = frames.compactMap { frame -> Data? in
+            guard let data = try? encode(encodable: frame, encoder: encoder),
+                  let wrapped = try? OfferPortFrame.encode(data) else {
+                return nil
+            }
+            return wrapped
+        }
+        sendFrame(at: 0, from: encodedFrames, on: connection, completion: completion)
+    }
+
+    private func sendFrame(
+        at index: Int,
+        from frames: [Data],
+        on connection: NWConnection,
+        completion: @escaping @Sendable () -> Void
+    ) {
+        guard index < frames.count else {
+            completion()
+            return
+        }
+        connection.send(content: frames[index], completion: .contentProcessed { [weak self] error in
+            guard error == nil else {
+                connection.cancel()
+                return
+            }
+            self?.sendFrame(at: index + 1, from: frames, on: connection, completion: completion)
+        })
+    }
+
+    private func encode(encodable: any Encodable, encoder: JSONEncoder) throws -> Data {
+        struct AnyEncodable: Encodable {
+            let encodeImpl: (Encoder) throws -> Void
+            func encode(to encoder: Encoder) throws { try encodeImpl(encoder) }
+        }
+        return try encoder.encode(AnyEncodable(encodeImpl: encodable.encode))
     }
 
     // The iPhone's own tailnet IPv4, shown on the unpaired screen so the user can

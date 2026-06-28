@@ -19,6 +19,8 @@ motion_host_stdio := env_var_or_default("AGENTDESK_MOTION_HOST_STDIO", "/tmp/age
 motion_client_log := env_var_or_default("AGENTDESK_MOTION_CLIENT_LOG", "/tmp/agentdesk-motion-client.log")
 iphone_log_device_udid := env_var_or_default("AGENTDESK_IOS_DEVICE_UDID", "")
 last_pair_url_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.last-pair-url"
+client_diagnostics_request_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.client-diagnostics-request.json"
+client_diagnostics_result_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.client-diagnostics-result.json"
 derived_data := env_var_or_default("AGENTDESK_DERIVED_DATA_PATH", justfile_directory() + "/.build/DerivedData")
 host_app := derived_data + "/Build/Products/Debug/AgentDeskHost.app"
 client_app := derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
@@ -183,6 +185,29 @@ pair-iphone variant="stable":
     test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
     URL="$(cat '{{last_pair_url_path}}')"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" xcrun devicectl device process launch --device {{ios_device}} --terminate-existing "$BID"
+
+# Ask the running host to collect durable client diagnostics and write them under
+# /tmp. Uses the active QUIC input lane first and falls back to the foreground
+# tailnet control listener if the client is paired but not currently connected.
+# The variant arg is kept for symmetry with other device-facing recipes even
+# though the host resolves the actual client from the live session / tailnet.
+client-diagnostics variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    HOST_PID="$(pgrep -f AgentDeskHost | head -1 || true)"
+    test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
+    TS="$(date +%Y%m%d-%H%M%S)"
+    OUT_DIR="${AGENTDESK_CLIENT_DIAGNOSTICS_OUTPUT:-/tmp/agentdesk-client-diagnostics-$TS}"
+    REQUEST_ID="$(uuidgen | tr 'A-Z' 'a-z')"
+    mkdir -p "$(dirname '{{client_diagnostics_request_path}}')"
+    rm -f '{{client_diagnostics_request_path}}' '{{client_diagnostics_result_path}}'
+    printf '%s\n' "{\"requestId\":\"$REQUEST_ID\",\"outputDirectory\":\"$OUT_DIR\",\"includePreviousRuns\":true,\"maxBytes\":786432}" > '{{client_diagnostics_request_path}}'
+    kill -USR2 "$HOST_PID"
+    i=0
+    while [ ! -s '{{client_diagnostics_result_path}}' ] && [ $i -lt 400 ]; do sleep 0.1; i=$((i+1)); done
+    test -s '{{client_diagnostics_result_path}}' || { echo "host did not write diagnostics result"; exit 1; }
+    python3 -c 'import json,sys; path="{{client_diagnostics_result_path}}"; data=json.load(open(path, "r", encoding="utf-8")); print(json.dumps(data, indent=2, sort_keys=True)); sys.exit(0 if data.get("status") == "ok" else 1)'
+    echo "Diagnostics directory: $OUT_DIR"
 
 # Pair-launch the physical iPhone client with the console attached. Blocks until
 # the app exits and tees stdout/stderr to {{iphone_console_log}}. Owned-media stderr

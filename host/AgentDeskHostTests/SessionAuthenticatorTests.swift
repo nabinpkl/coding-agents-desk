@@ -386,19 +386,25 @@ private final class ByteSequence {
 
 private final class FakeInputChannelServer: InputChannelServing, @unchecked Sendable {
     let events: AsyncStream<NormalizedInput>
+    let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
     private let continuation: AsyncStream<NormalizedInput>.Continuation
+    private let diagnosticsContinuation: AsyncStream<DiagnosticsChannelUpdate>.Continuation
     private(set) var closed = false
     var configHandler: ((ClientConfig) -> Void)?
 
     init() {
         var continuation: AsyncStream<NormalizedInput>.Continuation!
+        var diagnosticsContinuation: AsyncStream<DiagnosticsChannelUpdate>.Continuation!
         events = AsyncStream { continuation = $0 }
+        diagnosticsUpdates = AsyncStream { diagnosticsContinuation = $0 }
         self.continuation = continuation
+        self.diagnosticsContinuation = diagnosticsContinuation
     }
 
     func close() {
         closed = true
         continuation.finish()
+        diagnosticsContinuation.finish()
     }
 
     func pushDesktopState(_ state: DesktopState) {}
@@ -408,6 +414,8 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     func pushAgentSay(_ push: AgentSayPush) {}
 
     func pushCursor(_ push: CursorImagePush) {}
+
+    func pushDiagnosticsRequest(_ request: DiagnosticsRequest) {}
 }
 
 private final class FakeMediaTransport: MediaTransport, @unchecked Sendable {
