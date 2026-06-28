@@ -388,19 +388,6 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_FULLFRAME_MAX_WIRE_BYTES",
         defaultValue: 450_000
     )
-    // Tighter wire-byte ceiling that applies only while congested. The 450KB rest
-    // ceiling exists to stop a single frame clogging the reset path; it is far too
-    // large for a thin link, where a device run measured ack latency scaling with
-    // frame size (100KB -> ~650ms, 200KB -> ~1.1s on a ~2 Mbps link), so a 200KB+
-    // fullframe alone is a second of airtime. When the pump is backed up, bound every
-    // fullframe to this instead so no single frame can hold the link for ~0.5s, which
-    // is what lifts the frame rate when the link, not the codec, is the limit. The
-    // quality ladder steps down to fit it; only applies under congestion, so a calm
-    // link keeps the crisp rest ceiling.
-    static let hybridFullframeCongestedMaxWireBytes = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_FULLFRAME_CONGESTED_MAX_WIRE_BYTES",
-        defaultValue: 120_000
-    )
     // Congestion resolution scale: when the pump is backed up, the fullframe JPEG is
     // encoded at this fraction of the damage region's native size and the client
     // upscales it into the full destination rect. On a thin link JPEG quality alone
@@ -412,7 +399,7 @@ enum Config {
     // disables the downscale.
     static let hybridFullframeCongestedScale = positiveDouble(
         environmentKey: "AGENTDESK_HYBRID_FULLFRAME_CONGESTED_SCALE",
-        defaultValue: 0.35
+        defaultValue: 0.5
     )
     static let hybridScrollViewportMinWidth = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_SCROLL_VIEWPORT_MIN_WIDTH",
