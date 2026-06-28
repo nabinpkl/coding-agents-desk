@@ -18,7 +18,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     let view: UIView
     private let surfaceLayer = CALayer()
     private let debugLabel = UILabel()
-    private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "owned-media")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "owned-media")
     private var compositor = OwnedSurfaceCompositor()
     private var lastRenderUptimeNs: UInt64?
     private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?

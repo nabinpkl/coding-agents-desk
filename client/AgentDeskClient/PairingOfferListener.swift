@@ -11,7 +11,7 @@ import os
 // sandboxed iOS app is unproven. If a device run shows offers never arrive, the
 // fallback is to have the iPhone dial the Mac instead.
 final class PairingOfferListener: @unchecked Sendable {
-    private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "pairing-offer")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "pairing-offer")
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: OfferConnectionState] = [:]
 

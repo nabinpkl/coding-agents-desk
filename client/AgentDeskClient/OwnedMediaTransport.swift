@@ -36,7 +36,7 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
 }
 
 final class OwnedGraphicsTransport: @unchecked Sendable {
-    private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "owned-graphics")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "owned-graphics")
     private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.client.owned-graphics-quic")
     private let plan: ClientGraphicsConnectionPlan
     private let active: ActiveSession
@@ -303,7 +303,7 @@ final class OwnedGraphicsTransport: @unchecked Sendable {
 final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     let connectionState: AsyncStream<MediaConnectionState>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
-    private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "owned-media")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "owned-media")
     private let lifecycleLock = NSLock()
     private let graphicsReconnectPolicy = GraphicsReconnectPolicy(
         initialDelayMs: Config.graphicsReconnectInitialDelayMs,

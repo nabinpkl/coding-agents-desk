@@ -11,7 +11,17 @@ enum Config {
     // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
     static let protocolVersion = 1
     static let minCompatibleProtocolVersion = 1
-    static let keychainService = "com.example.agentdesk.AgentDeskClient"
+    // The stable and experimental client installs differ only by bundle id.
+    // Deriving the log subsystem and keychain namespace from the running
+    // bundle id keeps each variant's diagnostics and stored credentials
+    // separate: `just iphone-log-collect` then filters one install's lines
+    // (not both mixed), and the two apps never share keychain items. Falls
+    // back to the stable id if the platform ever returns nil (it does not for
+    // a real app bundle). For the stable build this resolves to the same
+    // string as before, so behavior is unchanged.
+    static let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.example.agentdesk.AgentDeskClient"
+    static let logSubsystem = bundleIdentifier
+    static let keychainService = bundleIdentifier
     static let keychainAccessGroup: String? = nil
     static let storedPairingAccount = "session-token"
     static let graphicsReconnectInitialDelayMs = positiveInt(

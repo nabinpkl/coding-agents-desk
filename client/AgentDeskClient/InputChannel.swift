@@ -75,7 +75,7 @@ struct URLSessionInputWebSocketTaskFactory: InputWebSocketTaskFactory {
     }
 }
 
-private let inputLogger = Logger(subsystem: "com.example.agentdesk.AgentDeskClient", category: "input-channel")
+private let inputLogger = Logger(subsystem: Config.logSubsystem, category: "input-channel")
 
 // Closed-state holder. OSAllocatedUnfairLock is async-safe (no
 // blocking semantics in async contexts that would warn under Swift 6).
