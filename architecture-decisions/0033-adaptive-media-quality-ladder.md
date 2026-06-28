@@ -52,7 +52,11 @@ Downshift policy:
 - Freeze pressure skips bitrate-only loss control and enters a capacity rung.
 - If survival still freezes or triggers stale recovery, the controller enters an emergency rung: lower capture scale, lower FPS, and lower bitrate. The current defaults are `0.33`, `6fps`, and `180kbps`.
 
-Recovery is deliberately conservative: no recovery while cadence pressure remains true, no recovery without ACK samples, and no recovery until clean windows show no expiry, no stale recovery, ACK p95 below the hold threshold, actual FPS close to target, and max send gap below the recovery smoothness threshold. Bitrate rises before rung promotion; when a rung promotion changes resolution and FPS together, transport applies resolution before FPS so the capture stream establishes the new sync point first.
+Recovery is deliberately conservative, but it is measured as production-backed clean time rather than raw link-health window count. Only windows with host production summaries can add recovery credit. Link-only windows with no loss, no stale recovery, and acceptable ACK age hold existing recovery credit instead of erasing it, because production summaries and link-health reports are not guaranteed to arrive on the same cadence. Recovery still requires ACK samples and clean production: no expiry, no stale recovery, ACK p95 below the hold threshold, actual FPS close to target, and max send gap below the recovery smoothness threshold. Production-backed FPS or gap failures reset recovery credit. Bitrate rises before rung promotion; when a rung promotion changes resolution and FPS together, transport applies resolution before FPS so the capture stream establishes the new sync point first.
+
+Each rung promotion is a recovery probe. If cadence pressure returns during the short post-promotion probe window, the controller downshifts immediately instead of waiting for the normal sustained-cadence hysteresis. This keeps recovery reachable after stable motion without letting a premature promotion sit at an unusable resolution or FPS.
+
+Diagnostics report the recovery accumulator and blocker on every quality window: `recoveryCleanMs`, `requiredRecoveryMs`, `recoveryBlocker`, and `recoveryProbeWindows`. Blocker reasons include `recovery-wait-no-production`, `recovery-wait-no-ack`, `recovery-wait-ack`, `recovery-wait-fps`, and `recovery-wait-gap`.
 
 Keyframe recovery is reason-scoped. Resolution changes and explicit client keyframe requests force keyframes. Client requests are coalesced while a keyframe is already in flight. Stale admission recovery resets host backpressure and records `stalePressure`, but it does not force a large keyframe, because repeated recovery keyframes can become the freeze source on constrained paths.
 
@@ -65,7 +69,7 @@ Keyframe recovery is reason-scoped. Resolution changes and explicit client keyfr
 
 ### Confirmation
 
-Pure controller tests assert the downshift order, latency-hold behavior, cadence-pressure capacity shifts, freeze-pressure capacity shifts, stale-pressure capacity shifts, emergency entry, and conservative recovery. Host tests assert ACK age is measured from sent-frame time, diagnostics carry the same pressure classes the policy used, stale admission recovery does not force keyframes, explicit client keyframe requests are coalesced while a keyframe is in flight, and resolution changes clear stale admission state. Client tests assert keyframes can resync to new dimensions and mismatched deltas are dropped with a keyframe request.
+Pure controller tests assert the downshift order, latency-hold behavior, cadence-pressure capacity shifts, freeze-pressure capacity shifts, stale-pressure capacity shifts, emergency entry, production-backed recovery, neutral handling for link-only windows without production summaries, recovery-blocker diagnostics, and immediate probe downshift on failed recovery. Host tests assert ACK age is measured from sent-frame time, diagnostics carry the same pressure classes and recovery fields the policy used, stale admission recovery does not force keyframes, explicit client keyframe requests are coalesced while a keyframe is in flight, and resolution changes clear stale admission state. Client tests assert keyframes can resync to new dimensions and mismatched deltas are dropped with a keyframe request.
 
 ## Pros and Cons of the Options
 

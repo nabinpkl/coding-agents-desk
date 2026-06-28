@@ -88,6 +88,7 @@ struct MediaQualityObservation: Equatable {
     let oldestInflightMs: Double?
     let staleRecoveryCount: Int
     let signals: MediaQualityObservationSignals
+    let recoveryStatus: MediaQualityRecoveryStatus
 }
 
 struct MediaQualityDecision: Equatable {

@@ -260,6 +260,43 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertGreaterThan(controller.targetKbps, afterDown)
     }
 
+    func testMediaQualityControllerMissingProductionDoesNotResetRecoveryCredit() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        let down = controller.observe(lossInput()).outcome
+        XCTAssertEqual(down.reason, "loss-down")
+        let afterDown = controller.targetKbps
+
+        for index in 1...3 {
+            let hold = controller.observe(cleanInput())
+            XCTAssertEqual(hold.outcome.reason, "clean-hold")
+            XCTAssertEqual(hold.recoveryStatus.cleanMs, index * 1_000)
+        }
+
+        let linkOnly = controller.observe(input(cleanSample(ackP95Ms: 50), ackCount: 1))
+        XCTAssertEqual(linkOnly.outcome.reason, "recovery-wait-no-production")
+        XCTAssertEqual(linkOnly.recoveryStatus.cleanMs, 3_000)
+        XCTAssertEqual(controller.targetKbps, afterDown)
+
+        let up = controller.observe(cleanInput())
+        XCTAssertEqual(up.outcome.reason, "clean-up")
+        XCTAssertGreaterThan(controller.targetKbps, afterDown)
+    }
+
+    func testMediaQualityControllerDoesNotRecoverFromAckOnlyWindows() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        let down = controller.observe(lossInput()).outcome
+        XCTAssertEqual(down.reason, "loss-down")
+        let afterDown = controller.targetKbps
+
+        for _ in 0..<8 {
+            let decision = controller.observe(input(cleanSample(ackP95Ms: 50), ackCount: 1))
+            XCTAssertEqual(decision.outcome.reason, "recovery-wait-no-production")
+            XCTAssertFalse(decision.outcome.changed)
+        }
+
+        XCTAssertEqual(controller.targetKbps, afterDown)
+    }
+
     func testMediaQualityControllerNeverExceedsCeiling() {
         var controller = MediaQualityController(config: mediaQualityConfig())
         for _ in 0..<40 { _ = controller.observe(cleanInput()) }
@@ -473,6 +510,61 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         }
 
         XCTAssertLessThan(controller.targetResolutionScale, 1.0)
+    }
+
+    func testMediaQualityControllerBadCadenceResetsRecoveryCredit() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        _ = controller.observe(lossInput())
+
+        for _ in 0..<3 { _ = controller.observe(cleanInput()) }
+        let badCadence = controller.observe(input(
+            cleanSample(ackP95Ms: 50),
+            productionSummary: production(actualFps: 10, targetFps: 30, maxGapMs: 650)
+        ))
+        XCTAssertEqual(badCadence.recoveryStatus.cleanMs, 0)
+        XCTAssertEqual(badCadence.recoveryStatus.blocker, "cadence-pressure")
+
+        for _ in 0..<3 {
+            let hold = controller.observe(cleanInput())
+            XCTAssertEqual(hold.outcome.reason, "clean-hold")
+        }
+        XCTAssertLessThan(controller.targetKbps, 2500)
+    }
+
+    func testMediaQualityControllerProbeCadenceFailureDownshiftsImmediately() {
+        let config = MediaQualityControllerConfig(
+            ceilingKbps: 2500, floorKbps: 800, survivalFloorKbps: 300,
+            downStep: 0.7, upStep: 10.0,
+            lossDownPermille: 50, raiseCleanWindows: 1, cadenceDownWindows: 4,
+            fpsCeiling: 30, fpsFloor: 10,
+            ackHoldP95Ms: 180, ackDownP95Ms: 350,
+            cadenceGapMs: 500, freezeGapMs: 1_000, freezeFpsCeiling: 3,
+            recoveryMaxGapMs: 300, recoveryMinFpsPermille: 800,
+            capacity1Kbps: 650, capacity1Fps: 24, capacity1Scale: 0.75,
+            capacity2Kbps: 400, capacity2Fps: 15, capacity2Scale: 0.5,
+            emergencyKbps: 180, emergencyFps: 6, emergencyScale: 0.33,
+            survivalScale: 0.5
+        )
+        var controller = MediaQualityController(config: config)
+        _ = controller.observe(input(
+            cleanSample(ackP95Ms: 50),
+            productionSummary: production(actualFps: 1, targetFps: 30, maxGapMs: 1_250)
+        ))
+        XCTAssertEqual(controller.targetResolutionScale, 0.75)
+
+        _ = controller.observe(cleanInput())
+        XCTAssertEqual(controller.targetResolutionScale, 0.75)
+        let up = controller.observe(cleanInput())
+        XCTAssertEqual(up.outcome.reason, "quality-up")
+        XCTAssertEqual(controller.targetResolutionScale, 1.0)
+
+        let failedProbe = controller.observe(input(
+            cleanSample(ackP95Ms: 50),
+            productionSummary: production(actualFps: 10, targetFps: 30, maxGapMs: 650)
+        ))
+        XCTAssertEqual(failedProbe.outcome.reason, "probe-cadence-down")
+        XCTAssertEqual(failedProbe.outcome.target.rung, .capacity1)
+        XCTAssertEqual(failedProbe.recoveryStatus.blocker, "probe-cadence-pressure")
     }
 
     func testMediaQualityControllerConfigNormalizesSurvivalKnobs() {

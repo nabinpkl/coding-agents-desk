@@ -108,6 +108,7 @@ struct MediaQualityObservationSignals: Equatable {
 struct MediaQualityEvaluation: Equatable {
     let signals: MediaQualityObservationSignals
     let outcome: MediaQualityOutcome
+    let recoveryStatus: MediaQualityRecoveryStatus
 }
 
 struct MediaQualityOutcome: Equatable {
@@ -121,6 +122,13 @@ struct MediaQualityOutcome: Equatable {
     var bitrateChanged: Bool { target.bitrateKbps != previousTarget.bitrateKbps }
     var fpsChanged: Bool { target.fps != previousTarget.fps }
     var resolutionChanged: Bool { target.resolutionScale != previousTarget.resolutionScale }
+}
+
+struct MediaQualityRecoveryStatus: Equatable {
+    let cleanMs: Int
+    let requiredMs: Int
+    let blocker: String
+    let probeWindowsRemaining: Int
 }
 
 struct MediaQualityControllerConfig: Equatable {
@@ -250,8 +258,9 @@ struct MediaQualityControllerConfig: Equatable {
 struct MediaQualityController {
     private let config: MediaQualityControllerConfig
     private(set) var target: MediaQualityTarget
-    private var cleanStreak = 0
+    private var cleanRecoveryMs = 0
     private var cadencePressureStreak = 0
+    private var probeWindowsRemaining = 0
 
     init(config: MediaQualityControllerConfig) {
         self.config = config
@@ -267,6 +276,7 @@ struct MediaQualityController {
     var targetKbps: Int { target.bitrateKbps }
     var targetFps: Int { target.fps }
     var targetResolutionScale: Double { target.resolutionScale }
+    var requiredRecoveryMs: Int { config.raiseCleanWindows * 1_000 }
 
     mutating func observe(_ input: MediaQualityControllerInput) -> MediaQualityEvaluation {
         let previous = target
@@ -274,63 +284,132 @@ struct MediaQualityController {
         let total = input.sample.completedFrames + input.sample.expiredFrames
         guard total > 0 else {
             resetPressureStreaks()
-            return evaluation(signals: signals, previous: previous, reason: "idle")
+            resetRecovery()
+            return evaluation(signals: signals, previous: previous, reason: "idle", recoveryBlocker: "idle")
         }
 
         if signals.freezePressure {
             resetPressureStreaks()
+            resetRecovery()
             downshiftCapacity(reason: "freeze-capacity-down")
-            return evaluation(signals: signals, previous: previous, reason: target == previous ? floorReason : target.reason)
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: target == previous ? floorReason : target.reason,
+                recoveryBlocker: "freeze-pressure"
+            )
         }
 
         if signals.stalePressure {
             resetPressureStreaks()
+            resetRecovery()
             downshiftCapacity(reason: "stale-capacity-down")
-            return evaluation(signals: signals, previous: previous, reason: target == previous ? floorReason : target.reason)
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: target == previous ? floorReason : target.reason,
+                recoveryBlocker: "stale-pressure"
+            )
         }
 
         if signals.queuePressure && signals.cadencePressure {
             resetPressureStreaks()
+            resetRecovery()
             downshiftCapacity(reason: "queue-cadence-down")
-            return evaluation(signals: signals, previous: previous, reason: target == previous ? floorReason : target.reason)
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: target == previous ? floorReason : target.reason,
+                recoveryBlocker: "queue-cadence-pressure"
+            )
         }
 
         if signals.cadencePressure {
-            cleanStreak = 0
+            let wasRecoveryProbe = probeWindowsRemaining > 0
+            resetRecovery()
+            if wasRecoveryProbe {
+                resetPressureStreaks()
+                downshiftCapacity(reason: "probe-cadence-down")
+                return evaluation(
+                    signals: signals,
+                    previous: previous,
+                    reason: target == previous ? floorReason : target.reason,
+                    recoveryBlocker: "probe-cadence-pressure"
+                )
+            }
             cadencePressureStreak += 1
             guard cadencePressureStreak >= config.cadenceDownWindows else {
-                return evaluation(signals: signals, previous: previous, reason: "cadence-hold")
+                return evaluation(
+                    signals: signals,
+                    previous: previous,
+                    reason: "cadence-hold",
+                    recoveryBlocker: "cadence-pressure"
+                )
             }
             cadencePressureStreak = 0
             downshiftCapacity(reason: "cadence-capacity-down")
-            return evaluation(signals: signals, previous: previous, reason: target == previous ? floorReason : target.reason)
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: target == previous ? floorReason : target.reason,
+                recoveryBlocker: "cadence-pressure"
+            )
         }
 
         cadencePressureStreak = 0
 
         if signals.lossPressure {
-            cleanStreak = 0
+            resetRecovery()
             downshiftLoss(reason: "loss-down")
-            return evaluation(signals: signals, previous: previous, reason: target == previous ? floorReason : target.reason)
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: target == previous ? floorReason : target.reason,
+                recoveryBlocker: "loss-pressure"
+            )
         }
 
         if signals.queuePressure || (input.sample.ackAgeP95Ms ?? 0) >= config.ackHoldP95Ms {
-            cleanStreak = 0
-            return evaluation(signals: signals, previous: previous, reason: "latency-hold")
+            resetRecovery()
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: "latency-hold",
+                recoveryBlocker: "recovery-wait-ack"
+            )
         }
 
-        guard isRecoveryWindow(input, signals: signals) else {
-            cleanStreak = 0
-            return evaluation(signals: signals, previous: previous, reason: "recovery-wait")
+        if let recoveryBlocker = recoveryBlocker(input, signals: signals) {
+            if recoveryBlocker == "recovery-wait-fps" || recoveryBlocker == "recovery-wait-gap" {
+                resetRecovery()
+            }
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: recoveryBlocker,
+                recoveryBlocker: recoveryBlocker
+            )
         }
 
-        cleanStreak += 1
-        if cleanStreak >= config.raiseCleanWindows {
-            cleanStreak = 0
+        let productionWindowMs = max(input.productionSummary?.windowMs ?? 0, 1)
+        cleanRecoveryMs += productionWindowMs
+        if probeWindowsRemaining > 0 {
+            probeWindowsRemaining -= 1
+        }
+        if cleanRecoveryMs >= requiredRecoveryMs {
+            cleanRecoveryMs = 0
             recover()
-            return evaluation(signals: signals, previous: previous, reason: target == previous ? "at-native" : target.reason)
+            if target.rung != previous.rung {
+                probeWindowsRemaining = config.raiseCleanWindows
+            }
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: target == previous ? "at-native" : target.reason,
+                recoveryBlocker: target == previous ? "at-native" : "none"
+            )
         }
-        return evaluation(signals: signals, previous: previous, reason: "clean-hold")
+        return evaluation(signals: signals, previous: previous, reason: "clean-hold", recoveryBlocker: "none")
     }
 
     private func makeSignals(_ input: MediaQualityControllerInput) -> MediaQualityObservationSignals {
@@ -363,10 +442,10 @@ struct MediaQualityController {
         )
     }
 
-    private func isRecoveryWindow(
+    private func recoveryBlocker(
         _ input: MediaQualityControllerInput,
         signals: MediaQualityObservationSignals
-    ) -> Bool {
+    ) -> String? {
         guard !signals.lossPressure,
               !signals.repairPressure,
               !signals.queuePressure,
@@ -374,15 +453,24 @@ struct MediaQualityController {
               !signals.stalePressure,
               !signals.freezePressure,
               input.staleRecoveryCount == 0,
-              input.ackCount > 0,
-              (input.sample.ackAgeP95Ms ?? Double.greatestFiniteMagnitude) < config.ackHoldP95Ms,
-              let production = input.productionSummary
+              input.ackCount > 0
         else {
-            return false
+            return "recovery-wait-no-ack"
+        }
+        guard (input.sample.ackAgeP95Ms ?? Double.greatestFiniteMagnitude) < config.ackHoldP95Ms else {
+            return "recovery-wait-ack"
+        }
+        guard let production = input.productionSummary else {
+            return "recovery-wait-no-production"
         }
         let fpsPermille = (production.actualFps * 1_000) / max(production.targetFps, 1)
-        return fpsPermille >= config.recoveryMinFpsPermille &&
-            production.maxGapMs <= config.recoveryMaxGapMs
+        guard fpsPermille >= config.recoveryMinFpsPermille else {
+            return "recovery-wait-fps"
+        }
+        guard production.maxGapMs <= config.recoveryMaxGapMs else {
+            return "recovery-wait-gap"
+        }
+        return nil
     }
 
     private mutating func downshiftLoss(reason: String) {
@@ -467,14 +555,28 @@ struct MediaQualityController {
     }
 
     private mutating func resetPressureStreaks() {
-        cleanStreak = 0
         cadencePressureStreak = 0
+    }
+
+    private mutating func resetRecovery() {
+        cleanRecoveryMs = 0
+        probeWindowsRemaining = 0
+    }
+
+    private func recoveryStatus(blocker: String) -> MediaQualityRecoveryStatus {
+        MediaQualityRecoveryStatus(
+            cleanMs: cleanRecoveryMs,
+            requiredMs: requiredRecoveryMs,
+            blocker: blocker,
+            probeWindowsRemaining: probeWindowsRemaining
+        )
     }
 
     private func evaluation(
         signals: MediaQualityObservationSignals,
         previous: MediaQualityTarget,
-        reason: String
+        reason: String,
+        recoveryBlocker: String
     ) -> MediaQualityEvaluation {
         MediaQualityEvaluation(
             signals: signals,
@@ -482,7 +584,8 @@ struct MediaQualityController {
                 target: target.with(reason: reason),
                 previousTarget: previous,
                 reason: reason
-            )
+            ),
+            recoveryStatus: recoveryStatus(blocker: recoveryBlocker)
         )
     }
 }
@@ -668,7 +771,8 @@ struct QuicSessionHostMediaState {
             inFlightBytes: input.inFlightBytes,
             oldestInflightMs: input.oldestInflightMs,
             staleRecoveryCount: input.staleRecoveryCount,
-            signals: evaluation.signals
+            signals: evaluation.signals,
+            recoveryStatus: evaluation.recoveryStatus
         )
         resendRequestsInWindow = 0
         keyframeRequestsInWindow = 0
