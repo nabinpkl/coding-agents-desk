@@ -2,6 +2,7 @@
 
 Date: 2026-06-28
 Status: design, pending implementation plan
+Revision: 2 (reuse-based architecture after codebase mapping)
 
 ## Problem
 
@@ -11,86 +12,92 @@ The insight that reframes the fix: at rest, crisp is nearly free. A static scree
 
 ## What we are building
 
-A per-region crisp-repair layer over the existing full-surface video. The video keeps running as the always-live floor for every region (smooth, lossy). When a region goes static, the host sends a lossless crisp tile for it and tells the client to show crisp for that region. When the region changes again, the client reverts that region to video. Text becomes crisp shortly after motion stops, per region, while moving regions stay smooth.
+A per-region crisp-repair layer over the existing full-surface video. The video keeps running as the always-live floor for every region (smooth, lossy). When a region goes static, the host sends a lossless crisp tile for it and the client paints that tile over the video for that region. When the region changes again, the client reverts that region to transparent so the live video shows through. Text becomes crisp shortly after motion stops, per region, while moving regions stay smooth.
 
-This is the "crisp-repair layer (the combo)" that ADR-0026 named as the reversibility target and explicitly deferred ("No combo/repair mode exists yet"). It is not a reopening of a closed decision; it is the documented next step, triggered now that small-font legibility demands it.
+This is the "crisp-repair layer (the combo)" that ADR-0026 named as the reversibility target and explicitly deferred ("No combo/repair mode exists yet"). It is the documented next step, triggered now that small-font legibility demands it.
+
+## Architecture decision: reuse the dormant tile primitives, do not build a parallel stack
+
+Codebase mapping found that most of this already exists, dormant under `always_video`. The clean architecture reuses the proven, model-agnostic primitives and builds only the genuinely new per-region orchestration. It does NOT mirror the scar-tissue orchestration that was shaped around the retired whole-frame scroll swap.
+
+Reuse (proven halves of ADR-0022/0025, the "tiles at rest" path that was always the good part):
+- `TileContentCache` (host): FNV-1a content hashing, slot assignment, dedup, pending/commit semantics.
+- Tile pixel extraction and LZFSE lossless encode (currently in `ScrollDeltaEngine`; lift the reusable functions out, leave the scroll routing behind).
+- `OwnedGraphicsCommand` wire vocabulary: `cacheTile`, `drawCachedTile`, `bitmapTile` already exist on both sides (host SharedTypes.swift:1614, client mirror). These ARE the crisp-tile commands.
+- Client `OwnedSurfaceCompositor` + `surfaceLayer` (CALayer) paint path (OwnedMediaVideoSink.swift:227,238,268), already in the view tree.
+
+Do NOT reuse / explicitly retire as part of this work:
+- The whole-frame `visibleSurface` `.video`/`.tiles` mutually-exclusive `isHidden` toggle. Per-region crisp requires surfaceLayer and videoLayer visible simultaneously in different regions, which the toggle cannot express. Replaced by per-region transparency.
+- `MotionGovernor` / `ScrollDeltaEngine` scroll-prediction routing. Crisp-repair classifies motion per tile by content-hash change, not by input-declared scroll state.
+- The dead host tile-emission pump (no live consumer today).
+
+Build clean and minimal:
+- Host `RegionCrispController`: per-tile settle/motion policy over the captured surface and damage rects. Uses `TileContentCache` for hashing/dedup. Emits crisp tiles (`cacheTile`/`drawCachedTile`) for settled tiles and a revert command for changed tiles.
+- One new `OwnedGraphicsCommand` variant: `revertTileToVideo(x,y,width,height)` (makes that surfaceLayer region transparent so video shows through). This is the only new wire type, versus the two new message types the first draft proposed.
+- Client per-region compositing: `OwnedSurfaceCompositor` paints crisp tiles into `surfaceLayer` with the rest transparent; `surfaceLayer` is shown over `videoLayer` (not swapped). A reverted region clears to transparent.
 
 ## Decisions locked during design
 
-1. **Crispness is a motion-driven axis, separate from the capacity ladder.** The ADR-0033 ladder keeps owning the video carrier's bitrate, fps, and raster scale for motion smoothness. It no longer carries any responsibility for crispness. The raster-scale axis is purely a smoothness lever from here on.
-2. **Per-region, not whole-frame.** Motion regions and static regions are treated independently, so a looping video in one corner does not hold text crisp elsewhere.
-3. **Crisp-repair over a full-surface video, not cropped sub-region video.** ADR-0025 already rejected spatially cropping the video and compositing it beside tiles, because of the coordinate-alignment seam. The video stays full-surface (HEVC skip makes static areas near-free), and crisp tiles repair settled regions on top of it. This gives per-region crispness without the alignment seam.
-4. **Crisp tiles travel on a reliable QUIC stream over the existing media connection.** Verified: `QuicSessionClientTransport` already runs a reliable `inputStream` and the media `datagrams` together on one `NetworkConnection<QUIC>` (OS 26 target). A crisp-tile channel is one more reliable `QUIC.Stream` on that same connection, not a second connection and not a revival of the parked reliable channel. QUIC stream independence means crisp tiles never head-of-line-block the video, and loss on crisp tiles only delays crisp tiles.
+1. Crispness is a motion-driven axis, fully separate from the capacity ladder (ADR-0033). The ladder keeps owning the video carrier's bitrate, fps, and raster scale for motion smoothness only. Raster scale is never a crispness lever again.
+2. Per-region, not whole-frame. Motion and static regions are independent, so a looping video in one corner does not hold text soft elsewhere.
+3. Crisp-repair over a full-surface video floor, not cropped sub-region video (ADR-0025 rejected cropped video for the coordinate-alignment seam). Video stays full-surface; crisp tiles paint on top per region.
+4. The crisp channel is the reliable owned-graphics stream that ADR-0026 parked, reactivated. Verified: `QuicSessionClientTransport` already runs a reliable stream and the media datagrams together on one `NetworkConnection<QUIC>` (OS 26 target), so this is a stream on the existing connection, not a second connection. ADR-0026's "a reliable channel cannot coexist with datagrams" premise is obsolete on the current API.
 
 ## The coherence invariant (the crux)
 
-The failure to prevent is showing stale text crisply, which is worse than showing current text softly. The rule:
+The failure to prevent is showing stale text crisply, which is worse than current text shown softly.
 
 > A region shows crisp only while its content is provably unchanged since the crisp tile was made, and the client provably holds that exact tile. Otherwise it shows video.
 
-The video datagram layer is always the live floor. Crisp is a best-effort sharpen on top. Loss or lag degrades a region to soft-but-current, never to crisp-but-wrong.
+Video (datagrams) is always the live floor. Crisp (surfaceLayer tiles) is a best-effort sharpen. Loss or lag degrades a region to soft-but-current, never crisp-but-wrong.
 
-Mechanism, using the ordered reliable stream:
+Mechanism, over the ordered reliable graphics stream:
+- The host's live capture per tile (fixed grid, hashed) is the single source of truth.
+- Promote: a tile whose content hash is unchanged for the settle window gets a `cacheTile`/`drawCachedTile` for its current hash. Stream ordering guarantees the client holds the pixels before it is told to draw, so no separate ACK protocol is needed.
+- Revert: the instant the host's capture sees a tile's hash change, it sends `revertTileToVideo` for that tile on the same ordered stream and resumes treating it as moving. The client clears that region to transparent in order.
+- Dedup: `cacheTile` is sent once per content hash; a tile the client already caches is re-shown with `drawCachedTile` (slot reference) alone.
 
-- The host's live capture is the single source of truth. Per region (a fixed grid tile), every captured frame the host knows that tile's content hash.
-- **Promote to crisp:** when a tile's hash is unchanged for the settle window, the host sends `CrispTile(region, hash, pixels)` then `CrispDirective(region, show: crisp, hash)` on the same ordered stream. Ordering guarantees the client holds the tile before it is told to display it. No separate per-tile ACK protocol is needed.
-- **Revert to video:** the instant the host's capture sees a tile's hash change, it sends `CrispDirective(region, show: video)` on the ordered stream and resumes treating the tile as moving. The client applies directives in order, so the crisp overlay for that region is removed in order with the change.
-- **Dedup:** crisp tiles are keyed by content hash and cached client-side (`TileContentCache` shape). An unchanged tile is never resent; a tile whose hash the client already holds is promoted with a directive alone.
+Residual window: a bounded interval equal to the revert command's stream latency where the old crisp tile could still show right after a change. The host biases against it by reverting eagerly (flip on the first changed frame, before encoding new video for that region) and promoting conservatively (only after the full settle window). For text this is sub-perceptible and the content shown is the prior crisp frame of the same region, never another region's content. Accepted bound, not a correctness hole.
 
-The client is a pure follower. It never decides on its own to keep a region crisp. It maintains per-tile state from the directive stream and composites: for each tile, show the cached crisp bitmap if state is crisp, else let the video show through.
-
-Residual window and bias: there is a bounded interval equal to the directive's stream latency where, right after a change, the client could still show the old crisp tile before the `show: video` directive lands. The host biases against this by reverting eagerly (flip to video on the first changed frame, before encoding the new video for that region) and promoting conservatively (only after the full settle window). For text this window is sub-perceptible (a caret blink reverting to the same text, moving). Documented as an accepted bound, not a correctness hole, because the content shown is the prior crisp frame of the same region, never a different region's content.
-
-## Architecture
+## Modules
 
 ### Host
+- `RegionCrispController` (new, small): per-tile settle/motion policy; consumes the captured surface + damage rects available in the encode pump; uses `TileContentCache`; emits `OwnedGraphicsCommand`s. Pure-logic core, unit-testable like `MediaQualityController`.
+- Tile-extraction/LZFSE helpers: lift the reusable functions from `ScrollDeltaEngine` into a shared helper so `RegionCrispController` uses them without dragging in scroll routing.
+- Reliable graphics stream: reactivate a host->client reliable `QUIC.Stream` carrying owned-graphics frames. Reuses existing `OwnedGraphics` frame framing.
 
-- **`RegionCrispController` (new).** Consumes the per-frame damage rects and captured surface the encode pump already has. Maintains a fixed-grid map of per-tile content hash and state (moving / settling / crisp). Emits `CrispTile` and `CrispDirective` messages. Reuses `TileContentCache` for hashing and dedup, and the fixed grid-cell size already used by `ScrollDeltaEngine` for damage tiling.
-- **Crisp stream.** A new reliable host-to-client `QUIC.Stream` opened on the media `NetworkConnection<QUIC>`, carrying `CrispTile` and `CrispDirective`. Crisp tile pixels are lossless (LZFSE, as `ScrollDeltaEngine` tiles already are).
-- The video carrier (`OwnedMediaTransport`, the encode pump, `MediaQualityController`) is unchanged in behavior. It keeps producing full-surface video governed by the existing ladder.
-
-### Wire (`SharedTypes`)
-
-- `CrispTile { regionId, contentHash, pixels (LZFSE) }`
-- `CrispDirective { regionId, show: .crisp(contentHash) | .video }`
-
-Both ride the new reliable stream. No change to the datagram media frame format.
+### Wire (both SharedTypes copies; see SSOT note)
+- Add `OwnedGraphicsCommand.revertTileToVideo(x,y,width,height)`. No other new wire types.
 
 ### Client
-
-- **`CrispRepairSink` (new).** Receives the reliable crisp stream, caches tiles by content hash, maintains per-tile display state from directives.
-- **Compositing.** A crisp overlay aligned to the video frame, drawn over `OwnedMediaVideoSink`'s `AVSampleBufferDisplayLayer`, painting cached crisp tiles where state is crisp and leaving the rest transparent so the video shows through. Tile coordinates map directly to surface pixels because both layers share the full-surface geometry (no cropping).
+- Crisp stream intake in `QuicSessionClientTransport`: accept/open the reliable graphics stream, decode `OwnedGraphics` frames, feed `OwnedSurfaceCompositor`.
+- `OwnedSurfaceCompositor`: support per-region transparency (alpha 0 where reverted), so `surfaceLayer` composites over `videoLayer` per region. Replace the whole-frame `visibleSurface` `isHidden` swap with always-on surfaceLayer carrying transparent-where-video regions.
 
 ## Interaction with the existing ladder
 
-The ladder (ADR-0033) keeps managing video smoothness during motion and is otherwise untouched. Because crispness no longer depends on reaching the high-resolution rungs, the ladder is free to stay smoothness-first without that costing text legibility. The staged-recovery work in 4341115 remains valid: it governs how the video carrier recovers smoothness, which is now its only job.
+The ladder (ADR-0033) is untouched and keeps managing video smoothness. Because crispness no longer needs the high-resolution rungs, the ladder can stay smoothness-first without costing legibility. The 4341115 staged-recovery work remains valid; it now governs only the video carrier.
+
+## SSOT note (surfaced debt)
+
+`SharedTypes.swift` is duplicated between host (2409 lines) and client (2284 lines) and has already drifted (different sizes/timestamps). Adding a wire variant means editing both copies identically. This is a single-source-of-truth hazard. Recommended follow-up (out of scope for this feature, flagged): extract wire types into one shared source referenced by both Xcode projects. For this change we add the one variant to both copies and add a round-trip test on each side to catch drift.
 
 ## Scope
 
-In scope (v1):
-- Per-tile crisp-repair over full-surface video.
-- Reliable-stream crisp tiles with content-hash dedup.
-- Settle-based promotion, eager video revert, ordered tile-then-directive coherence.
+In scope (v1): per-tile crisp-repair over full-surface video; reuse of tile cache/encode/compositor; one new revert command; settle-based promotion; eager revert; ordered coherence; reactivated reliable graphics stream.
 
-Non-goals (explicitly deferred):
-- Cropped per-region video (rejected by ADR-0025).
-- Using raster scale as a crispness lever (it stays a smoothness lever).
-- Changing the ladder's internal recovery logic.
-- ROI/QP bit-allocation inside the codec (an alternative per-region path we are not taking).
+Non-goals: cropped per-region video; raster scale as a crispness lever; reviving the scroll-carrier routing or whole-frame swap; ROI/QP codec bit-allocation; full SharedTypes unification (flagged separately).
 
 ## Testing
-
-- **Host unit tests (pure logic):** the per-tile state machine. Settle window promotes; any hash change reverts; unchanged hash dedups; a directive is never emitted asserting crisp for a hash that differs from the current capture hash (the invariant). Mirror the `MediaQualityControllerTests` style.
-- **Wire round-trip tests** for `CrispTile` / `CrispDirective` encode/decode.
-- **Client unit tests:** `CrispRepairSink` applies directives in order, holds-before-show ordering, cache dedup by hash, revert clears the overlay.
-- **Device validation (gated on explicit go-ahead):** crisp text appears within the settle window after motion stops; no stale crisp under induced loss; motion stays smooth; rest bandwidth stays low. This is the real acceptance signal and unit tests cannot judge it.
+- Host unit tests: `RegionCrispController` state machine. Settle promotes; any hash change reverts; unchanged hash dedups; never emits a draw for a hash differing from current capture (the invariant). Mirror `MediaQualityControllerTests`.
+- Wire round-trip tests for the new `revertTileToVideo` variant, on host and client.
+- Client unit tests: per-region transparency compositing; revert clears a region; cache dedup by slot/hash; ordered application.
+- Device validation (gated on explicit go-ahead): crisp appears within the settle window after motion stops; no stale crisp under induced loss; motion stays smooth; rest bandwidth stays low. The real acceptance signal.
 
 ## ADR
 
-Write **ADR-0034: motion-region crisp-repair over video**. It refines ADR-0026: the single-datagram-carrier premise (a reliable channel cannot coexist) is obsolete on the `NetworkConnection<QUIC>` API the code now uses, and the crisp-repair layer ADR-0026 reserved is now built. Cross-link ADR-0025 (the temporal-not-spatial lesson) and ADR-0033 (the ladder, now smoothness-only).
+ADR-0034: motion-region crisp-repair over video. Records: revive the tile-at-rest path (proven half) as a per-region crisp-repair layer; partially reverse ADR-0026's "retire tiles entirely" (Option C), scoped to rest only, never as a motion carrier; the reliable graphics stream is reactivated, justified by the `NetworkConnection<QUIC>` API supporting reliable streams and datagrams on one connection. Cross-link ADR-0025 (temporal-not-spatial, tiles-at-rest is the proven half), ADR-0026 (the retirement being partially reversed), ADR-0033 (the ladder, now smoothness-only).
 
 ## Open defaults to confirm at review
-
-- **Tile size:** reuse `ScrollDeltaEngine`'s existing fixed grid-cell size for crisp tiles (one grid, one hashing scheme). Confirm that cell size is right for text legibility vs tile-count overhead.
-- **Settle window:** propose 150 to 250 ms of unchanged hash before promotion. Tunable via config.
-- **Crisp tile rate cap:** on a freshly settled full screen, many tiles promote at once. Propose a per-window cap on crisp-tile bytes so a settle burst cannot starve the video stream's congestion share, spreading promotion over a few windows.
+- Tile size: reuse `Config.hybridTileGridPx` (one grid, one hashing scheme).
+- Settle window: 150 to 250 ms of unchanged hash before promotion (config knob).
+- Crisp byte cap per window: spread a full-screen settle burst over a few windows so it cannot starve the video's congestion share (config knob).
