@@ -4,7 +4,6 @@ import UIKit
 enum MediaStack {
     static func makeFactory(
         host: String?,
-        port: UInt16,
         active: ActiveSession?,
         mediaCapability: MediaCapabilityGrant?,
         mediaCapabilityRefresher: MediaCapabilityRefreshing?
@@ -14,7 +13,6 @@ enum MediaStack {
         }
         return OwnedMediaTransportFactory(
             host: host,
-            port: port,
             active: active,
             mediaCapability: mediaCapability,
             mediaCapabilityRefresher: mediaCapabilityRefresher

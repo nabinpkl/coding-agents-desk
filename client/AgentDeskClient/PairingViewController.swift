@@ -259,7 +259,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         let sink = MediaStack.makeVideoSink()
         let mediaFactory = MediaStack.makeFactory(
             host: pairingClient.activeHost,
-            port: pairingClient.activePort,
             active: activeSessionForMedia(),
             mediaCapability: pairingClient.activeMediaCapability,
             mediaCapabilityRefresher: pairingClient.activeSignaling as? MediaCapabilityRefreshing

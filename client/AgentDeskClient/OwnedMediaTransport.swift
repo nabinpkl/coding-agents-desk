@@ -5,7 +5,6 @@ import Security
 
 final class OwnedMediaTransportFactory: MediaTransportFactory {
     private let host: String
-    private let port: UInt16
     private let graphicsPort: UInt16
     private let active: ActiveSession
     private let mediaCapability: MediaCapabilityGrant
@@ -13,14 +12,12 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
 
     init(
         host: String,
-        port: UInt16,
         graphicsPort: UInt16 = Config.graphicsPort,
         active: ActiveSession,
         mediaCapability: MediaCapabilityGrant,
         mediaCapabilityRefresher: MediaCapabilityRefreshing?
     ) {
         self.host = host
-        self.port = port
         self.graphicsPort = graphicsPort
         self.active = active
         self.mediaCapability = mediaCapability
@@ -30,7 +27,6 @@ final class OwnedMediaTransportFactory: MediaTransportFactory {
     func make() -> MediaTransport {
         OwnedMediaTransport(
             host: host,
-            port: port,
             graphicsPort: graphicsPort,
             active: active,
             mediaCapability: mediaCapability,
@@ -330,15 +326,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
     init(
         host: String,
-        port: UInt16,
         graphicsPort: UInt16 = Config.graphicsPort,
         active: ActiveSession,
         mediaCapability: MediaCapabilityGrant,
         mediaCapabilityRefresher: MediaCapabilityRefreshing?
     ) {
-        // `port` (the legacy datagram media port) is retained in the factory
-        // signature but unused now that the datagram channel is gone.
-        _ = port
         self.host = host
         self.graphicsPort = graphicsPort
         self.active = active
