@@ -92,6 +92,15 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_RESEND_PACKETS",
         defaultValue: 64
     )
+    // ADR-0025 mixed-mode kill switch. Off by default: the working retained-tile
+    // path carries everything, exactly as before. On: scrolling motion forks to the
+    // hardware HEVC datagram carrier. Stays off until the live carrier and the
+    // client video path are device-validated, so the daily driver never regresses.
+    static let ownedMediaVideoMotionEnabled: Bool = enabledFlag(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED",
+        defaultValue: false,
+        environment: ProcessInfo.processInfo.environment
+    )
     // ADR-0021: damage is emitted as tiles snapped to a fixed grid in surface
     // pixel space. A fixed cell size bounds per-tile bytes and gives each tile a
     // stable identity for the content tile cache (see the content-tile-cache

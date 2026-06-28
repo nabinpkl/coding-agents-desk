@@ -696,6 +696,18 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         // Uptime of the last produced frame, for the governor's cadence cap.
         var lastProduceUptimeNs: UInt64?
         let motionGovernor = MotionGovernor()
+        // ADR-0025 mixed-mode: when the flag is on, scrolling motion is encoded as
+        // hardware HEVC instead of tiled. This increment is the host measurement
+        // stage: it encodes the real captured frame and logs the frame size and
+        // packet count (the sub-2Mbps signal), then drops the bytes; the datagram
+        // carrier and client video path are wired next. The encoder is only created
+        // when the flag is on, so the default path holds no VTCompressionSession.
+        let videoEncoder: VideoToolboxOwnedMediaEncoder? = Config.ownedMediaVideoMotionEnabled
+            ? VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: .fromConfig())
+            : nil
+        defer { videoEncoder?.invalidate() }
+        var videoFrameId: UInt64 = 0
+        var wasScrollingForVideo = false
         for await _ in mailbox.stream {
             guard !Task.isCancelled else { return }
             diagnostics.setPhase(.idle)
@@ -757,6 +769,32 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
             }
             heldSinceLastProduce = 0
             lastProduceUptimeNs = nowBeforeProbe
+
+            // ADR-0025 motion fork. While scrolling, encode the frame as HEVC and
+            // measure it (the carrier send lands next); the tile path is skipped so
+            // the surface is not also retiled. On scroll->rest, invalidate the
+            // retained surface so the tile path re-syncs the full surface after the
+            // video gap (the post-motion refresh), matching the handoff contract.
+            if let videoEncoder, motion != nil {
+                let forceKeyframe = !wasScrollingForVideo
+                wasScrollingForVideo = true
+                videoFrameId &+= 1
+                if let envelope = await videoEncoder.encode(
+                    frame,
+                    updateId: OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: videoFrameId),
+                    forceKeyframe: forceKeyframe
+                ), let data = try? envelope.encode() {
+                    let packetCount = max(1, Int(ceil(Double(data.count) / Double(MediaDatagramFramePacket.maxPayloadBytes))))
+                    logger.notice("owned media video-encode frame=\(videoFrameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) bytes=\(data.count, privacy: .public) packets=\(packetCount, privacy: .public) bitrateKbps=\(Config.ownedMediaBitrateKbps, privacy: .public)")
+                }
+                continue
+            }
+            if wasScrollingForVideo {
+                wasScrollingForVideo = false
+                scrollDeltaEngine.invalidateRetainedSurface()
+                logger.notice("owned media video->tiles scroll-stop, retained surface invalidated for post-motion refresh")
+            }
+
             let graphics = scrollDeltaEngine.evaluate(frame, motion: motion, policy: policy)
             switch graphics.kind {
             case .accepted:
