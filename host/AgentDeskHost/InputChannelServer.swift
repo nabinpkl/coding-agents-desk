@@ -77,6 +77,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     }
 
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow] = [:]) {
+        logger.notice("thumbnails push fp=\(self.fingerprint.rawValue, privacy: .public) thumbnails=\(thumbnails.count, privacy: .public) topWindows=\(topWindows.count, privacy: .public) ids=\(thumbnails.keys.map { String($0) }.sorted().joined(separator: ","), privacy: .public)")
         var stringKeyed: [String: String] = [:]
         stringKeyed.reserveCapacity(thumbnails.count)
         for (spaceId, jpeg) in thumbnails {
@@ -143,6 +144,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         case "client-config":
             do {
                 let frame = try JSONDecoder().decode(ClientConfig.self, from: data)
+                logger.notice("client-config received fp=\(self.fingerprint.rawValue, privacy: .public) thumbnails=\(frame.thumbnailsEnabled, privacy: .public) refresh=\(String(describing: frame.thumbnailRefresh), privacy: .public) selectedDisplay=\(frame.selectedDisplayId ?? "nil", privacy: .public)")
                 configHandler?(frame)
             } catch {
                 logger.error("client-config decode failed: \(String(describing: error), privacy: .public)")

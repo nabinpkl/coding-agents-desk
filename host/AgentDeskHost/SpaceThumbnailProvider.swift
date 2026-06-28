@@ -26,6 +26,15 @@ import os
 enum SpaceThumbnailDemandOwner: Hashable, Sendable {
     case spaceAgent
     case client(String)
+
+    var logName: String {
+        switch self {
+        case .spaceAgent:
+            return "space-agent"
+        case .client(let fingerprint):
+            return "client:\(fingerprint)"
+        }
+    }
 }
 
 // SpaceTopWindow now lives in SharedTypes.swift so it can ride along the
@@ -129,15 +138,16 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
     }
 
     func setDemand(owner: SpaceThumbnailDemandOwner, enabled: Bool) {
-        let transition = state.withLock { s -> (wasEnabled: Bool, isEnabled: Bool) in
+        let transition = state.withLock { s -> (wasEnabled: Bool, isEnabled: Bool, ownerCount: Int) in
             let wasEnabled = !s.demandOwners.isEmpty
             if enabled {
                 s.demandOwners.insert(owner)
             } else {
                 s.demandOwners.remove(owner)
             }
-            return (wasEnabled, !s.demandOwners.isEmpty)
+            return (wasEnabled, !s.demandOwners.isEmpty, s.demandOwners.count)
         }
+        logger.notice("thumbnail demand owner=\(owner.logName, privacy: .public) enabled=\(enabled, privacy: .public) active=\(transition.isEnabled, privacy: .public) owners=\(transition.ownerCount, privacy: .public)")
         guard transition.wasEnabled != transition.isEnabled else { return }
         setCaptureEnabled(transition.isEnabled)
     }
@@ -177,13 +187,21 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
             s.pendingForceRefreshSpaceId = spaceId
             return true
         }
-        guard shouldSchedule else { return }
+        guard shouldSchedule else {
+            logger.notice("thumbnail force-refresh ignored space=\(spaceId, privacy: .public) reason=no-demand")
+            return
+        }
+        logger.notice("thumbnail force-refresh requested space=\(spaceId, privacy: .public)")
         scheduleCapture(reason: "force-refresh \(spaceId)")
     }
 
     func forceRefresh() {
         let shouldSchedule = state.withLock { !$0.demandOwners.isEmpty }
-        guard shouldSchedule else { return }
+        guard shouldSchedule else {
+            logger.notice("thumbnail force-refresh ignored reason=no-demand")
+            return
+        }
+        logger.notice("thumbnail force-refresh requested")
         scheduleCapture(reason: "force-refresh")
     }
 
@@ -224,12 +242,17 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
         // In-flight guard so a timer tick that lands while a slow
         // capture is still running just skips; the next tick (or the
         // forceRefresh / Space-change observer) will pick up.
-        let shouldRun = state.withLock { s -> Bool in
-            guard !s.demandOwners.isEmpty, !s.capturing else { return false }
+        let decision = state.withLock { s -> (shouldRun: Bool, ownerCount: Int, alreadyCapturing: Bool) in
+            guard !s.demandOwners.isEmpty else { return (false, 0, s.capturing) }
+            guard !s.capturing else { return (false, s.demandOwners.count, true) }
             s.capturing = true
-            return true
+            return (true, s.demandOwners.count, false)
         }
-        guard shouldRun else { return }
+        guard decision.shouldRun else {
+            logger.debug("thumbnail capture skipped reason=\(reason, privacy: .public) owners=\(decision.ownerCount, privacy: .public) capturing=\(decision.alreadyCapturing, privacy: .public)")
+            return
+        }
+        logger.notice("thumbnail capture scheduled reason=\(reason, privacy: .public) owners=\(decision.ownerCount, privacy: .public)")
 
         Task.detached(priority: .utility) { [weak self, reason] in
             guard let self else { return }

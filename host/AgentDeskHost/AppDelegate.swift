@@ -89,6 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchAgentLogger = Logger(subsystem: Config.launchAgentLabel, category: "launchAgent")
     private let signalingLogger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
     private let diagnosticsLogger = Logger(subsystem: Config.launchAgentLabel, category: "client-diagnostics")
+    private let thumbnailsLogger = Logger(subsystem: Config.launchAgentLabel, category: "thumbnails")
     private var signalingServer: PairingSignalingServer?
     private let sessions = SessionRegistry()
     private let scrollActivityHints = ScrollActivityStore()
@@ -533,6 +534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let selectedDisplayId = config.selectedDisplayId
             Task { @MainActor [weak self, provider, thumbnailOwner, server] in
                 guard let self else { return }
+                self.thumbnailsLogger.notice("client thumbnail config fp=\(clientFingerprint.rawValue, privacy: .public) enabled=\(enabled, privacy: .public) refresh=\(String(describing: refresh), privacy: .public) selectedDisplay=\(selectedDisplayId ?? "nil", privacy: .public)")
                 if enabled {
                     self.thumbnailEnabledClients.insert(clientFingerprint)
                 } else {
@@ -590,6 +592,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, let registry else { return }
                 let enabledClients = self.thumbnailEnabledClients
                 let topWindows = provider.latestTopWindows
+                self.thumbnailsLogger.notice("thumbnail broadcast thumbnails=\(thumbnails.count, privacy: .public) topWindows=\(topWindows.count, privacy: .public) clients=\(enabledClients.count, privacy: .public) ids=\(thumbnails.keys.map { String($0) }.sorted().joined(separator: ","), privacy: .public)")
                 for (fingerprint, server) in registry.allInputChannelServersByFingerprint()
                     where enabledClients.contains(fingerprint) {
                     server.pushThumbnails(thumbnails, topWindows: topWindows)

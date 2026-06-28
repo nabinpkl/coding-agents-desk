@@ -170,6 +170,7 @@ final class SpaceAgentController: NSObject {
     private let thumbnailProvider: SpaceThumbnailProvider
     private let commitStep: (Int) -> Void
     private let userDefaults: UserDefaults
+    private let renderLogger = Logger(subsystem: Config.launchAgentLabel, category: "spaceagent-render")
     private let viewController = SpaceAgentViewController()
     private var panel: NSPanel?
     private var latestState: DesktopState?
@@ -377,11 +378,16 @@ final class SpaceAgentController: NSObject {
     }
 
     private func render() {
-        viewController.render(tiles: SpaceAgentModel.tiles(
+        let topWindows = thumbnailProvider.latestTopWindows
+        let tiles = SpaceAgentModel.tiles(
             state: latestState,
             thumbnails: latestThumbnails,
-            topWindows: thumbnailProvider.latestTopWindows
-        ))
+            topWindows: topWindows
+        )
+        renderLogger.notice(
+            "spaceagent render expanded=\(self.viewController.isExpanded, privacy: .public) tiles=\(tiles.count, privacy: .public) tileThumbnails=\(tiles.filter { $0.thumbnail != nil }.count, privacy: .public) cachedThumbnails=\(self.latestThumbnails.count, privacy: .public) topWindows=\(topWindows.count, privacy: .public) tileIds=\(tiles.map { String($0.spaceId) }.joined(separator: ","), privacy: .public) thumbnailIds=\(self.latestThumbnails.keys.map { String($0) }.sorted().joined(separator: ","), privacy: .public)"
+        )
+        viewController.render(tiles: tiles)
         resizePanel()
     }
 
@@ -482,6 +488,7 @@ final class SpaceAgentController: NSObject {
             for await thumbnails in stream {
                 guard let self else { return }
                 self.latestThumbnails = thumbnails
+                self.renderLogger.notice("spaceagent thumbnails received count=\(thumbnails.count, privacy: .public) ids=\(thumbnails.keys.map { String($0) }.sorted().joined(separator: ","), privacy: .public)")
                 self.render()
             }
         }
