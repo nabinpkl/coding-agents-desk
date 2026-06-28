@@ -129,6 +129,11 @@ final class SettingsViewController: UIViewController {
             slider.maximumValue = 3.0
             slider.isContinuous = true
         }
+        // Scroll now renders smoothly enough that 0.5x is still too fast for
+        // fine reading; allow a 0.1x slow-precision floor for scroll only. The
+        // slider is continuous, so this just extends the bottom of the range;
+        // scrollSpeed is an unclamped multiplier in GestureTranslator.
+        scrollSpeedSlider.minimumValue = 0.1
         cursorSpeedSlider.addTarget(self, action: #selector(cursorSpeedChanged), for: .valueChanged)
         cursorAccelSlider.addTarget(self, action: #selector(cursorAccelChanged), for: .valueChanged)
         scrollSpeedSlider.addTarget(self, action: #selector(scrollSpeedChanged), for: .valueChanged)
