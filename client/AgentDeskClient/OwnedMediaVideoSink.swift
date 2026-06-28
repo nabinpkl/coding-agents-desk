@@ -247,8 +247,16 @@ struct OwnedSurfaceCompositor {
                 )
                 tileBytes += decoded.count
             case let .drawCachedTile(slot, x, y, width, height):
+                // Black-flash fix part B (ADR-0022): a missing or mismatched slot is
+                // non-fatal. The host references slots it believes the client holds,
+                // but a dropped earlier frame can leave a gap. Rejecting forced a
+                // generation reset, which (before part A) flashed black. Instead skip
+                // the tile, leave the current pixels, and let the next periodic heal
+                // (which re-sends the whole surface) repaint it. Decode and stale-order
+                // guards stay fatal; only the cache miss is tolerated.
                 guard let cached = slotBitmaps[slot], cached.width == width, cached.height == height else {
-                    throw SessionRejected(reason: .malformed)
+                    ownedMediaStderrTrace("drawCachedTile-skip slot=\(slot) x=\(x) y=\(y) reason=missing-or-mismatched-slot")
+                    continue
                 }
                 let paintStartNs = DispatchTime.now().uptimeNanoseconds
                 try paintTile(cached.pixels, x: x, y: y, width: width, height: height)

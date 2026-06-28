@@ -252,7 +252,11 @@ struct OwnedSurfaceCompositorCacheTests {
 
     // drawCachedTile for a slot that was never cached must be rejected (drives
     // the client reset path) and must not modify the surface.
-    @Test func drawCachedTileForMissingSlotIsRejected() throws {
+    // Black-flash fix part B (ADR-0022): a drawCachedTile for a slot the client does
+    // not hold is non-fatal. It is skipped (pixels left as-is), not rejected, so a
+    // cache gap from a dropped frame no longer forces a black-flashing reset; the
+    // next periodic heal repaints the surface.
+    @Test func drawCachedTileForMissingSlotIsSkipped() throws {
         var compositor = OwnedSurfaceCompositor()
         _ = try compositor.applyGraphicsFrame(Self.makeResetSurfaceEnvelope(
             surfaceGeneration: 1,
@@ -269,16 +273,15 @@ struct OwnedSurfaceCompositorCacheTests {
             width: 64,
             height: 64
         )
-        #expect(throws: SessionRejected(reason: .malformed)) {
-            _ = try compositor.applyGraphicsFrame(badFrame)
-        }
+        // Must not throw; the missing slot is skipped.
+        _ = try compositor.applyGraphicsFrame(badFrame)
 
-        // Surface must not have been modified.
+        // Surface must not have been modified by the skipped tile.
         #expect(compositor.pixelBytesForDiagnostics() == pixelsBefore)
     }
 
-    // After a surface reset, any previously stored slot must be gone; a
-    // drawCachedTile of that slot must be rejected.
+    // After a surface reset, any previously stored slot is gone; a drawCachedTile of
+    // that slot is now skipped (non-fatal), leaving the surface untouched.
     @Test func resetClearsSlots() throws {
         var compositor = OwnedSurfaceCompositor()
 
@@ -313,8 +316,11 @@ struct OwnedSurfaceCompositorCacheTests {
             pixels: Data(count: 128 * 128 * 4)
         ))
 
-        // drawCachedTile slot 5 must now be rejected.
-        let badFrame = Self.makeDrawCachedTileEnvelope(
+        let pixelsBefore = compositor.pixelBytesForDiagnostics()
+
+        // drawCachedTile slot 5 is now skipped (the reset cleared the slot table), not
+        // rejected. The surface is left untouched.
+        let staleFrame = Self.makeDrawCachedTileEnvelope(
             surfaceGeneration: 2,
             frameId: 2,
             slot: 5,
@@ -323,9 +329,40 @@ struct OwnedSurfaceCompositorCacheTests {
             width: 64,
             height: 64
         )
-        #expect(throws: SessionRejected(reason: .malformed)) {
-            _ = try compositor.applyGraphicsFrame(badFrame)
-        }
+        _ = try compositor.applyGraphicsFrame(staleFrame)
+        #expect(compositor.pixelBytesForDiagnostics() == pixelsBefore)
+    }
+
+    // The repair path: a drawCachedTile for a missing slot is skipped (surface
+    // unchanged), and a later frame that re-sends the content as cacheTile then
+    // drawCachedTile paints it correctly. This is what the periodic heal does.
+    @Test func missingSlotThenResendRepaints() throws {
+        let w = 128, h = 128
+        var compositor = OwnedSurfaceCompositor()
+        _ = try compositor.applyGraphicsFrame(Self.makeSeedSurfaceEnvelope(
+            surfaceGeneration: 1, frameId: 1, width: w, height: h, pixels: Data(count: w * h * 4)
+        ))
+
+        // A drawCachedTile for slot 3 the client never received: skipped, no-op.
+        let missing = Self.makeDrawCachedTileEnvelope(
+            surfaceGeneration: 1, frameId: 2, slot: 3, x: 0, y: 0, width: 64, height: 64
+        )
+        let pixelsBefore = compositor.pixelBytesForDiagnostics()
+        _ = try compositor.applyGraphicsFrame(missing)
+        #expect(compositor.pixelBytesForDiagnostics() == pixelsBefore)
+
+        // The host re-sends the content as cacheTile (slot 3), then references it.
+        let content = Data(repeating: 0x77, count: 64 * 64 * 4)
+        _ = try compositor.applyGraphicsFrame(Self.makeCacheTileEnvelope(
+            surfaceGeneration: 1, frameId: 3, slot: 3, x: 0, y: 0, width: 64, height: 64, pixels: content
+        ))
+        let draw = Self.makeDrawCachedTileEnvelope(
+            surfaceGeneration: 1, frameId: 4, slot: 3, x: 64, y: 0, width: 64, height: 64
+        )
+        _ = try compositor.applyGraphicsFrame(draw)
+
+        // The tile painted at its new position (64,0).
+        #expect(Self.pixel(compositor.pixelBytesForDiagnostics(), width: w, x: 96, y: 10) == Data([0x77, 0x77, 0x77, 0x77]))
     }
 
     // Black-flash fix part A (ADR-0022): a same-dimensions reset keeps the last-good
