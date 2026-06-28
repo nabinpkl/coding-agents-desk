@@ -404,4 +404,39 @@ struct OwnedSurfaceCompositorCacheTests {
         #expect(after.allSatisfy { $0 == 0 }, "a resize reset must reallocate and clear to black")
     }
 
+    // ADR-0034: revertTileToVideo must zero its region to transparent (the live video
+    // floor shows through there) while leaving the rest of the surface untouched.
+    @Test func revertTileToVideoClearsRegionToTransparent() throws {
+        let w = 128, h = 128
+        var compositor = OwnedSurfaceCompositor()
+        let seedPixels = Data(repeating: 0xAB, count: w * h * 4)
+        _ = try compositor.applyGraphicsFrame(Self.makeSeedSurfaceEnvelope(surfaceGeneration: 1, frameId: 1, width: w, height: h, pixels: seedPixels))
+
+        let revert = OwnedGraphicsFrameEnvelope(
+            header: OwnedGraphicsFrameHeader(surfaceGeneration: 1, frameId: 2, capturedAtUptimeNs: 200, commandCount: 1, payloadLength: 0),
+            commands: [.revertTileToVideo(x: 0, y: 0, width: 64, height: 64)],
+            payload: Data()
+        )
+        _ = try compositor.applyGraphicsFrame(revert)
+
+        let after = compositor.pixelBytesForDiagnostics()
+        let bytesPerRow = w * 4
+        // A pixel inside the reverted region is transparent (all zero).
+        #expect(after[0] == 0 && after[1] == 0 && after[2] == 0 && after[3] == 0, "reverted region must be cleared to transparent")
+        // A pixel outside the reverted region keeps its seed value.
+        let outside = 100 * bytesPerRow + 100 * 4
+        #expect(after[outside] == 0xAB, "pixels outside the reverted region must be untouched")
+    }
+
+    // ADR-0034 R2: the revertTileToVideo command must survive a JSON round-trip on the
+    // client copy of OwnedGraphicsCommand identically to the host copy, so the two
+    // duplicated SharedTypes definitions cannot drift on this wire shape.
+    @Test func revertTileToVideoRoundTrips() throws {
+        let command = OwnedGraphicsCommand.revertTileToVideo(x: 128, y: 256, width: 64, height: 64)
+        let data = try JSONEncoder().encode(command)
+        let decoded = try JSONDecoder().decode(OwnedGraphicsCommand.self, from: data)
+        #expect(decoded == command)
+        try command.validateForCurrentScope()
+    }
+
 }

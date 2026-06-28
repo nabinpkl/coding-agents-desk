@@ -565,6 +565,10 @@ private enum OwnedSurfaceValidatedCommand {
     case bitmapTile(x: Int, y: Int, width: Int, height: Int, decoded: Data)
     case cacheTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int, decoded: Data)
     case drawCachedTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int)
+    // ADR-0034 crisp-repair: clear a region to transparent so the live video floor
+    // shows through it. The data op is the same regardless of how the surface layer
+    // is composited; per-region compositing over video lands in a later task.
+    case revertTileToVideo(x: Int, y: Int, width: Int, height: Int)
 }
 
 private enum OwnedSurfaceCompositorValidationError: Error {
@@ -651,6 +655,13 @@ struct OwnedSurfaceCompositor {
                 }
                 let paintStartNs = DispatchTime.now().uptimeNanoseconds
                 try paintTile(cached.pixels, x: x, y: y, width: width, height: height)
+                timing.tilePaintMs += OwnedMediaRenderTiming.elapsedMs(
+                    from: paintStartNs,
+                    to: DispatchTime.now().uptimeNanoseconds
+                )
+            case let .revertTileToVideo(x, y, width, height):
+                let paintStartNs = DispatchTime.now().uptimeNanoseconds
+                try clearRect(x: x, y: y, width: width, height: height)
                 timing.tilePaintMs += OwnedMediaRenderTiming.elapsedMs(
                     from: paintStartNs,
                     to: DispatchTime.now().uptimeNanoseconds
@@ -833,6 +844,21 @@ struct OwnedSurfaceCompositor {
                     pixelCount: candidatePixelCount
                 )
                 validated.append(.drawCachedTile(slot: slot, x: x, y: y, width: width, height: height))
+            case let .revertTileToVideo(x, y, width, height):
+                guard updateId.isStrictlyNewer(than: candidateCommittedUpdateId) else {
+                    throw SessionRejected(reason: .malformed)
+                }
+                try Self.validateRect(
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height,
+                    surfaceWidth: candidateWidth,
+                    surfaceHeight: candidateHeight,
+                    bytesPerRow: candidateBytesPerRow,
+                    pixelCount: candidatePixelCount
+                )
+                validated.append(.revertTileToVideo(x: x, y: y, width: width, height: height))
             }
         }
         return validated
@@ -866,6 +892,23 @@ struct OwnedSurfaceCompositor {
               y <= surfaceHeight - height,
               pixelCount == bytesPerRow * surfaceHeight else {
             throw SessionRejected(reason: .malformed)
+        }
+    }
+
+    // ADR-0034 crisp-repair: zero a region to transparent BGRA (0,0,0,0) so the live
+    // video floor shows through it once the surface layer composites over the video.
+    private mutating func clearRect(x: Int, y: Int, width: Int, height: Int) throws {
+        try validateRect(x: x, y: y, width: width, height: height)
+        let rowBytes = width * 4
+        let zeroRow = [UInt8](repeating: 0, count: rowBytes)
+        pixels.withUnsafeMutableBytes { targetBytes in
+            guard let targetBase = targetBytes.baseAddress else { return }
+            for row in 0..<height {
+                let target = targetBase.advanced(by: (y + row) * bytesPerRow + x * 4)
+                zeroRow.withUnsafeBytes { src in
+                    target.copyMemory(from: src.baseAddress!, byteCount: rowBytes)
+                }
+            }
         }
     }
 

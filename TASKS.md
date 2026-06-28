@@ -20,8 +20,8 @@ Reuse is load-bearing: `TileContentCache`, tile extraction/LZFSE encode, `OwnedG
 
 ## Phase 1: wire variant and reliable graphics stream (contract seam)
 
-- [ ] R1. Extend `OwnedGraphicsCommand` with `revertTileToVideo(x:Int, y:Int, width:Int, height:Int)` in both `host/AgentDeskHost/SharedTypes.swift:1614` and `client/AgentDeskClient/SharedTypes.swift` mirror, including its `CodingKeys` and encode/decode arms.
-- [ ] R2. Round-trip tests: encode/decode `revertTileToVideo` asserts field-exact survival, in `host/AgentDeskHostTests` (mirror `QuicSessionStreamFrameTests`) and `client/AgentDeskClientTests`. Catches the two SharedTypes copies drifting.
+- [x] R1. Extend `OwnedGraphicsCommand` with `revertTileToVideo(x:Int, y:Int, width:Int, height:Int)` in both `host/AgentDeskHost/SharedTypes.swift` and `client/AgentDeskClient/SharedTypes.swift` mirror, including `Kind`, `validateForCurrentScope`, and encode/decode arms. The new enum case forced the client compositor's exhaustive switch (`OwnedMediaVideoSink.swift`) to handle it, so a minimal forward-correct handler (clear region to transparent via `clearRect`) landed here too; the per-region layer compositing remains R7.
+- [x] R2. Round-trip tests for `revertTileToVideo` on host (`OwnedGraphicsCommandCodecTests`) and client (`OwnedSurfaceCompositorCacheTests`), plus a client compositor test asserting revert clears its region to transparent and leaves the rest untouched. Catches the two SharedTypes copies drifting. Host green under `just check`; client green under sim test.
 - [ ] R3. Reactivate a reliable host->client graphics `QUIC.Stream` carrying `OwnedGraphics` frames: host opens/accepts it in the session-ready path (`PairingSignalingServer`/`AppDelegate.handleSessionReady`), client intakes it in `QuicSessionClientTransport` (`SessionDialer` opens, a new receive loop decodes). No tiles emitted yet; assert the stream establishes and an `OwnedGraphics` frame round-trips end to end in a transport test.
 
 ## Phase 2: host per-region crisp emitter
@@ -66,8 +66,8 @@ Trigger: R1 through R8 landed and `just check` green.
 ```
 R0a      2026-06-28  committed   ADR-0034 motion-region crisp-repair drafted
 R0b      2026-06-28  committed   design spec revised to reuse architecture
-R1       pending     pending     OwnedGraphicsCommand.revertTileToVideo on both sides
-R2       pending     pending     wire round-trip tests both sides
+R1       2026-06-28  committed   OwnedGraphicsCommand.revertTileToVideo on both sides + client handler
+R2       2026-06-28  committed   wire round-trip tests both sides + compositor revert test
 R3       pending     pending     reactivate reliable graphics stream end to end
 R4       pending     pending     lift tile extraction/LZFSE into OwnedTileCodec
 R5       pending     pending     RegionCrispController policy + invariant tests

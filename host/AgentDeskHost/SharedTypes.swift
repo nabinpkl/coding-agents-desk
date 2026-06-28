@@ -1616,12 +1616,17 @@ enum OwnedGraphicsCommand: Equatable {
     case bitmapTile(x: Int, y: Int, width: Int, height: Int, compression: OwnedGraphicsTileCompression, byteRange: OwnedGraphicsByteRange)
     case cacheTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int, compression: OwnedGraphicsTileCompression, byteRange: OwnedGraphicsByteRange)
     case drawCachedTile(slot: UInt16, x: Int, y: Int, width: Int, height: Int)
+    // ADR-0034 crisp-repair: clear a region of the surface layer to transparent so
+    // the live video floor shows through it. Sent when a previously-settled tile
+    // starts changing again (eager revert), so stale crisp never covers live pixels.
+    case revertTileToVideo(x: Int, y: Int, width: Int, height: Int)
 
     enum Kind: String, Codable {
         case resetSurface
         case bitmapTile
         case cacheTile
         case drawCachedTile
+        case revertTileToVideo
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1670,6 +1675,8 @@ enum OwnedGraphicsCommand: Equatable {
             else { throw SessionRejected(reason: .malformed) }
         case let .drawCachedTile(_, x, y, width, height):
             guard x >= 0, y >= 0, width > 0, height > 0 else { throw SessionRejected(reason: .malformed) }
+        case let .revertTileToVideo(x, y, width, height):
+            guard x >= 0, y >= 0, width > 0, height > 0 else { throw SessionRejected(reason: .malformed) }
         }
     }
 }
@@ -1712,6 +1719,13 @@ extension OwnedGraphicsCommand: Codable {
                 width: try container.decode(Int.self, forKey: .width),
                 height: try container.decode(Int.self, forKey: .height)
             )
+        case .revertTileToVideo:
+            self = .revertTileToVideo(
+                x: try container.decode(Int.self, forKey: .x),
+                y: try container.decode(Int.self, forKey: .y),
+                width: try container.decode(Int.self, forKey: .width),
+                height: try container.decode(Int.self, forKey: .height)
+            )
         }
     }
 
@@ -1744,6 +1758,12 @@ extension OwnedGraphicsCommand: Codable {
         case let .drawCachedTile(slot, x, y, width, height):
             try container.encode(Kind.drawCachedTile, forKey: .kind)
             try container.encode(slot, forKey: .slot)
+            try container.encode(x, forKey: .x)
+            try container.encode(y, forKey: .y)
+            try container.encode(width, forKey: .width)
+            try container.encode(height, forKey: .height)
+        case let .revertTileToVideo(x, y, width, height):
+            try container.encode(Kind.revertTileToVideo, forKey: .kind)
             try container.encode(x, forKey: .x)
             try container.encode(y, forKey: .y)
             try container.encode(width, forKey: .width)

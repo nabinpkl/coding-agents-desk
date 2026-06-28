@@ -19,4 +19,15 @@ final class OwnedGraphicsCommandCodecTests: XCTestCase {
         try c.validateForCurrentScope()
     }
 
+    func testRevertTileToVideoRoundTrips() throws {
+        let c = OwnedGraphicsCommand.revertTileToVideo(x: 128, y: 256, width: 64, height: 64)
+        XCTAssertEqual(try roundTrip(c), c)
+        try c.validateForCurrentScope()
+    }
+
+    func testRevertTileToVideoRejectsNonPositiveExtent() {
+        let bad = OwnedGraphicsCommand.revertTileToVideo(x: 0, y: 0, width: 0, height: 64)
+        XCTAssertThrowsError(try bad.validateForCurrentScope())
+    }
+
 }
