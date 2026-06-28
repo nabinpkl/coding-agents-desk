@@ -82,15 +82,15 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 ) {
                 case .ready(let updateId):
                     state.latest = nil
-                    let recoveryKeyframe = state.mediaState.takeRecoveryKeyframeRequest()
-                    let forceKeyframe = state.forceKeyframe || recoveryKeyframe
+                    let clientKeyframe = state.mediaState.takeClientKeyframeRequest()
+                    let forceKeyframe = state.forceKeyframe || clientKeyframe
                     state.forceKeyframe = false
                     return .job(
                         EncodeJob(
                             frame: frame,
                             updateId: updateId,
                             forceKeyframe: forceKeyframe,
-                            recoveryKeyframe: recoveryKeyframe
+                            clientKeyframe: clientKeyframe
                         )
                     )
                 case .retry(let afterNs, let reason):
@@ -105,15 +105,15 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 scheduleDrainRetry(afterNs: afterNs)
                 return
             case .job(let job):
-                if job.recoveryKeyframe {
-                    logger.notice("owned media transport recovered stale in-flight admission and forced a keyframe")
+                if job.clientKeyframe {
+                    logger.notice("owned media transport accepted client keyframe request")
                 }
                 guard let envelope = await encoder.encode(
                     job.frame,
                     updateId: job.updateId,
                     forceKeyframe: job.forceKeyframe,
                     requestedKeyframeReason: job.forceKeyframe
-                        ? (job.recoveryKeyframe ? .transportRecovery : .clientRequest)
+                        ? .clientRequest
                         : nil
                 ) else {
                     continue
@@ -169,6 +169,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 frameId: envelope.header.frameId,
                 encodedBytes: payload.count,
                 packets: packets,
+                isKeyframe: envelope.header.isKeyframe,
                 sentAtUptimeNs: sentAtUptimeNs
             )
         }
@@ -337,7 +338,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         let frame: CapturedVideoFrame
         let updateId: OwnedSurfaceUpdateId
         let forceKeyframe: Bool
-        let recoveryKeyframe: Bool
+        let clientKeyframe: Bool
     }
 
     private enum DrainStep {
@@ -367,9 +368,14 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         }
         switch message.kind {
         case .keyframeRequest:
-            encodeGate.withLock { state in
+            let admission = encodeGate.withLock { state in
                 state.mediaState.noteKeyframeRequest()
-                state.forceKeyframe = true
+            }
+            switch admission {
+            case .queued:
+                logger.notice("owned media client keyframe request queued")
+            case .suppressedInFlight(let frameId):
+                logger.notice("owned media client keyframe request suppressed inFlightKeyframe=\(frameId, privacy: .public)")
             }
             startDrainIfNeeded()
         case .packetResendRequest:

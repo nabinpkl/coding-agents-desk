@@ -18,7 +18,6 @@ enum OwnedMediaKeyframeReason: String, Equatable, Sendable {
     case initial
     case periodic
     case clientRequest = "client-request"
-    case transportRecovery = "transport-recovery"
 }
 
 extension OwnedMediaRefreshReason {
@@ -38,9 +37,7 @@ extension OwnedMediaRefreshReason {
             return .rest
         }
         if requestedKeyframeReason == .clientRequest ||
-            requestedKeyframeReason == .transportRecovery ||
-            expectedKeyframeReason == .clientRequest ||
-            expectedKeyframeReason == .transportRecovery {
+            expectedKeyframeReason == .clientRequest {
             return .reset
         }
         return .rest

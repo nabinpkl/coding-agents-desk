@@ -173,6 +173,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             recoveryMaxGapMs: 300, recoveryMinFpsPermille: 800,
             capacity1Kbps: 650, capacity1Fps: 24, capacity1Scale: 0.75,
             capacity2Kbps: 400, capacity2Fps: 15, capacity2Scale: 0.5,
+            emergencyKbps: 180, emergencyFps: 6, emergencyScale: 0.33,
             survivalScale: 0.5
         )
     }
@@ -300,15 +301,20 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(controller.targetFps, 10, "cadence converges to the fps floor and not below")
         XCTAssertEqual(controller.targetKbps, 300, "survival bitrate converges to the survival floor and not below")
         XCTAssertEqual(controller.targetResolutionScale, 0.5)
+        let emergency = controller.observe(lossInput()).outcome
+        XCTAssertEqual(emergency.reason, "emergency-down")
+        XCTAssertEqual(controller.targetFps, 6)
+        XCTAssertEqual(controller.targetKbps, 180)
+        XCTAssertEqual(controller.targetResolutionScale, 0.33)
     }
 
     func testMediaQualityControllerRecoversBitrateBeforeResolutionAndFps() {
         var controller = MediaQualityController(config: mediaQualityConfig())
         for _ in 0..<40 { _ = controller.observe(lossInput()) }
-        XCTAssertEqual(controller.targetKbps, 300)
-        XCTAssertEqual(controller.targetFps, 10)
-        XCTAssertEqual(controller.targetResolutionScale, 0.5)
-        while controller.targetKbps < 400 {
+        XCTAssertEqual(controller.targetKbps, 180)
+        XCTAssertEqual(controller.targetFps, 6)
+        XCTAssertEqual(controller.targetResolutionScale, 0.33)
+        while controller.targetKbps < 300 {
             for _ in 0..<3 {
                 let hold = controller.observe(cleanInput()).outcome
                 XCTAssertFalse(hold.changed)
@@ -317,9 +323,22 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             let outcome = controller.observe(cleanInput()).outcome
             if outcome.changed {
                 XCTAssertEqual(outcome.reason, "clean-up")
+                XCTAssertEqual(controller.targetFps, 6, "fps holds while emergency bitrate recovers")
+                XCTAssertEqual(controller.targetResolutionScale, 0.33, "resolution holds while emergency bitrate recovers")
+                XCTAssertLessThanOrEqual(controller.targetKbps, 300)
+            }
+        }
+        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        XCTAssertEqual(controller.targetKbps, 300)
+        XCTAssertEqual(controller.targetFps, 10, "fps changes only after emergency bitrate reaches survival")
+        XCTAssertEqual(controller.targetResolutionScale, 0.5)
+        while controller.targetKbps < 400 {
+            for _ in 0..<3 { _ = controller.observe(cleanInput()) }
+            let outcome = controller.observe(cleanInput()).outcome
+            if outcome.changed {
+                XCTAssertEqual(outcome.reason, "clean-up")
                 XCTAssertEqual(controller.targetFps, 10, "fps holds while survival bitrate recovers")
                 XCTAssertEqual(controller.targetResolutionScale, 0.5, "resolution holds while survival bitrate recovers")
-                XCTAssertLessThanOrEqual(controller.targetKbps, 400)
             }
         }
         for _ in 0..<4 { _ = controller.observe(cleanInput()) }
@@ -407,6 +426,35 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(decision.outcome.reason, "freeze-capacity-down")
     }
 
+    func testMediaQualityControllerSurvivalFreezeEntersEmergency() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        _ = controller.observe(input(
+            cleanSample(ackP95Ms: 50),
+            productionSummary: production(actualFps: 1, targetFps: 30, maxGapMs: 1_250)
+        ))
+        _ = controller.observe(input(
+            cleanSample(ackP95Ms: 50),
+            productionSummary: production(actualFps: 1, targetFps: 24, maxGapMs: 1_250)
+        ))
+        _ = controller.observe(input(
+            cleanSample(ackP95Ms: 50),
+            productionSummary: production(actualFps: 1, targetFps: 15, maxGapMs: 1_250)
+        ))
+        XCTAssertEqual(controller.targetFps, 10)
+        XCTAssertEqual(controller.targetResolutionScale, 0.5)
+
+        let emergency = controller.observe(input(
+            cleanSample(ackP95Ms: 50),
+            productionSummary: production(actualFps: 1, targetFps: 10, maxGapMs: 1_250)
+        ))
+
+        XCTAssertEqual(emergency.outcome.target.rung, .emergency)
+        XCTAssertEqual(emergency.outcome.reason, "emergency-down")
+        XCTAssertEqual(emergency.outcome.target.fps, 6)
+        XCTAssertEqual(emergency.outcome.target.bitrateKbps, 180)
+        XCTAssertEqual(emergency.outcome.target.resolutionScale, 0.33)
+    }
+
     func testMediaQualityControllerDoesNotRecoverWhileCadenceIsBad() {
         var controller = MediaQualityController(config: mediaQualityConfig())
         _ = controller.observe(input(
@@ -438,6 +486,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             recoveryMaxGapMs: 0, recoveryMinFpsPermille: 2_000,
             capacity1Kbps: 900, capacity1Fps: 60, capacity1Scale: 2,
             capacity2Kbps: 700, capacity2Fps: 40, capacity2Scale: 0.8,
+            emergencyKbps: 500, emergencyFps: 40, emergencyScale: 0.9,
             survivalScale: 0.9
         )
         XCTAssertEqual(config.survivalFloorKbps, 800, "survival floor cannot exceed the normal bitrate floor")
@@ -452,6 +501,9 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(config.capacity1Scale, 1.0)
         XCTAssertEqual(config.capacity2Scale, 0.8)
         XCTAssertEqual(config.survivalScale, 0.8)
+        XCTAssertEqual(config.emergencyKbps, 500)
+        XCTAssertEqual(config.emergencyFps, 30)
+        XCTAssertEqual(config.emergencyScale, 0.8)
     }
 
     func testMediaStateReturnsCapacityRetryUntilIntervalElapses() {
@@ -489,7 +541,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(secondUpdateId.frameId, 2)
     }
 
-    func testMediaStateRecoversStaleInflightBackpressureWithForcedKeyframe() {
+    func testMediaStateRecoversStaleInflightBackpressureWithoutForcedKeyframe() {
         var state = QuicSessionHostMediaState(
             maxInflightFrames: 1,
             maxInflightBytes: 10_000,
@@ -515,15 +567,36 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         }
         XCTAssertEqual(reason, .backpressure)
         XCTAssertEqual(afterNs, 50_000_000)
-        XCTAssertFalse(state.takeRecoveryKeyframeRequest())
+        XCTAssertFalse(state.takeClientKeyframeRequest())
 
         let recoveredAdmission = state.reserveUpdateId(nowNs: 1_250_000_000)
         guard case .ready(let recoveredUpdateId) = recoveredAdmission else {
             return XCTFail("expected stale in-flight recovery to reopen admission")
         }
         XCTAssertEqual(recoveredUpdateId.frameId, 2)
-        XCTAssertTrue(state.takeRecoveryKeyframeRequest())
-        XCTAssertFalse(state.takeRecoveryKeyframeRequest(), "recovery keyframe request should be one-shot")
+        XCTAssertFalse(state.takeClientKeyframeRequest(), "stale admission recovery is pressure, not decoder recovery")
+    }
+
+    func testMediaStateCoalescesClientKeyframeRequestsWhileKeyframeIsInflight() {
+        var state = QuicSessionHostMediaState(
+            maxInflightFrames: 2,
+            maxInflightBytes: 200_000,
+            expectedFrameRate: 30,
+            retryIntervalNs: 50_000_000,
+            staleInflightTimeoutNs: 200_000_000
+        )
+
+        XCTAssertEqual(state.noteKeyframeRequest(), .queued)
+        XCTAssertTrue(state.takeClientKeyframeRequest())
+        XCTAssertFalse(state.takeClientKeyframeRequest(), "client keyframe request is one-shot")
+
+        state.noteSent(frameId: 1, encodedBytes: 60_000, packets: [], isKeyframe: true, sentAtUptimeNs: 1_000_000_000)
+        XCTAssertEqual(state.noteKeyframeRequest(), .suppressedInFlight(frameId: 1))
+        XCTAssertFalse(state.takeClientKeyframeRequest())
+
+        _ = state.noteAck(frameId: 1, nowNs: 1_050_000_000)
+        XCTAssertEqual(state.noteKeyframeRequest(), .queued)
+        XCTAssertTrue(state.takeClientKeyframeRequest())
     }
 
     func testClientRequestKeyframeMarksReset() async throws {

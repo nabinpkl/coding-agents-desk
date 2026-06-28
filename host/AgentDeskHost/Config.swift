@@ -215,11 +215,23 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_SURVIVAL_RESOLUTION_SCALE",
         defaultValue: 0.5
     )
-    // ADR-0033 survival cadence floor. The survival rung is the last fixed rung,
-    // not a separate controller.
+    // ADR-0033 survival cadence target. A lower emergency rung exists for paths
+    // that still freeze after survival.
     static let ownedMediaFpsFloor = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS_FLOOR",
         defaultValue: 10
+    )
+    static let ownedMediaEmergencyBitrateKbps = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_EMERGENCY_BITRATE_KBPS",
+        defaultValue: 180
+    )
+    static let ownedMediaEmergencyFps = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_EMERGENCY_FPS",
+        defaultValue: 6
+    )
+    static let ownedMediaEmergencyResolutionScale = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_EMERGENCY_RESOLUTION_SCALE",
+        defaultValue: 0.33
     )
     // Tile-path periodic full-surface heal cadence (ScrollDeltaEngine.healIntervalFrames).
     // Named for the heal it actually drives, not a video keyframe. The video GOP is the

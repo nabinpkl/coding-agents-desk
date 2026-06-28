@@ -244,6 +244,7 @@ struct QuicSessionHostMediaStateTests {
             capacity2Kbps: 400,
             capacity2Fps: 15,
             capacity2Scale: 0.5,
+            emergencyKbps: 180, emergencyFps: 6, emergencyScale: 0.33,
             survivalScale: 0.5
         )
     }
@@ -482,7 +483,7 @@ struct QuicSessionHostMediaStateTests {
         #expect(afterCapacityInterval.frameId == 2)
     }
 
-    @Test func qualityChangeResetReopensAdmissionAndForcesKeyframe() throws {
+    @Test func qualityChangeResetReopensAdmissionWithoutClientKeyframeRequest() throws {
         var state = makeState(maxInflightFrames: 1)
         let first = try requireReady(state.reserveUpdateId(nowNs: 0), "expected first update id")
         state.noteSent(frameId: first.frameId, encodedBytes: 10, packets: [Data([1])])
@@ -491,7 +492,42 @@ struct QuicSessionHostMediaStateTests {
 
         let second = try requireReady(state.reserveUpdateId(nowNs: 1), "expected quality-reset update id")
         #expect(second.frameId == 2)
-        let forcedKeyframe = state.takeRecoveryKeyframeRequest()
+        let forcedKeyframe = state.takeClientKeyframeRequest()
         #expect(!forcedKeyframe)
+    }
+
+    @Test func staleInflightRecoveryDoesNotForceKeyframe() throws {
+        var state = QuicSessionHostMediaState(
+            maxInflightFrames: 1,
+            maxInflightBytes: 300_000,
+            expectedFrameRate: 30,
+            qualityController: MediaQualityController(config: controllerConfig()),
+            retryIntervalNs: 50_000_000,
+            staleInflightTimeoutNs: 200_000_000
+        )
+        let first = try requireReady(state.reserveUpdateId(nowNs: 1_000_000_000), "expected first update id")
+        state.noteSent(
+            frameId: first.frameId,
+            encodedBytes: 40_000,
+            packets: [Data([1])],
+            sentAtUptimeNs: 1_000_000_000
+        )
+
+        let second = try requireReady(
+            state.reserveUpdateId(nowNs: 1_250_000_000),
+            "expected stale admission recovery"
+        )
+
+        #expect(second.frameId == 2)
+        let forcedKeyframe = state.takeClientKeyframeRequest()
+        #expect(!forcedKeyframe)
+        let decision = state.observeLinkHealth(
+            completedFrames: 1,
+            expiredFrames: 0,
+            productionSummary: nil,
+            nowNs: 1_250_000_000
+        )
+        #expect(decision.observation.staleRecoveryCount == 1)
+        #expect(decision.observation.signals.stalePressure)
     }
 }

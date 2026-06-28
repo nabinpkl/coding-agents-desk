@@ -8,6 +8,7 @@ enum MediaQualityRung: Int, Equatable, Comparable {
     case capacity1 = 2
     case capacity2 = 3
     case survival = 4
+    case emergency = 5
 
     static func < (lhs: MediaQualityRung, rhs: MediaQualityRung) -> Bool {
         lhs.rawValue < rhs.rawValue
@@ -146,6 +147,9 @@ struct MediaQualityControllerConfig: Equatable {
     let capacity2Kbps: Int
     let capacity2Fps: Int
     let capacity2Scale: Double
+    let emergencyKbps: Int
+    let emergencyFps: Int
+    let emergencyScale: Double
     let survivalScale: Double
 
     init(
@@ -172,6 +176,9 @@ struct MediaQualityControllerConfig: Equatable {
         capacity2Kbps: Int,
         capacity2Fps: Int,
         capacity2Scale: Double,
+        emergencyKbps: Int,
+        emergencyFps: Int,
+        emergencyScale: Double,
         survivalScale: Double
     ) {
         self.ceilingKbps = max(1, ceilingKbps)
@@ -198,6 +205,9 @@ struct MediaQualityControllerConfig: Equatable {
         self.capacity2Fps = min(max(1, capacity2Fps), self.capacity1Fps)
         self.capacity2Scale = min(Self.normalizedScale(capacity2Scale), self.capacity1Scale)
         self.survivalScale = min(Self.normalizedScale(survivalScale), self.capacity2Scale)
+        self.emergencyKbps = min(max(1, emergencyKbps), self.survivalFloorKbps)
+        self.emergencyFps = min(max(1, emergencyFps), self.fpsFloor)
+        self.emergencyScale = min(Self.normalizedScale(emergencyScale), self.survivalScale)
     }
 
     static func fromConfig() -> MediaQualityControllerConfig {
@@ -225,6 +235,9 @@ struct MediaQualityControllerConfig: Equatable {
             capacity2Kbps: Config.ownedMediaCapacity2BitrateKbps,
             capacity2Fps: Config.ownedMediaCapacity2Fps,
             capacity2Scale: Config.ownedMediaCapacity2ResolutionScale,
+            emergencyKbps: Config.ownedMediaEmergencyBitrateKbps,
+            emergencyFps: Config.ownedMediaEmergencyFps,
+            emergencyScale: Config.ownedMediaEmergencyResolutionScale,
             survivalScale: Config.ownedMediaSurvivalResolutionScale
         )
     }
@@ -267,19 +280,19 @@ struct MediaQualityController {
         if signals.freezePressure {
             resetPressureStreaks()
             downshiftCapacity(reason: "freeze-capacity-down")
-            return evaluation(signals: signals, previous: previous, reason: target == previous ? "at-survival-floor" : target.reason)
+            return evaluation(signals: signals, previous: previous, reason: target == previous ? floorReason : target.reason)
         }
 
         if signals.stalePressure {
             resetPressureStreaks()
             downshiftCapacity(reason: "stale-capacity-down")
-            return evaluation(signals: signals, previous: previous, reason: target == previous ? "at-survival-floor" : target.reason)
+            return evaluation(signals: signals, previous: previous, reason: target == previous ? floorReason : target.reason)
         }
 
         if signals.queuePressure && signals.cadencePressure {
             resetPressureStreaks()
             downshiftCapacity(reason: "queue-cadence-down")
-            return evaluation(signals: signals, previous: previous, reason: target == previous ? "at-survival-floor" : target.reason)
+            return evaluation(signals: signals, previous: previous, reason: target == previous ? floorReason : target.reason)
         }
 
         if signals.cadencePressure {
@@ -290,7 +303,7 @@ struct MediaQualityController {
             }
             cadencePressureStreak = 0
             downshiftCapacity(reason: "cadence-capacity-down")
-            return evaluation(signals: signals, previous: previous, reason: target == previous ? "at-survival-floor" : target.reason)
+            return evaluation(signals: signals, previous: previous, reason: target == previous ? floorReason : target.reason)
         }
 
         cadencePressureStreak = 0
@@ -298,7 +311,7 @@ struct MediaQualityController {
         if signals.lossPressure {
             cleanStreak = 0
             downshiftLoss(reason: "loss-down")
-            return evaluation(signals: signals, previous: previous, reason: target == previous ? "at-survival-floor" : target.reason)
+            return evaluation(signals: signals, previous: previous, reason: target == previous ? floorReason : target.reason)
         }
 
         if signals.queuePressure || (input.sample.ackAgeP95Ms ?? 0) >= config.ackHoldP95Ms {
@@ -384,7 +397,11 @@ struct MediaQualityController {
             )
             return
         }
-        downshiftCapacity(reason: target.rung == .survival ? "at-survival-floor" : "capacity-down")
+        downshiftCapacity(reason: target.rung >= .survival ? floorReason : "capacity-down")
+    }
+
+    private var floorReason: String {
+        target.rung == .emergency ? "at-emergency-floor" : "at-survival-floor"
     }
 
     private mutating func downshiftCapacity(reason: String) {
@@ -396,7 +413,9 @@ struct MediaQualityController {
         case .capacity2:
             target = fixedTarget(for: .survival, reason: "survival-down")
         case .survival:
-            target = fixedTarget(for: .survival, reason: "at-survival-floor")
+            target = fixedTarget(for: .emergency, reason: "emergency-down")
+        case .emergency:
+            target = fixedTarget(for: .emergency, reason: "at-emergency-floor")
         }
     }
 
@@ -425,11 +444,15 @@ struct MediaQualityController {
             MediaQualityTarget(bitrateKbps: config.capacity2Kbps, fps: config.capacity2Fps, resolutionScale: config.capacity2Scale, rung: .capacity2, reason: reason)
         case .survival:
             MediaQualityTarget(bitrateKbps: config.survivalFloorKbps, fps: config.fpsFloor, resolutionScale: config.survivalScale, rung: .survival, reason: reason)
+        case .emergency:
+            MediaQualityTarget(bitrateKbps: config.emergencyKbps, fps: config.emergencyFps, resolutionScale: config.emergencyScale, rung: .emergency, reason: reason)
         }
     }
 
     private func recoveryTarget(for rung: MediaQualityRung) -> MediaQualityTarget {
         switch rung {
+        case .emergency:
+            fixedTarget(for: .survival, reason: "quality-up")
         case .survival:
             fixedTarget(for: .capacity2, reason: "quality-up")
         case .capacity2:
@@ -475,6 +498,11 @@ struct QuicSessionHostMediaState {
         case backpressure
     }
 
+    enum KeyframeRequestAdmission: Equatable {
+        case queued
+        case suppressedInFlight(frameId: UInt64)
+    }
+
     private var nextFrameId: UInt64 = 0
     private var lastProduceUptimeNs: UInt64?
     private var backpressure: GraphicsBackpressure
@@ -483,7 +511,8 @@ struct QuicSessionHostMediaState {
     private let expectedFrameRate: Int
     private let retryIntervalNs: UInt64
     private let staleInflightTimeoutNs: UInt64
-    private var forceRecoveryKeyframeOnNextAdmission = false
+    private var pendingClientKeyframeRequest = false
+    private var keyframeInFlight: UInt64?
     private var resendRequestsInWindow = 0
     private var keyframeRequestsInWindow = 0
     private var ackAgesMs: [Double] = []
@@ -522,7 +551,7 @@ struct QuicSessionHostMediaState {
                 let ageNs = nowNs >= oldestSentUptimeNs ? nowNs - oldestSentUptimeNs : 0
                 if ageNs >= staleInflightTimeoutNs {
                     backpressure.reset()
-                    forceRecoveryKeyframeOnNextAdmission = true
+                    keyframeInFlight = nil
                     staleRecoveryCountInWindow += 1
                 } else {
                     return .retry(
@@ -549,15 +578,22 @@ struct QuicSessionHostMediaState {
         frameId: UInt64,
         encodedBytes: Int,
         packets: [Data],
+        isKeyframe: Bool = false,
         sentAtUptimeNs: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) {
         backpressure.noteSent(frameId: frameId, bytes: encodedBytes, sentAtUptimeNs: sentAtUptimeNs)
+        if isKeyframe {
+            keyframeInFlight = frameId
+        }
         resendRing.remember(frameId: frameId, packets: packets)
     }
 
     @discardableResult
     mutating func noteAck(frameId: UInt64, nowNs: UInt64 = DispatchTime.now().uptimeNanoseconds) -> Double? {
         guard let sentAtUptimeNs = backpressure.noteAck(frameId: frameId) else { return nil }
+        if let inFlight = keyframeInFlight, frameId >= inFlight {
+            keyframeInFlight = nil
+        }
         let ageNs = nowNs >= sentAtUptimeNs ? nowNs - sentAtUptimeNs : 0
         let ageMs = Double(ageNs) / 1_000_000.0
         ackAgesMs.append(ageMs)
@@ -576,13 +612,19 @@ struct QuicSessionHostMediaState {
         resendRequestsInWindow += 1
     }
 
-    mutating func noteKeyframeRequest() {
+    mutating func noteKeyframeRequest() -> KeyframeRequestAdmission {
         keyframeRequestsInWindow += 1
+        if let keyframeInFlight {
+            return .suppressedInFlight(frameId: keyframeInFlight)
+        }
+        pendingClientKeyframeRequest = true
+        return .queued
     }
 
     mutating func resetForQualityChange() {
         backpressure.reset()
-        forceRecoveryKeyframeOnNextAdmission = false
+        pendingClientKeyframeRequest = false
+        keyframeInFlight = nil
     }
 
     mutating func observeLinkHealth(
@@ -638,9 +680,9 @@ struct QuicSessionHostMediaState {
         )
     }
 
-    mutating func takeRecoveryKeyframeRequest() -> Bool {
-        let shouldForceKeyframe = forceRecoveryKeyframeOnNextAdmission
-        forceRecoveryKeyframeOnNextAdmission = false
+    mutating func takeClientKeyframeRequest() -> Bool {
+        let shouldForceKeyframe = pendingClientKeyframeRequest
+        pendingClientKeyframeRequest = false
         return shouldForceKeyframe
     }
 

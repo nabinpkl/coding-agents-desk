@@ -73,6 +73,12 @@ struct ScrollQualityTests {
             backingScale: 2.0,
             scaleDownBy: CaptureSizing.scaleDownBy(baseScaleDownBy: 1.0, resolutionScale: 0.5)
         )
+        let emergency = CaptureSizing.pixelSize(
+            displayWidthPoints: 1800,
+            displayHeightPoints: 1169,
+            backingScale: 2.0,
+            scaleDownBy: CaptureSizing.scaleDownBy(baseScaleDownBy: 1.0, resolutionScale: 0.33)
+        )
 
         #expect(native.width == 3600)
         #expect(native.height == 2338)
@@ -80,7 +86,9 @@ struct ScrollQualityTests {
         #expect(capacity1.height == 1752)
         #expect(capacity2.width == 1800)
         #expect(capacity2.height == 1168)
-        #expect([native, capacity1, capacity2].allSatisfy { $0.width.isMultiple(of: 2) && $0.height.isMultiple(of: 2) })
+        #expect(emergency.width == 1188)
+        #expect(emergency.height == 770)
+        #expect([native, capacity1, capacity2, emergency].allSatisfy { $0.width.isMultiple(of: 2) && $0.height.isMultiple(of: 2) })
     }
 
     @Test func ownedMediaFrameScalerReturnsOriginalFrameWhenScaleIsOne() throws {
