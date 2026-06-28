@@ -131,6 +131,12 @@ final class InputDispatcher: @unchecked Sendable {
         queue.sync { makeScrollFocusSnapshot() }
     }
 
+    func isCursorInputActive() -> Bool {
+        queue.sync {
+            cursorPosition != nil && clock() - lastCursorMoveTime <= Self.cursorResyncIdleInterval
+        }
+    }
+
     private func makeScrollFocusSnapshot() -> ScrollFocusSnapshot {
         ScrollFocusSnapshot(
             focusPoint: cursorBase(),
@@ -206,7 +212,7 @@ final class InputDispatcher: @unchecked Sendable {
     private func postCursorMove(dx: CGFloat, dy: CGFloat) {
         let base = cursorBase()
         let raw = CGPoint(x: base.x + dx, y: base.y + dy)
-        let next = clamp(raw, to: displayBoundsProvider())
+        let next = Self.clamp(raw, to: displayBoundsProvider())
         cursorPosition = next
         lastCursorMoveTime = clock()
         // Only mouseCursorPosition drives the visible cursor when set this
@@ -257,7 +263,7 @@ final class InputDispatcher: @unchecked Sendable {
         inDrag = false
     }
 
-    private func clamp(_ point: CGPoint, to bounds: CGRect) -> CGPoint {
+    static func clamp(_ point: CGPoint, to bounds: CGRect) -> CGPoint {
         // maxX - 1 / maxY - 1 because CGDisplayBounds is exclusive on the
         // far edges; posting at exactly maxX has been seen to flick the
         // cursor onto an adjacent display in multi-monitor setups.

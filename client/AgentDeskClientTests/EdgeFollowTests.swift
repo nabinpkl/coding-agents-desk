@@ -142,7 +142,7 @@ struct EdgeFollowTests {
             delta: CGPoint(x: 100, y: 0),
             displayBounds: Self.display
         )
-        #expect(next.x == Self.display.width)
+        #expect(next.x == Self.display.width - 1)
         #expect(next.y == 500)
     }
 

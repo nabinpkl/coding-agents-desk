@@ -49,6 +49,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // Defaults describe the drawn-arrow fallback (tip hotspot, small size).
     let cursorImageStore = CursorImageStore()
     var cursorTask: Task<Void, Never>?
+    var cursorPositionTask: Task<Void, Never>?
     var diagnosticsTask: Task<Void, Never>?
     var cursorHotspotFrac: CGPoint = .zero
     var cursorRenderSize: CGSize = CursorPointerView.pointerSize
@@ -220,6 +221,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         desktopStateTask = nil
         cursorTask?.cancel()
         cursorTask = nil
+        cursorPositionTask?.cancel()
+        cursorPositionTask = nil
         diagnosticsTask?.cancel()
         diagnosticsTask = nil
         stopAgentSayForegroundPresentation()
@@ -297,6 +300,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         iceGraceTask?.cancel()
         desktopStateTask?.cancel()
         cursorTask?.cancel()
+        cursorPositionTask?.cancel()
         diagnosticsTask?.cancel()
         agentSayTask?.cancel()
         agentSaySpeechTask?.cancel()

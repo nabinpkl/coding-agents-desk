@@ -2358,6 +2358,32 @@ struct CursorImagePush: Codable, Equatable {
     }
 }
 
+// Host -> client cursor-position correction. This is not sent for every
+// iPhone-driven cursor delta. It is a low-rate authoritative reseed when the
+// Mac-side system cursor moves outside the remote input stream, so the
+// client's local cursor overlay and edge-follow model do not drift after a
+// physical mouse or trackpad move on the host.
+struct CursorPositionPush: Codable, Equatable {
+    let type: String
+    let displayId: String?
+    let cursorX: Float
+    let cursorY: Float
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case displayId = "d"
+        case cursorX = "x"
+        case cursorY = "y"
+    }
+
+    init(displayId: String?, cursorX: Float, cursorY: Float) {
+        self.type = "cursor-position"
+        self.displayId = displayId
+        self.cursorX = cursorX
+        self.cursorY = cursorY
+    }
+}
+
 struct ClientConfig: Codable, Equatable {
     let type: String
     let thumbnailsEnabled: Bool

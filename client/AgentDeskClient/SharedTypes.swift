@@ -2237,6 +2237,30 @@ struct CursorImagePush: Codable, Equatable {
     }
 }
 
+// Host -> client cursor-position correction. Mirror of the host definition.
+// Sent only as an authoritative reseed when the host cursor moves outside the
+// remote input stream, not for every iPhone-generated cursor delta.
+struct CursorPositionPush: Codable, Equatable {
+    let type: String
+    let displayId: String?
+    let cursorX: Float
+    let cursorY: Float
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case displayId = "d"
+        case cursorX = "x"
+        case cursorY = "y"
+    }
+
+    init(displayId: String?, cursorX: Float, cursorY: Float) {
+        self.type = "cursor-position"
+        self.displayId = displayId
+        self.cursorX = cursorX
+        self.cursorY = cursorY
+    }
+}
+
 struct ClientConfig: Codable, Equatable {
     let type: String
     let thumbnailsEnabled: Bool

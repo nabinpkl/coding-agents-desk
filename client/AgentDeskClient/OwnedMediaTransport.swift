@@ -25,6 +25,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     let agentSayUpdates: AsyncStream<AgentSayPush>
     private let cursorContinuation: AsyncStream<CursorImagePush>.Continuation
     let cursorUpdates: AsyncStream<CursorImagePush>
+    private let cursorPositionContinuation: AsyncStream<CursorPositionPush>.Continuation
+    let cursorPositionUpdates: AsyncStream<CursorPositionPush>
     private let diagnosticsContinuation: AsyncStream<InputChannelDiagnosticsUpdate>.Continuation
     let diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate>
     private let closedContinuation: AsyncStream<Void>.Continuation
@@ -68,6 +70,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         var cursorCont: AsyncStream<CursorImagePush>.Continuation!
         cursorUpdates = AsyncStream { cursorCont = $0 }
         cursorContinuation = cursorCont
+        var cursorPositionCont: AsyncStream<CursorPositionPush>.Continuation!
+        cursorPositionUpdates = AsyncStream { cursorPositionCont = $0 }
+        cursorPositionContinuation = cursorPositionCont
         var diagnosticsCont: AsyncStream<InputChannelDiagnosticsUpdate>.Continuation!
         diagnosticsUpdates = AsyncStream { diagnosticsCont = $0 }
         diagnosticsContinuation = diagnosticsCont
@@ -148,6 +153,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         topWindowsContinuation.finish()
         agentSayContinuation.finish()
         cursorContinuation.finish()
+        cursorPositionContinuation.finish()
         diagnosticsContinuation.finish()
         closedContinuation.yield(())
         closedContinuation.finish()
@@ -209,6 +215,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         case "cursor":
             if let push = try? JSONDecoder().decode(CursorImagePush.self, from: data) {
                 cursorContinuation.yield(push)
+            }
+        case "cursor-position":
+            if let push = try? JSONDecoder().decode(CursorPositionPush.self, from: data) {
+                cursorPositionContinuation.yield(push)
             }
         case "diagnostics-request":
             if let request = try? JSONDecoder().decode(DiagnosticsRequest.self, from: data) {

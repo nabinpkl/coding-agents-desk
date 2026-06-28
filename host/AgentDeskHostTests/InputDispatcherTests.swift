@@ -39,6 +39,24 @@ struct InputDispatcherTests {
         #expect(focus.displayBounds == CGRect(x: 0, y: 0, width: 1500, height: 1000))
     }
 
+    @Test func cursorInputActiveTracksIdleResyncWindow() {
+        let recorder = EventRecorder()
+        var now: CFTimeInterval = 10
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 100, y: 200) },
+            clock: { now }
+        )
+
+        #expect(!dispatcher.isCursorInputActive())
+        dispatcher.performDispatch(.cursorMove(dx: 40, dy: -10))
+        #expect(dispatcher.isCursorInputActive())
+
+        now += 0.25
+        #expect(!dispatcher.isCursorInputActive())
+    }
+
     @Test func cursorMoveClampsAtDisplayEdge() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(

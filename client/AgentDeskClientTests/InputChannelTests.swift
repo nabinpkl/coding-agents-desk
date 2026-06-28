@@ -847,6 +847,22 @@ struct InputChannelTests {
         #expect(decoded == push)
     }
 
+    @Test func cursorPositionFrameDecodes() throws {
+        let push = CursorPositionPush(
+            displayId: "display-1",
+            cursorX: 1499,
+            cursorY: 480
+        )
+        let data = try JSONEncoder().encode(push)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        let decoded = try JSONDecoder().decode(CursorPositionPush.self, from: data)
+
+        #expect(json.contains("\"t\":\"cursor-position\""))
+        #expect(json.contains("\"d\":\"display-1\""))
+        #expect(json.contains("\"x\":1499"))
+        #expect(decoded == push)
+    }
+
     @Test func cursorImageStoreCachesByHashAndServesNilPayloadFromCache() {
         // 1x1 PNG, enough for UIImage(data:) to succeed.
         let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC"

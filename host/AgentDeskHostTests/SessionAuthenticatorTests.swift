@@ -415,6 +415,8 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
 
     func pushCursor(_ push: CursorImagePush) {}
 
+    func pushCursorPosition(_ push: CursorPositionPush) {}
+
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest) {}
 }
 

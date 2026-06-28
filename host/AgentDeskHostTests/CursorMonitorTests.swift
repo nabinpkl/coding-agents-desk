@@ -39,7 +39,7 @@ struct CursorMonitorTests {
             hotSpot: NSPoint(x: 2, y: 4),
             hidden: false
         )
-        let monitor = CursorMonitor(sampler: { current })
+        let monitor = CursorMonitor(sampler: { current }, positionSampler: { nil })
 
         // First sample is a change from nothing.
         let first = monitor.tick()
@@ -66,7 +66,7 @@ struct CursorMonitorTests {
             hotSpot: NSPoint(x: 2, y: 4),
             hidden: false
         )
-        let monitor = CursorMonitor(sampler: { sample })
+        let monitor = CursorMonitor(sampler: { sample }, positionSampler: { nil })
         let push = monitor.tick()
         #expect(push != nil)
         #expect(abs((push?.hotspotXFrac ?? 0) - 0.2) < 0.0001)
@@ -92,5 +92,33 @@ struct CursorMonitorTests {
         #expect(object?["t"] as? String == "cursor")
         let decoded = try JSONDecoder().decode(CursorImagePush.self, from: data)
         #expect(decoded == push)
+    }
+
+    @Test func positionChangesEmitOnlyWhenAllowed() {
+        let sample = CursorMonitor.CursorSample(
+            image: makeImage(width: 10, height: 20, value: 0x40),
+            hotSpot: NSPoint(x: 0, y: 0),
+            hidden: false
+        )
+        var point = CGPoint(x: 10, y: 20)
+        let monitor = CursorMonitor(
+            sampler: { sample },
+            positionSampler: { point }
+        )
+        var emitted: [CGPoint] = []
+        monitor.onPositionChange = { emitted.append($0) }
+
+        monitor.tick()
+        monitor.tick()
+        #expect(emitted == [CGPoint(x: 10, y: 20)])
+
+        monitor.shouldEmitPosition = { false }
+        point = CGPoint(x: 30, y: 40)
+        monitor.tick()
+        #expect(emitted == [CGPoint(x: 10, y: 20)])
+
+        monitor.shouldEmitPosition = { true }
+        monitor.tick()
+        #expect(emitted == [CGPoint(x: 10, y: 20), CGPoint(x: 30, y: 40)])
     }
 }

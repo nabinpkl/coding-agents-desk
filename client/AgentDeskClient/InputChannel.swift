@@ -16,6 +16,7 @@ protocol InputChannel: AnyObject, Sendable {
     var topWindowsUpdates: AsyncStream<[String: SpaceTopWindow]> { get }
     var agentSayUpdates: AsyncStream<AgentSayPush> { get }
     var cursorUpdates: AsyncStream<CursorImagePush> { get }
+    var cursorPositionUpdates: AsyncStream<CursorPositionPush> { get }
     var diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate> { get }
 
     func sendConfig(_ config: ClientConfig) async throws

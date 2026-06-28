@@ -145,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installSpacesSwitchHandler()
         installSpacesChangeObserver()
         installThumbnailsBroadcast()
+        installCursorPositionMonitor()
         installCursorMonitor()
         startAgentSayServer()
         startSpaceAgent()
@@ -754,6 +755,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         cursorMonitor.start()
+    }
+
+    // Cursor position correction: while the iPhone is driving cursor deltas,
+    // the client and host dead-reckon from the same stream. When the remote
+    // stream is idle, a physical Mac mouse / trackpad move changes the host
+    // cursor behind the client's model, so broadcast a low-rate correction.
+    private func installCursorPositionMonitor() {
+        cursorMonitor.shouldEmitPosition = { [weak self] in
+            guard let self else { return false }
+            return !self.inputDispatcher.isCursorInputActive()
+        }
+        cursorMonitor.onPositionChange = { [weak self] position in
+            guard let self else { return }
+            let displayId = self.displaySelection.selectedDisplayId
+            let bounds = self.displaySelection.selectedBounds()
+            let clamped = InputDispatcher.clamp(position, to: bounds)
+            let push = CursorPositionPush(
+                displayId: displayId,
+                cursorX: Float(clamped.x),
+                cursorY: Float(clamped.y)
+            )
+            for server in self.sessions.allInputChannelServers() {
+                server.pushCursorPosition(push)
+            }
+        }
     }
 
     // R11: dispatcher streams each iPhone-side swipe phase

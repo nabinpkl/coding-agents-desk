@@ -95,8 +95,10 @@ enum EdgeFollow {
         delta: CGPoint,
         displayBounds: CGRect
     ) -> CGPoint {
-        let nextX = min(max(0, current.x + delta.x), displayBounds.width)
-        let nextY = min(max(0, current.y + delta.y), displayBounds.height)
+        let maxX = max(0, displayBounds.width - 1)
+        let maxY = max(0, displayBounds.height - 1)
+        let nextX = min(max(0, current.x + delta.x), maxX)
+        let nextY = min(max(0, current.y + delta.y), maxY)
         return CGPoint(x: nextX, y: nextY)
     }
 }

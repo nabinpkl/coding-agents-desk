@@ -18,6 +18,7 @@ protocol InputChannelServing: AnyObject, Sendable {
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow])
     func pushAgentSay(_ push: AgentSayPush)
     func pushCursor(_ push: CursorImagePush)
+    func pushCursorPosition(_ push: CursorPositionPush)
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest)
 }
 
@@ -69,6 +70,10 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     }
 
     func pushCursor(_ push: CursorImagePush) {
+        sendCodableFrame(push)
+    }
+
+    func pushCursorPosition(_ push: CursorPositionPush) {
         sendCodableFrame(push)
     }
 

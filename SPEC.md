@@ -40,7 +40,7 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 11. **QuicSessionTransport.** Owns the single live `NetworkConnection<QUIC>` and routes lanes by role. The control stream carries session init, challenge, proof, ready, resume, revoke, and heartbeat. The input stream carries `InputChannelEvent`, `ClientConfig`, diagnostics requests, and host pushes. The datagram lane carries authenticated `ADMD` media packets, packet resend requests, keyframe requests, ACKs, and link-health reports.
 12. **MediaTransport.** Sends HEVC full-frame refreshes over the session datagram lane. The media packet key is derived per session from fresh handshake material, the session id, and the `SessionReady.mediaKeySalt`; no static datagram key or separate media listener remains.
 13. **ScrollDeltaEngine.** Rest-state retained-graphics producer (ADR-0025), retained as local crisp-repair/compositor machinery. Damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`), omitting cells that already match the retained baseline. It does not own a separate network connection.
-14. **InputChannelServer.** Owns the host side of the session input stream. Drains `InputChannelEvent` frames into `NormalizedInput`, and pushes desktop state, thumbnails, cursor updates, agent speech events, and diagnostics responses on the same ordered lane.
+14. **InputChannelServer.** Owns the host side of the session input stream. Drains `InputChannelEvent` frames into `NormalizedInput`, and pushes desktop state, thumbnails, cursor image updates, cursor-position corrections, agent speech events, and diagnostics responses on the same ordered lane.
 15. **SignalingChannel.** Supplies length-prefixed QUIC stream framing and role routing for the session control and input streams. It is not a WebSocket wrapper.
 16. **VideoFrameSource.** Concrete implementation `ScreenCaptureKitFrameSource` captures one stream for the selected display and exposes a display-selection hook. `TestPatternFrameSource` exists as a diagnostic source.
 17. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces, enabled by owner-scoped demand.
@@ -61,7 +61,7 @@ Designed as deep modules: small interface, hides churn. Each one is independentl
 10. **MediaTransport.** Uses the session datagram lane to verify `ADMD` v2 packets, repair missing packet indexes before deadline, skip stale delta frames, and ask for keyframe recovery only when decoder continuity requires it.
 11. **OwnedHEVCFrameDecoder.** Planned `VTDecompressionSession` bridge for the hybrid worktree. It decodes HEVC refreshes into `CVPixelBuffer` output instead of enqueueing directly into `AVSampleBufferDisplayLayer`.
 12. **OwnedSurfaceCompositor.** Planned `@MainActor` single writer for the retained BGRA surface. It applies HEVC full-surface refreshes and retained graphics commands in strict `(surfaceGeneration, frameId)` order, then commits the visible layer.
-13. **InputChannel.** Reliable input lane inside the authenticated session QUIC connection. It stays logically independent from media even though both lanes share the same connection. It sends `ClientConfig.selectedDisplayId` when the user picks a display, receives `DiagnosticsRequest` from the host, and returns diagnostics summaries and chunks.
+13. **InputChannel.** Reliable input lane inside the authenticated session QUIC connection. It stays logically independent from media even though both lanes share the same connection. It sends `ClientConfig.selectedDisplayId` when the user picks a display, receives cursor-position corrections and `DiagnosticsRequest` from the host, and returns diagnostics summaries and chunks.
 14. **ClientDiagnosticsStore.** Bounded durable client diagnostics store in `Application Support/Diagnostics`. It persists structured NDJSON essentials for the current run plus two prior runs, rotates unclean exits on bootstrap, mirrors essentials to OSLog, summarizes delayed MetricKit payloads, and serves prior-run tails on demand over the input lane or the foreground tailnet control listener.
 
 Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView.** Additional owned-media contract tests pin wire shapes, packet repair, and decoder recovery behavior where regressions are expensive.
@@ -252,6 +252,7 @@ Input-lane wire shapes are locked by ADR-0005, ADR-0011, and ADR-0030.
 InputChannelEvent  { event: NormalizedInput }                         // t: "input-event"
 InputChannelClose  { reason }                                         // t: "input-close"
 DesktopStatePush   { state: DesktopState }                            // t: "desktop-state"
+CursorPositionPush { displayId?, cursorX, cursorY }                    // t: "cursor-position"
 ClientConfig        { thumbnailsEnabled, thumbnailRefresh?,
                       selectedDisplayId? }                             // t: "client-config"
 DiagnosticsRequest  { requestId, sinceRunId?, includePreviousRuns,

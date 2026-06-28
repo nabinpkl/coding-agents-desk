@@ -26,21 +26,27 @@ final class CursorMonitor {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "cursor-monitor")
     private let interval: TimeInterval
     private let sampler: () -> CursorSample?
+    private let positionSampler: () -> CGPoint?
     private var timer: DispatchSourceTimer?
     private var lastHash: String?
+    private var lastPosition: CGPoint?
 
     // The most recent push, replayed to a client on attach so it gets the
     // current cursor without waiting for the next shape change.
     private(set) var latest: CursorImagePush?
 
     var onChange: ((CursorImagePush) -> Void)?
+    var onPositionChange: ((CGPoint) -> Void)?
+    var shouldEmitPosition: () -> Bool = { true }
 
     init(
         interval: TimeInterval = 0.05,
-        sampler: @escaping () -> CursorSample? = CursorMonitor.systemSampler
+        sampler: @escaping () -> CursorSample? = CursorMonitor.systemSampler,
+        positionSampler: @escaping () -> CGPoint? = CursorMonitor.systemPositionSampler
     ) {
         self.interval = interval
         self.sampler = sampler
+        self.positionSampler = positionSampler
     }
 
     // Reads the system-wide cursor. `currentSystem` reflects whatever app
@@ -49,6 +55,10 @@ final class CursorMonitor {
     static func systemSampler() -> CursorSample? {
         let cursor = NSCursor.currentSystem ?? NSCursor.current
         return CursorSample(image: cursor.image, hotSpot: cursor.hotSpot, hidden: false)
+    }
+
+    static func systemPositionSampler() -> CGPoint? {
+        CGEvent(source: nil)?.location
     }
 
     func start() {
@@ -69,6 +79,7 @@ final class CursorMonitor {
     // cursor changed since the last cycle, else nil.
     @discardableResult
     func tick() -> CursorImagePush? {
+        tickPosition()
         guard let sample = sampler() else { return nil }
         guard let tiff = sample.image.tiffRepresentation else { return nil }
         let hash = Self.hash(tiff)
@@ -94,6 +105,15 @@ final class CursorMonitor {
         latest = push
         onChange?(push)
         return push
+    }
+
+    @discardableResult
+    private func tickPosition() -> CGPoint? {
+        guard shouldEmitPosition(), let position = positionSampler() else { return nil }
+        guard position != lastPosition else { return nil }
+        lastPosition = position
+        onPositionChange?(position)
+        return position
     }
 
     private static func hash(_ data: Data) -> String {

@@ -101,11 +101,21 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // because activeInputChannel may be replaced by a reconnect.
     func startCursorObservation() {
         cursorTask?.cancel()
+        cursorTask = nil
+        cursorPositionTask?.cancel()
+        cursorPositionTask = nil
         guard let channel = pairingClient.activeInputChannel else { return }
         cursorTask = Task { [weak self, channel] in
             for await push in channel.cursorUpdates {
                 await MainActor.run {
                     self?.applyCursorImage(push)
+                }
+            }
+        }
+        cursorPositionTask = Task { [weak self, channel] in
+            for await push in channel.cursorPositionUpdates {
+                await MainActor.run {
+                    self?.applyCursorPosition(push)
                 }
             }
         }

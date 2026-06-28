@@ -288,6 +288,8 @@ extension PairingViewController {
         topWindowsTask = nil
         cursorTask?.cancel()
         cursorTask = nil
+        cursorPositionTask?.cancel()
+        cursorPositionTask = nil
         stopAgentSayForegroundPresentation()
         lastDesktopState = nil
         selectedDisplayIdForClientConfig = nil

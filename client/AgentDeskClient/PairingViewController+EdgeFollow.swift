@@ -114,6 +114,33 @@ extension PairingViewController: UIScrollViewDelegate {
         updateCursorDot()
     }
 
+    // Authoritative host-side correction for cursor moves that did not
+    // originate on the iPhone, such as a physical mouse or trackpad move on
+    // the Mac while remote input was idle.
+    func applyCursorPosition(_ push: CursorPositionPush) {
+        guard let state = lastDesktopState else { return }
+        let displayId = push.displayId
+            ?? activeDisplayIdMirror
+            ?? state.selectedDisplayId
+            ?? state.activeDisplayId
+        guard let displayId,
+              displayId == activeDisplayIdMirror,
+              let display = state.displays.first(where: { $0.id == displayId }),
+              activeDisplayRect.width > 0,
+              activeDisplayRect.height > 0 else { return }
+        let corrected = CGPoint(
+            x: CGFloat(push.cursorX - display.originX),
+            y: CGFloat(push.cursorY - display.originY)
+        )
+        cursorSourcePos = EdgeFollow.advanceCursor(
+            from: corrected,
+            delta: .zero,
+            displayBounds: activeDisplayRect
+        )
+        applyEdgeFollow()
+        updateCursorDot()
+    }
+
     func applyEdgeFollow() {
         guard let scroll = sinkScrollView, let pos = cursorSourcePos else { return }
         guard scroll.zoomScale > 1.0 else { return }
