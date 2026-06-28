@@ -7,30 +7,6 @@ protocol MediaTransport: AnyObject, Sendable {
     var connectionState: AsyncStream<MediaConnectionState> { get }
 }
 
-protocol OwnedMediaChannelServing: AnyObject, Sendable {
-    func send(_ envelope: OwnedMediaFrameEnvelope) async throws -> OwnedMediaSendStats
-    func close()
-}
-
-struct OwnedMediaSendStats: Equatable, Sendable {
-    let frameId: UInt64
-    let encodedBytes: Int
-    let packetCount: Int
-    let sendStartUptimeNs: UInt64
-    let sendEndUptimeNs: UInt64
-    let burstPauseCount: Int
-    let maxInterPacketGapMs: Double
-    let pacingBurstPacketCount: Int
-    let pacingBurstPauseUs: Int
-    let pacingReason: OwnedMediaDatagramPacingReason
-    let isBackpressured: Bool
-
-    var sendDurationMs: Double {
-        guard sendEndUptimeNs >= sendStartUptimeNs else { return 0 }
-        return Double(sendEndUptimeNs - sendStartUptimeNs) / 1_000_000.0
-    }
-}
-
 struct OwnedMediaDiagnosticsFpsWindow: Equatable {
     private(set) var windowStartedAtUptimeNs: UInt64
     private(set) var captured = 0
@@ -111,17 +87,7 @@ struct OwnedQuicListenerConfiguration: Equatable, Sendable {
 }
 
 enum OwnedQuicListenerConfigurations {
-    static let mediaDatagramALPN = "agentdesk-owned-media"
     static let graphicsALPN = "agentdesk-owned-graphics"
-
-    static func mediaDatagram() -> OwnedQuicListenerConfiguration {
-        OwnedQuicListenerConfiguration(
-            alpn: mediaDatagramALPN,
-            port: Config.signalingPort,
-            usesDatagrams: true,
-            maxDatagramFrameSize: Config.ownedMediaQuicMaxDatagramBytes
-        )
-    }
 
     static func graphics() -> OwnedQuicListenerConfiguration {
         OwnedQuicListenerConfiguration(
@@ -143,53 +109,6 @@ enum OwnedGraphicsHandshake {
             throw SessionRejected(reason: .malformed)
         }
         return hello
-    }
-}
-
-struct OwnedMediaResendRing {
-    private let capacityFrames: Int
-    private var frames: [UInt64: [UInt16: Data]] = [:]
-    private var order: [UInt64] = []
-
-    init(capacityFrames: Int) {
-        self.capacityFrames = max(1, capacityFrames)
-    }
-
-    mutating func remember(frameId: UInt64, packets: [Data]) {
-        var packetMap: [UInt16: Data] = [:]
-        packetMap.reserveCapacity(packets.count)
-        for (index, packet) in packets.enumerated() where index <= Int(UInt16.max) {
-            packetMap[UInt16(index)] = packet
-        }
-        if frames[frameId] == nil {
-            order.append(frameId)
-        }
-        frames[frameId] = packetMap
-        while order.count > capacityFrames {
-            let evicted = order.removeFirst()
-            frames.removeValue(forKey: evicted)
-        }
-    }
-
-    func packets(frameId: UInt64, indexes: [UInt16], maxCount: Int) -> (packets: [(UInt16, Data)], misses: [UInt16]) {
-        guard maxCount > 0 else {
-            return ([], indexes)
-        }
-        let uniqueIndexes = Array(Set(indexes)).sorted()
-        guard let stored = frames[frameId] else {
-            return ([], Array(uniqueIndexes.prefix(maxCount)))
-        }
-        var packets: [(UInt16, Data)] = []
-        var misses: [UInt16] = []
-        packets.reserveCapacity(min(uniqueIndexes.count, maxCount))
-        for index in uniqueIndexes.prefix(maxCount) {
-            if let packet = stored[index] {
-                packets.append((index, packet))
-            } else {
-                misses.append(index)
-            }
-        }
-        return (packets, misses)
     }
 }
 

@@ -238,7 +238,6 @@ final class OwnedMediaHostDiagnostics: @unchecked Sendable {
 }
 
 final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
-    static let mediaDatagramALPN = OwnedQuicListenerConfigurations.mediaDatagramALPN
     let connectionState: AsyncStream<MediaConnectionState>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
@@ -248,13 +247,11 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
     private let scrollActivityHintProvider: @Sendable () -> ScrollActivityHint?
     private let queue = DispatchQueue(label: "com.example.agentdesk.agentdesk.owned-media-quic")
     private let lock = NSLock()
-    private var mediaDatagramListener: NWListener?
     private var graphicsListener: NWListener?
     private var graphicsConnections: [ObjectIdentifier: NWConnection] = [:]
     private var graphicsChannels: [ObjectIdentifier: OwnedGraphicsChannelServer] = [:]
     private var latestPendingGraphicsConnectionId: ObjectIdentifier?
     private var activeGraphicsConnectionId: ObjectIdentifier?
-    private var channel: (any OwnedMediaChannelServing)?
     private var videoSource: VideoFrameSource?
     private var frameMailbox: LatestCapturedFrameMailbox?
     private var encodePumpTask: Task<Void, Never>?
@@ -291,11 +288,7 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
 
     func stop() {
         lock.lock()
-        let channel = self.channel
-        self.channel = nil
         started = false
-        let mediaDatagramListener = self.mediaDatagramListener
-        self.mediaDatagramListener = nil
         let graphicsListener = self.graphicsListener
         self.graphicsListener = nil
         let graphicsConnections = Array(self.graphicsConnections.values)
@@ -315,12 +308,10 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         pumpTask?.cancel()
         mailbox?.finish()
         source?.stop()
-        mediaDatagramListener?.cancel()
         graphicsListener?.cancel()
         graphicsConnections.forEach { $0.cancel() }
         graphicsChannels.forEach { $0.close() }
         graphicsAckWaiter.reset()
-        channel?.close()
         stateContinuation.yield(.closed)
         stateContinuation.finish()
     }
@@ -348,10 +339,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         self.graphicsListener = listener
         lock.unlock()
         listener.start(queue: queue)
-    }
-
-    static func mediaDatagramListenerConfiguration() -> OwnedQuicListenerConfiguration {
-        OwnedQuicListenerConfigurations.mediaDatagram()
     }
 
     static func graphicsListenerConfiguration() -> OwnedQuicListenerConfiguration {
@@ -558,13 +545,6 @@ final class OwnedMediaTransport: MediaTransport, @unchecked Sendable {
         if previous != state {
             logger.notice("owned graphics recovery state=\(state.rawValue, privacy: .public) previous=\(previous.rawValue, privacy: .public) reason=\(reason, privacy: .public)")
         }
-    }
-
-    private func installChannel(_ channel: any OwnedMediaChannelServing) {
-        lock.lock()
-        self.channel?.close()
-        self.channel = channel
-        lock.unlock()
     }
 
     private func sendReady(_ data: Data, on connection: NWConnection) async throws {
