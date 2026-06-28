@@ -6,15 +6,10 @@ import Testing
 @testable import AgentDeskHost
 
 struct ScrollQualityTests {
-    @Test func ownedMediaCeilingConfigParsesStrictChromaProfileAndMaxQP() {
+    @Test func ownedMediaCeilingConfigParsesStrictChroma() {
         #expect(Config.OwnedMediaChroma(rawEnvironmentValue: "444") == .yuv444)
         #expect(Config.OwnedMediaChroma(rawEnvironmentValue: "bgra") == .bgra)
         #expect(Config.OwnedMediaChroma(rawEnvironmentValue: "unknown") == .yuv420)
-        #expect(Config.OwnedMediaHEVCProfile(rawEnvironmentValue: "main444") == .main444)
-        #expect(Config.OwnedMediaHEVCProfile(rawEnvironmentValue: "44410") == .main44410)
-        #expect(Config.OwnedMediaHEVCProfile(rawEnvironmentValue: "unknown") == nil)
-        #expect(Config.ownedMediaMaxQP(environment: ["AGENTDESK_OWNED_MEDIA_MAX_QP": "24"]) == 24)
-        #expect(Config.ownedMediaMaxQP(environment: ["AGENTDESK_OWNED_MEDIA_MAX_QP": "0"]) == nil)
     }
 
     @Test func ownedMediaDatagramHeaderLengthMatchesVersionTwoWireShape() throws {

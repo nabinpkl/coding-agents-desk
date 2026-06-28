@@ -18,31 +18,6 @@ enum Config {
         }
     }
 
-    enum OwnedMediaHEVCProfile: String {
-        case main
-        case main10
-        case main42210
-        case main444
-        case main44410
-
-        init?(rawEnvironmentValue: String?) {
-            switch rawEnvironmentValue?.lowercased() {
-            case "main":
-                self = .main
-            case "main10":
-                self = .main10
-            case "main42210", "42210":
-                self = .main42210
-            case "main444", "444":
-                self = .main444
-            case "main44410", "44410":
-                self = .main44410
-            default:
-                return nil
-            }
-        }
-    }
-
     enum SpaceSwitchMode: String {
         case dockSwipe = "dock-swipe"
         case directSet = "direct-set"
@@ -90,22 +65,6 @@ enum Config {
     static let mediaCapabilityTTL: TimeInterval = 60
     static let ownedMediaChroma = OwnedMediaChroma(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_CHROMA"]
-    )
-    static let ownedMediaHEVCProfile: OwnedMediaHEVCProfile? = {
-        if let configured = OwnedMediaHEVCProfile(
-            rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_HEVC_PROFILE"]
-        ) {
-            return configured
-        }
-        switch ownedMediaChroma {
-        case .yuv444, .bgra:
-            return .main444
-        case .yuv420:
-            return nil
-        }
-    }()
-    static let ownedMediaMaxQP = ownedMediaMaxQP(
-        environment: ProcessInfo.processInfo.environment
     )
     static let ownedMediaDatagramBurstPacketCount = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PACKET_COUNT",
@@ -450,15 +409,6 @@ enum Config {
         defaultValue: true,
         environment: ProcessInfo.processInfo.environment
     )
-    static func ownedMediaMaxQP(environment: [String: String]) -> Int? {
-        guard let raw = environment["AGENTDESK_OWNED_MEDIA_MAX_QP"],
-              let value = Int(raw),
-              value > 0
-        else {
-            return nil
-        }
-        return value
-    }
     static func ownedMediaMotionScaleDown(environment: [String: String]) -> Double {
         positiveDouble(
             environment: environment,
