@@ -107,6 +107,56 @@ final class RegionCrispControllerTests: XCTestCase {
         XCTAssertTrue(reAchievesA.payload.isEmpty, "a cache hit carries no payload")
     }
 
+    // Review HIGH-3: when more tiles settle in one frame than the cache can hold, the
+    // controller must never make two tiles share a slot (which would paint wrong pixels
+    // crisply). Excess tiles are dropped to the video floor and counted.
+    func testSingleFrameSlotExhaustionNeverReusesASlot() {
+        var c = RegionCrispController(config: config(slots: 2))
+        // 192-wide surface = three 64x64 tiles; cache holds only two.
+        _ = observe(&c, surface(0xAB, width: 192), at: 0, width: 192)
+        let e = observe(&c, surface(0xAB, width: 192), at: 200, width: 192)
+        var slots: [UInt16] = []
+        for command in e.commands {
+            guard case let .cacheTile(slot, _, _, _, _, _, _) = command else {
+                return XCTFail("exhaustion frame should only assign cacheTiles, got \(command)")
+            }
+            slots.append(slot)
+        }
+        XCTAssertEqual(slots.count, 2, "only as many tiles as slots may be cached in one frame")
+        XCTAssertEqual(Set(slots).count, slots.count, "no two tiles may share a slot")
+        XCTAssertEqual(c.droppedCrispTileCount, 1, "the third tile stays on the video floor and is counted")
+    }
+
+    // Review MINOR-8/11: partial-edge tiles (dimensions not a multiple of the grid) are
+    // emitted with correct clipped extents, and multiple cacheTiles in one frame carry
+    // sequential, non-overlapping byteRanges that exactly cover the payload.
+    func testPartialEdgeTilesAndSequentialByteRanges() {
+        var c = RegionCrispController(config: config(slots: 16))
+        let w = 70, h = 70 // grid 64 -> tiles 64x64, 6x64, 64x6, 6x6
+        _ = observe(&c, surface(0xAB, width: w, height: h), at: 0, width: w, height: h)
+        let e = observe(&c, surface(0xAB, width: w, height: h), at: 200, width: w, height: h)
+
+        var ranges: [(offset: Int, length: Int)] = []
+        var sawCornerTile = false
+        for command in e.commands {
+            guard case let .cacheTile(_, _, _, cw, ch, _, br) = command else {
+                return XCTFail("expected cacheTile, got \(command)")
+            }
+            if cw == 6 && ch == 6 { sawCornerTile = true }
+            ranges.append((br.offset, br.length))
+        }
+        XCTAssertEqual(e.commands.count, 4, "a 70x70 surface at grid 64 has four tiles")
+        XCTAssertTrue(sawCornerTile, "the 6x6 corner partial-edge tile must be emitted with clipped extent")
+        // ByteRanges in emission order are contiguous from 0 and cover the payload exactly.
+        var cursor = 0
+        for r in ranges {
+            XCTAssertEqual(r.offset, cursor, "byteRanges must be sequential with no gaps or overlaps")
+            XCTAssertGreaterThan(r.length, 0)
+            cursor += r.length
+        }
+        XCTAssertEqual(cursor, e.payload.count, "byteRanges must cover the payload exactly")
+    }
+
     // Behavior 6: normal promotion never increments the dropped-crisp counter; the
     // counter exists so a genuine compression failure is diagnosable, not silent.
     func testDroppedCrispTileCountStaysZeroInNormalFlow() {

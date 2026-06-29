@@ -60,6 +60,12 @@ struct RegionCrispController {
 
         var commands: [OwnedGraphicsCommand] = []
         var payload = Data()
+        // Cap new slot assignments per frame to the cache capacity. The cache cannot
+        // hold more than `cacheSlots` distinct tiles, and assigning more than that in a
+        // single frame would force the slot chooser into a collision fallback where two
+        // tiles share a slot (wrong pixels shown crisply). Excess settled tiles stay on
+        // the video floor this frame and retry next frame (deduping once committed).
+        var assignsThisFrame = 0
 
         var y = 0
         while y < height {
@@ -103,8 +109,12 @@ struct RegionCrispController {
                     commands.append(.drawCachedTile(slot: slot, x: x, y: y, width: w, height: h))
                     state.crispHash = hash
                     cells[key] = state
+                } else if assignsThisFrame >= config.cacheSlots {
+                    // Out of fresh slots this frame; leave on video and retry next frame.
+                    droppedCrispTileCount += 1
                 } else if let compressed = OwnedTileCodec.compressLZFSE(tile) {
                     let slot = cache.assign(hash: hash, bytes: tile)
+                    assignsThisFrame += 1
                     let offset = payload.count
                     payload.append(compressed)
                     commands.append(.cacheTile(
