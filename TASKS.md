@@ -27,7 +27,7 @@ Reuse is load-bearing: `TileContentCache`, tile extraction/LZFSE encode, `OwnedG
 ## Phase 2: host per-region crisp emitter
 
 - [x] R4. `host/AgentDeskHost/OwnedTileCodec.swift`: standalone `OwnedTileCodec.extractTile(...)` and `compressLZFSE(...)` mirroring the dormant `ScrollDeltaEngine` helpers, so the emitter reuses proven extraction/encode without scroll routing. Tests assert exact sub-rect extraction, out-of-bounds rejection, and lossless LZFSE round-trip. (The dormant `ScrollDeltaEngine`/`FrameComposer`/`MotionGovernor` remain a separate dead-code removal once crisp-repair proves out.)
-- [ ] R5. Introduce `host/AgentDeskHost/RegionCrispController.swift`: per-tile settle/motion policy over the captured surface and damage rects, using `TileContentCache`. Pure-logic core returning `[OwnedGraphicsCommand]`. Unit tests assert: settle window promotes; any hash change reverts; unchanged hash dedups to `drawCachedTile`; never emits a draw for a hash differing from current capture (the invariant); eager revert on first changed frame. Observability (from R1/R2/R4 review M2/m6): when `OwnedTileCodec.compressLZFSE` returns nil for a settled tile, the controller must count/log the dropped-crisp tile rather than swallow it silently; the tile simply stays on video (the floor), but the drop must be diagnosable.
+- [x] R5. Introduce `host/AgentDeskHost/RegionCrispController.swift`: per-tile settle/motion policy over the captured surface and damage rects, using `TileContentCache`. Pure-logic core returning `[OwnedGraphicsCommand]`. Unit tests assert: settle window promotes; any hash change reverts; unchanged hash dedups to `drawCachedTile`; never emits a draw for a hash differing from current capture (the invariant); eager revert on first changed frame. Observability (from R1/R2/R4 review M2/m6): when `OwnedTileCodec.compressLZFSE` returns nil for a settled tile, the controller must count/log the dropped-crisp tile rather than swallow it silently; the tile simply stays on video (the floor), but the drop must be diagnosable.
 - [ ] R6. Build the host reliable graphics lane and wire `RegionCrispController` into the encode pump. Add `.graphics` to `QuicSessionStreamRole` (both `SignalingChannel` copies), a `GraphicsLaneServer` (mirrors `InputChannelServer`) that owns the accepted stream and sends `OwnedGraphicsFrameEnvelope.encode()` bytes, host dispatch + ready-handler wiring (`PairingSignalingServer`/`AppDelegate`), then feed `RegionCrispController` output over it from the encode pump. Config knobs: settle window ms, crisp byte cap per window (`Config`). Live establishment validated at R9.
 
 ## Phase 3: client per-region compositing
@@ -70,7 +70,7 @@ R1       2026-06-28  committed   OwnedGraphicsCommand.revertTileToVideo on both 
 R2       2026-06-28  committed   wire round-trip tests both sides + compositor revert test
 R3       2026-06-28  folded      reliable graphics lane folded into R6 (host) and R8 (client)
 R4       2026-06-29  committed   OwnedTileCodec extraction + LZFSE, wired + tested
-R5       pending     pending     RegionCrispController policy + invariant tests
+R5       2026-06-29  committed   RegionCrispController policy + invariant tests (TDD, 6 behaviors green)
 R6       pending     pending     wire emitter into encode pump
 R7       pending     pending     client per-region transparency compositing
 R8       pending     pending     client intake feeds compositor + tests
