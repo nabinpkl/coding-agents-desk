@@ -112,9 +112,19 @@ final class RegionCrispControllerTests: XCTestCase {
     // crisply). Excess tiles are dropped to the video floor and counted.
     func testSingleFrameSlotExhaustionNeverReusesASlot() {
         var c = RegionCrispController(config: config(slots: 2))
-        // 192-wide surface = three 64x64 tiles; cache holds only two.
-        _ = observe(&c, surface(0xAB, width: 192), at: 0, width: 192)
-        let e = observe(&c, surface(0xAB, width: 192), at: 200, width: 192)
+        // 192-wide surface = three 64x64 tiles with DISTINCT content (distinct hashes),
+        // so each genuinely needs its own slot; the cache holds only two.
+        let w = 192, h = 64
+        var px = Data(count: w * h * 4)
+        for y in 0..<h {
+            for x in 0..<w {
+                let v: UInt8 = x < 64 ? 0xAA : (x < 128 ? 0xBB : 0xCC)
+                let o = y * w * 4 + x * 4
+                px[o] = v; px[o + 1] = v; px[o + 2] = v; px[o + 3] = v
+            }
+        }
+        _ = observe(&c, px, at: 0, width: w, height: h)
+        let e = observe(&c, px, at: 200, width: w, height: h)
         var slots: [UInt16] = []
         for command in e.commands {
             guard case let .cacheTile(slot, _, _, _, _, _, _) = command else {
@@ -124,7 +134,8 @@ final class RegionCrispControllerTests: XCTestCase {
         }
         XCTAssertEqual(slots.count, 2, "only as many tiles as slots may be cached in one frame")
         XCTAssertEqual(Set(slots).count, slots.count, "no two tiles may share a slot")
-        XCTAssertEqual(c.droppedCrispTileCount, 1, "the third tile stays on the video floor and is counted")
+        XCTAssertEqual(c.throttledCrispTileCount, 1, "the third tile is throttled to the video floor this frame")
+        XCTAssertEqual(c.droppedCrispTileCount, 0, "throttling is not a compression-failure drop")
     }
 
     // Review MINOR-8/11: partial-edge tiles (dimensions not a multiple of the grid) are
@@ -180,5 +191,6 @@ final class RegionCrispControllerTests: XCTestCase {
         _ = observe(&c, surface(0x10), at: 0)
         _ = observe(&c, surface(0x10), at: 200)
         XCTAssertEqual(c.droppedCrispTileCount, 0)
+        XCTAssertEqual(c.throttledCrispTileCount, 0)
     }
 }

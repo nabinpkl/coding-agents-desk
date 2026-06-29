@@ -35,7 +35,15 @@ struct RegionCrispController {
     private var cells: [CellKey: CellState] = [:]
     private var lastWidth = 0
     private var lastHeight = 0
+    // A settled tile whose pixels could not be LZFSE-compressed. A genuine, per-tile
+    // failure that persists until the tile's content changes; non-zero means something
+    // is wrong with the content or codec, not the cache size.
     private(set) var droppedCrispTileCount = 0
+    // A settled tile that could not get a fresh cache slot this frame (more tiles
+    // settled at once than the cache holds). Self-healing: it retries next frame and
+    // dedups once committed. Expected under a small cache; grows per frame per excess
+    // tile, so it is a tuning signal (raise cacheSlots), not an error.
+    private(set) var throttledCrispTileCount = 0
 
     init(config: RegionCrispConfig) {
         self.config = config
@@ -124,7 +132,7 @@ struct RegionCrispController {
                     cells[key] = state
                 } else if assignsThisFrame >= config.cacheSlots {
                     // Out of fresh slots this frame; leave on video and retry next frame.
-                    droppedCrispTileCount += 1
+                    throttledCrispTileCount += 1
                 } else if let compressed = OwnedTileCodec.compressLZFSE(tile) {
                     let slot = cache.assign(hash: hash, bytes: tile)
                     assignsThisFrame += 1
