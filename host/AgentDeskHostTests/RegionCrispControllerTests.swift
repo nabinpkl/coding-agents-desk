@@ -157,6 +157,22 @@ final class RegionCrispControllerTests: XCTestCase {
         XCTAssertEqual(cursor, e.payload.count, "byteRanges must cover the payload exactly")
     }
 
+    // Review MAJOR-1: on session reconnect the controller must be reset so its view of
+    // the client's slot cache cannot diverge. After reset, previously-crisp content is
+    // unknown again: it re-establishes a baseline and re-promotes via cacheTile (fresh
+    // payload), never a drawCachedTile referencing a slot the new client lacks.
+    func testResetReestablishesBaselineAndDoesNotAssumeCachedSlots() {
+        var c = RegionCrispController(config: config())
+        _ = observe(&c, surface(0xAB), at: 0)
+        _ = observe(&c, surface(0xAB), at: 200) // crisp + cached
+        c.reset()
+        XCTAssertTrue(observe(&c, surface(0xAB), at: 300).isEmpty, "reset must re-establish a baseline, not assume crisp")
+        let e = observe(&c, surface(0xAB), at: 500)
+        guard case .cacheTile = e.commands.first else {
+            return XCTFail("after reset, content must re-promote via cacheTile, not a stale drawCachedTile")
+        }
+    }
+
     // Behavior 6: normal promotion never increments the dropped-crisp counter; the
     // counter exists so a genuine compression failure is diagnosable, not silent.
     func testDroppedCrispTileCountStaysZeroInNormalFlow() {

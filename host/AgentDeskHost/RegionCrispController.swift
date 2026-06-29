@@ -42,6 +42,19 @@ struct RegionCrispController {
         self.cache = TileContentCache(slotCount: max(1, config.cacheSlots))
     }
 
+    // Drop all per-tile state and the slot cache. The caller (R6) must invoke this when
+    // the media session (re)connects: the reliable graphics stream delivers in order or
+    // the connection dies, so within a session commit-on-produce is safe, but a fresh
+    // client starts with an empty slot cache. Resetting here keeps the host's view of
+    // what the client holds from diverging across a reconnect, so crisp tiles
+    // re-establish from a baseline instead of referencing slots the new client lacks.
+    mutating func reset() {
+        cells.removeAll()
+        cache.reset()
+        lastWidth = 0
+        lastHeight = 0
+    }
+
     mutating func observe(
         pixels: Data,
         width: Int,
