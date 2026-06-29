@@ -41,9 +41,11 @@ struct QuicSessionStreamFrameTests {
     @Test func streamRoleBytesArePinned() {
         #expect(QuicSessionStreamRole.control.rawValue == 1)
         #expect(QuicSessionStreamRole.input.rawValue == 2)
+        #expect(QuicSessionStreamRole.graphics.rawValue == 3)
         #expect(QuicSessionStreamRole(rawValue: 1) == .control)
         #expect(QuicSessionStreamRole(rawValue: 2) == .input)
-        #expect(QuicSessionStreamRole(rawValue: 3) == nil)
+        #expect(QuicSessionStreamRole(rawValue: 3) == .graphics)
+        #expect(QuicSessionStreamRole(rawValue: 4) == nil)
     }
 
     @Test func sessionReadyCarriesResumeAndMediaKeySalt() throws {

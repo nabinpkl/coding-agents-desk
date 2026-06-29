@@ -484,6 +484,19 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_TILE_CACHE_SLOTS",
         defaultValue: 512
     )
+    // ADR-0034 crisp-repair (RegionCrispController). A tile must hold the same content
+    // for this long before it is promoted to a crisp tile over the reliable graphics
+    // lane; shorter sharpens sooner but risks promoting mid-settle.
+    static let ownedMediaCrispSettleWindowMs: Int = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_SETTLE_WINDOW_MS",
+        defaultValue: 200
+    )
+    // Crisp slot cache capacity. Must exceed the visible tile count (a full Retina
+    // screen at the 64px grid is ~551 tiles) or crisp tiles thrash and get throttled.
+    static let ownedMediaCrispCacheSlots: Int = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_CACHE_SLOTS",
+        defaultValue: 640
+    )
     // Rung-3 busy-tile threshold. After LZFSE-compressing a new cache-miss cell,
     // divide the compressed byte count by the cell's pixel count (width * height).
     // If the result exceeds this value, the cell is "busy": photo or gradient

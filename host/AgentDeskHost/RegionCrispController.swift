@@ -12,6 +12,14 @@ struct RegionCrispConfig: Equatable {
     let tileGridPx: Int
     let settleWindowMs: Int
     let cacheSlots: Int
+
+    static func fromConfig() -> RegionCrispConfig {
+        RegionCrispConfig(
+            tileGridPx: Config.hybridTileGridPx,
+            settleWindowMs: Config.ownedMediaCrispSettleWindowMs,
+            cacheSlots: Config.ownedMediaCrispCacheSlots
+        )
+    }
 }
 
 struct RegionCrispEmission: Equatable {

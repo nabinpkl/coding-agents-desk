@@ -134,6 +134,8 @@
 		A00000000000000000001041 /* RegionCrispController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001040 /* RegionCrispController.swift */; };
 		A00000000000000000001042 /* RegionCrispController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001040 /* RegionCrispController.swift */; };
 		A00000000000000000001051 /* RegionCrispControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001050 /* RegionCrispControllerTests.swift */; };
+		A00000000000000000001061 /* GraphicsLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001060 /* GraphicsLaneServer.swift */; };
+		A00000000000000000001062 /* GraphicsLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001060 /* GraphicsLaneServer.swift */; };
 		A00000000000000000000F61 /* MediaDatagramFramePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F60 /* MediaDatagramFramePacket.swift */; };
 		A00000000000000000000F62 /* MediaDatagramFramePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F60 /* MediaDatagramFramePacket.swift */; };
 		A00000000000000000000F64 /* OwnedMediaResendRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F63 /* OwnedMediaResendRing.swift */; };
@@ -248,6 +250,7 @@
 		A00000000000000000001030 /* OwnedTileCodecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedTileCodecTests.swift; sourceTree = "<group>"; };
 		A00000000000000000001040 /* RegionCrispController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionCrispController.swift; sourceTree = "<group>"; };
 		A00000000000000000001050 /* RegionCrispControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionCrispControllerTests.swift; sourceTree = "<group>"; };
+		A00000000000000000001060 /* GraphicsLaneServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphicsLaneServer.swift; sourceTree = "<group>"; };
 		A00000000000000000000F60 /* MediaDatagramFramePacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDatagramFramePacket.swift; sourceTree = "<group>"; };
 		A00000000000000000000F63 /* OwnedMediaResendRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaResendRing.swift; sourceTree = "<group>"; };
 		A00000000000000000000F66 /* MediaDatagramCarrierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDatagramCarrierTests.swift; sourceTree = "<group>"; };
@@ -356,6 +359,7 @@
 				A00000000000000000001010 /* MediaQualityController.swift */,
 				A00000000000000000001020 /* OwnedTileCodec.swift */,
 				A00000000000000000001040 /* RegionCrispController.swift */,
+				A00000000000000000001060 /* GraphicsLaneServer.swift */,
 				A00000000000000000000F50 /* VideoToolboxOwnedMediaEncoder.swift */,
 				A00000000000000000000F60 /* MediaDatagramFramePacket.swift */,
 				A00000000000000000000F63 /* OwnedMediaResendRing.swift */,
@@ -599,6 +603,7 @@
 				A00000000000000000001011 /* MediaQualityController.swift in Sources */,
 				A00000000000000000001021 /* OwnedTileCodec.swift in Sources */,
 				A00000000000000000001041 /* RegionCrispController.swift in Sources */,
+				A00000000000000000001061 /* GraphicsLaneServer.swift in Sources */,
 				A00000000000000000000F51 /* VideoToolboxOwnedMediaEncoder.swift in Sources */,
 				A00000000000000000000F61 /* MediaDatagramFramePacket.swift in Sources */,
 				A00000000000000000000F64 /* OwnedMediaResendRing.swift in Sources */,
@@ -676,6 +681,7 @@
 				A00000000000000000001022 /* OwnedTileCodec.swift in Sources */,
 				A00000000000000000001031 /* OwnedTileCodecTests.swift in Sources */,
 				A00000000000000000001042 /* RegionCrispController.swift in Sources */,
+				A00000000000000000001062 /* GraphicsLaneServer.swift in Sources */,
 				A00000000000000000001051 /* RegionCrispControllerTests.swift in Sources */,
 				A00000000000000000000F52 /* VideoToolboxOwnedMediaEncoder.swift in Sources */,
 				A00000000000000000000F54 /* VideoToolboxOwnedMediaEncoderTests.swift in Sources */,

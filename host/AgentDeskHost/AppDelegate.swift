@@ -340,6 +340,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor in
                     self?.handleInputLaneReady(fingerprint, server: server)
                 }
+            },
+            graphicsLaneReadyHandler: { [weak self] fingerprint, lane in
+                Task { @MainActor in
+                    self?.handleGraphicsLaneReady(fingerprint, lane: lane)
+                }
             }
         )
         do {
@@ -375,6 +380,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public) session=\(active.sessionId, privacy: .public)")
         startMediaTransport(transport, for: active)
         refreshConnectedState()
+    }
+
+    private func handleGraphicsLaneReady(_ fingerprint: DeviceFingerprint, lane: GraphicsLaneServer) {
+        signalingLogger.notice("graphics lane ready fp=\(fingerprint.rawValue, privacy: .public)")
+        guard let transport = sessions.transport(for: fingerprint) as? QuicSessionHostMediaTransport else {
+            signalingLogger.error("graphics lane ready but no media transport for fp=\(fingerprint.rawValue, privacy: .public)")
+            return
+        }
+        transport.attachGraphicsLane(lane)
     }
 
     private func handleSessionResumeChallenge(_ request: SessionResumeInit) throws -> SessionResumeChallenge {

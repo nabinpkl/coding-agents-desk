@@ -24,6 +24,16 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         initialState: MediaSendQueueState()
     )
     private var controlTask: Task<Void, Never>?
+    // ADR-0034 crisp-repair: per-tile crisp emitter and its reliable lane. Guarded by
+    // its own lock because crisp runs alongside the video encode in the drain loop.
+    private struct CrispState {
+        var controller = RegionCrispController(config: .fromConfig())
+        var lane: GraphicsLaneServer?
+        var surfaceGeneration: UInt32 = 0
+        var crispFrameId: UInt64 = 0
+        var surfaceInitialized = false
+    }
+    private let crispGate = OSAllocatedUnfairLock<CrispState>(initialState: CrispState())
 
     init(
         source: VideoFrameSource,
@@ -50,8 +60,27 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         controlTask?.cancel()
         controlTask = nil
         source.stop()
+        crispGate.withLock { state in
+            state.lane?.close()
+            state.lane = nil
+        }
         stateContinuation.yield(.closed)
         stateContinuation.finish()
+    }
+
+    // ADR-0034: the reliable graphics lane attaches after the client opens it (later than
+    // session-ready). Reset the crisp controller and bump the surface generation so the
+    // fresh client re-establishes a baseline rather than referencing slots it never got.
+    func attachGraphicsLane(_ lane: GraphicsLaneServer) {
+        crispGate.withLock { state in
+            state.lane?.close()
+            state.lane = lane
+            state.controller.reset()
+            state.surfaceGeneration &+= 1
+            state.crispFrameId = 0
+            state.surfaceInitialized = false
+        }
+        logger.notice("graphics lane attached")
     }
 
     private func enqueue(_ frame: CapturedVideoFrame) {

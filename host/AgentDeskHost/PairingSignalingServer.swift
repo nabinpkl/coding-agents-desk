@@ -39,6 +39,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     typealias SessionSuspendedHandler = (DeviceFingerprint, String?) -> Void
     typealias SessionEndedHandler = (DeviceFingerprint, String?) -> Void
     typealias InputLaneReadyHandler = (DeviceFingerprint, InputChannelServer) -> Void
+    typealias GraphicsLaneReadyHandler = (DeviceFingerprint, GraphicsLaneServer) -> Void
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "session-quic")
     private let pairing: Pairing
@@ -51,6 +52,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     private let sessionSuspendedHandler: SessionSuspendedHandler
     private let sessionEndedHandler: SessionEndedHandler
     private let inputLaneReadyHandler: InputLaneReadyHandler
+    private let graphicsLaneReadyHandler: GraphicsLaneReadyHandler
     private var listener: NetworkListener<QUIC>?
     private var listenerTask: Task<Void, Never>?
     private let contexts = OSAllocatedUnfairLock<[ObjectIdentifier: ConnectionContext]>(initialState: [:])
@@ -65,7 +67,8 @@ final class PairingSignalingServer: @unchecked Sendable {
         sessionResumeHandler: @escaping SessionResumeHandler = { _, _ in throw SessionRejected(reason: .unauthorized) },
         sessionSuspendedHandler: @escaping SessionSuspendedHandler = { _, _ in },
         sessionEndedHandler: @escaping SessionEndedHandler = { _, _ in },
-        inputLaneReadyHandler: @escaping InputLaneReadyHandler = { _, _ in }
+        inputLaneReadyHandler: @escaping InputLaneReadyHandler = { _, _ in },
+        graphicsLaneReadyHandler: @escaping GraphicsLaneReadyHandler = { _, _ in }
     ) {
         self.pairing = pairing
         self.approvalHandler = approvalHandler
@@ -77,6 +80,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         self.sessionSuspendedHandler = sessionSuspendedHandler
         self.sessionEndedHandler = sessionEndedHandler
         self.inputLaneReadyHandler = inputLaneReadyHandler
+        self.graphicsLaneReadyHandler = graphicsLaneReadyHandler
     }
 
     func start(port: UInt16 = Config.signalingPort) throws {
@@ -175,6 +179,17 @@ final class PairingSignalingServer: @unchecked Sendable {
             }
             let server = InputChannelServer(stream: stream, fingerprint: active.deviceFingerprint)
             inputLaneReadyHandler(active.deviceFingerprint, server)
+        case .graphics:
+            guard let active = context.activeSession else {
+                try await QuicSessionStreamIO.send(
+                    SessionRejected(reason: .unauthorized),
+                    role: .graphics,
+                    on: stream
+                )
+                return
+            }
+            let lane = GraphicsLaneServer(stream: stream, fingerprint: active.deviceFingerprint)
+            graphicsLaneReadyHandler(active.deviceFingerprint, lane)
         }
     }
 
