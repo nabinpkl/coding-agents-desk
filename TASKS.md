@@ -22,18 +22,18 @@ Reuse is load-bearing: `TileContentCache`, tile extraction/LZFSE encode, `OwnedG
 
 - [x] R1. Extend `OwnedGraphicsCommand` with `revertTileToVideo(x:Int, y:Int, width:Int, height:Int)` in both `host/AgentDeskHost/SharedTypes.swift` and `client/AgentDeskClient/SharedTypes.swift` mirror, including `Kind`, `validateForCurrentScope`, and encode/decode arms. The new enum case forced the client compositor's exhaustive switch (`OwnedMediaVideoSink.swift`) to handle it, so a minimal forward-correct handler (clear region to transparent via `clearRect`) landed here too; the per-region layer compositing remains R7.
 - [x] R2. Round-trip tests for `revertTileToVideo` on host (`OwnedGraphicsCommandCodecTests`) and client (`OwnedSurfaceCompositorCacheTests`), plus a client compositor test asserting revert clears its region to transparent and leaves the rest untouched. Catches the two SharedTypes copies drifting. Host green under `just check`; client green under sim test.
-- [ ] R3. Reactivate a reliable host->client graphics `QUIC.Stream` carrying `OwnedGraphics` frames: host opens/accepts it in the session-ready path (`PairingSignalingServer`/`AppDelegate.handleSessionReady`), client intakes it in `QuicSessionClientTransport` (`SessionDialer` opens, a new receive loop decodes). No tiles emitted yet; assert the stream establishes and an `OwnedGraphics` frame round-trips end to end in a transport test.
+- [~] R3. Folded into R6 (host lane) and R8 (client lane). Investigation found the ADGC envelope framing the lane needs is already round-trip tested on both sides, there is no live-QUIC loopback harness (live establishment is only verifiable at the gated R9 run), and a standalone lane would be inert pairing-path plumbing with no producer or consumer. The reliable `.graphics` stream is therefore built where it is exercised: the host side in R6, the client side in R8, validated live at R9.
 
 ## Phase 2: host per-region crisp emitter
 
-- [ ] R4. Lift the reusable tile-pixel extraction and LZFSE encode helpers out of `ScrollDeltaEngine` into a standalone helper (e.g. `OwnedTileCodec`) so the emitter uses them without the scroll routing. Refactor only; assert identical bytes for a sample tile vs the prior inline path.
+- [x] R4. `host/AgentDeskHost/OwnedTileCodec.swift`: standalone `OwnedTileCodec.extractTile(...)` and `compressLZFSE(...)` mirroring the dormant `ScrollDeltaEngine` helpers, so the emitter reuses proven extraction/encode without scroll routing. Tests assert exact sub-rect extraction, out-of-bounds rejection, and lossless LZFSE round-trip. (The dormant `ScrollDeltaEngine`/`FrameComposer`/`MotionGovernor` remain a separate dead-code removal once crisp-repair proves out.)
 - [ ] R5. Introduce `host/AgentDeskHost/RegionCrispController.swift`: per-tile settle/motion policy over the captured surface and damage rects, using `TileContentCache`. Pure-logic core returning `[OwnedGraphicsCommand]`. Unit tests assert: settle window promotes; any hash change reverts; unchanged hash dedups to `drawCachedTile`; never emits a draw for a hash differing from current capture (the invariant); eager revert on first changed frame.
-- [ ] R6. Wire `RegionCrispController` into the encode pump where the captured surface and damage rects are in scope, sending its commands over the R3 stream. Config knobs: settle window ms, crisp byte cap per window (`Config`).
+- [ ] R6. Build the host reliable graphics lane and wire `RegionCrispController` into the encode pump. Add `.graphics` to `QuicSessionStreamRole` (both `SignalingChannel` copies), a `GraphicsLaneServer` (mirrors `InputChannelServer`) that owns the accepted stream and sends `OwnedGraphicsFrameEnvelope.encode()` bytes, host dispatch + ready-handler wiring (`PairingSignalingServer`/`AppDelegate`), then feed `RegionCrispController` output over it from the encode pump. Config knobs: settle window ms, crisp byte cap per window (`Config`). Live establishment validated at R9.
 
 ## Phase 3: client per-region compositing
 
 - [ ] R7. Extend `OwnedSurfaceCompositor` for per-region transparency: paint crisp tiles into `surfaceLayer`, transparent elsewhere; honor `revertTileToVideo` by clearing that region to transparent. Retire the whole-frame `visibleSurface` `.video`/`.tiles` `isHidden` swap in `OwnedMediaVideoSink:429`; `surfaceLayer` stays visible over `videoLayer` with transparent-where-video regions.
-- [ ] R8. Feed the R3 stream intake into the compositor; tests assert per-region transparency, revert clears a region, slot/hash dedup, and ordered application.
+- [ ] R8. Build the client reliable graphics lane and feed it into the compositor. Open the `.graphics` stream in `SessionDialer`, send the role marker, add a receive loop in `QuicSessionClientTransport` that reassembles ADGC frames via `OwnedGraphicsStreamFrameParser` and applies them to `OwnedSurfaceCompositor`. Tests assert per-region transparency, revert clears a region, slot/hash dedup, and ordered application. Live establishment validated at R9.
 
 ## Phase 4: validation
 
@@ -68,8 +68,8 @@ R0a      2026-06-28  committed   ADR-0034 motion-region crisp-repair drafted
 R0b      2026-06-28  committed   design spec revised to reuse architecture
 R1       2026-06-28  committed   OwnedGraphicsCommand.revertTileToVideo on both sides + client handler
 R2       2026-06-28  committed   wire round-trip tests both sides + compositor revert test
-R3       pending     pending     reactivate reliable graphics stream end to end
-R4       pending     pending     lift tile extraction/LZFSE into OwnedTileCodec
+R3       2026-06-28  folded      reliable graphics lane folded into R6 (host) and R8 (client)
+R4       2026-06-29  committed   OwnedTileCodec extraction + LZFSE, wired + tested
 R5       pending     pending     RegionCrispController policy + invariant tests
 R6       pending     pending     wire emitter into encode pump
 R7       pending     pending     client per-region transparency compositing
