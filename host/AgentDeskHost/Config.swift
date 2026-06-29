@@ -497,6 +497,14 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_CACHE_SLOTS",
         defaultValue: 640
     )
+    // Minimum gap between crisp passes. Crisp hashes the full surface, so running it on
+    // every video frame would load the CPU enough to confound the very smoothness we
+    // protect. The settle window is time-based, so a coarser crisp cadence (default
+    // ~10fps) still detects settle correctly while bounding the rehash cost.
+    static let ownedMediaCrispMinIntervalMs: Int = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_MIN_INTERVAL_MS",
+        defaultValue: 100
+    )
     // Rung-3 busy-tile threshold. After LZFSE-compressing a new cache-miss cell,
     // divide the compressed byte count by the cell's pixel count (width * height).
     // If the result exceeds this value, the cell is "busy": photo or gradient

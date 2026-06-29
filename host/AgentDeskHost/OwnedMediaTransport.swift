@@ -1,3 +1,4 @@
+import CoreVideo
 import CryptoKit
 import Foundation
 import Network
@@ -32,6 +33,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var surfaceGeneration: UInt32 = 0
         var crispFrameId: UInt64 = 0
         var surfaceInitialized = false
+        var lastCrispNs: UInt64 = 0
     }
     private let crispGate = OSAllocatedUnfairLock<CrispState>(initialState: CrispState())
 
@@ -148,8 +150,89 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     continue
                 }
                 await send(envelope)
+                processCrisp(job.frame)
             }
         }
+    }
+
+    // ADR-0034 crisp-repair: run the per-tile crisp policy on the full-resolution capture
+    // (independent of the video's downscale) and push crisp tiles over the reliable lane.
+    // Time-gated so the full-surface rehash does not load the CPU at video frame rate.
+    // Runs (and logs) even before a lane attaches so the host can be verified alone.
+    private func processCrisp(_ frame: CapturedVideoFrame) {
+        let nowNs = frame.capturedAtUptimeNs
+        let intervalNs = UInt64(Config.ownedMediaCrispMinIntervalMs) * 1_000_000
+        let shouldRun = crispGate.withLock { state -> Bool in
+            if nowNs &- state.lastCrispNs < intervalNs { return false }
+            state.lastCrispNs = nowNs
+            return true
+        }
+        guard shouldRun, let surface = Self.extractBGRA(frame.pixelBuffer) else { return }
+        let nowMs = Int(nowNs / 1_000_000)
+        crispGate.withLock { state in
+            let emission = state.controller.observe(
+                pixels: surface.data,
+                width: surface.width,
+                height: surface.height,
+                bytesPerRow: surface.bytesPerRow,
+                nowMs: nowMs
+            )
+            if !emission.isEmpty {
+                let tiles = emission.commands.count
+                let payloadBytes = emission.payload.count
+                let dropped = state.controller.droppedCrispTileCount
+                let throttled = state.controller.throttledCrispTileCount
+                let laneAttached = state.lane != nil
+                logger.notice("crisp window tiles=\(tiles, privacy: .public) payloadBytes=\(payloadBytes, privacy: .public) dropped=\(dropped, privacy: .public) throttled=\(throttled, privacy: .public) laneAttached=\(laneAttached, privacy: .public)")
+            }
+            guard let lane = state.lane else { return }
+            if !state.surfaceInitialized {
+                state.crispFrameId &+= 1
+                lane.send(OwnedGraphicsFrameEnvelope(
+                    header: OwnedGraphicsFrameHeader(
+                        surfaceGeneration: state.surfaceGeneration,
+                        frameId: state.crispFrameId,
+                        capturedAtUptimeNs: nowNs,
+                        commandCount: 1,
+                        payloadLength: 0
+                    ),
+                    commands: [.resetSurface(
+                        surfaceGeneration: state.surfaceGeneration,
+                        width: surface.width,
+                        height: surface.height,
+                        pixelFormat: .bgra
+                    )],
+                    payload: Data()
+                ))
+                state.surfaceInitialized = true
+            }
+            guard !emission.isEmpty else { return }
+            state.crispFrameId &+= 1
+            lane.send(OwnedGraphicsFrameEnvelope(
+                header: OwnedGraphicsFrameHeader(
+                    surfaceGeneration: state.surfaceGeneration,
+                    frameId: state.crispFrameId,
+                    capturedAtUptimeNs: nowNs,
+                    commandCount: emission.commands.count,
+                    payloadLength: emission.payload.count
+                ),
+                commands: emission.commands,
+                payload: emission.payload
+            ))
+        }
+    }
+
+    // Copy a BGRA CVPixelBuffer into a contiguous Data plus its geometry. Returns nil for
+    // a non-BGRA or degenerate buffer; crisp simply does not run that frame.
+    private static func extractBGRA(_ pixelBuffer: CVPixelBuffer) -> (data: Data, width: Int, height: Int, bytesPerRow: Int)? {
+        guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else { return nil }
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        guard width > 0, height > 0, bytesPerRow >= width * 4 else { return nil }
+        return (Data(bytes: base, count: bytesPerRow * height), width, height, bytesPerRow)
     }
 
     private func scheduleDrainRetry(afterNs: UInt64) {
