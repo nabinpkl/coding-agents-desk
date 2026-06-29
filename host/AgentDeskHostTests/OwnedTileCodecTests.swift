@@ -4,25 +4,27 @@ import XCTest
 
 final class OwnedTileCodecTests: XCTestCase {
     func testExtractTileCopiesExactSubRect() throws {
-        // 4x2 BGRA surface, stride 16. Tag each pixel's first byte with y*width + x
-        // so the extracted rect's bytes are predictable.
+        // 4x2 BGRA surface, stride 16. Tag every channel of every pixel uniquely:
+        // pixel (x,y) channel c gets ((y*w + x) * 4 + c), so a channel-stride or
+        // row-offset bug is caught, not just the first byte of each pixel.
         let w = 4, h = 2, bpr = w * 4
         var pixels = Data(count: bpr * h)
         for y in 0..<h {
             for x in 0..<w {
-                pixels[y * bpr + x * 4] = UInt8(y * w + x)
+                let base = (y * w + x) * 4
+                for c in 0..<4 {
+                    pixels[y * bpr + x * 4 + c] = UInt8(base + c)
+                }
             }
         }
-        // Extract the 2x2 tile at (1,0): pixels (1,0)=1 (2,0)=2 (1,1)=5 (2,1)=6.
+        // Extract the 2x2 tile at (1,0): source pixels (1,0)=idx1 (2,0)=idx2 (1,1)=idx5 (2,1)=idx6.
         let tile = try XCTUnwrap(OwnedTileCodec.extractTile(
             from: pixels, surfaceWidth: w, surfaceHeight: h, bytesPerRow: bpr,
             x: 1, y: 0, width: 2, height: 2
         ))
         XCTAssertEqual(tile.count, 2 * 2 * 4)
-        XCTAssertEqual(tile[0], 1)
-        XCTAssertEqual(tile[4], 2)
-        XCTAssertEqual(tile[8], 5)
-        XCTAssertEqual(tile[12], 6)
+        // Full BGRA channels of each tile pixel, in tile row-major order.
+        XCTAssertEqual(Array(tile), [4, 5, 6, 7, 8, 9, 10, 11, 20, 21, 22, 23, 24, 25, 26, 27])
     }
 
     func testExtractTileRejectsOutOfBoundsOrDegenerate() {

@@ -900,14 +900,10 @@ struct OwnedSurfaceCompositor {
     private mutating func clearRect(x: Int, y: Int, width: Int, height: Int) throws {
         try validateRect(x: x, y: y, width: width, height: height)
         let rowBytes = width * 4
-        let zeroRow = [UInt8](repeating: 0, count: rowBytes)
         pixels.withUnsafeMutableBytes { targetBytes in
             guard let targetBase = targetBytes.baseAddress else { return }
             for row in 0..<height {
-                let target = targetBase.advanced(by: (y + row) * bytesPerRow + x * 4)
-                zeroRow.withUnsafeBytes { src in
-                    target.copyMemory(from: src.baseAddress!, byteCount: rowBytes)
-                }
+                memset(targetBase.advanced(by: (y + row) * bytesPerRow + x * 4), 0, rowBytes)
             }
         }
     }

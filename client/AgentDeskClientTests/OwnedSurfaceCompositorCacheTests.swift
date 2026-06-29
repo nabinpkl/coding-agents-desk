@@ -421,9 +421,18 @@ struct OwnedSurfaceCompositorCacheTests {
 
         let after = compositor.pixelBytesForDiagnostics()
         let bytesPerRow = w * 4
-        // A pixel inside the reverted region is transparent (all zero).
+        // First pixel inside the reverted 64x64 region is transparent (all zero).
         #expect(after[0] == 0 && after[1] == 0 && after[2] == 0 && after[3] == 0, "reverted region must be cleared to transparent")
-        // A pixel outside the reverted region keeps its seed value.
+        // Last pixel inside the region (row 63, col 63) catches a height/width off-by-one.
+        let lastInside = 63 * bytesPerRow + 63 * 4
+        #expect(after[lastInside] == 0 && after[lastInside + 3] == 0, "the full reverted region must be cleared, including its last pixel")
+        // First column just past the region's right edge (row 0, col 64) must be untouched.
+        let rightEdge = 0 * bytesPerRow + 64 * 4
+        #expect(after[rightEdge] == 0xAB, "the x-boundary of the cleared region must be exact")
+        // First row just past the region's bottom edge (row 64, col 0) must be untouched.
+        let bottomEdge = 64 * bytesPerRow + 0 * 4
+        #expect(after[bottomEdge] == 0xAB, "the y-boundary of the cleared region must be exact")
+        // A pixel far outside the reverted region keeps its seed value.
         let outside = 100 * bytesPerRow + 100 * 4
         #expect(after[outside] == 0xAB, "pixels outside the reverted region must be untouched")
     }
