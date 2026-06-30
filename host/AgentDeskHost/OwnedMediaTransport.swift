@@ -241,6 +241,12 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     // and force the next crisp window to re-send a resetSurface plus fresh tiles, so no
     // drawCachedTile references a slot the client has discarded. Mirrors the lane-attach
     // baseline reset, minus the lane swap (the same lane stays open).
+    //
+    // The same lane stays open, so any tile frames already queued on it (with the old
+    // generation) deliver before the new resetSurface. On the reliable ordered stream the
+    // client therefore observes: old-generation tiles, then resetSurface (new generation),
+    // then fresh tiles. That is a coherent sequence because the client discards prior
+    // surfaceGeneration state on resetSurface, so any old tile that rendered is overwritten.
     private func handleGraphicsResetRequest() {
         crispGate.withLock { state in
             state.controller.reset()

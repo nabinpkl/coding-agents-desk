@@ -48,6 +48,11 @@ struct RegionCrispController {
     private var cells: [CellKey: CellState] = [:]
     private var lastWidth = 0
     private var lastHeight = 0
+    // Distinguishes the first-ever observe (which establishes a baseline and is NOT a
+    // resize) from a later genuine geometry change. An explicit flag rather than reusing
+    // `lastWidth == 0` as a sentinel, so the "never observed" meaning does not silently
+    // depend on reset() happening to zero the dimensions.
+    private var hasObserved = false
     // A settled tile whose pixels could not be LZFSE-compressed. A genuine, per-tile
     // failure that persists until the tile's content changes; non-zero means something
     // is wrong with the content or codec, not the cache size.
@@ -74,6 +79,7 @@ struct RegionCrispController {
         cache.reset()
         lastWidth = 0
         lastHeight = 0
+        hasObserved = false
     }
 
     mutating func observe(
@@ -89,13 +95,14 @@ struct RegionCrispController {
         if width != lastWidth || height != lastHeight {
             cells.removeAll()
             cache.reset()
-            // Only a genuine geometry change (not the first-ever observe from a 0x0
-            // baseline) needs a wire-level resetSurface; the transport already sends one
-            // on lane attach, so suppress the redundant signal on the very first frame.
-            surfaceDidReset = lastWidth != 0 || lastHeight != 0
+            // Only a genuine geometry change (not the first-ever observe) needs a
+            // wire-level resetSurface; the transport already sends one on lane attach, so
+            // suppress the redundant signal on the very first frame.
+            surfaceDidReset = hasObserved
             lastWidth = width
             lastHeight = height
         }
+        hasObserved = true
 
         var commands: [OwnedGraphicsCommand] = []
         var payload = Data()
