@@ -71,15 +71,15 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     // ADR-0034: the reliable graphics lane attaches after the client opens it (later than
-    // session-ready). Reset the crisp controller and bump the surface generation so the
-    // fresh client re-establishes a baseline rather than referencing slots it never got.
+    // session-ready). Reset the crisp controller so the fresh client re-establishes a
+    // baseline rather than referencing slots it never got. The surface generation bump and
+    // the resetSurface emission happen together when the next crisp window initializes the
+    // surface (see processCrisp), so attach and resize share one baseline-establish point.
     func attachGraphicsLane(_ lane: GraphicsLaneServer) {
         crispGate.withLock { state in
             state.lane?.close()
             state.lane = lane
             state.controller.reset()
-            state.surfaceGeneration &+= 1
-            state.crispFrameId = 0
             state.surfaceInitialized = false
         }
         logger.notice("graphics lane attached")
@@ -177,16 +177,30 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 bytesPerRow: surface.bytesPerRow,
                 nowMs: nowMs
             )
-            if !emission.isEmpty {
+            // A geometry change resets the controller's tile state and slot cache; the
+            // client must be told before any tile for the new surface lands, so force a
+            // fresh resetSurface this window (see RegionCrispEmission.surfaceDidReset).
+            if emission.surfaceDidReset {
+                state.surfaceInitialized = false
+            }
+            if !emission.isEmpty || emission.surfaceDidReset {
                 let tiles = emission.commands.count
                 let payloadBytes = emission.payload.count
                 let dropped = state.controller.droppedCrispTileCount
                 let throttled = state.controller.throttledCrispTileCount
                 let laneAttached = state.lane != nil
-                logger.notice("crisp window tiles=\(tiles, privacy: .public) payloadBytes=\(payloadBytes, privacy: .public) dropped=\(dropped, privacy: .public) throttled=\(throttled, privacy: .public) laneAttached=\(laneAttached, privacy: .public)")
+                logger.notice("crisp window tiles=\(tiles, privacy: .public) payloadBytes=\(payloadBytes, privacy: .public) dropped=\(dropped, privacy: .public) throttled=\(throttled, privacy: .public) resized=\(emission.surfaceDidReset, privacy: .public) laneAttached=\(laneAttached, privacy: .public)")
             }
             guard let lane = state.lane else { return }
+            // Both lane.send calls below MUST stay within this single crispGate scope: the
+            // resetSurface and the tile frame are enqueued on the lane in call order, and a
+            // tile frame ahead of its resetSurface would composite against stale geometry.
             if !state.surfaceInitialized {
+                // Bump the surface generation and reset the frame counter together with the
+                // resetSurface emission so a reconnected or resized client cleanly discards
+                // prior-generation slot state.
+                state.surfaceGeneration &+= 1
+                state.crispFrameId = 0
                 state.crispFrameId &+= 1
                 lane.send(OwnedGraphicsFrameEnvelope(
                     header: OwnedGraphicsFrameHeader(
@@ -220,6 +234,19 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 payload: emission.payload
             ))
         }
+    }
+
+    // ADR-0034: the client lost graphics-stream sync (a gap or discontinuity it could not
+    // repair) and asked for a fresh baseline. Drop the host's view of what the client holds
+    // and force the next crisp window to re-send a resetSurface plus fresh tiles, so no
+    // drawCachedTile references a slot the client has discarded. Mirrors the lane-attach
+    // baseline reset, minus the lane swap (the same lane stays open).
+    private func handleGraphicsResetRequest() {
+        crispGate.withLock { state in
+            state.controller.reset()
+            state.surfaceInitialized = false
+        }
+        logger.notice("graphics reset requested by client")
     }
 
     // Copy a BGRA CVPixelBuffer into a contiguous Data plus its geometry. Returns nil for
@@ -504,7 +531,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         case .frameAck:
             handleFrameAck(message.frameId)
         case .graphicsResetRequest:
-            break
+            handleGraphicsResetRequest()
         case .keepalive:
             break
         case .linkHealth:

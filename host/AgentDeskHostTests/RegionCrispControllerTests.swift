@@ -184,6 +184,62 @@ final class RegionCrispControllerTests: XCTestCase {
         }
     }
 
+    // Review MINOR-1: a surface geometry change drops all per-tile state, so the
+    // transition frame re-establishes a baseline (no draw) and flags surfaceDidReset so the
+    // transport sends a fresh resetSurface before any tile for the new geometry lands. The
+    // first-ever observe is NOT a resize and must not raise the flag.
+    func testSurfaceResizeReestablishesBaselineAndFlagsReset() {
+        var c = RegionCrispController(config: config())
+        let first = observe(&c, surface(0xAB), at: 0)
+        XCTAssertFalse(first.surfaceDidReset, "the first observe from a 0x0 baseline is not a resize")
+        let crisp = observe(&c, surface(0xAB), at: 200)
+        guard case .cacheTile = crisp.commands.first else {
+            return XCTFail("expected the tile to promote before the resize")
+        }
+        // Resize to a different geometry: the transition frame establishes a baseline only.
+        let resized = observe(&c, surface(0xCD, width: 128, height: 64), at: 300, width: 128, height: 64)
+        XCTAssertTrue(resized.surfaceDidReset, "a geometry change must flag a surface reset")
+        XCTAssertTrue(resized.isEmpty, "the resize transition frame re-establishes a baseline, it must not draw")
+        // After the new geometry settles, tiles promote afresh against the new surface.
+        let repromote = observe(&c, surface(0xCD, width: 128, height: 64), at: 500, width: 128, height: 64)
+        XCTAssertFalse(repromote.surfaceDidReset, "a steady frame at stable dims is not a resize")
+        XCTAssertEqual(repromote.commands.count, 2, "a 128x64 surface at grid 64 has two tiles")
+        for command in repromote.commands {
+            guard case .cacheTile = command else {
+                return XCTFail("post-resize promotion must be fresh cacheTiles, got \(command)")
+            }
+        }
+    }
+
+    // Review MINOR-2: when the cache is full, a settled cell whose slot was evicted by LRU
+    // must not silently keep claiming crisp. The next observe finds no cached slot for its
+    // hash and re-promotes via a fresh cacheTile, never a drawCachedTile against the slot
+    // that now holds another tile's pixels.
+    func testEvictedSlotRePromotesViaFreshCacheTile() {
+        var c = RegionCrispController(config: config(slots: 1))
+        // One slot. Promote content A (claims the only slot).
+        _ = observe(&c, surface(0xAA), at: 0)
+        let promoteA = observe(&c, surface(0xAA), at: 200)
+        guard case let .cacheTile(slotA, _, _, _, _, _, _) = promoteA.commands.first else {
+            return XCTFail("expected content A to promote")
+        }
+        // Switch to B: revert A, then settle and promote B, which evicts A from the slot.
+        _ = observe(&c, surface(0xBB), at: 300) // revert A
+        let promoteB = observe(&c, surface(0xBB), at: 500)
+        guard case let .cacheTile(slotB, _, _, _, _, _, _) = promoteB.commands.first else {
+            return XCTFail("expected content B to promote and evict A")
+        }
+        XCTAssertEqual(slotB, slotA, "with one slot, B must reuse A's evicted slot")
+        // Back to A: A's slot now holds B, so A must re-cache fresh, not draw a stale slot.
+        _ = observe(&c, surface(0xAA), at: 600) // revert B
+        let reAchievesA = observe(&c, surface(0xAA), at: 800)
+        guard case let .cacheTile(_, _, _, _, _, _, br) = reAchievesA.commands.first else {
+            return XCTFail("evicted content must re-promote via a fresh cacheTile, got \(String(describing: reAchievesA.commands.first))")
+        }
+        XCTAssertGreaterThan(br.length, 0, "a fresh cacheTile must carry its compressed payload")
+        XCTAssertEqual(reAchievesA.payload.count, br.length)
+    }
+
     // Behavior 6: normal promotion never increments the dropped-crisp counter; the
     // counter exists so a genuine compression failure is diagnosable, not silent.
     func testDroppedCrispTileCountStaysZeroInNormalFlow() {

@@ -25,6 +25,11 @@ struct RegionCrispConfig: Equatable {
 struct RegionCrispEmission: Equatable {
     var commands: [OwnedGraphicsCommand]
     var payload: Data
+    // True on the frame the captured surface geometry changed (resize, resolution step,
+    // display re-arrangement). The controller drops all per-tile state and its slot cache
+    // on such a frame, so the transport MUST send a fresh `resetSurface` before any later
+    // tile lands, or tiles would composite against the client's stale geometry.
+    var surfaceDidReset: Bool = false
 
     var isEmpty: Bool { commands.isEmpty }
     static let none = RegionCrispEmission(commands: [], payload: Data())
@@ -80,9 +85,14 @@ struct RegionCrispController {
     ) -> RegionCrispEmission {
         let grid = config.tileGridPx
         guard grid > 0, width > 0, height > 0 else { return .none }
+        var surfaceDidReset = false
         if width != lastWidth || height != lastHeight {
             cells.removeAll()
             cache.reset()
+            // Only a genuine geometry change (not the first-ever observe from a 0x0
+            // baseline) needs a wire-level resetSurface; the transport already sends one
+            // on lane attach, so suppress the redundant signal on the very first frame.
+            surfaceDidReset = lastWidth != 0 || lastHeight != 0
             lastWidth = width
             lastHeight = height
         }
@@ -163,6 +173,6 @@ struct RegionCrispController {
         }
 
         cache.commitPending()
-        return RegionCrispEmission(commands: commands, payload: payload)
+        return RegionCrispEmission(commands: commands, payload: payload, surfaceDidReset: surfaceDidReset)
     }
 }

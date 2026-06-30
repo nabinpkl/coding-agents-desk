@@ -87,6 +87,11 @@ struct TileContentCache {
             }
         }
         for slot in order where !staged.contains(slot) { return slot }
+        // Unreachable: callers must cap assignments per frame to slotCount (see
+        // RegionCrispController.assignsThisFrame) so a free or unstaged-LRU slot always
+        // exists. If this trips, two tiles would alias slot 0 and paint wrong pixels
+        // crisply, so fail loudly in debug; release falls back to slot 0 over a crash.
+        assertionFailure("TileContentCache.chooseSlot: no free slot; caller exceeded the per-frame slot budget")
         return 0
     }
 }

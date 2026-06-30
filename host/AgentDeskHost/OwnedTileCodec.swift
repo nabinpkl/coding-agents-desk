@@ -46,6 +46,11 @@ enum OwnedTileCodec {
     // LZFSE-compress tile bytes for lossless crisp transport. Returns nil on failure.
     static func compressLZFSE(_ data: Data) -> Data? {
         guard !data.isEmpty else { return nil }
+        // Headroom for incompressible input, which LZFSE can expand slightly. The ~6.25%
+        // (data.count / 16) plus a 64-byte fixed margin is well above LZFSE's worst-case
+        // expansion, so compression_encode_buffer never runs out of room on real tiles. If
+        // it ever does it returns 0 and the tile stays on the video floor (counted as a
+        // dropped crisp tile by the caller); do not tighten this without re-checking that.
         var output = Data(count: max(64, data.count + data.count / 16 + 64))
         let outputCapacity = output.count
         let encodedCount = output.withUnsafeMutableBytes { outputBytes in

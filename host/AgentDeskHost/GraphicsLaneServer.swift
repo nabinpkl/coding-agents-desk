@@ -13,7 +13,12 @@ final class GraphicsLaneServer: @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "graphics-lane")
     private let stream: QUIC.Stream<QUICStream>
     private let fingerprint: DeviceFingerprint
-    private let sendChain = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
+    // Tail of the serialized send chain plus a shared closed flag. Closing cancels the tail
+    // and trips the flag; each queued send checks the flag before touching the stream, so a
+    // queue that was already enqueued when close() ran drains without writing to a dead
+    // stream (cancelling only the tail Task would leave its predecessors still sending).
+    private struct SendChain { var tail: Task<Void, Never>?; var closed = false }
+    private let sendChain = OSAllocatedUnfairLock(initialState: SendChain())
 
     init(stream: QUIC.Stream<QUICStream>, fingerprint: DeviceFingerprint) {
         self.stream = stream
@@ -28,10 +33,12 @@ final class GraphicsLaneServer: @unchecked Sendable {
             logger.error("graphics lane encode failed fp=\(self.fingerprint.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
             return
         }
-        sendChain.withLock { tail in
-            let prior = tail
-            tail = Task { [stream, logger, fingerprint] in
+        sendChain.withLock { chain in
+            guard !chain.closed else { return }
+            let prior = chain.tail
+            chain.tail = Task { [stream, logger, fingerprint, sendChain] in
                 _ = await prior?.value
+                guard !sendChain.withLock({ $0.closed }) else { return }
                 do {
                     try await stream.send(bytes)
                 } catch {
@@ -43,8 +50,9 @@ final class GraphicsLaneServer: @unchecked Sendable {
 
     func close() {
         sendChain.withLock { chain in
-            chain?.cancel()
-            chain = nil
+            chain.tail?.cancel()
+            chain.tail = nil
+            chain.closed = true
         }
     }
 }
