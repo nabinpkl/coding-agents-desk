@@ -391,6 +391,7 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     private let diagnosticsContinuation: AsyncStream<DiagnosticsChannelUpdate>.Continuation
     private(set) var closed = false
     var configHandler: ((ClientConfig) -> Void)?
+    var agentRequestHandler: ((AgentFeedRequest) -> Void)?
 
     init() {
         var continuation: AsyncStream<NormalizedInput>.Continuation!
@@ -418,6 +419,8 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     func pushCursorPosition(_ push: CursorPositionPush) {}
 
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest) {}
+
+    func pushAgentData(_ data: Data) {}
 }
 
 private final class FakeMediaTransport: MediaTransport, @unchecked Sendable {

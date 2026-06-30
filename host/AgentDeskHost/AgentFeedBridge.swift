@@ -1,0 +1,211 @@
+import Foundation
+import os
+
+// AgentFeedBridge translates the sidecar's HTTP/SSE surface into the
+// agent-feed input-lane wire messages. It is constructed with an injectable
+// SidecarClient (so tests can use a fake) and a lane-send closure that
+// mirrors the push callback shape the diagnostics path uses.
+//
+// Thread-safety: the bridge is not formally actor-isolated; all mutations of
+// activeStreams happen on a dedicated serial queue. Callers may invoke handle*
+// from any thread.
+final class AgentFeedBridge: @unchecked Sendable {
+    // Page size for the initial seed window on AgentThreadSubscribe.
+    static let pageSize = 100
+
+    private let client: any SidecarClient
+    private let send: @Sendable (Data) -> Void
+    private let logger: Logger
+    private let queue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.agent-feed-bridge")
+
+    // Active per-session SSE stream handles.
+    private var activeStreams: [String: SidecarStreamHandle] = [:]
+
+    // Construct with the injectable client and the lane push closure.
+    // The send closure mirrors the pattern used by InputChannelServer.sendCodableFrame:
+    // encode the message and write to the QUIC stream.
+    init(client: any SidecarClient, send: @escaping @Sendable (Data) -> Void) {
+        self.client = client
+        self.send = send
+        self.logger = Logger(subsystem: Config.launchAgentLabel, category: "agent-feed-bridge")
+    }
+
+    // Reset cancels all active streams. Call when the lane re-attaches.
+    func reset() {
+        queue.sync {
+            for handle in activeStreams.values {
+                handle.cancel()
+            }
+            activeStreams.removeAll()
+        }
+    }
+
+    // MARK: - Request handlers
+
+    func handleProjectsSubscribe() {
+        Task {
+            do {
+                let digests = try await client.fetchDigest()
+                let wireProjects = digests.map { wireDigest(from: $0) }
+                let push = AgentProjectsPush(projects: wireProjects)
+                sendCodable(push)
+            } catch {
+                logger.error("agent-feed-bridge: projects fetch failed: \(String(describing: error), privacy: .public)")
+                // Projects errors use an empty sessionId per the brief note.
+                let err = AgentThreadError(sessionId: "", reason: error.localizedDescription)
+                sendCodable(err)
+            }
+        }
+    }
+
+    func handleThreadSubscribe(_ request: AgentThreadSubscribe) {
+        let sessionId = request.sessionId ?? request.projectPath
+        Task {
+            do {
+                // Probe total to compute the last-page window.
+                let probe = try await client.fetchEventsPage(sessionId: sessionId, offset: 0, limit: 1)
+                let total = probe.total
+                let offset = max(0, total - Self.pageSize)
+                let limit = total - offset
+                let page: EngineEventsPage
+                if limit > 0 {
+                    page = try await client.fetchEventsPage(sessionId: sessionId, offset: offset, limit: limit)
+                } else {
+                    page = EngineEventsPage(events: [], total: total)
+                }
+                let wireEvents = page.events.map { wireEvent(from: $0) }
+                let chunk = AgentThreadChunk(
+                    sessionId: sessionId,
+                    events: wireEvents,
+                    windowStart: offset,
+                    total: total,
+                    isLive: false
+                )
+                sendCodable(chunk)
+                // Open the live stream starting after the last known event.
+                openStream(sessionId: sessionId, after: total)
+            } catch {
+                logger.error("agent-feed-bridge: thread subscribe failed sessionId=\(sessionId, privacy: .public): \(String(describing: error), privacy: .public)")
+                sendCodable(AgentThreadError(sessionId: sessionId, reason: error.localizedDescription))
+            }
+        }
+    }
+
+    func handleThreadLoadOlder(_ request: AgentThreadLoadOlder) {
+        let sessionId = request.sessionId
+        Task {
+            do {
+                let offset = max(0, request.beforeIndex - request.limit)
+                let limit = request.beforeIndex - offset
+                let page: EngineEventsPage
+                if limit > 0 {
+                    page = try await client.fetchEventsPage(sessionId: sessionId, offset: offset, limit: limit)
+                } else {
+                    // Nothing to load older than index 0.
+                    page = EngineEventsPage(events: [], total: 0)
+                }
+                let wireEvents = page.events.map { wireEvent(from: $0) }
+                let chunk = AgentThreadChunk(
+                    sessionId: sessionId,
+                    events: wireEvents,
+                    windowStart: offset,
+                    total: page.total,
+                    isLive: false
+                )
+                sendCodable(chunk)
+            } catch {
+                logger.error("agent-feed-bridge: load older failed sessionId=\(sessionId, privacy: .public): \(String(describing: error), privacy: .public)")
+                sendCodable(AgentThreadError(sessionId: sessionId, reason: error.localizedDescription))
+            }
+        }
+    }
+
+    func handleThreadUnsubscribe(_ request: AgentThreadUnsubscribe) {
+        queue.sync {
+            activeStreams[request.sessionId]?.cancel()
+            activeStreams.removeValue(forKey: request.sessionId)
+        }
+        logger.debug("agent-feed-bridge: unsubscribed sessionId=\(request.sessionId, privacy: .public)")
+    }
+
+    // MARK: - Private helpers
+
+    private func openStream(sessionId: String, after: Int) {
+        let handle = client.openEventStream(
+            sessionId: sessionId,
+            after: after,
+            onEvent: { [weak self] event in
+                guard let self else { return }
+                let wireEv = self.wireEvent(from: event)
+                let chunk = AgentThreadChunk(
+                    sessionId: sessionId,
+                    events: [wireEv],
+                    windowStart: wireEv.index,
+                    total: wireEv.index + 1,
+                    isLive: true
+                )
+                self.sendCodable(chunk)
+            },
+            onError: { [weak self] error in
+                guard let self else { return }
+                self.logger.error("agent-feed-bridge: stream error sessionId=\(sessionId, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
+        )
+        queue.sync {
+            activeStreams[sessionId]?.cancel()
+            activeStreams[sessionId] = handle
+        }
+    }
+
+    private func sendCodable<T: Encodable>(_ message: T) {
+        do {
+            let data = try JSONEncoder().encode(message)
+            send(data)
+        } catch {
+            logger.error("agent-feed-bridge: encode failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    // MARK: - Mapping sidecar DTOs to wire types
+
+    private func wireEvent(from engine: EngineActivityEvent) -> ActivityEvent {
+        let blocks = engine.blocks.map { block -> ActivityBlock in
+            ActivityBlock(
+                kind: block.kind,
+                text: block.text,
+                tool: nil,
+                summary: nil,
+                preview: nil,
+                callId: nil
+            )
+        }
+        // The sidecar emits the event field as "type"; ActivityEvent uses CodingKey "tp".
+        // Constructing the wire struct here performs the type -> tp mapping.
+        return ActivityEvent(index: engine.index, ts: engine.ts, type: engine.type, blocks: blocks)
+    }
+
+    private func wireDigest(from engine: EngineProjectDigest) -> ProjectDigest {
+        // Build sessions from the primary entry; v1 only surfaces one session per project.
+        let sessions: [AgentSessionSummary]
+        if let primary = engine.primary {
+            let title = primary.firstPrompt ?? primary.projectName
+            let lastEventAt = engine.lastEventAt ?? engine.observed ?? 0
+            let isLive = (engine.bin ?? "") == "live"
+            let summary = AgentSessionSummary(
+                sessionId: primary.sessionId,
+                source: primary.source,
+                title: title,
+                lastEventAt: lastEventAt,
+                isLive: isLive
+            )
+            sessions = [summary]
+        } else {
+            sessions = []
+        }
+        return ProjectDigest(
+            projectPath: engine.project,
+            displayName: engine.projectName,
+            sessions: sessions
+        )
+    }
+}
