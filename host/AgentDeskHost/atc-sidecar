@@ -1,3 +1,0 @@
-#!/bin/sh
-echo "atc-sidecar placeholder - run: just build-agent-sidecar" >&2
-exit 1

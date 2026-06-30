@@ -24,3 +24,10 @@ DerivedData/
 
 # Maestro UI flow screenshots
 client/maestro/screenshots/
+
+# ATC engine sidecar binary. Never tracked: the real binary is ~64 MB and the
+# placeholder is regenerated on demand by `just ensure-sidecar-placeholder`
+# (a dependency of `just check` and run before bundling). A fresh checkout
+# therefore builds cleanly with no git noise from either the placeholder or
+# the built binary.
+host/AgentDeskHost/atc-sidecar

@@ -67,9 +67,23 @@ atc_engine_dir := env_var_or_default("AGENTDESK_ATC_ENGINE_DIR", justfile_direct
 # Resources build phase). It is loaded at runtime via Config.agentSidecarURL.
 sidecar_out := justfile_directory() + "/host/AgentDeskHost/atc-sidecar"
 
-# Build the ATC engine sidecar into the host app Resources directory.
-# The resulting binary is a self-contained executable (~64 MB) that the host
-# spawns at runtime via AgentEngineSidecar. It requires bun to be on PATH.
+# Ensure a minimal placeholder exists at the sidecar output path. The real
+# ~64 MB binary is gitignored (never tracked), so a fresh checkout has nothing
+# there; without a placeholder, Xcode's Copy-Resources phase would fail for a
+# path it expects to bundle. This writes a tiny executable stub if and only if
+# the path is missing, so it never clobbers a real built binary.
+ensure-sidecar-placeholder:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -e '{{sidecar_out}}' ]; then
+        printf '#!/bin/sh\necho "atc-sidecar placeholder - run: just build-agent-sidecar" >&2\nexit 1\n' > '{{sidecar_out}}'
+        chmod +x '{{sidecar_out}}'
+    fi
+
+# Build the ATC engine sidecar into the host app bundle source dir. The result
+# is a self-contained executable (~64 MB) that the host spawns at runtime via
+# AgentEngineSidecar. It requires bun to be on PATH and OVERWRITES the
+# gitignored placeholder in place.
 #
 # Distribution signing and notarization of this embedded binary is handled at
 # DMG packaging time, not here. Local/dev builds run unsigned or with the
@@ -94,17 +108,28 @@ sidecar-smoke: build-agent-sidecar
         if curl -sf http://127.0.0.1:$PORT/api/config > /dev/null 2>&1; then break; fi
         sleep 0.1
     done
-    echo "sidecar-smoke: /api/config"
-    curl -sf http://127.0.0.1:$PORT/api/config | python3 -m json.tool
-    echo "sidecar-smoke: /api/projects/digest"
-    curl -sf http://127.0.0.1:$PORT/api/projects/digest | python3 -m json.tool
+    # Print a bounded, robust readout. Avoid piping the large digest through a
+    # pretty-printer whose blocking stdout write can fail (BlockingIOError) and
+    # mask a working integration. curl writes to a file, then we head-truncate.
+    CFG=$(curl -sf "http://127.0.0.1:$PORT/api/config")
+    echo "sidecar-smoke: /api/config -> ${CFG}"
+    DIGEST_FILE=$(mktemp)
+    trap "kill $SPID 2>/dev/null; wait $SPID 2>/dev/null; rm -f $DIGEST_FILE" EXIT
+    if ! curl -sf "http://127.0.0.1:$PORT/api/projects/digest" -o "$DIGEST_FILE"; then
+        echo "sidecar-smoke: FAIL - /api/projects/digest did not respond" >&2
+        exit 1
+    fi
+    BYTES=$(wc -c < "$DIGEST_FILE" | tr -d ' ')
+    echo "sidecar-smoke: /api/projects/digest -> ${BYTES} bytes, first 800:"
+    head -c 800 "$DIGEST_FILE"
+    echo ""
     echo "sidecar-smoke: PASS"
 
 # Fast correctness gate: guard scripts plus the host build and tests. Excludes
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
 # everything with `just check-all`.
-check:
+check: ensure-sidecar-placeholder
     sh tools/media-architecture-guard.sh
     sh tools/launch-env-tests.sh
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
