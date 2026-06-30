@@ -20,6 +20,10 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
     // ADR-0027: the transport installs how the sink asks for a keyframe (the render
     // -stall watchdog and the wedged-layer recovery both use it).
     @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void)
+    // The sink publishes every media status change here. The diagnostics readout is fixed
+    // chrome owned by the controller (like the gear and cursor dot), not a child of the
+    // zoomable picture, so the sink no longer draws it; it only reports the status.
+    @MainActor var onOwnedMediaStatusChange: ((OwnedMediaStatus) -> Void)? { get set }
 }
 
 // Default no-ops so non-video conformers (test stubs) need not implement them.
@@ -30,6 +34,10 @@ extension OwnedMediaFrameSink {
     @MainActor func noteOwnedMediaRepairRequested(_ count: Int) {}
     @MainActor func noteOwnedMediaRepairExpired(_ count: Int) {}
     @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void) {}
+    @MainActor var onOwnedMediaStatusChange: ((OwnedMediaStatus) -> Void)? {
+        get { nil }
+        set {}
+    }
 }
 
 enum OwnedMediaStatus: Equatable {
@@ -232,7 +240,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     private lazy var videoDecoder = OwnedMediaVideoDecoder(
         layer: OwnedMediaVideoLayerEnqueuer(displayLayer: videoLayer)
     )
-    private let statusLabel = UILabel()
+    // Fixed-chrome diagnostics readout is owned and placed by the controller; the sink only
+    // publishes status (see onOwnedMediaStatusChange / setOwnedMediaStatus).
+    var onOwnedMediaStatusChange: ((OwnedMediaStatus) -> Void)?
+    private(set) var lastPublishedStatus: OwnedMediaStatus?
     private let logger = Logger(subsystem: Config.logSubsystem, category: "owned-media")
     private var compositor = OwnedSurfaceCompositor()
     private var lastRenderUptimeNs: UInt64?
@@ -276,20 +287,6 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         surfaceLayer.isOpaque = false
         surfaceLayer.isHidden = true
         container.layer.addSublayer(surfaceLayer)
-        statusLabel.backgroundColor = UIColor.black.withAlphaComponent(0.72)
-        statusLabel.textColor = .white
-        statusLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        statusLabel.numberOfLines = 1
-        statusLabel.text = OwnedMediaStatus.connecting.labelText
-        statusLabel.layer.cornerRadius = 6
-        statusLabel.layer.masksToBounds = true
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(statusLabel)
-        NSLayoutConstraint.activate([
-            statusLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            statusLabel.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8)
-        ])
         container.layoutHandler = { [weak self, weak container] in
             guard let self, let bounds = container?.bounds else { return }
             self.surfaceLayer.frame = bounds
@@ -520,12 +517,13 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     }
 
     func setOwnedMediaStatus(_ status: OwnedMediaStatus) {
-        let text = status.labelText
-        if statusLabel.text != text { statusLabel.text = text }
+        guard lastPublishedStatus != status else { return }
+        lastPublishedStatus = status
+        onOwnedMediaStatusChange?(status)
     }
 
-    func statusLabelTextForTesting() -> String? {
-        statusLabel.text
+    func lastPublishedStatusTextForTesting() -> String? {
+        lastPublishedStatus?.labelText
     }
 
     /// Test hooks for the crisp-repair compositing model: the video floor and the crisp

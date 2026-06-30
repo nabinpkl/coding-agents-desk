@@ -73,6 +73,27 @@ extension PairingViewController {
         dot.isHidden = true
         view.addSubview(dot)
         cursorDotView = dot
+
+        // Diagnostics readout as fixed chrome on the root view (not the zoomable sink), so
+        // pinch-zoom/pan leave it pinned top-left. Styling matches the old in-sink label;
+        // text is seeded to the connecting state and driven by onOwnedMediaStatusChange.
+        let diag = UILabel()
+        diag.backgroundColor = UIColor.black.withAlphaComponent(0.72)
+        diag.textColor = .white
+        diag.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        diag.numberOfLines = 1
+        diag.text = OwnedMediaStatus.connecting.labelText
+        diag.layer.cornerRadius = 6
+        diag.layer.masksToBounds = true
+        diag.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(diag)
+        NSLayoutConstraint.activate([
+            diag.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
+            diag.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            diag.trailingAnchor.constraint(lessThanOrEqualTo: settingsButton.leadingAnchor, constant: -8)
+        ])
+        view.bringSubviewToFront(diag)
+        mediaDiagnosticsLabel = diag
     }
 
     func showTrackpad() {

@@ -46,6 +46,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // every gesture delta so the user sees instant cursor response
     // without waiting for the Mac -> owned media -> iOS video round-trip.
     var cursorDotView: CursorPointerView?
+    // Live media diagnostics readout (fps/kbps/gap). Fixed chrome pinned to the root view,
+    // like settingsButton and cursorDotView, so it never rides the sink's pinch-zoom/pan.
+    // The sink publishes status into it via onOwnedMediaStatusChange.
+    var mediaDiagnosticsLabel: UILabel?
     // Cursor-image mirror state. The host pushes the real cursor glyph on
     // shape change; we cache it and stamp it at the predicted position.
     // Defaults describe the drawn-arrow fallback (tip hotspot, small size).
@@ -318,6 +322,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         videoSink = sink
         mediaTransport = transport
         mountSinkView(sink.view)
+        if let owned = sink as? any OwnedMediaFrameSink {
+            owned.onOwnedMediaStatusChange = { [weak self] status in
+                self?.mediaDiagnosticsLabel?.text = status.labelText
+            }
+        }
         showTrackpad()
 
         mediaStateTask?.cancel()
@@ -390,6 +399,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         videoSink = nil
         sinkScrollView?.removeFromSuperview()
         sinkScrollView = nil
+        mediaDiagnosticsLabel?.removeFromSuperview()
+        mediaDiagnosticsLabel = nil
         cursorDotView?.removeFromSuperview()
         cursorDotView = nil
         cursorSourcePos = nil

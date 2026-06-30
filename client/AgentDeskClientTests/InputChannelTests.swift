@@ -258,12 +258,22 @@ struct InputChannelTests {
     }
 
     @MainActor
-    @Test func ownedMediaVideoSinkStartsWithConnectionStatusLabel() {
+    @Test func ownedMediaVideoSinkPublishesStatusToObserver() {
         let sink = OwnedMediaVideoSink()
+        var observed: [String] = []
+        sink.onOwnedMediaStatusChange = { observed.append($0.labelText) }
 
-        #expect(sink.statusLabelTextForTesting() == "media connecting")
+        // No status published until one is set; the initial "connecting" seed now lives on
+        // the controller's fixed-chrome label, not the sink.
+        #expect(sink.lastPublishedStatusTextForTesting() == nil)
+
         sink.setOwnedMediaStatus(.connected)
-        #expect(sink.statusLabelTextForTesting() == "media connected")
+        #expect(sink.lastPublishedStatusTextForTesting() == "media connected")
+        #expect(observed == ["media connected"])
+
+        // Unchanged status does not re-publish.
+        sink.setOwnedMediaStatus(.connected)
+        #expect(observed == ["media connected"])
     }
 
     // R8: the host reads this raw stream-role byte to route the reliable graphics lane;
