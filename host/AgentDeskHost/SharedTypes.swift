@@ -2427,3 +2427,212 @@ struct ClientConfig: Codable, Equatable {
         self.selectedDisplayId = selectedDisplayId
     }
 }
+
+// Agent-feed input-lane wire types. These are the read-only "agent feed"
+// messages for observing project and session activity. Client-to-host
+// requests subscribe to or unsubscribe from a feed; host-to-client pushes
+// deliver project digests and session event chunks.
+//
+// All types use the same t-discriminator pattern as the existing diagnostics
+// and desktop-state families. The input field of ActivityBlock is omitted in
+// this v1 Swift representation: the surface renders summary/preview/text, not
+// raw tool input, and there is no AnyCodable helper in this codebase. This
+// decision is recorded in the report for future reference.
+//
+// These types are byte-identical in both host/AgentDeskHost/SharedTypes.swift
+// and client/AgentDeskClient/SharedTypes.swift. Edit both copies together.
+
+// Supporting value types.
+
+struct ActivityBlock: Codable, Equatable {
+    let kind: String
+    let text: String?
+    let tool: String?
+    let summary: String?
+    let preview: String?
+    let callId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case kind = "k"
+        case text = "tx"
+        case tool = "tl"
+        case summary = "sm"
+        case preview = "pv"
+        case callId = "ci"
+    }
+}
+
+struct ActivityEvent: Codable, Equatable {
+    let index: Int
+    let ts: Double
+    let type: String
+    let blocks: [ActivityBlock]
+
+    enum CodingKeys: String, CodingKey {
+        case index = "i"
+        case ts = "ts"
+        case type = "tp"
+        case blocks = "b"
+    }
+}
+
+struct AgentSessionSummary: Codable, Equatable {
+    let sessionId: String
+    let source: String
+    let title: String?
+    let lastEventAt: Double
+    let isLive: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "sid"
+        case source = "src"
+        case title = "ttl"
+        case lastEventAt = "lea"
+        case isLive = "lv"
+    }
+}
+
+struct ProjectDigest: Codable, Equatable {
+    let projectPath: String
+    let displayName: String?
+    let sessions: [AgentSessionSummary]
+
+    enum CodingKeys: String, CodingKey {
+        case projectPath = "pp"
+        case displayName = "dn"
+        case sessions = "ss"
+    }
+}
+
+// Client-to-host request messages.
+
+struct AgentProjectsSubscribe: Codable, Equatable {
+    let type: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+    }
+
+    init() {
+        self.type = "agent-projects-sub"
+    }
+}
+
+struct AgentThreadSubscribe: Codable, Equatable {
+    let type: String
+    let projectPath: String
+    let source: String?
+    let sessionId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case projectPath = "pp"
+        case source = "src"
+        case sessionId = "sid"
+    }
+
+    init(projectPath: String, source: String? = nil, sessionId: String? = nil) {
+        self.type = "agent-thread-sub"
+        self.projectPath = projectPath
+        self.source = source
+        self.sessionId = sessionId
+    }
+}
+
+struct AgentThreadLoadOlder: Codable, Equatable {
+    let type: String
+    let sessionId: String
+    let beforeIndex: Int
+    let limit: Int
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case sessionId = "sid"
+        case beforeIndex = "bi"
+        case limit = "lim"
+    }
+
+    init(sessionId: String, beforeIndex: Int, limit: Int) {
+        self.type = "agent-thread-older"
+        self.sessionId = sessionId
+        self.beforeIndex = beforeIndex
+        self.limit = limit
+    }
+}
+
+struct AgentThreadUnsubscribe: Codable, Equatable {
+    let type: String
+    let sessionId: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case sessionId = "sid"
+    }
+
+    init(sessionId: String) {
+        self.type = "agent-thread-unsub"
+        self.sessionId = sessionId
+    }
+}
+
+// Host-to-client push messages.
+
+struct AgentProjectsPush: Codable, Equatable {
+    let type: String
+    let projects: [ProjectDigest]
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case projects = "p"
+    }
+
+    init(projects: [ProjectDigest]) {
+        self.type = "agent-projects"
+        self.projects = projects
+    }
+}
+
+struct AgentThreadChunk: Codable, Equatable {
+    let type: String
+    let sessionId: String
+    let events: [ActivityEvent]
+    let windowStart: Int
+    let total: Int
+    let isLive: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case sessionId = "sid"
+        case events = "ev"
+        case windowStart = "ws"
+        case total = "tot"
+        case isLive = "lv"
+    }
+
+    init(sessionId: String, events: [ActivityEvent], windowStart: Int, total: Int, isLive: Bool) {
+        self.type = "agent-thread-chunk"
+        self.sessionId = sessionId
+        self.events = events
+        self.windowStart = windowStart
+        self.total = total
+        self.isLive = isLive
+    }
+}
+
+struct AgentThreadError: Codable, Equatable {
+    let type: String
+    let sessionId: String
+    let reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case sessionId = "sid"
+        case reason = "r"
+    }
+
+    init(sessionId: String, reason: String) {
+        self.type = "agent-thread-error"
+        self.sessionId = sessionId
+        self.reason = reason
+    }
+}

@@ -172,6 +172,14 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             } else {
                 logger.error("diagnostics-error decode failed")
             }
+        case "agent-projects-sub":
+            logger.debug("input lane agent-projects-sub received fp=\(self.fingerprint.rawValue, privacy: .public)")
+        case "agent-thread-sub":
+            logger.debug("input lane agent-thread-sub received fp=\(self.fingerprint.rawValue, privacy: .public)")
+        case "agent-thread-older":
+            logger.debug("input lane agent-thread-older received fp=\(self.fingerprint.rawValue, privacy: .public)")
+        case "agent-thread-unsub":
+            logger.debug("input lane agent-thread-unsub received fp=\(self.fingerprint.rawValue, privacy: .public)")
         default:
             logger.notice("input lane unknown frame type=\(header.type, privacy: .public)")
         }

@@ -309,6 +309,12 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             if let request = try? JSONDecoder().decode(DiagnosticsRequest.self, from: data) {
                 diagnosticsContinuation.yield(.request(request))
             }
+        case "agent-projects":
+            logger.debug("input lane agent-projects received")
+        case "agent-thread-chunk":
+            logger.debug("input lane agent-thread-chunk received")
+        case "agent-thread-error":
+            logger.debug("input lane agent-thread-error received")
         case "session-rejected":
             close()
         default:

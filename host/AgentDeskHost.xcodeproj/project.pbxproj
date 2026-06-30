@@ -48,6 +48,7 @@
 		A00000000000000000000231 /* SessionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011D /* SessionRegistry.swift */; };
 		A00000000000000000000232 /* KeyCodeMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011E /* KeyCodeMap.swift */; };
 		A0000000000000000000022E /* QuicSessionStreamFrameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000124 /* QuicSessionStreamFrameTests.swift */; };
+		A00000000000000000001071 /* AgentFeedWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001070 /* AgentFeedWireTests.swift */; };
 		A00000000000000000000342 /* TailnetDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000341 /* TailnetDiscoveryTests.swift */; };
 		A00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* Base64URL.swift */; };
 		A00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Config.swift */; };
@@ -213,6 +214,7 @@
 		A00000000000000000000DD3 /* UnackedFrameCapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnackedFrameCapTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DE3 /* ResetPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResetPolicyTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000124 /* QuicSessionStreamFrameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuicSessionStreamFrameTests.swift; sourceTree = "<group>"; };
+		A00000000000000000001070 /* AgentFeedWireTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedWireTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000341 /* TailnetDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailnetDiscoveryTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000125 /* InputDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcherTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
@@ -437,6 +439,7 @@
 				A00000000000000000000E09 /* PerTileJpegRoundTripTests.swift */,
 				A0000000000000000000012B /* SpaceAgentModelTests.swift */,
 				A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */,
+				A00000000000000000001070 /* AgentFeedWireTests.swift */,
 			);
 			path = AgentDeskHostTests;
 			sourceTree = "<group>";
@@ -695,6 +698,7 @@
 				A00000000000000000000E06 /* FullFrameTilerRoutingTests.swift in Sources */,
 				A00000000000000000000E08 /* FrameByteBudgetTests.swift in Sources */,
 				A00000000000000000000E0A /* PerTileJpegRoundTripTests.swift in Sources */,
+				A00000000000000000001071 /* AgentFeedWireTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

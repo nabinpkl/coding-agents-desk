@@ -66,6 +66,7 @@
 		B0000000000000000000022D /* KeyboardSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000116 /* KeyboardSurface.swift */; };
 		B0000000000000000000022E /* KeyboardSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000123 /* KeyboardSurfaceTests.swift */; };
 		B0000000000000000000022E1 /* InputChannelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000124 /* InputChannelTests.swift */; };
+		B00000000000000000000FB1 /* AgentFeedWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FB0 /* AgentFeedWireTests.swift */; };
 		B0000000000000000000022F /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000114 /* SettingsStore.swift */; };
 		B00000000000000000000E02 /* OwnedSurfaceCompositorCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000E01 /* OwnedSurfaceCompositorCacheTests.swift */; };
 		B00000000000000000000F61 /* MediaDatagramFramePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F60 /* MediaDatagramFramePacket.swift */; };
@@ -121,6 +122,7 @@
 		B00000000000000000000122 /* GestureTranslatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureTranslatorTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000123 /* KeyboardSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSurfaceTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000124 /* InputChannelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannelTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000FB0 /* AgentFeedWireTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedWireTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000E01 /* OwnedSurfaceCompositorCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedSurfaceCompositorCacheTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000F60 /* MediaDatagramFramePacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDatagramFramePacket.swift; sourceTree = "<group>"; };
 		B00000000000000000000F63 /* OwnedMediaFrameRepairBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaFrameRepairBuffer.swift; sourceTree = "<group>"; };
@@ -225,6 +227,7 @@
 				B00000000000000000000F66 /* OwnedMediaFrameRepairBufferTests.swift */,
 				B00000000000000000000F6B /* OwnedMediaVideoDecoderTests.swift */,
 				B00000000000000000000128 /* EdgeFollowTests.swift */,
+				B00000000000000000000FB0 /* AgentFeedWireTests.swift */,
 			);
 			path = AgentDeskClientTests;
 			sourceTree = "<group>";
@@ -410,6 +413,7 @@
 				B00000000000000000000F67 /* OwnedMediaFrameRepairBufferTests.swift in Sources */,
 				B00000000000000000000F6A /* OwnedMediaVideoDecoder.swift in Sources */,
 				B00000000000000000000F6C /* OwnedMediaVideoDecoderTests.swift in Sources */,
+				B00000000000000000000FB1 /* AgentFeedWireTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
