@@ -79,6 +79,8 @@ R3       2026-06-28  folded      reliable graphics lane folded into R6 (host) an
 R4       2026-06-29  committed   OwnedTileCodec extraction + LZFSE, wired + tested
 R5       2026-06-29  committed   RegionCrispController policy + invariant tests (TDD, 6 behaviors green)
 R6       2026-06-29  committed   host graphics lane + crisp pump tap (live validation at R9)
+R6.1     2026-06-29  committed   YUV->BGRA in crisp tap; capture is YUV 4:2:0, extractBGRA was inert
+R6-vfy   2026-06-29  verified    sim device-verify: crisp fires live (settle 110 tiles/378KB, dropped=0, throttled=0, resized=false, laneAttached=false, no convert failures)
 R7       pending     pending     client per-region transparency compositing
 R8       pending     pending     client intake feeds compositor + tests
 R9       pending     pending     device validation (gated)
