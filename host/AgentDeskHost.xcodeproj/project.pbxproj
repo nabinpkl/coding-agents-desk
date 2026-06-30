@@ -53,6 +53,11 @@
 		A00000000000000000001074 /* AgentEngineSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001072 /* AgentEngineSidecar.swift */; };
 		A00000000000000000001076 /* AgentEngineSidecarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001075 /* AgentEngineSidecarTests.swift */; };
 		A00000000000000000001078 /* atc-sidecar in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001077 /* atc-sidecar */; };
+		A00000000000000000001079 /* AgentFeedSidecarClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000107A /* AgentFeedSidecarClient.swift */; };
+		A0000000000000000000107B /* AgentFeedSidecarClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000107A /* AgentFeedSidecarClient.swift */; };
+		A0000000000000000000107C /* AgentFeedBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000107D /* AgentFeedBridge.swift */; };
+		A0000000000000000000107E /* AgentFeedBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000107D /* AgentFeedBridge.swift */; };
+		A00000000000000000001080 /* AgentFeedBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001081 /* AgentFeedBridgeTests.swift */; };
 		A00000000000000000000342 /* TailnetDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000341 /* TailnetDiscoveryTests.swift */; };
 		A00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* Base64URL.swift */; };
 		A00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Config.swift */; };
@@ -222,6 +227,9 @@
 		A00000000000000000001072 /* AgentEngineSidecar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEngineSidecar.swift; sourceTree = "<group>"; };
 		A00000000000000000001075 /* AgentEngineSidecarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEngineSidecarTests.swift; sourceTree = "<group>"; };
 		A00000000000000000001077 /* atc-sidecar */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = "atc-sidecar"; sourceTree = "<group>"; };
+		A0000000000000000000107A /* AgentFeedSidecarClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedSidecarClient.swift; sourceTree = "<group>"; };
+		A0000000000000000000107D /* AgentFeedBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedBridge.swift; sourceTree = "<group>"; };
+		A00000000000000000001081 /* AgentFeedBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedBridgeTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000341 /* TailnetDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailnetDiscoveryTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000125 /* InputDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcherTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
@@ -359,6 +367,8 @@
 				A00000000000000000000159 /* AgentSayLocalServer.swift */,
 				A00000000000000000000155 /* JsonlChildProcess.swift */,
 				A00000000000000000001072 /* AgentEngineSidecar.swift */,
+				A0000000000000000000107A /* AgentFeedSidecarClient.swift */,
+				A0000000000000000000107D /* AgentFeedBridge.swift */,
 				A00000000000000000000152 /* GestureChildController.swift */,
 				A00000000000000000000154 /* GesturePortalController.swift */,
 				A00000000000000000000156 /* VoiceChildController.swift */,
@@ -450,6 +460,7 @@
 				A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */,
 				A00000000000000000001070 /* AgentFeedWireTests.swift */,
 				A00000000000000000001075 /* AgentEngineSidecarTests.swift */,
+				A00000000000000000001081 /* AgentFeedBridgeTests.swift */,
 			);
 			path = AgentDeskHostTests;
 			sourceTree = "<group>";
@@ -614,6 +625,8 @@
 				A0000000000000000000025E /* VoiceChildController.swift in Sources */,
 				A00000000000000000000262 /* AgentSayLocalServer.swift in Sources */,
 				A00000000000000000001073 /* AgentEngineSidecar.swift in Sources */,
+				A00000000000000000001079 /* AgentFeedSidecarClient.swift in Sources */,
+				A0000000000000000000107C /* AgentFeedBridge.swift in Sources */,
 				A00000000000000000000DF1 /* TileContentCache.swift in Sources */,
 				A00000000000000000001011 /* MediaQualityController.swift in Sources */,
 				A00000000000000000001021 /* OwnedTileCodec.swift in Sources */,
@@ -669,6 +682,9 @@
 				A00000000000000000000264 /* AgentSayLocalServerTests.swift in Sources */,
 				A00000000000000000001074 /* AgentEngineSidecar.swift in Sources */,
 				A00000000000000000001076 /* AgentEngineSidecarTests.swift in Sources */,
+				A0000000000000000000107B /* AgentFeedSidecarClient.swift in Sources */,
+				A0000000000000000000107E /* AgentFeedBridge.swift in Sources */,
+				A00000000000000000001080 /* AgentFeedBridgeTests.swift in Sources */,
 				A00000000000000000000233 /* KeyCodeMap.swift in Sources */,
 				A00000000000000000000236 /* SpacesProvider.swift in Sources */,
 				A00000000000000000000237 /* SpacesProviderTests.swift in Sources */,
