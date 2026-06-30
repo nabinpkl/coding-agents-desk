@@ -1,3 +1,4 @@
+import CoreImage
 import CoreVideo
 import CryptoKit
 import Foundation
@@ -34,6 +35,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var crispFrameId: UInt64 = 0
         var surfaceInitialized = false
         var lastCrispNs: UInt64 = 0
+        var lastConvertWarnNs: UInt64 = 0
     }
     private let crispGate = OSAllocatedUnfairLock<CrispState>(initialState: CrispState())
 
@@ -167,7 +169,23 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             state.lastCrispNs = nowNs
             return true
         }
-        guard shouldRun, let surface = Self.extractBGRA(frame.pixelBuffer) else { return }
+        guard shouldRun else { return }
+        guard let surface = Self.extractBGRA(frame.pixelBuffer) else {
+            // The capture buffer could not be turned into BGRA (unsupported pixel format or
+            // a failed conversion). Crisp cannot run this frame; the video floor still
+            // covers the region. Log it throttled so this can never be a silent no-op (a
+            // YUV-vs-BGRA mismatch is exactly what once made the whole pump inert).
+            let format = CVPixelBufferGetPixelFormatType(frame.pixelBuffer)
+            let warn = crispGate.withLock { state -> Bool in
+                guard nowNs &- state.lastConvertWarnNs >= 5_000_000_000 else { return false }
+                state.lastConvertWarnNs = nowNs
+                return true
+            }
+            if warn {
+                logger.error("crisp surface unavailable; not BGRA-convertible pixelFormat=\(format, privacy: .public)")
+            }
+            return
+        }
         let nowMs = Int(nowNs / 1_000_000)
         crispGate.withLock { state in
             let emission = state.controller.observe(
@@ -255,9 +273,25 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         logger.notice("graphics reset requested by client")
     }
 
-    // Copy a BGRA CVPixelBuffer into a contiguous Data plus its geometry. Returns nil for
-    // a non-BGRA or degenerate buffer; crisp simply does not run that frame.
+    // Reused across crisp windows; CIContext is thread-safe for rendering and the crisp tap
+    // is the only caller. cacheIntermediates off keeps it from holding frame-sized buffers.
+    private static let crispCIContext = CIContext(options: [.cacheIntermediates: false])
+
+    // Produce a BGRA copy of the captured frame plus its geometry for the crisp emitter.
+    // The capture is YUV 4:2:0 by default (the H.264 encoder's native format), but the
+    // crisp toolchain (hash, LZFSE, wire, client compositor) is BGRA end to end, so a
+    // non-BGRA buffer is converted here. Returns nil only for a degenerate or
+    // unconvertible buffer; crisp simply does not run that frame.
     private static func extractBGRA(_ pixelBuffer: CVPixelBuffer) -> (data: Data, width: Int, height: Int, bytesPerRow: Int)? {
+        if CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA {
+            return copyContiguousBGRA(pixelBuffer)
+        }
+        return convertToBGRA(pixelBuffer)
+    }
+
+    // Lock and copy an already-BGRA buffer into contiguous Data, preserving its bytesPerRow
+    // (which may carry row padding; OwnedTileCodec extracts sub-rects with that stride).
+    private static func copyContiguousBGRA(_ pixelBuffer: CVPixelBuffer) -> (data: Data, width: Int, height: Int, bytesPerRow: Int)? {
         guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else { return nil }
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
@@ -266,6 +300,29 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
         guard width > 0, height > 0, bytesPerRow >= width * 4 else { return nil }
         return (Data(bytes: base, count: bytesPerRow * height), width, height, bytesPerRow)
+    }
+
+    // Convert a non-BGRA (YUV) capture buffer to BGRA via CoreImage. Rendering into a BGRA
+    // CVPixelBuffer (rather than a raw bitmap) keeps the top-down row order of the source,
+    // so a tile at (x, y) lines up with the same region of the video floor on the client.
+    // YUV 4:2:0 keeps luma full-resolution, so text stays sharp; only fine chroma detail is
+    // softened by the subsampling the capture already applied. Runs outside crispGate (per
+    // the encode-pump call site), so the GPU round-trip does not extend the crisp lock.
+    private static func convertToBGRA(_ pixelBuffer: CVPixelBuffer) -> (data: Data, width: Int, height: Int, bytesPerRow: Int)? {
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        guard width > 0, height > 0 else { return nil }
+        let attrs: [CFString: Any] = [
+            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+        ]
+        var dest: CVPixelBuffer?
+        guard CVPixelBufferCreate(
+            kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
+            attrs as CFDictionary, &dest
+        ) == kCVReturnSuccess, let dest else { return nil }
+        crispCIContext.render(CIImage(cvPixelBuffer: pixelBuffer), to: dest)
+        return copyContiguousBGRA(dest)
     }
 
     private func scheduleDrainRetry(afterNs: UInt64) {
