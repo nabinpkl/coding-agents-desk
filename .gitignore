@@ -31,3 +31,10 @@ client/maestro/screenshots/
 # therefore builds cleanly with no git noise from either the placeholder or
 # the built binary.
 host/AgentDeskHost/atc-sidecar
+
+# Bun --compile temp artifacts
+*.bun-build
+.*.bun-build
+
+# SDD coordinator ledger (scratch)
+.superpowers/
