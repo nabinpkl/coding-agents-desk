@@ -747,6 +747,19 @@ enum Config {
         }
         return "com.mitchellh.ghostty"
     }()
+    // ATC engine sidecar. The binary is compiled by `just build-agent-sidecar`
+    // and bundled as a resource in the host app. The port is loopback-only and
+    // must not conflict with other services; override via env for debugging.
+    // The resource name is the leaf filename of the compiled binary.
+    static let agentSidecarPort: UInt16 = port(
+        environmentKey: "AGENTDESK_SIDECAR_PORT",
+        defaultValue: 7682
+    )
+    static let agentSidecarResourceName = "atc-sidecar"
+    static var agentSidecarURL: URL? {
+        Bundle.main.url(forResource: agentSidecarResourceName, withExtension: nil)
+    }
+
     static let launchAgentLabel = "com.example.agentdesk.AgentDeskHost"
     static let applicationSupportDirectory = FileManager.default
         .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

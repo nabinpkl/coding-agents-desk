@@ -58,6 +58,47 @@ client_dev_ipa_path := client_dev_export_path + "/AgentDeskClient.ipa"
 host_marketing_version := env_var_or_default("AGENTDESK_HOST_VERSION", "1.3.1")
 client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.5.2")
 apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
+# Source directory for the ATC engine. Override via env when the engine repo
+# lives somewhere other than the default sibling path. This is the SSOT for
+# the engine source location; nothing in source code should hardcode the path.
+atc_engine_dir := env_var_or_default("AGENTDESK_ATC_ENGINE_DIR", justfile_directory() + "/../atc/engine")
+# The sidecar binary is placed alongside the Swift sources in AgentDeskHost/
+# so Xcode picks it up as a bundled resource (it is wired into the project's
+# Resources build phase). It is loaded at runtime via Config.agentSidecarURL.
+sidecar_out := justfile_directory() + "/host/AgentDeskHost/atc-sidecar"
+
+# Build the ATC engine sidecar into the host app Resources directory.
+# The resulting binary is a self-contained executable (~64 MB) that the host
+# spawns at runtime via AgentEngineSidecar. It requires bun to be on PATH.
+#
+# Distribution signing and notarization of this embedded binary is handled at
+# DMG packaging time, not here. Local/dev builds run unsigned or with the
+# local Developer ID applied during the normal Xcode codesign step.
+build-agent-sidecar:
+    bun build --compile '{{atc_engine_dir}}/src/server.ts' --outfile '{{sidecar_out}}'
+
+# Build the real engine binary and run AgentEngineSidecar against it, curling
+# /api/projects/digest on loopback to confirm the binary integrates end-to-end.
+# This is for manual/coordinator verification; it is NOT part of `just check`.
+sidecar-smoke: build-agent-sidecar
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PORT=47998
+    BINARY='{{sidecar_out}}'
+    echo "sidecar-smoke: launching $BINARY on port $PORT"
+    ATC_PORT=$PORT ATC_HOST=127.0.0.1 "$BINARY" &
+    SPID=$!
+    trap "kill $SPID 2>/dev/null; wait $SPID 2>/dev/null" EXIT
+    # Poll for up to 10 seconds.
+    for i in $(seq 1 100); do
+        if curl -sf http://127.0.0.1:$PORT/api/config > /dev/null 2>&1; then break; fi
+        sleep 0.1
+    done
+    echo "sidecar-smoke: /api/config"
+    curl -sf http://127.0.0.1:$PORT/api/config | python3 -m json.tool
+    echo "sidecar-smoke: /api/projects/digest"
+    curl -sf http://127.0.0.1:$PORT/api/projects/digest | python3 -m json.tool
+    echo "sidecar-smoke: PASS"
 
 # Fast correctness gate: guard scripts plus the host build and tests. Excludes
 # the client simulator tests, which need a booted simulator and dominate the
