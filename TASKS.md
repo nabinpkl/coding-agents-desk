@@ -78,7 +78,7 @@ R2       2026-06-28  committed   wire round-trip tests both sides + compositor r
 R3       2026-06-28  folded      reliable graphics lane folded into R6 (host) and R8 (client)
 R4       2026-06-29  committed   OwnedTileCodec extraction + LZFSE, wired + tested
 R5       2026-06-29  committed   RegionCrispController policy + invariant tests (TDD, 6 behaviors green)
-R6       pending     pending     wire emitter into encode pump
+R6       2026-06-29  committed   host graphics lane + crisp pump tap (live validation at R9)
 R7       pending     pending     client per-region transparency compositing
 R8       pending     pending     client intake feeds compositor + tests
 R9       pending     pending     device validation (gated)
