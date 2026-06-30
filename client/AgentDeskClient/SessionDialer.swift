@@ -108,6 +108,7 @@ final class SessionDialer {
             establishedAt: Int(now().timeIntervalSince1970)
         )
         let inputStream = try await connection.openStream()
+        let graphicsStream = try await connection.openStream()
         let datagrams = try await connection.datagrams
         let mediaKey = MediaDatagramCrypto.sessionKey(
             sessionId: ready.sessionId,
@@ -118,6 +119,7 @@ final class SessionDialer {
         let transport = QuicSessionClientTransport(
             connection: connection,
             inputStream: inputStream,
+            graphicsStream: graphicsStream,
             datagrams: datagrams,
             activeSession: active,
             mediaKey: mediaKey
@@ -228,6 +230,7 @@ final class SessionDialer {
         )
 
         let inputStream = try await connection.openStream()
+        let graphicsStream = try await connection.openStream()
         let datagrams = try await connection.datagrams
         let mediaKey = MediaDatagramCrypto.sessionKey(
             sessionId: ready.sessionId,
@@ -238,6 +241,7 @@ final class SessionDialer {
         let transport = QuicSessionClientTransport(
             connection: connection,
             inputStream: inputStream,
+            graphicsStream: graphicsStream,
             datagrams: datagrams,
             activeSession: active,
             mediaKey: mediaKey

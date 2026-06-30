@@ -9,6 +9,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     private let logger = Logger(subsystem: Config.logSubsystem, category: "session-quic")
     private let connection: NetworkConnection<QUIC>
     private let inputStream: QUIC.Stream<QUICStream>
+    // ADR-0034 crisp-repair: the reliable lane the host pushes crisp tiles on.
+    private let graphicsStream: QUIC.Stream<QUICStream>
     private let datagrams: QUIC.Datagrams<QUICDatagram>
     private let mediaRepairBuffer = MediaDatagramFrameRepairBuffer(
         repairDeadlineNs: UInt64(Config.ownedMediaRepairDeadlineMs) * 1_000_000,
@@ -36,6 +38,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
     private var datagramReceiveTask: Task<Void, Never>?
     private var inputReceiveTask: Task<Void, Never>?
+    private var graphicsReceiveTask: Task<Void, Never>?
     private var linkHealthTask: Task<Void, Never>?
     private weak var sink: (any OwnedMediaFrameSink)?
 
@@ -45,12 +48,14 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     init(
         connection: NetworkConnection<QUIC>,
         inputStream: QUIC.Stream<QUICStream>,
+        graphicsStream: QUIC.Stream<QUICStream>,
         datagrams: QUIC.Datagrams<QUICDatagram>,
         activeSession: ActiveSession,
         mediaKey: SymmetricKey
     ) {
         self.connection = connection
         self.inputStream = inputStream
+        self.graphicsStream = graphicsStream
         self.datagrams = datagrams
         self.activeSession = activeSession
         self.mediaKey = mediaKey
@@ -88,6 +93,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         }
         startInputReceiveLoop()
         startDatagramReceiveLoop()
+        startGraphicsReceiveLoop()
     }
 
     func start(videoSource: VideoFrameSource?, videoSink: VideoFrameSink?) async throws {
@@ -147,6 +153,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         }) else { return }
         datagramReceiveTask?.cancel()
         inputReceiveTask?.cancel()
+        graphicsReceiveTask?.cancel()
         linkHealthTask?.cancel()
         desktopStateContinuation.finish()
         thumbnailsContinuation.finish()
@@ -177,6 +184,73 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                 }
             }
         }
+    }
+
+    // ADR-0034 crisp-repair: announce this stream as the graphics lane (one role-tagged
+    // frame the host reads to attach its pusher), then read host-pushed ADGC frames and
+    // apply each to the sink. The lane is supplementary to the always-live video floor, so
+    // a graphics-side failure stops this loop but does not tear down the session; the input
+    // loop owns whole-session teardown. A frame the sink cannot apply triggers a graphics
+    // reset request to the host so it re-establishes a clean baseline.
+    private func startGraphicsReceiveLoop() {
+        graphicsReceiveTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await QuicSessionStreamIO.sendPayload(Data(), role: .graphics, on: graphicsStream)
+            } catch {
+                logger.notice("graphics lane announce failed: \(String(describing: error), privacy: .public)")
+                return
+            }
+            let headerSize = OwnedGraphicsFrameEnvelope.fixedHeaderByteCount
+            while !Task.isCancelled {
+                do {
+                    let header = try await graphicsStream.receive(exactly: headerSize).content
+                    guard header.count == headerSize else { throw OwnedGraphicsTransportError.streamEOF }
+                    let bytes = [UInt8](header)
+                    guard Array(bytes[0..<4]) == OwnedGraphicsFrameEnvelope.magic,
+                          bytes[4] == OwnedGraphicsFrameEnvelope.version else {
+                        throw OwnedGraphicsTransportError.frameMalformed
+                    }
+                    let metadataLength = bytes[5..<9].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+                    let payloadLength = bytes[9..<13].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+                    let bodyLength = Int(metadataLength) + Int(payloadLength)
+                    guard bodyLength >= 0,
+                          headerSize + bodyLength <= OwnedGraphicsStreamFrameParser.maxFrameByteCount else {
+                        throw OwnedGraphicsTransportError.frameMalformed
+                    }
+                    var frameData = header
+                    if bodyLength > 0 {
+                        let body = try await graphicsStream.receive(exactly: bodyLength).content
+                        guard body.count == bodyLength else { throw OwnedGraphicsTransportError.streamEOF }
+                        frameData.append(body)
+                    }
+                    let envelope = try OwnedGraphicsFrameEnvelope.decode(frameData)
+                    await applyGraphicsEnvelope(envelope)
+                } catch {
+                    logger.notice("graphics lane receive ended: \(String(describing: error), privacy: .public)")
+                    return
+                }
+            }
+        }
+    }
+
+    private func applyGraphicsEnvelope(_ envelope: OwnedGraphicsFrameEnvelope) async {
+        let resetRequest: OwnedGraphicsResetRequest? = await MainActor.run { [weak self] in
+            guard let sink = self?.sink else { return nil }
+            _ = sink.renderOwnedGraphicsFrame(envelope, queueDepth: .empty)
+            return sink.consumePendingGraphicsResetRequest()
+        }
+        guard let resetRequest else { return }
+        ClientDiagnostics.shared.record(
+            type: "graphicsResetRequested",
+            fields: [
+                "reason": resetRequest.reason,
+                "lastCommittedSurfaceGeneration": String(resetRequest.lastCommittedSurfaceGeneration),
+                "lastCommittedFrameId": String(resetRequest.lastCommittedFrameId)
+            ],
+            level: .error
+        )
+        sendVideoControl(OwnedMediaControlMessage(kind: .graphicsResetRequest, frameId: resetRequest.lastCommittedFrameId))
     }
 
     private func startDatagramReceiveLoop() {

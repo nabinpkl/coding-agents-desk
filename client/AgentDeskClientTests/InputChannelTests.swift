@@ -266,6 +266,33 @@ struct InputChannelTests {
         #expect(sink.statusLabelTextForTesting() == "media connected")
     }
 
+    // R8: the host reads this raw stream-role byte to route the reliable graphics lane;
+    // it must stay pinned so the host and client cannot disagree on which stream is which.
+    @Test func streamRoleGraphicsByteIsPinned() {
+        #expect(QuicSessionStreamRole.graphics.rawValue == 3)
+        #expect(QuicSessionStreamRole(rawValue: 3) == .graphics)
+        #expect(QuicSessionStreamRole(rawValue: 4) == nil)
+    }
+
+    // R7: crisp-repair composites the crisp overlay over the live video floor with NO
+    // whole-surface swap. A crisp frame reveals the overlay; a later video frame reveals
+    // the floor without hiding the overlay (the retired ADR-0025 swap would have hidden
+    // one to show the other).
+    @MainActor
+    @Test func ownedMediaVideoSinkCompositesCrispOverlayOverVideoFloorWithoutSwap() {
+        let sink = OwnedMediaVideoSink()
+        #expect(sink.crispOverlayVisibleForTesting() == false)
+        #expect(sink.videoFloorVisibleForTesting() == false)
+
+        _ = sink.renderOwnedGraphicsFrame(Self.makeResetSurfaceEnvelope(surfaceGeneration: 1, frameId: 1))
+        #expect(sink.crispOverlayVisibleForTesting() == true)
+        #expect(sink.videoFloorVisibleForTesting() == false)
+
+        sink.renderOwnedVideoFrame(Self.makeVideoEnvelope(frameId: 1), frameBytes: 4)
+        #expect(sink.videoFloorVisibleForTesting() == true)
+        #expect(sink.crispOverlayVisibleForTesting() == true, "revealing the video floor must not hide the crisp overlay")
+    }
+
     @MainActor
     @Test func ownedMediaVideoSinkQueuesResetRequestWhenGraphicsFrameFails() {
         let sink = OwnedMediaVideoSink()
@@ -1196,6 +1223,20 @@ struct InputChannelTests {
             #expect(prepared.chunks[0].runId == prepared.summary.runs[0].runId)
             #expect(prepared.chunks[0].payloadBase64.isEmpty == false)
         }
+    }
+
+    // A minimal HEVC video envelope. The decoder cannot present it (no real bitstream),
+    // but the sink still reveals the video floor on arrival, which is what the
+    // compositing test asserts.
+    private static func makeVideoEnvelope(frameId: UInt64) -> OwnedMediaFrameEnvelope {
+        let header = OwnedMediaFrameHeader(
+            surfaceGeneration: 1, frameId: frameId, codec: .hevc, width: 2, height: 1,
+            capturedAtUptimeNs: frameId * 100, presentationTimeNs: frameId * 1_000,
+            isKeyframe: true,
+            parameterSets: OwnedMediaParameterSets(vps: Data([1]), sps: Data([2]), pps: Data([3])),
+            refreshReason: .initial
+        )
+        return OwnedMediaFrameEnvelope(header: header, payload: Data([1, 2, 3, 4]))
     }
 
     private static func makeResetSurfaceEnvelope(

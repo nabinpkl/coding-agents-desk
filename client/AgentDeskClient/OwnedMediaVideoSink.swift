@@ -225,11 +225,10 @@ struct OwnedMediaRenderStallWatchdog {
 final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     let view: UIView
     private let surfaceLayer = CALayer()
-    // ADR-0025: the motion video layer, a sibling of the tile surface. While
-    // scrolling it is visible and the tile surface hidden; on scroll-stop the
-    // handoff reveals the tiles only after the post-motion refresh has been applied.
+    // ADR-0034 crisp-repair: the always-live video floor. It sits beneath surfaceLayer and
+    // stays visible; surfaceLayer composites crisp tiles over it, transparent where a
+    // region is reverted to video. (Supersedes the ADR-0025 video/tiles whole-surface swap.)
     private let videoLayer = AVSampleBufferDisplayLayer()
-    private let handoff = OwnedMediaCarrierHandoff()
     private lazy var videoDecoder = OwnedMediaVideoDecoder(
         layer: OwnedMediaVideoLayerEnqueuer(displayLayer: videoLayer)
     )
@@ -262,14 +261,21 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         let container = LayerBackedVideoContainerView()
         container.backgroundColor = .black
         view = container
-        surfaceLayer.contentsGravity = .resizeAspect
-        surfaceLayer.backgroundColor = UIColor.black.cgColor
-        surfaceLayer.isHidden = true
-        container.layer.addSublayer(surfaceLayer)
+        // ADR-0034 crisp-repair: the video layer is the always-live floor; the surface
+        // layer composites crisp tiles over it, transparent where a region is on video.
+        // Add the video layer first so the surface layer sits above it, and give the
+        // surface layer a clear background so its transparent (reverted) regions reveal the
+        // video beneath. Both share resizeAspect against the same bounds, so a tile at
+        // (x, y) lines up with the same point of the video floor.
         videoLayer.videoGravity = .resizeAspect
         videoLayer.backgroundColor = UIColor.black.cgColor
         videoLayer.isHidden = true
         container.layer.addSublayer(videoLayer)
+        surfaceLayer.contentsGravity = .resizeAspect
+        surfaceLayer.backgroundColor = UIColor.clear.cgColor
+        surfaceLayer.isOpaque = false
+        surfaceLayer.isHidden = true
+        container.layer.addSublayer(surfaceLayer)
         statusLabel.backgroundColor = UIColor.black.withAlphaComponent(0.72)
         statusLabel.textColor = .white
         statusLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -418,22 +424,19 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 level: .error
             )
         }
-        if handoff.motionStateChanged(to: .scrolling) == .video {
-            applyVisibleSurface()
-        }
+        showVideoFloor()
         lastRenderUptimeNs = now
     }
 
-    // Reflect the handoff's chosen surface in layer visibility.
-    private func applyVisibleSurface() {
-        switch handoff.visibleSurface {
-        case .video:
-            videoLayer.isHidden = false
-            surfaceLayer.isHidden = true
-        case .tiles:
-            surfaceLayer.isHidden = false
-            videoLayer.isHidden = true
-        }
+    // ADR-0034 crisp-repair: the video floor and the crisp overlay composite together;
+    // there is no whole-surface swap (this retires the ADR-0025 .video/.tiles swap). The
+    // floor is revealed once video frames arrive; the overlay once a crisp frame applies.
+    private func showVideoFloor() {
+        if videoLayer.isHidden { videoLayer.isHidden = false }
+    }
+
+    private func showCrispOverlay() {
+        if surfaceLayer.isHidden { surfaceLayer.isHidden = false }
     }
 
     /// Test hook: the most recently composited surface image, used to assert a
@@ -455,15 +458,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 from: makeImageStartNs,
                 to: DispatchTime.now().uptimeNanoseconds
             )
-            // ADR-0025: a tile frame applied while the video layer is up is the
-            // post-motion full-surface refresh. It carries the same pixels the video
-            // last showed, so the swap to crisp tiles is a sharpen, not a jump: only
-            // now reveal the tiles and hide the video (no black gap, no stale jump).
-            if handoff.visibleSurface == .video {
-                handoff.motionStateChanged(to: .rest)
-                handoff.tileRefreshCommitted()
-            }
-            applyVisibleSurface()
+            // ADR-0034 crisp-repair: a graphics frame sharpens settled regions over the
+            // live video floor. Reveal the crisp overlay (transparent where reverted, so
+            // the video shows through) and leave the video floor visible beneath it.
+            showCrispOverlay()
             setOwnedMediaStatus(.tilesLive)
             // A graphics (tile) frame is the only thing that refreshes
             // surfaceLayer now, so every applied frame is a screen update. Stamp
@@ -529,6 +527,11 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     func statusLabelTextForTesting() -> String? {
         statusLabel.text
     }
+
+    /// Test hooks for the crisp-repair compositing model: the video floor and the crisp
+    /// overlay are revealed independently and composite together (no whole-surface swap).
+    func videoFloorVisibleForTesting() -> Bool { !videoLayer.isHidden }
+    func crispOverlayVisibleForTesting() -> Bool { !surfaceLayer.isHidden }
 }
 
 private func ownedMediaStderrTrace(_ message: String) {

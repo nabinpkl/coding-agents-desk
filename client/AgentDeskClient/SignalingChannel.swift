@@ -11,6 +11,9 @@ protocol SessionTransport: AnyObject, Sendable {
 enum QuicSessionStreamRole: UInt8, Codable, Equatable, Sendable {
     case control = 1
     case input = 2
+    // ADR-0034 crisp-repair: the reliable graphics lane. The client opens the stream and
+    // sends one role-tagged announce frame; the host then pushes ADGC-framed crisp tiles.
+    case graphics = 3
 }
 
 enum QuicSessionFrameError: Error, Equatable {
