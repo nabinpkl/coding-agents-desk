@@ -202,7 +202,11 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         graphicsReceiveTask = Task { [weak self] in
             guard let self else { return }
             do {
-                try await QuicSessionStreamIO.sendPayload(Data(), role: .graphics, on: graphicsStream)
+                // Non-empty announce: the host reads `length` bytes after the role/header,
+                // and receive(exactly: 0) is a degenerate read; a 1-byte payload (the host
+                // ignores its content) keeps the host's receiveFrame on the normal path.
+                try await QuicSessionStreamIO.sendPayload(Data([0]), role: .graphics, on: graphicsStream)
+                logger.notice("graphics lane announced")
             } catch {
                 logger.notice("graphics lane announce failed: \(String(describing: error), privacy: .public)")
                 return
