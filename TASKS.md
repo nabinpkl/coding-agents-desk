@@ -84,5 +84,5 @@ R6-vfy   2026-06-29  verified    sim device-verify: crisp fires live (settle 110
 R7       2026-06-29  committed   client per-region transparency compositing (retired swap; JPEG-alpha review fix)
 R8       2026-06-29  committed   client graphics lane intake + reset feedback (sink-ordering review fix)
 R7/R8-rv 2026-06-29  reviewed    two independent reviewers (concurrency + coherence) green after fixes; clean for merge
-R9       pending     pending     device validation (gated)
+R9       2026-06-29  validated   sim end-to-end: empty-announce bug found+fixed (receive(exactly:0)); lane live both ways, laneAttached=true, applies clean (failed=0, resets=0, stale=0), composites "tiles live". Perceptual crisp-vs-video sign-off still by-eye on user's device.
 ```
