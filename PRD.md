@@ -40,7 +40,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 
 ## What v0 is not
 
-- **Not agent-native.** No agent cards, no per-agent reasoning ticker, no swipe-between-agents carousel. The host-side Space Agent is a local Spaces navigator, not the v1+ agent-native UX mocked in `mock-design/`.
+- **Read-only agent feed, not the full agent-native UX.** v0 includes a read-only agent-feed surface on the phone: a project-first list of observed projects, each combining Claude and Codex threads, scrolled natively, fed by the host from local transcript normalization over the existing session (ADR-0035). It does **not** include the richer agent-native UX mocked in `mock-design/`: no per-agent attention model, no live reasoning ticker as a control surface, no swipe-between-agents carousel, and no acting on agents from the phone (reply, approve, nudge). The host-side Space Agent remains a local Spaces navigator, distinct from this phone-side feed.
 - **Not continuous multi-display gestures.** Display selection is an explicit tap on the client rail. Horizontal sliding remains dedicated to switching Spaces within the selected display.
 - **Not multi-user.** Single bearer token in Keychain. No accounts, no sharing.
 - **Not internet-routable.** Tailscale-only. No STUN, no TURN, no VPS, no relay.
