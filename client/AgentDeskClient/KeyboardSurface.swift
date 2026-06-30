@@ -25,10 +25,11 @@ protocol KeyboardSurfaceDelegate: AnyObject {
 // surfaces. UITextField is the shape iOS recognises, so the standard
 // iPhone QWERTY layout drops in unchanged.
 //
-// Text storage is suppressed (insertText and deleteBackward don't call
-// super) so no characters accumulate; the field stays visually empty.
-// isHidden = true on the instance keeps the cursor and selection handles
-// off-screen.
+// The field is visible and accumulates local echo (a confirmation of what was sent to the
+// Mac, not a mirror of Mac content): typed characters return true from the delegate so iOS
+// inserts them. Characters emit on the wire via shouldChangeCharactersIn; backspace emits via
+// the deleteBackward() override, which (unlike the delegate) fires even when the field is
+// empty, so backspace reaches the host as a free-standing key.
 @MainActor
 final class KeyboardSurface: UITextField, UITextFieldDelegate {
     // Named keyboardDelegate to avoid colliding with UITextField.delegate
@@ -189,10 +190,6 @@ final class KeyboardSurface: UITextField, UITextFieldDelegate {
         shouldChangeCharactersIn range: NSRange,
         replacementString string: String
     ) -> Bool {
-        if string.isEmpty {
-            emit(code: "delete")
-            return true
-        }
         var containsReturn = false
         for char in string {
             if char == "\n" { containsReturn = true }
@@ -212,6 +209,19 @@ final class KeyboardSurface: UITextField, UITextFieldDelegate {
             return false
         }
         return true
+    }
+
+    // Every delete-key press routes here, including on an empty field, which is the case
+    // shouldChangeCharactersIn misses: UITextField only consults the delegate when there is
+    // text to delete, so on an empty field (before any typing, right after Enter clears the
+    // echo, or once the local echo is backspaced away) the delegate is never called. Routing
+    // delete through deleteBackward makes backspace a free-standing key to the host rather
+    // than just a delete of locally-echoed characters. emit() attaches any armed modifiers
+    // (armed Cmd + backspace = Cmd-Delete); super preserves local-echo deletion when the
+    // field is non-empty.
+    override func deleteBackward() {
+        emit(code: "delete")
+        super.deleteBackward()
     }
 
     // MARK: Internals

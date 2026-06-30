@@ -64,10 +64,57 @@ struct KeyboardSurfaceTests {
         let recorder = Recorder()
         surface.keyboardDelegate = recorder
 
-        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "")
+        surface.deleteBackward()
 
         #expect(recorder.events.count == 1)
         #expect(recorder.events[0] == .key(code: "delete", modifiers: []))
+    }
+
+    @Test func deleteBackwardEmitsOnEmptyField() {
+        // Regression: backspace must reach the host even when nothing has been typed (before
+        // any typing, after Enter clears the echo, or once the echo is backspaced away). The
+        // old delegate-only path never fired here because UITextField skips the delegate when
+        // there is no text to delete.
+        let surface = KeyboardSurface()
+        let recorder = Recorder()
+        surface.keyboardDelegate = recorder
+
+        surface.deleteBackward()
+        surface.deleteBackward()
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events.allSatisfy { $0 == .key(code: "delete", modifiers: []) })
+    }
+
+    @Test func deleteBackwardCarriesArmedModifier() {
+        // Armed Cmd + backspace = Cmd-Delete on the Mac; the armed modifier then clears.
+        let surface = KeyboardSurface()
+        let recorder = Recorder()
+        surface.keyboardDelegate = recorder
+
+        surface.tapModifier(.cmd)
+        #expect(surface.state(of: .cmd) == .armed)
+
+        surface.deleteBackward()
+        #expect(surface.state(of: .cmd) == .off)
+
+        surface.deleteBackward()
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0] == .key(code: "delete", modifiers: [.cmd]))
+        #expect(recorder.events[1] == .key(code: "delete", modifiers: []))
+    }
+
+    @Test func emptyReplacementStringNoLongerEmits() {
+        // Backspace now emits solely via deleteBackward(); the delegate's empty-string path
+        // must not also emit, or a single press would double-delete on the host.
+        let surface = KeyboardSurface()
+        let recorder = Recorder()
+        surface.keyboardDelegate = recorder
+
+        _ = surface.textField(surface, shouldChangeCharactersIn: NSRange(), replacementString: "")
+
+        #expect(recorder.events.isEmpty)
     }
 
     @Test func singleTapModifierArmsForNextKeyThenClears() {
