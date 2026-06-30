@@ -130,6 +130,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pairing: pairing,
         tailnetDiscovery: tailnetDiscovery
     )
+    // Agent engine sidecar: spawns the ATC binary and exposes its loopback base URL.
+    private lazy var agentEngineSidecar: AgentEngineSidecar? = {
+        guard let binaryURL = Config.agentSidecarURL else {
+            launchAgentLogger.error("agent sidecar binary not found in bundle")
+            return nil
+        }
+        return AgentEngineSidecar(binaryURL: binaryURL, port: Config.agentSidecarPort)
+    }()
+    // Bridge between the sidecar and the active session's input lane.
+    private var agentFeedBridge: AgentFeedBridge?
     // ADR-0019: bounds the .pairingOffered state so a device that never dials
     // back does not strand the popover. Cancelled when the device starts
     // connecting or the user leaves the offered state.
@@ -157,6 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startTerminalLauncher()
         startGesturePortalIfConfigured()
         startGestureChildIfConfigured()
+        startAgentEngineSidecar()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
         }
@@ -218,12 +229,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         voiceChildController?.stop()
         agentSayServer?.stop()
         signalingServer?.stop()
+        agentEngineSidecar?.stop()
     }
 
     private func configureStatusItem() {
         applyIcon(.idle)
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePopover)
+    }
+
+    private func startAgentEngineSidecar() {
+        agentEngineSidecar?.start()
     }
 
     private func startAgentSayServer() {
@@ -528,6 +544,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleInputLaneReady(_ fingerprint: DeviceFingerprint, server: InputChannelServer) {
         signalingLogger.notice("input lane ready fp=\(fingerprint.rawValue, privacy: .public)")
         sessions.attachInputChannelServer(server, for: fingerprint)
+        // Wire the agent-feed bridge: construct it from the sidecar base URL and
+        // a send closure that pushes already-encoded data back down the input lane,
+        // mirroring how diagnostics pushes its responses.
+        if let sidecar = agentEngineSidecar, let baseURL = sidecar.baseURL {
+            let httpClient = HttpSidecarClient(baseURL: baseURL)
+            let bridge = AgentFeedBridge(client: httpClient, send: { [weak server] data in
+                server?.pushAgentData(data)
+            })
+            agentFeedBridge = bridge
+            server.agentRequestHandler = { [weak bridge] request in
+                switch request {
+                case .projectsSubscribe:
+                    bridge?.handleProjectsSubscribe()
+                case .threadSubscribe(let msg):
+                    bridge?.handleThreadSubscribe(msg)
+                case .threadLoadOlder(let msg):
+                    bridge?.handleThreadLoadOlder(msg)
+                case .threadUnsubscribe(let msg):
+                    bridge?.handleThreadUnsubscribe(msg)
+                }
+            }
+        } else {
+            signalingLogger.notice("agent sidecar not ready at lane attach; agent feed disabled for this session")
+            agentFeedBridge?.reset()
+            agentFeedBridge = nil
+        }
         // R11: push the current DesktopState as soon as the channel is
         // attached so the client can render the dots band immediately
         // on session start without waiting for a Spaces switch.

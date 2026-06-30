@@ -8,10 +8,20 @@ enum DiagnosticsChannelUpdate: Equatable, Sendable {
     case error(DiagnosticsError)
 }
 
+// Agent-feed request message routed to the caller via agentRequestHandler.
+enum AgentFeedRequest: Sendable {
+    case projectsSubscribe(AgentProjectsSubscribe)
+    case threadSubscribe(AgentThreadSubscribe)
+    case threadLoadOlder(AgentThreadLoadOlder)
+    case threadUnsubscribe(AgentThreadUnsubscribe)
+}
+
 protocol InputChannelServing: AnyObject, Sendable {
     var events: AsyncStream<NormalizedInput> { get }
     var diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate> { get }
     var configHandler: ((ClientConfig) -> Void)? { get set }
+    // Called on each decoded agent-feed request from the client.
+    var agentRequestHandler: ((AgentFeedRequest) -> Void)? { get set }
 
     func close()
     func pushDesktopState(_ state: DesktopState)
@@ -20,6 +30,7 @@ protocol InputChannelServing: AnyObject, Sendable {
     func pushCursor(_ push: CursorImagePush)
     func pushCursorPosition(_ push: CursorPositionPush)
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest)
+    func pushAgentData(_ data: Data)
 }
 
 @available(macOS 26.0, *)
@@ -34,6 +45,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     let events: AsyncStream<NormalizedInput>
     let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
     var configHandler: ((ClientConfig) -> Void)?
+    var agentRequestHandler: ((AgentFeedRequest) -> Void)?
 
     init(stream: QUIC.Stream<QUICStream>, fingerprint: DeviceFingerprint) {
         self.stream = stream
@@ -59,6 +71,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         diagnosticsContinuation?.finish()
         diagnosticsContinuation = nil
         configHandler = nil
+        agentRequestHandler = nil
     }
 
     func pushDesktopState(_ state: DesktopState) {
@@ -79,6 +92,16 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
 
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest) {
         sendCodableFrame(request)
+    }
+
+    func pushAgentData(_ data: Data) {
+        Task { [stream, logger] in
+            do {
+                try await QuicSessionStreamIO.sendPayload(data, role: .input, on: stream)
+            } catch {
+                logger.error("input lane agent push send failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow] = [:]) {
@@ -174,12 +197,24 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             }
         case "agent-projects-sub":
             logger.debug("input lane agent-projects-sub received fp=\(self.fingerprint.rawValue, privacy: .public)")
+            if let msg = try? JSONDecoder().decode(AgentProjectsSubscribe.self, from: data) {
+                agentRequestHandler?(.projectsSubscribe(msg))
+            }
         case "agent-thread-sub":
             logger.debug("input lane agent-thread-sub received fp=\(self.fingerprint.rawValue, privacy: .public)")
+            if let msg = try? JSONDecoder().decode(AgentThreadSubscribe.self, from: data) {
+                agentRequestHandler?(.threadSubscribe(msg))
+            }
         case "agent-thread-older":
             logger.debug("input lane agent-thread-older received fp=\(self.fingerprint.rawValue, privacy: .public)")
+            if let msg = try? JSONDecoder().decode(AgentThreadLoadOlder.self, from: data) {
+                agentRequestHandler?(.threadLoadOlder(msg))
+            }
         case "agent-thread-unsub":
             logger.debug("input lane agent-thread-unsub received fp=\(self.fingerprint.rawValue, privacy: .public)")
+            if let msg = try? JSONDecoder().decode(AgentThreadUnsubscribe.self, from: data) {
+                agentRequestHandler?(.threadUnsubscribe(msg))
+            }
         default:
             logger.notice("input lane unknown frame type=\(header.type, privacy: .public)")
         }
