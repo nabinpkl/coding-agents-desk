@@ -93,15 +93,19 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         }
         startInputReceiveLoop()
         startDatagramReceiveLoop()
-        startGraphicsReceiveLoop()
+        // The graphics lane starts in start(), once the sink exists: it announces the lane
+        // (prompting the host to push) only after there is a sink to consume the frames, so
+        // the host's resetSurface + first tiles are never dropped before the sink is set.
     }
 
     func start(videoSource: VideoFrameSource?, videoSink: VideoFrameSink?) async throws {
         stateContinuation.yield(.connected)
         if let mediaSink = videoSink as? any OwnedMediaFrameSink {
-            sink = mediaSink
             let datagrams = self.datagrams
-            await MainActor.run { [datagrams, weak mediaSink] in
+            // Set the sink on the MainActor, where every reader (the graphics and datagram
+            // loops) also touches it, so the write and reads stay on one actor.
+            await MainActor.run { [weak self, datagrams, weak mediaSink] in
+                self?.sink = mediaSink
                 mediaSink?.setVideoKeyframeRequestHandler {
                     Task { [datagrams] in
                         let message = OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 0)
@@ -111,6 +115,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                 }
             }
             startLinkHealthReporting()
+            // Now that the sink is installed, announce and run the graphics lane.
+            startGraphicsReceiveLoop()
             await MainActor.run { [weak mediaSink] in
                 mediaSink?.setOwnedMediaStatus(.connected)
             }
@@ -213,9 +219,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                     }
                     let metadataLength = bytes[5..<9].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
                     let payloadLength = bytes[9..<13].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+                    // UInt32 lengths widened to Int cannot overflow or go negative on a
+                    // 64-bit target; the frame-size cap is the meaningful bound.
                     let bodyLength = Int(metadataLength) + Int(payloadLength)
-                    guard bodyLength >= 0,
-                          headerSize + bodyLength <= OwnedGraphicsStreamFrameParser.maxFrameByteCount else {
+                    guard headerSize + bodyLength <= OwnedGraphicsStreamFrameParser.maxFrameByteCount else {
                         throw OwnedGraphicsTransportError.frameMalformed
                     }
                     var frameData = header

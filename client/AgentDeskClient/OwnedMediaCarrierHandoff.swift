@@ -1,5 +1,11 @@
 import Foundation
 
+// DEAD as of ADR-0034 crisp-repair (R7): the video/tiles whole-surface swap is retired;
+// the video floor and crisp overlay now composite together (see OwnedMediaVideoSink). This
+// type has no production caller; only its own tests reference it. Slated for removal in the
+// post-R9 dead-code sweep alongside the dormant host tile machinery, kept until then so the
+// retirement lands as one reviewed batch once crisp-repair is device-proven.
+//
 // Phase 4 of the mixed-mode renderer (ADR-0025): the swap between the video layer
 // (scrolling motion) and the retained tile surface (rest). The host declares the
 // motion state; the phone causes every scroll, so this is a truth, not a guess.

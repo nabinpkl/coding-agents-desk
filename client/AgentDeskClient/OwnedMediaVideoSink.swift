@@ -948,7 +948,11 @@ struct OwnedSurfaceCompositor {
         }
         let bytesPerRow = width * 4
         var pixels = Data(count: bytesPerRow * height)
-        let bitmapInfo = CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        // Write an opaque alpha (premultipliedFirst over the fully-covered rect yields
+        // alpha 0xFF) to match makeImage's premultipliedFirst surface. A noneSkip* format
+        // would leave the alpha byte 0, which now (surfaceLayer composites with alpha
+        // authoritative, ADR-0034) renders the whole tile transparent instead of opaque.
+        let bitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         let drew = pixels.withUnsafeMutableBytes { raw -> Bool in
             guard let base = raw.baseAddress,
                   let context = CGContext(

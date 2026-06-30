@@ -437,6 +437,24 @@ struct OwnedSurfaceCompositorCacheTests {
         #expect(after[outside] == 0xAB, "pixels outside the reverted region must be untouched")
     }
 
+    // ADR-0034 crisp-repair: a drawCachedTile for a slot the client never received (its
+    // cacheTile was dropped, e.g. before the sink existed) must leave the region transparent
+    // over a fresh reset, so the live video floor shows through there rather than a stale or
+    // black tile. Pins that the cache-miss skip stays a "show video" no-op, not a paint.
+    @Test func uncachedDrawCachedTileOverFreshResetLeavesRegionTransparent() throws {
+        var compositor = OwnedSurfaceCompositor()
+        // Fresh reset: a new (larger) generation so the baseline is all-zero (transparent).
+        _ = try compositor.applyGraphicsFrame(Self.makeResetSurfaceEnvelope(surfaceGeneration: 2, frameId: 1))
+        _ = try compositor.applyGraphicsFrame(Self.makeDrawCachedTileEnvelope(
+            surfaceGeneration: 2, frameId: 2, slot: 7, x: 0, y: 0, width: 64, height: 64
+        ))
+
+        let after = compositor.pixelBytesForDiagnostics()
+        // A pixel inside the skipped region stays fully transparent (video shows through).
+        #expect(after[0] == 0 && after[1] == 0 && after[2] == 0 && after[3] == 0,
+                "an uncached drawCachedTile must leave its region transparent, not stale or black")
+    }
+
     // ADR-0034 R2: the revertTileToVideo command must survive a JSON round-trip on the
     // client copy of OwnedGraphicsCommand identically to the host copy, so the two
     // duplicated SharedTypes definitions cannot drift on this wire shape.
