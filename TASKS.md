@@ -39,8 +39,8 @@ Reuse is load-bearing: `TileContentCache`, tile extraction/LZFSE encode, `OwnedG
 
 ## Phase 3: client per-region compositing
 
-- [ ] R7. Extend `OwnedSurfaceCompositor` for per-region transparency: paint crisp tiles into `surfaceLayer`, transparent elsewhere; honor `revertTileToVideo` by clearing that region to transparent. Retire the whole-frame `visibleSurface` `.video`/`.tiles` `isHidden` swap in `OwnedMediaVideoSink:429`; `surfaceLayer` stays visible over `videoLayer` with transparent-where-video regions.
-- [ ] R8. Build the client reliable graphics lane and feed it into the compositor. Open the `.graphics` stream in `SessionDialer`, send the role marker, add a receive loop in `QuicSessionClientTransport` that reassembles ADGC frames via `OwnedGraphicsStreamFrameParser` and applies them to `OwnedSurfaceCompositor`. Tests assert per-region transparency, revert clears a region, slot/hash dedup, and ordered application. Live establishment validated at R9.
+- [x] R7. Per-region transparency in `OwnedMediaVideoSink`: the video layer is the always-live floor and `surfaceLayer` composites crisp tiles over it (clear background, `isOpaque=false`), transparent where reverted. Retired the ADR-0025 whole-surface `.video`/`.tiles` swap (`applyVisibleSurface`/`handoff` removed from the sink). Review fix: `decodeJPEG` now writes opaque alpha so the now-authoritative alpha cannot hide a tile.
+- [x] R8. Client reliable graphics lane: third `.graphics` stream opened in `SessionDialer` (dial + resume), announced with one role frame, then a receive loop in `QuicSessionClientTransport` reads ADGC frames and applies them to the sink, feeding back a `.graphicsResetRequest` on an unappliable frame. Review fix: the lane starts from `start()` (after the sink is installed, sink set on MainActor) so the host's first resetSurface+tiles are never dropped pre-sink. Tests pin the `.graphics` role byte, the no-swap overlay, and the uncached-tile-stays-transparent semantics. Live establishment validated at R9.
 
 ## Phase 4: validation
 
@@ -81,7 +81,8 @@ R5       2026-06-29  committed   RegionCrispController policy + invariant tests 
 R6       2026-06-29  committed   host graphics lane + crisp pump tap (live validation at R9)
 R6.1     2026-06-29  committed   YUV->BGRA in crisp tap; capture is YUV 4:2:0, extractBGRA was inert
 R6-vfy   2026-06-29  verified    sim device-verify: crisp fires live (settle 110 tiles/378KB, dropped=0, throttled=0, resized=false, laneAttached=false, no convert failures)
-R7       pending     pending     client per-region transparency compositing
-R8       pending     pending     client intake feeds compositor + tests
+R7       2026-06-29  committed   client per-region transparency compositing (retired swap; JPEG-alpha review fix)
+R8       2026-06-29  committed   client graphics lane intake + reset feedback (sink-ordering review fix)
+R7/R8-rv 2026-06-29  reviewed    two independent reviewers (concurrency + coherence) green after fixes; clean for merge
 R9       pending     pending     device validation (gated)
 ```
