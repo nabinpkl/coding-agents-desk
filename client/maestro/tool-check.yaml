@@ -1,0 +1,18 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- extendedWaitUntil:
+    visible: "Agent"
+    timeout: 30000
+- tapOn: "Agent"
+- waitForAnimationToEnd:
+    timeout: 8000
+- takeScreenshot: tc-projects
+- tapOn:
+    point: 50%, 22%
+- waitForAnimationToEnd:
+    timeout: 5000
+- tapOn:
+    point: 50%, 46%
+- waitForAnimationToEnd:
+    timeout: 8000
+- takeScreenshot: tc-thread

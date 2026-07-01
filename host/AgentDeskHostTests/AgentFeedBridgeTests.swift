@@ -471,4 +471,34 @@ struct AgentFeedBridgeTests {
         #expect(digests[0].project == "/Users/dev/projects/agent-desk")
         #expect(digests[0].lastEventAt == 1782851101572.0078)
     }
+
+    // Decode-contract guard against the real sidecar block shape. The engine
+    // emits tool_use blocks with `tool`/`summary`/`callId` and tool_result
+    // blocks with `preview`/`callId` (full field names). A prior version of
+    // EngineActivityBlock decoded only kind+text, so TOOL/RESULT rows arrived
+    // empty on the client. Feed the real shape and assert every field survives.
+    @Test func engineActivityBlockDecodesToolAndResultFields() throws {
+        let json = """
+        {
+          "index": 42,
+          "ts": 1782851101572.0,
+          "type": "assistant",
+          "blocks": [
+            { "kind": "text", "text": "Running the build." },
+            { "kind": "tool_use", "tool": "Bash", "summary": "just check", "callId": "call-1" },
+            { "kind": "tool_result", "preview": "** TEST SUCCEEDED **", "callId": "call-1" }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let event = try JSONDecoder().decode(EngineActivityEvent.self, from: json)
+
+        #expect(event.blocks.count == 3)
+        #expect(event.blocks[0].text == "Running the build.")
+        #expect(event.blocks[1].tool == "Bash")
+        #expect(event.blocks[1].summary == "just check")
+        #expect(event.blocks[1].callId == "call-1")
+        #expect(event.blocks[2].preview == "** TEST SUCCEEDED **")
+        #expect(event.blocks[2].callId == "call-1")
+    }
 }
