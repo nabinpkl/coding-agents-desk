@@ -93,14 +93,23 @@ private func makeEngineEvent(index: Int = 0, type: String = "assistant") -> Engi
     )
 }
 
-private func makePrimary(sessionId: String = "sess-1", source: String = "claude") -> EngineProjectPrimary {
-    EngineProjectPrimary(
+private func makeSession(
+    sessionId: String = "sess-1",
+    source: String = "claude",
+    bin: String? = "live",
+    lastEventAt: Double? = 1_700_000_001_000.0,
+    title: String? = "Fix the bug",
+    firstPrompt: String? = nil,
+    lastUserPrompt: String? = nil
+) -> EngineSessionDigest {
+    EngineSessionDigest(
         sessionId: sessionId,
         source: source,
-        project: "/Users/dev/my-project",
-        projectName: "my-project",
-        firstPrompt: "Fix the bug",
-        lastUserPrompt: nil
+        bin: bin,
+        lastEventAt: lastEventAt,
+        title: title,
+        firstPrompt: firstPrompt,
+        lastUserPrompt: lastUserPrompt
     )
 }
 
@@ -108,17 +117,23 @@ private func makeDigest(
     project: String = "/Users/dev/my-project",
     projectName: String = "my-project",
     bin: String = "live",
-    primary: EngineProjectPrimary? = nil
+    sources: [String] = ["claude"],
+    primary: EngineSessionDigest? = nil,
+    sessions: [EngineSessionDigest]? = nil,
+    otherSessions: [EngineSessionDigest]? = nil
 ) -> EngineProjectDigest {
-    EngineProjectDigest(
+    let resolvedPrimary = primary ?? makeSession()
+    return EngineProjectDigest(
         project: project,
         projectName: projectName,
         source: "claude",
-        sources: ["claude"],
+        sources: sources,
         observed: 1_700_000_000_000.0,
         lastEventAt: 1_700_000_001_000.0,
         bin: bin,
-        primary: primary ?? makePrimary()
+        primary: resolvedPrimary,
+        sessions: sessions ?? [resolvedPrimary],
+        otherSessions: otherSessions
     )
 }
 
@@ -157,6 +172,104 @@ struct AgentFeedBridgeTests {
         #expect(push.projects[0].sessions[0].source == "claude")
         #expect(push.projects[0].sessions[0].title == "Fix the bug")
         #expect(push.projects[0].sessions[0].isLive == true)
+    }
+
+    @Test func projectsSubscribeMapsCombinedSourcesSessionList() async throws {
+        let fake = FakeSidecarClient()
+        // A dual-source project: full sessions[] carries the primary (claude) and
+        // a codex session; otherSessions[] carries an older claude session. Build
+        // out-of-recency-order on purpose to verify the sort.
+        let primary = makeSession(
+            sessionId: "claude-new",
+            source: "claude",
+            bin: "live",
+            lastEventAt: 3_000.0,
+            title: "Newest claude thread"
+        )
+        let codex = makeSession(
+            sessionId: "codex-mid",
+            source: "codex",
+            bin: "cold",
+            lastEventAt: 2_000.0,
+            title: "Codex thread"
+        )
+        // Older session present only in otherSessions, and a duplicate of the
+        // primary to prove dedup keeps one entry.
+        let olderClaude = makeSession(
+            sessionId: "claude-old",
+            source: "claude",
+            bin: "cold",
+            lastEventAt: 1_000.0,
+            title: nil,
+            firstPrompt: nil,
+            lastUserPrompt: "older prompt"
+        )
+        let dupPrimary = makeSession(
+            sessionId: "claude-new",
+            source: "claude",
+            bin: "live",
+            lastEventAt: 3_000.0,
+            title: "Newest claude thread"
+        )
+        let digest = makeDigest(
+            sources: ["claude", "codex"],
+            primary: primary,
+            sessions: [primary, codex],
+            otherSessions: [olderClaude, dupPrimary]
+        )
+        fake.digestResult = .success([digest])
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: { sink.accept($0) })
+
+        bridge.handleProjectsSubscribe()
+        await waitForMessages(sink, count: 1)
+
+        let push = try sink.decode(AgentProjectsPush.self, at: 0)
+        let project = push.projects[0]
+        // All three unique sessions present (deduped from four entries).
+        #expect(project.sessions.count == 3)
+        // Recency-sorted descending by lastEventAt.
+        #expect(project.sessions.map(\.sessionId) == ["claude-new", "codex-mid", "claude-old"])
+        // Per-session source carries the combined Claude + Codex nature.
+        #expect(Set(project.sessions.map(\.source)) == ["claude", "codex"])
+        // isLive derives from the session's own bin, not the project bin.
+        #expect(project.sessions[0].isLive == true)   // claude-new, bin live
+        #expect(project.sessions[1].isLive == false)  // codex-mid, bin cold
+        #expect(project.sessions[2].isLive == false)  // claude-old, bin cold
+        // Title fallback chain: a session with no title falls to firstPrompt
+        // then lastUserPrompt.
+        #expect(project.sessions[2].title == "older prompt")
+    }
+
+    @Test func projectsSubscribeCapsSessionsPerProject() async throws {
+        let fake = FakeSidecarClient()
+        // Build 50 sessions; the cap is 30.
+        let many = (0..<50).map { i in
+            makeSession(
+                sessionId: "sess-\(i)",
+                source: i % 2 == 0 ? "claude" : "codex",
+                bin: "cold",
+                lastEventAt: Double(i),
+                title: "Thread \(i)"
+            )
+        }
+        let digest = makeDigest(
+            sources: ["claude", "codex"],
+            primary: many[0],
+            sessions: Array(many.prefix(3)),
+            otherSessions: Array(many.suffix(47))
+        )
+        fake.digestResult = .success([digest])
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: { sink.accept($0) })
+
+        bridge.handleProjectsSubscribe()
+        await waitForMessages(sink, count: 1)
+
+        let push = try sink.decode(AgentProjectsPush.self, at: 0)
+        #expect(push.projects[0].sessions.count == AgentFeedBridge.maxSessionsPerProject)
+        // The cap keeps the most recent ones (highest lastEventAt first).
+        #expect(push.projects[0].sessions[0].sessionId == "sess-49")
     }
 
     // MARK: AgentThreadSubscribe -> seed chunk + live chunk

@@ -22,19 +22,26 @@ struct EngineEventsPage {
     let total: Int
 }
 
-struct EngineProjectPrimary: Codable {
+// One session entry from the digest. The sidecar returns full SessionDigest
+// objects in `sessions[]` and compact ProjectDigestOtherSession objects in
+// `otherSessions[]`; both carry these fields (otherSessions omits firstPrompt).
+// Decode only the fields the mobile surface needs; the rest of each object is
+// ignored by the decoder.
+struct EngineSessionDigest: Codable {
     let sessionId: String
     let source: String
-    let project: String
-    let projectName: String
+    let bin: String?
+    let lastEventAt: Double?
+    let title: String?
     let firstPrompt: String?
     let lastUserPrompt: String?
 
     enum CodingKeys: String, CodingKey {
         case sessionId
         case source
-        case project
-        case projectName
+        case bin
+        case lastEventAt
+        case title
         case firstPrompt
         case lastUserPrompt
     }
@@ -48,7 +55,11 @@ struct EngineProjectDigest: Codable {
     let observed: Double?
     let lastEventAt: Double?
     let bin: String?
-    let primary: EngineProjectPrimary?
+    let primary: EngineSessionDigest?
+    // Full digests for the newest sessions across all sources for this project.
+    let sessions: [EngineSessionDigest]?
+    // Compact entries for the remaining sessions (older / less active).
+    let otherSessions: [EngineSessionDigest]?
 }
 
 // A live SSE stream handle. Cancellation stops the background task.

@@ -184,23 +184,42 @@ final class AgentFeedBridge: @unchecked Sendable {
         return ActivityEvent(index: engine.index, ts: engine.ts, type: engine.type, blocks: blocks)
     }
 
+    // Cap on the number of sessions surfaced per project in a digest push, to
+    // bound the push size (a project can carry 100+ otherSessions).
+    static let maxSessionsPerProject = 30
+
     private func wireDigest(from engine: EngineProjectDigest) -> ProjectDigest {
-        // Build sessions from the primary entry; v1 only surfaces one session per project.
-        let sessions: [AgentSessionSummary]
+        // Union the full sessions[] and compact otherSessions[] lists (and the
+        // primary, in case it is not in either), so the project-first surface
+        // shows the combined Claude + Codex thread list, not just the primary.
+        var combined: [EngineSessionDigest] = []
+        combined.append(contentsOf: engine.sessions ?? [])
+        combined.append(contentsOf: engine.otherSessions ?? [])
         if let primary = engine.primary {
-            let title = primary.firstPrompt ?? primary.projectName
-            let lastEventAt = engine.lastEventAt ?? engine.observed ?? 0
-            let isLive = (engine.bin ?? "") == "live"
-            let summary = AgentSessionSummary(
-                sessionId: primary.sessionId,
-                source: primary.source,
+            combined.append(primary)
+        }
+        // Dedup by sessionId, keeping the first (richest) occurrence, then sort
+        // by recency descending and cap.
+        var seen = Set<String>()
+        var deduped: [EngineSessionDigest] = []
+        for entry in combined where !seen.contains(entry.sessionId) {
+            seen.insert(entry.sessionId)
+            deduped.append(entry)
+        }
+        let sorted = deduped.sorted { ($0.lastEventAt ?? 0) > ($1.lastEventAt ?? 0) }
+        let capped = sorted.prefix(Self.maxSessionsPerProject)
+        let sessions = capped.map { entry -> AgentSessionSummary in
+            let title = entry.title
+                ?? entry.firstPrompt
+                ?? entry.lastUserPrompt
+                ?? engine.projectName
+            return AgentSessionSummary(
+                sessionId: entry.sessionId,
+                source: entry.source,
                 title: title,
-                lastEventAt: lastEventAt,
-                isLive: isLive
+                lastEventAt: entry.lastEventAt ?? 0,
+                isLive: (entry.bin ?? "") == "live"
             )
-            sessions = [summary]
-        } else {
-            sessions = []
         }
         return ProjectDigest(
             projectPath: engine.project,
