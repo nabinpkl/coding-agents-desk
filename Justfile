@@ -584,6 +584,17 @@ sim-console-run:
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
     bash -o pipefail -c 'URL="$(cat "{{last_pair_url_path}}")"; SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost SIMCTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE=1 xcrun simctl launch --console --terminate-running-process {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient 2>&1 | tee "{{sim_console_log}}"'
 
+# Point the sim at a host you started yourself (a Release build, or any host
+# launched outside `just host-run`): every full composite (sim-fresh-install /
+# agent-feed-sim[-pair]) calls host-run, which kills + rebuilds + relaunches the
+# host and would clobber the one you launched, so this one deliberately omits it.
+# Requires a host process to already be running (pair-sim SIGUSR1s it to mint the
+# pair URL); only the client is rebuilt and reinstalled.
+# Reinstall the simulator client and pair it to the already-running host (no host rebuild).
+sim-reinstall-pair:
+    just client-sim-reinstall
+    just pair-sim
+
 # Rebuild and relaunch the Mac host, uninstall/reinstall the simulator app, then
 # pair-launch it with stdout/stderr attached (owned-media traces -> {{sim_console_log}}).
 # This is the default simulator feel-test path. The uninstall wipes UserDefaults so
