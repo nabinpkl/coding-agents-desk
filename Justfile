@@ -25,6 +25,12 @@ derived_data := env_var_or_default("AGENTDESK_DERIVED_DATA_PATH", justfile_direc
 host_app := derived_data + "/Build/Products/Debug/AgentDeskHost.app"
 client_app := derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
 client_sim_app := derived_data + "/Build/Products/Debug-iphonesimulator/AgentDeskClient.app"
+# Release-configuration product paths, used by the Release feel-test composites
+# (fresh-install / sim-fresh-install). xcodebuild writes Release products into a
+# separate Products/Release* dir, so these coexist with the Debug builds above.
+host_app_release := derived_data + "/Build/Products/Release/AgentDeskHost.app"
+client_app_release := derived_data + "/Build/Products/Release-iphoneos/AgentDeskClient.app"
+client_sim_app_release := derived_data + "/Build/Products/Release-iphonesimulator/AgentDeskClient.app"
 # Two coexisting client installs: the stable daily-driver and an experimental
 # "dev" build under test. They differ only by bundle id, so iOS keeps both on
 # the phone. The dev build outputs to a SEPARATE derived-data dir because both
@@ -289,6 +295,22 @@ host-run:
     AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh unset
     pgrep -lf AgentDeskHost
 
+# Release-configuration twin of host-run: same kill + rebuild + relaunch lifecycle,
+# but -configuration Release so the host runs at shipped-build performance. A Debug
+# (-Onone) host pegs a core in the crisp tile codec (OwnedTileCodec.extractTileWithHash
+# per-byte Range loops); Release optimizes that away (~100% -> ~30% CPU). Used by the
+# fresh-install / sim-fresh-install feel-test composites. Every other host launch
+# (plain host-run, motion-verify, agent-feed-sim) stays Debug for fast iteration.
+host-run-release:
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
+    -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
+    sleep 1
+    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
+    open "{{host_app_release}}"
+    sleep 2
+    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh unset
+    pgrep -lf AgentDeskHost
+
 # Build client Debug for the iPhone and install (does not launch).
 # variant: "stable" (default) or "dev" (the experimental side-by-side install:
 # bundle id {{client_dev_bundle_id}}, DEV icon, "AgentDesk Dev" name, separate
@@ -314,6 +336,20 @@ client-reinstall variant="stable":
     if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; else BID='{{client_bundle_id}}'; fi
     xcrun devicectl device uninstall app --device {{ios_device}} "$BID" 2>/dev/null || true
     just client-install {{variant}}
+
+# Release-configuration client build for the iPhone + install (stable only; the
+# experimental dev side-by-side variant stays Debug). Device install uses the same
+# automatic development signing as the Debug path, so no distribution provisioning
+# is needed. Used by the fresh-install feel-test composite.
+client-install-release:
+    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' build >/dev/null
+    xcrun devicectl device install app --device {{ios_device}} '{{client_app_release}}'
+
+# Uninstall + clean Release install on the iPhone (stable). Mirrors client-reinstall
+# but for the Release build; the uninstall flushes install-time bundle metadata.
+client-reinstall-release:
+    xcrun devicectl device uninstall app --device {{ios_device}} '{{client_bundle_id}}' 2>/dev/null || true
+    just client-install-release
 
 # Trigger pairing without scanning the QR. Sends SIGUSR1 to the running host
 # (which mints a fresh URL and writes it to {{last_pair_url_path}}), then
@@ -374,12 +410,16 @@ iphone-console-run variant="stable":
     URL="$(cat "{{last_pair_url_path}}")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
 # Physical-device feel runs. Two console modes x two client variants. Both rebuild
-# and relaunch the host and reinstall the client (the "fresh" prefix is the reinstall);
-# they differ only in how the client is launched:
-#   fresh-install        no console, returns immediately ("just use it")
-#   fresh-consoled-run   console attached, blocks until the app exits, tees the log
-# Suffix -dev to drive the side-by-side AgentDesk Dev build instead of the stable
-# daily driver. The consoled run is the AGENTS.md default for feel/diagnostic work.
+# and relaunch the host and reinstall the client (the "fresh" prefix is the reinstall).
+# They differ in how the client is launched and in build configuration:
+#   fresh-install        Release host + client, no console, returns ("just use it")
+#   fresh-consoled-run   Debug host + client, console attached, blocks and tees the log
+# fresh-install builds -configuration Release (host and client) so the feel test
+# reflects shipped performance; a Debug (-Onone) host pegs a core in the crisp tile
+# codec. The other three twins (fresh-consoled-run and the -dev suffixed builds) stay
+# Debug for fast iteration. Suffix -dev to drive the side-by-side AgentDesk Dev build
+# instead of the stable daily driver. The consoled run is the AGENTS.md default for
+# feel/diagnostic work.
 # (There is no detached-console composite on purpose: a backgrounded console grows
 # {{iphone_console_log}} unbounded with no teardown. For bounded background capture
 # use `motion-verify`, which tears the stream down after a fixed window.)
@@ -392,8 +432,8 @@ iphone-console-run variant="stable":
 fresh-install:
     just build-agent-sidecar
     just build-agent-webview
-    just host-run
-    just client-reinstall stable
+    just host-run-release
+    just client-reinstall-release
     just pair-iphone stable
 
 fresh-install-dev:
@@ -537,6 +577,17 @@ client-sim-reinstall:
     -xcrun simctl uninstall {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient 2>/dev/null || true
     just client-sim-install
 
+# Release-configuration twins of client-sim-install / client-sim-reinstall, used by
+# the sim-fresh-install feel-test composite. No signing concerns on the simulator.
+client-sim-install-release:
+    xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
+    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' build >/dev/null
+    xcrun simctl install {{ios_sim_udid}} "{{client_sim_app_release}}"
+
+client-sim-reinstall-release:
+    -xcrun simctl uninstall {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient 2>/dev/null || true
+    just client-sim-install-release
+
 # Simulator equivalent of `pair-iphone`. RELAUNCH + RE-PAIR ONLY: this does
 # NOT build or install -- it re-pairs and `simctl launch`es whatever client
 # binary is ALREADY installed on the sim. To test a CODE change you must build
@@ -595,14 +646,17 @@ sim-reinstall-pair:
     just client-sim-reinstall
     just pair-sim
 
-# Rebuild and relaunch the Mac host, uninstall/reinstall the simulator app, then
-# pair-launch it with stdout/stderr attached (owned-media traces -> {{sim_console_log}}).
-# This is the default simulator feel-test path. The uninstall wipes UserDefaults so
-# pairing is always re-done. For a non-blocking paired launch (e.g. to drive a Maestro
-# flow while the app stays open), run the leaves: host-run, client-sim-reinstall, pair-sim.
+# Rebuild and relaunch the Mac host and uninstall/reinstall the simulator app in
+# Release (-configuration Release, host and client), then pair-launch with stdout/stderr
+# attached (owned-media traces -> {{sim_console_log}}). This is the default simulator
+# feel-test path; Release so it reflects shipped performance (a Debug -Onone host pegs a
+# core in the crisp tile codec). The uninstall wipes UserDefaults so pairing is always
+# re-done. For a non-blocking paired launch (e.g. to drive a Maestro flow while the app
+# stays open), run the Release leaves host-run-release, client-sim-reinstall-release,
+# pair-sim (or the Debug leaves host-run, client-sim-reinstall, pair-sim for fast iteration).
 sim-fresh-install:
-    just host-run
-    just client-sim-reinstall
+    just host-run-release
+    just client-sim-reinstall-release
     just sim-console-run
 
 # DISTINCTION: agent-feed-sim BLOCKS with an attached console (use it to watch
