@@ -41,6 +41,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     private var graphicsReceiveTask: Task<Void, Never>?
     private var linkHealthTask: Task<Void, Never>?
     private weak var sink: (any OwnedMediaFrameSink)?
+    // Set by PairingViewController to forward raw agent push JSON to AgentFeedSurface.
+    // Called on the input-receive task (not MainActor); AgentFeedSurface.deliver
+    // is @MainActor-isolated so the closure must hop to the main actor.
+    var onAgentPush: ((String) -> Void)?
 
     let activeSession: ActiveSession
     let mediaKey: SymmetricKey
@@ -149,6 +153,24 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
 
     func sendDiagnosticsError(_ error: DiagnosticsError) async throws {
         try await QuicSessionStreamIO.send(error, role: .input, on: inputStream)
+    }
+
+    // MARK: - Agent-feed subscription sends (mirrors sendDiagnostics* pattern)
+
+    func sendAgentProjectsSubscribe() async throws {
+        try await QuicSessionStreamIO.send(AgentProjectsSubscribe(), role: .input, on: inputStream)
+    }
+
+    func sendAgentThreadSubscribe(_ request: AgentThreadSubscribe) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
+    func sendAgentThreadLoadOlder(_ request: AgentThreadLoadOlder) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
+    func sendAgentThreadUnsubscribe(_ request: AgentThreadUnsubscribe) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
     }
 
     func close() {
@@ -311,10 +333,22 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             }
         case "agent-projects":
             logger.debug("input lane agent-projects received")
+            if let json = String(data: data, encoding: .utf8) {
+                let closure = onAgentPush
+                Task { @MainActor in closure?(json) }
+            }
         case "agent-thread-chunk":
             logger.debug("input lane agent-thread-chunk received")
+            if let json = String(data: data, encoding: .utf8) {
+                let closure = onAgentPush
+                Task { @MainActor in closure?(json) }
+            }
         case "agent-thread-error":
             logger.debug("input lane agent-thread-error received")
+            if let json = String(data: data, encoding: .utf8) {
+                let closure = onAgentPush
+                Task { @MainActor in closure?(json) }
+            }
         case "session-rejected":
             close()
         default:

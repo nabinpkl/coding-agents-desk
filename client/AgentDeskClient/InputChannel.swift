@@ -24,6 +24,13 @@ protocol InputChannel: AnyObject, Sendable {
     func sendDiagnosticsChunk(_ chunk: DiagnosticsChunk) async throws
     func sendDiagnosticsError(_ error: DiagnosticsError) async throws
 
+    // Agent-feed subscription requests. Mirrored after the diagnostics sends:
+    // each encodes the t-tagged struct and sends it on the input lane.
+    func sendAgentProjectsSubscribe() async throws
+    func sendAgentThreadSubscribe(_ request: AgentThreadSubscribe) async throws
+    func sendAgentThreadLoadOlder(_ request: AgentThreadLoadOlder) async throws
+    func sendAgentThreadUnsubscribe(_ request: AgentThreadUnsubscribe) async throws
+
     var closed: AsyncStream<Void> { get }
 }
 
