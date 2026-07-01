@@ -62,10 +62,20 @@ apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
 # lives somewhere other than the default sibling path. This is the SSOT for
 # the engine source location; nothing in source code should hardcode the path.
 atc_engine_dir := env_var_or_default("AGENTDESK_ATC_ENGINE_DIR", justfile_directory() + "/../atc/engine")
+# Source directory for the ATC dashboard (webview build). Override via env when
+# the dashboard lives somewhere other than the default sibling path.
+atc_dashboard_dir := env_var_or_default("AGENTDESK_ATC_DASHBOARD_DIR", justfile_directory() + "/../atc/dashboard")
 # The sidecar binary is placed alongside the Swift sources in AgentDeskHost/
 # so Xcode picks it up as a bundled resource (it is wired into the project's
 # Resources build phase). It is loaded at runtime via Config.agentSidecarURL.
 sidecar_out := justfile_directory() + "/host/AgentDeskHost/atc-sidecar"
+# The webview bundle directory is placed alongside the Swift sources in
+# AgentDeskClient/ so Xcode picks it up as a bundled folder resource (wired
+# into the project's Resources build phase as a folder reference). It is loaded
+# at runtime by the WKWebView (next task) via:
+#   Bundle.main.url(forResource: "index", withExtension: "html",
+#                   subdirectory: "AgentFeedWebview")
+webview_out := justfile_directory() + "/client/AgentDeskClient/AgentFeedWebview"
 
 # Ensure a minimal placeholder exists at the sidecar output path. The real
 # ~64 MB binary is gitignored (never tracked), so a fresh checkout has nothing
@@ -125,6 +135,73 @@ sidecar-smoke: build-agent-sidecar
     echo ""
     echo "sidecar-smoke: PASS"
 
+# Ensure a minimal placeholder index.html exists in the webview bundle dir. The
+# real bundle (~5 MB) is gitignored; a fresh checkout has only the .gitkeep that
+# keeps the directory tracked by git. Without an index.html, Xcode's Copy-Resources
+# phase (folder reference) copies an empty directory and the WKWebView (next task)
+# would have nothing to load. This writes a tiny stub if and only if the file is
+# missing, so it never clobbers a real built bundle.
+ensure-webview-placeholder:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    WEBVIEW_INDEX='{{webview_out}}/index.html'
+    if [ ! -e "$WEBVIEW_INDEX" ]; then
+        mkdir -p '{{webview_out}}'
+        printf '<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"><title>Agent Feed Placeholder</title></head>\n<body>\n<p>agent feed placeholder - run: just build-agent-webview</p>\n</body>\n</html>\n' > "$WEBVIEW_INDEX"
+    fi
+
+# Build the ATC dashboard webview bundle into the client app bundle source dir.
+# The result is a static file:// loadable directory (index.html + assets/) that
+# the WKWebView (next task) loads via Bundle.main. Requires bun to be on PATH.
+# OVERWRITES the gitignored placeholder and any prior build in place.
+#
+# The bundle is loaded by the WKWebView via:
+#   Bundle.main.url(forResource: "index", withExtension: "html",
+#                   subdirectory: Config.agentFeedWebviewSubdirectory)
+# which resolves to AgentFeedWebview/index.html inside the app bundle.
+build-agent-webview:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DASHBOARD='{{atc_dashboard_dir}}'
+    OUT='{{webview_out}}'
+    echo "build-agent-webview: running bun run webview:build in $DASHBOARD"
+    cd "$DASHBOARD" && bun run webview:build
+    echo "build-agent-webview: copying webview-dist/ -> $OUT"
+    rm -rf "$OUT"
+    mkdir -p "$OUT"
+    cp -R "$DASHBOARD/webview-dist/." "$OUT/"
+    echo "build-agent-webview: DONE"
+
+# Verify the webview bundle was built and landed correctly. Checks that index.html
+# and a non-empty assets/ dir are present and that index.html references assets
+# by relative path. This is for manual/coordinator verification; it is NOT part
+# of `just check` or `just sim-test`.
+webview-smoke: build-agent-webview
+    #!/usr/bin/env bash
+    set -euo pipefail
+    OUT='{{webview_out}}'
+    echo "webview-smoke: checking $OUT"
+    INDEX="$OUT/index.html"
+    ASSETS="$OUT/assets"
+    if [ ! -f "$INDEX" ]; then
+        echo "webview-smoke: FAIL - index.html not found at $INDEX" >&2
+        exit 1
+    fi
+    if [ ! -d "$ASSETS" ] || [ -z "$(ls -A "$ASSETS" 2>/dev/null)" ]; then
+        echo "webview-smoke: FAIL - assets/ dir missing or empty at $ASSETS" >&2
+        exit 1
+    fi
+    if ! grep -q '\./assets' "$INDEX"; then
+        echo "webview-smoke: FAIL - index.html does not reference assets by relative path (./assets)" >&2
+        echo "webview-smoke: index.html head:" >&2
+        head -20 "$INDEX" >&2
+        exit 1
+    fi
+    ASSET_COUNT=$(ls "$ASSETS" | wc -l | tr -d ' ')
+    INDEX_BYTES=$(wc -c < "$INDEX" | tr -d ' ')
+    echo "webview-smoke: index.html ${INDEX_BYTES} bytes, assets/ ${ASSET_COUNT} file(s)"
+    echo "webview-smoke: PASS"
+
 # Fast correctness gate: guard scripts plus the host build and tests. Excludes
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
@@ -138,7 +215,7 @@ check: ensure-sidecar-placeholder
 
 # Client simulator tests. Boots the iPhone simulator and is the slow leg split
 # out of `check`. Run before committing client-side changes.
-sim-test:
+sim-test: ensure-webview-placeholder
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
 
 # Full gate: the fast host-side check plus the client simulator tests.

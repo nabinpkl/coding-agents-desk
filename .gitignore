@@ -32,6 +32,15 @@ client/maestro/screenshots/
 # the built binary.
 host/AgentDeskHost/atc-sidecar
 
+# Agent feed webview bundle. Never tracked: the real bundle (~5 MB) is produced
+# by `just build-agent-webview` and the placeholder is regenerated on demand by
+# `just ensure-webview-placeholder` (a dependency of `just sim-test`). A fresh
+# checkout therefore builds cleanly with no git noise from either the placeholder
+# or the real bundle. The directory itself must exist in git for Xcode to wire
+# the folder reference, so a .gitkeep is committed; the contents are ignored.
+client/AgentDeskClient/AgentFeedWebview/*
+!client/AgentDeskClient/AgentFeedWebview/.gitkeep
+
 # Bun --compile temp artifacts
 *.bun-build
 .*.bun-build

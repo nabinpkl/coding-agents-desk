@@ -79,6 +79,7 @@
 		B00000000000000000000F6C /* OwnedMediaVideoDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F6B /* OwnedMediaVideoDecoderTests.swift */; };
 		B00000000000000000000FA3 /* ClientDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FA2 /* ClientDiagnostics.swift */; };
 		B00000000000000000000FA4 /* ClientDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FA2 /* ClientDiagnostics.swift */; };
+		B00000000000000000000FC1 /* AgentFeedWebview in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FC0 /* AgentFeedWebview */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -130,6 +131,7 @@
 		B00000000000000000000F68 /* OwnedMediaVideoDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaVideoDecoder.swift; sourceTree = "<group>"; };
 		B00000000000000000000F6B /* OwnedMediaVideoDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaVideoDecoderTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000FA2 /* ClientDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientDiagnostics.swift; sourceTree = "<group>"; };
+		B00000000000000000000FC0 /* AgentFeedWebview */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AgentFeedWebview; sourceTree = "<group>"; };
 		B00000000000000000000141 /* AgentDeskClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000142 /* AgentDeskClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -210,6 +212,7 @@
 				B000000000000000000009C2 /* CursorImageStore.swift */,
 				B0000000000000000000012D /* PairingViewController+Gestures.swift */,
 				B00000000000000000000118 /* Assets.xcassets */,
+				B00000000000000000000FC0 /* AgentFeedWebview */,
 				B0000000000000000000010A /* Info.plist */,
 			);
 			path = AgentDeskClient;
@@ -319,6 +322,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B00000000000000000000217 /* Assets.xcassets in Resources */,
+				B00000000000000000000FC1 /* AgentFeedWebview in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
