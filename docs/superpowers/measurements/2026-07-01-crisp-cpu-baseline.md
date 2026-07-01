@@ -85,3 +85,28 @@ Two consequences worth being honest about:
   only the damaged sub-regions to BGRA (not the full frame), or avoid the YUV→BGRA
   round-trip entirely. Cutting the ~21% floor is a separate lever (adaptive capture
   rate at rest, TeamViewer-style).
+
+## The ~21% floor decomposed (crisp OFF, true leaf self-time)
+
+79% of sampled frames are parked threads (idle: mach_msg / semaphore_timedwait /
+__accept). The real on-CPU work (~2321 leaf samples over 6s) is spread thin, no
+single hot loop, by module:
+
+- libdispatch 14% — per-frame drain + datagram send scheduling overhead
+- vImage 12% + CoreGraphics 9% — pixel-format convert + composite, mostly the
+  desktop-strip thumbnails (vUnpremultiplyData_RGBA8888, Planar8→16, CGDataProvider)
+- AgentDeskHost (our code) 7% — drainEncodeQueue, SpaceThumbnailProvider
+  .captureAsync/composite/captureWindow, sendPacketsSerial/packetize, processCrispDamage
+- kernel 7% (__sendmsg datagram send), CoreFoundation 7%, objc 5%, swift 4%,
+  malloc 3%, Network 2%
+
+The video HEVC encoder is hardware and barely registers (VideoToolbox/AVE minor).
+So the floor is NOT the video encode. It is:
+1. SpaceThumbnailProvider capturing + compositing per-space/window thumbnails (a UI
+   feature, vImage/CoreGraphics heavy, periodic, independent of stream quality),
+2. the datagram send path (packetize + pace + sendmsg + Network),
+3. per-frame dispatch/runtime overhead of the drain loop.
+
+Levers: throttle/pause SpaceThumbnailProvider when the strip isn't shown or lower its
+rate/resolution (likely the biggest single reducible chunk, unrelated to streaming);
+batch datagram packetization / relax pacing wakeups.
