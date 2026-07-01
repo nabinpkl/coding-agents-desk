@@ -173,11 +173,10 @@ struct RegionCrispController {
             while x < width {
                 let w = min(grid, width - x)
                 defer { x += grid }
-                guard let tile = OwnedTileCodec.extractTile(
+                guard let (tile, hash) = OwnedTileCodec.extractTileWithHash(
                     from: pixels, surfaceWidth: width, surfaceHeight: height,
                     bytesPerRow: bytesPerRow, x: x, y: y, width: w, height: h
                 ) else { continue }
-                let hash = TileContentCache.hash(tile)
                 let key = CellKey(x: x, y: y)
 
                 guard var state = cells[key] else {
