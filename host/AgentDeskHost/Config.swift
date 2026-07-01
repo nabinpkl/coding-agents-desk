@@ -244,6 +244,15 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_TILE_HEAL_INTERVAL_FRAMES",
         defaultValue: 120
     )
+    // ADR-0036: crisp observe is damage-gated between full-surface heals. This is how
+    // many crisp windows (each >= ownedMediaCrispMinIntervalMs) may run gated before the
+    // transport forces a full-surface heal that reconciles trusted crisp tiles against
+    // OS damage under-reporting. Default 10 (~1s at the 100ms crisp interval). 0 disables
+    // gating (every window is a full heal), the escape hatch if damage is ever mistrusted.
+    static let ownedMediaCrispHealIntervalWindows = nonNegativeInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_HEAL_INTERVAL_WINDOWS",
+        defaultValue: 10
+    )
     // ADR-0025 datagram carrier: how many recent frames' packets the host keeps for
     // resend, and the cap on packets served per resend request.
     static let ownedMediaResendRingFrames = positiveInt(
