@@ -85,8 +85,9 @@ extension PairingViewController {
 
     // MARK: - Lazy webview creation
 
-    // Creates the full-bleed hidden AgentFeedSurface and wires both bridge
-    // directions, pulling the live channel and transport at call time. A nil
+    // Creates the hidden AgentFeedSurface (inset below the Control/Agent toggle,
+    // full-bleed on the other three edges) and wires both bridge directions,
+    // pulling the live channel and transport at call time. A nil
     // channel (not yet connected) is tolerated: the surface is still created so
     // the UI does not crash, and the inbound closure no-ops until a channel is
     // available. Idempotent.
@@ -100,8 +101,15 @@ extension PairingViewController {
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = true
         view.addSubview(surface)
+        // Top-anchor to the toggle's bottom (not view.top) so the webview's own
+        // header sits BELOW the native Control/Agent switcher instead of behind
+        // it. The toggle is created before any Agent select, so it is present
+        // here; the safe-area fallback only guards a defensive nil.
+        let surfaceTop = surfaceSegmentedControl.map {
+            surface.topAnchor.constraint(equalTo: $0.bottomAnchor, constant: 8)
+        } ?? surface.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
         NSLayoutConstraint.activate([
-            surface.topAnchor.constraint(equalTo: view.topAnchor),
+            surfaceTop,
             surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             surface.bottomAnchor.constraint(equalTo: view.bottomAnchor)

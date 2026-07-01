@@ -1,0 +1,22 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- extendedWaitUntil:
+    visible: "Agent"
+    timeout: 30000
+- tapOn: "Agent"
+- extendedWaitUntil:
+    notVisible: "No projects yet"
+    timeout: 30000
+- takeScreenshot: pad-projects
+- tapOn:
+    point: 50%, 22%
+- extendedWaitUntil:
+    notVisible: "No projects yet"
+    timeout: 8000
+- takeScreenshot: pad-sessions
+- tapOn:
+    point: 50%, 22%
+- extendedWaitUntil:
+    notVisible: "loading session events"
+    timeout: 25000
+- takeScreenshot: pad-thread

@@ -383,22 +383,36 @@ iphone-console-run variant="stable":
 # (There is no detached-console composite on purpose: a backgrounded console grows
 # {{iphone_console_log}} unbounded with no teardown. For bounded background capture
 # use `motion-verify`, which tears the stream down after a fixed window.)
+#
+# Each first builds the REAL agent-feed artifacts the app bundles -- the compiled
+# Bun engine sidecar (host resource) and the Vite webview bundle (client resource)
+# -- so the phone agent surface serves real projects/threads, not the build
+# placeholder. Without these the device shows an empty "No projects yet" feed.
+# (This mirrors what agent-feed-sim / agent-feed-sim-pair do for the simulator.)
 fresh-install:
+    just build-agent-sidecar
+    just build-agent-webview
     just host-run
     just client-reinstall stable
     just pair-iphone stable
 
 fresh-install-dev:
+    just build-agent-sidecar
+    just build-agent-webview
     just host-run
     just client-reinstall dev
     just pair-iphone dev
 
 fresh-consoled-run:
+    just build-agent-sidecar
+    just build-agent-webview
     just host-run
     just client-reinstall stable
     just iphone-console-run stable
 
 fresh-consoled-run-dev:
+    just build-agent-sidecar
+    just build-agent-webview
     just host-run
     just client-reinstall dev
     just iphone-console-run dev
