@@ -409,17 +409,17 @@ iphone-console-run variant="stable":
     echo "URL: <redacted; delivered to client>"
     URL="$(cat "{{last_pair_url_path}}")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
-# Physical-device feel runs. Two console modes x two client variants. Both rebuild
-# and relaunch the host and reinstall the client (the "fresh" prefix is the reinstall).
-# They differ in how the client is launched and in build configuration:
-#   fresh-install        Release host + client, no console, returns ("just use it")
-#   fresh-consoled-run   Debug host + client, console attached, blocks and tees the log
-# fresh-install builds -configuration Release (host and client) so the feel test
-# reflects shipped performance; a Debug (-Onone) host pegs a core in the crisp tile
-# codec. The other three twins (fresh-consoled-run and the -dev suffixed builds) stay
-# Debug for fast iteration. Suffix -dev to drive the side-by-side AgentDesk Dev build
-# instead of the stable daily driver. The consoled run is the AGENTS.md default for
-# feel/diagnostic work.
+# Physical-device feel/diagnostic runs. Two launch modes x two client variants. All
+# rebuild and relaunch the host and reinstall the client (the "fresh" prefix is the
+# reinstall). They differ in how the client is launched and in build configuration:
+#   fresh-install                  Release host + client, no console, returns ("just use it")
+#   fresh-release-diagnostic-run   Release host + client, console attached, blocks and tees the log
+# The stable pair builds -configuration Release so a feel or media-diagnosis read
+# reflects shipped performance; a Debug (-Onone) host pegs a core in the crisp tile codec
+# and distorts the very motion you are judging. The -dev twins (fresh-install-dev,
+# fresh-diagnostic-run-dev) stay Debug: the side-by-side AgentDesk Dev build is for fast,
+# breakpoint-friendly iteration on risky changes. Suffix -dev to drive that build.
+# fresh-release-diagnostic-run is the AGENTS.md default for feel/diagnostic work.
 # (There is no detached-console composite on purpose: a backgrounded console grows
 # {{iphone_console_log}} unbounded with no teardown. For bounded background capture
 # use `motion-verify`, which tears the stream down after a fixed window.)
@@ -443,14 +443,14 @@ fresh-install-dev:
     just client-reinstall dev
     just pair-iphone dev
 
-fresh-consoled-run:
+fresh-release-diagnostic-run:
     just build-agent-sidecar
     just build-agent-webview
-    just host-run
-    just client-reinstall stable
+    just host-run-release
+    just client-reinstall-release
     just iphone-console-run stable
 
-fresh-consoled-run-dev:
+fresh-diagnostic-run-dev:
     just build-agent-sidecar
     just build-agent-webview
     just host-run

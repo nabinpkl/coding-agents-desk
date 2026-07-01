@@ -77,10 +77,10 @@ v0 is done when the author uses it as a daily driver without reaching for AnyDes
 For a development run on the connected iPhone:
 
 ```sh
-just fresh-consoled-run
+just fresh-release-diagnostic-run
 ```
 
-`fresh-consoled-run` rebuilds and relaunches the Mac host, reinstalls the iPhone client, and launches it with the console attached, preserving owned-media diagnostics in `/tmp/agentdesk-client-console.log`. Configuration (the always_video carrier, keyframe interval, and so on) comes from baked code defaults and `.env`; see `.env.example` for the knobs. Two launch modes: `fresh-install` (no console, returns immediately) and `fresh-consoled-run` (console attached, blocks). Suffix either with `-dev` to drive the side-by-side AgentDesk Dev build without disturbing the stable install.
+`fresh-release-diagnostic-run` rebuilds and relaunches the Mac host, reinstalls the iPhone client, and launches it with the console attached, preserving owned-media diagnostics in `/tmp/agentdesk-client-console.log`. The stable pair builds in Release so a feel or media-diagnosis read reflects shipped performance; a Debug host pegs a core in the crisp tile codec and distorts the motion. Configuration (the always_video carrier, keyframe interval, and so on) comes from baked code defaults and `.env`; see `.env.example` for the knobs. Two launch modes: `fresh-install` (Release, no console, returns immediately) and `fresh-release-diagnostic-run` (Release, console attached, blocks). Suffix either with `-dev` (`fresh-install-dev`, `fresh-diagnostic-run-dev`) to drive the side-by-side AgentDesk Dev build, which stays Debug for fast iteration.
 
 ## Repository layout
 

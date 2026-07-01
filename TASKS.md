@@ -46,7 +46,7 @@ Reuse is load-bearing: `TileContentCache`, tile extraction/LZFSE encode, `OwnedG
 
 Trigger: R1 through R8 landed and `just check` green.
 
-- [ ] R9. Device validation (gated on explicit go-ahead): `just fresh-consoled-run`, then observe crisp text within the settle window after motion stops, no stale crisp under induced loss, smooth motion, low rest bandwidth. Capture host owned-media and attached client logs in the same run.
+- [ ] R9. Device validation (gated on explicit go-ahead): `just fresh-release-diagnostic-run`, then observe crisp text within the settle window after motion stops, no stale crisp under induced loss, smooth motion, low rest bandwidth. Capture host owned-media and attached client logs in the same run.
 
 ---
 

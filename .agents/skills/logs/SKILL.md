@@ -27,7 +27,7 @@ pgrep -fl 'AgentDeskHost|AgentDeskClient|simctl launch'
 2. Identify the run type:
 
 - Simulator attached console: `just sim-fresh-install` or `just sim-console-run`.
-- Physical attached console: `just iphone-console-run <variant>` or `just fresh-consoled-run[-dev]`.
+- Physical attached console: `just iphone-console-run <variant>` or `just fresh-release-diagnostic-run` (stable, Release) / `just fresh-diagnostic-run-dev` (dev, Debug).
 - Physical non-consoled: user ran `just fresh-install[-dev]`, then use durable diagnostics.
 
 3. Use the right log source:
