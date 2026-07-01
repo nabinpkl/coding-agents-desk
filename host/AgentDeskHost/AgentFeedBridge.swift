@@ -123,7 +123,7 @@ final class AgentFeedBridge: @unchecked Sendable {
     func handleThreadUnsubscribe(_ request: AgentThreadUnsubscribe) {
         queue.sync {
             activeStreams[request.sessionId]?.cancel()
-            activeStreams.removeValue(forKey: request.sessionId)
+            _ = activeStreams.removeValue(forKey: request.sessionId)
         }
         logger.debug("agent-feed-bridge: unsubscribed sessionId=\(request.sessionId, privacy: .public)")
     }
@@ -149,6 +149,12 @@ final class AgentFeedBridge: @unchecked Sendable {
             onError: { [weak self] error in
                 guard let self else { return }
                 self.logger.error("agent-feed-bridge: stream error sessionId=\(sessionId, privacy: .public): \(String(describing: error), privacy: .public)")
+                // Signal the client so it can show an error / retry; the stream is
+                // dead, so drop the handle.
+                self.sendCodable(AgentThreadError(sessionId: sessionId, reason: error.localizedDescription))
+                self.queue.sync {
+                    _ = self.activeStreams.removeValue(forKey: sessionId)
+                }
             }
         )
         queue.sync {

@@ -398,6 +398,33 @@ struct AgentFeedBridgeTests {
         #expect(!errMsg.reason.isEmpty)
     }
 
+    // MARK: SSE stream error -> AgentThreadError for that session
+
+    @Test func streamErrorSendsAgentThreadError() async throws {
+        let fake = FakeSidecarClient()
+        // A clean subscribe so the live stream opens (seed chunk first).
+        fake.eventsPageResult = .success(EngineEventsPage(events: [], total: 0))
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: { sink.accept($0) })
+
+        let request = AgentThreadSubscribe(projectPath: "/proj", sessionId: "sess-stream-err")
+        bridge.handleThreadSubscribe(request)
+        await waitForMessages(sink, count: 1) // seed chunk
+        #expect(fake.streamOpenedForSessionId == "sess-stream-err")
+
+        // The live SSE stream errors (network drop / HTTP error).
+        struct StreamDrop: Error, LocalizedError {
+            var errorDescription: String? { "stream-dropped" }
+        }
+        fake.pushStreamError(StreamDrop())
+        await waitForMessages(sink, count: 2)
+
+        // The second message must be an AgentThreadError for that session.
+        let errMsg = try sink.decode(AgentThreadError.self, at: 1)
+        #expect(errMsg.sessionId == "sess-stream-err")
+        #expect(errMsg.reason == "stream-dropped")
+    }
+
     // MARK: reset() cancels all active streams
 
     @Test func resetCancelsAllActiveStreams() async throws {

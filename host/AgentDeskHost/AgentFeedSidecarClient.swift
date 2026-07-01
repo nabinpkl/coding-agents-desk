@@ -145,28 +145,29 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         components?.queryItems = [URLQueryItem(name: "after", value: String(after))]
         let url = components?.url ?? baseURL.appendingPathComponent("/api/sessions/\(sessionId)/stream")
         let logger = logger
+        let session = session
         let task = Task<Void, Never> {
             do {
-                let (asyncBytes, response) = try await URLSession.shared.bytes(from: url)
+                let (asyncBytes, response) = try await session.bytes(from: url)
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200..<300).contains(httpResponse.statusCode) else {
                     onError(SidecarClientError.badStatusCode)
                     return
                 }
-                var dataBuffer = ""
                 for try await line in asyncBytes.lines {
                     guard !Task.isCancelled else { return }
                     if line.hasPrefix("data:") {
-                        let jsonString = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                        if jsonString.isEmpty { continue }
-                        dataBuffer = jsonString
-                        if let data = dataBuffer.data(using: .utf8),
+                        // The sidecar emits one ActivityEvent JSON per `data:` line
+                        // (each SSE message is a single line), so there is no
+                        // multi-line buffering to do.
+                        let latestDataLine = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                        if latestDataLine.isEmpty { continue }
+                        if let data = latestDataLine.data(using: .utf8),
                            let event = try? JSONDecoder().decode(EngineActivityEvent.self, from: data) {
                             onEvent(event)
                         } else {
-                            logger.error("agent-feed-stream: failed to decode SSE event json=\(jsonString, privacy: .public)")
+                            logger.error("agent-feed-stream: failed to decode SSE event json=\(latestDataLine, privacy: .public)")
                         }
-                        dataBuffer = ""
                     }
                 }
             } catch is CancellationError {

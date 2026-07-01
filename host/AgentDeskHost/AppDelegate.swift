@@ -547,6 +547,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Wire the agent-feed bridge: construct it from the sidecar base URL and
         // a send closure that pushes already-encoded data back down the input lane,
         // mirroring how diagnostics pushes its responses.
+        // Cancel any prior bridge's in-flight SSE streams before replacing it on a
+        // lane re-attach (session resume), so the previous bridge's stream Tasks
+        // do not keep iterating the sidecar byte stream.
+        agentFeedBridge?.reset()
         if let sidecar = agentEngineSidecar, let baseURL = sidecar.baseURL {
             let httpClient = HttpSidecarClient(baseURL: baseURL)
             let bridge = AgentFeedBridge(client: httpClient, send: { [weak server] data in
@@ -567,7 +571,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } else {
             signalingLogger.notice("agent sidecar not ready at lane attach; agent feed disabled for this session")
-            agentFeedBridge?.reset()
+            // Already reset above; just drop the reference.
             agentFeedBridge = nil
         }
         // R11: push the current DesktopState as soon as the channel is
