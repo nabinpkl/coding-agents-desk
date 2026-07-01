@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -16,6 +17,42 @@ import Testing
 // process lifecycle isolated. They are fast (~1 s each) so the cost is small.
 @Suite(.serialized)
 struct AgentEngineSidecarTests {
+
+    // Probe for a free loopback TCP port: bind a socket to 127.0.0.1:0, let the
+    // OS assign an ephemeral port, read it back, then close the socket. Each test
+    // calls this for its own unique port instead of sharing a fixed one, so runs
+    // cannot collide on the port across `just check` invocations or during the
+    // stub's startup/teardown window. A small TOCTOU gap remains between close
+    // and the stub's re-bind, but it is far narrower than a fixed shared port.
+    private func freePort() throws -> UInt16 {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw SidecarTestError.socketFailed(errno) }
+        defer { close(fd) }
+
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        addr.sin_port = 0 // ask the OS for any free port
+
+        let bindResult = withUnsafePointer(to: &addr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.bind(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bindResult == 0 else { throw SidecarTestError.bindFailed(errno) }
+
+        var assigned = sockaddr_in()
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameResult = withUnsafeMutablePointer(to: &assigned) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                getsockname(fd, sockaddrPointer, &len)
+            }
+        }
+        guard nameResult == 0 else { throw SidecarTestError.getsocknameFailed(errno) }
+
+        // sin_port is network byte order; convert to host order.
+        return UInt16(bigEndian: assigned.sin_port)
+    }
 
     // Write a tiny stub binary to a temp path. The stub is an executable Python
     // script (via a python3 shebang) that:
@@ -73,7 +110,7 @@ struct AgentEngineSidecarTests {
     // MARK: - Child inherits the parent environment (PATH not stripped)
 
     @Test func spawnedChildInheritsPath() async throws {
-        let port: UInt16 = 47985
+        let port = try freePort()
         // The stub writes its own PATH to a temp file on startup. If
         // AgentEngineSidecar replaced (rather than merged) the child env, PATH
         // would be empty here, and the engine's tmux/git/open subprocesses
@@ -88,6 +125,9 @@ struct AgentEngineSidecarTests {
         defer { try? FileManager.default.removeItem(at: stubURL) }
 
         let sidecar = AgentEngineSidecar(binaryURL: stubURL, port: port)
+        // Defer teardown so the stub child is terminated before the test returns
+        // even if an assertion below fails or a throw unwinds early.
+        defer { sidecar.stop() }
         sidecar.start()
 
         // Wait for the stub to write its PATH file (up to 6 s).
@@ -101,17 +141,17 @@ struct AgentEngineSidecarTests {
 
         #expect(childPath != nil, "stub should have written its PATH")
         #expect(!(childPath ?? "").isEmpty, "child PATH must be non-empty (env merged, not replaced)")
-        sidecar.stop()
     }
 
     // MARK: - Spawn reaches ready
 
     @Test func spawnReachesReady() async throws {
-        let port: UInt16 = 47982
+        let port = try freePort()
         let stubURL = try makeStubBinary(port: port)
         defer { try? FileManager.default.removeItem(at: stubURL) }
 
         let sidecar = AgentEngineSidecar(binaryURL: stubURL, port: port)
+        defer { sidecar.stop() }
         sidecar.start()
 
         // Poll for up to 6 seconds; the stub should answer within the 5s ready window.
@@ -121,17 +161,19 @@ struct AgentEngineSidecarTests {
         }
 
         #expect(sidecar.baseURL == URL(string: "http://127.0.0.1:\(port)"))
-        sidecar.stop()
     }
 
     // MARK: - Teardown terminates the child
 
     @Test func teardownTerminatesChild() async throws {
-        let port: UInt16 = 47983
+        let port = try freePort()
         let stubURL = try makeStubBinary(port: port)
         defer { try? FileManager.default.removeItem(at: stubURL) }
 
         let sidecar = AgentEngineSidecar(binaryURL: stubURL, port: port)
+        // The mid-test stop() below is the subject under test; this defer is a
+        // safety net for early-exit paths (stop() is idempotent).
+        defer { sidecar.stop() }
         sidecar.start()
 
         // Wait for ready so we know the process is actually up.
@@ -161,7 +203,7 @@ struct AgentEngineSidecarTests {
     // MARK: - Induced child exit triggers exactly one restart
 
     @Test func inducedExitTriggersExactlyOneRestart() async throws {
-        let port: UInt16 = 47984
+        let port = try freePort()
         // The stub writes its own PID to a temp file on startup so the test can
         // SIGKILL the live child. Restart counting is read from the supervisor's
         // own restartCountForTesting rather than inferred from child spawn counts:
@@ -179,6 +221,9 @@ struct AgentEngineSidecarTests {
         defer { try? FileManager.default.removeItem(at: stubURL) }
 
         let sidecar = AgentEngineSidecar(binaryURL: stubURL, port: port)
+        // Defer teardown so the (possibly restarted) stub child is terminated
+        // before the test returns on any path, including the early return below.
+        defer { sidecar.stop() }
         sidecar.start()
 
         // Wait until the sidecar is first ready.
@@ -202,7 +247,6 @@ struct AgentEngineSidecarTests {
         }
         guard let childPID else {
             Issue.record("stub did not write its PID in time")
-            sidecar.stop()
             return
         }
 
@@ -227,7 +271,11 @@ struct AgentEngineSidecarTests {
         // single restart for the dead process.
         #expect(sidecar.restartCountForTesting == 1,
                 "exactly one restart expected for one induced exit, saw \(sidecar.restartCountForTesting)")
-
-        sidecar.stop()
     }
+}
+
+private enum SidecarTestError: Error {
+    case socketFailed(Int32)
+    case bindFailed(Int32)
+    case getsocknameFailed(Int32)
 }
