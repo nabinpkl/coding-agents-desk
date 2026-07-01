@@ -257,7 +257,11 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         }
         let nowMs = Int(nowNs / 1_000_000)
         crispGate.withLock { state in
-            let emission = state.controller.observe(
+            // Interim: the full-surface reconciliation pass, byte-for-byte today's
+            // behavior. Wiring the damage-gated observe(changedRects:) here is a later
+            // transport unit (Unit A split only the controller). healScan preserves the
+            // exact pre-split semantics until then.
+            let emission = state.controller.healScan(
                 pixels: surface.data,
                 width: surface.width,
                 height: surface.height,

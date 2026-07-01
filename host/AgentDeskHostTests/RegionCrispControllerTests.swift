@@ -14,14 +14,31 @@ final class RegionCrispControllerTests: XCTestCase {
         Data(repeating: byte, count: width * height * 4)
     }
 
-    private func observe(
+    // A full-surface reconciliation pass (the coherence safety net). The migrated
+    // regression tests route through here because it is byte-for-byte the old observe():
+    // it visits every grid tile every frame.
+    private func heal(
         _ c: inout RegionCrispController, _ pixels: Data, at nowMs: Int,
         width: Int = 64, height: Int = 64
     ) -> RegionCrispEmission {
-        let emission = c.observe(pixels: pixels, width: width, height: height, bytesPerRow: width * 4, nowMs: nowMs)
+        let emission = c.healScan(pixels: pixels, width: width, height: height, bytesPerRow: width * 4, nowMs: nowMs)
         // The transport commits the staged slot assignments once the emission is handed to
         // the lane (commitEmission); mirror that here so cross-frame dedup and eviction
-        // behave as in production now that observe() no longer commits unconditionally.
+        // behave as in production now that healScan/observe no longer commit unconditionally.
+        c.commitEmission()
+        return emission
+    }
+
+    // A damage-gated pass: visits only tiles overlapping `changedRects` plus non-crisp
+    // cells due for promotion. An empty `changedRects` is a promote-only pass.
+    private func observe(
+        _ c: inout RegionCrispController, _ pixels: Data, at nowMs: Int,
+        changedRects: [PixelRect] = [], width: Int = 64, height: Int = 64
+    ) -> RegionCrispEmission {
+        let emission = c.observe(
+            pixels: pixels, width: width, height: height, bytesPerRow: width * 4,
+            nowMs: nowMs, changedRects: changedRects
+        )
         c.commitEmission()
         return emission
     }
@@ -30,8 +47,8 @@ final class RegionCrispControllerTests: XCTestCase {
     // cacheTile carrying its compressed payload.
     func testSettledTilePromotesToCrispCacheTile() {
         var c = RegionCrispController(config: config())
-        XCTAssertTrue(observe(&c, surface(0xAB), at: 0).isEmpty, "first sight only establishes baseline")
-        let e = observe(&c, surface(0xAB), at: 200)
+        XCTAssertTrue(heal(&c, surface(0xAB), at: 0).isEmpty, "first sight only establishes baseline")
+        let e = heal(&c, surface(0xAB), at: 200)
         XCTAssertEqual(e.commands.count, 1)
         guard case let .cacheTile(_, x, y, w, h, comp, br) = e.commands.first else {
             return XCTFail("expected a cacheTile, got \(String(describing: e.commands.first))")
@@ -47,19 +64,21 @@ final class RegionCrispControllerTests: XCTestCase {
     // Behavior 2: a tile static for less than the settle window does not promote.
     func testStaticBelowSettleWindowDoesNotPromote() {
         var c = RegionCrispController(config: config())
-        _ = observe(&c, surface(0xAB), at: 0)
-        XCTAssertTrue(observe(&c, surface(0xAB), at: 100).isEmpty, "100ms < 150ms settle must not promote")
+        _ = heal(&c, surface(0xAB), at: 0)
+        XCTAssertTrue(heal(&c, surface(0xAB), at: 100).isEmpty, "100ms < 150ms settle must not promote")
     }
 
-    // Behavior 3 (the coherence invariant): when a crisp tile's content changes, the
+    // Behavior 3 (the coherence invariant), damage path: when a crisp tile's content
+    // changes and the damage rect covering it is passed to observe(changedRects:), the
     // controller eagerly reverts it and never emits a draw for the stale or new hash on
     // that frame. The new content only promotes after its own settle window.
-    func testChangedCrispTileEagerlyRevertsAndNeverDrawsStale() {
+    func testChangedCrispTileRevertsViaDamageAndNeverDrawsStale() {
         var c = RegionCrispController(config: config())
-        _ = observe(&c, surface(0xAB), at: 0)
-        _ = observe(&c, surface(0xAB), at: 200) // promoted to crisp
+        _ = heal(&c, surface(0xAB), at: 0)
+        _ = heal(&c, surface(0xAB), at: 200) // promoted to crisp
 
-        let onChange = observe(&c, surface(0xCD), at: 300)
+        let rect = PixelRect(x: 0, y: 0, width: 64, height: 64)
+        let onChange = observe(&c, surface(0xCD), at: 300, changedRects: [rect])
         XCTAssertEqual(onChange.commands, [.revertTileToVideo(x: 0, y: 0, width: 64, height: 64)])
         XCTAssertTrue(onChange.payload.isEmpty, "a revert carries no payload")
         for command in onChange.commands {
@@ -71,8 +90,36 @@ final class RegionCrispControllerTests: XCTestCase {
             }
         }
 
-        XCTAssertTrue(observe(&c, surface(0xCD), at: 400).isEmpty, "new content must serve its own settle window")
-        let repromote = observe(&c, surface(0xCD), at: 500)
+        XCTAssertTrue(observe(&c, surface(0xCD), at: 400, changedRects: [rect]).isEmpty,
+                      "new content must serve its own settle window")
+        let repromote = observe(&c, surface(0xCD), at: 500, changedRects: [rect])
+        guard case .cacheTile = repromote.commands.first else {
+            return XCTFail("the new content must promote after settling")
+        }
+    }
+
+    // Behavior 3 (the coherence invariant), heal path: the same content change caught by
+    // a full-surface healScan reconcile (the OS-damage-under-report safety net) reverts the
+    // crisp tile and never draws stale on the change frame.
+    func testChangedCrispTileRevertsViaHealScanAndNeverDrawsStale() {
+        var c = RegionCrispController(config: config())
+        _ = heal(&c, surface(0xAB), at: 0)
+        _ = heal(&c, surface(0xAB), at: 200) // promoted to crisp
+
+        let onChange = heal(&c, surface(0xCD), at: 300)
+        XCTAssertEqual(onChange.commands, [.revertTileToVideo(x: 0, y: 0, width: 64, height: 64)])
+        XCTAssertTrue(onChange.payload.isEmpty, "a revert carries no payload")
+        for command in onChange.commands {
+            switch command {
+            case .cacheTile, .drawCachedTile:
+                XCTFail("must not draw any tile on the frame the content changed")
+            default:
+                break
+            }
+        }
+
+        XCTAssertTrue(heal(&c, surface(0xCD), at: 400).isEmpty, "new content must serve its own settle window")
+        let repromote = heal(&c, surface(0xCD), at: 500)
         guard case .cacheTile = repromote.commands.first else {
             return XCTFail("the new content must promote after settling")
         }
@@ -81,10 +128,10 @@ final class RegionCrispControllerTests: XCTestCase {
     // Behavior 4: an already-crisp tile that stays unchanged emits nothing further.
     func testAlreadyCrispUnchangedEmitsNothing() {
         var c = RegionCrispController(config: config())
-        _ = observe(&c, surface(0xAB), at: 0)
-        _ = observe(&c, surface(0xAB), at: 200) // promoted
-        XCTAssertTrue(observe(&c, surface(0xAB), at: 400).isEmpty, "a tile already crisp must not re-emit")
-        XCTAssertTrue(observe(&c, surface(0xAB), at: 9999).isEmpty)
+        _ = heal(&c, surface(0xAB), at: 0)
+        _ = heal(&c, surface(0xAB), at: 200) // promoted
+        XCTAssertTrue(heal(&c, surface(0xAB), at: 400).isEmpty, "a tile already crisp must not re-emit")
+        XCTAssertTrue(heal(&c, surface(0xAB), at: 9999).isEmpty)
     }
 
     // Behavior 5: content seen before (same hash, cached in a committed slot) promotes
@@ -93,17 +140,17 @@ final class RegionCrispControllerTests: XCTestCase {
     func testRepeatedContentHashDedupsToDrawCachedTile() {
         var c = RegionCrispController(config: config())
         // Promote content A, committing slot for hash(A).
-        _ = observe(&c, surface(0xAB), at: 0)
-        let promoteA = observe(&c, surface(0xAB), at: 200)
+        _ = heal(&c, surface(0xAB), at: 0)
+        let promoteA = heal(&c, surface(0xAB), at: 200)
         guard case let .cacheTile(slotA, _, _, _, _, _, _) = promoteA.commands.first else {
             return XCTFail("expected cacheTile for content A")
         }
         // Change to B, settle and promote B.
-        _ = observe(&c, surface(0xCD), at: 300) // revert A
-        _ = observe(&c, surface(0xCD), at: 500) // promote B
+        _ = heal(&c, surface(0xCD), at: 300) // revert A
+        _ = heal(&c, surface(0xCD), at: 500) // promote B
         // Change back to A: revert, then re-settle. A's content is still cached.
-        _ = observe(&c, surface(0xAB), at: 600) // revert B
-        let reAchievesA = observe(&c, surface(0xAB), at: 800)
+        _ = heal(&c, surface(0xAB), at: 600) // revert B
+        let reAchievesA = heal(&c, surface(0xAB), at: 800)
         guard case let .drawCachedTile(slot, x, y, w, h) = reAchievesA.commands.first else {
             return XCTFail("returning to cached content must dedup to drawCachedTile, got \(String(describing: reAchievesA.commands.first))")
         }
@@ -128,8 +175,8 @@ final class RegionCrispControllerTests: XCTestCase {
                 px[o] = v; px[o + 1] = v; px[o + 2] = v; px[o + 3] = v
             }
         }
-        _ = observe(&c, px, at: 0, width: w, height: h)
-        let e = observe(&c, px, at: 200, width: w, height: h)
+        _ = heal(&c, px, at: 0, width: w, height: h)
+        let e = heal(&c, px, at: 200, width: w, height: h)
         var slots: [UInt16] = []
         for command in e.commands {
             guard case let .cacheTile(slot, _, _, _, _, _, _) = command else {
@@ -149,8 +196,8 @@ final class RegionCrispControllerTests: XCTestCase {
     func testPartialEdgeTilesAndSequentialByteRanges() {
         var c = RegionCrispController(config: config(slots: 16))
         let w = 70, h = 70 // grid 64 -> tiles 64x64, 6x64, 64x6, 6x6
-        _ = observe(&c, surface(0xAB, width: w, height: h), at: 0, width: w, height: h)
-        let e = observe(&c, surface(0xAB, width: w, height: h), at: 200, width: w, height: h)
+        _ = heal(&c, surface(0xAB, width: w, height: h), at: 0, width: w, height: h)
+        let e = heal(&c, surface(0xAB, width: w, height: h), at: 200, width: w, height: h)
 
         var ranges: [(offset: Int, length: Int)] = []
         var sawCornerTile = false
@@ -179,11 +226,11 @@ final class RegionCrispControllerTests: XCTestCase {
     // payload), never a drawCachedTile referencing a slot the new client lacks.
     func testResetReestablishesBaselineAndDoesNotAssumeCachedSlots() {
         var c = RegionCrispController(config: config())
-        _ = observe(&c, surface(0xAB), at: 0)
-        _ = observe(&c, surface(0xAB), at: 200) // crisp + cached
+        _ = heal(&c, surface(0xAB), at: 0)
+        _ = heal(&c, surface(0xAB), at: 200) // crisp + cached
         c.reset()
-        XCTAssertTrue(observe(&c, surface(0xAB), at: 300).isEmpty, "reset must re-establish a baseline, not assume crisp")
-        let e = observe(&c, surface(0xAB), at: 500)
+        XCTAssertTrue(heal(&c, surface(0xAB), at: 300).isEmpty, "reset must re-establish a baseline, not assume crisp")
+        let e = heal(&c, surface(0xAB), at: 500)
         guard case .cacheTile = e.commands.first else {
             return XCTFail("after reset, content must re-promote via cacheTile, not a stale drawCachedTile")
         }
@@ -195,18 +242,18 @@ final class RegionCrispControllerTests: XCTestCase {
     // first-ever observe is NOT a resize and must not raise the flag.
     func testSurfaceResizeReestablishesBaselineAndFlagsReset() {
         var c = RegionCrispController(config: config())
-        let first = observe(&c, surface(0xAB), at: 0)
+        let first = heal(&c, surface(0xAB), at: 0)
         XCTAssertFalse(first.surfaceDidReset, "the first observe from a 0x0 baseline is not a resize")
-        let crisp = observe(&c, surface(0xAB), at: 200)
+        let crisp = heal(&c, surface(0xAB), at: 200)
         guard case .cacheTile = crisp.commands.first else {
             return XCTFail("expected the tile to promote before the resize")
         }
         // Resize to a different geometry: the transition frame establishes a baseline only.
-        let resized = observe(&c, surface(0xCD, width: 128, height: 64), at: 300, width: 128, height: 64)
+        let resized = heal(&c, surface(0xCD, width: 128, height: 64), at: 300, width: 128, height: 64)
         XCTAssertTrue(resized.surfaceDidReset, "a geometry change must flag a surface reset")
         XCTAssertTrue(resized.isEmpty, "the resize transition frame re-establishes a baseline, it must not draw")
         // After the new geometry settles, tiles promote afresh against the new surface.
-        let repromote = observe(&c, surface(0xCD, width: 128, height: 64), at: 500, width: 128, height: 64)
+        let repromote = heal(&c, surface(0xCD, width: 128, height: 64), at: 500, width: 128, height: 64)
         XCTAssertFalse(repromote.surfaceDidReset, "a steady frame at stable dims is not a resize")
         XCTAssertEqual(repromote.commands.count, 2, "a 128x64 surface at grid 64 has two tiles")
         for command in repromote.commands {
@@ -223,21 +270,21 @@ final class RegionCrispControllerTests: XCTestCase {
     func testEvictedSlotRePromotesViaFreshCacheTile() {
         var c = RegionCrispController(config: config(slots: 1))
         // One slot. Promote content A (claims the only slot).
-        _ = observe(&c, surface(0xAA), at: 0)
-        let promoteA = observe(&c, surface(0xAA), at: 200)
+        _ = heal(&c, surface(0xAA), at: 0)
+        let promoteA = heal(&c, surface(0xAA), at: 200)
         guard case let .cacheTile(slotA, _, _, _, _, _, _) = promoteA.commands.first else {
             return XCTFail("expected content A to promote")
         }
         // Switch to B: revert A, then settle and promote B, which evicts A from the slot.
-        _ = observe(&c, surface(0xBB), at: 300) // revert A
-        let promoteB = observe(&c, surface(0xBB), at: 500)
+        _ = heal(&c, surface(0xBB), at: 300) // revert A
+        let promoteB = heal(&c, surface(0xBB), at: 500)
         guard case let .cacheTile(slotB, _, _, _, _, _, _) = promoteB.commands.first else {
             return XCTFail("expected content B to promote and evict A")
         }
         XCTAssertEqual(slotB, slotA, "with one slot, B must reuse A's evicted slot")
         // Back to A: A's slot now holds B, so A must re-cache fresh, not draw a stale slot.
-        _ = observe(&c, surface(0xAA), at: 600) // revert B
-        let reAchievesA = observe(&c, surface(0xAA), at: 800)
+        _ = heal(&c, surface(0xAA), at: 600) // revert B
+        let reAchievesA = heal(&c, surface(0xAA), at: 800)
         guard case let .cacheTile(_, _, _, _, _, _, br) = reAchievesA.commands.first else {
             return XCTFail("evicted content must re-promote via a fresh cacheTile, got \(String(describing: reAchievesA.commands.first))")
         }
@@ -249,8 +296,8 @@ final class RegionCrispControllerTests: XCTestCase {
     // counter exists so a genuine compression failure is diagnosable, not silent.
     func testDroppedCrispTileCountStaysZeroInNormalFlow() {
         var c = RegionCrispController(config: config())
-        _ = observe(&c, surface(0x10), at: 0)
-        _ = observe(&c, surface(0x10), at: 200)
+        _ = heal(&c, surface(0x10), at: 0)
+        _ = heal(&c, surface(0x10), at: 200)
         XCTAssertEqual(c.droppedCrispTileCount, 0)
         XCTAssertEqual(c.throttledCrispTileCount, 0)
     }
@@ -282,8 +329,8 @@ final class RegionCrispControllerTests: XCTestCase {
     // stops being crisp and must re-settle before it sharpens again.
     func testDamageEagerlyRevertsCrispTileToVideo() {
         var c = RegionCrispController(config: config())
-        _ = observe(&c, surface(0xAB), at: 0)
-        guard case .cacheTile = observe(&c, surface(0xAB), at: 200).commands.first else {
+        _ = heal(&c, surface(0xAB), at: 0)
+        guard case .cacheTile = heal(&c, surface(0xAB), at: 200).commands.first else {
             return XCTFail("expected the tile to promote to crisp")
         }
         let reverts = c.reactToDamage([PixelRect(x: 10, y: 10, width: 5, height: 5)], nowMs: 250)
@@ -293,8 +340,8 @@ final class RegionCrispControllerTests: XCTestCase {
         XCTAssertEqual([x, y, w, h], [0, 0, 64, 64])
         // No longer crisp: the unchanged content must re-settle (not dedup as still-crisp),
         // then re-promote from the still-cached slot once the settle window passes again.
-        XCTAssertTrue(observe(&c, surface(0xAB), at: 300).isEmpty, "a freshly reverted tile is not immediately crisp")
-        guard case .drawCachedTile = observe(&c, surface(0xAB), at: 600).commands.first else {
+        XCTAssertTrue(heal(&c, surface(0xAB), at: 300).isEmpty, "a freshly reverted tile is not immediately crisp")
+        guard case .drawCachedTile = heal(&c, surface(0xAB), at: 600).commands.first else {
             return XCTFail("after an eager revert the unchanged tile re-promotes from cache")
         }
     }
@@ -304,8 +351,8 @@ final class RegionCrispControllerTests: XCTestCase {
     func testDamageRevertsOnlyOverlappedCrispTiles() {
         var c = RegionCrispController(config: config())
         let s = surface(0xCD, width: 128, height: 128)
-        _ = observe(&c, s, at: 0, width: 128, height: 128)
-        _ = observe(&c, s, at: 200, width: 128, height: 128) // all four tiles crisp
+        _ = heal(&c, s, at: 0, width: 128, height: 128)
+        _ = heal(&c, s, at: 200, width: 128, height: 128) // all four tiles crisp
         let reverts = c.reactToDamage([PixelRect(x: 0, y: 0, width: 10, height: 10)], nowMs: 250)
         XCTAssertEqual(reverts.count, 1, "only the crisp tile the damage overlaps reverts")
         XCTAssertTrue(c.reactToDamage([PixelRect(x: 0, y: 0, width: 10, height: 10)], nowMs: 260).isEmpty,
@@ -319,15 +366,91 @@ final class RegionCrispControllerTests: XCTestCase {
         let cfg = RegionCrispConfig(tileGridPx: grid, settleWindowMs: settle, cacheSlots: 16, maxBytesPerWindow: 1)
         var c = RegionCrispController(config: cfg)
         let s = distinctTilesSurface(width: 128, height: 128) // four distinct tiles
-        _ = observe(&c, s, at: 0, width: 128, height: 128)
+        _ = heal(&c, s, at: 0, width: 128, height: 128)
         func cacheTileCount(_ e: RegionCrispEmission) -> Int {
             e.commands.filter { if case .cacheTile = $0 { return true }; return false }.count
         }
-        let w1 = observe(&c, s, at: 200, width: 128, height: 128)
+        let w1 = heal(&c, s, at: 200, width: 128, height: 128)
         XCTAssertEqual(cacheTileCount(w1), 1, "a 1-byte budget admits one fresh cacheTile per window")
         XCTAssertGreaterThan(c.throttledCrispTileCount, 0, "the over-budget settled tiles throttle")
-        let w2 = observe(&c, s, at: 300, width: 128, height: 128)
+        let w2 = heal(&c, s, at: 300, width: 128, height: 128)
         XCTAssertEqual(cacheTileCount(w2), 1, "the next window emits the next throttled tile")
+    }
+
+    // MARK: - Damage-gated observe(changedRects:) and hasDueCandidates
+
+    // Gated promotion: after a tile is tracked and has settled, a promote-only pass
+    // (observe with an empty changedRects) promotes it because it is a due candidate.
+    // A not-yet-settled tile is not visited and does not promote.
+    func testGatedPromotionOnlyForDueCandidates() {
+        var c = RegionCrispController(config: config())
+        // Establish a baseline via a damage pass covering the tile.
+        let rect = PixelRect(x: 0, y: 0, width: 64, height: 64)
+        XCTAssertTrue(observe(&c, surface(0xAB), at: 0, changedRects: [rect]).isEmpty,
+                      "first sight only establishes a baseline")
+        // Not yet settled: a promote-only pass must not promote.
+        XCTAssertTrue(observe(&c, surface(0xAB), at: 100, changedRects: []).isEmpty,
+                      "100ms < 150ms settle: not a due candidate yet")
+        // Settled: the promote-only pass now promotes it even with no damage.
+        let promoted = observe(&c, surface(0xAB), at: 200, changedRects: [])
+        guard case .cacheTile = promoted.commands.first, promoted.commands.count == 1 else {
+            return XCTFail("a due candidate must promote on a promote-only pass, got \(promoted.commands)")
+        }
+    }
+
+    // Trusted crisp tile (ADR-0036 tradeoff): once a tile is crisp, a gated pass that does
+    // NOT name its rect trusts it and does not re-hash it. So even if its pixels changed,
+    // the gated pass leaves it crisp; only damage or a heal reconcile catches the change.
+    func testCrispTileTrustedByGatedPassWhenNotDamaged() {
+        var c = RegionCrispController(config: config())
+        let rect = PixelRect(x: 0, y: 0, width: 64, height: 64)
+        _ = observe(&c, surface(0xAB), at: 0, changedRects: [rect])
+        guard case .cacheTile = observe(&c, surface(0xAB), at: 200, changedRects: [rect]).commands.first else {
+            return XCTFail("expected the tile to promote to crisp")
+        }
+        // Content changed, but the gated pass is not told about this rect: the crisp tile
+        // is trusted and not re-hashed, so nothing is emitted (no stale revert either).
+        XCTAssertTrue(observe(&c, surface(0xCD), at: 300, changedRects: []).isEmpty,
+                      "a crisp tile is trusted until damage or a heal reconcile")
+        // A heal reconcile is the safety net that catches the missed change.
+        let healed = heal(&c, surface(0xCD), at: 400)
+        XCTAssertEqual(healed.commands, [.revertTileToVideo(x: 0, y: 0, width: 64, height: 64)],
+                       "the heal reconcile catches the OS-under-reported change")
+    }
+
+    // Promote-time re-hash safety: a due candidate whose pixels actually changed (damage
+    // missed it, so it arrives via a promote-only pass) must NOT be cached stale. The
+    // promote-time hash sees the change, resets its settle timer, and emits nothing for it.
+    func testGatedPromoteRehashesAndNeverCachesStale() {
+        var c = RegionCrispController(config: config())
+        let rect = PixelRect(x: 0, y: 0, width: 64, height: 64)
+        _ = observe(&c, surface(0xAB), at: 0, changedRects: [rect]) // baseline hash(A)
+        // The tile is now a due candidate (settled), but its pixels changed to B and the
+        // damage signal missed it. The promote-only pass re-hashes at promote time, sees B
+        // != A, resets the settle timer, and emits nothing (no stale cacheTile for A or B).
+        let due = observe(&c, surface(0xCD), at: 200, changedRects: [])
+        XCTAssertTrue(due.isEmpty, "a changed due candidate must re-hash and not cache stale")
+        // Not yet settled at the new hash: still nothing.
+        XCTAssertTrue(observe(&c, surface(0xCD), at: 300, changedRects: []).isEmpty,
+                      "the re-hashed content must serve its own settle window")
+        // After its own settle window, the true content B promotes cleanly.
+        let promoted = observe(&c, surface(0xCD), at: 400, changedRects: [])
+        guard case let .cacheTile(_, _, _, _, _, _, br) = promoted.commands.first else {
+            return XCTFail("the re-hashed content must promote after settling, got \(promoted.commands)")
+        }
+        XCTAssertGreaterThan(br.length, 0, "a fresh cacheTile carries its compressed payload for B")
+    }
+
+    // hasDueCandidates: false when no tracked tile has settled, true once one passes the
+    // settle window, and false again after those tiles have been promoted to crisp.
+    func testHasDueCandidatesReflectsSettleState() {
+        var c = RegionCrispController(config: config())
+        let rect = PixelRect(x: 0, y: 0, width: 64, height: 64)
+        _ = observe(&c, surface(0xAB), at: 0, changedRects: [rect]) // baseline, fresh
+        XCTAssertFalse(c.hasDueCandidates(nowMs: 100), "fresh tile inside the settle window is not due")
+        XCTAssertTrue(c.hasDueCandidates(nowMs: 200), "past the settle window the tile is a due candidate")
+        _ = observe(&c, surface(0xAB), at: 200, changedRects: []) // promote it to crisp
+        XCTAssertFalse(c.hasDueCandidates(nowMs: 9999), "a crisp tile is no longer a due candidate")
     }
 
     // MARK: - CrispPacingGate (per-second crisp byte cap; not a motion gate)

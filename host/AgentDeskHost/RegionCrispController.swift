@@ -135,7 +135,12 @@ struct RegionCrispController {
         hasObserved = false
     }
 
-    mutating func observe(
+    // Full-surface reconciliation (the coherence safety net). Visits every grid tile,
+    // row-major, re-hashing each from the passed pixels. This catches OS-damage
+    // under-reporting: a crisp tile whose content changed without a damage rect is only
+    // ever caught here (the gated observe trusts crisp tiles it is not told changed).
+    // Byte-for-byte the pre-split observe() behavior.
+    mutating func healScan(
         pixels: Data,
         width: Int,
         height: Int,
@@ -144,19 +149,119 @@ struct RegionCrispController {
     ) -> RegionCrispEmission {
         let grid = config.tileGridPx
         guard grid > 0, width > 0, height > 0 else { return .none }
+        let surfaceDidReset = prepareSurface(width: width, height: height)
+
+        var visit: [CellKey] = []
+        var y = 0
+        while y < height {
+            var x = 0
+            while x < width {
+                visit.append(CellKey(x: x, y: y))
+                x += grid
+            }
+            y += grid
+        }
+        return reconcile(
+            cells: visit, pixels: pixels, width: width, height: height,
+            bytesPerRow: bytesPerRow, nowMs: nowMs, surfaceDidReset: surfaceDidReset
+        )
+    }
+
+    // Damage-gated reconciliation. Visits only the union of:
+    //   (a) tiles overlapping any rect in `changedRects` (clamped + grid-snapped exactly
+    //       like reactToDamage's walk), and
+    //   (b) non-crisp cells whose settle window has elapsed (the due-for-promotion set).
+    // Already-crisp tiles NOT in that set are trusted and not re-hashed, so crisp work is
+    // damage-proportional. `changedRects` may be empty: then it is a promote-only pass over
+    // the due candidates. The coherence invariant holds because every visited tile
+    // (including promote candidates) is re-hashed from the passed pixels before any draw.
+    mutating func observe(
+        pixels: Data,
+        width: Int,
+        height: Int,
+        bytesPerRow: Int,
+        nowMs: Int,
+        changedRects: [PixelRect]
+    ) -> RegionCrispEmission {
+        let grid = config.tileGridPx
+        guard grid > 0, width > 0, height > 0 else { return .none }
+        let surfaceDidReset = prepareSurface(width: width, height: height)
+
+        // (a) tiles overlapping the damage rects, clamped and grid-snapped.
+        var keys = Set<CellKey>()
+        for rect in changedRects {
+            let clamped = rect.clamped(toWidth: width, height: height)
+            guard clamped.area > 0 else { continue }
+            var ty = (clamped.y / grid) * grid
+            while ty < clamped.maxY {
+                var tx = (clamped.x / grid) * grid
+                while tx < clamped.maxX {
+                    keys.insert(CellKey(x: tx, y: ty))
+                    tx += grid
+                }
+                ty += grid
+            }
+        }
+        // (b) non-crisp cells whose settle window has elapsed (due for promotion). A
+        // first-sight cell with no state yet is not tracked, so it is picked up only via
+        // damage (a) or a heal reconcile, matching the old baseline-then-settle cadence.
+        for (key, state) in cells where state.crispHash == nil
+            && nowMs - state.stableSinceMs >= config.settleWindowMs {
+            keys.insert(key)
+        }
+
+        // Deterministic row-major visit order (sort by y then x), so byteRanges and the
+        // per-frame slot budget behave identically regardless of Set iteration order.
+        let visit = keys.sorted { $0.y != $1.y ? $0.y < $1.y : $0.x < $1.x }
+        return reconcile(
+            cells: visit, pixels: pixels, width: width, height: height,
+            bytesPerRow: bytesPerRow, nowMs: nowMs, surfaceDidReset: surfaceDidReset
+        )
+    }
+
+    // True iff any tracked non-crisp cell's settle window has elapsed. Non-mutating and
+    // pixel-free: a cheap timestamp scan the transport uses to early-out of a promote-only
+    // observe pass when nothing is due.
+    func hasDueCandidates(nowMs: Int) -> Bool {
+        for state in cells.values where state.crispHash == nil
+            && nowMs - state.stableSinceMs >= config.settleWindowMs {
+            return true
+        }
+        return false
+    }
+
+    // Apply the geometry-change reset (drop per-tile state + slot cache on a genuine
+    // resize) and mark the surface observed. Returns whether a wire-level resetSurface is
+    // needed this frame: only a genuine geometry change, never the first-ever observe (the
+    // transport already sends one on lane attach, so the first frame suppresses it).
+    private mutating func prepareSurface(width: Int, height: Int) -> Bool {
         var surfaceDidReset = false
         if width != lastWidth || height != lastHeight {
             cells.removeAll()
             cache.reset()
-            // Only a genuine geometry change (not the first-ever observe) needs a
-            // wire-level resetSurface; the transport already sends one on lane attach, so
-            // suppress the redundant signal on the very first frame.
             surfaceDidReset = hasObserved
             lastWidth = width
             lastHeight = height
         }
         hasObserved = true
+        return surfaceDidReset
+    }
 
+    // The shared per-tile decision core. Visits the given cells in the given order,
+    // re-hashing each from the passed pixels and running the identical first-sight /
+    // changed-revert / settle-promote logic for every one. healScan passes all grid cells;
+    // observe(changedRects:) passes the damage+due union. Neither the per-tile decision,
+    // the pending/commit staging, nor the emission shape depends on which method called in.
+    private mutating func reconcile(
+        cells visit: [CellKey],
+        pixels: Data,
+        width: Int,
+        height: Int,
+        bytesPerRow: Int,
+        nowMs: Int,
+        surfaceDidReset: Bool
+    ) -> RegionCrispEmission {
+        let grid = config.tileGridPx
         var commands: [OwnedGraphicsCommand] = []
         var payload = Data()
         // Cap new slot assignments per frame to the cache capacity. The cache cannot
@@ -166,74 +271,70 @@ struct RegionCrispController {
         // the video floor this frame and retry next frame (deduping once committed).
         var assignsThisFrame = 0
 
-        var y = 0
-        while y < height {
+        for key in visit {
+            let x = key.x
+            let y = key.y
+            let w = min(grid, width - x)
             let h = min(grid, height - y)
-            var x = 0
-            while x < width {
-                let w = min(grid, width - x)
-                defer { x += grid }
-                guard let (tile, hash) = OwnedTileCodec.extractTileWithHash(
-                    from: pixels, surfaceWidth: width, surfaceHeight: height,
-                    bytesPerRow: bytesPerRow, x: x, y: y, width: w, height: h
-                ) else { continue }
-                let key = CellKey(x: x, y: y)
+            guard w > 0, h > 0 else { continue }
+            guard let (tile, hash) = OwnedTileCodec.extractTileWithHash(
+                from: pixels, surfaceWidth: width, surfaceHeight: height,
+                bytesPerRow: bytesPerRow, x: x, y: y, width: w, height: h
+            ) else { continue }
 
-                guard var state = cells[key] else {
-                    // First sight: establish baseline, never emit on the same frame.
-                    cells[key] = CellState(hash: hash, stableSinceMs: nowMs, crispHash: nil)
-                    continue
-                }
-
-                if hash != state.hash {
-                    // Changed: eager revert if this tile was showing crisp.
-                    if state.crispHash != nil {
-                        commands.append(.revertTileToVideo(x: x, y: y, width: w, height: h))
-                    }
-                    state.hash = hash
-                    state.stableSinceMs = nowMs
-                    state.crispHash = nil
-                    cells[key] = state
-                    continue
-                }
-
-                // Unchanged this frame.
-                if state.crispHash == hash { continue } // already crisp
-                guard nowMs - state.stableSinceMs >= config.settleWindowMs else { continue }
-
-                // Settled long enough: promote to crisp.
-                if let slot = cache.lookup(hash: hash, bytes: tile) {
-                    cache.touch(slot: slot)
-                    commands.append(.drawCachedTile(slot: slot, x: x, y: y, width: w, height: h))
-                    state.crispHash = hash
-                    cells[key] = state
-                } else if assignsThisFrame >= config.cacheSlots || payload.count >= config.maxBytesPerWindow {
-                    // Out of fresh slots, or this window's byte budget is spent: leave on the
-                    // video floor and retry next window (dedups once committed). The budget
-                    // check reads the bytes already emitted this window, so the first
-                    // over-budget tile is the last one sent and the rest throttle without
-                    // paying for compression. This spreads a full-surface re-cache over many
-                    // windows instead of one MB-scale burst.
-                    throttledCrispTileCount += 1
-                } else if let compressed = OwnedTileCodec.compressLZFSE(tile) {
-                    let slot = cache.assign(hash: hash, bytes: tile)
-                    assignsThisFrame += 1
-                    let offset = payload.count
-                    payload.append(compressed)
-                    commands.append(.cacheTile(
-                        slot: slot, x: x, y: y, width: w, height: h,
-                        compression: .lzfse,
-                        byteRange: OwnedGraphicsByteRange(offset: offset, length: compressed.count)
-                    ))
-                    state.crispHash = hash
-                    cells[key] = state
-                } else {
-                    // Compression failed: leave the tile on the video floor, but make the
-                    // drop diagnosable rather than swallowing it (review M2/m6).
-                    droppedCrispTileCount += 1
-                }
+            guard var state = cells[key] else {
+                // First sight: establish baseline, never emit on the same frame.
+                cells[key] = CellState(hash: hash, stableSinceMs: nowMs, crispHash: nil)
+                continue
             }
-            y += grid
+
+            if hash != state.hash {
+                // Changed: eager revert if this tile was showing crisp.
+                if state.crispHash != nil {
+                    commands.append(.revertTileToVideo(x: x, y: y, width: w, height: h))
+                }
+                state.hash = hash
+                state.stableSinceMs = nowMs
+                state.crispHash = nil
+                cells[key] = state
+                continue
+            }
+
+            // Unchanged this frame.
+            if state.crispHash == hash { continue } // already crisp
+            guard nowMs - state.stableSinceMs >= config.settleWindowMs else { continue }
+
+            // Settled long enough: promote to crisp.
+            if let slot = cache.lookup(hash: hash, bytes: tile) {
+                cache.touch(slot: slot)
+                commands.append(.drawCachedTile(slot: slot, x: x, y: y, width: w, height: h))
+                state.crispHash = hash
+                cells[key] = state
+            } else if assignsThisFrame >= config.cacheSlots || payload.count >= config.maxBytesPerWindow {
+                // Out of fresh slots, or this window's byte budget is spent: leave on the
+                // video floor and retry next window (dedups once committed). The budget
+                // check reads the bytes already emitted this window, so the first
+                // over-budget tile is the last one sent and the rest throttle without
+                // paying for compression. This spreads a full-surface re-cache over many
+                // windows instead of one MB-scale burst.
+                throttledCrispTileCount += 1
+            } else if let compressed = OwnedTileCodec.compressLZFSE(tile) {
+                let slot = cache.assign(hash: hash, bytes: tile)
+                assignsThisFrame += 1
+                let offset = payload.count
+                payload.append(compressed)
+                commands.append(.cacheTile(
+                    slot: slot, x: x, y: y, width: w, height: h,
+                    compression: .lzfse,
+                    byteRange: OwnedGraphicsByteRange(offset: offset, length: compressed.count)
+                ))
+                state.crispHash = hash
+                cells[key] = state
+            } else {
+                // Compression failed: leave the tile on the video floor, but make the
+                // drop diagnosable rather than swallowing it (review M2/m6).
+                droppedCrispTileCount += 1
+            }
         }
 
         // Slot assignments are staged in `cache` but NOT committed here. The transport
