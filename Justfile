@@ -170,6 +170,10 @@ build-agent-webview:
     rm -rf "$OUT"
     mkdir -p "$OUT"
     cp -R "$DASHBOARD/webview-dist/." "$OUT/"
+    # Re-create the tracked .gitkeep that the rm -rf above removed. It keeps the
+    # directory tracked by git so the Xcode folder reference resolves on a fresh
+    # checkout; a build must not leave it deleted in git status.
+    touch "$OUT/.gitkeep"
     echo "build-agent-webview: DONE"
 
 # Verify the webview bundle was built and landed correctly. Checks that index.html
