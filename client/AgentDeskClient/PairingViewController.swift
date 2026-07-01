@@ -272,6 +272,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                         self.startDiagnosticsHandlingIfNeeded(channel: channel)
                         self.sendReconnectDiagnosticsAnnouncementIfNeeded(channel: channel)
                         self.sendCurrentClientConfig()
+                        self.mountAgentSurface(channel: channel)
                     }
                     self.render()
                     return
@@ -393,6 +394,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     func teardownMediaTransport() {
+        teardownAgentSurface()
         mediaTransport?.stop()
         mediaTransport = nil
         videoSink?.view.removeFromSuperview()

@@ -80,6 +80,10 @@
 		B00000000000000000000FA3 /* ClientDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FA2 /* ClientDiagnostics.swift */; };
 		B00000000000000000000FA4 /* ClientDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FA2 /* ClientDiagnostics.swift */; };
 		B00000000000000000000FC1 /* AgentFeedWebview in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FC0 /* AgentFeedWebview */; };
+		B00000000000000000000FD1 /* AgentFeedSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FD0 /* AgentFeedSurface.swift */; };
+		B00000000000000000000FD2 /* AgentFeedSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FD0 /* AgentFeedSurface.swift */; };
+		B00000000000000000000FD4 /* PairingViewController+AgentSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FD3 /* PairingViewController+AgentSurface.swift */; };
+		B00000000000000000000FD7 /* AgentFeedSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FD6 /* AgentFeedSurfaceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -132,6 +136,9 @@
 		B00000000000000000000F6B /* OwnedMediaVideoDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaVideoDecoderTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000FA2 /* ClientDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientDiagnostics.swift; sourceTree = "<group>"; };
 		B00000000000000000000FC0 /* AgentFeedWebview */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AgentFeedWebview; sourceTree = "<group>"; };
+		B00000000000000000000FD0 /* AgentFeedSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedSurface.swift; sourceTree = "<group>"; };
+		B00000000000000000000FD3 /* PairingViewController+AgentSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+AgentSurface.swift"; sourceTree = "<group>"; };
+		B00000000000000000000FD6 /* AgentFeedSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedSurfaceTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000141 /* AgentDeskClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000142 /* AgentDeskClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -211,6 +218,8 @@
 				B000000000000000000009A2 /* CursorPointerView.swift */,
 				B000000000000000000009C2 /* CursorImageStore.swift */,
 				B0000000000000000000012D /* PairingViewController+Gestures.swift */,
+				B00000000000000000000FD0 /* AgentFeedSurface.swift */,
+				B00000000000000000000FD3 /* PairingViewController+AgentSurface.swift */,
 				B00000000000000000000118 /* Assets.xcassets */,
 				B00000000000000000000FC0 /* AgentFeedWebview */,
 				B0000000000000000000010A /* Info.plist */,
@@ -231,6 +240,7 @@
 				B00000000000000000000F6B /* OwnedMediaVideoDecoderTests.swift */,
 				B00000000000000000000128 /* EdgeFollowTests.swift */,
 				B00000000000000000000FB0 /* AgentFeedWireTests.swift */,
+				B00000000000000000000FD6 /* AgentFeedSurfaceTests.swift */,
 			);
 			path = AgentDeskClientTests;
 			sourceTree = "<group>";
@@ -376,6 +386,8 @@
 				B000000000000000000009A1 /* CursorPointerView.swift in Sources */,
 				B000000000000000000009C1 /* CursorImageStore.swift in Sources */,
 				B0000000000000000000021E /* PairingViewController+Gestures.swift in Sources */,
+				B00000000000000000000FD1 /* AgentFeedSurface.swift in Sources */,
+				B00000000000000000000FD4 /* PairingViewController+AgentSurface.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -418,6 +430,8 @@
 				B00000000000000000000F6A /* OwnedMediaVideoDecoder.swift in Sources */,
 				B00000000000000000000F6C /* OwnedMediaVideoDecoderTests.swift in Sources */,
 				B00000000000000000000FB1 /* AgentFeedWireTests.swift in Sources */,
+				B00000000000000000000FD2 /* AgentFeedSurface.swift in Sources */,
+				B00000000000000000000FD7 /* AgentFeedSurfaceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
