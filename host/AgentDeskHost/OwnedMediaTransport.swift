@@ -42,12 +42,23 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var surfaceInitialized = false
         var lastCrispNs: UInt64 = 0
         var lastConvertWarnNs: UInt64 = 0
+        // ADR-0036: crisp windows since the last full-surface heal. Advances on every
+        // window that clears the interval gate (including gated windows that early-out),
+        // so the periodic heal that reconciles trusted crisp tiles against OS damage
+        // under-reporting fires on schedule regardless of how many gated windows ran.
+        var crispWindowsSinceHeal: Int = 0
         // Caps crisp's sustained link share at the per-second byte budget (see
         // CrispPacingGate) so a large settle cannot flood the QUIC link it shares with the
         // video datagrams. Which regions crisp is decided per-tile by the controller.
         var pacing = CrispPacingGate(maxBytesPerSecond: Config.ownedMediaCrispMaxBytesPerSecond)
     }
     private let crispGate = OSAllocatedUnfairLock<CrispState>(initialState: CrispState())
+
+    // ADR-0036: which reconciliation a crisp window runs. `heal` is the periodic
+    // full-surface pass (also forced before the first baseline); `gated` visits only the
+    // damage rects plus tiles due for promotion. A window with neither (no work) never
+    // reaches here: it early-outs before the BGRA convert.
+    private enum CrispWindowMode { case heal, gated }
 
     init(
         source: VideoFrameSource,
@@ -225,6 +236,11 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         let shouldRun = crispGate.withLock { state -> Bool in
             if nowNs &- state.lastCrispNs < intervalNs { return false }
             state.lastCrispNs = nowNs
+            // A new crisp window started: advance the heal counter here, before the pacing
+            // gate, so it counts every interval-clearing window. Incrementing after the
+            // pacing gate would freeze it during a pacing-saturated settle (the byte budget
+            // spent across consecutive windows) and defer the heal indefinitely.
+            state.crispWindowsSinceHeal += 1
             return true
         }
         guard shouldRun else { return }
@@ -239,6 +255,37 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             state.pacing.mayEmit(nowNs: nowNs)
         }
         guard mayEmit else { return }
+        let nowMs = Int(nowNs / 1_000_000)
+        // ADR-0036: decide this window's mode and possibly early-out before the expensive
+        // YUV->BGRA convert and full-surface hash. The heal counter was already advanced in
+        // the interval-gate lock above (it counts every interval-clearing window); here we
+        // only read it.
+        //
+        // A full heal is due when the surface has no baseline yet, gating is disabled
+        // (healInterval == 0), or the counter has reached the interval. Otherwise this is a
+        // damage-gated window: if it has no damage AND no settled tile due for promotion,
+        // there is nothing to do, so skip the convert and hash entirely.
+        //
+        // Staleness bound: the counter advances per interval-window, but the heal RUN (like
+        // all crisp emission) is still behind the per-second pacing gate above, so a
+        // pacing-saturated stretch defers the heal until the byte budget rolls over (~1s).
+        // During that stretch, changed crisp tiles are still reverted via processCrispDamage
+        // on any non-empty damage. So the worst-case staleness of an OS-under-reported change
+        // to a crisp tile is roughly healInterval windows plus up to ~1s of pacing rollover,
+        // and is self-bounded.
+        let mode: CrispWindowMode? = crispGate.withLock { state in
+            let healInterval = Config.ownedMediaCrispHealIntervalWindows
+            let healDue = !state.surfaceInitialized
+                || healInterval == 0
+                || state.crispWindowsSinceHeal >= healInterval
+            if healDue { return .heal }
+            let hasWork = !frame.damageRects.isEmpty
+                || state.controller.hasDueCandidates(nowMs: nowMs)
+            return hasWork ? .gated : nil
+        }
+        // Gated window with no work: nothing was staged, so no commit/discard is needed and
+        // the heal counter (already incremented) still fires the next heal on time.
+        guard let mode else { return }
         guard let surface = Self.extractBGRA(frame.pixelBuffer) else {
             // The capture buffer could not be turned into BGRA (unsupported pixel format or
             // a failed conversion). Crisp cannot run this frame; the video floor still
@@ -255,19 +302,33 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             }
             return
         }
-        let nowMs = Int(nowNs / 1_000_000)
         crispGate.withLock { state in
-            // Interim: the full-surface reconciliation pass, byte-for-byte today's
-            // behavior. Wiring the damage-gated observe(changedRects:) here is a later
-            // transport unit (Unit A split only the controller). healScan preserves the
-            // exact pre-split semantics until then.
-            let emission = state.controller.healScan(
-                pixels: surface.data,
-                width: surface.width,
-                height: surface.height,
-                bytesPerRow: surface.bytesPerRow,
-                nowMs: nowMs
-            )
+            // A heal window fully reconciles every tile and resets the counter; a gated
+            // window visits only the damage rects plus tiles due for promotion. Between the
+            // mode-decision lock and here only a lane attach/reset can intervene (a rare,
+            // pre-existing window); running either pass on a just-reset controller is safe
+            // because it re-baselines from the passed pixels.
+            let emission: RegionCrispEmission
+            switch mode {
+            case .heal:
+                emission = state.controller.healScan(
+                    pixels: surface.data,
+                    width: surface.width,
+                    height: surface.height,
+                    bytesPerRow: surface.bytesPerRow,
+                    nowMs: nowMs
+                )
+                state.crispWindowsSinceHeal = 0
+            case .gated:
+                emission = state.controller.observe(
+                    pixels: surface.data,
+                    width: surface.width,
+                    height: surface.height,
+                    bytesPerRow: surface.bytesPerRow,
+                    nowMs: nowMs,
+                    changedRects: frame.damageRects
+                )
+            }
             // A geometry change resets the controller's tile state and slot cache; the
             // client must be told before any tile for the new surface lands, so force a
             // fresh resetSurface this window (see RegionCrispEmission.surfaceDidReset).

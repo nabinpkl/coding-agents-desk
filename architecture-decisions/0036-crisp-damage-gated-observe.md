@@ -28,7 +28,7 @@ Chose **Option C**. Option A is unsafe: an under-reported change to an already-c
 ### Consequences
 
 - Good, because a settled static screen does zero crisp hashing, and localized change costs scale with the damaged area.
-- Bad, because a change to a crisp tile that OS damage under-reports can show stale for up to one heal interval (~1s at default) before the heal reverts it. Accepted: reverting to video is always coherent (video is the live floor), so the cost is a momentary un-crispen, never wrong committed content.
+- Bad, because a change to a crisp tile that OS damage under-reports can show stale until the next heal. The heal counter advances every crisp window, but the heal run (like all crisp emission) is behind the per-second pacing gate, so under a pacing-saturated settle the heal defers until the byte budget rolls over. Worst case is therefore roughly one heal interval plus up to ~1s of pacing rollover; during that stretch, reverts still flow via `processCrispDamage` on any non-empty damage. Accepted: reverting to video is always coherent (video is the live floor), so the cost is a momentary un-crispen, never wrong committed content.
 - Neutral, because the promote path still re-hashes and verifies each tile before caching, so the cache/coherence invariant on emitted draws is unchanged.
 
 ### Confirmation
