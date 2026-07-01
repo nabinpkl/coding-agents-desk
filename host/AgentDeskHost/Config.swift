@@ -709,6 +709,18 @@ enum Config {
         environmentKey: "AGENTDESK_SPACE_THUMBNAIL_CAPTURE_TIMEOUT_MS",
         defaultValue: 8_000
     )
+    // Kill switch for the Space thumbnail capture pipeline (ADR-0006). When off,
+    // SpaceThumbnailProvider never captures regardless of client demand: no 3s
+    // refresh timer, no space-change observer, no composite. This pipeline shows
+    // up in host profiles (vImage/CoreGraphics compositing of every Space's
+    // windows) independent of the video stream, so disabling it is the lever for
+    // that CPU floor. Default on to preserve the desktop-strip previews; set the
+    // env to 0 to drop them and reclaim the CPU.
+    static let spaceThumbnailsEnabled: Bool = enabledFlag(
+        environmentKey: "AGENTDESK_SPACE_THUMBNAILS_ENABLED",
+        defaultValue: true,
+        environment: ProcessInfo.processInfo.environment
+    )
     // Experimental local-only switch backend. Default stays on the
     // stock Dock-swipe path; direct-set is for HITL diagnostics around
     // private SkyLight behavior.

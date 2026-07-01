@@ -157,7 +157,11 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
     }
 
     private func setCaptureEnabled(_ enabled: Bool) {
-        if enabled {
+        // ADR-0006 + kill switch: when thumbnails are disabled by config, treat
+        // any demand as "off" so the refresh timer and space-change observer never
+        // start and no compositing runs. scheduleCapture also guards, so direct
+        // forceRefresh calls no-op too.
+        if enabled && Config.spaceThumbnailsEnabled {
             logger.notice("thumbnails enabled")
             installSpaceChangeObserver()
             startRefreshLoop()
@@ -239,6 +243,10 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
     }
 
     private func scheduleCapture(reason: String) {
+        // Config kill switch: no capture on any path (timer, enable, force-refresh,
+        // space-change) when thumbnails are disabled. Defense-in-depth alongside
+        // setCaptureEnabled, which already prevents the timer/observer from starting.
+        guard Config.spaceThumbnailsEnabled else { return }
         // In-flight guard so a timer tick that lands while a slow
         // capture is still running just skips; the next tick (or the
         // forceRefresh / Space-change observer) will pick up.
