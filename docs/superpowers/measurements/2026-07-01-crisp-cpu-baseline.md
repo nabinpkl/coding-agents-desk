@@ -121,3 +121,39 @@ The constant costs, corrected:
 Levers, corrected: (1) crisp convert — convert only damaged sub-regions instead of
 the whole frame; (2) the floor — batch datagram packetization / relax pacing
 wakeups, and reduce per-frame drain overhead / capture rate at rest.
+
+## Unit D landed: sub-region render into a fast malloc buffer (sha 97ab460)
+
+Lever (1) is now implemented. `processCrisp` renders **only the grid-aligned damage
+bbox** (or the full frame on realloc) into a persistent `malloc` buffer via
+`OwnedMediaCrispConvert.renderRegion`, then `reconcile` hashes tiles out of that
+CPU-cached buffer. This replaced an interim IOSurface-backed attempt (call it
+Unit C) that had made `reconcile` hash slow GPU memory — a net CPU wash. Unit D
+reverts that and keeps the buffer in malloc.
+
+Live-measured on a clean sim bring-up (host + client both Release, sim paired over
+localhost), 8s `sample` on the adversarial churning-TUI screen (the same
+whole-screen-animating case as above; a localized-change desktop would be far
+cheaper and is where the real win shows):
+
+- **Host CPU ~32% avg** (19-43% tracking activity) — back to the healthy pre-Unit-C
+  Release baseline. Unit C's cost-relocation wash is gone.
+- **Convert collapsed.** The pixel-convert leaf `vImageConvert_AnyToAny` is ~187
+  samples vs the full-frame era's ~870 (CoreImage 356 + IOSurface 514). We now
+  convert only the damaged bbox and skip the full-frame YUV→BGRA round-trip.
+- **Hash is fast again.** `reconcile → OwnedTileCodec.extractTileWithHash` reads the
+  malloc buffer (`base`), heaviest single-stack subtree ~210 samples — normal
+  hashing, not Unit C's ~1026-sample slow-IOSurface blowup. No IOSurface reads
+  under the hash.
+- **VideoToolbox (HW HEVC) still dominates** the profile (~3343 samples on
+  `videotoolbox.compressionQueue`) but is hardware-offloaded and tracks screen
+  motion; crisp does not touch it.
+- Thumbnails again showed as a bursty ~725-sample blip (3s capture timer caught
+  mid-window), consistent with the "~2-3% averaged, not the floor" correction above.
+
+Interpretation: on a churning full-screen the total-CPU delta from Unit D is modest
+(the screen genuinely changes everywhere, so both the region and the hash are large),
+but the structural win is real and measured — the convert no longer pays for the whole
+frame, and the hash is off fast memory. On a localized-change desktop `renderRegion`
+converts a small bbox and `reconcile` visits a handful of tiles, so both costs fall
+proportionally; that case is not measurable from inside the captured animating session.
