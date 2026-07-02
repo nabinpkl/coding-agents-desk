@@ -18,9 +18,17 @@ motion_host_oslog := env_var_or_default("AGENTDESK_MOTION_HOST_OSLOG", "/tmp/age
 motion_host_stdio := env_var_or_default("AGENTDESK_MOTION_HOST_STDIO", "/tmp/agentdesk-motion-host-stdio.log")
 motion_client_log := env_var_or_default("AGENTDESK_MOTION_CLIENT_LOG", "/tmp/agentdesk-motion-client.log")
 iphone_log_device_udid := env_var_or_default("AGENTDESK_IOS_DEVICE_UDID", "")
-last_pair_url_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.last-pair-url"
-client_diagnostics_request_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.client-diagnostics-request.json"
-client_diagnostics_result_path := env_var_or_default("HOME", "") + "/Library/Application Support/AgentDesk/.client-diagnostics-result.json"
+# Host-written automation files live under the host's Application Support dir,
+# which is now rooted on the host bundle id (Config.applicationSupportDirectory).
+# Each host variant writes to its own tree, so the recipes select the stable or
+# dev pair-url path by variant. host_bundle_id / host_dev_bundle_id are defined
+# below (just resolves variables regardless of order).
+host_support_dir := env_var_or_default("HOME", "") + "/Library/Application Support/" + host_bundle_id
+host_dev_support_dir := env_var_or_default("HOME", "") + "/Library/Application Support/" + host_dev_bundle_id
+last_pair_url_path := host_support_dir + "/.last-pair-url"
+host_dev_last_pair_url_path := host_dev_support_dir + "/.last-pair-url"
+client_diagnostics_request_path := host_support_dir + "/.client-diagnostics-request.json"
+client_diagnostics_result_path := host_support_dir + "/.client-diagnostics-result.json"
 derived_data := env_var_or_default("AGENTDESK_DERIVED_DATA_PATH", justfile_directory() + "/.build/DerivedData")
 host_app := derived_data + "/Build/Products/Debug/AgentDeskHost.app"
 client_app := derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
@@ -31,6 +39,19 @@ client_sim_app := derived_data + "/Build/Products/Debug-iphonesimulator/AgentDes
 host_app_release := derived_data + "/Build/Products/Release/AgentDeskHost.app"
 client_app_release := derived_data + "/Build/Products/Release-iphoneos/AgentDeskClient.app"
 client_sim_app_release := derived_data + "/Build/Products/Release-iphonesimulator/AgentDeskClient.app"
+# Two coexisting HOST installs mirroring the client: the stable daily-driver and
+# an experimental "dev" host under test. They differ by bundle id (com.example.agentdesk.
+# AgentDeskHost / .dev), so each self-namespaces its logs, keychain, Application
+# Support state, launchd label, and tier-derived ports (Config.tier) and can run
+# CONCURRENTLY. The dev host builds into a SEPARATE derived-data dir: both share
+# PRODUCT_NAME (AgentDeskHost.app) so they would otherwise clobber on disk, and
+# the distinct path is how the kill step targets one variant without killing the
+# other (a bare `pkill -f AgentDeskHost` would kill both). Override ids via env.
+host_bundle_id := env_var_or_default("AGENTDESK_HOST_BUNDLE_ID", "com.example.agentdesk.AgentDeskHost")
+host_dev_bundle_id := env_var_or_default("AGENTDESK_HOST_DEV_BUNDLE_ID", "com.example.agentdesk.AgentDeskHost.dev")
+host_dev_derived_data := derived_data + "-host-dev"
+host_dev_app := host_dev_derived_data + "/Build/Products/Debug/AgentDeskHost.app"
+host_dev_app_release := host_dev_derived_data + "/Build/Products/Release/AgentDeskHost.app"
 # Two coexisting client installs: the stable daily-driver and an experimental
 # "dev" build under test. They differ only by bundle id, so iOS keeps both on
 # the phone. The dev build outputs to a SEPARATE derived-data dir because both
@@ -216,12 +237,19 @@ webview-smoke: build-agent-webview
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
 # everything with `just check-all`.
-check: ensure-sidecar-placeholder
+check variant="stable": ensure-sidecar-placeholder
+    #!/usr/bin/env bash
+    set -euo pipefail
     sh tools/media-architecture-guard.sh
     sh tools/launch-env-tests.sh
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
     sh tools/testflight-upload-tests.sh
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -derivedDataPath '{{derived_data}}' build test
+    if [ "{{variant}}" = "dev" ]; then
+        DD='{{host_dev_derived_data}}'; EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
+    else
+        DD='{{derived_data}}'; EXTRA=()
+    fi
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -derivedDataPath "$DD" ${EXTRA[@]+"${EXTRA[@]}"} build test
 
 # Client simulator tests. Boots the iPhone simulator and is the slow leg split
 # out of `check`. Run before committing client-side changes.
@@ -285,15 +313,29 @@ iphone-log-collect variant="stable":
 # AGENTDESK_OWNED_MEDIA_* is forwarded for one-shot owned media feel runs
 # with `just fresh-install`. The retained-tile repair knobs are documented
 # as AGENTDESK_HYBRID_* in .env.example.
-host-run:
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
-    -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
+# variant: "stable" (default) or "dev" (the experimental side-by-side host:
+# bundle id {{host_dev_bundle_id}}, DEV-badged icon, separate derived-data dir,
+# tier-derived ports). The dev host runs concurrently with the stable one.
+host-run variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{variant}}" = "dev" ]; then
+        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app}}'
+        EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
+    else
+        DD='{{derived_data}}'; APP='{{host_app}}'
+        EXTRA=()
+    fi
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
+    # Kill only THIS variant's running host, matched by its derived-data path, so
+    # relaunching one variant never kills the other (concurrent stacks).
+    pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
     sleep 1
     AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
-    open "{{host_app}}"
+    open "$APP"
     sleep 2
     AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh unset
-    pgrep -lf AgentDeskHost
+    pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true
 
 # Release-configuration twin of host-run: same kill + rebuild + relaunch lifecycle,
 # but -configuration Release so the host runs at shipped-build performance. A Debug
@@ -301,15 +343,24 @@ host-run:
 # per-byte Range loops); Release optimizes that away (~100% -> ~30% CPU). Used by the
 # fresh-install / sim-fresh-install feel-test composites. Every other host launch
 # (plain host-run, motion-verify, agent-feed-sim) stays Debug for fast iteration.
-host-run-release:
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
-    -kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
+host-run-release variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{variant}}" = "dev" ]; then
+        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app_release}}'
+        EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
+    else
+        DD='{{derived_data}}'; APP='{{host_app_release}}'
+        EXTRA=()
+    fi
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
+    pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
     sleep 1
     AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
-    open "{{host_app_release}}"
+    open "$APP"
     sleep 2
     AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh unset
-    pgrep -lf AgentDeskHost
+    pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true
 
 # Build client Debug for the iPhone and install (does not launch).
 # variant: "stable" (default) or "dev" (the experimental side-by-side install:
@@ -360,14 +411,16 @@ pair-iphone variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
     test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
-    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; else BID='{{client_bundle_id}}'; fi
-    rm -f "{{last_pair_url_path}}"
-    trap 'rm -f "{{last_pair_url_path}}"' EXIT
+    # dev client pairs with the dev host, which writes its pair URL under its own
+    # bundle-id Application Support tree; read that variant's path.
+    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; else BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; fi
+    rm -f "$PAIR_URL"
+    trap 'rm -f "$PAIR_URL"' EXIT
     kill -USR1 $(pgrep -f AgentDeskHost)
-    i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
-    test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
+    i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
-    URL="$(cat '{{last_pair_url_path}}')"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" xcrun devicectl device process launch --device {{ios_device}} --terminate-existing "$BID"
+    URL="$(cat "$PAIR_URL")"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" xcrun devicectl device process launch --device {{ios_device}} --terminate-existing "$BID"
 
 # Ask the running host to collect durable client diagnostics and write them under
 # /tmp. Uses the active QUIC input lane first and falls back to the foreground
@@ -400,14 +453,14 @@ iphone-console-run variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
     test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
-    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; else BID='{{client_bundle_id}}'; fi
-    rm -f "{{last_pair_url_path}}" "{{iphone_console_log}}"
-    trap 'rm -f "{{last_pair_url_path}}"' EXIT
+    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; else BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; fi
+    rm -f "$PAIR_URL" "{{iphone_console_log}}"
+    trap 'rm -f "$PAIR_URL"' EXIT
     kill -USR1 $(pgrep -f AgentDeskHost)
-    i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
-    test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
+    i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
-    URL="$(cat "{{last_pair_url_path}}")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
+    URL="$(cat "$PAIR_URL")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
 # Physical-device feel/diagnostic runs. Two launch modes x two client variants. All
 # rebuild and relaunch the host and reinstall the client (the "fresh" prefix is the
@@ -439,7 +492,7 @@ fresh-install:
 fresh-install-dev:
     just build-agent-sidecar
     just build-agent-webview
-    just host-run
+    just host-run dev
     just client-reinstall dev
     just pair-iphone dev
 
@@ -453,7 +506,7 @@ fresh-release-diagnostic-run:
 fresh-diagnostic-run-dev:
     just build-agent-sidecar
     just build-agent-webview
-    just host-run
+    just host-run dev
     just client-reinstall dev
     just iphone-console-run dev
 
@@ -741,7 +794,7 @@ client-archive-release variant="stable":
         MARKETING_VERSION='{{client_marketing_version}}' \
         CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
         AGENTDESK_GIT_SHA="$GIT_SHA" \
-        "${EXTRA[@]}" \
+        ${EXTRA[@]+"${EXTRA[@]}"} \
         -allowProvisioningUpdates \
         clean archive
 
