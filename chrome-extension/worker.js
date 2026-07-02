@@ -122,9 +122,9 @@ async function dispatchInput(cmd) {
   const tabId = recordingTabId;
   if (tabId == null) return;
   if (!(await ensureAttached(tabId))) return;
-  // ADR-0044 Tier B: the debugger banner is now shown for this tap, so its cost is already paid.
-  // Auto-upgrade to CDP high fidelity unless the user explicitly chose a mode in the popup.
-  if (!cdpUserSet && !cdpMode) setCdpMode(true, false);
+  // ADR-0044 Tier B is OPT-IN ONLY (popup "High fidelity"). We do NOT auto-upgrade on tap: the CDP
+  // flatten is lower fidelity than the rrweb replay for normal pages (no pseudo-elements, limited
+  // computed-style set, broken relative asset URLs), so a tap must never silently degrade the render.
   const target = { tabId };
   // Defense-in-depth (ADR-0040): clamp to finite, non-negative coordinates before dispatch, so a
   // compromised/buggy client cannot probe negative or non-finite points. CDP already ignores points

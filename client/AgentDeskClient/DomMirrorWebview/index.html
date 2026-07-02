@@ -9,9 +9,9 @@
   #stage { width: 100%; height: 100%; overflow: hidden; position: relative; }
   /* Transparent overlay captures taps (the replayer iframe would otherwise swallow them). */
   #tap-overlay { position: absolute; inset: 0; z-index: 5; background: transparent; }
-  /* rrweb renders into an iframe inside .replayer-wrapper; fill the stage. */
-  #stage .replayer-wrapper { transform: none !important; }
-  #stage iframe { width: 100% !important; border: 0; display: block; }
+  /* rrweb renders into an iframe inside .replayer-wrapper; fitReplay() sizes/scales it (ADR-0044). */
+  #stage .replayer-wrapper { transform-origin: top left; }
+  #stage iframe { border: 0; display: block; }
 </style>
 </head>
 <body>
@@ -32,6 +32,7 @@
     // page CSS size for tap mapping.
     var cdpFrame = null;
     var cdpSize = null;
+    var lastRecordedW = 0; // recorded desktop viewport width (meta.w) -> scale-to-fit basis
 
     function base64ToBytes(b64) {
       var bin = atob(b64);
@@ -92,8 +93,19 @@
         stageEl.insertBefore(cdpFrame, document.getElementById('tap-overlay'));
       }
       cdpSize = { w: w || 0, h: h || 0 };
-      if (w) cdpFrame.setAttribute('width', w);
-      if (h) cdpFrame.setAttribute('height', h);
+      // The CDP frame is sandbox='' (opaque origin) so we can't measure/reflow it; scale-to-fit by the
+      // known recorded width instead. Tap mapping uses cdpSize.w against the displayed (scaled) rect.
+      var stageW = stage.clientWidth || 1;
+      if (w && w > stageW) {
+        cdpFrame.style.width = w + 'px';
+        cdpFrame.style.height = (h || stage.clientHeight) + 'px';
+        cdpFrame.style.transformOrigin = 'top left';
+        cdpFrame.style.transform = 'scale(' + (stageW / w) + ')';
+      } else {
+        cdpFrame.style.width = '100%';
+        cdpFrame.style.height = '100%';
+        cdpFrame.style.transform = 'none';
+      }
       cdpFrame.srcdoc = html;
     }
     function removeCdp() {
@@ -119,6 +131,29 @@
       }
     }
 
+    // ADR-0044: fit the desktop-captured page to the phone. rrweb does NOT reflow -- it replays the
+    // page faithfully at the RECORDED desktop width (meta.w, the Mac viewport), so the only lever is a
+    // transform scale (this is what rrweb-player does too). Scale the whole page down to the phone
+    // width: exact desktop layout, whole width visible, text smaller (pinch-zoom is a future add).
+    // Tap-back (ADR-0040) stays exact because getBoundingClientRect reflects the scaled rect.
+    var fitScale = 1;
+    function fitReplay() {
+      if (!replayer || !replayer.iframe) return;
+      var iframe = replayer.iframe;
+      var wrapper = iframe.parentNode;
+      if (!wrapper) return;
+      var doc = iframe.contentDocument;
+      var recordedW = lastRecordedW
+        || parseInt(iframe.getAttribute('width'), 10)
+        || (doc && doc.documentElement && doc.documentElement.scrollWidth)
+        || 0;
+      if (!recordedW) return;
+      var stageW = stage.clientWidth || 1;
+      fitScale = Math.min(1, stageW / recordedW);
+      wrapper.style.transformOrigin = 'top left';
+      wrapper.style.transform = 'scale(' + fitScale + ')';
+    }
+
     // Native -> webview: one batch { t, tb, co, ev:[...], meta }. Feed its rrweb events, then
     // report a probe summary of the reconstructed DOM so the autonomous harness can assert the
     // mirror worked (visible text is masked, so the probe keys on a data-attribute marker +
@@ -128,6 +163,7 @@
       try { batch = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON; }
       catch (e) { return; }
       if (!batch) return;
+      if (batch.meta && batch.meta.w) lastRecordedW = batch.meta.w; // recorded desktop width for fit
       // ADR-0043/0044: a keyframe (co:true) supersedes any incomplete chunk set, for events AND CDP.
       // Clearing here bounds the chunks map (no slot outlives the next keyframe) and makes a cid reused
       // after an MV3 service-worker restart harmless (part 0's co:true clears the old slot first).
@@ -180,6 +216,7 @@
       else if (replayer && replayer.iframe && replayer.iframe.contentDocument) doc = replayer.iframe.contentDocument;
       if (!doc) return;
       injectAdoptedCss(); // the snapshot rebuild is async; ensure the style survives the settled DOM
+      fitReplay();        // fit the (now settled) page to the phone: reflow, else scale
       var markerEl = doc.querySelector('[data-agentdesk-fixture]');
       var marker = markerEl ? markerEl.getAttribute('data-agentdesk-fixture') : '';
       var nodes = doc.querySelectorAll('*').length;
@@ -205,6 +242,9 @@
       if (x < 0 || y < 0 || x > pageW || y > pageH) return; // tap landed outside the mirrored page
       try { window.webkit.messageHandlers.domMirror.postMessage({ kind: 'tap', x: x, y: y }); } catch (err) {}
     });
+
+    // Re-fit on viewport change (orientation / split view).
+    window.addEventListener('resize', function () { try { fitReplay(); } catch (e) {} });
 
     window.__domMirrorBridge = { destroy: function () { try { removeCdp(); replayer && replayer.pause(); } catch (e) {} } };
   })();
