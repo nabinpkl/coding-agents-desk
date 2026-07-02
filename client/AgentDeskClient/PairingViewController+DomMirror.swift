@@ -2,10 +2,11 @@ import Foundation
 import ObjectiveC
 import UIKit
 
-// ADR-0038 DOM mirror: hosts the rrweb replay surface on connect when this session opened a .dom
-// lane (client setting on + host accepted). Mirrors the agent-surface extension's associated-object
-// storage (extensions cannot add stored properties to the primary class). Read-only v1: the surface
-// receives batches and is shown full-bleed; taps back to Chrome are Phase 5.
+// ADR-0038 DOM mirror: hosts the rrweb replay surface for the Browser segment of the surface
+// switcher, offered only when this session opened a .dom lane (client setting on + host accepted).
+// Mirrors the agent-surface extension's associated-object storage (extensions cannot add stored
+// properties to the primary class). The surface + lane are created lazily on first Browser select
+// (see surfaceSegmentChanged), receive batches, and send taps back up the .dom lane to Chrome.
 extension PairingViewController {
     private enum DomKeys {
         nonisolated(unsafe) static var domMirrorSurface: UInt8 = 0
@@ -29,6 +30,8 @@ extension PairingViewController {
         } else {
             let created = DomMirrorSurface()
             created.translatesAutoresizingMaskIntoConstraints = false
+            // Hidden at creation; applySurface(.browser) reveals it on select.
+            created.isHidden = true
             view.addSubview(created)
             let top = surfaceSegmentedControl.map {
                 created.topAnchor.constraint(equalTo: $0.bottomAnchor, constant: 8)

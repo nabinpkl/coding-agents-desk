@@ -2,13 +2,14 @@ import OSLog
 import UIKit
 import WebKit
 
-// Extension: agent-feed surface toggle and lifecycle.
+// Extension: surface switcher (Control | Agent | Browser) and lifecycle.
+// The ControlSurface enum + visibility(for:) mapping live in ControlSurface.swift.
 //
-// The agent surface sits full-bleed alongside the existing control surfaces
-// (trackpad, display rail, keyboard). A segmented control in the safe-area top
-// lets the user switch between CONTROL mode and AGENT mode. When agent is shown
-// the existing interactive surfaces are hidden so gestures do not conflict;
-// when control is shown the webview is hidden.
+// Each non-control surface sits full-bleed alongside the existing control
+// surfaces (trackpad, display rail, keyboard). A segmented control in the
+// safe-area top lets the user switch between them. When a non-control surface
+// is shown the interactive control surfaces are hidden so gestures do not
+// conflict; the inactive surfaces are hidden too.
 //
 // Lifecycle (state-driven, race-free):
 //   - The TOGGLE is added from render()'s .connected case via
@@ -57,7 +58,15 @@ extension PairingViewController {
             return
         }
 
-        let seg = UISegmentedControl(items: ["Control", "Agent"])
+        // Browser is offered only when this session opened a .dom lane.
+        // Availability is fixed for the session's lifetime (decided at the
+        // handshake) and the toggle is torn down + rebuilt on every
+        // non-connected state, so reading it once here is race-free.
+        var items = ["Control", "Agent"]
+        if pairingClient.activeDomMirror != nil {
+            items.append("Browser")
+        }
+        let seg = UISegmentedControl(items: items)
         seg.selectedSegmentIndex = 0
         seg.translatesAutoresizingMaskIntoConstraints = false
         seg.addTarget(self, action: #selector(surfaceSegmentChanged(_:)), for: .valueChanged)
@@ -78,6 +87,10 @@ extension PairingViewController {
         agentSurface?.teardown()
         agentSurface?.removeFromSuperview()
         agentSurface = nil
+
+        // The switcher owns all non-control surfaces; tear the browser down too
+        // so a reconnect rebuilds all three cleanly from the fresh session.
+        teardownDomMirrorSurface()
 
         surfaceSegmentedControl?.removeFromSuperview()
         surfaceSegmentedControl = nil
@@ -139,31 +152,50 @@ extension PairingViewController {
     }
 
     @objc private func surfaceSegmentChanged(_ sender: UISegmentedControl) {
-        let showAgent = sender.selectedSegmentIndex == 1
-        if showAgent {
+        let surface = selectedSurface(on: sender)
+        switch surface {
+        case .control:
+            break
+        case .agent:
             // Create the webview and wire the bridge on first switch to Agent.
             ensureAgentSurface()
+        case .browser:
+            // Create the replay surface and start the .dom lane on first switch
+            // to Browser (lazy, so the mirror does not run unless viewed).
+            ensureDomMirrorSurface()
         }
-        applyAgentSurfaceVisibility(showAgent: showAgent)
+        applySurface(surface)
+    }
+
+    // Maps the selected segment to a ControlSurface by title, robust to the
+    // 2-vs-3 segment layout (Browser present only with a .dom lane).
+    private func selectedSurface(on seg: UISegmentedControl) -> ControlSurface {
+        switch seg.titleForSegment(at: seg.selectedSegmentIndex) {
+        case "Agent": return .agent
+        case "Browser": return .browser
+        default: return .control
+        }
     }
 
     // MARK: - Visibility
 
-    private func applyAgentSurfaceVisibility(showAgent: Bool) {
-        agentSurface?.isHidden = !showAgent
+    func applySurface(_ surface: ControlSurface) {
+        let v = visibility(for: surface)
+        agentSurface?.isHidden = v.agentHidden
+        domMirrorSurface?.isHidden = v.browserHidden
 
-        // When agent mode is active, suppress the interactive surfaces so
-        // gesture recognizers do not fight the webview scroll.
-        trackpadView.isHidden = showAgent
-        trackpadHint.isHidden = showAgent
-        scrollStripView.isHidden = showAgent
-        scrollStripHint.isHidden = showAgent
-        buttonRow.isHidden = showAgent
-        displayRailView.isHidden = showAgent
+        // Suppress the interactive control surfaces when a non-control surface
+        // is active so gesture recognizers do not fight the webview scroll.
+        trackpadView.isHidden = v.controlChromeHidden
+        trackpadHint.isHidden = v.controlChromeHidden
+        scrollStripView.isHidden = v.controlChromeHidden
+        scrollStripHint.isHidden = v.controlChromeHidden
+        buttonRow.isHidden = v.controlChromeHidden
+        displayRailView.isHidden = v.controlChromeHidden
         // The keyboard surface is a first-responder helper; just disable it.
-        keyboardSurface.isUserInteractionEnabled = !showAgent
+        keyboardSurface.isUserInteractionEnabled = v.keyboardInteractive
 
-        Self.logger.debug("agent surface visible: \(showAgent)")
+        Self.logger.debug("active surface: \(String(describing: surface))")
     }
 
     // MARK: - Request forwarding

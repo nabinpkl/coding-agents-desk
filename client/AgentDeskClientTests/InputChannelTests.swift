@@ -278,10 +278,13 @@ struct InputChannelTests {
 
     // R8: the host reads this raw stream-role byte to route the reliable graphics lane;
     // it must stay pinned so the host and client cannot disagree on which stream is which.
+    // ADR-0038 added the .dom lane at 4, so 4 is now valid and 5 is the first unused byte.
     @Test func streamRoleGraphicsByteIsPinned() {
         #expect(QuicSessionStreamRole.graphics.rawValue == 3)
         #expect(QuicSessionStreamRole(rawValue: 3) == .graphics)
-        #expect(QuicSessionStreamRole(rawValue: 4) == nil)
+        #expect(QuicSessionStreamRole.dom.rawValue == 4)
+        #expect(QuicSessionStreamRole(rawValue: 4) == .dom)
+        #expect(QuicSessionStreamRole(rawValue: 5) == nil)
     }
 
     // R7: crisp-repair composites the crisp overlay over the live video floor with NO

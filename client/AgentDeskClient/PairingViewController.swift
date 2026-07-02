@@ -558,13 +558,16 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // the session/channel timing. Shown only while connected; torn down on
         // every other state so a reconnect re-shows it cleanly.
         if case .connected = pairingClient.state {
+            // The switcher exposes Browser as a third segment only when this
+            // session opened a .dom lane; the DOM-mirror surface is created and
+            // its lane started lazily on first Browser select (see
+            // surfaceSegmentChanged), not eagerly here. Default surface is
+            // Control.
             showSurfaceToggleIfNeeded()
-            // ADR-0038: start the DOM-mirror surface on session-connect (idempotent, no-op without a
-            // .dom lane). Session-level, not media-gated, so it works even if the media path degrades.
-            ensureDomMirrorSurface()
         } else {
+            // teardownAgentSurface owns the switcher and tears down all
+            // non-control surfaces (agent + browser).
             teardownAgentSurface()
-            teardownDomMirrorSurface()
         }
 
         startOfferListenerIfNeeded()

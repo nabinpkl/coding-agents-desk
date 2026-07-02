@@ -64,6 +64,7 @@
 		B0000000000000000000022B /* GestureTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000113 /* GestureTranslator.swift */; };
 		B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000122 /* GestureTranslatorTests.swift */; };
 		B0000000000000000000CE0B /* DomMirrorSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE0C /* DomMirrorSurfaceTests.swift */; };
+		B0000000000000000000CE0D /* ControlSurfaceVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE0E /* ControlSurfaceVisibilityTests.swift */; };
 		B0000000000000000000022D /* KeyboardSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000116 /* KeyboardSurface.swift */; };
 		B0000000000000000000022E /* KeyboardSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000123 /* KeyboardSurfaceTests.swift */; };
 		B0000000000000000000022E1 /* InputChannelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000124 /* InputChannelTests.swift */; };
@@ -84,7 +85,9 @@
 		B0000000000000000000CE09 /* DomMirrorWebview in Resources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE0A /* DomMirrorWebview */; };
 		B00000000000000000000FD1 /* AgentFeedSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FD0 /* AgentFeedSurface.swift */; };
 		B0000000000000000000CE00 /* DomMirrorSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE02 /* DomMirrorSurface.swift */; };
+		B0000000000000000000CE10 /* ControlSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE12 /* ControlSurface.swift */; };
 		B0000000000000000000CE01 /* DomMirrorSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE02 /* DomMirrorSurface.swift */; };
+		B0000000000000000000CE11 /* ControlSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE12 /* ControlSurface.swift */; };
 		B0000000000000000000CE03 /* DomMirrorClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE05 /* DomMirrorClient.swift */; };
 		B0000000000000000000CE04 /* DomMirrorClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE05 /* DomMirrorClient.swift */; };
 		B0000000000000000000CE06 /* PairingViewController+DomMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE08 /* PairingViewController+DomMirror.swift */; };
@@ -136,6 +139,7 @@
 		B00000000000000000000121 /* PairingClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClientTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000122 /* GestureTranslatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureTranslatorTests.swift; sourceTree = "<group>"; };
 		B0000000000000000000CE0C /* DomMirrorSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomMirrorSurfaceTests.swift; sourceTree = "<group>"; };
+		B0000000000000000000CE0E /* ControlSurfaceVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSurfaceVisibilityTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000123 /* KeyboardSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSurfaceTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000124 /* InputChannelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannelTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000FB0 /* AgentFeedWireTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedWireTests.swift; sourceTree = "<group>"; };
@@ -150,6 +154,7 @@
 		B0000000000000000000CE0A /* DomMirrorWebview */ = {isa = PBXFileReference; lastKnownFileType = folder; path = DomMirrorWebview; sourceTree = "<group>"; };
 		B00000000000000000000FD0 /* AgentFeedSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedSurface.swift; sourceTree = "<group>"; };
 		B0000000000000000000CE02 /* DomMirrorSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomMirrorSurface.swift; sourceTree = "<group>"; };
+		B0000000000000000000CE12 /* ControlSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSurface.swift; sourceTree = "<group>"; };
 		B0000000000000000000CE05 /* DomMirrorClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomMirrorClient.swift; sourceTree = "<group>"; };
 		B0000000000000000000CE08 /* PairingViewController+DomMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+DomMirror.swift"; sourceTree = "<group>"; };
 		B00000000000000000000FD3 /* PairingViewController+AgentSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+AgentSurface.swift"; sourceTree = "<group>"; };
@@ -237,6 +242,7 @@
 				B0000000000000000000012D /* PairingViewController+Gestures.swift */,
 				B00000000000000000000FD0 /* AgentFeedSurface.swift */,
 				B0000000000000000000CE02 /* DomMirrorSurface.swift */,
+				B0000000000000000000CE12 /* ControlSurface.swift */,
 				B0000000000000000000CE05 /* DomMirrorClient.swift */,
 				B0000000000000000000CE08 /* PairingViewController+DomMirror.swift */,
 				B00000000000000000000FE0 /* AgentFeedSchemeHandler.swift */,
@@ -255,6 +261,7 @@
 				B00000000000000000000121 /* PairingClientTests.swift */,
 				B00000000000000000000122 /* GestureTranslatorTests.swift */,
 				B0000000000000000000CE0C /* DomMirrorSurfaceTests.swift */,
+				B0000000000000000000CE0E /* ControlSurfaceVisibilityTests.swift */,
 				B00000000000000000000123 /* KeyboardSurfaceTests.swift */,
 				B00000000000000000000124 /* InputChannelTests.swift */,
 				B00000000000000000000125 /* ThumbnailStripViewTests.swift */,
@@ -413,6 +420,7 @@
 				B0000000000000000000021E /* PairingViewController+Gestures.swift in Sources */,
 				B00000000000000000000FD1 /* AgentFeedSurface.swift in Sources */,
 				B0000000000000000000CE00 /* DomMirrorSurface.swift in Sources */,
+				B0000000000000000000CE10 /* ControlSurface.swift in Sources */,
 				B0000000000000000000CE03 /* DomMirrorClient.swift in Sources */,
 				B0000000000000000000CE06 /* PairingViewController+DomMirror.swift in Sources */,
 				B00000000000000000000FE1 /* AgentFeedSchemeHandler.swift in Sources */,
@@ -443,6 +451,7 @@
 					B0000000000000000000022B /* GestureTranslator.swift in Sources */,
 				B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */,
 				B0000000000000000000CE0B /* DomMirrorSurfaceTests.swift in Sources */,
+				B0000000000000000000CE0D /* ControlSurfaceVisibilityTests.swift in Sources */,
 				B0000000000000000000022D /* KeyboardSurface.swift in Sources */,
 				B0000000000000000000022E /* KeyboardSurfaceTests.swift in Sources */,
 				B0000000000000000000022E1 /* InputChannelTests.swift in Sources */,
@@ -462,6 +471,7 @@
 				B00000000000000000000FB1 /* AgentFeedWireTests.swift in Sources */,
 				B00000000000000000000FD2 /* AgentFeedSurface.swift in Sources */,
 				B0000000000000000000CE01 /* DomMirrorSurface.swift in Sources */,
+				B0000000000000000000CE11 /* ControlSurface.swift in Sources */,
 				B0000000000000000000CE04 /* DomMirrorClient.swift in Sources */,
 				B00000000000000000000FD7 /* AgentFeedSurfaceTests.swift in Sources */,
 				B00000000000000000000FE2 /* AgentFeedSchemeHandler.swift in Sources */,
