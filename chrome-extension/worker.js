@@ -69,6 +69,10 @@ let port = null;
 let recordingTabId = null;
 // The tab chrome.debugger is currently attached to (one debuggee per tab; shows the debug banner).
 let attachedTabId = null;
+// ADR-0045: the client paused capture because the phone's Browser surface is not in view. We stop
+// the rrweb recorder to save CPU at the source but KEEP recordingTabId so resume restarts the same
+// tab (unlike stopTabRecording, which ends the session and clears the tab).
+let capturePaused = false;
 
 function ensurePort() {
   if (port) return port;
@@ -80,8 +84,12 @@ function ensurePort() {
     return null;
   }
   port.onMessage.addListener((msg) => {
+    if (!msg) return;
     // ADR-0040: host -> extension input command. Dispatch it as trusted input.
-    if (msg && msg.t === 'dom-input') dispatchInput(msg);
+    if (msg.t === 'dom-input') { dispatchInput(msg); return; }
+    // ADR-0045: host -> extension capture pause/resume, driven by the phone's Browser surface
+    // visibility. `on: false` pauses the recorder; `on: true` resumes it (fresh full snapshot).
+    if (msg.t === 'dom-capture') { setCapturePaused(!msg.on); return; }
   });
   port.onDisconnect.addListener(() => {
     const err = chrome.runtime.lastError;
@@ -222,6 +230,7 @@ async function startTabRecording(tabId) {
     return null;
   }
   recordingTabId = tabId;
+  capturePaused = false; // fresh session starts actively recording
   await setBadge(tabId, true);
   return tabId;
 }
@@ -230,6 +239,7 @@ async function stopTabRecording(tabId) {
   if (tabId == null) return;
   try { await chrome.tabs.sendMessage(tabId, { type: 'agentdesk-stop' }); } catch (e) {}
   if (recordingTabId === tabId) recordingTabId = null;
+  capturePaused = false; // session ended; do not carry a paused flag into the next one
   stopCdp(false); cdpMode = false; cdpUserSet = false; // fresh fidelity state next session
   await setBadge(tabId, false);
 }
@@ -238,6 +248,24 @@ async function toggleTabRecording(tabId) {
   if (tabId == null) return;
   if (recordingTabId === tabId) await stopTabRecording(tabId);
   else await startTabRecording(tabId);
+}
+
+// ADR-0045: pause/resume the active recording without ending the session. Only acts on the tab the
+// user already started (recordingTabId); if nothing is recording it is a no-op, so the phone's
+// surface visibility never starts capture on its own. Pausing stops the rrweb recorder (real CPU
+// win at the source) and shows a PAUSE badge; resuming restarts it, and rrweb emits a fresh full
+// snapshot on record() so the mirror repaints cleanly with no mid-stream desync.
+async function setCapturePaused(paused) {
+  const tabId = recordingTabId;
+  if (tabId == null) return;            // nothing recording -> nothing to pause/resume
+  if (paused === capturePaused) return; // idempotent: already in the requested state
+  capturePaused = paused;
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: paused ? 'agentdesk-stop' : 'agentdesk-start' });
+  } catch (e) {
+    console.warn('[agentdesk] capture pause toggle failed on tab', tabId, e && e.message);
+  }
+  try { await chrome.action.setBadgeText({ tabId, text: paused ? 'PAUSE' : 'REC' }); } catch (e) {}
 }
 
 async function activeTab() {

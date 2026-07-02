@@ -8,6 +8,25 @@ import os
 // order; the serialized send chain below prevents a slow send from reordering a later batch ahead
 // of an earlier one. Each batch is framed as one QuicSessionStreamFrame(role: .dom) so the client
 // reads it back with the same receiveFrame path it already uses.
+// Minimal envelope for discriminating client->host control frames by their `t` tag without
+// committing to a full command shape (each command decodes its own fields downstream / in the
+// extension).
+private struct DomLaneControlEnvelope: Decodable {
+    let type: String
+    enum CodingKeys: String, CodingKey { case type = "t" }
+}
+
+// Testable seam: true iff the payload is a recognized client->host DOM control command that the
+// lane should forward verbatim to the bridge -- an ADR-0040 `dom-input` tap or an ADR-0045
+// `dom-capture` pause/resume. Anything else (host batch echoed back, malformed line) is dropped so
+// the bridge only ever relays recognized commands to the extension.
+func isForwardableDomControl(_ payload: Data) -> Bool {
+    guard let env = try? JSONDecoder().decode(DomLaneControlEnvelope.self, from: payload) else {
+        return false
+    }
+    return env.type == "dom-input" || env.type == "dom-capture"
+}
+
 @available(macOS 26.0, *)
 final class DomEventLaneServer: @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "dom-lane")
@@ -42,8 +61,7 @@ final class DomEventLaneServer: @unchecked Sendable {
                     do {
                         let frame = try await QuicSessionStreamIO.receiveFrame(on: self.stream)
                         guard frame.role == .dom,
-                              let cmd = try? JSONDecoder().decode(DomInputCommand.self, from: frame.payload),
-                              cmd.type == "dom-input" else { continue }
+                              isForwardableDomControl(frame.payload) else { continue }
                         self.onInput?(frame.payload)
                     } catch {
                         self.logger.notice("dom lane receive ended: \(String(describing: error), privacy: .public)")

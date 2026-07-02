@@ -67,6 +67,23 @@ final class DomMirrorClient: @unchecked Sendable {
         }
     }
 
+    // ADR-0045: pause/resume DOM capture at the source. Sent UP the .dom lane; the host forwards it
+    // to the extension, which stops/starts rrweb recording (restart emits a fresh full snapshot).
+    // Guarded on the lane having been started (announce sent) so a capture frame never races ahead
+    // of the role announce the host reads first.
+    func setCapture(_ on: Bool) {
+        guard task != nil else { return }
+        let cmd = DomCaptureCommand(on: on)
+        guard let payload = try? JSONEncoder().encode(cmd) else { return }
+        Task { [stream, logger] in
+            do {
+                try await QuicSessionStreamIO.sendPayload(payload, role: .dom, on: stream)
+            } catch {
+                logger.notice("dom lane capture send failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
     func stop() {
         task?.cancel()
         task = nil

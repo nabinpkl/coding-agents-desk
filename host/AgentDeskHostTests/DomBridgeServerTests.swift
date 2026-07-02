@@ -85,3 +85,24 @@ struct DomBridgeServerTests {
         #expect(second.accept(line: line(#"{"t":"dom-batch","tb":1,"co":false,"ev":[]}"#)) == .reject("bad-auth"))
     }
 }
+
+// ADR-0045: the .dom lane receive guard forwards only recognized client->host control commands to
+// the bridge (tap + capture pause/resume); everything else is dropped so the bridge never relays a
+// malformed or echoed frame to the extension.
+struct DomLaneControlForwardingTests {
+    private func data(_ json: String) -> Data { Data(json.utf8) }
+
+    @Test func forwardsTapAndCaptureControlFrames() {
+        #expect(isForwardableDomControl(data(#"{"t":"dom-input","k":"mouse","x":1,"y":2}"#)))
+        #expect(isForwardableDomControl(data(#"{"t":"dom-capture","on":false}"#)))
+        #expect(isForwardableDomControl(data(#"{"t":"dom-capture","on":true}"#)))
+    }
+
+    @Test func dropsBatchesUnknownTypesAndGarbage() {
+        // A host->client batch echoed back must never be relayed to the extension.
+        #expect(!isForwardableDomControl(data(#"{"t":"dom-batch","tb":1,"co":true,"ev":[]}"#)))
+        #expect(!isForwardableDomControl(data(#"{"t":"something-else"}"#)))
+        #expect(!isForwardableDomControl(data(#"{"no-type":1}"#)))
+        #expect(!isForwardableDomControl(data("not json")))
+    }
+}

@@ -287,6 +287,22 @@ struct InputChannelTests {
         #expect(QuicSessionStreamRole(rawValue: 5) == nil)
     }
 
+    // ADR-0045: the DOM capture pause/resume frame the client sends UP the .dom lane. The host guard
+    // and the extension both key on `t` == "dom-capture" and the boolean `on`, so the wire shape
+    // must stay pinned across all three layers.
+    @Test func domCaptureCommandEncodesToPinnedWireShape() throws {
+        let paused = try JSONEncoder().encode(DomCaptureCommand(on: false))
+        let obj = try JSONSerialization.jsonObject(with: paused) as? [String: Any]
+        #expect(obj?["t"] as? String == "dom-capture")
+        #expect(obj?["on"] as? Bool == false)
+
+        let resumed = try JSONEncoder().encode(DomCaptureCommand(on: true))
+        let robj = try JSONSerialization.jsonObject(with: resumed) as? [String: Any]
+        #expect(robj?["on"] as? Bool == true)
+
+        #expect(try JSONDecoder().decode(DomCaptureCommand.self, from: paused) == DomCaptureCommand(on: false))
+    }
+
     // R7: crisp-repair composites the crisp overlay over the live video floor with NO
     // whole-surface swap. A crisp frame reveals the overlay; a later video frame reveals
     // the floor without hiding the overlay (the retired ADR-0025 swap would have hidden

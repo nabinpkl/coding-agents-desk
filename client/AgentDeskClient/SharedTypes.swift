@@ -2080,6 +2080,26 @@ struct DomInputCommand: Codable, Equatable {
     }
 }
 
+// ADR-0045 DOM capture pause/resume. Sent UP the .dom lane (like DomInputCommand) when the client
+// switches the Browser surface out of / into view. The host forwards it verbatim to the extension,
+// which stops rrweb recording while hidden (real CPU win at the capture source) and restarts it on
+// resume -- rrweb emits a fresh full snapshot on record(), so the mirror repaints cleanly with no
+// mid-stream desync. `on == false` pauses; `on == true` resumes.
+struct DomCaptureCommand: Codable, Equatable {
+    let type: String
+    let on: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case on
+    }
+
+    init(on: Bool) {
+        self.type = "dom-capture"
+        self.on = on
+    }
+}
+
 // R11 DesktopState. Mirror of host's definition. Pushed host -> client
 // over the session input stream; drives the dots band rendering.
 

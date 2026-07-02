@@ -165,6 +165,11 @@ extension PairingViewController {
             ensureDomMirrorSurface()
         }
         applySurface(surface)
+
+        // ADR-0045: pause DOM capture at the source whenever Browser is not the
+        // active surface, resume it when it is. setCapture no-ops until the lane
+        // is started, so a pause before Browser is ever opened is a safe no-op.
+        pairingClient.activeDomMirror?.setCapture(surface == .browser)
     }
 
     // Maps the selected segment to a ControlSurface by title, robust to the
