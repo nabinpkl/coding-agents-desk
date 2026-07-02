@@ -101,12 +101,23 @@ single hot loop, by module:
   malloc 3%, Network 2%
 
 The video HEVC encoder is hardware and barely registers (VideoToolbox/AVE minor).
-So the floor is NOT the video encode. It is:
-1. SpaceThumbnailProvider capturing + compositing per-space/window thumbnails (a UI
-   feature, vImage/CoreGraphics heavy, periodic, independent of stream quality),
-2. the datagram send path (packetize + pace + sendmsg + Network),
-3. per-frame dispatch/runtime overhead of the drain loop.
 
-Levers: throttle/pause SpaceThumbnailProvider when the strip isn't shown or lower its
-rate/resolution (likely the biggest single reducible chunk, unrelated to streaming);
-batch datagram packetization / relax pacing wakeups.
+### Correction: thumbnails were a sampling artifact, not the floor
+
+`SpaceThumbnailProvider` captures on a 3s timer (bursty), so a point-in-time
+`sample` catches a capture burst and overstates it. Verified by A/B with the new
+`AGENTDESK_SPACE_THUMBNAILS_ENABLED=0` kill switch (0 captures confirmed in the
+log): host CPU was ~36% with thumbnails OFF vs ~35% ON — **no meaningful change**.
+So thumbnails are ~2-3% averaged, not the ~21% the single sample implied. The
+kill switch is retained as a valid knob, but it does not move the constant CPU.
+
+The constant costs, corrected:
+- **crisp ~14%** — the full-frame YUV→BGRA convert (see the A/B section above). Real
+  and sustained; the biggest single reducible chunk.
+- **~21% floor (crisp off)** — the always-on datagram send path (packetize + pace +
+  `__sendmsg` + Network) plus per-frame drain/dispatch overhead, running every
+  captured frame. Not thumbnails, not the (hardware) encoder.
+
+Levers, corrected: (1) crisp convert — convert only damaged sub-regions instead of
+the whole frame; (2) the floor — batch datagram packetization / relax pacing
+wakeups, and reduce per-frame drain overhead / capture rate at rest.
