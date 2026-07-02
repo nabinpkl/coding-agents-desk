@@ -4,12 +4,20 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>AgentDesk DOM Mirror</title>
+<!-- rrweb's replayer-chrome stylesheet, vendored from rrweb@2.0.0-alpha.4 (same version as
+     rrweb.min.js). rrweb's core adds .replayer-wrapper/.replayer-mouse/.replayer-mouse-tail
+     classnames and sets the cursor's left/top inline, but ships their position:absolute in THIS
+     file, not in the JS. Bundling it is required for the bare Replayer; without it the full-size
+     mouse-tail canvas sat in normal flow and pushed the page down. -->
+<link rel="stylesheet" href="rrweb.min.css" />
 <style>
   html, body { margin: 0; height: 100%; background: #fff; }
   #stage { width: 100%; height: 100%; overflow: hidden; position: relative; }
   /* Transparent overlay captures taps (the replayer iframe would otherwise swallow them). */
   #tap-overlay { position: absolute; inset: 0; z-index: 5; background: transparent; }
-  /* rrweb renders into an iframe inside .replayer-wrapper; fitReplay() sizes/scales it (ADR-0044). */
+  /* rrweb renders into an iframe inside .replayer-wrapper; fitReplay() sizes/scales it (ADR-0044).
+     .replayer-wrapper's position:absolute-vs-relative etc. come from the vendored rrweb.min.css
+     above; here we only add the scale origin. */
   #stage .replayer-wrapper { transform-origin: top left; }
   #stage iframe { border: 0; display: block; }
 </style>
@@ -122,6 +130,9 @@
       if (!replayer) {
         pending.push(e);
         if (haveSnapshot(pending)) {
+          // mouseTail on (rrweb default): the recorded cursor (.replayer-mouse) and its move-trail
+          // (.replayer-mouse-tail) now draw as absolute overlays, positioned by the vendored
+          // rrweb.min.css, so they no longer take flow space or push the page.
           replayer = new rrweb.Replayer(pending, { liveMode: true, root: stage });
           replayer.startLive(pending[0].timestamp);
           pending = [];
