@@ -634,6 +634,27 @@ dom-bridge-reinstall variant="dev" channel="chrome":
     -just dom-bridge-uninstall {{channel}}
     just dom-bridge-install {{variant}} {{channel}}
 
+# Clean DOM-mirror simulator run for the LATEST code (dev stack, non-blocking). One command to get
+# the whole Chrome-mirror chain up on the sim:
+#   1. host-run dev        -- kill + rebuild + relaunch the DEV host with the DOM mirror +
+#                             auto-approve + permissive-keystore envs baked into the launched
+#                             process (launch-env.sh set -> open -> unset; nothing lingers in launchd)
+#   2. dom-bridge-reinstall dev -- (re)point the extension native-messaging manifest at the DEV
+#                             host's socket, from clean, so a stale manifest never lingers
+#   3. client-sim-reinstall dev -- rebuild + reinstall the DEV sim client
+#   4. pair-sim dev        -- pair + launch the DEV sim client with the DOM mirror on
+# Rebuilds host + client every run, so it always reflects the latest code. Leaves everything
+# running and RETURNS (does not attach a console): then load/reload the extension in Chrome
+# (chrome://extensions), start recording a tab from the popup, and drive the mirror on the sim.
+# Runs the DEV stack only, so the stable daily-driver host/client are untouched. channel: the
+# browser channel the bridge manifest targets (chrome default).
+# Clean DEV DOM-mirror sim bring-up for the latest code (non-blocking): dev host + bridge + sim client + pair.
+dom-mirror-sim channel="chrome":
+    just host-run dev
+    just dom-bridge-reinstall dev {{channel}}
+    just client-sim-reinstall dev
+    just pair-sim dev
+
 # ADR-0038..0041 physical-device run of the Chrome DOM mirror -- the one human checkpoint. Builds
 # Release host+client with real artifacts, enables the DOM mirror on BOTH sides (host via launchd
 # env; client via the devicectl env path, since devicectl apps get env not argv), pairs, and attaches
