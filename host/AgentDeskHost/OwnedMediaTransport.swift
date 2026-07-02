@@ -54,6 +54,24 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     }
     private let crispGate = OSAllocatedUnfairLock<CrispState>(initialState: CrispState())
 
+    // ADR-0036: the persistent BGRA dest buffer the YUV->BGRA render targets, reused across
+    // crisp windows and reallocated only when the source geometry changes. Kept behind its
+    // own lock (never nested under crispGate; only processCrisp touches it) so a crisp
+    // window can render + hand a no-copy view of it to the controller without a per-window
+    // full-frame allocation. See renderCrispBGRA. Guarded — not a bare stored var — because
+    // the class is @unchecked Sendable and this is mutated across the drain loop's frames.
+    private struct CrispConvertState {
+        var destBuffer: CVPixelBuffer?
+        var destWidth = 0
+        var destHeight = 0
+    }
+    // uncheckedState: CrispConvertState holds a CVPixelBuffer (CVBuffer is not Sendable), and
+    // the lock itself is the synchronization that makes the access safe. The buffer is only
+    // ever touched inside this lock from the single serialized drain loop.
+    private let crispConvertGate = OSAllocatedUnfairLock<CrispConvertState>(
+        uncheckedState: CrispConvertState()
+    )
+
     // ADR-0036: which reconciliation a crisp window runs. `heal` is the periodic
     // full-surface pass (also forced before the first baseline); `gated` visits only the
     // damage rects plus tiles due for promotion. A window with neither (no work) never
@@ -248,8 +266,8 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         // the current second is spent. This bounds crisp's sustained link share so a large
         // settle trickles out instead of bursting. It is NOT a motion gate: which regions
         // crisp is decided per-tile by the controller (a moving region never settles, so it
-        // never emits), and checking the budget before extractBGRA also avoids the
-        // full-surface hash when nothing can be sent. Eager reverts (processCrispDamage)
+        // never emits), and checking the budget before the BGRA render also avoids the GPU
+        // convert and hash when nothing can be sent. Eager reverts (processCrispDamage)
         // carry no payload and are unaffected.
         let mayEmit = crispGate.withLock { state in
             state.pacing.mayEmit(nowNs: nowNs)
@@ -286,7 +304,15 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         // Gated window with no work: nothing was staged, so no commit/discard is needed and
         // the heal counter (already incremented) still fires the next heal on time.
         guard let mode else { return }
-        guard let surface = Self.extractBGRA(frame.pixelBuffer) else {
+        // Render YUV->BGRA into the persistent dest (GPU, outside crispGate), then take a
+        // NO-COPY view of the result: no per-window full-frame allocation and no per-window
+        // 34MB copy. `renderCrispBGRA` returns the CVPixelBuffer to read from (the persistent
+        // dest for a YUV source, or the source itself when it is already BGRA); we lock it
+        // read-only, wrap its base as a bytesNoCopy Data, run the crisp pass while it stays
+        // locked, and unlock after. The controller copies out only the tiles it visits
+        // (already damage-proportional after the gating work), so a gated window copies a
+        // few tiles instead of the whole frame.
+        guard let render = renderCrispBGRA(frame.pixelBuffer) else {
             // The capture buffer could not be turned into BGRA (unsupported pixel format or
             // a failed conversion). Crisp cannot run this frame; the video floor still
             // covers the region. Log it throttled so this can never be a silent no-op (a
@@ -302,6 +328,36 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             }
             return
         }
+        let buffer = render.buffer
+        // Geometry as plain Int locals so the crispGate @Sendable closure below never
+        // captures `render` (its CVPixelBuffer is not Sendable). The buffer stays out of the
+        // closure; only the no-copy Data (which is Sendable) and these Ints cross into it.
+        let width = render.width
+        let height = render.height
+        let bytesPerRow = render.bytesPerRow
+        guard CVPixelBufferLockBaseAddress(buffer, .readOnly) == kCVReturnSuccess,
+              let base = CVPixelBufferGetBaseAddress(buffer) else {
+            let warn = crispGate.withLock { state -> Bool in
+                guard nowNs &- state.lastConvertWarnNs >= 5_000_000_000 else { return false }
+                state.lastConvertWarnNs = nowNs
+                return true
+            }
+            if warn { logger.error("crisp surface unavailable; could not lock BGRA base address") }
+            return
+        }
+        // Unlock after the crisp pass returns: the no-copy Data below aliases `base`, so it
+        // must stay locked (and unmutated) for the entire healScan/observe call. The
+        // controller does not retain `pixels` (extractTileWithHash copies each visited tile
+        // into its own Data before returning), so the alias is safe to drop right after the
+        // pass. defer guarantees the unlock even on an early return inside the lock scope.
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        // No-copy view of the rendered BGRA. deallocator .none: the memory is owned by the
+        // CVPixelBuffer (freed on unlock/dealloc, not by Data).
+        let pixels = Data(
+            bytesNoCopy: base,
+            count: bytesPerRow * height,
+            deallocator: .none
+        )
         crispGate.withLock { state in
             // A heal window fully reconciles every tile and resets the counter; a gated
             // window visits only the damage rects plus tiles due for promotion. Between the
@@ -312,19 +368,19 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             switch mode {
             case .heal:
                 emission = state.controller.healScan(
-                    pixels: surface.data,
-                    width: surface.width,
-                    height: surface.height,
-                    bytesPerRow: surface.bytesPerRow,
+                    pixels: pixels,
+                    width: width,
+                    height: height,
+                    bytesPerRow: bytesPerRow,
                     nowMs: nowMs
                 )
                 state.crispWindowsSinceHeal = 0
             case .gated:
                 emission = state.controller.observe(
-                    pixels: surface.data,
-                    width: surface.width,
-                    height: surface.height,
-                    bytesPerRow: surface.bytesPerRow,
+                    pixels: pixels,
+                    width: width,
+                    height: height,
+                    bytesPerRow: bytesPerRow,
                     nowMs: nowMs,
                     changedRects: frame.damageRects
                 )
@@ -372,8 +428,8 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     ),
                     commands: [.resetSurface(
                         surfaceGeneration: state.surfaceGeneration,
-                        width: surface.width,
-                        height: surface.height,
+                        width: width,
+                        height: height,
                         pixelFormat: .bgra
                     )],
                     payload: Data()
@@ -426,52 +482,69 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     // is the only caller. cacheIntermediates off keeps it from holding frame-sized buffers.
     private static let crispCIContext = CIContext(options: [.cacheIntermediates: false])
 
-    // Produce a BGRA copy of the captured frame plus its geometry for the crisp emitter.
-    // The capture is YUV 4:2:0 by default (the H.264 encoder's native format), but the
-    // crisp toolchain (hash, LZFSE, wire, client compositor) is BGRA end to end, so a
-    // non-BGRA buffer is converted here. Returns nil only for a degenerate or
+    // Produce a BGRA buffer for the crisp emitter WITHOUT a per-window full-frame copy. The
+    // capture is YUV 4:2:0 by default (the H.264 encoder's native format), but the crisp
+    // toolchain (hash, LZFSE, wire, client compositor) is BGRA end to end. Returns the
+    // CVPixelBuffer to read the BGRA from plus its geometry; the caller locks it read-only
+    // and wraps its base as a bytesNoCopy Data, so the only pixel copies are the controller's
+    // per-visited-tile copies (damage-proportional). Returns nil only for a degenerate or
     // unconvertible buffer; crisp simply does not run that frame.
-    private static func extractBGRA(_ pixelBuffer: CVPixelBuffer) -> (data: Data, width: Int, height: Int, bytesPerRow: Int)? {
-        if CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA {
-            return copyContiguousBGRA(pixelBuffer)
-        }
-        return convertToBGRA(pixelBuffer)
-    }
-
-    // Lock and copy an already-BGRA buffer into contiguous Data, preserving its bytesPerRow
-    // (which may carry row padding; OwnedTileCodec extracts sub-rects with that stride).
-    private static func copyContiguousBGRA(_ pixelBuffer: CVPixelBuffer) -> (data: Data, width: Int, height: Int, bytesPerRow: Int)? {
-        guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else { return nil }
-        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
-        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
-        let width = CVPixelBufferGetWidth(pixelBuffer)
-        let height = CVPixelBufferGetHeight(pixelBuffer)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
-        guard width > 0, height > 0, bytesPerRow >= width * 4 else { return nil }
-        return (Data(bytes: base, count: bytesPerRow * height), width, height, bytesPerRow)
-    }
-
-    // Convert a non-BGRA (YUV) capture buffer to BGRA via CoreImage. Rendering into a BGRA
-    // CVPixelBuffer (rather than a raw bitmap) keeps the top-down row order of the source,
-    // so a tile at (x, y) lines up with the same region of the video floor on the client.
-    // YUV 4:2:0 keeps luma full-resolution, so text stays sharp; only fine chroma detail is
-    // softened by the subsampling the capture already applied. Runs outside crispGate (per
-    // the encode-pump call site), so the GPU round-trip does not extend the crisp lock.
-    private static func convertToBGRA(_ pixelBuffer: CVPixelBuffer) -> (data: Data, width: Int, height: Int, bytesPerRow: Int)? {
+    //
+    //  - Already-BGRA source: hand back the source buffer directly (no dest, no convert).
+    //  - YUV source: render into the persistent dest (reallocated only on a size change),
+    //    then hand back that dest. Rendering into a BGRA CVPixelBuffer (rather than a raw
+    //    bitmap) keeps the top-down row order of the source, so a tile at (x, y) lines up
+    //    with the same region of the video floor on the client. YUV 4:2:0 keeps luma
+    //    full-resolution, so text stays sharp; only fine chroma detail is softened by the
+    //    subsampling the capture already applied. The GPU render runs here, outside crispGate
+    //    (per the encode-pump call site), so the round-trip does not extend the crisp lock.
+    private func renderCrispBGRA(
+        _ pixelBuffer: CVPixelBuffer
+    ) -> (buffer: CVPixelBuffer, width: Int, height: Int, bytesPerRow: Int)? {
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
         guard width > 0, height > 0 else { return nil }
-        let attrs: [CFString: Any] = [
-            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
-        ]
-        var dest: CVPixelBuffer?
-        guard CVPixelBufferCreate(
-            kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
-            attrs as CFDictionary, &dest
-        ) == kCVReturnSuccess, let dest else { return nil }
-        crispCIContext.render(CIImage(cvPixelBuffer: pixelBuffer), to: dest)
-        return copyContiguousBGRA(dest)
+
+        if CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA {
+            // Fast path: the capture is already BGRA. Read it in place, no dest, no copy.
+            let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+            guard bytesPerRow >= width * 4 else { return nil }
+            return (pixelBuffer, width, height, bytesPerRow)
+        }
+
+        // YUV path: reuse the persistent dest buffer, reallocating only when the source
+        // geometry changes. crispConvertGate guards this state and is never nested under
+        // crispGate (only processCrisp touches it, always before it takes crispGate).
+        // withLockUnchecked so the non-Sendable CVPixelBuffer can be handed back out of the
+        // lock; the lock is the synchronization, and only the serialized drain loop calls in.
+        let dest: CVPixelBuffer? = crispConvertGate.withLockUnchecked { convert in
+            if convert.destBuffer == nil || convert.destWidth != width || convert.destHeight != height {
+                let attrs: [CFString: Any] = [
+                    kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+                    kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+                ]
+                var created: CVPixelBuffer?
+                guard CVPixelBufferCreate(
+                    kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
+                    attrs as CFDictionary, &created
+                ) == kCVReturnSuccess, let created else {
+                    convert.destBuffer = nil
+                    convert.destWidth = 0
+                    convert.destHeight = 0
+                    return nil
+                }
+                convert.destBuffer = created
+                convert.destWidth = width
+                convert.destHeight = height
+            }
+            return convert.destBuffer
+        }
+        guard let dest else { return nil }
+        // The GPU render targets the persistent dest (CIContext locks the dest internally).
+        Self.crispCIContext.render(CIImage(cvPixelBuffer: pixelBuffer), to: dest)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(dest)
+        guard bytesPerRow >= width * 4 else { return nil }
+        return (dest, width, height, bytesPerRow)
     }
 
     private func scheduleDrainRetry(afterNs: UInt64) {
