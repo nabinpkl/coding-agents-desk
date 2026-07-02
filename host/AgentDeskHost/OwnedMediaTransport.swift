@@ -7,7 +7,7 @@ import os
 
 @available(macOS 26.0, *)
 final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "owned-media")
     private let source: VideoFrameSource
     private let datagrams: QUIC.Datagrams<QUICDatagram>
     private let mediaKey: SymmetricKey

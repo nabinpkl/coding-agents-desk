@@ -126,7 +126,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
     init(baseURL: URL, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.session = session
-        self.logger = Logger(subsystem: Config.launchAgentLabel, category: "agent-feed-sidecar-client")
+        self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-sidecar-client")
     }
 
     func fetchDigest() async throws -> [EngineProjectDigest] {

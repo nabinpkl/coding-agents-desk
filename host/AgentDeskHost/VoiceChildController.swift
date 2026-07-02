@@ -29,12 +29,12 @@ struct VoiceChildMessage: Decodable, Equatable {
 }
 
 final class VoiceChildController: @unchecked Sendable {
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "voice-child")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "voice-child")
     private let executableURL: URL
     private let arguments: [String]
     private let model: String
     private let maxLineBytes: Int
-    private let pendingQueue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.voice-child.pending")
+    private let pendingQueue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).voice-child.pending")
     private var pending: [String: CheckedContinuation<String, Error>] = [:]
     private var childProcess: JsonlChildProcess?
 

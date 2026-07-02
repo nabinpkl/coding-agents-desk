@@ -1,11 +1,16 @@
 import Foundation
 
 enum Config {
-    static let signalingPort: UInt16 = 41888
     static let sessionQuicALPN = "agentdesk-session-quic-v2"
     // ADR-0019: plain-TCP port the iPhone listens on for a Mac-pushed pairing
-    // offer. Must match the host's offer port.
-    static let offerPort = port(environmentKey: "AGENTDESK_OFFER_PORT", defaultValue: 41_890)
+    // offer. Tier-derived (see Tier below) so the dev client listens on the dev
+    // block and the same-tier dev host dials it; a full dev stack then runs beside
+    // the stable stack. The host's signaling port is not hardcoded on the client:
+    // it is learned from the offer (PairingPayload.signalingPort) and dialed directly.
+    static let offerPort = port(
+        environmentKey: "AGENTDESK_OFFER_PORT",
+        defaultValue: tieredPort(stable: 41_890, dev: 41_990)
+    )
     // ADR-0020: wire protocol version negotiated at the session handshake. Bumped
     // only on a breaking wire change, independent of the marketing version. The
     // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
@@ -33,6 +38,18 @@ enum Config {
     static let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.example.agentdesk.AgentDeskClient"
     static let logSubsystem = bundleIdentifier
     static let keychainService = bundleIdentifier
+    // Build tier, derived from the bundle id (not a runtime flag), mirroring the
+    // host. The dev client listens for offers on the dev port block so it pairs
+    // with the same-tier dev host while the stable stack keeps running. The dev
+    // block is the stable port + 100.
+    enum Tier {
+        case stable
+        case dev
+    }
+    static let tier: Tier = bundleIdentifier.hasSuffix(".dev") ? .dev : .stable
+    static func tieredPort(stable: UInt16, dev: UInt16) -> UInt16 {
+        tier == .dev ? dev : stable
+    }
     static let keychainAccessGroup: String? = nil
     static let storedPairingAccount = "session-token"
     static let applicationSupportDirectory = FileManager.default

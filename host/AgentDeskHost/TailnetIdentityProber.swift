@@ -19,8 +19,8 @@ private final class IdentityProbe: @unchecked Sendable {
     private let ipv4: String
     private let port: UInt16
     private let timeout: TimeInterval
-    private let queue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.identity-probe")
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "identity-probe")
+    private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).identity-probe")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "identity-probe")
     private var parser = OfferPortFrameParser()
     private var connection: NWConnection?
     private var continuation: CheckedContinuation<DeviceIdentity?, Never>?

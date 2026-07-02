@@ -16,7 +16,7 @@ final class AgentFeedBridge: @unchecked Sendable {
     private let client: any SidecarClient
     private let send: @Sendable (Data) -> Void
     private let logger: Logger
-    private let queue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.agent-feed-bridge")
+    private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).agent-feed-bridge")
 
     // Active per-session SSE stream handles.
     private var activeStreams: [String: SidecarStreamHandle] = [:]
@@ -27,7 +27,7 @@ final class AgentFeedBridge: @unchecked Sendable {
     init(client: any SidecarClient, send: @escaping @Sendable (Data) -> Void) {
         self.client = client
         self.send = send
-        self.logger = Logger(subsystem: Config.launchAgentLabel, category: "agent-feed-bridge")
+        self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-bridge")
     }
 
     // Reset cancels all active streams. Call when the lane re-attaches.

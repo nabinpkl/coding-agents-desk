@@ -16,7 +16,7 @@ final class AgentEngineSidecar: @unchecked Sendable {
     private let binaryURL: URL
     private let port: UInt16
     private let logger: Logger
-    private let queue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.agent-engine-sidecar")
+    private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).agent-engine-sidecar")
 
     private var process: Process?
     private var stopped = false
@@ -39,7 +39,7 @@ final class AgentEngineSidecar: @unchecked Sendable {
     init(binaryURL: URL, port: UInt16) {
         self.binaryURL = binaryURL
         self.port = port
-        self.logger = Logger(subsystem: Config.launchAgentLabel, category: "agent-engine-sidecar")
+        self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-engine-sidecar")
     }
 
     deinit {

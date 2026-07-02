@@ -193,7 +193,8 @@ final class PairingClient {
             token: token,
             hostPublicKey: payload.hostPublicKey,
             tailnetFQDN: payload.tailnetFQDN,
-            tailnetIPv4: payload.tailnetIPv4
+            tailnetIPv4: payload.tailnetIPv4,
+            signalingPort: payload.signalingPort
         ))
         state = .pairedDisconnected
         ClientDiagnostics.shared.record(type: "pairingPersisted", fields: [:], level: .info)
@@ -224,7 +225,8 @@ final class PairingClient {
     // routes through this instead of the media datagram lane.
     private(set) var activeInputChannel: InputChannel?
     private(set) var activeHost: String?
-    private(set) var activePort: UInt16 = Config.signalingPort
+    // 0 until a session is dialed; then it holds the host's advertised port.
+    private(set) var activePort: UInt16 = 0
     private var activeResumeMaterial: SessionResumeMaterial?
     private var pendingResume: (active: ActiveSession, resume: SessionResumeMaterial)?
     private var inputReconnectTask: Task<Void, Never>?
@@ -262,12 +264,13 @@ final class PairingClient {
     }
 
     func attemptSession(
-        dialer: SessionDialer = SessionDialer(),
-        port: UInt16 = Config.signalingPort
+        dialer: SessionDialer = SessionDialer()
     ) async throws -> SessionConnection {
         guard let record = storedPairingMaterial else {
             throw PairingClientError.invalidState
         }
+        // Dial the host's advertised signaling port, persisted at pairing time.
+        let port = record.signalingPort
         switch state {
         case .pairedDisconnected, .revoked:
             break
@@ -421,7 +424,7 @@ final class PairingClient {
 
     private func resetActiveMediaSession() {
         activeHost = nil
-        activePort = Config.signalingPort
+        activePort = 0
     }
 
     func performHandshake(for payload: PairingPayload) async throws {
@@ -436,7 +439,7 @@ final class PairingClient {
         ClientDiagnostics.shared.record(type: "pairingHandshakeStarted", fields: [:], level: .info)
         let response = try await SessionDialer().performPairingHandshake(
             host: host,
-            port: Config.signalingPort,
+            port: payload.signalingPort,
             request: request
         )
         guard response.type == "approved", let token = response.token else {

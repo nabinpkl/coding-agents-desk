@@ -35,7 +35,7 @@ protocol InputChannelServing: AnyObject, Sendable {
 
 @available(macOS 26.0, *)
 final class InputChannelServer: InputChannelServing, @unchecked Sendable {
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "input-lane")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "input-lane")
     private let stream: QUIC.Stream<QUICStream>
     private let fingerprint: DeviceFingerprint
     private var continuation: AsyncStream<NormalizedInput>.Continuation?

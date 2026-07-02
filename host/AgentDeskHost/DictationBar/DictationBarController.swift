@@ -14,7 +14,7 @@ final class DictationBarController: NSObject {
         static let originY = "DictationBar.origin.y"
     }
 
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "dictation")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "dictation")
     private let viewController = DictationBarViewController()
     private let recorder = MicRecorder()
     private let transcriber: TranscriptionClient

@@ -19,6 +19,10 @@ struct PairingPayload: Codable, Equatable {
     let tailnetIPv4: String
     let oneTimeNonce: Data
     let expiresAt: Int
+    // The host's bound signaling port (tier-dependent: stable and dev hosts bind
+    // different ports so they can run concurrently). The client dials this exact
+    // port instead of assuming a default, so neither side hardcodes the other's port.
+    let signalingPort: UInt16
 
     enum CodingKeys: String, CodingKey {
         case hostFingerprint = "h"
@@ -27,6 +31,7 @@ struct PairingPayload: Codable, Equatable {
         case tailnetIPv4 = "i"
         case oneTimeNonce = "n"
         case expiresAt = "e"
+        case signalingPort = "sp"
     }
 
     init(
@@ -35,7 +40,8 @@ struct PairingPayload: Codable, Equatable {
         tailnetFQDN: String,
         tailnetIPv4: String,
         oneTimeNonce: Data,
-        expiresAt: Int
+        expiresAt: Int,
+        signalingPort: UInt16
     ) {
         self.hostFingerprint = hostFingerprint
         self.hostPublicKey = hostPublicKey
@@ -43,6 +49,7 @@ struct PairingPayload: Codable, Equatable {
         self.tailnetIPv4 = tailnetIPv4
         self.oneTimeNonce = oneTimeNonce
         self.expiresAt = expiresAt
+        self.signalingPort = signalingPort
     }
 
     init(from decoder: Decoder) throws {
@@ -53,6 +60,7 @@ struct PairingPayload: Codable, Equatable {
         tailnetIPv4 = try container.decode(String.self, forKey: .tailnetIPv4)
         oneTimeNonce = try Data(base64URLEncoded: container.decode(String.self, forKey: .oneTimeNonce))
         expiresAt = try container.decode(Int.self, forKey: .expiresAt)
+        signalingPort = try container.decode(UInt16.self, forKey: .signalingPort)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -63,6 +71,7 @@ struct PairingPayload: Codable, Equatable {
         try container.encode(tailnetIPv4, forKey: .tailnetIPv4)
         try container.encode(oneTimeNonce.base64URLEncodedString(), forKey: .oneTimeNonce)
         try container.encode(expiresAt, forKey: .expiresAt)
+        try container.encode(signalingPort, forKey: .signalingPort)
     }
 
     func compactJSONData() throws -> Data {

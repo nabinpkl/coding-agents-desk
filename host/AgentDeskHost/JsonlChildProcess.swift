@@ -32,7 +32,7 @@ final class JsonlChildProcess: @unchecked Sendable {
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
-        self.logger = Logger(subsystem: Config.launchAgentLabel, category: category)
+        self.logger = Logger(subsystem: Config.logSubsystem, category: category)
         self.maxLineBytes = maxLineBytes
         self.onLine = onLine
         self.onTermination = onTermination

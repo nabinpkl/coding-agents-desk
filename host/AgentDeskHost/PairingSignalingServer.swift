@@ -41,7 +41,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     typealias InputLaneReadyHandler = (DeviceFingerprint, InputChannelServer) -> Void
     typealias GraphicsLaneReadyHandler = (DeviceFingerprint, GraphicsLaneServer) -> Void
 
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "session-quic")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "session-quic")
     private let pairing: Pairing
     private let approvalHandler: ApprovalHandler
     private let sessionAttemptStartedHandler: SessionAttemptStartedHandler

@@ -25,7 +25,7 @@ final class InputDispatcher: @unchecked Sendable {
         let displayBounds: CGRect
     }
 
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "input")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "input")
     private let eventPoster: EventPoster
     private let isTrusted: () -> Bool
     private let locationProvider: LocationProvider

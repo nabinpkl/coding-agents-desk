@@ -12,7 +12,7 @@ final class TerminalLauncherController: NSObject {
         static let originY = "TerminalLauncher.origin.y"
     }
 
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "terminal")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal")
     private let viewController = TerminalLauncherViewController()
     private let userDefaults: UserDefaults
     private let terminalAppURL: URL

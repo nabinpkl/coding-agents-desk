@@ -83,7 +83,7 @@ final class GestureChildController: @unchecked Sendable {
     typealias CommitStep = (Int) -> Void
     typealias GestureStateHandler = @MainActor @Sendable (GesturePortalState) -> Void
 
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "gesture-child")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "gesture-child")
     private let executableURL: URL
     private let arguments: [String]
     private let commitStep: CommitStep

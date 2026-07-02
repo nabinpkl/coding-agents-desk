@@ -10,6 +10,10 @@ struct StoredPairingRecord: Codable, Equatable {
     let hostPublicKey: Data
     let tailnetFQDN: String
     let tailnetIPv4: String
+    // Host's signaling port, learned from the pairing offer. Persisted so a
+    // re-dial after app relaunch reaches the same host (and the right tier)
+    // without assuming a default port.
+    let signalingPort: UInt16
 }
 
 protocol SessionTokenStoring {
