@@ -829,4 +829,18 @@ enum Config {
     static let keychainAccessGroup: String? = nil
     static let devHostSigningKeyFile = applicationSupportDirectory
         .appendingPathComponent("host-signing-key.dev", isDirectory: false)
+    // True when the host was launched by the dev iteration flow (`just host-run`),
+    // which sets AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1. Such a run is a transient,
+    // env-carrying launch, not a production login install: it uses the flat-file
+    // signing key (HostSigningKeyStore) and must NOT register a login LaunchAgent.
+    // A LaunchAgent has RunAtLoad, so bootstrapping it makes launchd spawn a second,
+    // env-less copy whose signing-key store differs (Secure Enclave vs flat file),
+    // flipping the host identity and breaking the already-paired client. Single
+    // source of truth for the flag; keep it out of durable storage so a stale dev
+    // flag can never weaken a later production launch.
+    static let devPermissiveKeystore: Bool = enabledFlag(
+        environmentKey: "AGENTDESK_DEV_PERMISSIVE_KEYSTORE",
+        defaultValue: false,
+        environment: ProcessInfo.processInfo.environment
+    )
 }

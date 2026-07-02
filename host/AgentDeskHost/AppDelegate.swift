@@ -148,7 +148,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        installLaunchAgent()
+        // A dev iteration run (`just host-run`) is a transient, env-carrying launch,
+        // not a production login install. Registering the LaunchAgent here would make
+        // launchd RunAtLoad a second, env-less copy whose signing-key store differs,
+        // flipping the host identity and breaking the paired client. Skip it for dev
+        // runs; the daily-driver launch (no permissive env) still installs it.
+        if !Config.devPermissiveKeystore {
+            installLaunchAgent()
+        }
         configureStatusItem()
         configurePopover()
         bootstrapTLSIdentity()
