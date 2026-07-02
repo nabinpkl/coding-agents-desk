@@ -2035,6 +2035,51 @@ struct InputChannelClose: Codable, Equatable {
     }
 }
 
+// ADR-0038 DOM mirror wire envelope. Mirror of the host's definition. The host forwards the
+// batch opaquely down the .dom lane; the client decodes this envelope (type, tab, checkout)
+// off the lane and hands the rrweb events to the replay surface. Decode tolerates the unlisted
+// `ev` events array.
+struct DomBatchEnvelope: Codable, Equatable {
+    let type: String
+    let tabId: Int
+    let checkout: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case tabId = "tb"
+        case checkout = "co"
+    }
+
+    init(tabId: Int, checkout: Bool) {
+        self.type = "dom-batch"
+        self.tabId = tabId
+        self.checkout = checkout
+    }
+}
+
+// ADR-0040 DOM-mirror input command. Mirror of the host's definition. The client sends this up the
+// .dom lane when the user taps the mirror; x/y are page CSS-pixel coordinates already mapped.
+struct DomInputCommand: Codable, Equatable {
+    let type: String
+    let kind: String
+    let x: Double
+    let y: Double
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case kind = "k"
+        case x
+        case y
+    }
+
+    init(kind: String = "mouse", x: Double, y: Double) {
+        self.type = "dom-input"
+        self.kind = kind
+        self.x = x
+        self.y = y
+    }
+}
+
 // R11 DesktopState. Mirror of host's definition. Pushed host -> client
 // over the session input stream; drives the dots band rendering.
 

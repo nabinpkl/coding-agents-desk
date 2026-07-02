@@ -14,6 +14,9 @@ enum QuicSessionStreamRole: UInt8, Codable, Equatable, Sendable {
     // ADR-0034 crisp-repair: the reliable graphics lane. The client opens the stream and
     // sends one role-tagged announce frame; the host then pushes ADGC-framed crisp tiles.
     case graphics = 3
+    // ADR-0038 DOM mirror: the reliable DOM-event lane. The client opens the stream and sends
+    // one role-tagged announce frame; the host then pushes checkout-framed rrweb events.
+    case dom = 4
 }
 
 enum QuicSessionFrameError: Error, Equatable {

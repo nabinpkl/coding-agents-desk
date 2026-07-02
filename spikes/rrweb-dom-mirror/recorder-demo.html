@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>rrweb spike · recorder</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0;
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #1a1a1a;
+    background: #fff;
+  }
+  .hud {
+    position: sticky; top: 0; z-index: 10;
+    padding: 8px 16px;
+    background: #0b5; color: #fff;
+    font: 600 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    display: flex; justify-content: space-between; gap: 12px;
+  }
+  article { max-width: 720px; margin: 0 auto; padding: 24px 20px 80px; }
+  h1 { font-size: 30px; letter-spacing: -0.02em; margin: 0 0 4px; }
+  h2 { font-size: 20px; margin: 32px 0 8px; }
+  .lede { color: #555; font-size: 18px; margin: 0 0 8px; }
+  pre {
+    background: #0d1117; color: #c9d1d9; border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto;
+    font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  code .k { color: #ff7b72; } code .s { color: #a5d6ff; } code .c { color: #8b949e; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { border: 1px solid #d0d7de; padding: 6px 10px; text-align: left; }
+  th { background: #f6f8fa; }
+  .clock { font: 600 15px ui-monospace, Menlo, monospace; color: #0b5; }
+  ul.log { list-style: none; padding: 0; margin: 8px 0; }
+  ul.log li {
+    font: 12px/1.5 ui-monospace, Menlo, monospace; color: #444;
+    padding: 3px 8px; border-left: 3px solid #0b5; margin: 2px 0; background: #f6faf7;
+  }
+  textarea {
+    width: 100%; min-height: 90px; box-sizing: border-box;
+    font: 14px/1.5 ui-monospace, Menlo, monospace;
+    padding: 10px; border: 1px solid #d0d7de; border-radius: 8px;
+  }
+  .hint { color: #888; font-size: 13px; }
+</style>
+</head>
+<body>
+  <div class="hud">
+    <span>RECORDER · streaming DOM to relay</span>
+    <span id="stat">starting rrweb…</span>
+  </div>
+  <article>
+    <h1>Crisp text at tiny bandwidth</h1>
+    <p class="lede">This page is recording <em>its own DOM</em> with rrweb and streaming
+      the mutation log to the relay. Open the viewer in another tab — everything here is
+      re-rendered there by the viewer's own browser, so the text stays vector-sharp no
+      matter the network.</p>
+
+    <h2>Why this is cheap</h2>
+    <p>A pixel encoder ships a grid of colors every frame. rrweb ships <strong>structure</strong>:
+      one full snapshot, then tiny deltas that reference node ids. A ticking clock or an
+      appended log line is a few dozen bytes, not a re-encoded tile. Watch the KB/s in the
+      relay console while nothing moves — it drops toward zero.</p>
+
+    <pre><code><span class="c">// the entire recorder, minus batching plumbing</span>
+<span class="k">rrweb</span>.record({
+  emit(event) { batch.push(event); },   <span class="c">// DOM + input + scroll deltas</span>
+  checkoutEveryNms: <span class="s">5000</span>,        <span class="c">// periodic full snapshot for late joiners</span>
+});</code></pre>
+
+    <h2>Live mutation</h2>
+    <p>Clock (updates every second): <span class="clock" id="clock">—</span></p>
+    <p class="hint">Newest first, capped at 8 rows — pure DOM mutation, streamed as deltas:</p>
+    <ul class="log" id="log"></ul>
+
+    <h2>Type here — it mirrors</h2>
+    <p class="hint">Input events stream too. Type in the box, scroll the page, and watch the
+      viewer follow. (Inputs can be masked at capture time for privacy — not masked here.)</p>
+    <textarea id="scratch" placeholder="type something and switch to the viewer tab…"></textarea>
+
+    <h2>A table, because tables are all text</h2>
+    <table>
+      <thead><tr><th>Surface</th><th>rrweb cost</th><th>Falls back to pixels?</th></tr></thead>
+      <tbody>
+        <tr><td>Docs / articles / code</td><td>tiny deltas</td><td>no — this is the sweet spot</td></tr>
+        <tr><td>Busy re-rendering app</td><td>large mutation stream</td><td>often cheaper as pixels</td></tr>
+        <tr><td>Canvas / WebGL / video</td><td>needs snapshotting</td><td>yes</td></tr>
+        <tr><td>Cross-origin iframe</td><td>unreadable</td><td>yes</td></tr>
+      </tbody>
+    </table>
+  </article>
+
+  <script src="https://cdn.jsdelivr.net/npm/rrweb@2.0.0-alpha.4/dist/rrweb.min.js"></script>
+  <script>
+    // --- continuous mutation so bandwidth is observable in the relay console ---
+    const clock = document.getElementById('clock');
+    setInterval(() => { clock.textContent = new Date().toLocaleTimeString(); }, 1000);
+
+    const log = document.getElementById('log');
+    let n = 0;
+    setInterval(() => {
+      const li = document.createElement('li');
+      li.textContent = `#${String(++n).padStart(3, '0')}  ${new Date().toISOString()}`;
+      log.prepend(li);
+      while (log.children.length > 8) log.lastElementChild.remove();
+    }, 2000);
+
+    // --- record -> batch -> POST to relay ---
+    let batch = [];
+    let sentEvents = 0;
+    let sentBytes = 0;
+    const stat = document.getElementById('stat');
+
+    if (!window.rrweb) {
+      stat.textContent = 'rrweb failed to load (CDN blocked?)';
+    } else {
+      rrweb.record({
+        emit(event) { batch.push(event); },
+        checkoutEveryNms: 5000,
+        sampling: { mousemove: 50, scroll: 100, input: 'last' },
+      });
+
+      setInterval(() => {
+        if (!batch.length) return;
+        const payload = JSON.stringify(batch);
+        sentEvents += batch.length;
+        sentBytes += payload.length;
+        batch = [];
+        fetch('/emit', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: payload,
+        }).catch(() => {});
+        stat.textContent = `${sentEvents} events · ${(sentBytes / 1024).toFixed(1)} KB sent`;
+      }, 250);
+    }
+  </script>
+</body>
+</html>

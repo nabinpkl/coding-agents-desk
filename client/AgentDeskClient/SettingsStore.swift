@@ -28,6 +28,7 @@ final class SettingsStore: @unchecked Sendable {
         static let showSpacePreviews = "agentDesk.showSpacePreviews"
         static let crispTextOverlayEnabled = "agentDesk.crispTextOverlayEnabled"
         static let showHostCursorInVideo = "agentDesk.showHostCursorInVideo"
+        static let domMirrorEnabled = "agentDesk.domMirrorEnabled"
         static let agentSayVoiceLanguage = "agentDesk.agentSayVoiceLanguage"
         static let agentSayVoiceIdentifier = "agentDesk.agentSayVoiceIdentifier"
     }
@@ -157,6 +158,25 @@ final class SettingsStore: @unchecked Sendable {
         get { defaults.object(forKey: Key.showHostCursorInVideo) as? Bool ?? false }
         set {
             defaults.set(newValue, forKey: Key.showHostCursorInVideo)
+            postChange()
+        }
+    }
+
+    // ADR-0038 DOM mirror. Default off (opt-in beta). Gates whether the client opens the .dom lane
+    // and shows the replay surface; the host still gates with its own flag. An env override
+    // (`AGENTDESK_DOM_MIRROR_ENABLED=1`) wins, so a physical-device run can enable it via the
+    // devicectl `--environment-variables` path (devicectl apps get env, not argv). Otherwise
+    // bool(forKey:), so the sim launch arg (`-agentDesk.domMirrorEnabled YES`, the NSUserDefaults
+    // argument domain) also works.
+    var domMirrorEnabled: Bool {
+        get {
+            if let env = ProcessInfo.processInfo.environment["AGENTDESK_DOM_MIRROR_ENABLED"] {
+                return env == "1" || env.lowercased() == "true"
+            }
+            return defaults.bool(forKey: Key.domMirrorEnabled)
+        }
+        set {
+            defaults.set(newValue, forKey: Key.domMirrorEnabled)
             postChange()
         }
     }

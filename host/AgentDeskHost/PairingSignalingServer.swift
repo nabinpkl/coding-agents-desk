@@ -40,6 +40,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     typealias SessionEndedHandler = (DeviceFingerprint, String?) -> Void
     typealias InputLaneReadyHandler = (DeviceFingerprint, InputChannelServer) -> Void
     typealias GraphicsLaneReadyHandler = (DeviceFingerprint, GraphicsLaneServer) -> Void
+    typealias DomLaneReadyHandler = (DeviceFingerprint, DomEventLaneServer) -> Void
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "session-quic")
     private let pairing: Pairing
@@ -53,6 +54,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     private let sessionEndedHandler: SessionEndedHandler
     private let inputLaneReadyHandler: InputLaneReadyHandler
     private let graphicsLaneReadyHandler: GraphicsLaneReadyHandler
+    private let domLaneReadyHandler: DomLaneReadyHandler
     private var listener: NetworkListener<QUIC>?
     private var listenerTask: Task<Void, Never>?
     private let contexts = OSAllocatedUnfairLock<[ObjectIdentifier: ConnectionContext]>(initialState: [:])
@@ -68,7 +70,8 @@ final class PairingSignalingServer: @unchecked Sendable {
         sessionSuspendedHandler: @escaping SessionSuspendedHandler = { _, _ in },
         sessionEndedHandler: @escaping SessionEndedHandler = { _, _ in },
         inputLaneReadyHandler: @escaping InputLaneReadyHandler = { _, _ in },
-        graphicsLaneReadyHandler: @escaping GraphicsLaneReadyHandler = { _, _ in }
+        graphicsLaneReadyHandler: @escaping GraphicsLaneReadyHandler = { _, _ in },
+        domLaneReadyHandler: @escaping DomLaneReadyHandler = { _, _ in }
     ) {
         self.pairing = pairing
         self.approvalHandler = approvalHandler
@@ -81,6 +84,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         self.sessionEndedHandler = sessionEndedHandler
         self.inputLaneReadyHandler = inputLaneReadyHandler
         self.graphicsLaneReadyHandler = graphicsLaneReadyHandler
+        self.domLaneReadyHandler = domLaneReadyHandler
     }
 
     func start(port: UInt16 = Config.signalingPort) throws {
@@ -190,6 +194,27 @@ final class PairingSignalingServer: @unchecked Sendable {
             }
             let lane = GraphicsLaneServer(stream: stream, fingerprint: active.deviceFingerprint)
             graphicsLaneReadyHandler(active.deviceFingerprint, lane)
+        case .dom:
+            // ADR-0038 DOM-mirror lane. Gated by the master flag: if the subsystem is off, reject
+            // cleanly (a client should not open .dom then, but reject rather than hang if it does).
+            guard Config.domMirrorEnabled else {
+                try await QuicSessionStreamIO.send(
+                    SessionRejected(reason: .malformed),
+                    role: .dom,
+                    on: stream
+                )
+                return
+            }
+            guard let active = context.activeSession else {
+                try await QuicSessionStreamIO.send(
+                    SessionRejected(reason: .unauthorized),
+                    role: .dom,
+                    on: stream
+                )
+                return
+            }
+            let lane = DomEventLaneServer(stream: stream, fingerprint: active.deviceFingerprint)
+            domLaneReadyHandler(active.deviceFingerprint, lane)
         }
     }
 

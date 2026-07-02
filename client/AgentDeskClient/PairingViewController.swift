@@ -559,8 +559,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // every other state so a reconnect re-shows it cleanly.
         if case .connected = pairingClient.state {
             showSurfaceToggleIfNeeded()
+            // ADR-0038: start the DOM-mirror surface on session-connect (idempotent, no-op without a
+            // .dom lane). Session-level, not media-gated, so it works even if the media path degrades.
+            ensureDomMirrorSurface()
         } else {
             teardownAgentSurface()
+            teardownDomMirrorSurface()
         }
 
         startOfferListenerIfNeeded()

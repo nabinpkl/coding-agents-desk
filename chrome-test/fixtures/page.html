@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<!-- Strict CSP: no inline or external page scripts. The extension records this page anyway,
+     because MAIN-world scripts injected by an extension are exempt from the page CSP. A
+     page-context bookmarklet could NOT inject rrweb here. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:" />
+<title>AgentDesk DOM Mirror fixture</title>
+<style>
+  body { font: 16px/1.6 -apple-system, system-ui, sans-serif; max-width: 640px; margin: 24px auto; }
+  code { font-family: ui-monospace, Menlo, monospace; }
+</style>
+</head>
+<body>
+  <!-- Structural capture proof: a data-attribute VALUE (not a text node) survives masking, so the
+       harness asserts it is PRESENT to prove the DOM structure was captured. -->
+  <main data-agentdesk-fixture="dommirror-capture-ok">
+  <!-- Visible body text: under mask-by-default this MUST be redacted, so the harness asserts it is
+       ABSENT from the stream. -->
+  <h1>VISIBLE_BODY_SENTINEL_7C3A</h1>
+  <!-- Attribute-borne text (title) must be masked too (ADR-0041): asserted ABSENT. -->
+  <p class="lede" title="SECRET_TITLE_ATTR_ZZ99">This CSP-strict fixture is recorded by the AgentDesk
+    DOM-mirror extension. Its visible text must not reach the phone unmasked.</p>
+  <p>Some body copy so the snapshot has real text to carry: the quick brown fox jumps over the
+    lazy dog, and then reads a paragraph about <code>rrweb</code> checkout batches.</p>
+
+  <form>
+    <!-- Text-input value: must be masked (asserted absent). -->
+    <label>Username <input type="text" name="user" value="alice-visible-USERTEXT" /></label>
+    <!-- Password value: must be masked (asserted absent). -->
+    <label>Password <input type="password" name="pw" value="SUPERSECRET_PW_ZZZ99" /></label>
+  </form>
+  </main>
+
+  <table>
+    <thead><tr><th>Key</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>fixture</td><td>csp-strict</td></tr>
+      <tr><td>sentinel</td><td>present</td></tr>
+    </tbody>
+  </table>
+</body>
+</html>

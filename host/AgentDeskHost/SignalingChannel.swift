@@ -15,6 +15,10 @@ enum QuicSessionStreamRole: UInt8, Codable, Equatable, Sendable {
     // tiles. The client opens the stream and sends one role marker, then the host owns
     // it and pushes ADGC-framed OwnedGraphicsFrameEnvelope bytes down it.
     case graphics = 3
+    // ADR-0038 DOM mirror: the reliable host-to-client lane carrying rrweb DOM events for
+    // Chrome page mirroring. Parallels graphics -- the client opens the stream and sends one
+    // role marker, then the host owns it and pushes checkout-framed rrweb event bytes down it.
+    case dom = 4
 }
 
 enum QuicSessionFrameError: Error, Equatable {

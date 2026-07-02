@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>AgentDesk DOM Mirror</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #fff; }
+  #stage { width: 100%; height: 100%; overflow: hidden; position: relative; }
+  /* Transparent overlay captures taps (the replayer iframe would otherwise swallow them). */
+  #tap-overlay { position: absolute; inset: 0; z-index: 5; background: transparent; }
+  /* rrweb renders into an iframe inside .replayer-wrapper; fill the stage. */
+  #stage .replayer-wrapper { transform: none !important; }
+  #stage iframe { width: 100% !important; border: 0; display: block; }
+</style>
+</head>
+<body>
+  <div id="stage"><div id="tap-overlay"></div></div>
+  <script src="rrweb.min.js"></script>
+  <script>
+  (function () {
+    var FULL_SNAPSHOT = 2;
+    var stage = document.getElementById('stage');
+    var replayer = null;
+    var pending = [];
+
+    function haveSnapshot(evts) {
+      for (var i = 0; i < evts.length; i++) if (evts[i].type === FULL_SNAPSHOT) return true;
+      return false;
+    }
+
+    function applyEvent(e) {
+      if (!replayer) {
+        pending.push(e);
+        if (haveSnapshot(pending)) {
+          replayer = new rrweb.Replayer(pending, { liveMode: true, root: stage });
+          replayer.startLive(pending[0].timestamp);
+          pending = [];
+        }
+      } else {
+        replayer.addEvent(e);
+      }
+    }
+
+    // Native -> webview: one batch { t, tb, co, ev:[...], meta }. Feed its rrweb events, then
+    // report a probe summary of the reconstructed DOM so the autonomous harness can assert the
+    // mirror worked (visible text is masked, so the probe keys on a data-attribute marker +
+    // node count, not on page text).
+    window.__domMirrorDeliver = function (rawJSON) {
+      var batch;
+      try { batch = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON; }
+      catch (e) { return; }
+      var ev = (batch && batch.ev) || [];
+      for (var i = 0; i < ev.length; i++) applyEvent(ev[i]);
+      scheduleProbe();
+    };
+
+    // rrweb liveMode renders the FullSnapshot on a timed tick, not synchronously, so probing right
+    // after addEvent would read an unrendered (empty) iframe. Debounce: probe ~700ms after the last
+    // batch, by which point the replayer has reconstructed the DOM.
+    var probeTimer = null;
+    function scheduleProbe() {
+      if (probeTimer) clearTimeout(probeTimer);
+      probeTimer = setTimeout(postProbe, 700);
+    }
+
+    function postProbe() {
+      if (!replayer || !replayer.iframe || !replayer.iframe.contentDocument) return;
+      var doc = replayer.iframe.contentDocument;
+      var markerEl = doc.querySelector('[data-agentdesk-fixture]');
+      var marker = markerEl ? markerEl.getAttribute('data-agentdesk-fixture') : '';
+      var nodes = doc.querySelectorAll('*').length;
+      try {
+        window.webkit.messageHandlers.domMirror.postMessage({ kind: 'probe', marker: marker, nodes: nodes });
+      } catch (e) {}
+    }
+
+    // ADR-0040: capture a tap on the overlay, map it from the displayed (scaled) mirror back to the
+    // page's own CSS-pixel coordinate space, and post it to native to route back to Chrome. rrweb
+    // sets the replayer iframe's width/height attributes to the recorded page size, so the scale is
+    // recordedSize / displayedSize.
+    document.getElementById('tap-overlay').addEventListener('click', function (e) {
+      if (!replayer || !replayer.iframe) return;
+      var rect = replayer.iframe.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      var pageW = parseInt(replayer.iframe.getAttribute('width'), 10) || rect.width;
+      var pageH = parseInt(replayer.iframe.getAttribute('height'), 10) || rect.height;
+      var x = (e.clientX - rect.left) * (pageW / rect.width);
+      var y = (e.clientY - rect.top) * (pageH / rect.height);
+      if (x < 0 || y < 0 || x > pageW || y > pageH) return; // tap landed outside the mirrored page
+      try { window.webkit.messageHandlers.domMirror.postMessage({ kind: 'tap', x: x, y: y }); } catch (err) {}
+    });
+
+    window.__domMirrorBridge = { destroy: function () { try { replayer && replayer.pause(); } catch (e) {} } };
+  })();
+  </script>
+</body>
+</html>

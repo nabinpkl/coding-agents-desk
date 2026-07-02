@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>rrweb spike · viewer</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rrweb@2.0.0-alpha.4/dist/rrweb.min.css" />
+<style>
+  body {
+    margin: 0;
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f2f3f5;
+  }
+  .hud {
+    position: sticky; top: 0; z-index: 10;
+    padding: 8px 16px;
+    background: #05a; color: #fff;
+    font: 600 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    display: flex; justify-content: space-between; gap: 12px;
+  }
+  #stage {
+    margin: 20px auto; width: min(760px, 94vw);
+    background: #fff; border: 1px solid #cdd3da; border-radius: 10px;
+    overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+  /* rrweb renders into an iframe inside .replayer-wrapper; make it fill the stage. */
+  #stage .replayer-wrapper { transform: none !important; }
+  #stage iframe { width: 100% !important; border: 0; display: block; }
+</style>
+</head>
+<body>
+  <div class="hud">
+    <span>VIEWER · re-rendering the mirrored DOM locally (crisp text)</span>
+    <span id="stat">connecting…</span>
+  </div>
+  <div id="stage"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/rrweb@2.0.0-alpha.4/dist/rrweb.min.js"></script>
+  <script>
+    const stage = document.getElementById('stage');
+    const stat = document.getElementById('stat');
+    function setStat(s) { stat.textContent = s; }
+
+    if (!window.rrweb) {
+      setStat('rrweb failed to load (CDN blocked?)');
+    } else {
+      let replayer = null;
+      let pending = [];
+      let got = 0;
+      let bytes = 0;
+
+      const FULL_SNAPSHOT = 2;
+      const haveSnapshot = (evts) => evts.some((e) => e.type === FULL_SNAPSHOT);
+
+      const es = new EventSource('/events');
+      es.onopen = () => setStat('connected · waiting for first snapshot…');
+      es.onerror = () => setStat('stream error (is the relay running?)');
+
+      es.onmessage = (msg) => {
+        got++;
+        bytes += msg.data.length;
+        let event;
+        try { event = JSON.parse(msg.data); } catch { return; }
+
+        if (!replayer) {
+          // Buffer until we have a full snapshot, then start live from it.
+          pending.push(event);
+          if (haveSnapshot(pending)) {
+            replayer = new rrweb.Replayer(pending, { liveMode: true, root: stage });
+            replayer.startLive(pending[0].timestamp);
+            pending = [];
+          }
+        } else {
+          replayer.addEvent(event);
+        }
+        setStat(`${got} events · ${(bytes / 1024).toFixed(1)} KB received`);
+      };
+    }
+  </script>
+</body>
+</html>

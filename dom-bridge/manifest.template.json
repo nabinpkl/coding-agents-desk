@@ -1,0 +1,7 @@
+{
+  "name": "com.example.agentdesk.agentdesk.dom_bridge",
+  "description": "AgentDesk DOM-mirror native messaging bridge (sacrificial shim, ADR-0039).",
+  "path": "__WRAPPER_PATH__",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://__EXTENSION_ID__/"]
+}

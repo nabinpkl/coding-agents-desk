@@ -42,10 +42,75 @@ struct QuicSessionStreamFrameTests {
         #expect(QuicSessionStreamRole.control.rawValue == 1)
         #expect(QuicSessionStreamRole.input.rawValue == 2)
         #expect(QuicSessionStreamRole.graphics.rawValue == 3)
+        #expect(QuicSessionStreamRole.dom.rawValue == 4)
         #expect(QuicSessionStreamRole(rawValue: 1) == .control)
         #expect(QuicSessionStreamRole(rawValue: 2) == .input)
         #expect(QuicSessionStreamRole(rawValue: 3) == .graphics)
-        #expect(QuicSessionStreamRole(rawValue: 4) == nil)
+        #expect(QuicSessionStreamRole(rawValue: 4) == .dom)
+        #expect(QuicSessionStreamRole(rawValue: 5) == nil)
+    }
+
+    @Test func quicSessionFrameRoundTripsDomRole() throws {
+        let payload = Data(#"{"t":"dom-batch","tb":3,"co":true,"ev":[]}"#.utf8)
+        let encoded = try QuicSessionStreamFrame.encode(role: .dom, payload: payload)
+        let decoded = try QuicSessionStreamFrame.decode(encoded)
+
+        #expect(decoded.role == .dom)
+        #expect(decoded.payload == payload)
+        #expect(encoded[encoded.startIndex] == QuicSessionStreamRole.dom.rawValue)
+    }
+
+    @Test func domBatchEnvelopeRoundTripsWithCompactKeys() throws {
+        let envelope = DomBatchEnvelope(tabId: 7, checkout: true)
+        let data = try JSONEncoder().encode(envelope)
+        let decoded = try JSONDecoder().decode(DomBatchEnvelope.self, from: data)
+        let json = String(data: data, encoding: .utf8) ?? ""
+
+        #expect(decoded == envelope)
+        #expect(decoded.type == "dom-batch")
+        #expect(json.contains("\"t\":\"dom-batch\""))
+        #expect(json.contains("\"tb\":7"))
+        #expect(json.contains("\"co\":true"))
+    }
+
+    @Test func domBatchEnvelopeDecodeIgnoresEventsArray() throws {
+        // The shim sends the rrweb events under "ev"; the host models only the envelope and
+        // forwards the events opaquely, so decoding must tolerate (and drop) the unlisted key.
+        let wire = Data(#"{"t":"dom-batch","tb":2,"co":false,"ev":[{"type":4},{"type":2}]}"#.utf8)
+        let decoded = try JSONDecoder().decode(DomBatchEnvelope.self, from: wire)
+
+        #expect(decoded.tabId == 2)
+        #expect(decoded.checkout == false)
+        #expect(decoded.type == "dom-batch")
+    }
+
+    @Test func domInputCommandRoundTripsWithCompactKeys() throws {
+        let cmd = DomInputCommand(x: 100.5, y: 60)
+        let data = try JSONEncoder().encode(cmd)
+        let decoded = try JSONDecoder().decode(DomInputCommand.self, from: data)
+        let json = String(data: data, encoding: .utf8) ?? ""
+
+        #expect(decoded == cmd)
+        #expect(decoded.type == "dom-input")
+        #expect(decoded.kind == "mouse")
+        #expect(json.contains("\"t\":\"dom-input\""))
+        #expect(json.contains("\"k\":\"mouse\""))
+        #expect(json.contains("\"x\":100.5"))
+    }
+
+    @Test func domMirrorFlagDefaultsOff() {
+        // ADR-0038: the whole DOM-mirror subsystem is gated off by default. Verify the flag's
+        // default hermetically (empty environment), and that an explicit opt-in flips it.
+        #expect(Config.enabledFlag(
+            environmentKey: "AGENTDESK_DOM_MIRROR_ENABLED",
+            defaultValue: false,
+            environment: [:]
+        ) == false)
+        #expect(Config.enabledFlag(
+            environmentKey: "AGENTDESK_DOM_MIRROR_ENABLED",
+            defaultValue: false,
+            environment: ["AGENTDESK_DOM_MIRROR_ENABLED": "1"]
+        ) == true)
     }
 
     @Test func sessionReadyCarriesResumeAndMediaKeySalt() throws {

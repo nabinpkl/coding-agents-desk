@@ -213,6 +213,8 @@ final class PairingClient {
         activeInputChannel = nil
         activeSessionTransport?.close()
         activeSessionTransport = nil
+        activeDomMirror?.stop()
+        activeDomMirror = nil
         activeResumeMaterial = nil
         pendingResume = nil
         resetActiveMediaSession()
@@ -221,6 +223,9 @@ final class PairingClient {
     }
 
     private(set) var activeSessionTransport: QuicSessionClientTransport?
+    // ADR-0038 DOM mirror: the active .dom lane reader, if this session opened one. The VC starts it
+    // and wires it to the replay surface on connect; cleared/stopped on disconnect.
+    private(set) var activeDomMirror: DomMirrorClient?
     // ADR-0030: dedicated input lane. PairingViewController.sendInput
     // routes through this instead of the media datagram lane.
     private(set) var activeInputChannel: InputChannel?
@@ -242,6 +247,8 @@ final class PairingClient {
         activeInputChannel = nil
         activeSessionTransport?.close()
         activeSessionTransport = nil
+        activeDomMirror?.stop()
+        activeDomMirror = nil
         if case .connected(let active) = state,
            let resume = activeResumeMaterial {
             pendingResume = (active, resume)
@@ -319,9 +326,11 @@ final class PairingClient {
                 mediaTransport: connection.transport,
                 resume: connection.resume,
                 host: host,
-                port: port
+                port: port,
+                domMirror: connection.domMirror
             )
             activeSessionTransport = session.transport
+            activeDomMirror = session.domMirror
             activeInputChannel = session.inputChannel
             activeHost = session.host
             activePort = session.port
@@ -407,6 +416,8 @@ final class PairingClient {
         }
         activeSessionTransport?.close()
         activeSessionTransport = nil
+        activeDomMirror?.stop()
+        activeDomMirror = nil
         activeInputChannel = nil
         if let resume = activeResumeMaterial {
             pendingResume = (active, resume)

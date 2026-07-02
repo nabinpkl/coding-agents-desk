@@ -218,4 +218,19 @@ enum Config {
         URL(string: "\(agentFeedWebviewScheme)://\(agentFeedWebviewHost)/index.html")
     }
 
+    // ADR-0038 DOM mirror: the standalone rrweb-replayer bundle, served under its own custom scheme
+    // (same rationale as the agent-feed webview -- a real origin so the module/replayer loads).
+    static let domMirrorWebviewSubdirectory = "DomMirrorWebview"
+    static var domMirrorWebviewIndexURL: URL? {
+        Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: domMirrorWebviewSubdirectory)
+    }
+    static var domMirrorWebviewRootURL: URL? {
+        domMirrorWebviewIndexURL?.deletingLastPathComponent()
+    }
+    static let domMirrorWebviewScheme = "dommirror"
+    static let domMirrorWebviewHost = "app"
+    static var domMirrorWebviewIndexRequestURL: URL? {
+        URL(string: "\(domMirrorWebviewScheme)://\(domMirrorWebviewHost)/index.html")
+    }
+
 }
