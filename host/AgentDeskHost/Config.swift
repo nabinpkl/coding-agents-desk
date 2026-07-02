@@ -843,4 +843,14 @@ enum Config {
         defaultValue: false,
         environment: ProcessInfo.processInfo.environment
     )
+    // Dev-automation flag: bypass the pairing-approval modal so headless recipes
+    // (pair-sim, pair-iphone, motion-verify) pair unattended. Gated on a dev
+    // iteration run (devPermissiveKeystore) so a stray AGENTDESK_AUTO_APPROVE in a
+    // production launch's environment can never silently auto-approve pairings; the
+    // human device pick/approve stays the authorization gate (ADR-0019).
+    static let autoApprovePairing: Bool = devPermissiveKeystore && enabledFlag(
+        environmentKey: "AGENTDESK_AUTO_APPROVE",
+        defaultValue: false,
+        environment: ProcessInfo.processInfo.environment
+    )
 }

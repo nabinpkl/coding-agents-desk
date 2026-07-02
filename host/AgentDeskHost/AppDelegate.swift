@@ -1068,8 +1068,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showApprovalSheet(for fingerprint: DeviceFingerprint, completion: @escaping (Bool) -> Void) {
-        if ProcessInfo.processInfo.environment["AGENTDESK_AUTO_APPROVE"] == "1" {
-            signalingLogger.notice("AGENTDESK_AUTO_APPROVE=1; auto-approving \(fingerprint.rawValue, privacy: .public)")
+        if Config.autoApprovePairing {
+            signalingLogger.notice("auto-approving pairing (dev run) \(fingerprint.rawValue, privacy: .public)")
             completion(true)
             refreshConnectedState()
             return
