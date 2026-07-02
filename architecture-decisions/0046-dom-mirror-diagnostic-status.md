@@ -29,8 +29,8 @@ existing `onBridgeConnected`/`onBridgeDisconnected`, wired in `AppDelegate`), an
 extension is reachable and recording). No extension change: the host already knows
 bridge liveness and the tab from batch envelopes.
 
-Client-observed signals need no wire: mirroring on (the `.dom` lane exists), batch
-freshness ("Xs ago", refreshed by a 1s timer), node count (the existing replayer
+Client-observed signals need no wire: batch freshness ("Xs ago", refreshed by a 1s
+timer), batch count (liveness/throughput), node count (the existing replayer
 probe), and capture paused (ADR-0045). `DomMirrorClient`'s receive loop is
 generalized from "decode as batch or stop" to a `t`-tag switch: `dom-batch` ->
 forward, `dom-status` -> update (does not stop the lane), anything else -> stop.
@@ -38,6 +38,15 @@ forward, `dom-status` -> update (does not stop the lane), anything else -> stop.
 The surface owns its status state and re-renders pills via a pure, unit-tested
 `statusChips(DomMirrorStatus) -> [StatusChip]` (severity ok/warn/off -> color),
 matching the `visibility(for:)` testable-seam pattern.
+
+Chip semantics (deliberate, after felt review): there is **no "mirror on" chip** --
+the Browser segment only exists when the `.dom` lane is open, so its presence
+already says mirroring is enabled. The bridge chip is labeled **"bridge"**, not
+"ext", because the extension opens its native-messaging port lazily on the first
+batch, so the host only sees it **while the extension is streaming** -- "bridge ✗"
+means "nothing streaming to the host", which is not the same as "extension not
+installed". The recorder is single-tab (v1), so the recording tab is shown by id
+(`rec tab N`) rather than a count.
 
 ## Consequences
 

@@ -31,10 +31,10 @@ final class DomMirrorSurface: UIView {
     // and on a 1s timer (so the "Xs ago" freshness advances even when no batch arrives).
     private let statusBar = UIView()
     private let statusStack = UIStackView()
-    private var mirroringOn = false
-    private var extReachable = false
+    private var bridgeConnected = false
     private var recordingTab: Int?
     private var nodeCount: Int?
+    private var batchCount = 0
     private var paused = false
     private var lastBatchAt: Date?
     private var ageTimer: Timer?
@@ -122,19 +122,18 @@ final class DomMirrorSurface: UIView {
     }
 
     // Granular setters, called by the VC from the wired lane callbacks. Each re-renders the line.
-    func setMirroringOn(_ on: Bool) { mirroringOn = on; renderStatus() }
-    func setExtStatus(reachable: Bool, recordingTab tab: Int?) {
-        extReachable = reachable; recordingTab = tab; renderStatus()
+    func setBridgeStatus(connected: Bool, recordingTab tab: Int?) {
+        bridgeConnected = connected; recordingTab = tab; renderStatus()
     }
-    func recordBatch() { lastBatchAt = Date(); mirroringOn = true; renderStatus() }
+    func recordBatch() { lastBatchAt = Date(); batchCount += 1; renderStatus() }
     func setNodeCount(_ n: Int) { nodeCount = n; renderStatus() }
     func setPaused(_ p: Bool) { paused = p; renderStatus() }
 
     private func renderStatus() {
         let ageMs = lastBatchAt.map { Int(Date().timeIntervalSince($0) * 1000) }
         let status = DomMirrorStatus(
-            mirroringOn: mirroringOn, extReachable: extReachable, recordingTab: recordingTab,
-            lastBatchAgeMs: ageMs, nodeCount: nodeCount, paused: paused)
+            bridgeConnected: bridgeConnected, recordingTab: recordingTab,
+            lastBatchAgeMs: ageMs, nodeCount: nodeCount, batchCount: batchCount, paused: paused)
         let chips = statusChips(status)
         statusStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for chip in chips { statusStack.addArrangedSubview(Self.makePill(chip)) }

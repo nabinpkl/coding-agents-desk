@@ -46,19 +46,17 @@ extension PairingViewController {
             surface = created
         }
 
-        // ADR-0046 status line: the lane exists, so mirroring is on. Node count comes from the
-        // replayer probe.
-        surface.setMirroringOn(true)
+        // ADR-0046 status line: node count comes from the replayer probe.
         surface.onProbe = { [weak surface] _, nodes in surface?.setNodeCount(nodes) }
 
         // Wire the lane -> surface (pulled fresh so a reconnect's new lane is used), then start it.
         domMirror.onBatch = { [weak surface] json in
             surface?.deliver(rawJSON: json)
-            surface?.recordBatch() // ADR-0046: freshness for the status line
+            surface?.recordBatch() // ADR-0046: freshness + batch count for the status line
         }
-        // ADR-0046: host-pushed diagnostic status (extension reachable, recording tab).
+        // ADR-0046: host-pushed diagnostic status (bridge connected, recording tab).
         domMirror.onStatus = { [weak surface] status in
-            surface?.setExtStatus(reachable: status.ext, recordingTab: status.tab)
+            surface?.setBridgeStatus(connected: status.ext, recordingTab: status.tab)
         }
         // ADR-0040: taps in the mirror go back up the .dom lane to Chrome.
         surface.onTap = { [weak self] x, y in self?.pairingClient.activeDomMirror?.sendTap(x: x, y: y) }

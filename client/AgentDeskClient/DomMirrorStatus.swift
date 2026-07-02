@@ -2,19 +2,23 @@
 // UIKit) so the chip mapping is unit-testable without a view, matching the ControlSurface.swift
 // seam pattern; the surface maps severity -> UIColor.
 //
-// Sources of each field:
-//   mirroringOn   - the .dom lane is open (client knows)
-//   extReachable  - host pushed dom-status: extension bridge connected (host knows)
-//   recordingTab  - host pushed dom-status: recording tab id, nil when none (host knows)
-//   lastBatchAgeMs- client-measured age since the last batch, nil if none yet
-//   nodeCount     - last replayer probe node count, nil until the mirror paints
-//   paused        - client paused capture because Browser is not in view (ADR-0045)
+// The Browser surface being on screen already implies mirroring is enabled (the segment only exists
+// when the .dom lane is open), so there is no "mirror on/off" chip. Sources of each field:
+//   bridgeConnected - host pushed dom-status: the extension<->host native-messaging bridge is
+//                     connected. NB it only connects while the extension is streaming (it opens the
+//                     port lazily on the first batch), so this reads as "extension streaming to
+//                     host", NOT "extension installed". Hence the honest "bridge" label.
+//   recordingTab    - host pushed dom-status: recording tab id, nil when none (single-tab v1)
+//   lastBatchAgeMs  - client-measured age since the last batch, nil if none yet
+//   nodeCount       - last replayer probe node count, nil until the mirror paints
+//   batchCount      - total batches received this session (liveness/throughput)
+//   paused          - client paused capture because Browser is not in view (ADR-0045)
 struct DomMirrorStatus: Equatable {
-    var mirroringOn: Bool
-    var extReachable: Bool
+    var bridgeConnected: Bool
     var recordingTab: Int?
     var lastBatchAgeMs: Int?
     var nodeCount: Int?
+    var batchCount: Int
     var paused: Bool
 }
 
@@ -33,13 +37,11 @@ struct StatusChip: Equatable {
 func statusChips(_ s: DomMirrorStatus) -> [StatusChip] {
     var chips: [StatusChip] = []
 
+    // Extension <-> host native-messaging bridge. Up only while the extension streams, so "bridge
+    // ✗" means "nothing streaming to the host" (not necessarily "extension not installed").
     chips.append(StatusChip(
-        text: s.mirroringOn ? "mirror ON" : "mirror OFF",
-        severity: s.mirroringOn ? .ok : .off))
-
-    chips.append(StatusChip(
-        text: s.extReachable ? "ext \u{2713}" : "ext \u{2717}",
-        severity: s.extReachable ? .ok : .warn))
+        text: s.bridgeConnected ? "bridge \u{2713}" : "bridge \u{2717}",
+        severity: s.bridgeConnected ? .ok : .warn))
 
     if let tab = s.recordingTab {
         chips.append(StatusChip(text: "rec tab \(tab)", severity: .ok))
@@ -53,6 +55,10 @@ func statusChips(_ s: DomMirrorStatus) -> [StatusChip] {
 
     if let n = s.nodeCount {
         chips.append(StatusChip(text: "\(n) nodes", severity: n > 0 ? .ok : .warn))
+    }
+
+    if s.batchCount > 0 {
+        chips.append(StatusChip(text: "\(s.batchCount) batches", severity: .ok))
     }
 
     if let age = s.lastBatchAgeMs {
