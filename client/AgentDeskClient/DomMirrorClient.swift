@@ -16,6 +16,10 @@ final class DomMirrorClient: @unchecked Sendable {
     // main actor, ready to hand to DomMirrorSurface.deliver(rawJSON:).
     var onBatch: (@MainActor (String) -> Void)?
 
+    // ADR-0046: host-pushed diagnostic status (extension reachable, recording tab) for the Browser
+    // status line. Delivered on the main actor; does not affect the batch stream.
+    var onStatus: (@MainActor (DomStatus) -> Void)?
+
     init(stream: QUIC.Stream<QUICStream>) { self.stream = stream }
 
     func start() {
@@ -33,18 +37,27 @@ final class DomMirrorClient: @unchecked Sendable {
                 do {
                     let frame = try await QuicSessionStreamIO.receiveFrame(on: stream)
                     guard frame.role == .dom else { continue }
-                    // Typed discrimination: a real batch decodes as a DomBatchEnvelope (type
-                    // "dom-batch"); a control frame -- e.g. the host's SessionRejected when its own
-                    // flag is off -- does not. Forward only batches (the raw JSON, which still carries
-                    // ev); stop cleanly on anything else without touching the session.
-                    guard let envelope = try? JSONDecoder().decode(DomBatchEnvelope.self, from: frame.payload),
-                          envelope.type == "dom-batch",
-                          let json = String(data: frame.payload, encoding: .utf8) else {
-                        logger.notice("dom lane closed or non-batch frame; stopping")
+                    // Typed discrimination on the `t` tag: a batch is forwarded verbatim; an
+                    // ADR-0046 dom-status updates the diagnostic line without touching the stream;
+                    // anything else (e.g. the host's SessionRejected when its flag is off) closes
+                    // the lane cleanly without tearing down the session.
+                    guard let disc = try? JSONDecoder().decode(DomLaneFrameTag.self, from: frame.payload) else {
+                        logger.notice("dom lane closed or undecodable frame; stopping")
                         return
                     }
-                    let handler = onBatch
-                    await MainActor.run { handler?(json) }
+                    switch disc.type {
+                    case "dom-batch":
+                        guard let json = String(data: frame.payload, encoding: .utf8) else { return }
+                        let handler = onBatch
+                        await MainActor.run { handler?(json) }
+                    case "dom-status":
+                        guard let status = try? JSONDecoder().decode(DomStatus.self, from: frame.payload) else { continue }
+                        let handler = onStatus
+                        await MainActor.run { handler?(status) }
+                    default:
+                        logger.notice("dom lane non-content frame (\(disc.type, privacy: .public)); stopping")
+                        return
+                    }
                 } catch {
                     logger.notice("dom lane receive ended: \(String(describing: error), privacy: .public)")
                     return
@@ -88,4 +101,11 @@ final class DomMirrorClient: @unchecked Sendable {
         task?.cancel()
         task = nil
     }
+}
+
+// Minimal decode of just the `t` discriminator, so the receive loop can branch on frame kind before
+// committing to a full envelope decode.
+private struct DomLaneFrameTag: Decodable {
+    let type: String
+    enum CodingKeys: String, CodingKey { case type = "t" }
 }

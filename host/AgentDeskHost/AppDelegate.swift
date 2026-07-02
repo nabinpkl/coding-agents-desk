@@ -446,8 +446,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let relay = domMirrorRelay
         let server = DomBridgeServer()
         server.onBatch = { raw, envelope in
-            relay.ingest(line: raw, checkout: envelope.checkout)
+            relay.ingest(line: raw, tabId: envelope.tabId, checkout: envelope.checkout)
         }
+        // ADR-0046: reflect extension bridge liveness in the client's Browser status line.
+        server.onBridgeConnected = { relay.setExtConnected(true) }
+        server.onBridgeDisconnected = { relay.setExtConnected(false) }
         server.start()
         domBridgeServer = server
         signalingLogger.notice("dom-mirror bridge started")

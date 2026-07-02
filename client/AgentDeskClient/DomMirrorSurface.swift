@@ -26,6 +26,19 @@ final class DomMirrorSurface: UIView {
     private var pendingJSON: [String] = []
     var evaluateScript: ((String) -> Void)?
 
+    // ADR-0046 diagnostic status line (below the surface's top edge, i.e. below the Control | Agent |
+    // Browser switcher). The surface owns its status state and re-renders the pills on each update
+    // and on a 1s timer (so the "Xs ago" freshness advances even when no batch arrives).
+    private let statusBar = UIView()
+    private let statusStack = UIStackView()
+    private var mirroringOn = false
+    private var extReachable = false
+    private var recordingTab: Int?
+    private var nodeCount: Int?
+    private var paused = false
+    private var lastBatchAt: Date?
+    private var ageTimer: Timer?
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupWebView()
@@ -55,12 +68,14 @@ final class DomMirrorSurface: UIView {
             forURLScheme: Config.domMirrorWebviewScheme
         )
 
+        setupStatusBar()
+
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = self
         wv.translatesAutoresizingMaskIntoConstraints = false
         addSubview(wv) // ADR-0040: interactive -- taps are captured in the replayer and sent back
         NSLayoutConstraint.activate([
-            wv.topAnchor.constraint(equalTo: topAnchor),
+            wv.topAnchor.constraint(equalTo: statusBar.bottomAnchor),
             wv.leadingAnchor.constraint(equalTo: leadingAnchor),
             wv.trailingAnchor.constraint(equalTo: trailingAnchor),
             wv.bottomAnchor.constraint(equalTo: bottomAnchor)
@@ -72,6 +87,75 @@ final class DomMirrorSurface: UIView {
             wv.load(URLRequest(url: url))
         } else {
             logger.error("DomMirrorSurface: index request URL is nil")
+        }
+    }
+
+    // MARK: - ADR-0046 status line
+
+    private func setupStatusBar() {
+        statusBar.translatesAutoresizingMaskIntoConstraints = false
+        statusBar.backgroundColor = UIColor.black.withAlphaComponent(0.06)
+        addSubview(statusBar)
+        NSLayoutConstraint.activate([
+            statusBar.topAnchor.constraint(equalTo: topAnchor),
+            statusBar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            statusBar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            statusBar.heightAnchor.constraint(equalToConstant: 26)
+        ])
+
+        statusStack.translatesAutoresizingMaskIntoConstraints = false
+        statusStack.axis = .horizontal
+        statusStack.spacing = 6
+        statusStack.alignment = .center
+        statusBar.addSubview(statusStack)
+        NSLayoutConstraint.activate([
+            statusStack.leadingAnchor.constraint(equalTo: statusBar.leadingAnchor, constant: 8),
+            statusStack.trailingAnchor.constraint(lessThanOrEqualTo: statusBar.trailingAnchor, constant: -8),
+            statusStack.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor)
+        ])
+
+        renderStatus()
+        // Advance the "Xs ago" freshness even when no new batch arrives.
+        ageTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.renderStatus() }
+        }
+    }
+
+    // Granular setters, called by the VC from the wired lane callbacks. Each re-renders the line.
+    func setMirroringOn(_ on: Bool) { mirroringOn = on; renderStatus() }
+    func setExtStatus(reachable: Bool, recordingTab tab: Int?) {
+        extReachable = reachable; recordingTab = tab; renderStatus()
+    }
+    func recordBatch() { lastBatchAt = Date(); mirroringOn = true; renderStatus() }
+    func setNodeCount(_ n: Int) { nodeCount = n; renderStatus() }
+    func setPaused(_ p: Bool) { paused = p; renderStatus() }
+
+    private func renderStatus() {
+        let ageMs = lastBatchAt.map { Int(Date().timeIntervalSince($0) * 1000) }
+        let status = DomMirrorStatus(
+            mirroringOn: mirroringOn, extReachable: extReachable, recordingTab: recordingTab,
+            lastBatchAgeMs: ageMs, nodeCount: nodeCount, paused: paused)
+        let chips = statusChips(status)
+        statusStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for chip in chips { statusStack.addArrangedSubview(Self.makePill(chip)) }
+    }
+
+    private static func makePill(_ chip: StatusChip) -> UIView {
+        let label = InsetLabel()
+        label.text = chip.text
+        label.font = .systemFont(ofSize: 11, weight: .semibold)
+        label.textColor = .white
+        label.backgroundColor = color(for: chip.severity)
+        label.layer.cornerRadius = 5
+        label.layer.masksToBounds = true
+        return label
+    }
+
+    private static func color(for severity: StatusSeverity) -> UIColor {
+        switch severity {
+        case .ok: return UIColor.systemGreen.withAlphaComponent(0.85)
+        case .warn: return UIColor.systemOrange.withAlphaComponent(0.9)
+        case .off: return UIColor.systemGray
         }
     }
 
@@ -119,6 +203,8 @@ final class DomMirrorSurface: UIView {
 
     func teardown() {
         torn = true
+        ageTimer?.invalidate()
+        ageTimer = nil
         webView?.navigationDelegate = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "domMirror")
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "domLog")
@@ -188,6 +274,17 @@ extension DomMirrorSurface: WKScriptMessageHandler {
             }
             self.onProbe?(marker, nodes)
         }
+    }
+}
+
+// A UILabel with symmetric content insets, used for the status-line pills.
+private final class InsetLabel: UILabel {
+    private let insets = UIEdgeInsets(top: 2, left: 6, bottom: 2, right: 6)
+    override func drawText(in rect: CGRect) { super.drawText(in: rect.inset(by: insets)) }
+    override var intrinsicContentSize: CGSize {
+        let s = super.intrinsicContentSize
+        return CGSize(width: s.width + insets.left + insets.right,
+                      height: s.height + insets.top + insets.bottom)
     }
 }
 

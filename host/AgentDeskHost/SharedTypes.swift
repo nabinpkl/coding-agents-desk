@@ -2144,6 +2144,27 @@ struct DomBatchEnvelope: Codable, Equatable {
     }
 }
 
+// ADR-0046 host->client DOM diagnostic status, pushed DOWN the .dom lane and rendered in the
+// Browser surface's status line. `ext`: the native-messaging bridge to the Chrome extension is
+// connected (extension reachable). `tab`: the recording tab id, nil when nothing is recording.
+struct DomStatusEnvelope: Codable, Equatable {
+    let type: String
+    let ext: Bool
+    let tab: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case ext
+        case tab
+    }
+
+    init(ext: Bool, tab: Int?) {
+        self.type = "dom-status"
+        self.ext = ext
+        self.tab = tab
+    }
+}
+
 // ADR-0040 DOM-mirror input command. The client sends this UP the .dom lane when the user taps the
 // mirror; the host decodes it (to validate the frame is an input, not something else) and forwards
 // the raw JSON to the bridge, which relays it to the extension worker to dispatch as trusted input

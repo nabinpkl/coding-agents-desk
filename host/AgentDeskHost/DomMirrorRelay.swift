@@ -37,37 +37,69 @@ protocol DomLaneSending: AnyObject, Sendable {
 // late-join buffer, so a freshly-attached lane is seeded to a coherent frame before live batches.
 // Fed from the DomBridgeServer queue; guards its state with a lock so it is callable from any thread.
 final class DomMirrorRelay: @unchecked Sendable {
-    private struct State { var buffer: DomMirrorBuffer; var lanes: [DeviceFingerprint: DomLaneSending] }
+    private struct State {
+        var buffer: DomMirrorBuffer
+        var lanes: [DeviceFingerprint: DomLaneSending]
+        // ADR-0046 diagnostic status pushed to the client's Browser status line.
+        var extConnected: Bool
+        var lastTabId: Int?
+    }
     private let lock: OSAllocatedUnfairLock<State>
 
     init(bufferCap: Int = 4000) {
-        lock = OSAllocatedUnfairLock(initialState: State(buffer: DomMirrorBuffer(cap: bufferCap), lanes: [:]))
+        lock = OSAllocatedUnfairLock(initialState: State(
+            buffer: DomMirrorBuffer(cap: bufferCap), lanes: [:], extConnected: false, lastTabId: nil))
+    }
+
+    // ADR-0046: encode the current status as one .dom-lane frame. Called inside the lock so ext/tab
+    // are read atomically with the lane set they will be sent to.
+    private func statusFrameLocked(_ state: State) -> Data? {
+        try? JSONEncoder().encode(DomStatusEnvelope(ext: state.extConnected, tab: state.lastTabId))
     }
 
     // A new DOM batch from Chrome: buffer it, then fan it to every attached lane. The lane's own
     // send is thread-safe and ordered, so we call it outside the lock.
-    func ingest(line: Data, checkout: Bool) {
-        let lanes: [DomLaneSending] = lock.withLock { state in
+    func ingest(line: Data, tabId: Int, checkout: Bool) {
+        let (lanes, statusFrame): ([DomLaneSending], Data?) = lock.withLock { state in
             state.buffer.ingest(line: line, checkout: checkout)
-            return Array(state.lanes.values)
+            // Batches only flow while a tab is recording, so a batch means the extension is reachable.
+            let changed = state.lastTabId != tabId || !state.extConnected
+            state.extConnected = true
+            state.lastTabId = tabId
+            return (Array(state.lanes.values), changed ? statusFrameLocked(state) : nil)
         }
         // A lane whose stream died without a session-end stays in the map until the next attach or
         // session-end; its send() enqueues a Task that fails at stream.send and logs -- benign, and
         // identical to the shipping graphics lane. One lane per fingerprint (replaced via attach,
         // never accumulated), so no unbounded growth.
         for lane in lanes { lane.send(line) }
+        if let statusFrame { for lane in lanes { lane.send(statusFrame) } }
+    }
+
+    // ADR-0046: the native-messaging bridge to the Chrome extension connected/disconnected. Push the
+    // fresh reachability to every attached lane. A disconnect also means nothing is recording.
+    func setExtConnected(_ connected: Bool) {
+        let (lanes, statusFrame): ([DomLaneSending], Data?) = lock.withLock { state in
+            state.extConnected = connected
+            if !connected { state.lastTabId = nil }
+            return (Array(state.lanes.values), statusFrameLocked(state))
+        }
+        if let statusFrame { for lane in lanes { lane.send(statusFrame) } }
     }
 
     // A phone opened the .dom lane: replace any prior lane for that fingerprint, then seed the new
     // lane with the buffered checkout so it bootstraps before live batches arrive.
     func attach(_ lane: DomLaneSending, for fingerprint: DeviceFingerprint) {
-        let (prior, seed): (DomLaneSending?, [Data]) = lock.withLock { state in
+        let (prior, seed, statusFrame): (DomLaneSending?, [Data], Data?) = lock.withLock { state in
             let prior = state.lanes[fingerprint]
             state.lanes[fingerprint] = lane
-            return (prior, state.buffer.snapshot())
+            return (prior, state.buffer.snapshot(), statusFrameLocked(state))
         }
         prior?.close()
         for line in seed { lane.send(line) }
+        // Send the current diagnostic status so a freshly-opened Browser lane immediately shows
+        // whether the extension is reachable, even before any batch arrives.
+        if let statusFrame { lane.send(statusFrame) }
     }
 
     func detach(for fingerprint: DeviceFingerprint) {

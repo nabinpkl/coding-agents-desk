@@ -15,6 +15,16 @@ struct DomMirrorRelayTests {
         func close() { closed = true }
     }
 
+    // ADR-0046: the relay interleaves dom-status frames with batches on the same lane. These helpers
+    // split the two so the batch fan-out assertions stay focused on batches.
+    private func isStatus(_ data: Data) -> Bool {
+        (String(data: data, encoding: .utf8) ?? "").contains("dom-status")
+    }
+    private func batches(_ lane: FakeLane) -> [Data] { lane.sent.filter { !isStatus($0) } }
+    private func statuses(_ lane: FakeLane) -> [DomStatusEnvelope] {
+        lane.sent.filter { isStatus($0) }.compactMap { try? JSONDecoder().decode(DomStatusEnvelope.self, from: $0) }
+    }
+
     // --- buffer ---
 
     @Test func bufferKeepsLinesSinceLastCheckout() {
@@ -48,22 +58,22 @@ struct DomMirrorRelayTests {
         let relay = DomMirrorRelay()
         let lane = FakeLane()
         relay.attach(lane, for: DeviceFingerprint("fp1"))
-        relay.ingest(line: d("live1"), checkout: true)
-        relay.ingest(line: d("live2"), checkout: false)
-        #expect(lane.sent == [d("live1"), d("live2")])
+        relay.ingest(line: d("live1"), tabId: 1, checkout: true)
+        relay.ingest(line: d("live2"), tabId: 1, checkout: false)
+        #expect(batches(lane) == [d("live1"), d("live2")])
     }
 
     @Test func lateAttachSeedsFromCheckoutBufferInOrderThenGoesLive() {
         let relay = DomMirrorRelay()
         // Batches arrive before any lane attaches.
-        relay.ingest(line: d("meta"), checkout: true)
-        relay.ingest(line: d("inc1"), checkout: false)
-        relay.ingest(line: d("inc2"), checkout: false)
+        relay.ingest(line: d("meta"), tabId: 1, checkout: true)
+        relay.ingest(line: d("inc1"), tabId: 1, checkout: false)
+        relay.ingest(line: d("inc2"), tabId: 1, checkout: false)
         let lane = FakeLane()
         relay.attach(lane, for: DeviceFingerprint("fp1")) // late join -> seeded with the buffer
-        #expect(lane.sent == [d("meta"), d("inc1"), d("inc2")])
-        relay.ingest(line: d("inc3"), checkout: false) // then live
-        #expect(lane.sent == [d("meta"), d("inc1"), d("inc2"), d("inc3")])
+        #expect(batches(lane) == [d("meta"), d("inc1"), d("inc2")])
+        relay.ingest(line: d("inc3"), tabId: 1, checkout: false) // then live
+        #expect(batches(lane) == [d("meta"), d("inc1"), d("inc2"), d("inc3")])
     }
 
     @Test func attachingNewLaneClosesPriorForSameFingerprint() {
@@ -84,7 +94,56 @@ struct DomMirrorRelayTests {
         relay.attach(lane, for: fp)
         relay.detach(for: fp)
         #expect(lane.closed)
-        relay.ingest(line: d("after"), checkout: true)
-        #expect(lane.sent.isEmpty) // nothing sent after detach
+        relay.ingest(line: d("after"), tabId: 1, checkout: true)
+        #expect(batches(lane).isEmpty) // no batches after detach
+    }
+
+    // --- ADR-0046 diagnostic status fan-out ---
+
+    @Test func attachPushesInitialStatus() {
+        let relay = DomMirrorRelay()
+        let lane = FakeLane()
+        relay.attach(lane, for: DeviceFingerprint("fp1"))
+        // ext defaults false, no recording tab yet.
+        #expect(statuses(lane).last == DomStatusEnvelope(ext: false, tab: nil))
+    }
+
+    @Test func extConnectAndDisconnectPushStatus() {
+        let relay = DomMirrorRelay()
+        let lane = FakeLane()
+        relay.attach(lane, for: DeviceFingerprint("fp1"))
+        relay.setExtConnected(true)
+        #expect(statuses(lane).last == DomStatusEnvelope(ext: true, tab: nil))
+        relay.setExtConnected(false)
+        #expect(statuses(lane).last == DomStatusEnvelope(ext: false, tab: nil))
+    }
+
+    @Test func ingestMarksReachableAndRecordingTab() {
+        let relay = DomMirrorRelay()
+        let lane = FakeLane()
+        relay.attach(lane, for: DeviceFingerprint("fp1"))
+        relay.ingest(line: d("b"), tabId: 7, checkout: true) // batches only flow while recording
+        #expect(statuses(lane).last == DomStatusEnvelope(ext: true, tab: 7))
+    }
+
+    @Test func extDisconnectClearsRecordingTab() {
+        let relay = DomMirrorRelay()
+        let lane = FakeLane()
+        relay.attach(lane, for: DeviceFingerprint("fp1"))
+        relay.ingest(line: d("b"), tabId: 7, checkout: true)
+        relay.setExtConnected(false)
+        #expect(statuses(lane).last == DomStatusEnvelope(ext: false, tab: nil))
+    }
+
+    @Test func domStatusEnvelopeEncodesTabAndOmitsNil() throws {
+        let withTab = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(DomStatusEnvelope(ext: true, tab: 3))) as? [String: Any]
+        #expect(withTab?["t"] as? String == "dom-status")
+        #expect(withTab?["ext"] as? Bool == true)
+        #expect(withTab?["tab"] as? Int == 3)
+
+        let noTab = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(DomStatusEnvelope(ext: false, tab: nil))) as? [String: Any]
+        #expect(noTab?.keys.contains("tab") == false) // nil optional omitted from the wire
     }
 }

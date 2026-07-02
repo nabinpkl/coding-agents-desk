@@ -303,6 +303,44 @@ struct InputChannelTests {
         #expect(try JSONDecoder().decode(DomCaptureCommand.self, from: paused) == DomCaptureCommand(on: false))
     }
 
+    // ADR-0046: host-pushed diagnostic status decodes from the .dom lane frame; `tab` is optional.
+    @Test func domStatusDecodesFromWire() throws {
+        let recording = try JSONDecoder().decode(
+            DomStatus.self, from: Data(#"{"t":"dom-status","ext":true,"tab":5}"#.utf8))
+        #expect(recording.ext == true)
+        #expect(recording.tab == 5)
+
+        let idle = try JSONDecoder().decode(
+            DomStatus.self, from: Data(#"{"t":"dom-status","ext":false}"#.utf8))
+        #expect(idle.ext == false)
+        #expect(idle.tab == nil)
+    }
+
+    // ADR-0046: the pure status -> chip mapping that drives the Browser status line.
+    @Test func statusChipsReflectHealthyMirror() {
+        let chips = statusChips(DomMirrorStatus(
+            mirroringOn: true, extReachable: true, recordingTab: 3,
+            lastBatchAgeMs: 500, nodeCount: 142, paused: false))
+        let texts = chips.map(\.text)
+        #expect(texts.contains("mirror ON"))
+        #expect(texts.contains("ext \u{2713}"))
+        #expect(texts.contains("rec tab 3"))
+        #expect(texts.contains("142 nodes"))
+        #expect(texts.contains("just now"))
+        #expect(!texts.contains("paused"))
+    }
+
+    @Test func statusChipsFlagUnreachableAndPausedAndStale() {
+        let chips = statusChips(DomMirrorStatus(
+            mirroringOn: true, extReachable: false, recordingTab: nil,
+            lastBatchAgeMs: 8000, nodeCount: nil, paused: true))
+        let byText = Dictionary(uniqueKeysWithValues: chips.map { ($0.text, $0.severity) })
+        #expect(byText["ext \u{2717}"] == .warn)
+        #expect(byText["no rec"] == .warn)
+        #expect(byText["paused"] == .warn)
+        #expect(byText["8s ago"] == .warn) // stale (>= 5s)
+    }
+
     // R7: crisp-repair composites the crisp overlay over the live video floor with NO
     // whole-surface swap. A crisp frame reveals the overlay; a later video frame reveals
     // the floor without hiding the overlay (the retired ADR-0025 swap would have hidden

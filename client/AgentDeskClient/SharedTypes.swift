@@ -2100,6 +2100,28 @@ struct DomCaptureCommand: Codable, Equatable {
     }
 }
 
+// ADR-0046 host->client DOM diagnostic status, pushed DOWN the .dom lane. Drives the Browser
+// surface's status line. `ext`: the host's native-messaging bridge to the Chrome extension is
+// connected (extension reachable). `tab`: the recording tab id, nil when nothing is recording. The
+// client derives the remaining signals locally (batch staleness, node count, capture paused).
+struct DomStatus: Codable, Equatable {
+    let type: String
+    let ext: Bool
+    let tab: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case ext
+        case tab
+    }
+
+    init(ext: Bool, tab: Int?) {
+        self.type = "dom-status"
+        self.ext = ext
+        self.tab = tab
+    }
+}
+
 // R11 DesktopState. Mirror of host's definition. Pushed host -> client
 // over the session input stream; drives the dots band rendering.
 
