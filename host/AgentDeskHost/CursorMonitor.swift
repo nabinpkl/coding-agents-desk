@@ -25,7 +25,7 @@ final class CursorMonitor {
         let hidden: Bool
     }
 
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "cursor-monitor")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "cursor-monitor")
     private let interval: TimeInterval
     private let sampler: () -> CursorSample?
     private let positionSampler: () -> CGPoint?

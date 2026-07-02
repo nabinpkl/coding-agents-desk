@@ -12,7 +12,8 @@ struct PairingClientTests {
             tailnetFQDN: "mac.tailnet.ts.net",
             tailnetIPv4: "100.64.0.10",
             oneTimeNonce: Data(repeating: 7, count: 32),
-            expiresAt: 1_800_000_090
+            expiresAt: 1_800_000_090,
+            signalingPort: 41_888
         )
         let url = try payload.pairingURL()
 
@@ -51,7 +52,8 @@ struct PairingClientTests {
             tailnetFQDN: "mac.tailnet.ts.net",
             tailnetIPv4: "100.64.0.10",
             oneTimeNonce: Data(repeating: 3, count: 32),
-            expiresAt: 1_800_000_090
+            expiresAt: 1_800_000_090,
+            signalingPort: 41_888
         )
         let token = try signedToken(hostKey: hostKey, deviceFingerprint: deviceFingerprint)
         let store = InMemorySessionTokenStore()
@@ -73,6 +75,9 @@ struct PairingClientTests {
         #expect(loaded?.token == token)
         #expect(loaded?.tailnetFQDN == payload.tailnetFQDN)
         #expect(loaded?.tailnetIPv4 == payload.tailnetIPv4)
+        // The host's advertised signaling port must persist so a re-dial after
+        // relaunch reaches the same-tier host without assuming a default port.
+        #expect(loaded?.signalingPort == payload.signalingPort)
 
         let rejectingClient = PairingClient(tokenStore: InMemorySessionTokenStore(), deviceKeyProvider: InMemoryDeviceSigningKeyProvider(), resolver: StaticResolver())
         try rejectingClient.startScanning()
@@ -98,7 +103,8 @@ struct PairingClientTests {
             token: token,
             hostPublicKey: hostKey.publicKey.x963Representation,
             tailnetFQDN: "mac.tailnet.ts.net",
-            tailnetIPv4: "100.64.0.10"
+            tailnetIPv4: "100.64.0.10",
+            signalingPort: 41_888
         ))
         let client = PairingClient(tokenStore: store, deviceKeyProvider: InMemoryDeviceSigningKeyProvider(), resolver: StaticResolver())
 
@@ -116,7 +122,8 @@ struct PairingClientTests {
             token: token,
             hostPublicKey: hostKey.publicKey.x963Representation,
             tailnetFQDN: "mac.tailnet.ts.net",
-            tailnetIPv4: "100.64.0.10"
+            tailnetIPv4: "100.64.0.10",
+            signalingPort: 41_888
         ))
         let client = PairingClient(tokenStore: store, deviceKeyProvider: InMemoryDeviceSigningKeyProvider(), resolver: StaticResolver())
 
@@ -139,7 +146,8 @@ struct PairingClientTests {
                 token: token,
                 hostPublicKey: hostKey.publicKey.x963Representation,
                 tailnetFQDN: "mac.tailnet.ts.net",
-                tailnetIPv4: "100.64.0.10"
+                tailnetIPv4: "100.64.0.10",
+                signalingPort: 41_888
             ))
             let client = PairingClient(tokenStore: store, deviceKeyProvider: InMemoryDeviceSigningKeyProvider(), resolver: StaticResolver())
 

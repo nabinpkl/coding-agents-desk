@@ -86,10 +86,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let popoverController = PopoverViewController()
     private let pairing = Pairing()
     private let tailnetDiscovery = TailscaleStatusDiscovery()
-    private let launchAgentLogger = Logger(subsystem: Config.launchAgentLabel, category: "launchAgent")
-    private let signalingLogger = Logger(subsystem: Config.launchAgentLabel, category: "signaling")
-    private let diagnosticsLogger = Logger(subsystem: Config.launchAgentLabel, category: "client-diagnostics")
-    private let thumbnailsLogger = Logger(subsystem: Config.launchAgentLabel, category: "thumbnails")
+    private let launchAgentLogger = Logger(subsystem: Config.logSubsystem, category: "launchAgent")
+    private let signalingLogger = Logger(subsystem: Config.logSubsystem, category: "signaling")
+    private let diagnosticsLogger = Logger(subsystem: Config.logSubsystem, category: "client-diagnostics")
+    private let thumbnailsLogger = Logger(subsystem: Config.logSubsystem, category: "thumbnails")
     private var signalingServer: PairingSignalingServer?
     private let sessions = SessionRegistry()
     private let scrollActivityHints = ScrollActivityStore()
@@ -148,7 +148,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        installLaunchAgent()
+        // A dev iteration run (`just host-run`) is a transient, env-carrying launch,
+        // not a production login install. Registering the LaunchAgent here would make
+        // launchd RunAtLoad a second, env-less copy whose signing-key store differs,
+        // flipping the host identity and breaking the paired client. Skip it for dev
+        // runs; the daily-driver launch (no permissive env) still installs it.
+        if !Config.devPermissiveKeystore {
+            installLaunchAgent()
+        }
         configureStatusItem()
         configurePopover()
         bootstrapTLSIdentity()
@@ -1069,8 +1076,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showApprovalSheet(for fingerprint: DeviceFingerprint, completion: @escaping (Bool) -> Void) {
-        if ProcessInfo.processInfo.environment["AGENTDESK_AUTO_APPROVE"] == "1" {
-            signalingLogger.notice("AGENTDESK_AUTO_APPROVE=1; auto-approving \(fingerprint.rawValue, privacy: .public)")
+        if Config.autoApprovePairing {
+            signalingLogger.notice("auto-approving pairing (dev run) \(fingerprint.rawValue, privacy: .public)")
             completion(true)
             refreshConnectedState()
             return

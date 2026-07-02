@@ -104,7 +104,7 @@ final class SpacesProvider {
     typealias EventPoster = (CGEvent) -> Void
     typealias DirectSpaceSetter = (_ displayId: String, _ spaceId: UInt64) -> Bool
 
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "spaces")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "spaces")
     private let eventPoster: EventPoster
     private let spaceSwitchMode: Config.SpaceSwitchMode
     private let currentStateOverride: (() -> DesktopState?)?

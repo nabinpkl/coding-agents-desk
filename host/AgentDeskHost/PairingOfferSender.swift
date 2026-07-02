@@ -14,7 +14,7 @@ enum PairingOfferSenderError: Error {
 // hop, the host public key in the payload is already public, and the one-time
 // nonce is pre-approval-gated, so a captured offer cannot pair a third device.
 struct PairingOfferSender {
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "pairing-offer")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "pairing-offer")
     var timeout: TimeInterval = 10
 
     func send(offer: PairingPayload, toIPv4 ipv4: String, port: UInt16 = Config.offerPort) async throws {
@@ -23,7 +23,7 @@ struct PairingOfferSender {
             throw PairingOfferSenderError.invalidEndpoint
         }
         let connection = NWConnection(host: NWEndpoint.Host(ipv4), port: nwPort, using: .tcp)
-        let queue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.pairing-offer")
+        let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).pairing-offer")
         let logger = logger
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in

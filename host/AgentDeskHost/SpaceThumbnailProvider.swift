@@ -42,7 +42,7 @@ enum SpaceThumbnailDemandOwner: Hashable, Sendable {
 // labelling logic on both sides.
 
 final class SpaceThumbnailProvider: @unchecked Sendable {
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "thumbnails")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "thumbnails")
 
     // 3 s refresh cadence per ADR-0006. Knob is local to this file; if
     // thumbnails feel stale, lower this. The wire shape doesn't change.

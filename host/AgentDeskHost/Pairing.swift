@@ -103,7 +103,8 @@ final class Pairing {
             tailnetFQDN: tailnet.fqdn,
             tailnetIPv4: tailnet.ipv4,
             oneTimeNonce: nonce,
-            expiresAt: Int(issuedAt.addingTimeInterval(nonceTTL).timeIntervalSince1970)
+            expiresAt: Int(issuedAt.addingTimeInterval(nonceTTL).timeIntervalSince1970),
+            signalingPort: Config.signalingPort
         )
     }
 

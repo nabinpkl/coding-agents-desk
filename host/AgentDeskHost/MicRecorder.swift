@@ -25,7 +25,7 @@ final class MicRecorder {
     // main actor to drive the meter.
     var onLevel: ((Float) -> Void)?
 
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "mic")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "mic")
     private let engine = AVAudioEngine()
     private let lock = NSLock()
     private var converter: AVAudioConverter?

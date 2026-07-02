@@ -101,7 +101,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         let completion: @Sendable (OwnedMediaFrameEnvelope?) -> Void
     }
 
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "owned-media")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "owned-media")
     private let codec: OwnedMediaCodec
     // ADR-0027: the live bitrate target. Starts at the configured value and the
     // adaptive controller updates it via updateBitrate; ensureSession applies the

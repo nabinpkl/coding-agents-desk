@@ -10,7 +10,7 @@ import os
 // an earlier one.
 @available(macOS 26.0, *)
 final class GraphicsLaneServer: @unchecked Sendable {
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "graphics-lane")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "graphics-lane")
     private let stream: QUIC.Stream<QUICStream>
     private let fingerprint: DeviceFingerprint
     // Tail of the serialized send chain plus a shared closed flag. Closing cancels the tail

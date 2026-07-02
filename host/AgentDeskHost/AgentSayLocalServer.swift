@@ -13,12 +13,12 @@ final class AgentSayLocalServer: @unchecked Sendable {
         static let maxChunks = 512
     }
 
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "agent-say")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-say")
     private let socketURL: URL
     private let tokenURL: URL
     private let supportDirectory: URL
     private let broadcaster: Broadcaster
-    private let queue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.agent-say")
+    private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).agent-say")
     private var listenFD: Int32 = -1
     private var stopped = false
 

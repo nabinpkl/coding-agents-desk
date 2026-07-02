@@ -53,7 +53,7 @@ final class ClientDiagnosticsRequester {
     private let sessions: SessionRegistry
     private let pairing: Pairing
     private let tailnetDiscovery: TailnetDiscovering
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "client-diagnostics")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "client-diagnostics")
 
     init(
         sessions: SessionRegistry,
@@ -244,8 +244,8 @@ final class ClientDiagnosticsRequester {
 private final class TailnetDiagnosticsProbe: @unchecked Sendable {
     private let ipv4: String
     private let requestFrame: Data
-    private let queue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.tailnet-diagnostics")
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "client-diagnostics")
+    private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).tailnet-diagnostics")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "client-diagnostics")
     private var parser = OfferPortFrameParser()
     private var connection: NWConnection?
     private var continuation: CheckedContinuation<CollectedClientDiagnostics, Error>?

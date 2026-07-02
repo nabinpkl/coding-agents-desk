@@ -12,8 +12,8 @@ import os
 // input-channel client config and falls back to the first display.
 
 final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySelectableVideoFrameSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
-    private let logger = Logger(subsystem: Config.launchAgentLabel, category: "capture")
-    private let sampleQueue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.scstream", qos: .userInteractive)
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "capture")
+    private let sampleQueue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).scstream", qos: .userInteractive)
     private let baseScaleDownBy: Double
     private let pixelFormat: OSType
     private var stream: SCStream?

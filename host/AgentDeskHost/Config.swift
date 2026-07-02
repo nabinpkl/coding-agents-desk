@@ -69,12 +69,33 @@ enum Config {
         }
     }
 
-    static let signalingPort: UInt16 = 41888
+    // Build tier, derived from the bundle id (not a runtime flag). The dev host
+    // (com.example.agentdesk.AgentDeskHost.dev) runs concurrently with the stable host, so
+    // every loopback port it binds must differ. The dev block is the stable port
+    // + 100 so the two never overlap and the offset is obvious in `lsof`.
+    enum Tier {
+        case stable
+        case dev
+    }
+    static let tier: Tier = bundleIdentifier.hasSuffix(".dev") ? .dev : .stable
+    static func tieredPort(stable: UInt16, dev: UInt16) -> UInt16 {
+        tier == .dev ? dev : stable
+    }
+    // Host listens for the client's session dial here; the bound value is
+    // advertised to the client in the pairing offer (PairingPayload.signalingPort),
+    // so the client dials this exact port rather than assuming a default.
+    static let signalingPort: UInt16 = port(
+        environmentKey: "AGENTDESK_SIGNALING_PORT",
+        defaultValue: tieredPort(stable: 41_888, dev: 41_988)
+    )
     static let sessionQuicALPN = "agentdesk-session-quic-v2"
     // ADR-0019: dedicated plain-TCP port the Mac dials to push a pairing offer
     // to a chosen tailnet device. Separate from the TLS signaling port so the
     // offer path never touches the IP-literal-cert problem.
-    static let offerPort = offerPort(environment: ProcessInfo.processInfo.environment)
+    static let offerPort = port(
+        environmentKey: "AGENTDESK_OFFER_PORT",
+        defaultValue: tieredPort(stable: 41_890, dev: 41_990)
+    )
     // ADR-0020: wire protocol version negotiated at the session handshake. Bumped
     // only on a breaking wire change, independent of the marketing version. The
     // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
@@ -609,15 +630,6 @@ enum Config {
         defaultValue: true,
         environment: ProcessInfo.processInfo.environment
     )
-    static func offerPort(environment: [String: String]) -> UInt16 {
-        guard let raw = environment["AGENTDESK_OFFER_PORT"],
-              let value = UInt16(raw),
-              value > 0
-        else {
-            return 41_890
-        }
-        return value
-    }
     static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
         guard let raw = ProcessInfo.processInfo.environment[environmentKey],
               let value = Int(raw),
@@ -802,17 +814,30 @@ enum Config {
     // The resource name is the leaf filename of the compiled binary.
     static let agentSidecarPort: UInt16 = port(
         environmentKey: "AGENTDESK_SIDECAR_PORT",
-        defaultValue: 7682
+        defaultValue: tieredPort(stable: 7682, dev: 7782)
     )
     static let agentSidecarResourceName = "atc-sidecar"
     static var agentSidecarURL: URL? {
         Bundle.main.url(forResource: agentSidecarResourceName, withExtension: nil)
     }
 
-    static let launchAgentLabel = "com.example.agentdesk.AgentDeskHost"
+    // Identity root. Every per-install anchor (log subsystem, launchd label,
+    // dispatch-queue prefix, keychain service, Application Support directory)
+    // derives from the running bundle id, so the stable and experimental host
+    // variants (com.example.agentdesk.AgentDeskHost / .dev) self-namespace their logs,
+    // credentials, launchd registration, and on-disk state without sharing any
+    // of it. Mirrors the client (client/AgentDeskClient/Config.swift). The
+    // fallback covers the theoretical nil (never nil for a real app bundle).
+    static let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.example.agentdesk.AgentDeskHost"
+    static let logSubsystem = bundleIdentifier
+    static let launchAgentLabel = bundleIdentifier
+    static let dispatchQueuePrefix = bundleIdentifier
+    // Apple-idiomatic: the Application Support subdirectory is the bundle id, so
+    // each variant roots its paired-devices store, TLS identity, unix socket, and
+    // signing-key file under a separate tree.
     static let applicationSupportDirectory = FileManager.default
         .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("AgentDesk", isDirectory: true)
+        .appendingPathComponent(bundleIdentifier, isDirectory: true)
     static let pairedDevicesURL = applicationSupportDirectory
         .appendingPathComponent("paired-devices.json", isDirectory: false)
     static let adSocketURL = applicationSupportDirectory
@@ -839,9 +864,33 @@ enum Config {
     static var hostExecutableURL: URL {
         URL(fileURLWithPath: Bundle.main.executablePath ?? "")
     }
-    static let keychainService = "com.example.agentdesk.AgentDeskHost"
+    static let keychainService = bundleIdentifier
     static let hostSigningKeyAccount = "host-signing-key"
     static let keychainAccessGroup: String? = nil
     static let devHostSigningKeyFile = applicationSupportDirectory
         .appendingPathComponent("host-signing-key.dev", isDirectory: false)
+    // True when the host was launched by the dev iteration flow (`just host-run`),
+    // which sets AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1. Such a run is a transient,
+    // env-carrying launch, not a production login install: it uses the flat-file
+    // signing key (HostSigningKeyStore) and must NOT register a login LaunchAgent.
+    // A LaunchAgent has RunAtLoad, so bootstrapping it makes launchd spawn a second,
+    // env-less copy whose signing-key store differs (Secure Enclave vs flat file),
+    // flipping the host identity and breaking the already-paired client. Single
+    // source of truth for the flag; keep it out of durable storage so a stale dev
+    // flag can never weaken a later production launch.
+    static let devPermissiveKeystore: Bool = enabledFlag(
+        environmentKey: "AGENTDESK_DEV_PERMISSIVE_KEYSTORE",
+        defaultValue: false,
+        environment: ProcessInfo.processInfo.environment
+    )
+    // Dev-automation flag: bypass the pairing-approval modal so headless recipes
+    // (pair-sim, pair-iphone, motion-verify) pair unattended. Gated on a dev
+    // iteration run (devPermissiveKeystore) so a stray AGENTDESK_AUTO_APPROVE in a
+    // production launch's environment can never silently auto-approve pairings; the
+    // human device pick/approve stays the authorization gate (ADR-0019).
+    static let autoApprovePairing: Bool = devPermissiveKeystore && enabledFlag(
+        environmentKey: "AGENTDESK_AUTO_APPROVE",
+        defaultValue: false,
+        environment: ProcessInfo.processInfo.environment
+    )
 }

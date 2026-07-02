@@ -82,7 +82,7 @@ private final class HyperKeyCharTap {
     private var source: CFRunLoopSource?
     private let hyper: CGEventFlags = [.maskControl, .maskAlternate, .maskCommand]
     private let onChar: (Character) -> Bool
-    private let log = Logger(subsystem: "com.example.agentdesk.AgentDeskHost", category: "spaceagent-hyper")
+    private let log = Logger(subsystem: Config.logSubsystem, category: "spaceagent-hyper")
 
     init(onChar: @escaping (Character) -> Bool) {
         self.onChar = onChar
@@ -170,7 +170,7 @@ final class SpaceAgentController: NSObject {
     private let thumbnailProvider: SpaceThumbnailProvider
     private let commitStep: (Int) -> Void
     private let userDefaults: UserDefaults
-    private let renderLogger = Logger(subsystem: Config.launchAgentLabel, category: "spaceagent-render")
+    private let renderLogger = Logger(subsystem: Config.logSubsystem, category: "spaceagent-render")
     private let viewController = SpaceAgentViewController()
     private var panel: NSPanel?
     private var latestState: DesktopState?
@@ -334,7 +334,7 @@ final class SpaceAgentController: NSObject {
         let matches = tiles.filter { $0.matchesNamePrefix(query: query) }
         let names = tiles.map(\.searchText).joined(separator: "|")
         let topCount = thumbnailProvider.latestTopWindows.count
-        Logger(subsystem: "com.example.agentdesk.AgentDeskHost", category: "spaceagent-hyper").notice(
+        Logger(subsystem: Config.logSubsystem, category: "spaceagent-hyper").notice(
             "handleHyperChar '\(query, privacy: .public)' tiles=\(tiles.count, privacy: .public) topWindows=\(topCount, privacy: .public) matches=\(matches.count, privacy: .public) names=\(names, privacy: .public)"
         )
         guard !matches.isEmpty else { return false }
