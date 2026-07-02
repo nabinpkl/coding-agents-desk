@@ -7,6 +7,9 @@ ios_test_destination := env_var_or_default("AGENTDESK_IOS_TEST_DESTINATION", "pl
 ios_device := env_var_or_default("AGENTDESK_IOS_DEVICE", "93DF5649-FC7B-5460-A6B4-74D2C1CEAB07")
 # UDID of the iPhone simulator used for Maestro UI flows. Override via env.
 ios_sim_udid := env_var_or_default("AGENTDESK_IOS_SIM_UDID", "00000000-0000-4000-8000-000000000022")
+# Second simulator for the dev client, so a full dev stack (dev host + dev client)
+# runs on its own sim beside the stable stack. Override via env.
+ios_sim_udid_dev := env_var_or_default("AGENTDESK_IOS_SIM_UDID_DEV", "00000000-0000-4000-8000-000000000023")
 iphone_log_archive := env_var_or_default("AGENTDESK_IPHONE_LOG_ARCHIVE", "/tmp/agentdesk-client.logarchive")
 iphone_log_minutes := env_var_or_default("AGENTDESK_IPHONE_LOG_MINUTES", "5")
 iphone_console_log := env_var_or_default("AGENTDESK_IPHONE_CONSOLE_LOG", "/tmp/agentdesk-client-console.log")
@@ -63,6 +66,7 @@ client_bundle_id := env_var_or_default("AGENTDESK_CLIENT_BUNDLE_ID", "com.exampl
 client_dev_bundle_id := env_var_or_default("AGENTDESK_CLIENT_DEV_BUNDLE_ID", "com.example.agentdesk.AgentDeskClient.dev")
 dev_derived_data := derived_data + "-dev"
 client_dev_app := dev_derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
+client_sim_dev_app := dev_derived_data + "/Build/Products/Debug-iphonesimulator/AgentDeskClient.app"
 client_archive_path := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_PATH", justfile_directory() + "/.build/testflight/AgentDeskClient.xcarchive")
 client_export_path := env_var_or_default("AGENTDESK_CLIENT_EXPORT_PATH", justfile_directory() + "/.build/testflight/export")
 client_ipa_path := env_var_or_default("AGENTDESK_CLIENT_IPA_PATH", client_export_path + "/AgentDeskClient.ipa")
@@ -618,18 +622,33 @@ motion-verify variant="dev" video="1" seconds="60":
 # Build client Debug for the iPhone simulator and install (does not launch).
 # Mirrors `client-install` but targets the simulator instead of the
 # physical device.
-client-sim-install:
-    xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
-    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' build >/dev/null
-    xcrun simctl install {{ios_sim_udid}} "{{client_sim_app}}"
+# variant: stable (default) | dev. The dev variant builds the dev-bundle-id client
+# (DEV icon, separate derived-data) onto the dev simulator ({{ios_sim_udid_dev}}),
+# so a full dev stack (dev host + dev client) runs beside the stable stack.
+client-sim-install variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{variant}}" = "dev" ]; then
+        SIM='{{ios_sim_udid_dev}}'; DD='{{dev_derived_data}}'; APP='{{client_sim_dev_app}}'
+        EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev')
+    else
+        SIM='{{ios_sim_udid}}'; DD='{{derived_data}}'; APP='{{client_sim_app}}'
+        EXTRA=()
+    fi
+    xcrun simctl bootstatus "$SIM" -b >/dev/null
+    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath "$DD" -sdk iphonesimulator -destination "platform=iOS Simulator,id=$SIM" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
+    xcrun simctl install "$SIM" "$APP"
 
 # Uninstall + clean install on the simulator. Same reasoning as
 # `client-reinstall`: install-time bundle metadata (UILaunchScreen,
 # TARGETED_DEVICE_FAMILY) is cached by the simulator and not flushed
-# by a plain rebuild.
-client-sim-reinstall:
-    -xcrun simctl uninstall {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient 2>/dev/null || true
-    just client-sim-install
+# by a plain rebuild. variant: stable (default) | dev.
+client-sim-reinstall variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{variant}}" = "dev" ]; then SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; else SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; fi
+    xcrun simctl uninstall "$SIM" "$BID" 2>/dev/null || true
+    just client-sim-install {{variant}}
 
 # Release-configuration twins of client-sim-install / client-sim-reinstall, used by
 # the sim-fresh-install feel-test composite. No signing concerns on the simulator.
@@ -660,18 +679,23 @@ client-sim-reinstall-release:
 #     Tailscale running inside the simulator sandbox.
 # simctl propagates SIMCTL_CHILD_*-prefixed caller env into the app's
 # ProcessInfo.environment.
-pair-sim:
-    @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
-    rm -f "{{last_pair_url_path}}"
-    trap 'rm -f "{{last_pair_url_path}}"' EXIT
+pair-sim variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
+    # dev sim pairs with the dev host, which mints its pair URL under its own
+    # bundle-id Application Support tree; read that variant's path and sim.
+    if [ "{{variant}}" = "dev" ]; then SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; else SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; fi
+    rm -f "$PAIR_URL"
+    trap 'rm -f "$PAIR_URL"' EXIT
     kill -USR1 $(pgrep -f AgentDeskHost)
-    @i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
-    @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
-    @echo "URL: <redacted; delivered to simulator>"
-    xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
-    SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$(cat '{{last_pair_url_path}}')" \
+    i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
+    echo "URL: <redacted; delivered to simulator>"
+    xcrun simctl bootstatus "$SIM" -b >/dev/null
+    SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$(cat "$PAIR_URL")" \
         SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost \
-        xcrun simctl launch --terminate-running-process {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient
+        xcrun simctl launch --terminate-running-process "$SIM" "$BID"
 
 # Pair-launch the simulator client with stdout/stderr attached. This is
 # the simulator mirror of `iphone-console-run`: it blocks until the app exits
