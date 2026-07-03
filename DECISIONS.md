@@ -6,24 +6,25 @@ why it was made independent of any instruction. Architectural decisions that loc
 a full ADR under `architecture-decisions/`; this file captures the smaller judgement calls that would
 otherwise be invisible.
 
-## DOM mirror default-on: attempted, then reverted (breaks tailnet pairing)
+## DOM mirror default-on (reverted once on a confound, then restored)
 
-### D1. Browser mode was flipped default-on, then reverted; it stays opt-in
+### D1. Browser mode is default-on; the pairing failures were network, not DOM
 
-Both enable gates were flipped to default-on (host `Config.domMirrorEnabled`, client
-`SettingsStore.domMirrorEnabled`) and the dead per-recipe `AGENTDESK_DOM_MIRROR_ENABLED=1` injection in
-`host-run`/`host-run-release` was removed. This was **reverted**: with DOM mirror on, the host accepts and
-runs the `.dom` lane (`DomEventLaneServer`), and doing so **breaks session establishment over the tailnet**
--- a fresh device pair fails at the QUIC handshake (`-9858` / ENETDOWN) and never reaches the app layer.
-The defect was isolated by bisection: a device pairs against the last-good `a0f5a44` host (DOM off, rejects
-the lane) and against a HEAD host run with `AGENTDESK_DOM_MIRROR_ENABLED=0`, but fails against a HEAD host
-with DOM on; the iOS simulator never reproduced it because it dials the host over localhost, not the
-tailnet, so the lane defect stays dormant there. The bug lives in the `.dom` lane itself, not in the
-default flip -- the flip only changed how often the lane is exercised (always vs never-unless-opted-in).
-Both defaults are back to `false` (opt-in). Re-enabling by default is blocked on fixing the
-`.dom`-lane-over-tailnet defect. The `AGENTDESK_DOM_MIRROR_ENABLED` env override and the client's stored
-toggle still work for opting in. Lesson: a localhost/sim pass does not clear a transport-path feature; the
-sim-vs-device split is what isolated code from network here.
+Both enable gates default-on (host `Config.domMirrorEnabled`, client `SettingsStore.domMirrorEnabled`);
+the dead per-recipe `AGENTDESK_DOM_MIRROR_ENABLED=1` injection in `host-run`/`host-run-release` was removed
+(the code default is the single source now). This was briefly **reverted** mid-debug on the belief that the
+`.dom` lane broke device pairing (a fresh pair failed at the QUIC handshake with `-9858` / POSIX 50
+ENETDOWN). That conclusion was **wrong -- a confound**. The `-9858` is literally "network is down": it was
+a **transient tailnet path instability** during a no-WiFi / flaky-network window, and it self-heals once the
+path is healthy. The bisection that seemed to implicate DOM (a0f5a44/DOM-off worked, HEAD/DOM-on failed) had
+the network changing underneath it -- DOM-off happened to be tested on a good path, DOM-on on a bad one. On
+a healthy path, **DOM-on pairs reliably** (verified on-device: 4/4 fresh pairs `session ready` +
+`media state=connected` with `AGENTDESK_DOM_MIRROR_ENABLED=1`). So the default was **restored to on**.
+Lessons: (1) `-9858`/ENETDOWN is a transport-path symptom, not an app-layer one -- suspect the network
+first; (2) never bisect a feature flag while the network is also changing; (3) the iOS sim dials over
+localhost, so a sim pass proves the code but says nothing about the tailnet path. The real, still-open
+issue is that transient tailnet ENETDOWN does not always recover during connection setup on a flaky path;
+that is a transport-robustness matter, independent of DOM.
 
 ### D2. The native-messaging bridge is wired on every host launch, not by a separate manual step
 

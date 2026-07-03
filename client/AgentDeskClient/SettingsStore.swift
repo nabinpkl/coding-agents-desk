@@ -162,17 +162,20 @@ final class SettingsStore: @unchecked Sendable {
         }
     }
 
-    // ADR-0038 DOM mirror. Default OFF (opt-in beta). Gates whether the client opens the .dom lane
-    // and shows the replay surface; the host still gates with its own flag. An env override
-    // (`AGENTDESK_DOM_MIRROR_ENABLED=1`) wins, so a physical-device run can enable it via the
-    // devicectl `--environment-variables` path (devicectl apps get env, not argv). Otherwise
-    // bool(forKey:), so the sim launch arg (`-agentDesk.domMirrorEnabled YES`, the NSUserDefaults
-    // argument domain) also works. Default-on was reverted: the .dom lane breaks session setup over
-    // the tailnet, so browser mode stays opt-in until that lane defect is fixed.
+    // ADR-0038 DOM mirror. Baked on by default for all variants. Gates whether the client opens the
+    // .dom lane and shows the replay surface; the host still gates with its own flag. An env override
+    // (`AGENTDESK_DOM_MIRROR_ENABLED=1`/`0`) wins, so a physical-device run can force it via the
+    // devicectl `--environment-variables` path (devicectl apps get env, not argv). Absent both an env
+    // override and a stored choice, it defaults on; a stored value (in-app toggle, or the sim
+    // `-agentDesk.domMirrorEnabled NO` argument domain) still wins. A prior revert suspected the .dom
+    // lane of breaking pairing, but that was a tailnet-instability confound (transient -9858), not DOM.
     var domMirrorEnabled: Bool {
         get {
             if let env = ProcessInfo.processInfo.environment["AGENTDESK_DOM_MIRROR_ENABLED"] {
                 return env == "1" || env.lowercased() == "true"
+            }
+            guard defaults.object(forKey: Key.domMirrorEnabled) != nil else {
+                return true
             }
             return defaults.bool(forKey: Key.domMirrorEnabled)
         }
