@@ -1,0 +1,4 @@
+interface:
+  display_name: "Swift Project Structure"
+  short_description: "AgentDesk Swift package and Xcode structure"
+  default_prompt: "Use $swift-project-structure when adding shared wire types to AgentDeskWire or adding/moving/converting files in the buildable-folder host and client Xcode projects."
