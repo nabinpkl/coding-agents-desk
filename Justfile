@@ -88,7 +88,7 @@ client_dev_ipa_path := client_dev_export_path + "/AgentDeskClient.ipa"
 # protocol-version negotiation (ADR-0020, R56); host 1.4.0 = dev/stable host
 # variants, bundle-id-rooted identity, signaling port over the offer (ADR-0037).
 host_marketing_version := env_var_or_default("AGENTDESK_HOST_VERSION", "1.4.0")
-client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.6.0")
+client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.7.0")
 apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
 # Source directory for the ATC engine. Override via env when the engine repo
 # lives somewhere other than the default sibling path. This is the SSOT for

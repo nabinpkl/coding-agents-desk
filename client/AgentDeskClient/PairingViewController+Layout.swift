@@ -404,6 +404,9 @@ extension PairingViewController {
 
     @objc func openSettings() {
         let settings = SettingsViewController()
+        settings.onRevokeConnection = { [weak self] in
+            self?.forgetHost()
+        }
         let nav = UINavigationController(rootViewController: settings)
         present(nav, animated: true)
     }

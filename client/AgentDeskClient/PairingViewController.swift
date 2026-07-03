@@ -498,7 +498,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         ])
     }
 
-    @objc private func forgetHost() {
+    @objc func forgetHost() {
         cancelSessionAttempt()
         handshakeTask?.cancel()
         stopCamera()
