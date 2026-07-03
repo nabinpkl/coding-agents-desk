@@ -6,6 +6,29 @@ why it was made independent of any instruction. Architectural decisions that loc
 a full ADR under `architecture-decisions/`; this file captures the smaller judgement calls that would
 otherwise be invisible.
 
+## DOM mirror graduates from opt-in beta to first-class default
+
+### D1. The code default is the single source of truth for "browser mode on"
+
+Both enable gates flipped to default-on: the host `Config.domMirrorEnabled` and the client
+`SettingsStore.domMirrorEnabled` (which returns true when unset, while a stored value still wins). The
+old per-recipe `AGENTDESK_DOM_MIRROR_ENABLED=1` injection in `host-run`/`host-run-release` (dev-only,
+with a "stable stays off" comment) was removed rather than left in place: with the code default on, that
+env plumbing was dead and its comment was actively false. Env overrides remain for tests/bisects
+(`=0` disables either side), but the default now lives in one place -- the code -- not scattered across
+Justfile branches. Evidence: universal-AGENTS.md "single source of truth" and "no dead code".
+
+### D2. The native-messaging bridge is wired on every host launch, not by a separate manual step
+
+`just dom-bridge-reinstall {{variant}}` is now called at the end of `host-run` and `host-run-release`, so
+every host bring-up (dev or stable, sim or physical, since every composite launches through these) wires
+the Chrome native-messaging manifest for that variant's host socket. Previously only the sim/verify
+composites did this and the mainline/physical composites did not, so a normal run left the Browser
+surface white until someone remembered `just dom-bridge-install`. The call is non-fatal (`|| echo WARN`):
+a host run must not hard-block on Chrome/node config, but it warns loudly rather than failing silently.
+What remains genuinely manual is loading the unpacked extension in Chrome and hitting record on a tab;
+those are Chrome UI actions the host cannot perform.
+
 ## ADR-0049 List all tailnet iOS devices with pre-arm
 
 ### D1. Pre-arm is keyed by tailnet IPv4, not a stable node id

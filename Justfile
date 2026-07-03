@@ -457,28 +457,31 @@ iphone-log-collect variant="stable":
 host-run variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
-    # The dev variant runs the Chrome DOM mirror on by default (ADR-0038): dev
-    # install/run is where DOM-mirror work is exercised, so the dev host enables
-    # AGENTDESK_DOM_MIRROR_ENABLED. Stable stays off to protect the daily driver.
+    # DOM mirror (Chrome page mirroring, ADR-0038) is baked on by default for every
+    # variant now, so no AGENTDESK_DOM_MIRROR_ENABLED override is injected here; the
+    # host's own code default carries it (single source of truth). The native-messaging
+    # bridge is wired at the end of this recipe so browser mode works out of the box.
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; APP='{{host_dev_app}}'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
-        DOM_ENV=(AGENTDESK_DOM_MIRROR_ENABLED=1)
     else
         DD='{{derived_data}}'; APP='{{host_app}}'
         EXTRA=()
-        DOM_ENV=()
     fi
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     # Kill only THIS variant's running host, matched by its derived-data path, so
     # relaunching one variant never kills the other (concurrent stacks).
     pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
     sleep 1
-    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh set
+    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
     open "$APP"
     sleep 2
-    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh unset
+    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh unset
     pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true
+    # DOM bridge is first-class: wire this variant's native-messaging manifest on every
+    # launch so the Chrome extension can reach the running host. Non-fatal so a host run
+    # never blocks on Chrome/node config; it warns loudly instead of failing silently.
+    just dom-bridge-reinstall {{variant}} || echo "WARN: dom-bridge wiring failed; browser mode will not mirror until 'just dom-bridge-reinstall {{variant}}' succeeds"
 
 # Release-configuration twin of host-run: same kill + rebuild + relaunch lifecycle,
 # but -configuration Release so the host runs at shipped-build performance. A Debug
@@ -489,23 +492,24 @@ host-run variant="stable":
 host-run-release variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
+    # DOM mirror is baked on by default (see host-run); no enable override injected here.
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; APP='{{host_dev_app_release}}'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
-        DOM_ENV=(AGENTDESK_DOM_MIRROR_ENABLED=1)
     else
         DD='{{derived_data}}'; APP='{{host_app_release}}'
         EXTRA=()
-        DOM_ENV=()
     fi
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
     sleep 1
-    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh set
+    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
     open "$APP"
     sleep 2
-    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh unset
+    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh unset
     pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true
+    # DOM bridge first-class: wire this variant's native-messaging manifest on every launch.
+    just dom-bridge-reinstall {{variant}} || echo "WARN: dom-bridge wiring failed; browser mode will not mirror until 'just dom-bridge-reinstall {{variant}}' succeeds"
 
 # Build client Debug for the iPhone and install (does not launch).
 # variant: "stable" (default) or "dev" (the experimental side-by-side install:
