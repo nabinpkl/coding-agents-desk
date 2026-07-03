@@ -384,12 +384,18 @@ check variant="stable": ensure-sidecar-placeholder
     sh tools/launch-env-tests.sh
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
     sh tools/testflight-upload-tests.sh
+    (cd packages/AgentDeskWire && swift test)
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
         DD='{{derived_data}}'; EXTRA=()
     fi
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -derivedDataPath "$DD" ${EXTRA[@]+"${EXTRA[@]}"} build test
+
+# AgentDeskWire package unit tests: the shared wire contract's authoritative
+# round-trip suite (ADR-0050). Also run as the first leg of `check`.
+wire-test:
+    cd packages/AgentDeskWire && swift test
 
 # Client simulator tests. Boots the iPhone simulator and is the slow leg split
 # out of `check`. Run before committing client-side changes.

@@ -38,7 +38,7 @@ enum SpaceThumbnailDemandOwner: Hashable, Sendable {
     }
 }
 
-// SpaceTopWindow now lives in SharedTypes.swift so it can ride along the
+// SpaceTopWindow lives in AgentDeskWire (ADR-0050) so it can ride along the
 // thumbnails-push wire shape into the iOS client and feed the same
 // labelling logic on both sides.
 

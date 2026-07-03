@@ -485,8 +485,8 @@ struct OwnedSurfaceCompositorCacheTests {
     }
 
     // ADR-0034 R2: the revertTileToVideo command must survive a JSON round-trip on the
-    // client copy of OwnedGraphicsCommand identically to the host copy, so the two
-    // duplicated SharedTypes definitions cannot drift on this wire shape.
+    // shared OwnedGraphicsCommand (AgentDeskWire) round-trips identically, so host and
+    // client cannot drift on this wire shape.
     @Test func revertTileToVideoRoundTrips() throws {
         let command = OwnedGraphicsCommand.revertTileToVideo(x: 128, y: 256, width: 64, height: 64)
         let data = try JSONEncoder().encode(command)

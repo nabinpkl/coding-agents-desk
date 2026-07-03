@@ -1,3 +1,6 @@
+// Client-side owned-media receive/render state (transport errors, stream reads,
+// reset-fallback, queue depth, render timing/backlog). Formerly part of
+// SharedTypes.swift; the shared wire shapes moved to AgentDeskWire (ADR-0050).
 import CryptoKit
 import Foundation
 import AgentDeskWire
@@ -156,37 +159,3 @@ enum OwnedMediaRenderBacklog {
         return (frames, frames > 0 ? payloadBytes : 0)
     }
 }
-
-
-
-
-
-// R11 DesktopState. Mirror of host's definition. Pushed host -> client
-// over the session input stream; drives the dots band rendering.
-
-
-// ADR-0006. Mirror of the host's thumbnail wire shapes.
-
-
-// Agent-feed input-lane wire types. These are the read-only "agent feed"
-// messages for observing project and session activity. Client-to-host
-// requests subscribe to or unsubscribe from a feed; host-to-client pushes
-// deliver project digests and session event chunks.
-//
-// All types use the same t-discriminator pattern as the existing diagnostics
-// and desktop-state families. The input field of ActivityBlock is omitted in
-// this v1 Swift representation: the surface renders summary/preview/text, not
-// raw tool input, and there is no AnyCodable helper in this codebase. This
-// decision is recorded in the report for future reference.
-//
-// These types are byte-identical in both host/AgentDeskHost/SharedTypes.swift
-// and client/AgentDeskClient/SharedTypes.swift. Edit both copies together.
-
-// Supporting value types.
-
-
-// Client-to-host request messages.
-
-
-// Host-to-client push messages.
-

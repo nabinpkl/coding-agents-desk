@@ -24,7 +24,7 @@ Reuse is load-bearing: the move is a relocation plus drift reconciliation, not a
 - [x] R3. Move `WireProtocol` constants + `Fingerprint` + `Pairing` + `Session` clusters into the package as `public`; delete from both `SharedTypes.swift`; add `import AgentDeskWire`; repoint both `Config.protocolVersion`/`sessionQuicALPN` to `WireProtocol.*`. `just check`. Also moved `Base64URL` (a wire-type dependency) into the package; added `Sendable` to the moved value types (public loses implicit Sendable inference).
 - [x] R4. Move `Input` + `DesktopState` + `UIFrames` + `AgentFeed` clusters (same recipe). `just check`.
 - [x] R5. Move `OwnedMedia` + `OwnedGraphics` + `DomMirror` clusters with drift reconciliations (see below). Move host-only (`OwnedGraphicsAckWaiter`, `GraphicsBackpressure`, `GraphicsSendPacer`) and client-only (`OwnedGraphicsTransportError`, `OwnedGraphicsStreamRead`, `OwnedGraphicsResetFallback*`, `OwnedGraphicsQueueDepth`, `OwnedMediaRender*`, `OwnedMediaDisplayQueue*`) behavior types into new small app-side files. `just check`.
-- [ ] R6. Delete both now-empty `SharedTypes.swift` and their pbxproj entries. Add `import AgentDeskWire` to the remaining consumers (19 host + 16 client). Consolidate pure wire round-trip assertions into `AgentDeskWireTests`; leave behavior tests app-side. `just check-all` green.
+- [x] R6. Delete both now-empty `SharedTypes.swift` and their pbxproj entries. Add `import AgentDeskWire` to the remaining consumers (19 host + 16 client). Consolidate pure wire round-trip assertions into `AgentDeskWireTests`; leave behavior tests app-side. `just check-all` green.
 
 ## Phase 2: modern project format (no manual UUID wiring)
 
@@ -51,6 +51,6 @@ R2       2026-07-03  committed   scaffold package + link both app projects (app+
 R3       2026-07-03  committed   move Pairing/Session/Fingerprint/WireProtocol + Base64URL; Config->WireProtocol; +Sendable
 R4       2026-07-03  committed   move Input/DesktopState/UIFrames/AgentFeed clusters
 R5       2026-07-03  committed   move OwnedMedia/OwnedGraphics/DomMirror; drift reconciled (emulated, Hashable, ack order, DomStatus, parser->SessionRejected)
-R6       pending     pending     delete SharedTypes copies; consolidate wire tests
+R6       2026-07-03  committed   rename SharedTypes->side-specific files; AgentDeskWireTests round-trip suite; wire-test in gate
 R7       pending     pending     objectVersion 77 synchronized-groups migration
 ```

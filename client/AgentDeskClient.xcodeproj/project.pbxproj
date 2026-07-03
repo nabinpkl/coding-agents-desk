@@ -17,7 +17,7 @@
 		B00000000000000000000D02 /* PairingOfferListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000D01 /* PairingOfferListener.swift */; };
 		B00000000000000000000207 /* PairingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000107 /* PairingViewController.swift */; };
 		B00000000000000000000208 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000108 /* SceneDelegate.swift */; };
-		B00000000000000000000209 /* SharedTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000109 /* SharedTypes.swift */; };
+		B00000000000000000000209 /* OwnedMediaClientState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000109 /* OwnedMediaClientState.swift */; };
 		B0000000000000000000020A /* SessionDialer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010B /* SessionDialer.swift */; };
 		B0000000000000000000020B /* MediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010C /* MediaTransport.swift */; };
 		B0000000000000000000020C /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010D /* SignalingChannel.swift */; };
@@ -55,7 +55,7 @@
 		B00000000000000000000224 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000105 /* KeychainStore.swift */; };
 		B00000000000000000000225 /* PairingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000106 /* PairingClient.swift */; };
 		B00000000000000000000D03 /* PairingOfferListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000D01 /* PairingOfferListener.swift */; };
-		B00000000000000000000226 /* SharedTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000109 /* SharedTypes.swift */; };
+		B00000000000000000000226 /* OwnedMediaClientState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000109 /* OwnedMediaClientState.swift */; };
 		B00000000000000000000227 /* PairingClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000121 /* PairingClientTests.swift */; };
 		B00000000000000000000228 /* SessionDialer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010B /* SessionDialer.swift */; };
 		B00000000000000000000229 /* SessionConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* SessionConnection.swift */; };
@@ -110,7 +110,7 @@
 		B00000000000000000000D01 /* PairingOfferListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingOfferListener.swift; sourceTree = "<group>"; };
 		B00000000000000000000107 /* PairingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingViewController.swift; sourceTree = "<group>"; };
 		B00000000000000000000108 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
-		B00000000000000000000109 /* SharedTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedTypes.swift; sourceTree = "<group>"; };
+		B00000000000000000000109 /* OwnedMediaClientState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaClientState.swift; sourceTree = "<group>"; };
 		B0000000000000000000010A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B0000000000000000000010B /* SessionDialer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDialer.swift; sourceTree = "<group>"; };
 		B0000000000000000000010C /* MediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTransport.swift; sourceTree = "<group>"; };
@@ -217,7 +217,7 @@
 				B00000000000000000000D01 /* PairingOfferListener.swift */,
 				B00000000000000000000107 /* PairingViewController.swift */,
 				B00000000000000000000108 /* SceneDelegate.swift */,
-				B00000000000000000000109 /* SharedTypes.swift */,
+				B00000000000000000000109 /* OwnedMediaClientState.swift */,
 				B0000000000000000000010B /* SessionDialer.swift */,
 				B0000000000000000000010C /* MediaTransport.swift */,
 				B0000000000000000000010D /* SignalingChannel.swift */,
@@ -400,7 +400,7 @@
 				B00000000000000000000D02 /* PairingOfferListener.swift in Sources */,
 				B00000000000000000000207 /* PairingViewController.swift in Sources */,
 				B00000000000000000000208 /* SceneDelegate.swift in Sources */,
-				B00000000000000000000209 /* SharedTypes.swift in Sources */,
+				B00000000000000000000209 /* OwnedMediaClientState.swift in Sources */,
 				B00000000000000000000F61 /* MediaDatagramFramePacket.swift in Sources */,
 				B00000000000000000000F64 /* OwnedMediaFrameRepairBuffer.swift in Sources */,
 				B00000000000000000000F69 /* OwnedMediaVideoDecoder.swift in Sources */,
@@ -447,7 +447,7 @@
 				B00000000000000000000224 /* KeychainStore.swift in Sources */,
 				B00000000000000000000225 /* PairingClient.swift in Sources */,
 				B00000000000000000000D03 /* PairingOfferListener.swift in Sources */,
-				B00000000000000000000226 /* SharedTypes.swift in Sources */,
+				B00000000000000000000226 /* OwnedMediaClientState.swift in Sources */,
 				B000000000000000000009C3 /* CursorImageStore.swift in Sources */,
 				B00000000000000000000227 /* PairingClientTests.swift in Sources */,
 				B00000000000000000000228 /* SessionDialer.swift in Sources */,

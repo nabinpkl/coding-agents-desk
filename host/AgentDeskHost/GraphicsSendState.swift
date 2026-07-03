@@ -1,3 +1,6 @@
+// Host-side owned-graphics send state (pacing, backpressure, ack waiting, recovery).
+// Formerly part of SharedTypes.swift; the shared wire shapes moved to AgentDeskWire
+// (ADR-0050), leaving only these host-only behavior types.
 import CryptoKit
 import Foundation
 import AgentDeskWire
@@ -228,55 +231,3 @@ struct GraphicsSendPacer {
         if tokens < -burstBytes { tokens = -burstBytes }
     }
 }
-
-
-
-
-// R11 DesktopState. Pushed host -> client over the session input stream,
-// distinct from the client -> host InputChannelEvent path. The client
-// uses it to render the dots band (one dot per user Space on the
-// active display; the active one is filled). Field set is the v0
-// minimum needed for that render; v1's per-agent carousel will extend
-// DisplayMetadata with name / isMain / nativePixelSize.
-//
-// Space `id` is WindowServer's monotonic uint64 (CGS `id64`), not the
-// "Desktop N" ordinal Mission Control displays. `index` is the 0-based
-// ordinal position among user (type=0) Spaces on the owning display;
-// it is nil for non-user (fullscreen) Spaces. The two together let the
-// client reconstruct the dot layout deterministically.
-
-
-// ADR-0006 thumbnail wire shapes. `ThumbnailsPush` is host -> client on
-// the session input stream, on the SpaceThumbnailProvider's own cadence
-// (3 s timer + Space change + on-demand). `ClientConfig` is client ->
-// host, lets the client opt in / out of thumbnail capture and ask for
-// a force-refresh of a single Space.
-//
-// The thumbnails dict uses string-keyed UInt64 Space IDs because JSON
-// has no native UInt64 dict-key encoding and Swift's JSONEncoder would
-// otherwise serialize a [UInt64: T] as an alternating key-value array.
-// Each value is a base64-encoded JPEG (q=0.5 at 128 x 80) per ADR-0006.
-
-
-// Agent-feed input-lane wire types. These are the read-only "agent feed"
-// messages for observing project and session activity. Client-to-host
-// requests subscribe to or unsubscribe from a feed; host-to-client pushes
-// deliver project digests and session event chunks.
-//
-// All types use the same t-discriminator pattern as the existing diagnostics
-// and desktop-state families. The input field of ActivityBlock is omitted in
-// this v1 Swift representation: the surface renders summary/preview/text, not
-// raw tool input, and there is no AnyCodable helper in this codebase. This
-// decision is recorded in the report for future reference.
-//
-// These types are byte-identical in both host/AgentDeskHost/SharedTypes.swift
-// and client/AgentDeskClient/SharedTypes.swift. Edit both copies together.
-
-// Supporting value types.
-
-
-// Client-to-host request messages.
-
-
-// Host-to-client push messages.
-
