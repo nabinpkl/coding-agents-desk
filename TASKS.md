@@ -30,7 +30,7 @@ Reuse is load-bearing: the move is a relocation plus drift reconciliation, not a
 
 Trigger: only after R6 is green, so the format change and the type move never tangle in one diff.
 
-- [ ] R7. Migrate both app projects to `objectVersion = 77` with `PBXFileSystemSynchronizedRootGroup` for app and test source folders. Add `PBXFileSystemSynchronizedBuildFileExceptionSet` where a file must not compile into a target. Keep `Assets.xcassets`/`Info.plist`/`.entitlements` associations and the shared schemes intact. `just check-all`, then gated device install per AGENTS.md. Confirm a throwaway file compiles with no pbxproj edit.
+- [ ] R7. Migrate both app projects to `objectVersion = 77` with `PBXFileSystemSynchronizedRootGroup`. **Attempted (host) and reverted.** A scripted conversion builds the app correctly: sources auto-discover, `Assets.xcassets` compiles to `Assets.car`, and the generated `atc-sidecar` dylib still bundles (kept as an explicit Resources entry, excluded from the sync group via a `PBXFileSystemSynchronizedBuildFileExceptionSet`). But it breaks the test workflow: the app target does not emit an importable `AgentDeskHost` swiftmodule when built as the test target's dependency, so `@testable import AgentDeskHost` fails with `unable to resolve module dependency` under `build` / `build-for-testing` / two-step. Xcode's GUI "convert to synchronized group" evidently wires test-target module visibility that a hand-authored pbxproj misses. Reverted to `objectVersion = 56`; host green again. Redo path: perform the conversion in Xcode's GUI (it handles the sidecar/plist/`@testable` wiring), then verify `just check-all` and the bundled sidecar.
 
 ## Drift reconciliation (union, behavior-preserving)
 
@@ -52,5 +52,5 @@ R3       2026-07-03  committed   move Pairing/Session/Fingerprint/WireProtocol +
 R4       2026-07-03  committed   move Input/DesktopState/UIFrames/AgentFeed clusters
 R5       2026-07-03  committed   move OwnedMedia/OwnedGraphics/DomMirror; drift reconciled (emulated, Hashable, ack order, DomStatus, parser->SessionRejected)
 R6       2026-07-03  committed   rename SharedTypes->side-specific files; AgentDeskWireTests round-trip suite; wire-test in gate
-R7       pending     pending     objectVersion 77 synchronized-groups migration
+R7       2026-07-03  reverted    obj77 scripted conversion builds app+sidecar but breaks test @testable import; needs Xcode GUI convert
 ```
