@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import UIKit
+import AgentDeskWire
 
 enum PairingClientState: Equatable {
     case unpaired

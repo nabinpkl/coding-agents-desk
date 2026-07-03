@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import os
+import AgentDeskWire
 
 // ADR-0019: listens on the offer port for a Mac-pushed pairing offer while the
 // app is foregrounded and unpaired. The Mac dials this iPhone over the tailnet

@@ -1,4 +1,5 @@
 import Foundation
+import AgentDeskWire
 
 enum Config {
     enum OwnedMediaChroma: String {
@@ -88,7 +89,7 @@ enum Config {
         environmentKey: "AGENTDESK_SIGNALING_PORT",
         defaultValue: tieredPort(stable: 41_888, dev: 41_988)
     )
-    static let sessionQuicALPN = "agentdesk-session-quic-v2"
+    static let sessionQuicALPN = WireProtocol.sessionQuicALPN
     // ADR-0019: dedicated plain-TCP port the Mac dials to push a pairing offer
     // to a chosen tailnet device. Separate from the TLS signaling port so the
     // offer path never touches the IP-literal-cert problem.
@@ -99,8 +100,8 @@ enum Config {
     // ADR-0020: wire protocol version negotiated at the session handshake. Bumped
     // only on a breaking wire change, independent of the marketing version. The
     // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
-    static let protocolVersion = 3
-    static let minCompatibleProtocolVersion = 3
+    static let protocolVersion = WireProtocol.version
+    static let minCompatibleProtocolVersion = WireProtocol.minCompatibleVersion
     static let nonceTTL: TimeInterval = 90
     static let sessionResumeTTL: TimeInterval = 20
     // ADR-0049: a pre-armed pairing target (a device picked while its app was

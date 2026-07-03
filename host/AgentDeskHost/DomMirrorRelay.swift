@@ -1,5 +1,6 @@
 import Foundation
 import os
+import AgentDeskWire
 
 // ADR-0038 late-join buffer for the DOM lane: the raw rrweb batch lines since (and including) the
 // most recent checkout batch (the one carrying a fresh Meta + FullSnapshot). A phone that opens the

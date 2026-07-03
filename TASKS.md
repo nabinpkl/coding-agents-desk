@@ -20,8 +20,8 @@ Reuse is load-bearing: the move is a relocation plus drift reconciliation, not a
 
 ## Phase 1: introduce the package (seam, no wire-behavior change)
 
-- [ ] R2. Scaffold `packages/AgentDeskWire/` (`Package.swift` swift-tools 6.0, platforms macOS 26 / iOS 26, one library target + `AgentDeskWireTests`). Add the local package reference (`XCLocalSwiftPackageReference` relativePath `../../packages/AgentDeskWire`, `XCSwiftPackageProductDependency`, Frameworks phase + `packageProductDependencies`) to both app projects. Verify both apps build against the empty package.
-- [ ] R3. Move `WireProtocol` constants + `Fingerprint` + `Pairing` + `Session` clusters into the package as `public`; delete from both `SharedTypes.swift`; add `import AgentDeskWire`; repoint both `Config.protocolVersion`/`sessionQuicALPN` to `WireProtocol.*`. `just check`.
+- [x] R2. Scaffold `packages/AgentDeskWire/` (`Package.swift` swift-tools 6.0, platforms macOS 26 / iOS 26, one library target + `AgentDeskWireTests`). Add the local package reference (`XCLocalSwiftPackageReference` relativePath `../../packages/AgentDeskWire`, `XCSwiftPackageProductDependency`, Frameworks phase + `packageProductDependencies`) to both app projects. Verify both apps build against the empty package.
+- [x] R3. Move `WireProtocol` constants + `Fingerprint` + `Pairing` + `Session` clusters into the package as `public`; delete from both `SharedTypes.swift`; add `import AgentDeskWire`; repoint both `Config.protocolVersion`/`sessionQuicALPN` to `WireProtocol.*`. `just check`. Also moved `Base64URL` (a wire-type dependency) into the package; added `Sendable` to the moved value types (public loses implicit Sendable inference).
 - [ ] R4. Move `Input` + `DesktopState` + `UIFrames` + `AgentFeed` clusters (same recipe). `just check`.
 - [ ] R5. Move `OwnedMedia` + `OwnedGraphics` + `DomMirror` clusters with drift reconciliations (see below). Move host-only (`OwnedGraphicsAckWaiter`, `GraphicsBackpressure`, `GraphicsSendPacer`) and client-only (`OwnedGraphicsTransportError`, `OwnedGraphicsStreamRead`, `OwnedGraphicsResetFallback*`, `OwnedGraphicsQueueDepth`, `OwnedMediaRender*`, `OwnedMediaDisplayQueue*`) behavior types into new small app-side files. `just check`.
 - [ ] R6. Delete both now-empty `SharedTypes.swift` and their pbxproj entries. Add `import AgentDeskWire` to the remaining consumers (19 host + 16 client). Consolidate pure wire round-trip assertions into `AgentDeskWireTests`; leave behavior tests app-side. `just check-all` green.
@@ -47,8 +47,8 @@ Trigger: only after R6 is green, so the format change and the type move never ta
 
 ```
 R1       2026-07-03  committed   ADR-0050 drafted; TASKS opened; SPEC references the package
-R2       pending     pending     scaffold package + link both app projects
-R3       pending     pending     move Pairing/Session/Fingerprint/WireProtocol clusters
+R2       2026-07-03  committed   scaffold package + link both app projects (app+test targets)
+R3       2026-07-03  committed   move Pairing/Session/Fingerprint/WireProtocol + Base64URL; Config->WireProtocol; +Sendable
 R4       pending     pending     move Input/DesktopState/UIFrames/AgentFeed clusters
 R5       pending     pending     move OwnedMedia/OwnedGraphics/DomMirror + drift reconcile
 R6       pending     pending     delete SharedTypes copies; consolidate wire tests

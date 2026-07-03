@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import AgentDeskWire
 
 protocol MediaTransport: AnyObject, Sendable {
     func start(videoSource: VideoFrameSource?, videoSink: VideoFrameSink?) async throws

@@ -2,6 +2,7 @@ import Foundation
 import Network
 import os
 import OSLog
+import AgentDeskWire
 
 // ADR-0038 client side of the DOM lane. Opens by announcing the .dom role (one 1-byte frame the
 // host reads to attach its pusher), then reads host-pushed QuicSessionStreamFrame(.dom) frames and

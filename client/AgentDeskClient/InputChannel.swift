@@ -1,4 +1,5 @@
 import Foundation
+import AgentDeskWire
 
 enum InputChannelDiagnosticsUpdate: Equatable, Sendable {
     case request(DiagnosticsRequest)

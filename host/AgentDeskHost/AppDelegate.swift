@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import Network
 import os
+import AgentDeskWire
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {

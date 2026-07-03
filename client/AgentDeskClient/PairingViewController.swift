@@ -1,6 +1,7 @@
 import AVFoundation
 import OSLog
 import UIKit
+import AgentDeskWire
 
 // Pairing + session lifecycle owner. The view controller threads three
 // concerns: the pairing screen (status label, action button, QR camera),

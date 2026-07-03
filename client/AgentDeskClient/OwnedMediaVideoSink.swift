@@ -3,6 +3,7 @@ import Compression
 import ImageIO
 import UIKit
 import os
+import AgentDeskWire
 
 protocol OwnedMediaFrameSink: VideoFrameSink {
     @MainActor func renderOwnedGraphicsFrame(

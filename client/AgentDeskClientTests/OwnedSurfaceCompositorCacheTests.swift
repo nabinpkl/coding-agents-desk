@@ -1,6 +1,7 @@
 import Compression
 import Foundation
 import Testing
+import AgentDeskWire
 @testable import AgentDeskClient
 
 // Tests for the slot-bitmap cache added by Task 9:

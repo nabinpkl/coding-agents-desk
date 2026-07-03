@@ -5,6 +5,7 @@ import OSLog
 import MetricKit
 #endif
 import zlib
+import AgentDeskWire
 
 struct ClientDiagnosticsStoreConfiguration {
     let diagnosticsDirectory: URL

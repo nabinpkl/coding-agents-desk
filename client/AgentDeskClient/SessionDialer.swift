@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import Network
 import Security
+import AgentDeskWire
 
 @MainActor
 final class SessionDialer {

@@ -1,11 +1,13 @@
+// Base64URL codec (ADR-0050). A dependency of the pairing/session wire types, so
+// it lives in the package as the single definition; both apps import it.
 import Foundation
 
-enum Base64URLError: Error {
+public enum Base64URLError: Error {
     case invalidInput
 }
 
 extension Data {
-    init(base64URLEncoded string: String) throws {
+    public init(base64URLEncoded string: String) throws {
         var base64 = string
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
@@ -17,7 +19,7 @@ extension Data {
         self = data
     }
 
-    func base64URLEncodedString() -> String {
+    public func base64URLEncodedString() -> String {
         base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")

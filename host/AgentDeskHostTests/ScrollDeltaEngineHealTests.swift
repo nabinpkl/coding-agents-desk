@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreVideo
 import Testing
+import AgentDeskWire
 @testable import AgentDeskHost
 
 // ADR-0022 periodic heal. macOS dirtyRects are not always complete: moving the

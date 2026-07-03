@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import os
+import AgentDeskWire
 
 // ADR-0034 crisp-repair: host side of the reliable graphics lane. The client opens the
 // stream and tags it with a `.graphics` role marker; the host then owns it and pushes

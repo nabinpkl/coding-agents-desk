@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreVideo
 import ImageIO
 import Testing
+import AgentDeskWire
 @testable import AgentDeskHost
 
 // H1: with the damage path on, the two non-scroll classifier outcomes

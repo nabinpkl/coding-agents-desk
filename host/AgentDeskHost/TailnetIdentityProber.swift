@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import os
+import AgentDeskWire
 
 // ADR-0019: live, no-storage device discovery. Dials a tailnet peer's offer
 // port, sends a whois request, and waits briefly for a display-only identity

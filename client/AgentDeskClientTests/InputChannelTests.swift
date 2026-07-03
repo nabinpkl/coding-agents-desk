@@ -4,6 +4,7 @@ import CryptoKit
 import OSLog
 import Testing
 import UIKit
+import AgentDeskWire
 
 struct InputChannelTests {
     @Test func quicSessionFrameRoundTripsInputPayload() throws {

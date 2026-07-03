@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import Network
 import os
+import AgentDeskWire
 
 struct ClientDiagnosticsAutomationRequest: Codable {
     let requestId: String

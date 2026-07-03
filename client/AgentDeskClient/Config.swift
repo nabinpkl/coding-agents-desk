@@ -1,7 +1,8 @@
 import Foundation
+import AgentDeskWire
 
 enum Config {
-    static let sessionQuicALPN = "agentdesk-session-quic-v2"
+    static let sessionQuicALPN = WireProtocol.sessionQuicALPN
     // ADR-0019: plain-TCP port the iPhone listens on for a Mac-pushed pairing
     // offer. Tier-derived (see Tier below) so the dev client listens on the dev
     // block and the same-tier dev host dials it; a full dev stack then runs beside
@@ -14,8 +15,8 @@ enum Config {
     // ADR-0020: wire protocol version negotiated at the session handshake. Bumped
     // only on a breaking wire change, independent of the marketing version. The
     // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
-    static let protocolVersion = 3
-    static let minCompatibleProtocolVersion = 3
+    static let protocolVersion = WireProtocol.version
+    static let minCompatibleProtocolVersion = WireProtocol.minCompatibleVersion
     // NWConnection can report a transient .waiting state immediately before .ready,
     // especially for simulator loopback QUIC. Treat waiting as recoverable and use
     // this bound for real dial failures.

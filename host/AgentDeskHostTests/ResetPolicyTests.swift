@@ -1,5 +1,6 @@
 import CoreVideo
 import Testing
+import AgentDeskWire
 @testable import AgentDeskHost
 
 // H4: resetSurface fires only on connect (first frame, no retained surface)

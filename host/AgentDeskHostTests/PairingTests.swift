@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Testing
+import AgentDeskWire
 
 struct PairingTests {
     @Test func mintedPairingPayloadRoundTripsThroughBase64URL() throws {

@@ -2,6 +2,7 @@ import CoreVideo
 import Compression
 import Foundation
 import Testing
+import AgentDeskWire
 
 @testable import AgentDeskHost
 

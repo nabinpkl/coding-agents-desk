@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreVideo
 import Testing
+import AgentDeskWire
 @testable import AgentDeskHost
 
 // Task 2: .fullFrame routes through the same per-tile cache ladder as .tiles

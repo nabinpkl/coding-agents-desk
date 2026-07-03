@@ -3,6 +3,7 @@ import Foundation
 import Network
 import OSLog
 import Security
+import AgentDeskWire
 
 @available(iOS 26.0, *)
 final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTransport, @unchecked Sendable {

@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreVideo
 import Testing
+import AgentDeskWire
 @testable import AgentDeskHost
 
 // ADR-0022 progressive repaint. A genuinely-new fullframe tiled all-LZFSE could

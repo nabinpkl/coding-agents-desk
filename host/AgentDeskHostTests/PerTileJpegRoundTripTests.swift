@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreVideo
 import ImageIO
 import Testing
+import AgentDeskWire
 @testable import AgentDeskHost
 
 // Coverage for the per-tile JPEG path that replaced the deleted whole-frame JPEG

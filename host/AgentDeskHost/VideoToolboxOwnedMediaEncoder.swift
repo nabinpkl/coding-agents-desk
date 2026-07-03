@@ -3,6 +3,7 @@ import CoreVideo
 import Foundation
 import VideoToolbox
 import os
+import AgentDeskWire
 
 // Why this exists: the mixed-mode renderer (ADR-0025) carries scrolling motion on
 // a hardware HEVC stream while rest stays on retained tiles. This is the host

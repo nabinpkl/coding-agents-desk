@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Security
+import AgentDeskWire
 
 // ADR-0003 session-establishment, host side. Pure logic; the network plumbing
 // in PairingSignalingServer drives it. A new authenticator is constructed per

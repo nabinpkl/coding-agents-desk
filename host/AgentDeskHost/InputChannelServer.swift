@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import os
+import AgentDeskWire
 
 enum DiagnosticsChannelUpdate: Equatable, Sendable {
     case summary(DiagnosticsSummary)

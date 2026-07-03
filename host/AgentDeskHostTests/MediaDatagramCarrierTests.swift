@@ -1,5 +1,6 @@
 import CryptoKit
 import XCTest
+import AgentDeskWire
 @testable import AgentDeskHost
 
 // Phase 2 of the mixed-mode renderer (ADR-0025): the QUIC datagram carrier core.

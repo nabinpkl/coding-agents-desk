@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Network
+import AgentDeskWire
 
 protocol SessionTransport: AnyObject, Sendable {
     var activeSession: ActiveSession { get }

@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Security
+import AgentDeskWire
 
 enum PairingError: Error {
     case invalidNonce

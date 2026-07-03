@@ -10,7 +10,6 @@
 		A0000000000000000000EE03 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE02 /* AgentDeskWire */; };
 		A0000000000000000000EE05 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE04 /* AgentDeskWire */; };
 		B00000000000000000000201 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000101 /* AppDelegate.swift */; };
-		B00000000000000000000202 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000102 /* Base64URL.swift */; };
 		B00000000000000000000203 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000103 /* Config.swift */; };
 		B00000000000000000000204 /* DeviceSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000104 /* DeviceSigningKeyStore.swift */; };
 		B00000000000000000000205 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000105 /* KeychainStore.swift */; };
@@ -51,7 +50,6 @@
 		B000000000000000000009C1 /* CursorImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000009C2 /* CursorImageStore.swift */; };
 		B000000000000000000009C3 /* CursorImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000009C2 /* CursorImageStore.swift */; };
 		B0000000000000000000021E /* PairingViewController+Gestures.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000012D /* PairingViewController+Gestures.swift */; };
-		B00000000000000000000221 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000102 /* Base64URL.swift */; };
 		B00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000103 /* Config.swift */; };
 		B00000000000000000000223 /* DeviceSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000104 /* DeviceSigningKeyStore.swift */; };
 		B00000000000000000000224 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000105 /* KeychainStore.swift */; };
@@ -105,7 +103,6 @@
 
 /* Begin PBXFileReference section */
 		B00000000000000000000101 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		B00000000000000000000102 /* Base64URL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Base64URL.swift; sourceTree = "<group>"; };
 		B00000000000000000000103 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		B00000000000000000000104 /* DeviceSigningKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSigningKeyStore.swift; sourceTree = "<group>"; };
 		B00000000000000000000105 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
@@ -212,7 +209,6 @@
 			isa = PBXGroup;
 			children = (
 				B00000000000000000000101 /* AppDelegate.swift */,
-				B00000000000000000000102 /* Base64URL.swift */,
 				B00000000000000000000103 /* Config.swift */,
 				B00000000000000000000FA2 /* ClientDiagnostics.swift */,
 				B00000000000000000000104 /* DeviceSigningKeyStore.swift */,
@@ -396,7 +392,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				B00000000000000000000201 /* AppDelegate.swift in Sources */,
-				B00000000000000000000202 /* Base64URL.swift in Sources */,
 				B00000000000000000000203 /* Config.swift in Sources */,
 				B00000000000000000000FA3 /* ClientDiagnostics.swift in Sources */,
 				B00000000000000000000204 /* DeviceSigningKeyStore.swift in Sources */,
@@ -446,7 +441,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B00000000000000000000221 /* Base64URL.swift in Sources */,
 				B00000000000000000000222 /* Config.swift in Sources */,
 				B00000000000000000000FA4 /* ClientDiagnostics.swift in Sources */,
 				B00000000000000000000223 /* DeviceSigningKeyStore.swift in Sources */,

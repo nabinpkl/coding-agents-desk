@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import AgentDeskWire
 
 enum KeychainError: Error {
     case unexpectedStatus(OSStatus)

@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import os
+import AgentDeskWire
 
 // ADR-0038 host side of the reliable DOM-event lane. The client opens the stream and tags it with
 // a `.dom` role marker; the host then owns it and pushes checkout-framed rrweb batches. Modeled on

@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreVideo
 import Testing
+import AgentDeskWire
 @testable import AgentDeskHost
 
 // Task 1: per-tile encoding in the rung-3 store path. A rung-3 miss on a

@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import AgentDeskWire
 
 struct SessionResumeMaterial: Equatable, Sendable {
     let id: Data
