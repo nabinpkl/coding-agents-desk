@@ -22,6 +22,14 @@ protocol InputChannelServing: AnyObject, Sendable {
     var configHandler: ((ClientConfig) -> Void)? { get set }
     // Called on each decoded agent-feed request from the client.
     var agentRequestHandler: ((AgentFeedRequest) -> Void)? { get set }
+    // Fired once when the peer drops the input lane (receive loop ends without
+    // us cancelling it). QUIC connection-state updates do not reliably fire on a
+    // half-dead socket, so lane death is the host's disconnect signal; the owner
+    // uses it to suspend the session and stop the stale-send flood.
+    var onClosed: (() -> Void)? { get set }
+    // Fired when the client sends an explicit revoke frame (settings "Unpair").
+    // The owner removes the paired-device record so both sides forget each other.
+    var revokeHandler: (() -> Void)? { get set }
 
     func close()
     func pushDesktopState(_ state: DesktopState)
@@ -46,6 +54,8 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
     var configHandler: ((ClientConfig) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
+    var onClosed: (() -> Void)?
+    var revokeHandler: (() -> Void)?
 
     init(stream: QUIC.Stream<QUICStream>, fingerprint: DeviceFingerprint) {
         self.stream = stream
@@ -72,6 +82,8 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         diagnosticsContinuation = nil
         configHandler = nil
         agentRequestHandler = nil
+        onClosed = nil
+        revokeHandler = nil
     }
 
     func pushDesktopState(_ state: DesktopState) {
@@ -149,7 +161,13 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
                     dispatch(data: frame.payload)
                 } catch {
                     logger.notice("input lane receive ended fp=\(self.fingerprint.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                    // Only a peer-driven drop is a disconnect. A cancelled receive
+                    // loop means the owner called close() (session teardown or a
+                    // newer lane superseding this one), so it must NOT re-enter the
+                    // session-end path. Capture onClosed before close() nils it.
+                    let notify = Task.isCancelled ? nil : onClosed
                     close()
+                    notify?()
                     return
                 }
             }
@@ -169,6 +187,9 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             } catch {
                 logger.error("input lane event decode failed: \(String(describing: error), privacy: .public)")
             }
+        case "revoke":
+            logger.notice("input lane revoke received fp=\(self.fingerprint.rawValue, privacy: .public)")
+            revokeHandler?()
         case "client-config":
             do {
                 let frame = try JSONDecoder().decode(ClientConfig.self, from: data)

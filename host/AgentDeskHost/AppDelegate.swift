@@ -572,6 +572,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshConnectedState()
     }
 
+    // The input lane died with the peer still notionally "connected". Treat it as
+    // a suspend so the popover drops to "Paired but not currently connected" and the
+    // stale-send flood stops; the resume-grace timer ends it fully if the phone does
+    // not come back. sessionId is nil because a superseded lane is closed via
+    // cancellation (which never fires onClosed), so the live lane's death always maps
+    // to the current session for this fingerprint.
+    private func handleInputLaneClosed(_ fingerprint: DeviceFingerprint) {
+        guard sessions.isActive(fingerprint) else { return }
+        signalingLogger.notice("input lane closed by peer fp=\(fingerprint.rawValue, privacy: .public); suspending session")
+        handleSessionSuspended(fingerprint, sessionId: nil)
+    }
+
+    // The phone asked to unpair (settings "Unpair / Forget host"). Remove the paired
+    // record via the same path as the menubar Revoke button, ending the live session
+    // and returning the popover to "No paired device".
+    private func handleClientRevoke(_ fingerprint: DeviceFingerprint) {
+        signalingLogger.notice("client requested unpair fp=\(fingerprint.rawValue, privacy: .public); removing pairing")
+        revokeDevice(fingerprint)
+    }
+
     private func handleSessionEnded(
         _ fingerprint: DeviceFingerprint,
         sessionId: String? = nil,
@@ -614,6 +634,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleInputLaneReady(_ fingerprint: DeviceFingerprint, server: InputChannelServer) {
         signalingLogger.notice("input lane ready fp=\(fingerprint.rawValue, privacy: .public)")
         sessions.attachInputChannelServer(server, for: fingerprint)
+        // The QUIC connection's state handler does not reliably fire .cancelled on a
+        // half-dead socket, so the input lane dropping is our disconnect signal. Route
+        // it through the existing suspend path (resume-grace, then end) so the popover
+        // stops falsely reading "Connected" the moment the phone goes away.
+        server.onClosed = { [weak self] in
+            Task { @MainActor in
+                self?.handleInputLaneClosed(fingerprint)
+            }
+        }
+        // Explicit client-initiated unpair: drop the paired-device record, same as
+        // the menubar "Revoke" button, so the popover returns to "No paired device".
+        server.revokeHandler = { [weak self] in
+            Task { @MainActor in
+                self?.handleClientRevoke(fingerprint)
+            }
+        }
         // Wire the agent-feed bridge: construct it from the sidecar base URL and
         // a send closure that pushes already-encoded data back down the input lane,
         // mirroring how diagnostics pushes its responses.

@@ -2681,6 +2681,21 @@ struct AgentProjectsSubscribe: Codable, Equatable {
     }
 }
 
+// Client -> host on the input lane: the phone is revoking the pairing. The host
+// removes its paired-device record (same path as the menubar "Revoke" button).
+// Additive, type-only frame; mirrors AgentProjectsSubscribe.
+struct SessionRevoke: Codable, Equatable {
+    let type: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+    }
+
+    init() {
+        self.type = "revoke"
+    }
+}
+
 struct AgentThreadSubscribe: Codable, Equatable {
     let type: String
     // Optional: the phone bridge subscribes by sessionId alone (it has no

@@ -86,8 +86,10 @@ client_dev_ipa_path := client_dev_export_path + "/AgentDeskClient.ipa"
 # "Versioning". History: 1.1.0 = Mac-initiated pairing (ADR-0019); 1.2.0 = live
 # tailnet device discovery (R55); 1.3.0 = independent host/client versions +
 # protocol-version negotiation (ADR-0020, R56); host 1.4.0 = dev/stable host
-# variants, bundle-id-rooted identity, signaling port over the offer (ADR-0037).
-host_marketing_version := env_var_or_default("AGENTDESK_HOST_VERSION", "1.4.0")
+# variants, bundle-id-rooted identity, signaling port over the offer (ADR-0037);
+# 1.5.0 = input-lane liveness (popover no longer stuck on "Connected") +
+# client-initiated unpair (revoke frame).
+host_marketing_version := env_var_or_default("AGENTDESK_HOST_VERSION", "1.5.0")
 client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.7.0")
 apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
 # Source directory for the ATC engine. Override via env when the engine repo

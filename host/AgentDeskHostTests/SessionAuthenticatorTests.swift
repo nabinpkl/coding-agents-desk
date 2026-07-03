@@ -392,6 +392,8 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     private(set) var closed = false
     var configHandler: ((ClientConfig) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
+    var onClosed: (() -> Void)?
+    var revokeHandler: (() -> Void)?
 
     init() {
         var continuation: AsyncStream<NormalizedInput>.Continuation!
