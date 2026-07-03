@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<!-- ADR-0047 Phase 2: maximum-scale=4 (was 1) admits pinch-zoom so the desktop-captured mirror can be
+     magnified for readability on the phone. WebKit's pinch is a visual-viewport transform: it does NOT
+     reflow the page and does NOT change getBoundingClientRect, so the scale-aware tap/scroll mapping in
+     surfaceMapping() stays correct while zoomed. It never scrolls the host either, so it is a pure view
+     transform inside the pure-mirror invariant. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=4" />
 <title>AgentDesk DOM Mirror</title>
 <!-- rrweb's replayer-chrome stylesheet, vendored from rrweb@2.0.0-alpha.4 (same version as
      rrweb.min.js). rrweb's core adds .replayer-wrapper/.replayer-mouse/.replayer-mouse-tail

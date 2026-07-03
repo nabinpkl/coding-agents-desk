@@ -23,6 +23,18 @@ final class DomMirrorSurface: UIView {
     // movement delta in page CSS px; sent back to Chrome to drive the real tab's scroll.
     var onScroll: ((_ x: Double, _ y: Double, _ dx: Double, _ dy: Double) -> Void)?
 
+    // ADR-0047: forward a mirror scroll drag to the host, UNLESS the view is pinch-zoomed. Once the
+    // WKWebView scrollView.zoomScale exceeds 1, a single-finger drag pans the magnified view locally
+    // (intrinsic UIScrollView zoom-pan); also driving the host tab from the same drag is a two-input
+    // collision, so we suppress the host-scroll and let the native pan own the gesture. The tap is
+    // already suppressed JS-side (a drag is a drag), so a zoomed pan drives neither. Model: navigate
+    // the page at 1x, inspect locally when zoomed. zoomScale is the authoritative zoom state (JS
+    // visualViewport tracking of WKWebView pinch is unreliable), so the gate lives here, not in the JS.
+    func handleScroll(x: Double, y: Double, dx: Double, dy: Double) {
+        guard (webView?.scrollView.zoomScale ?? 1) <= 1.01 else { return }
+        onScroll?(x, y, dx, dy)
+    }
+
     private var webView: WKWebView?
     private var isLoaded = false
     private var torn = false
@@ -78,9 +90,18 @@ final class DomMirrorSurface: UIView {
         wv.translatesAutoresizingMaskIntoConstraints = false
         // ADR-0047: the page is a fixed viewport mirror (index.html #stage is overflow:hidden), so the
         // WKWebView scrollView never scrolls its own content; a scroll drag is captured in JS and sent
-        // to Chrome. Kill the pan rubber-band so a drag doesn't bounce the whole mirror. (Zoom bounce
-        // for Phase 2 pinch is a separate flag, bouncesZoom, left untouched.)
+        // to Chrome. Kill the pan rubber-band so a drag doesn't bounce the whole mirror.
         wv.scrollView.bounces = false
+        // ADR-0047 pinch-zoom for readability: let the user magnify the desktop-captured mirror on the
+        // phone. This is a pure VIEW transform (a visual-viewport/scrollView zoom), NOT a page reflow
+        // and NOT a host scroll, so it stays inside the pure-mirror invariant. Crucially it does not
+        // change the DOM's getBoundingClientRect, so the tap/scroll page-space mapping in index.html is
+        // unaffected. The page's own viewport meta is relaxed to maximum-scale=4 to admit the pinch;
+        // these scrollView bounds are the belt-and-suspenders half of that (WebKit derives them from
+        // the meta). bouncesZoom gives the natural rubber-band at the zoom limits.
+        wv.scrollView.minimumZoomScale = 1
+        wv.scrollView.maximumZoomScale = 4
+        wv.scrollView.bouncesZoom = true
         addSubview(wv) // ADR-0040: interactive -- taps are captured in the replayer and sent back
         NSLayoutConstraint.activate([
             wv.topAnchor.constraint(equalTo: statusBar.bottomAnchor),
@@ -271,7 +292,7 @@ extension DomMirrorSurface: WKScriptMessageHandler {
             let y = (body["y"] as? NSNumber)?.doubleValue ?? 0
             let dx = (body["dx"] as? NSNumber)?.doubleValue ?? 0
             let dy = (body["dy"] as? NSNumber)?.doubleValue ?? 0
-            Task { @MainActor [weak self] in self?.onScroll?(x, y, dx, dy) }
+            Task { @MainActor [weak self] in self?.handleScroll(x: x, y: y, dx: dx, dy: dy) }
             return
         }
         guard (body["kind"] as? String) == "probe" else { return }

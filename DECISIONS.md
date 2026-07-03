@@ -41,3 +41,18 @@ tap/scroll bug found in review), two headless gates were added, both modeled on 
   machine. Loads the shipping `index.html`, gives it a surface via a CDP keyframe, dispatches synthetic
   TouchEvents, and asserts the threshold deadzone, tap-vs-scroll suppression, and multi-touch
   deactivation. This is the half no other test covers.
+
+### D4. While pinch-zoomed, a single-finger drag pans locally and does NOT drive the host scroll
+
+The plan's Phase-2 verify wording expected a scroll drag to still drive the host while zoomed. Both my
+own analysis and the independent Phase-2 review concluded that is a defect, not a feature: once
+`scrollView.zoomScale > 1`, UIScrollView intrinsically re-enables panning of the magnified content, and
+the JS `touchmove` host-scroll handler fires from the SAME one-finger drag, so a user panning their
+magnified view would also scroll the real Chrome tab (a two-input collision, provable from code without
+a device). The resolution: `DomMirrorSurface.handleScroll` gates the host-scroll on `zoomScale <= 1.01`,
+so the model is "navigate the page at 1x, inspect locally when zoomed." The gate lives on the Swift side
+because `scrollView.zoomScale` is the authoritative zoom state; JS `visualViewport` tracking of WKWebView
+pinch is unreliable and cannot be trusted for a correctness gate. This aligns with ADR-0047 (pinch-zoom +
+pan are local view transforms) more cleanly than the plan's original wording did. The exact felt quality
+of the 1x-vs-zoomed handoff is still worth a physical-device confirmation, but the collision itself is
+resolved in code.
