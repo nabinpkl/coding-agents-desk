@@ -15,6 +15,9 @@
 		A00000000000000000000206 /* Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000106 /* Pairing.swift */; };
 		A00000000000000000000352 /* PairingOfferSender.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000351 /* PairingOfferSender.swift */; };
 		A00000000000000000000362 /* TailnetIdentityProber.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000361 /* TailnetIdentityProber.swift */; };
+		A00000000000000000000372 /* PreArmedTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000371 /* PreArmedTargetStore.swift */; };
+		A00000000000000000000373 /* PreArmedTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000371 /* PreArmedTargetStore.swift */; };
+		A00000000000000000000382 /* PreArmedTargetStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000381 /* PreArmedTargetStoreTests.swift */; };
 		A00000000000000000000207 /* PairingSignalingServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000107 /* PairingSignalingServer.swift */; };
 		A00000000000000000000208 /* PopoverViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000108 /* PopoverViewController.swift */; };
 		A00000000000000000000209 /* QRCodeRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000109 /* QRCodeRenderer.swift */; };
@@ -196,6 +199,8 @@
 		A00000000000000000000106 /* Pairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pairing.swift; sourceTree = "<group>"; };
 		A00000000000000000000351 /* PairingOfferSender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingOfferSender.swift; sourceTree = "<group>"; };
 		A00000000000000000000361 /* TailnetIdentityProber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailnetIdentityProber.swift; sourceTree = "<group>"; };
+		A00000000000000000000371 /* PreArmedTargetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreArmedTargetStore.swift; sourceTree = "<group>"; };
+		A00000000000000000000381 /* PreArmedTargetStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreArmedTargetStoreTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000107 /* PairingSignalingServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingSignalingServer.swift; sourceTree = "<group>"; };
 		A00000000000000000000108 /* PopoverViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopoverViewController.swift; sourceTree = "<group>"; };
 		A00000000000000000000109 /* QRCodeRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeRenderer.swift; sourceTree = "<group>"; };
@@ -371,6 +376,7 @@
 				A00000000000000000000109 /* QRCodeRenderer.swift */,
 				A0000000000000000000010A /* SharedTypes.swift */,
 				A0000000000000000000010B /* TailnetDiscovery.swift */,
+				A00000000000000000000371 /* PreArmedTargetStore.swift */,
 				A0000000000000000000010F /* TLSIdentityLoader.swift */,
 				A00000000000000000000110 /* SessionAuthenticator.swift */,
 				A00000000000000000000111 /* MediaTransport.swift */,
@@ -459,6 +465,7 @@
 				A00000000000000000000123 /* SessionAuthenticatorTests.swift */,
 				A00000000000000000000124 /* QuicSessionStreamFrameTests.swift */,
 				A00000000000000000000341 /* TailnetDiscoveryTests.swift */,
+				A00000000000000000000381 /* PreArmedTargetStoreTests.swift */,
 				A00000000000000000000125 /* InputDispatcherTests.swift */,
 				A00000000000000000000153 /* GestureChildControllerTests.swift */,
 				A00000000000000000000157 /* JsonlChildProcessTests.swift */,
@@ -620,6 +627,7 @@
 				A00000000000000000000209 /* QRCodeRenderer.swift in Sources */,
 				A0000000000000000000020A /* SharedTypes.swift in Sources */,
 				A0000000000000000000020B /* TailnetDiscovery.swift in Sources */,
+				A00000000000000000000372 /* PreArmedTargetStore.swift in Sources */,
 				A0000000000000000000020C /* LaunchAgentInstaller.swift in Sources */,
 				A0000000000000000000020D /* main.swift in Sources */,
 				A0000000000000000000020F /* TLSIdentityLoader.swift in Sources */,
@@ -713,6 +721,8 @@
 				A0000000000000000000025F /* VoiceChildController.swift in Sources */,
 				A0000000000000000000022E /* QuicSessionStreamFrameTests.swift in Sources */,
 				A00000000000000000000342 /* TailnetDiscoveryTests.swift in Sources */,
+				A00000000000000000000373 /* PreArmedTargetStore.swift in Sources */,
+				A00000000000000000000382 /* PreArmedTargetStoreTests.swift in Sources */,
 				A0000000000000000000022F /* InputDispatcher.swift in Sources */,
 				A00000000000000000000230 /* InputDispatcherTests.swift in Sources */,
 				A00000000000000000000259 /* GestureChildControllerTests.swift in Sources */,

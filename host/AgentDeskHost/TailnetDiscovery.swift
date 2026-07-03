@@ -17,6 +17,42 @@ struct TailnetDeviceOption: Equatable {
     var isIOS: Bool { os.lowercased() == "ios" }
 }
 
+// ADR-0049: a row in the Mac pairing picker. Unlike TailnetDeviceOption (a raw
+// tailnet peer), this is the resolved shape the picker draws. `ready` means the
+// device's AgentDesk client answered the whois probe and can pair immediately;
+// a not-ready row is still listed (the app is closed on the phone) so the user
+// can pre-arm it. `displayName` is the whois-reported name when ready, otherwise
+// the peer's tailnet name (which for iOS is often "localhost", so the row also
+// shows the IPv4 to disambiguate).
+struct PairablePeer: Equatable {
+    let displayName: String
+    let os: String
+    let ipv4: String
+    let ready: Bool
+
+    // Resolve online iOS candidates into picker rows. `readyNames` maps the IPv4
+    // of each candidate that answered the whois probe to its client-reported
+    // name; a candidate absent from the map is listed as not-ready. Ready rows
+    // sort first, then alphabetically by display name, so the phone the user can
+    // pair right now leads the list.
+    static func rows(
+        candidates: [TailnetDeviceOption],
+        readyNames: [String: String]
+    ) -> [PairablePeer] {
+        candidates
+            .map { candidate in
+                if let name = readyNames[candidate.ipv4] {
+                    return PairablePeer(displayName: name, os: candidate.os, ipv4: candidate.ipv4, ready: true)
+                }
+                return PairablePeer(displayName: candidate.hostname, os: candidate.os, ipv4: candidate.ipv4, ready: false)
+            }
+            .sorted { lhs, rhs in
+                if lhs.ready != rhs.ready { return lhs.ready }
+                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+            }
+    }
+}
+
 enum TailscaleRequiredError: Error, LocalizedError {
     case tailscaleMissing
     case statusFailed(String)

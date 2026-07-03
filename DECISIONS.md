@@ -6,6 +6,43 @@ why it was made independent of any instruction. Architectural decisions that loc
 a full ADR under `architecture-decisions/`; this file captures the smaller judgement calls that would
 otherwise be invisible.
 
+## ADR-0049 List all tailnet iOS devices with pre-arm
+
+### D1. Pre-arm is keyed by tailnet IPv4, not a stable node id
+
+The pre-arm record and its readiness poll key on the peer's tailnet IPv4 rather than parsing Tailscale's
+StableNodeID out of the status JSON. Evidence: a Tailscale node's IPv4 is stable for the node's lifetime,
+and IPv4 is already the address every other leg of pairing dials (the whois probe in
+`TailnetIdentityProber`, the offer push in `PairingOfferSender`). Keying on IPv4 keeps one identifier
+across discover -> poll -> push instead of introducing a second id that would then need mapping back to an
+IPv4 to dial. Chosen independent of the prompt because the prompt did not specify a key; IPv4 is the
+single-source-of-truth address already in hand.
+
+### D2. Readiness is discovered by polling the offer port, not by a push-and-wait
+
+A pre-armed (closed-app) device is polled with the existing whois probe on `Config.preArmPollInterval`
+until it answers, and only then is the offer pushed. The alternative (push the offer immediately on pick
+and let the 30s dial-back timeout retry) was rejected because it pushes into a closed listener and burns
+the 90s nonce TTL before the app is even open. Polling first means the nonce is minted at push time
+against a confirmed-listening client, so the existing ADR-0019 nonce/pre-approval flow runs unchanged.
+
+### D3. The pre-arm intent is persisted, and resumed at host launch
+
+`pre-armed-targets.json` lives beside `paired-devices.json` in Application Support, and
+`applicationDidFinishLaunching` calls `resumePreArms()` to restart polls for still-live intents and prune
+expired ones. Evidence for persisting rather than keeping it in memory: the Mac host is a long-running
+menu-bar agent, but a crash or relaunch between "user picks a closed-app phone" and "user opens the app"
+would otherwise silently drop the intent, which is exactly the multi-minute window the feature exists to
+cover. TTL-bounded so a never-opened device does not poll forever.
+
+### D4. New picker row type `PairablePeer` instead of overloading `TailnetDeviceOption`
+
+`TailnetDeviceOption` stays the raw tailnet peer (name, os, ipv4, online); the picker draws a separate
+`PairablePeer` (resolved display name + `ready`). Rationale: the raw peer has no notion of AgentDesk
+readiness, and folding a `ready` flag plus a resolved-name rule into it would give one struct two
+responsibilities and two producers (the pure parser, which cannot know readiness, and the enricher, which
+does). Keeping them separate makes the enrichment a pure, unit-tested function (`PairablePeer.rows`).
+
 ## ADR-0047 Browser scroll-drive-back / pinch-zoom / mobile-emulation (Phases 1-3)
 
 ### D1. Autonomous simulator + CDP-Chrome verification was run without the per-run device checkpoint

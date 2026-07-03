@@ -74,4 +74,41 @@ struct TailnetDiscoveryTests {
         """.utf8)
         #expect(try TailscaleStatusParser.parsePeers(selfOnly).isEmpty)
     }
+
+    // ADR-0049: the picker lists every online iOS candidate, not only whois
+    // responders. A candidate present in readyNames is ready and carries its
+    // client-reported name; one absent is listed as not-ready by its tailnet name.
+    private let candidates = [
+        TailnetDeviceOption(hostname: "localhost", os: "iOS", ipv4: "100.64.0.20", online: true),
+        TailnetDeviceOption(hostname: "localhost", os: "iOS", ipv4: "100.64.0.21", online: true)
+    ]
+
+    @Test func rowsListAllCandidatesNotJustResponders() {
+        let rows = PairablePeer.rows(candidates: candidates, readyNames: ["100.64.0.20": "Dev iPhone"])
+        // Both appear even though only one answered whois.
+        #expect(rows.count == 2)
+        #expect(rows.contains { $0.ipv4 == "100.64.0.21" && !$0.ready })
+    }
+
+    @Test func rowsUseWhoisNameWhenReadyAndTailnetNameOtherwise() {
+        let rows = PairablePeer.rows(candidates: candidates, readyNames: ["100.64.0.20": "Dev iPhone"])
+        let ready = rows.first { $0.ipv4 == "100.64.0.20" }
+        let notReady = rows.first { $0.ipv4 == "100.64.0.21" }
+        #expect(ready?.displayName == "Dev iPhone")
+        #expect(ready?.ready == true)
+        #expect(notReady?.displayName == "localhost")
+        #expect(notReady?.ready == false)
+    }
+
+    @Test func rowsSortReadyFirst() {
+        // "localhost" (ready via whois name "Zed") would sort after "Aiden" by
+        // name alone, but readiness wins: the ready row leads regardless of name.
+        let rows = PairablePeer.rows(
+            candidates: candidates,
+            readyNames: ["100.64.0.21": "Zed"]
+        )
+        #expect(rows.first?.ipv4 == "100.64.0.21")
+        #expect(rows.first?.ready == true)
+        #expect(rows.last?.ready == false)
+    }
 }

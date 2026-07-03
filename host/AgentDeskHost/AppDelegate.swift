@@ -149,6 +149,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // back does not strand the popover. Cancelled when the device starts
     // connecting or the user leaves the offered state.
     private var pairingOfferTimeoutTask: Task<Void, Never>?
+    // ADR-0049: durable pre-arm intents (devices picked while their app was
+    // closed), the readiness poll per pre-armed IPv4, and the name shown in the
+    // waiting popover. A pre-arm survives the phone being closed and a host
+    // restart; the poll fires the existing offer push once the app answers whois.
+    private let preArmStore = PreArmedTargetStore()
+    private var preArmPollTasks: [String: Task<Void, Never>] = [:]
+    private var activePreArmName: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -168,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startDomMirrorIfEnabled()
         installAutomationSignalHandlers()
         refreshConnectedState()
+        resumePreArms()
         installSpacesSwitchHandler()
         installSpacesChangeObserver()
         installThumbnailsBroadcast()
@@ -297,6 +305,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         popoverController.onPairDevice = { [weak self] device in
             self?.pairWithDevice(device)
+        }
+        popoverController.onCancelPreArm = { [weak self] in
+            self?.cancelPreArms()
         }
         popoverController.onRevoke = { [weak self] fingerprint in
             self?.revokeDevice(fingerprint)
@@ -432,7 +443,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ADR-0040: forward client taps read off the lane to the bridge, which relays them to the
         // extension for trusted dispatch. Kept on the DOM path, never the Mac input dispatcher.
         lane.onInput = { [weak self] raw in
-            self?.domBridgeServer?.sendToBridge(raw)
+            // ADR-0047 scroll diagnostic: if the shim is not connected the command is silently
+            // dropped and never reaches Chrome -- surface that so a "dead" scroll is distinguishable
+            // from a slow one. Successful forwards stay unlogged (the dom-lane forward log already
+            // timestamps each frame) to keep the 60Hz scroll stream readable.
+            let accepted = self?.domBridgeServer?.sendToBridge(raw) ?? false
+            if !accepted { self?.signalingLogger.notice("dom-lane input dropped: no bridge shim connected") }
         }
         lane.startReceiving()
         domMirrorRelay.attach(lane, for: fingerprint)
@@ -962,9 +978,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pairingOfferTimeoutTask = nil
         let candidates: [TailnetDeviceOption]
         do {
-            // ADR-0019: probe online iOS peers and list only those that identify
-            // themselves, so the picker shows real AgentDesk clients by name
-            // (no storage, no tailnet "localhost").
+            // ADR-0049: list every online iOS peer, not only the ones whose
+            // AgentDesk app is currently listening. The whois probe below no
+            // longer gates the list; it only enriches names for devices that are
+            // ready, so a closed-app iPhone still appears and can be pre-armed.
             candidates = try tailnetDiscovery.peerDevices().filter { $0.isIOS && $0.online }
         } catch is TailscaleRequiredError {
             signalingLogger.error("device picker failed: tailscale required")
@@ -983,44 +1000,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             let prober = TailnetIdentityProber()
-            let responders = await withTaskGroup(of: TailnetDeviceOption?.self) { group in
+            // Probe every candidate concurrently for its client-reported name.
+            // A responder is ready to pair now; a non-responder is listed anyway.
+            let readyNames = await withTaskGroup(of: (String, String)?.self) { group in
                 for peer in candidates {
                     group.addTask {
                         guard let identity = await prober.identify(ipv4: peer.ipv4) else {
                             return nil
                         }
-                        return TailnetDeviceOption(
-                            hostname: identity.displayName,
-                            os: peer.os,
-                            ipv4: peer.ipv4,
-                            online: true
-                        )
+                        return (peer.ipv4, identity.displayName)
                     }
                 }
-                var found: [TailnetDeviceOption] = []
-                for await result in group where result != nil {
-                    found.append(result!)
+                var names: [String: String] = [:]
+                for await result in group {
+                    if let (ipv4, name) = result { names[ipv4] = name }
                 }
-                return found
+                return names
             }
-            let sorted = responders.sorted {
-                $0.hostname.localizedCaseInsensitiveCompare($1.hostname) == .orderedAscending
-            }
-            self.popoverController.render(.devicePicker(sorted))
+            let rows = PairablePeer.rows(candidates: candidates, readyNames: readyNames)
+            self.popoverController.render(.devicePicker(rows))
         }
     }
 
-    // ADR-0019: mint an offer, pre-approve its nonce tagged with the picked
+    // ADR-0049: picking a device is the host-side authorization. A device whose
+    // app is listening (ready) gets an offer pushed immediately; a device whose
+    // app is closed is pre-armed and the readiness poll fires the same push once
+    // its app comes up, so the user never has to come back and re-pick.
+    private func pairWithDevice(_ device: PairablePeer) {
+        if device.ready {
+            sendOffer(toIPv4: device.ipv4, name: device.displayName)
+        } else {
+            preArm(device)
+        }
+    }
+
+    // ADR-0019/0049: mint an offer, pre-approve its nonce tagged with the picked
     // device name (the pick is the authorization), and push it to the chosen
     // device over the tailnet. The iPhone runs the unchanged handshake and the
-    // host auto-approves, recording the device name so the popover shows it.
-    private func pairWithDevice(_ device: TailnetDeviceOption) {
-        let ipv4 = device.ipv4
+    // host auto-approves, recording the device name so the popover shows it. Any
+    // pre-arm for this IPv4 is cleared: the offer supersedes the waiting intent.
+    private func sendOffer(toIPv4 ipv4: String, name: String) {
+        preArmPollTasks[ipv4]?.cancel()
+        preArmPollTasks[ipv4] = nil
+        try? preArmStore.disarm(ipv4: ipv4)
+        if activePreArmName == name { activePreArmName = nil }
         do {
             let payload = try pairing.mintPairingPayload()
-            pairing.markPreApproved(nonce: payload.oneTimeNonce, name: device.hostname)
+            pairing.markPreApproved(nonce: payload.oneTimeNonce, name: name)
             applyIcon(.pairing)
-            popoverController.render(.pairingOffered(device.hostname))
+            popoverController.render(.pairingOffered(name))
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 do {
@@ -1045,9 +1073,94 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             applyIcon(.tailscaleRequired)
             popoverController.render(.tailscaleRequired)
         } catch {
-            signalingLogger.error("pairWithDevice failed: \(String(describing: error), privacy: .public)")
+            signalingLogger.error("sendOffer failed: \(String(describing: error), privacy: .public)")
             applyIcon(.pairingFailed)
             popoverController.render(.idle)
+        }
+    }
+
+    // ADR-0049: remember a device picked while its app was closed, persist the
+    // intent so it survives a host restart, and start polling its offer port for
+    // readiness. The poll fires sendOffer once the app answers.
+    private func preArm(_ device: PairablePeer) {
+        let now = Int(Date().timeIntervalSince1970)
+        let target = PreArmedTarget(
+            ipv4: device.ipv4,
+            name: device.displayName,
+            armedAt: now,
+            expiresAt: now + Int(Config.preArmTTL)
+        )
+        do {
+            try preArmStore.arm(target)
+        } catch {
+            signalingLogger.error("pre-arm persist failed: \(String(describing: error), privacy: .public)")
+        }
+        activePreArmName = device.displayName
+        applyIcon(.pairing)
+        popoverController.render(.preArmed(device.displayName))
+        startPreArmPoll(ipv4: device.ipv4, name: device.displayName)
+    }
+
+    // Poll one pre-armed device's offer port until its app answers whois (then
+    // push the offer) or the intent expires or is cancelled. One task per IPv4.
+    private func startPreArmPoll(ipv4: String, name: String) {
+        preArmPollTasks[ipv4]?.cancel()
+        let interval = UInt64(Config.preArmPollInterval * 1_000_000_000)
+        preArmPollTasks[ipv4] = Task { @MainActor [weak self] in
+            let prober = TailnetIdentityProber()
+            while true {
+                if Task.isCancelled { return }
+                guard let self, self.isPreArmLive(ipv4: ipv4) else {
+                    self?.expirePreArm(ipv4: ipv4, name: name)
+                    return
+                }
+                if await prober.identify(ipv4: ipv4) != nil {
+                    self.signalingLogger.notice("pre-armed device came up \(ipv4, privacy: .public)")
+                    self.sendOffer(toIPv4: ipv4, name: name)
+                    return
+                }
+                try? await Task.sleep(nanoseconds: interval)
+            }
+        }
+    }
+
+    private func isPreArmLive(ipv4: String) -> Bool {
+        let now = Int(Date().timeIntervalSince1970)
+        let targets = (try? preArmStore.load()) ?? []
+        return targets.contains { $0.ipv4 == ipv4 && $0.expiresAt > now }
+    }
+
+    // The intent's TTL passed (or it was disarmed elsewhere): drop it and, if the
+    // waiting popover was showing this device, fall back to the resting state.
+    private func expirePreArm(ipv4: String, name: String) {
+        preArmPollTasks[ipv4] = nil
+        try? preArmStore.disarm(ipv4: ipv4)
+        if activePreArmName == name {
+            activePreArmName = nil
+            signalingLogger.notice("pre-arm expired for \(ipv4, privacy: .public)")
+            refreshConnectedState()
+        }
+    }
+
+    // User dismissed the waiting popover: drop all pre-arm intents and their polls.
+    private func cancelPreArms() {
+        for (_, task) in preArmPollTasks { task.cancel() }
+        preArmPollTasks.removeAll()
+        try? preArmStore.save([])
+        activePreArmName = nil
+        refreshConnectedState()
+    }
+
+    // ADR-0049: on launch, resume polling any pre-arm intent that outlived a host
+    // restart, and drop expired ones. Without this a device picked before the
+    // host restarted would silently never pair.
+    private func resumePreArms() {
+        let now = Int(Date().timeIntervalSince1970)
+        let live = (try? preArmStore.liveTargets(now: now)) ?? []
+        guard !live.isEmpty else { return }
+        activePreArmName = live.max(by: { $0.armedAt < $1.armedAt })?.name
+        for target in live {
+            startPreArmPoll(ipv4: target.ipv4, name: target.name)
         }
     }
 
@@ -1100,8 +1213,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let approved = (try? pairing.approvedDevices()) ?? []
         guard !approved.isEmpty else {
-            applyIcon(.idle)
-            popoverController.render(.idle)
+            // ADR-0049: no paired device, but if a pre-arm is waiting for a phone
+            // to open, keep showing that rather than the bare idle screen.
+            if let name = activePreArmName {
+                applyIcon(.pairing)
+                popoverController.render(.preArmed(name))
+            } else {
+                applyIcon(.idle)
+                popoverController.render(.idle)
+            }
             return
         }
         // More than one device can be paired (a client reinstall mints a fresh

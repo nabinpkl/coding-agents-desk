@@ -4,7 +4,8 @@ import Foundation
 enum HostPairingViewState {
     case idle
     case scanning
-    case devicePicker([TailnetDeviceOption])
+    case devicePicker([PairablePeer])
+    case preArmed(String)
     case pairingOffered(String)
     case pairing(URL, NSImage?)
     case pairedNoActiveSession(PairedDeviceRecord)
@@ -17,7 +18,8 @@ enum HostPairingViewState {
 
 final class PopoverViewController: NSViewController {
     var onStartPairing: (() -> Void)?
-    var onPairDevice: ((TailnetDeviceOption) -> Void)?
+    var onPairDevice: ((PairablePeer) -> Void)?
+    var onCancelPreArm: (() -> Void)?
     var onRevoke: ((DeviceFingerprint) -> Void)?
     var onRequestScreenRecording: (() -> Void)?
     var onRequestAccessibility: (() -> Void)?
@@ -27,7 +29,7 @@ final class PopoverViewController: NSViewController {
     private var connectedFingerprint: DeviceFingerprint?
     // ADR-0019: maps each device-picker button to the tailnet device it pairs, so
     // a single action selector can route the tap to onPairDevice.
-    private var deviceOptionByButton: [ObjectIdentifier: TailnetDeviceOption] = [:]
+    private var deviceOptionByButton: [ObjectIdentifier: PairablePeer] = [:]
 
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 340))
@@ -63,18 +65,28 @@ final class PopoverViewController: NSViewController {
             spinner.startAnimation(nil)
             spinner.translatesAutoresizingMaskIntoConstraints = false
             stack.addArrangedSubview(spinner)
-            label("Looking for iPhones running AgentDesk on your tailnet. Open AgentDesk on the iPhone if it is not already.", font: .systemFont(ofSize: 12))
+            label("Looking for iPhones on your tailnet.", font: .systemFont(ofSize: 12))
         case .devicePicker(let devices):
             label("Pair a device", font: .boldSystemFont(ofSize: 16))
             if devices.isEmpty {
-                label("No tailnet devices found. Make sure the iPhone is on the same tailnet and AgentDesk is open on it.", font: .systemFont(ofSize: 12))
+                label("No iPhones found on your tailnet. Make sure the iPhone is signed in to the same tailnet.", font: .systemFont(ofSize: 12))
             } else {
-                label("Pick the iPhone to pair. Open AgentDesk on it first.", font: .systemFont(ofSize: 12))
+                label("Pick an iPhone. Ready ones pair now; ones marked \"app not open\" pair automatically once you open AgentDesk on them.", font: .systemFont(ofSize: 12))
                 for device in devices {
                     deviceRow(device)
                 }
             }
             button(title: "Refresh", action: #selector(startPairing))
+        case .preArmed(let deviceName):
+            label("Waiting for iPhone", font: .boldSystemFont(ofSize: 16))
+            let spinner = NSProgressIndicator()
+            spinner.style = .spinning
+            spinner.controlSize = .small
+            spinner.startAnimation(nil)
+            spinner.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(spinner)
+            label("Open AgentDesk on \(deviceName). It will pair automatically.", font: .systemFont(ofSize: 12))
+            button(title: "Cancel", action: #selector(cancelPreArm))
         case .pairingOffered(let deviceName):
             label("Pairing offer sent", font: .boldSystemFont(ofSize: 16))
             let spinner = NSProgressIndicator()
@@ -166,6 +178,10 @@ final class PopoverViewController: NSViewController {
         onPairDevice?(device)
     }
 
+    @objc private func cancelPreArm() {
+        onCancelPreArm?()
+    }
+
     private func deviceDisplayName(_ record: PairedDeviceRecord) -> String {
         if let name = record.name, !name.isEmpty {
             return name
@@ -173,17 +189,18 @@ final class PopoverViewController: NSViewController {
         return "Unnamed device"
     }
 
-    private func deviceRow(_ device: TailnetDeviceOption) {
-        // iOS reports its Tailscale hostname as "localhost", so the hostname
-        // alone is not identifiable. Include the tailnet IPv4, which matches the
-        // "This device:" line on the iPhone's own unpaired screen.
-        var title = "\(device.hostname) (\(device.os)) \(device.ipv4)"
-        if !device.online {
-            title += " (offline)"
+    private func deviceRow(_ device: PairablePeer) {
+        // iOS reports its Tailscale hostname as "localhost", so the name alone is
+        // not identifiable. Include the tailnet IPv4, which matches the "This
+        // device:" line on the iPhone's own unpaired screen. A not-ready row is a
+        // device whose AgentDesk app is closed; it is still pickable (pre-armed)
+        // and gets a real name once the app opens, so mark it rather than hide it.
+        var title = "\(device.displayName) (\(device.os)) \(device.ipv4)"
+        if !device.ready {
+            title += " · app not open"
         }
         let button = NSButton(title: title, target: self, action: #selector(pairDeviceTapped(_:)))
         button.bezelStyle = .rounded
-        button.isEnabled = device.online
         deviceOptionByButton[ObjectIdentifier(button)] = device
         stack.addArrangedSubview(button)
     }

@@ -103,6 +103,17 @@ enum Config {
     static let minCompatibleProtocolVersion = 3
     static let nonceTTL: TimeInterval = 90
     static let sessionResumeTTL: TimeInterval = 20
+    // ADR-0049: a pre-armed pairing target (a device picked while its app was
+    // closed) is polled for readiness this often, and the intent is dropped after
+    // this TTL so a phone that never opens does not poll forever.
+    static let preArmPollInterval = positiveDouble(
+        environmentKey: "AGENTDESK_PREARM_POLL_INTERVAL",
+        defaultValue: 5
+    )
+    static let preArmTTL = positiveDouble(
+        environmentKey: "AGENTDESK_PREARM_TTL",
+        defaultValue: 30 * 60
+    )
     static let ownedMediaChroma = OwnedMediaChroma(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_OWNED_MEDIA_CHROMA"]
     )
@@ -840,6 +851,10 @@ enum Config {
         .appendingPathComponent(bundleIdentifier, isDirectory: true)
     static let pairedDevicesURL = applicationSupportDirectory
         .appendingPathComponent("paired-devices.json", isDirectory: false)
+    // ADR-0049: durable pre-armed pairing targets (devices picked while their app
+    // was closed), so the intent survives a host restart mid-wait.
+    static let preArmedTargetsURL = applicationSupportDirectory
+        .appendingPathComponent("pre-armed-targets.json", isDirectory: false)
     static let adSocketURL = applicationSupportDirectory
         .appendingPathComponent("ad.sock", isDirectory: false)
     static let adTokenURL = applicationSupportDirectory
