@@ -25,6 +25,8 @@ ADR-0001 records the original v0 stack decision. ADR-0015 records the owned sing
 
 Designed as deep modules: small interface, hides churn. Each one is independently testable.
 
+The shared wire types (pairing, session, owned-media, retained-graphics, input, DOM-mirror, agent-feed shapes below) live in one local Swift package, `packages/AgentDeskWire`, imported by both apps, rather than hand-mirrored per project (ADR-0050). The package is the single source of truth for the wire contract; host and client diverging on a shared type is a compile error. Side-specific behavior types (host graphics pacing, client render/transport state) stay in their app targets.
+
 ### Host
 
 1. **CaptureEngine.** Owns ScreenCaptureKit. Produces `CMSampleBuffer` frames for the selected display. In the hybrid worktree the same capture stream feeds HEVC full-frame refresh and the planned scroll delta engine. Display switches restart the capture stream and force the first post-switch frame to be a keyframe.
