@@ -43,27 +43,34 @@ final class DomMirrorRelay: @unchecked Sendable {
         // ADR-0046 diagnostic status pushed to the client's Browser status line.
         var extConnected: Bool
         var lastTabId: Int?
+        // ADR-0048: authoritative device-emulation state, read off each batch's `em` stamp.
+        var emulated: Bool
     }
     private let lock: OSAllocatedUnfairLock<State>
 
     init(bufferCap: Int = 4000) {
         lock = OSAllocatedUnfairLock(initialState: State(
-            buffer: DomMirrorBuffer(cap: bufferCap), lanes: [:], extConnected: false, lastTabId: nil))
+            buffer: DomMirrorBuffer(cap: bufferCap), lanes: [:], extConnected: false, lastTabId: nil,
+            emulated: false))
     }
 
-    // ADR-0046: encode the current status as one .dom-lane frame. Called inside the lock so ext/tab
-    // are read atomically with the lane set they will be sent to.
+    // ADR-0046: encode the current status as one .dom-lane frame. Called inside the lock so ext/tab/
+    // emulated are read atomically with the lane set they will be sent to.
     private func statusFrameLocked(_ state: State) -> Data? {
-        try? JSONEncoder().encode(DomStatusEnvelope(ext: state.extConnected, tab: state.lastTabId))
+        try? JSONEncoder().encode(DomStatusEnvelope(
+            ext: state.extConnected, tab: state.lastTabId, emulated: state.emulated))
     }
 
     // A new DOM batch from Chrome: buffer it, then fan it to every attached lane. The lane's own
-    // send is thread-safe and ordered, so we call it outside the lock.
-    func ingest(line: Data, tabId: Int, checkout: Bool) {
+    // send is thread-safe and ordered, so we call it outside the lock. `emulated` is the batch's `em`
+    // stamp (ADR-0048): nil leaves the state untouched, a value updates it and re-pushes status on a
+    // change so the client's Desktop|Mobile control tracks the authoritative host state.
+    func ingest(line: Data, tabId: Int, checkout: Bool, emulated: Bool? = nil) {
         let (lanes, statusFrame): ([DomLaneSending], Data?) = lock.withLock { state in
             state.buffer.ingest(line: line, checkout: checkout)
             // Batches only flow while a tab is recording, so a batch means the extension is reachable.
-            let changed = state.lastTabId != tabId || !state.extConnected
+            var changed = state.lastTabId != tabId || !state.extConnected
+            if let emulated, state.emulated != emulated { state.emulated = emulated; changed = true }
             state.extConnected = true
             state.lastTabId = tabId
             return (Array(state.lanes.values), changed ? statusFrameLocked(state) : nil)
@@ -81,7 +88,10 @@ final class DomMirrorRelay: @unchecked Sendable {
     func setExtConnected(_ connected: Bool) {
         let (lanes, statusFrame): ([DomLaneSending], Data?) = lock.withLock { state in
             state.extConnected = connected
-            if !connected { state.lastTabId = nil }
+            // ADR-0048: a disconnect means nothing is recording and the emulation state is no longer
+            // known; reset to desktop so the client shows a truthful default until a batch's `em` stamp
+            // re-establishes it on reconnect.
+            if !connected { state.lastTabId = nil; state.emulated = false }
             return (Array(state.lanes.values), statusFrameLocked(state))
         }
         if let statusFrame { for lane in lanes { lane.send(statusFrame) } }

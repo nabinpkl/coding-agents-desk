@@ -54,15 +54,20 @@ extension PairingViewController {
             surface?.deliver(rawJSON: json)
             surface?.recordBatch() // ADR-0046: freshness + batch count for the status line
         }
-        // ADR-0046: host-pushed diagnostic status (bridge connected, recording tab).
+        // ADR-0046/0048: host-pushed diagnostic status (bridge connected, recording tab, emulated).
         domMirror.onStatus = { [weak surface] status in
-            surface?.setBridgeStatus(connected: status.ext, recordingTab: status.tab)
+            surface?.setBridgeStatus(
+                connected: status.ext, recordingTab: status.tab, emulated: status.emulated ?? false)
         }
         // ADR-0040: taps in the mirror go back up the .dom lane to Chrome.
         surface.onTap = { [weak self] x, y in self?.pairingClient.activeDomMirror?.sendTap(x: x, y: y) }
         // ADR-0047: scroll drags in the mirror drive the real Chrome tab to scroll.
         surface.onScroll = { [weak self] x, y, dx, dy in
             self?.pairingClient.activeDomMirror?.sendScroll(x: x, y: y, dx: dx, dy: dy)
+        }
+        // ADR-0048: the Desktop|Mobile control device-emulates the real Chrome tab host-side.
+        surface.onEmulateToggle = { [weak self] mobile in
+            self?.pairingClient.activeDomMirror?.setEmulate(mobile)
         }
         domMirror.start()
 

@@ -104,6 +104,12 @@ struct DomLaneControlForwardingTests {
         #expect(isForwardableDomControl(data(#"{"t":"dom-scroll","x":0,"y":0,"dx":5,"dy":5}"#)))
     }
 
+    // ADR-0048: the device-emulation toggle is forwarded verbatim too.
+    @Test func forwardsEmulateControlFrames() {
+        #expect(isForwardableDomControl(data(#"{"t":"dom-emulate","mobile":true}"#)))
+        #expect(isForwardableDomControl(data(#"{"t":"dom-emulate","mobile":false}"#)))
+    }
+
     @Test func dropsBatchesUnknownTypesAndGarbage() {
         // A host->client batch echoed back must never be relayed to the extension.
         #expect(!isForwardableDomControl(data(#"{"t":"dom-batch","tb":1,"co":true,"ev":[]}"#)))

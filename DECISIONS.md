@@ -56,3 +56,39 @@ pinch is unreliable and cannot be trusted for a correctness gate. This aligns wi
 pan are local view transforms) more cleanly than the plan's original wording did. The exact felt quality
 of the 1x-vs-zoomed handoff is still worth a physical-device confirmation, but the collision itself is
 resolved in code.
+
+### D5. Emulation is resnapshot-based (no reload); metrics + touch are the real lever, UA is secondary
+
+`setDeviceEmulation` applies the CDP overrides and then asks the recorder to `takeFullSnapshot(true)`
+rather than reloading the tab. Consequence: the UA override mostly affects live UA client hints, because
+the page's own UA-sniffing JS already ran under the desktop UA and is not re-run without a reload. What
+actually re-triggers the responsive layout is `setDeviceMetricsOverride({mobile:true})` +
+`setTouchEmulationEnabled`, which re-evaluate the page's media queries live. Not reloading is the right
+call for a mirror: a reload would lose page state (scroll position, form input, SPA route) that the user
+is looking at. The UA override is still applied (cheap, helps client-hints-aware sites) via
+`Emulation.setUserAgentOverride`, with the pristine UA captured on first emulate and restored on desktop
+since CDP has no UA-clear.
+
+### D6. Emulated state is always sent on the wire (Bool), decode-tolerant as optional
+
+The extension stamps `em` on every batch and the relay always encodes a concrete `emulated: Bool` into
+`dom-status` (never nil), so the client's toggle has an unambiguous authoritative value every update. The
+field is typed `Bool?` on both twins only for decode-tolerance (a frame that predates the field reads as
+nil -> desktop); the client maps `?? false`. The relay resets `emulated` to desktop when the extension
+disconnects, since the state is no longer known. This is the "always send the real value, tolerate its
+absence" shape, consistent with the existing optional `tab`.
+
+### D7. The Desktop|Mobile control index is driven only by the authoritative echo, never optimistically
+
+`UISegmentedControl.selectedSegmentIndex` is set only in `setBridgeStatus` (the host echo), never in the
+1s periodic `renderStatus`. A tap sends `dom-emulate` and lets the control's own momentary selection
+stand until the resnapshot echo (~one flush) confirms or corrects it. This prevents both a periodic-timer
+flicker-back between tap and echo and a permanently-wrong control if a toggle is ever dropped host-side.
+
+### D8. Known single-tab-v1 limitation (documented, not fixed)
+
+`deviceEmulationEnabled`/`originalUserAgent` are single global worker state, matching the single-tab-v1
+assumption throughout the extension (`recordingTabId` is also a single global). If a user starts
+recording a second tab without stopping the first while the first is still emulated, the first tab's live
+CDP override is not eagerly cleared (it self-heals when that tab is re-recorded). This is out of scope for
+single-tab v1 and is left as-is deliberately; multi-tab recording would revisit it.

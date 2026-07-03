@@ -114,6 +114,23 @@ final class DomMirrorClient: @unchecked Sendable {
         }
     }
 
+    // ADR-0048: toggle host-side device emulation (true mobile). Sent UP the .dom lane; the host
+    // forwards it to the extension, which device-emulates the recorded tab and resnapshots. The
+    // authoritative emulation state comes BACK via dom-status (DomStatus.emulated), so the client's
+    // control self-corrects; this call is just the request. Guarded on the lane having been started.
+    func setEmulate(_ mobile: Bool) {
+        guard task != nil else { return }
+        let cmd = DomEmulateCommand(mobile: mobile)
+        guard let payload = try? JSONEncoder().encode(cmd) else { return }
+        Task { [stream, logger] in
+            do {
+                try await QuicSessionStreamIO.sendPayload(payload, role: .dom, on: stream)
+            } catch {
+                logger.notice("dom lane emulate send failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
     func stop() {
         task?.cancel()
         task = nil

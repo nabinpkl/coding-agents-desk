@@ -46,11 +46,16 @@ final class DomMirrorSurface: UIView {
     // and on a 1s timer (so the "Xs ago" freshness advances even when no batch arrives).
     private let statusBar = UIView()
     private let statusStack = UIStackView()
+    // ADR-0048: Desktop|Mobile device-emulation toggle. Its selected index is driven by the
+    // authoritative host echo (setBridgeStatus), not the tap, so a host-side reset self-corrects it.
+    private let emulateControl = UISegmentedControl(items: ["Desktop", "Mobile"])
+    var onEmulateToggle: ((_ mobile: Bool) -> Void)?
     private var bridgeConnected = false
     private var recordingTab: Int?
     private var nodeCount: Int?
     private var batchCount = 0
     private var paused = false
+    private var emulated = false
     private var lastBatchAt: Date?
     private var ageTimer: Timer?
 
@@ -129,7 +134,21 @@ final class DomMirrorSurface: UIView {
             statusBar.topAnchor.constraint(equalTo: topAnchor),
             statusBar.leadingAnchor.constraint(equalTo: leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: trailingAnchor),
-            statusBar.heightAnchor.constraint(equalToConstant: 26)
+            // Tall enough (was 26) to seat the Desktop|Mobile control next to the diagnostic pills.
+            statusBar.heightAnchor.constraint(equalToConstant: 34)
+        ])
+
+        // ADR-0048: the emulation control sits at the trailing edge; the pills fill from the leading
+        // edge up to it. Compact height + small font so it fits the diagnostic bar.
+        emulateControl.translatesAutoresizingMaskIntoConstraints = false
+        emulateControl.selectedSegmentIndex = 0 // desktop until the host echo says otherwise
+        emulateControl.setTitleTextAttributes([.font: UIFont.systemFont(ofSize: 11, weight: .medium)], for: .normal)
+        emulateControl.addTarget(self, action: #selector(emulateChanged), for: .valueChanged)
+        statusBar.addSubview(emulateControl)
+        NSLayoutConstraint.activate([
+            emulateControl.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -8),
+            emulateControl.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
+            emulateControl.heightAnchor.constraint(equalToConstant: 26)
         ])
 
         statusStack.translatesAutoresizingMaskIntoConstraints = false
@@ -139,7 +158,7 @@ final class DomMirrorSurface: UIView {
         statusBar.addSubview(statusStack)
         NSLayoutConstraint.activate([
             statusStack.leadingAnchor.constraint(equalTo: statusBar.leadingAnchor, constant: 8),
-            statusStack.trailingAnchor.constraint(lessThanOrEqualTo: statusBar.trailingAnchor, constant: -8),
+            statusStack.trailingAnchor.constraint(lessThanOrEqualTo: emulateControl.leadingAnchor, constant: -8),
             statusStack.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor)
         ])
 
@@ -151,18 +170,31 @@ final class DomMirrorSurface: UIView {
     }
 
     // Granular setters, called by the VC from the wired lane callbacks. Each re-renders the line.
-    func setBridgeStatus(connected: Bool, recordingTab tab: Int?) {
-        bridgeConnected = connected; recordingTab = tab; renderStatus()
+    // ADR-0048: `emulated` is the authoritative host state; it also drives the segmented control's
+    // selected index (set only here, never in the periodic renderStatus, so the timer can't flicker the
+    // control back between a tap and the host echo).
+    func setBridgeStatus(connected: Bool, recordingTab tab: Int?, emulated emu: Bool) {
+        bridgeConnected = connected; recordingTab = tab; emulated = emu
+        emulateControl.selectedSegmentIndex = emu ? 1 : 0
+        renderStatus()
     }
     func recordBatch() { lastBatchAt = Date(); batchCount += 1; renderStatus() }
     func setNodeCount(_ n: Int) { nodeCount = n; renderStatus() }
     func setPaused(_ p: Bool) { paused = p; renderStatus() }
 
+    // ADR-0048: the user flipped Desktop|Mobile. Request the toggle; the selected index is authoritative
+    // from the host echo (setBridgeStatus), so we don't commit local state here beyond the control's own
+    // selection, which the echo confirms or corrects.
+    @objc private func emulateChanged() {
+        onEmulateToggle?(emulateControl.selectedSegmentIndex == 1)
+    }
+
     private func renderStatus() {
         let ageMs = lastBatchAt.map { Int(Date().timeIntervalSince($0) * 1000) }
         let status = DomMirrorStatus(
             bridgeConnected: bridgeConnected, recordingTab: recordingTab,
-            lastBatchAgeMs: ageMs, nodeCount: nodeCount, batchCount: batchCount, paused: paused)
+            lastBatchAgeMs: ageMs, nodeCount: nodeCount, batchCount: batchCount, paused: paused,
+            emulated: emulated)
         let chips = statusChips(status)
         statusStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for chip in chips { statusStack.addArrangedSubview(Self.makePill(chip)) }

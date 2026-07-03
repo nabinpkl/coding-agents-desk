@@ -2130,17 +2130,24 @@ struct DomBatchEnvelope: Codable, Equatable {
     let type: String
     let tabId: Int
     let checkout: Bool
+    // ADR-0048: the extension stamps `em` on every batch = whether the recording tab is currently
+    // device-emulated (true mobile). This is the AUTHORITATIVE emulation state (the extension owns it);
+    // the relay reads it here and fans it to clients in dom-status, so a host-side reset self-corrects
+    // the client toggle. Decode-tolerant (nil when absent).
+    let emulated: Bool?
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case tabId = "tb"
         case checkout = "co"
+        case emulated = "em"
     }
 
-    init(tabId: Int, checkout: Bool) {
+    init(tabId: Int, checkout: Bool, emulated: Bool? = nil) {
         self.type = "dom-batch"
         self.tabId = tabId
         self.checkout = checkout
+        self.emulated = emulated
     }
 }
 
@@ -2151,17 +2158,22 @@ struct DomStatusEnvelope: Codable, Equatable {
     let type: String
     let ext: Bool
     let tab: Int?
+    // ADR-0048: whether the recording tab is device-emulated (true mobile), fanned to the client so its
+    // Desktop|Mobile control tracks the authoritative host state. Decode-tolerant (nil when absent).
+    let emulated: Bool?
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case ext
         case tab
+        case emulated
     }
 
-    init(ext: Bool, tab: Int?) {
+    init(ext: Bool, tab: Int?, emulated: Bool? = nil) {
         self.type = "dom-status"
         self.ext = ext
         self.tab = tab
+        self.emulated = emulated
     }
 }
 
@@ -2219,6 +2231,26 @@ struct DomScrollCommand: Codable, Equatable {
         self.y = y
         self.dx = dx
         self.dy = dy
+    }
+}
+
+// ADR-0048 host-side mobile device emulation. The client sends this UP the .dom lane when the user
+// flips the Browser status bar's Desktop|Mobile control; the host decodes it (to validate the frame is
+// an emulate command) and forwards the raw JSON to the bridge, which relays it to the extension worker
+// to device-emulate the recorded tab via chrome.debugger. `mobile == true` emulates, `false` restores
+// desktop. Twin of the client definition; authoritative emulation state comes back on the batch echo.
+struct DomEmulateCommand: Codable, Equatable {
+    let type: String
+    let mobile: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case mobile
+    }
+
+    init(mobile: Bool) {
+        self.type = "dom-emulate"
+        self.mobile = mobile
     }
 }
 

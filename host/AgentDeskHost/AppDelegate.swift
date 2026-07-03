@@ -446,7 +446,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let relay = domMirrorRelay
         let server = DomBridgeServer()
         server.onBatch = { raw, envelope in
-            relay.ingest(line: raw, tabId: envelope.tabId, checkout: envelope.checkout)
+            // ADR-0048: envelope.emulated is the batch's `em` stamp (the extension's authoritative
+            // device-emulation state); the relay fans it to the client's Desktop|Mobile control.
+            relay.ingest(
+                line: raw, tabId: envelope.tabId, checkout: envelope.checkout,
+                emulated: envelope.emulated)
         }
         // ADR-0046: reflect extension bridge liveness in the client's Browser status line.
         server.onBridgeConnected = { relay.setExtConnected(true) }

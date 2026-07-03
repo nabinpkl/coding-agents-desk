@@ -2132,6 +2132,27 @@ struct DomCaptureCommand: Codable, Equatable {
     }
 }
 
+// ADR-0048 host-side mobile device emulation. Sent UP the .dom lane (like DomCaptureCommand) when the
+// user flips the Browser status bar's Desktop|Mobile control. The host forwards it verbatim to the
+// extension, which device-emulates the recorded tab via chrome.debugger so the REAL page runs its
+// mobile code path; `mobile == true` emulates, `false` restores desktop. Authoritative emulation state
+// comes BACK on the batch echo (DomStatus.emulated), not from this command, so a host-side reset
+// self-corrects the toggle.
+struct DomEmulateCommand: Codable, Equatable {
+    let type: String
+    let mobile: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case mobile
+    }
+
+    init(mobile: Bool) {
+        self.type = "dom-emulate"
+        self.mobile = mobile
+    }
+}
+
 // ADR-0046 host->client DOM diagnostic status, pushed DOWN the .dom lane. Drives the Browser
 // surface's status line. `ext`: the host's native-messaging bridge to the Chrome extension is
 // connected (extension reachable). `tab`: the recording tab id, nil when nothing is recording. The
@@ -2140,17 +2161,22 @@ struct DomStatus: Codable, Equatable {
     let type: String
     let ext: Bool
     let tab: Int?
+    // ADR-0048: whether the recording tab is device-emulated (true mobile) host-side. Decode-tolerant
+    // (nil when absent), so a status frame that predates any emulation toggle reads as not-emulated.
+    let emulated: Bool?
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case ext
         case tab
+        case emulated
     }
 
-    init(ext: Bool, tab: Int?) {
+    init(ext: Bool, tab: Int?, emulated: Bool? = nil) {
         self.type = "dom-status"
         self.ext = ext
         self.tab = tab
+        self.emulated = emulated
     }
 }
 

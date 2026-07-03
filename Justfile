@@ -288,6 +288,17 @@ dom-mirror-scroll-gesture-verify:
     export NODE_PATH="$(npm root -g)"
     node '{{justfile_directory()}}/chrome-test/scroll-gesture-verify.mjs'
 
+# ADR-0048 device-emulation autonomous gate: the emulate WRITE path + authoritative echo. A fake host
+# sends dom-emulate through the shim to the real extension, which device-emulates the recorded tab via
+# chrome.debugger and resnapshots; the harness asserts the resulting checkout batch reports the iPhone
+# viewport width and carries em:true (desktop restores width + em:false). Uses the global Playwright +
+# Chrome for Testing.
+dom-mirror-emulate-verify: ext-stamp
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    node '{{justfile_directory()}}/chrome-test/emulate-verify.mjs'
+
 # ADR-0044 Tier B autonomous gate: capture a REAL DOMSnapshot.captureSnapshot (piercing a CLOSED
 # shadow root) via Playwright's CDP session, run it through the SAME reconstructMaskedHtml the service
 # worker uses, and assert the closed-shadow subtree is captured AND every sensitive value is masked.

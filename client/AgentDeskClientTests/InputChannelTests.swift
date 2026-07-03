@@ -338,7 +338,7 @@ struct InputChannelTests {
     @Test func statusChipsReflectHealthyMirror() {
         let chips = statusChips(DomMirrorStatus(
             bridgeConnected: true, recordingTab: 3,
-            lastBatchAgeMs: 500, nodeCount: 142, batchCount: 9, paused: false))
+            lastBatchAgeMs: 500, nodeCount: 142, batchCount: 9, paused: false, emulated: false))
         let texts = chips.map(\.text)
         #expect(!texts.contains(where: { $0.hasPrefix("mirror") }))
         #expect(texts.contains("bridge \u{2713}"))
@@ -347,18 +347,61 @@ struct InputChannelTests {
         #expect(texts.contains("9 batches"))
         #expect(texts.contains("just now"))
         #expect(!texts.contains("paused"))
+        #expect(texts.contains("desktop")) // ADR-0048: not emulated -> desktop chip
     }
 
     @Test func statusChipsFlagUnreachableAndPausedAndStale() {
         let chips = statusChips(DomMirrorStatus(
             bridgeConnected: false, recordingTab: nil,
-            lastBatchAgeMs: 8000, nodeCount: nil, batchCount: 0, paused: true))
+            lastBatchAgeMs: 8000, nodeCount: nil, batchCount: 0, paused: true, emulated: false))
         let byText = Dictionary(uniqueKeysWithValues: chips.map { ($0.text, $0.severity) })
         #expect(byText["bridge \u{2717}"] == .warn)
         #expect(byText["no rec"] == .warn)
         #expect(byText["paused"] == .warn)
         #expect(byText["8s ago"] == .warn)       // stale (>= 5s)
         #expect(byText["0 batches"] == nil)      // batch count hidden until > 0
+    }
+
+    // ADR-0048: an emulated tab shows a green "mobile" chip; desktop shows a gray "desktop" chip.
+    @Test func statusChipsShowEmulationState() {
+        let mobile = statusChips(DomMirrorStatus(
+            bridgeConnected: true, recordingTab: 1,
+            lastBatchAgeMs: 100, nodeCount: 10, batchCount: 1, paused: false, emulated: true))
+        let mobileByText = Dictionary(uniqueKeysWithValues: mobile.map { ($0.text, $0.severity) })
+        #expect(mobileByText["mobile"] == .ok)
+        #expect(mobileByText["desktop"] == nil)
+
+        let desktop = statusChips(DomMirrorStatus(
+            bridgeConnected: true, recordingTab: 1,
+            lastBatchAgeMs: 100, nodeCount: 10, batchCount: 1, paused: false, emulated: false))
+        let desktopByText = Dictionary(uniqueKeysWithValues: desktop.map { ($0.text, $0.severity) })
+        #expect(desktopByText["desktop"] == .off)
+        #expect(desktopByText["mobile"] == nil)
+    }
+
+    // ADR-0048: the device-emulation command sent UP the .dom lane. Host guard + extension both key on
+    // `t` == "dom-emulate" and the boolean `mobile`, so the wire shape is pinned across all three layers.
+    @Test func domEmulateCommandEncodesToPinnedWireShape() throws {
+        let mobile = try JSONEncoder().encode(DomEmulateCommand(mobile: true))
+        let obj = try JSONSerialization.jsonObject(with: mobile) as? [String: Any]
+        #expect(obj?["t"] as? String == "dom-emulate")
+        #expect(obj?["mobile"] as? Bool == true)
+        #expect(try JSONDecoder().decode(DomEmulateCommand.self, from: mobile) == DomEmulateCommand(mobile: true))
+
+        let desktop = try JSONEncoder().encode(DomEmulateCommand(mobile: false))
+        let dobj = try JSONSerialization.jsonObject(with: desktop) as? [String: Any]
+        #expect(dobj?["mobile"] as? Bool == false)
+    }
+
+    // ADR-0048: dom-status now carries an optional `emulated`; absent reads as nil (not emulated).
+    @Test func domStatusDecodesEmulated() throws {
+        let emulated = try JSONDecoder().decode(
+            DomStatus.self, from: Data(#"{"t":"dom-status","ext":true,"tab":2,"emulated":true}"#.utf8))
+        #expect(emulated.emulated == true)
+
+        let legacy = try JSONDecoder().decode(
+            DomStatus.self, from: Data(#"{"t":"dom-status","ext":true,"tab":2}"#.utf8))
+        #expect(legacy.emulated == nil)
     }
 
     // R7: crisp-repair composites the crisp overlay over the live video floor with NO

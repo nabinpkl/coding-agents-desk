@@ -73,6 +73,16 @@ let attachedTabId = null;
 // the rrweb recorder to save CPU at the source but KEEP recordingTabId so resume restarts the same
 // tab (unlike stopTabRecording, which ends the session and clears the tab).
 let capturePaused = false;
+// ADR-0048: whether the recording tab is currently device-emulated (true mobile). This is the
+// AUTHORITATIVE emulation state; it is stamped onto every batch (`em`) so the client's Desktop|Mobile
+// control reflects the host, and it PERSISTS across capture pause/resume (unlike a session end) but
+// resets to desktop on a fresh session, nav, tab close, or debugger detach.
+let deviceEmulationEnabled = false;
+// The tab's pristine UA, captured on the first emulate so desktop can restore it (CDP has no UA-clear).
+let originalUserAgent = null;
+// iPhone 12/13/14-class UA. Emulation is resnapshot-based (no reload), so this mainly drives live UA
+// client hints; the device-metrics + touch overrides are what re-trigger the page's responsive layout.
+const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
 function ensurePort() {
   if (port) return port;
@@ -90,6 +100,9 @@ function ensurePort() {
     // ADR-0047: host -> extension scroll command. Drive the REAL tab to scroll (so lazy/infinite
     // pages load), because the mirror is always the live page.
     if (msg.t === 'dom-scroll') { dispatchScroll(msg); return; }
+    // ADR-0048: host -> extension device-emulation toggle. Device-emulate the recorded tab so the REAL
+    // page renders its true mobile layout; `mobile:false` restores desktop.
+    if (msg.t === 'dom-emulate') { setDeviceEmulation(!!msg.mobile); return; }
     // ADR-0045: host -> extension capture pause/resume, driven by the phone's Browser surface
     // visibility. `on: false` pauses the recorder; `on: true` resumes it (fresh full snapshot).
     if (msg.t === 'dom-capture') { setCapturePaused(!msg.on); return; }
@@ -105,6 +118,9 @@ function ensurePort() {
 // Keep attachedTabId honest if the tab (or user) detaches the debugger.
 chrome.debugger.onDetach.addListener((source) => {
   if (source.tabId === attachedTabId) {
+    // Reset emulation first (while attachedTabId still matches so it can no-op the clear cleanly),
+    // then drop the attachment: the debugger is gone, so the overrides die with it either way.
+    resetDeviceEmulation(source.tabId);
     attachedTabId = null;
     // The user closed the debug banner -> they want the banner gone: drop CDP fidelity (Tier B).
     stopCdp(false); cdpMode = false; cdpUserSet = false;
@@ -173,6 +189,61 @@ async function dispatchScroll(cmd) {
     });
   } catch (e) {
     console.error('[agentdesk] scroll dispatch failed', e && e.message);
+  }
+}
+
+// ADR-0048: device-emulate the recorded tab (true mobile) or restore desktop, reusing the ADR-0040
+// debugger attachment. Emulation only changes the tab's metrics; it does not re-serialize the DOM, so
+// after applying it we ask the isolated recorder to take a fresh full snapshot -- the next flush emits
+// a checkout batch with the new meta.w/h (the emulated viewport), and the mirror repaints to the true
+// mobile layout because the REAL page ran its own mobile code path. Bounded to recordingTabId.
+async function setDeviceEmulation(mobile) {
+  const tabId = recordingTabId;
+  if (tabId == null) return;
+  if (!(await ensureAttached(tabId))) return;
+  try {
+    if (mobile) {
+      // Capture the pristine UA once so desktop can restore it (CDP has no UA-override clear).
+      if (originalUserAgent == null) {
+        try {
+          const r = await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { expression: 'navigator.userAgent', returnByValue: true });
+          originalUserAgent = (r && r.result && r.result.value) || '';
+        } catch (e) { originalUserAgent = ''; }
+      }
+      await chrome.debugger.sendCommand({ tabId }, 'Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
+      await chrome.debugger.sendCommand({ tabId }, 'Emulation.setTouchEmulationEnabled', { enabled: true });
+      await chrome.debugger.sendCommand({ tabId }, 'Emulation.setUserAgentOverride', { userAgent: MOBILE_UA });
+    } else {
+      await chrome.debugger.sendCommand({ tabId }, 'Emulation.clearDeviceMetricsOverride', {});
+      await chrome.debugger.sendCommand({ tabId }, 'Emulation.setTouchEmulationEnabled', { enabled: false });
+      if (originalUserAgent) await chrome.debugger.sendCommand({ tabId }, 'Emulation.setUserAgentOverride', { userAgent: originalUserAgent });
+    }
+    deviceEmulationEnabled = !!mobile;
+    // Force a fresh keyframe so the mirror repaints to the new (emulated/desktop) layout.
+    try { await chrome.tabs.sendMessage(tabId, { type: 'agentdesk-resnapshot' }); } catch (e) {}
+  } catch (e) {
+    console.error('[agentdesk] device emulation failed', e && e.message);
+  }
+}
+
+// Reset emulation to desktop. Resets the flags SYNCHRONOUSLY (so the sync lifecycle listeners below are
+// correct immediately) and, when still attached to the tab, clears the live CDP overrides best-effort.
+// Called by the session-lifecycle resets (fresh session, stop, nav, tab close, detach) so emulation
+// never silently follows a tab switch or survives a navigation. Deliberately NOT called on capture
+// pause (ADR-0045): a paused/resumed session keeps its emulation.
+function resetDeviceEmulation(tabId) {
+  const attachedHere = tabId != null && attachedTabId === tabId;
+  const priorUA = originalUserAgent;
+  deviceEmulationEnabled = false;
+  originalUserAgent = null;
+  if (attachedHere) {
+    (async () => {
+      try {
+        await chrome.debugger.sendCommand({ tabId }, 'Emulation.clearDeviceMetricsOverride', {});
+        await chrome.debugger.sendCommand({ tabId }, 'Emulation.setTouchEmulationEnabled', { enabled: false });
+        if (priorUA) await chrome.debugger.sendCommand({ tabId }, 'Emulation.setUserAgentOverride', { userAgent: priorUA });
+      } catch (e) {}
+    })();
   }
 }
 
@@ -251,6 +322,8 @@ async function startTabRecording(tabId) {
   // Fresh fidelity state for the new session: never let CDP polling (banner) follow a tab switch
   // onto a tab that didn't opt in. Mirrors the reset in stopTabRecording / tab-removed / navigated.
   stopCdp(false); cdpMode = false; cdpUserSet = false;
+  // ADR-0048: a fresh session always starts desktop; clear any stale emulation override on this tab.
+  resetDeviceEmulation(tabId);
   try {
     await chrome.tabs.sendMessage(tabId, { type: 'agentdesk-start' });
   } catch (e) {
@@ -270,6 +343,7 @@ async function stopTabRecording(tabId) {
   if (recordingTabId === tabId) recordingTabId = null;
   capturePaused = false; // session ended; do not carry a paused flag into the next one
   stopCdp(false); cdpMode = false; cdpUserSet = false; // fresh fidelity state next session
+  resetDeviceEmulation(tabId); // ADR-0048: session ended -> restore desktop, drop the override
   await setBadge(tabId, false);
 }
 
@@ -337,7 +411,7 @@ chrome.commands.onCommand.addListener(async (command) => {
 // Lifecycle: keep recordingTabId/attachedTabId honest so ADR-0040 tap dispatch never targets a tab
 // that is no longer recording.
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (recordingTabId === tabId) { recordingTabId = null; stopCdp(false); cdpMode = false; cdpUserSet = false; }
+  if (recordingTabId === tabId) { recordingTabId = null; stopCdp(false); cdpMode = false; cdpUserSet = false; resetDeviceEmulation(tabId); }
   if (attachedTabId === tabId) attachedTabId = null;
 });
 chrome.tabs.onUpdated.addListener((tabId, info) => {
@@ -345,6 +419,7 @@ chrome.tabs.onUpdated.addListener((tabId, info) => {
   if (tabId === recordingTabId && info.status === 'loading' && info.url) {
     recordingTabId = null;
     stopCdp(false); cdpMode = false; cdpUserSet = false;
+    resetDeviceEmulation(tabId); // ADR-0048: nav starts a fresh page -> back to desktop
     setBadge(tabId, false);
   }
 });
@@ -387,8 +462,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.error('[agentdesk] batch compress failed', e && e.message);
       return;
     }
+    // ADR-0048: stamp the authoritative emulation state on every batch. The host reads `em` off the
+    // envelope and fans it to the client's Desktop|Mobile control, so it self-corrects to whatever the
+    // extension actually has (e.g. after a host-side reset). The resnapshot batch that follows a toggle
+    // carries the new value, so the control flips in lockstep with the repaint.
+    const em = deviceEmulationEnabled;
     if (b64.length <= CHUNK_LIMIT) {
-      p.postMessage({ t: 'dom-batch', tb, co, enc: 'deflate-b64', ev: b64, meta: message.meta });
+      p.postMessage({ t: 'dom-batch', tb, co, em, enc: 'deflate-b64', ev: b64, meta: message.meta });
     } else {
       // Backstop: a compressed batch still over the limit is split into ordered parts reassembled by
       // cid in the webview. co rides part 0 only, so the host's late-join buffer resets once per
@@ -400,6 +480,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           t: 'dom-batch',
           tb,
           co: seq === 0 ? co : false,
+          em,
           enc: 'deflate-b64',
           ev: b64.slice(seq * CHUNK_LIMIT, (seq + 1) * CHUNK_LIMIT),
           meta: seq === 0 ? message.meta : undefined,
