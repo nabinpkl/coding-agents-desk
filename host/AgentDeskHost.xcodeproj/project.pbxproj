@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A0000000000000000000EE03 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE02 /* AgentDeskWire */; };
+		A0000000000000000000EE05 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE04 /* AgentDeskWire */; };
 		A00000000000000000000201 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000101 /* AppDelegate.swift */; };
 		A00000000000000000000202 /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* Base64URL.swift */; };
 		A00000000000000000000203 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Config.swift */; };
@@ -319,6 +321,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0000000000000000000EE03 /* AgentDeskWire in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -326,6 +329,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0000000000000000000EE05 /* AgentDeskWire in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -524,6 +528,7 @@
 			);
 			name = AgentDeskHost;
 			packageProductDependencies = (
+				A0000000000000000000EE02 /* AgentDeskWire */,
 			);
 			productName = AgentDeskHost;
 			productReference = A00000000000000000000141 /* AgentDeskHost.app */;
@@ -543,6 +548,9 @@
 				A00000000000000000000B01 /* PBXTargetDependency */,
 			);
 			name = AgentDeskHostTests;
+			packageProductDependencies = (
+				A0000000000000000000EE04 /* AgentDeskWire */,
+			);
 			productName = AgentDeskHostTests;
 			productReference = A00000000000000000000142 /* AgentDeskHostTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -576,6 +584,7 @@
 			);
 			mainGroup = A00000000000000000000002;
 			packageReferences = (
+				A0000000000000000000EE01 /* XCLocalSwiftPackageReference "AgentDeskWire" */,
 			);
 			productRefGroup = A00000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -1025,6 +1034,26 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A0000000000000000000EE01 /* XCLocalSwiftPackageReference "AgentDeskWire" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/AgentDeskWire;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A0000000000000000000EE02 /* AgentDeskWire */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "AgentDeskWire" */;
+			productName = AgentDeskWire;
+		};
+		A0000000000000000000EE04 /* AgentDeskWire */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "AgentDeskWire" */;
+			productName = AgentDeskWire;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A00000000000000000000001 /* Project object */;
 }
