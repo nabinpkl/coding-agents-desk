@@ -4,6 +4,7 @@ import CryptoKit
 import Foundation
 import Network
 import os
+import AgentDeskWire
 
 @available(macOS 26.0, *)
 final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {

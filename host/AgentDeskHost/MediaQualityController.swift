@@ -1,4 +1,5 @@
 import Foundation
+import AgentDeskWire
 
 // ADR-0033: one host-owned media-quality controller chooses bitrate, fps, and
 // capture resolution together from link-health and production smoothness.

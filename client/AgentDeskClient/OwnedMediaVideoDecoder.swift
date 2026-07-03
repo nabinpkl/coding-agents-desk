@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreMedia
 import Foundation
+import AgentDeskWire
 
 // Phase 3 of the mixed-mode renderer (ADR-0025). Decode-by-display: a reassembled
 // motion frame is wrapped into a CMSampleBuffer (format description from the HEVC

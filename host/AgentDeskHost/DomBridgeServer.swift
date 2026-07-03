@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import os
 import Security
+import AgentDeskWire
 
 // ADR-0039 host-side endpoint of the sacrificial native-messaging bridge. The `dom-bridge`
 // shim (spawned and owned by Chrome) connects to this Unix domain socket and forwards, as

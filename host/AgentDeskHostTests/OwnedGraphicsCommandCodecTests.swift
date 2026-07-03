@@ -1,4 +1,5 @@
 import XCTest
+import AgentDeskWire
 @testable import AgentDeskHost
 
 final class OwnedGraphicsCommandCodecTests: XCTestCase {

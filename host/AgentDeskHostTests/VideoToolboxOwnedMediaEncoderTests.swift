@@ -1,5 +1,6 @@
 import CoreVideo
 import XCTest
+import AgentDeskWire
 @testable import AgentDeskHost
 
 // Phase 1 of the mixed-mode renderer (ADR-0025): the host HEVC encoder produces a

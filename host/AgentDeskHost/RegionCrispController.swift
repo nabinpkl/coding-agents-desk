@@ -1,4 +1,5 @@
 import Foundation
+import AgentDeskWire
 
 // ADR-0034 crisp-repair: per-tile settle/motion policy. Over a fixed grid, each tile
 // is hashed every frame from the captured BGRA surface. A tile that holds the same

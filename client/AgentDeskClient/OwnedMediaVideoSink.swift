@@ -469,10 +469,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             return OwnedGraphicsFrameAck(
                 surfaceGeneration: envelope.header.surfaceGeneration,
                 frameId: envelope.header.frameId,
+                compositorMs: stats.compositorMs,
                 queueDepthBytes: queueDepth.queueDepthBytes,
                 queuedFrames: queueDepth.queuedFrames,
                 totalGraphicsFramesApplied: stats.totalGraphicsFramesApplied,
-                compositorMs: stats.compositorMs,
                 staleDiscardCount: stats.staleDiscardCount
             )
         } catch {
@@ -481,10 +481,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             return OwnedGraphicsFrameAck(
                 surfaceGeneration: compositor.committedUpdateId.surfaceGeneration,
                 frameId: compositor.committedUpdateId.frameId,
+                compositorMs: 0,
                 queueDepthBytes: queueDepth.queueDepthBytes,
                 queuedFrames: queueDepth.queuedFrames,
                 totalGraphicsFramesApplied: compositor.totalGraphicsFramesApplied,
-                compositorMs: 0,
                 staleDiscardCount: compositor.staleDiscardCount
             )
         }

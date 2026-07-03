@@ -743,7 +743,9 @@ struct InputChannelTests {
         withUnsafeBytes(of: &metadataLength) { header.append(contentsOf: $0) }
         withUnsafeBytes(of: &payloadLength) { header.append(contentsOf: $0) }
 
-        #expect(throws: OwnedGraphicsTransportError.frameMalformed) {
+        // The shared parser (AgentDeskWire) throws the canonical SessionRejected(.malformed);
+        // the client's own inline parser in OwnedMediaTransport still throws OwnedGraphicsTransportError.
+        #expect(throws: SessionRejected(reason: .malformed)) {
             _ = try parser.append(header)
         }
     }
@@ -758,7 +760,7 @@ struct InputChannelTests {
     @Test func graphicsStreamParserReportsMalformedAdgcFrame() throws {
         var parser = OwnedGraphicsStreamFrameParser()
 
-        #expect(throws: OwnedGraphicsTransportError.frameMalformed) {
+        #expect(throws: SessionRejected(reason: .malformed)) {
             _ = try parser.append(Data([0x42, 0x41, 0x44, 0x21, 1, 0, 0, 0, 0, 0, 0, 0, 0]))
         }
         #expect(String(describing: OwnedGraphicsTransportError.frameMalformed) == "graphics-frame-malformed")
@@ -768,10 +770,10 @@ struct InputChannelTests {
         let ack = OwnedGraphicsFrameAck(
             surfaceGeneration: 4,
             frameId: 22,
+            compositorMs: 1.75,
             queueDepthBytes: 16_384,
             queuedFrames: 2,
             totalGraphicsFramesApplied: 9,
-            compositorMs: 1.75,
             staleDiscardCount: 3
         )
         let request = OwnedGraphicsResetRequest(
@@ -797,7 +799,7 @@ struct InputChannelTests {
         var parser = OwnedGraphicsControlStreamFrameParser()
         let frame = Data([0, 0, 0, 0])
 
-        #expect(throws: OwnedGraphicsTransportError.controlMalformed) {
+        #expect(throws: SessionRejected(reason: .malformed)) {
             _ = try parser.append(frame)
         }
         #expect(String(describing: OwnedGraphicsTransportError.controlMalformed) == "graphics-control-malformed")
@@ -943,10 +945,10 @@ struct InputChannelTests {
         let ack = OwnedGraphicsFrameAck(
             surfaceGeneration: 4,
             frameId: 22,
+            compositorMs: 1.75,
             queueDepthBytes: 16_384,
             queuedFrames: 2,
             totalGraphicsFramesApplied: 9,
-            compositorMs: 1.75,
             staleDiscardCount: 3
         )
         let ackData = try JSONEncoder().encode(ack)

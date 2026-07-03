@@ -5,6 +5,7 @@ import CoreVideo
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+import AgentDeskWire
 
 // Snaps a damage rect list to a fixed grid in surface pixel space (H2). Each
 // grid cell overlapped by any damage rect becomes one tile, clipped to the

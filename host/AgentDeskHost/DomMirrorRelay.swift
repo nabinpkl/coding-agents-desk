@@ -58,7 +58,7 @@ final class DomMirrorRelay: @unchecked Sendable {
     // ADR-0046: encode the current status as one .dom-lane frame. Called inside the lock so ext/tab/
     // emulated are read atomically with the lane set they will be sent to.
     private func statusFrameLocked(_ state: State) -> Data? {
-        try? JSONEncoder().encode(DomStatusEnvelope(
+        try? JSONEncoder().encode(DomStatus(
             ext: state.extConnected, tab: state.lastTabId, emulated: state.emulated))
     }
 

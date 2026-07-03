@@ -22,8 +22,8 @@ struct DomMirrorRelayTests {
         (String(data: data, encoding: .utf8) ?? "").contains("dom-status")
     }
     private func batches(_ lane: FakeLane) -> [Data] { lane.sent.filter { !isStatus($0) } }
-    private func statuses(_ lane: FakeLane) -> [DomStatusEnvelope] {
-        lane.sent.filter { isStatus($0) }.compactMap { try? JSONDecoder().decode(DomStatusEnvelope.self, from: $0) }
+    private func statuses(_ lane: FakeLane) -> [DomStatus] {
+        lane.sent.filter { isStatus($0) }.compactMap { try? JSONDecoder().decode(DomStatus.self, from: $0) }
     }
 
     // --- buffer ---
@@ -106,7 +106,7 @@ struct DomMirrorRelayTests {
         let lane = FakeLane()
         relay.attach(lane, for: DeviceFingerprint("fp1"))
         // ext defaults false, no recording tab yet, not emulated.
-        #expect(statuses(lane).last == DomStatusEnvelope(ext: false, tab: nil, emulated: false))
+        #expect(statuses(lane).last == DomStatus(ext: false, tab: nil, emulated: false))
     }
 
     @Test func extConnectAndDisconnectPushStatus() {
@@ -114,9 +114,9 @@ struct DomMirrorRelayTests {
         let lane = FakeLane()
         relay.attach(lane, for: DeviceFingerprint("fp1"))
         relay.setExtConnected(true)
-        #expect(statuses(lane).last == DomStatusEnvelope(ext: true, tab: nil, emulated: false))
+        #expect(statuses(lane).last == DomStatus(ext: true, tab: nil, emulated: false))
         relay.setExtConnected(false)
-        #expect(statuses(lane).last == DomStatusEnvelope(ext: false, tab: nil, emulated: false))
+        #expect(statuses(lane).last == DomStatus(ext: false, tab: nil, emulated: false))
     }
 
     @Test func ingestMarksReachableAndRecordingTab() {
@@ -124,7 +124,7 @@ struct DomMirrorRelayTests {
         let lane = FakeLane()
         relay.attach(lane, for: DeviceFingerprint("fp1"))
         relay.ingest(line: d("b"), tabId: 7, checkout: true) // batches only flow while recording
-        #expect(statuses(lane).last == DomStatusEnvelope(ext: true, tab: 7, emulated: false))
+        #expect(statuses(lane).last == DomStatus(ext: true, tab: 7, emulated: false))
     }
 
     @Test func extDisconnectClearsRecordingTab() {
@@ -133,7 +133,7 @@ struct DomMirrorRelayTests {
         relay.attach(lane, for: DeviceFingerprint("fp1"))
         relay.ingest(line: d("b"), tabId: 7, checkout: true)
         relay.setExtConnected(false)
-        #expect(statuses(lane).last == DomStatusEnvelope(ext: false, tab: nil, emulated: false))
+        #expect(statuses(lane).last == DomStatus(ext: false, tab: nil, emulated: false))
     }
 
     // ADR-0048: a batch's `em` stamp updates the fanned emulation state; a nil `em` leaves it, and a
@@ -157,14 +157,14 @@ struct DomMirrorRelayTests {
 
     @Test func domStatusEnvelopeEncodesTabAndOmitsNil() throws {
         let withTab = try JSONSerialization.jsonObject(
-            with: JSONEncoder().encode(DomStatusEnvelope(ext: true, tab: 3, emulated: true))) as? [String: Any]
+            with: JSONEncoder().encode(DomStatus(ext: true, tab: 3, emulated: true))) as? [String: Any]
         #expect(withTab?["t"] as? String == "dom-status")
         #expect(withTab?["ext"] as? Bool == true)
         #expect(withTab?["tab"] as? Int == 3)
         #expect(withTab?["emulated"] as? Bool == true) // ADR-0048: emulated present on the wire
 
         let noTab = try JSONSerialization.jsonObject(
-            with: JSONEncoder().encode(DomStatusEnvelope(ext: false, tab: nil))) as? [String: Any]
+            with: JSONEncoder().encode(DomStatus(ext: false, tab: nil))) as? [String: Any]
         #expect(noTab?.keys.contains("tab") == false) // nil optional omitted from the wire
     }
 }

@@ -1,5 +1,6 @@
 import CoreMedia
 import XCTest
+import AgentDeskWire
 @testable import AgentDeskClient
 
 // Phase 3 of the mixed-mode renderer (ADR-0025): the decode-by-display state

@@ -1,5 +1,6 @@
 import CryptoKit
 import XCTest
+import AgentDeskWire
 @testable import AgentDeskClient
 
 // Phase 2 client side of the mixed-mode renderer (ADR-0025): reassembling the
