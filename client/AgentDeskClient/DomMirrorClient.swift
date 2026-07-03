@@ -77,13 +77,24 @@ final class DomMirrorClient: @unchecked Sendable {
 
     // Serialize one client->host frame onto the .dom stream: chain it after the prior send so the two
     // never interleave their bytes on the wire (see sendChain). Fire-and-forget; errors are logged.
-    private func enqueueSend(_ payload: Data) {
+    //
+    // ADR-0047 scroll diagnostic: each send logs `waitedUs` (time it sat behind the prior send in the
+    // serialized chain) and `sendUs` (the QUIC write itself). Under a 60Hz scroll drag, a growing
+    // waitedUs means the serialization -- the a0f5a44 fix -- is the head-of-line bottleneck (frames
+    // backing up faster than the stream drains); a growing sendUs means the QUIC write is the cost.
+    private func enqueueSend(_ payload: Data, label: String) {
+        let enqueuedNs = DispatchTime.now().uptimeNanoseconds
         sendChain.withLock { tail in
             let prior = tail
             tail = Task { [stream, logger] in
                 _ = await prior?.value
+                let startNs = DispatchTime.now().uptimeNanoseconds
                 do {
                     try await QuicSessionStreamIO.sendPayload(payload, role: .dom, on: stream)
+                    let doneNs = DispatchTime.now().uptimeNanoseconds
+                    let waitedUs = (startNs &- enqueuedNs) / 1_000
+                    let sendUs = (doneNs &- startNs) / 1_000
+                    logger.notice("dom lane send label=\(label, privacy: .public) bytes=\(payload.count) waitedUs=\(waitedUs) sendUs=\(sendUs)")
                 } catch {
                     logger.notice("dom lane send failed: \(String(describing: error), privacy: .public)")
                 }
@@ -96,7 +107,7 @@ final class DomMirrorClient: @unchecked Sendable {
     func sendTap(x: Double, y: Double) {
         let cmd = DomInputCommand(x: x, y: y)
         guard let payload = try? JSONEncoder().encode(cmd) else { return }
-        enqueueSend(payload)
+        enqueueSend(payload, label: "tap")
     }
 
     // ADR-0047: scroll-drive-back. Send a scroll gesture (page CSS-pixel anchor + finger movement
@@ -107,7 +118,7 @@ final class DomMirrorClient: @unchecked Sendable {
     func sendScroll(x: Double, y: Double, dx: Double, dy: Double) {
         let cmd = DomScrollCommand(x: x, y: y, dx: dx, dy: dy)
         guard let payload = try? JSONEncoder().encode(cmd) else { return }
-        enqueueSend(payload)
+        enqueueSend(payload, label: "scroll dx=\(Int(dx)) dy=\(Int(dy))")
     }
 
     // ADR-0045: pause/resume DOM capture at the source. Sent UP the .dom lane; the host forwards it
@@ -118,7 +129,7 @@ final class DomMirrorClient: @unchecked Sendable {
         guard task != nil else { return }
         let cmd = DomCaptureCommand(on: on)
         guard let payload = try? JSONEncoder().encode(cmd) else { return }
-        enqueueSend(payload)
+        enqueueSend(payload, label: "capture")
     }
 
     // ADR-0048: toggle host-side device emulation (true mobile). Sent UP the .dom lane; the host
@@ -129,7 +140,7 @@ final class DomMirrorClient: @unchecked Sendable {
         guard task != nil else { return }
         let cmd = DomEmulateCommand(mobile: mobile)
         guard let payload = try? JSONEncoder().encode(cmd) else { return }
-        enqueueSend(payload)
+        enqueueSend(payload, label: "emulate")
     }
 
     func stop() {

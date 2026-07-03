@@ -4,7 +4,7 @@
 // A real extension in a throwaway Chrome-for-Testing profile records a TALL fixture (so the worker's
 // recordingTabId is set), then a fake host (standing in for DomBridgeServer.sendToBridge) sends a
 // `dom-scroll` command through the shim to the extension worker, which drives the REAL tab to scroll
-// as a trusted CDP gesture (Input.synthesizeScrollGesture) via chrome.debugger. The harness observes
+// as a trusted CDP mouse-wheel event (Input.dispatchMouseEvent{mouseWheel}) via chrome.debugger. The harness observes
 // window.scrollY (page.evaluate, from the harness side) to confirm the live page actually scrolled,
 // and in the direction the sign convention promises: dx/dy are the phone's FINGER delta (positive dy
 // = finger down); the worker negates them so content follows the finger, i.e. finger UP (dy<0)
@@ -75,9 +75,8 @@ const fixtureServer = http.createServer((req, res) => {
 });
 
 // Send a dom-scroll (as the host's sendToBridge would) and return the SETTLED scrollY change.
-// Input.synthesizeScrollGesture animates over ~0.75s, so we must let it play out fully before
-// reading -- polling that breaks on the first pixel of movement would leave the animation running and
-// stack it under the next gesture. Poll until scrollY is stable across consecutive samples.
+// A wheel event applies instantly, but Chrome may smooth-animate a large single delta, so we still
+// poll until scrollY is stable across consecutive samples rather than reading once.
 async function driveScroll(page, dy) {
   const before = await page.evaluate(() => window.scrollY);
   if (host.conn) host.conn.write(JSON.stringify({ t: 'dom-scroll', x: ANCHOR_X, y: ANCHOR_Y, dx: 0, dy }) + '\n');

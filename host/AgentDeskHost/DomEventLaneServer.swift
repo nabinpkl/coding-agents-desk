@@ -64,6 +64,11 @@ final class DomEventLaneServer: @unchecked Sendable {
                         let frame = try await QuicSessionStreamIO.receiveFrame(on: self.stream)
                         guard frame.role == .dom,
                               isForwardableDomControl(frame.payload) else { continue }
+                        // ADR-0047 scroll diagnostic: log each forwarded control the instant it is read
+                        // off the lane, so the host receive timestamp can be lined up against the
+                        // client `dom lane send` timestamps to see per-frame client->host latency.
+                        let t = (try? JSONDecoder().decode(DomLaneControlEnvelope.self, from: frame.payload))?.type ?? "?"
+                        self.logger.notice("dom-lane forward t=\(t, privacy: .public) bytes=\(frame.payload.count)")
                         self.onInput?(frame.payload)
                     } catch {
                         self.logger.notice("dom lane receive ended: \(String(describing: error), privacy: .public)")

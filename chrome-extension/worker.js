@@ -166,27 +166,44 @@ async function dispatchInput(cmd) {
   }
 }
 
-// ADR-0047: scroll-drive-back. Drive the recorded tab to scroll via a trusted CDP scroll gesture,
+// ADR-0047: scroll-drive-back. Drive the recorded tab to scroll via a trusted CDP mouse-wheel event,
 // reusing the ADR-0040 debugger attachment (same banner cost taps already pay). x/y are the page
-// CSS-pixel anchor of the gesture; cmd.dx/dy are the phone's FINGER movement in page px (positive dy
-// = finger moved down). Empirically (verified by dom-mirror-scroll-verify) Input.synthesizeScrollGesture's
-// positive yDistance scrolls the content toward the TOP (scrollY decreases), so passing the finger
-// delta STRAIGHT THROUGH makes the content follow the finger: finger down (dy>0) -> yDistance>0 ->
-// scrollY decreases -> content moves down with the finger. The real page scrolls and streams back
-// through rrweb; no content-script change. Dispatch bounded to recordingTabId.
+// CSS-pixel anchor (the wheel hit-tests the scrollable element under it); cmd.dx/dy are the phone's
+// FINGER movement in page px (positive dy = finger moved down).
+//
+// We use Input.dispatchMouseEvent{type:'mouseWheel'}, NOT Input.synthesizeScrollGesture. The gesture
+// call ANIMATES a physical swipe (with inertia) and its promise only resolves after the animation
+// plays out (~0.75s); the client emits one scroll frame per animation frame (~60-120Hz), so at that
+// rate the animated gestures serialize into a multi-second backlog -- the page crawls and keeps
+// scrolling after the finger stops, and tiny per-frame deltas barely move (the "too slow / didn't
+// scroll" bug). A wheel event applies its delta INSTANTLY and returns immediately, so 60-120Hz of
+// small deltas reads as smooth continuous scroll, exactly like a real trackpad.
+//
+// Sign: a wheel's deltaY is the opposite of touch-drag intent (positive deltaY scrolls the page DOWN,
+// scrollY increases), so we NEGATE the finger delta to make content follow the finger: finger down
+// (dy>0) -> deltaY<0 -> scrollY decreases -> content moves down with the finger. The real page scrolls
+// and streams back through rrweb; no content-script change. Dispatch bounded to recordingTabId.
 async function dispatchScroll(cmd) {
   const tabId = recordingTabId;
   if (tabId == null) return;
+  const tAttach0 = performance.now();
   if (!(await ensureAttached(tabId))) return;
+  const attachMs = performance.now() - tAttach0;
   const num = (v) => (Number.isFinite(v) ? v : 0);
   const clamp = (v) => (Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0);
-  const xDistance = num(cmd.dx);
-  const yDistance = num(cmd.dy);
-  if (xDistance === 0 && yDistance === 0) return; // nothing to scroll
+  const deltaX = -num(cmd.dx);
+  const deltaY = -num(cmd.dy);
+  if (deltaX === 0 && deltaY === 0) return; // nothing to scroll
+  const t0 = performance.now();
   try {
-    await chrome.debugger.sendCommand({ tabId }, 'Input.synthesizeScrollGesture', {
-      x: clamp(cmd.x), y: clamp(cmd.y), xDistance, yDistance,
+    await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', {
+      type: 'mouseWheel', x: clamp(cmd.x), y: clamp(cmd.y), deltaX, deltaY,
     });
+    // ADR-0047 scroll diagnostic: dispatchMs is the wheel dispatch round-trip -- unlike the old
+    // synthesizeScrollGesture (tens-to-hundreds of ms while it animated), this should be ~1ms, which
+    // is what lets 60-120Hz of frames keep up. Read in chrome://extensions -> AgentDesk ->
+    // "service worker" -> Console (filter: scroll-diag).
+    console.log(`[agentdesk][scroll-diag] dx=${cmd.dx} dy=${cmd.dy} attachMs=${attachMs.toFixed(1)} dispatchMs=${(performance.now() - t0).toFixed(1)}`);
   } catch (e) {
     console.error('[agentdesk] scroll dispatch failed', e && e.message);
   }
