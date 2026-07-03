@@ -303,6 +303,23 @@ struct InputChannelTests {
         #expect(try JSONDecoder().decode(DomCaptureCommand.self, from: paused) == DomCaptureCommand(on: false))
     }
 
+    // ADR-0047: the scroll-drive-back frame the client sends UP the .dom lane. The host guard and the
+    // extension both key on `t` == "dom-scroll" with x/y anchor + dx/dy finger delta, so the wire
+    // shape must stay pinned across all three layers.
+    @Test func domScrollCommandEncodesToPinnedWireShape() throws {
+        let data = try JSONEncoder().encode(DomScrollCommand(x: 12, y: 34, dx: -5, dy: 120))
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(obj?["t"] as? String == "dom-scroll")
+        #expect(obj?["x"] as? Double == 12)
+        #expect(obj?["y"] as? Double == 34)
+        #expect(obj?["dx"] as? Double == -5)
+        #expect(obj?["dy"] as? Double == 120)
+        #expect(obj?["k"] == nil) // discrete tag, not overloaded onto DomInputCommand
+
+        #expect(try JSONDecoder().decode(DomScrollCommand.self, from: data)
+            == DomScrollCommand(x: 12, y: 34, dx: -5, dy: 120))
+    }
+
     // ADR-0046: host-pushed diagnostic status decodes from the .dom lane frame; `tab` is optional.
     @Test func domStatusDecodesFromWire() throws {
         let recording = try JSONDecoder().decode(

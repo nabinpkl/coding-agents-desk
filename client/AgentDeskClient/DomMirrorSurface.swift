@@ -19,6 +19,9 @@ final class DomMirrorSurface: UIView {
     var onProbe: ((_ marker: String, _ nodes: Int) -> Void)?
     // ADR-0040: a tap in the replayer, mapped to page CSS-pixel coords, to be sent back to Chrome.
     var onTap: ((_ x: Double, _ y: Double) -> Void)?
+    // ADR-0047: a scroll drag in the replayer. x/y are the page CSS-pixel anchor, dx/dy the finger
+    // movement delta in page CSS px; sent back to Chrome to drive the real tab's scroll.
+    var onScroll: ((_ x: Double, _ y: Double, _ dx: Double, _ dy: Double) -> Void)?
 
     private var webView: WKWebView?
     private var isLoaded = false
@@ -73,6 +76,11 @@ final class DomMirrorSurface: UIView {
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = self
         wv.translatesAutoresizingMaskIntoConstraints = false
+        // ADR-0047: the page is a fixed viewport mirror (index.html #stage is overflow:hidden), so the
+        // WKWebView scrollView never scrolls its own content; a scroll drag is captured in JS and sent
+        // to Chrome. Kill the pan rubber-band so a drag doesn't bounce the whole mirror. (Zoom bounce
+        // for Phase 2 pinch is a separate flag, bouncesZoom, left untouched.)
+        wv.scrollView.bounces = false
         addSubview(wv) // ADR-0040: interactive -- taps are captured in the replayer and sent back
         NSLayoutConstraint.activate([
             wv.topAnchor.constraint(equalTo: statusBar.bottomAnchor),
@@ -255,6 +263,15 @@ extension DomMirrorSurface: WKScriptMessageHandler {
             let x = (body["x"] as? NSNumber)?.doubleValue ?? 0
             let y = (body["y"] as? NSNumber)?.doubleValue ?? 0
             Task { @MainActor [weak self] in self?.onTap?(x, y) }
+            return
+        }
+        if (body["kind"] as? String) == "scroll" {
+            // ADR-0047: a scroll drag. x/y anchor + dx/dy finger delta, all page CSS px.
+            let x = (body["x"] as? NSNumber)?.doubleValue ?? 0
+            let y = (body["y"] as? NSNumber)?.doubleValue ?? 0
+            let dx = (body["dx"] as? NSNumber)?.doubleValue ?? 0
+            let dy = (body["dy"] as? NSNumber)?.doubleValue ?? 0
+            Task { @MainActor [weak self] in self?.onScroll?(x, y, dx, dy) }
             return
         }
         guard (body["kind"] as? String) == "probe" else { return }

@@ -2190,6 +2190,38 @@ struct DomInputCommand: Codable, Equatable {
     }
 }
 
+// ADR-0047 DOM-mirror scroll-drive-back. The client sends this UP the .dom lane when the user drags
+// the mirror; the host decodes it (to validate the frame is a scroll, not something else) and
+// forwards the raw JSON to the bridge, which relays it to the extension worker to drive the REAL
+// tab's scroll via chrome.debugger (Input.synthesizeScrollGesture). x/y are the page CSS-pixel
+// anchor; dx/dy are the finger movement delta in page CSS px (positive dy = finger moved down), which
+// the extension passes straight to Input.synthesizeScrollGesture so the content follows the finger.
+// Discrete `t` tag, not overloaded onto DomInputCommand, so the host's verbatim `t`-keyed forwarding
+// stays intact.
+struct DomScrollCommand: Codable, Equatable {
+    let type: String
+    let x: Double
+    let y: Double
+    let dx: Double
+    let dy: Double
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case x
+        case y
+        case dx
+        case dy
+    }
+
+    init(x: Double, y: Double, dx: Double, dy: Double) {
+        self.type = "dom-scroll"
+        self.x = x
+        self.y = y
+        self.dx = dx
+        self.dy = dy
+    }
+}
+
 // R11 DesktopState. Pushed host -> client over the session input stream,
 // distinct from the client -> host InputChannelEvent path. The client
 // uses it to render the dots band (one dot per user Space on the

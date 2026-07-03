@@ -98,6 +98,12 @@ struct DomLaneControlForwardingTests {
         #expect(isForwardableDomControl(data(#"{"t":"dom-capture","on":true}"#)))
     }
 
+    // ADR-0047: the scroll-drive-back command is forwarded verbatim like the tap and capture frames.
+    @Test func forwardsScrollControlFrames() {
+        #expect(isForwardableDomControl(data(#"{"t":"dom-scroll","x":10,"y":20,"dx":0,"dy":-120}"#)))
+        #expect(isForwardableDomControl(data(#"{"t":"dom-scroll","x":0,"y":0,"dx":5,"dy":5}"#)))
+    }
+
     @Test func dropsBatchesUnknownTypesAndGarbage() {
         // A host->client batch echoed back must never be relayed to the extension.
         #expect(!isForwardableDomControl(data(#"{"t":"dom-batch","tb":1,"co":true,"ev":[]}"#)))

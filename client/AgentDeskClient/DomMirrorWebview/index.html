@@ -236,21 +236,103 @@
       } catch (e) {}
     }
 
+    // Shared page-space mapping for both tap and scroll: the displayed (scaled) surface rect plus the
+    // per-axis scale (page CSS px per display px). Keys off whichever surface is showing (the CDP
+    // overlay or the rrweb iframe), exactly like the tap handler, so it stays correct under fitReplay
+    // scale and (Phase 2) under visual-viewport zoom, which does not change getBoundingClientRect().
+    function surfaceMapping() {
+      var frame = cdpFrame || (replayer && replayer.iframe);
+      if (!frame) return null;
+      var rect = frame.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      var pageW = (cdpFrame && cdpSize && cdpSize.w) || parseInt(frame.getAttribute('width'), 10) || rect.width;
+      var pageH = (cdpFrame && cdpSize && cdpSize.h) || parseInt(frame.getAttribute('height'), 10) || rect.height;
+      return { rect: rect, sx: pageW / rect.width, sy: pageH / rect.height, pageW: pageW, pageH: pageH };
+    }
+
+    // ADR-0047 scroll-drive-back: a single-finger drag on the overlay drives the REAL host tab to
+    // scroll (so lazy/infinite/scroll-JS pages work, because it is always the live page). We map the
+    // finger movement from the displayed mirror into the page's own CSS-px space with surfaceMapping()
+    // (the same math the tap uses), accumulate dx/dy across the gesture, coalesce to animation frames,
+    // and post one scroll message per frame. Sign convention: dx/dy are the FINGER movement in page px
+    // (positive dy = finger moved down); the extension feeds them straight to the CDP scroll gesture so
+    // the content follows the finger.
+    // A drag past MOVE_THRESHOLD display px sets `moved`, so the click handler below suppresses the
+    // synthetic tap that would otherwise fire at touchend. Multi-touch (Phase 2 pinch) is not a scroll.
+    var MOVE_THRESHOLD = 8;
+    var scrollG = { active: false, lastX: 0, lastY: 0, accX: 0, accY: 0, disp: 0, anchorX: 0, anchorY: 0, moved: false, raf: 0 };
+    var overlay = document.getElementById('tap-overlay');
+
+    function flushScroll() {
+      scrollG.raf = 0;
+      // Only a gesture that crossed MOVE_THRESHOLD reaches the wire; this also stops the touchend
+      // flush from leaking a few px of sub-threshold jitter (which would nudge the live host page).
+      if (!scrollG.moved || (scrollG.accX === 0 && scrollG.accY === 0)) return;
+      var dx = scrollG.accX, dy = scrollG.accY;
+      scrollG.accX = 0; scrollG.accY = 0;
+      try {
+        window.webkit.messageHandlers.domMirror.postMessage({
+          kind: 'scroll', x: scrollG.anchorX, y: scrollG.anchorY, dx: dx, dy: dy });
+      } catch (e) {}
+    }
+
+    overlay.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) { scrollG.active = false; return; } // pinch/multi-touch: not a scroll
+      var m = surfaceMapping();
+      if (!m) return;
+      var t = e.touches[0];
+      scrollG.active = true; scrollG.moved = false; scrollG.disp = 0;
+      scrollG.lastX = t.clientX; scrollG.lastY = t.clientY;
+      scrollG.accX = 0; scrollG.accY = 0;
+      scrollG.anchorX = (t.clientX - m.rect.left) * m.sx;
+      scrollG.anchorY = (t.clientY - m.rect.top) * m.sy;
+    }, { passive: true });
+
+    overlay.addEventListener('touchmove', function (e) {
+      if (!scrollG.active) return;
+      if (e.touches.length !== 1) { scrollG.active = false; return; }
+      var m = surfaceMapping();
+      if (!m) return;
+      var t = e.touches[0];
+      var dxDisp = t.clientX - scrollG.lastX, dyDisp = t.clientY - scrollG.lastY;
+      scrollG.lastX = t.clientX; scrollG.lastY = t.clientY;
+      scrollG.accX += dxDisp * m.sx; // finger delta -> page px
+      scrollG.accY += dyDisp * m.sy;
+      scrollG.disp += Math.abs(dxDisp) + Math.abs(dyDisp);
+      // Deadzone: until the finger travels past MOVE_THRESHOLD display px, treat it as a (possibly
+      // jittery) tap -- accumulate but post NOTHING, so a tap never nudges the live host page. Once
+      // crossed, the gesture is a scroll for good: `moved` also suppresses the trailing synthetic tap,
+      // and the accumulated delta (including the threshold travel) flushes on the next frame.
+      if (!scrollG.moved) {
+        if (scrollG.disp <= MOVE_THRESHOLD) return;
+        scrollG.moved = true;
+      }
+      if (!scrollG.raf) scrollG.raf = requestAnimationFrame(flushScroll);
+    }, { passive: true });
+
+    function endScroll() {
+      if (!scrollG.active) return;
+      scrollG.active = false;
+      if (scrollG.raf) { cancelAnimationFrame(scrollG.raf); scrollG.raf = 0; }
+      flushScroll();
+    }
+    overlay.addEventListener('touchend', endScroll, { passive: true });
+    overlay.addEventListener('touchcancel', endScroll, { passive: true });
+
     // ADR-0040: capture a tap on the overlay, map it from the displayed (scaled) mirror back to the
     // page's own CSS-pixel coordinate space, and post it to native to route back to Chrome. rrweb
     // sets the replayer iframe's width/height attributes to the recorded page size, so the scale is
     // recordedSize / displayedSize.
     document.getElementById('tap-overlay').addEventListener('click', function (e) {
-      // Map against whichever surface is showing: the CDP overlay (Tier B) or the rrweb iframe.
-      var frame = cdpFrame || (replayer && replayer.iframe);
-      if (!frame) return;
-      var rect = frame.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
-      var pageW = (cdpFrame && cdpSize && cdpSize.w) || parseInt(frame.getAttribute('width'), 10) || rect.width;
-      var pageH = (cdpFrame && cdpSize && cdpSize.h) || parseInt(frame.getAttribute('height'), 10) || rect.height;
-      var x = (e.clientX - rect.left) * (pageW / rect.width);
-      var y = (e.clientY - rect.top) * (pageH / rect.height);
-      if (x < 0 || y < 0 || x > pageW || y > pageH) return; // tap landed outside the mirrored page
+      // ADR-0047: a drag past the threshold already drove a scroll; swallow the synthetic click it
+      // produced at touchend so a scroll never also fires a tap. Reset for the next gesture.
+      if (scrollG.moved) { scrollG.moved = false; return; }
+      // Map against whichever surface is showing (CDP overlay or rrweb iframe) via the shared mapping.
+      var m = surfaceMapping();
+      if (!m) return;
+      var x = (e.clientX - m.rect.left) * m.sx;
+      var y = (e.clientY - m.rect.top) * m.sy;
+      if (x < 0 || y < 0 || x > m.pageW || y > m.pageH) return; // tap landed outside the mirrored page
       try { window.webkit.messageHandlers.domMirror.postMessage({ kind: 'tap', x: x, y: y }); } catch (err) {}
     });
 

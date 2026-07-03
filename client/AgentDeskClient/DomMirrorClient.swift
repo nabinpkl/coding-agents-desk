@@ -80,6 +80,23 @@ final class DomMirrorClient: @unchecked Sendable {
         }
     }
 
+    // ADR-0047: scroll-drive-back. Send a scroll gesture (page CSS-pixel anchor + finger movement
+    // delta, already mapped by the replayer) UP the .dom lane. The host relays it to the extension,
+    // which drives the REAL tab to scroll via chrome.debugger, so dynamic (lazy/infinite) pages load
+    // because it is always the live page. Mirrors sendTap; fire-and-forget, no lane-started guard
+    // needed (a scroll only originates from a gesture on an already-live surface).
+    func sendScroll(x: Double, y: Double, dx: Double, dy: Double) {
+        let cmd = DomScrollCommand(x: x, y: y, dx: dx, dy: dy)
+        guard let payload = try? JSONEncoder().encode(cmd) else { return }
+        Task { [stream, logger] in
+            do {
+                try await QuicSessionStreamIO.sendPayload(payload, role: .dom, on: stream)
+            } catch {
+                logger.notice("dom lane scroll send failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
     // ADR-0045: pause/resume DOM capture at the source. Sent UP the .dom lane; the host forwards it
     // to the extension, which stops/starts rrweb recording (restart emits a fresh full snapshot).
     // Guarded on the lane having been started (announce sent) so a capture frame never races ahead

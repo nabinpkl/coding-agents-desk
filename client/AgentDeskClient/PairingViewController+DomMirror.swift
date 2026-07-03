@@ -60,6 +60,10 @@ extension PairingViewController {
         }
         // ADR-0040: taps in the mirror go back up the .dom lane to Chrome.
         surface.onTap = { [weak self] x, y in self?.pairingClient.activeDomMirror?.sendTap(x: x, y: y) }
+        // ADR-0047: scroll drags in the mirror drive the real Chrome tab to scroll.
+        surface.onScroll = { [weak self] x, y, dx, dy in
+            self?.pairingClient.activeDomMirror?.sendScroll(x: x, y: y, dx: dx, dy: dy)
+        }
         domMirror.start()
 
         if let seg = surfaceSegmentedControl { view.bringSubviewToFront(seg) }

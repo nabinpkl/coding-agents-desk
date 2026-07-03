@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<!-- Strict CSP like page.html: no inline/external page scripts. The extension records it anyway
+     (isolated-world content script, ADR-0042); the scroll gesture is driven by the service worker via
+     chrome.debugger (Input.synthesizeScrollGesture), NOT by page JS. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:" />
+<title>AgentDesk DOM Mirror scroll fixture</title>
+<style>
+  body { font: 16px/1.6 -apple-system, system-ui, sans-serif; margin: 0; }
+  .row { height: 120px; padding: 8px 24px; box-sizing: border-box; border-bottom: 1px solid #ccc; }
+  .row:nth-child(odd) { background: #f4f4f4; }
+</style>
+</head>
+<body>
+  <!-- 40 static rows x 120px is ~4800px, well past any test viewport, so
+       Input.synthesizeScrollGesture produces a measurable window.scrollY change. The data-attribute
+       marker survives masking, proving structural capture (same convention as page.html). -->
+  <main data-agentdesk-fixture="dommirror-scroll-ok">
+  <div class="row">Row 01 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 02 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 03 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 04 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 05 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 06 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 07 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 08 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 09 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 10 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 11 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 12 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 13 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 14 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 15 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 16 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 17 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 18 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 19 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 20 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 21 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 22 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 23 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 24 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 25 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 26 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 27 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 28 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 29 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 30 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 31 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 32 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 33 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 34 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 35 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 36 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 37 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 38 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 39 - scrollable content line for the DOM mirror gate.</div>
+  <div class="row">Row 40 - scrollable content line for the DOM mirror gate.</div>
+  </main>
+</body>
+</html>

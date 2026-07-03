@@ -17,14 +17,15 @@ private struct DomLaneControlEnvelope: Decodable {
 }
 
 // Testable seam: true iff the payload is a recognized client->host DOM control command that the
-// lane should forward verbatim to the bridge -- an ADR-0040 `dom-input` tap or an ADR-0045
-// `dom-capture` pause/resume. Anything else (host batch echoed back, malformed line) is dropped so
-// the bridge only ever relays recognized commands to the extension.
+// lane should forward verbatim to the bridge -- an ADR-0040 `dom-input` tap, an ADR-0045
+// `dom-capture` pause/resume, or an ADR-0047 `dom-scroll` drive-back. Anything else (host batch
+// echoed back, malformed line) is dropped so the bridge only ever relays recognized commands to the
+// extension.
 func isForwardableDomControl(_ payload: Data) -> Bool {
     guard let env = try? JSONDecoder().decode(DomLaneControlEnvelope.self, from: payload) else {
         return false
     }
-    return env.type == "dom-input" || env.type == "dom-capture"
+    return env.type == "dom-input" || env.type == "dom-capture" || env.type == "dom-scroll"
 }
 
 @available(macOS 26.0, *)

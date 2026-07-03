@@ -87,6 +87,9 @@ function ensurePort() {
     if (!msg) return;
     // ADR-0040: host -> extension input command. Dispatch it as trusted input.
     if (msg.t === 'dom-input') { dispatchInput(msg); return; }
+    // ADR-0047: host -> extension scroll command. Drive the REAL tab to scroll (so lazy/infinite
+    // pages load), because the mirror is always the live page.
+    if (msg.t === 'dom-scroll') { dispatchScroll(msg); return; }
     // ADR-0045: host -> extension capture pause/resume, driven by the phone's Browser surface
     // visibility. `on: false` pauses the recorder; `on: true` resumes it (fresh full snapshot).
     if (msg.t === 'dom-capture') { setCapturePaused(!msg.on); return; }
@@ -144,6 +147,32 @@ async function dispatchInput(cmd) {
     await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', { type: 'mouseReleased', buttons: 0, ...base });
   } catch (e) {
     console.error('[agentdesk] dispatch failed', e && e.message);
+  }
+}
+
+// ADR-0047: scroll-drive-back. Drive the recorded tab to scroll via a trusted CDP scroll gesture,
+// reusing the ADR-0040 debugger attachment (same banner cost taps already pay). x/y are the page
+// CSS-pixel anchor of the gesture; cmd.dx/dy are the phone's FINGER movement in page px (positive dy
+// = finger moved down). Empirically (verified by dom-mirror-scroll-verify) Input.synthesizeScrollGesture's
+// positive yDistance scrolls the content toward the TOP (scrollY decreases), so passing the finger
+// delta STRAIGHT THROUGH makes the content follow the finger: finger down (dy>0) -> yDistance>0 ->
+// scrollY decreases -> content moves down with the finger. The real page scrolls and streams back
+// through rrweb; no content-script change. Dispatch bounded to recordingTabId.
+async function dispatchScroll(cmd) {
+  const tabId = recordingTabId;
+  if (tabId == null) return;
+  if (!(await ensureAttached(tabId))) return;
+  const num = (v) => (Number.isFinite(v) ? v : 0);
+  const clamp = (v) => (Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0);
+  const xDistance = num(cmd.dx);
+  const yDistance = num(cmd.dy);
+  if (xDistance === 0 && yDistance === 0) return; // nothing to scroll
+  try {
+    await chrome.debugger.sendCommand({ tabId }, 'Input.synthesizeScrollGesture', {
+      x: clamp(cmd.x), y: clamp(cmd.y), xDistance, yDistance,
+    });
+  } catch (e) {
+    console.error('[agentdesk] scroll dispatch failed', e && e.message);
   }
 }
 

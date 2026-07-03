@@ -2080,6 +2080,38 @@ struct DomInputCommand: Codable, Equatable {
     }
 }
 
+// ADR-0047 DOM-mirror scroll-drive-back. Mirror of the host's definition. Sent UP the .dom lane
+// when the user drags the mirror; the host forwards it verbatim to the extension, which drives the
+// REAL host tab to scroll via chrome.debugger (Input.synthesizeScrollGesture). x/y are the page
+// CSS-pixel anchor of the gesture; dx/dy are the finger movement delta in page CSS px (positive dy
+// = finger moved down). The extension passes them straight to Input.synthesizeScrollGesture, whose
+// positive yDistance scrolls the content toward the top, so the content follows the finger (finger
+// down scrolls the content down). Kept a discrete `t` tag (not overloaded onto DomInputCommand.kind)
+// so the host's verbatim `t`-keyed forwarding stays intact.
+struct DomScrollCommand: Codable, Equatable {
+    let type: String
+    let x: Double
+    let y: Double
+    let dx: Double
+    let dy: Double
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case x
+        case y
+        case dx
+        case dy
+    }
+
+    init(x: Double, y: Double, dx: Double, dy: Double) {
+        self.type = "dom-scroll"
+        self.x = x
+        self.y = y
+        self.dx = dx
+        self.dy = dy
+    }
+}
+
 // ADR-0045 DOM capture pause/resume. Sent UP the .dom lane (like DomInputCommand) when the client
 // switches the Browser surface out of / into view. The host forwards it verbatim to the extension,
 // which stops rrweb recording while hidden (real CPU win at the capture source) and restarts it on

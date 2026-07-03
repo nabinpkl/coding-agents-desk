@@ -267,6 +267,27 @@ dom-mirror-input-verify:
     set -euo pipefail
     node '{{justfile_directory()}}/chrome-test/input-verify.mjs'
 
+# ADR-0047 scroll-drive-back autonomous gate: the scroll WRITE path, deterministic, no simulator. A
+# fake host sends a dom-scroll command through the shim to the real extension, which drives the tab to
+# scroll via chrome.debugger (Input.synthesizeScrollGesture); the harness reads window.scrollY to
+# confirm the live page scrolled in the direction the sign convention promises. Uses the globally
+# installed Playwright + Chrome for Testing.
+dom-mirror-scroll-verify: ext-stamp
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    node '{{justfile_directory()}}/chrome-test/scroll-verify.mjs'
+
+# ADR-0047 client-gesture autonomous gate: exercises the REAL index.html touch state machine (the
+# threshold deadzone, rAF-coalesced scroll posting, tap-vs-scroll suppression, and multi-touch
+# deactivation) in a headless browser -- the half the worker-side scroll gate does not cover. No
+# extension, no shim, no host; just the webview. Uses the global Playwright + Chrome for Testing.
+dom-mirror-scroll-gesture-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    node '{{justfile_directory()}}/chrome-test/scroll-gesture-verify.mjs'
+
 # ADR-0044 Tier B autonomous gate: capture a REAL DOMSnapshot.captureSnapshot (piercing a CLOSED
 # shadow root) via Playwright's CDP session, run it through the SAME reconstructMaskedHtml the service
 # worker uses, and assert the closed-shadow subtree is captured AND every sensitive value is masked.
