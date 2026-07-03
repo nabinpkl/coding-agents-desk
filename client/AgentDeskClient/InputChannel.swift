@@ -20,6 +20,9 @@ protocol InputChannel: AnyObject, Sendable {
     var diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate> { get }
 
     func sendConfig(_ config: ClientConfig) async throws
+    // Best-effort revoke notice sent just before teardown when the user unpairs,
+    // so the host drops its paired-device record instead of holding a zombie.
+    func sendRevoke() async throws
     func sendDiagnosticsSummary(_ summary: DiagnosticsSummary) async throws
     func sendDiagnosticsChunk(_ chunk: DiagnosticsChunk) async throws
     func sendDiagnosticsError(_ error: DiagnosticsError) async throws

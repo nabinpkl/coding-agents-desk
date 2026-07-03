@@ -28,13 +28,15 @@ final class SettingsViewController: UIViewController {
     private let agentSayVoiceButton = UIButton(type: .system)
     private var agentSayVoices: [AVSpeechSynthesisVoice] = []
     private var agentSayLanguages: [String] = []
-    private let revokeConnectionButton = UIButton(type: .system)
+    private let disconnectButton = UIButton(type: .system)
+    private let unpairButton = UIButton(type: .system)
 
-    // Invoked after the user confirms "Revoke connection". The owner
-    // (PairingViewController) tears down the live session and clears the
-    // stored pairing so the app returns to the unpaired screen. Set by
-    // whoever presents this screen.
-    var onRevokeConnection: (() -> Void)?
+    // Ends the current session but keeps the pairing: the phone stays paired and
+    // the host shows "Paired but not currently connected". Set by the presenter.
+    var onDisconnect: (() -> Void)?
+    // Forgets the host on this phone AND tells the host to drop the pairing, so both
+    // sides forget each other and pairing must be redone. Set by the presenter.
+    var onUnpair: (() -> Void)?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -114,22 +116,28 @@ final class SettingsViewController: UIViewController {
             footnote: "Used for AgentDesk spoken subtitles. Download higher-quality voices in Settings > Accessibility > Read & Speak > Voices."
         )
 
-        // Connection: revoke the pairing with the Mac. This is the only
-        // place to unpair while a session is live, since the connected
-        // screen shows just the gear button (the pairing screen's
-        // "Forget host" button is hidden once connected). Routes to the
-        // owner's teardown via onRevokeConnection.
-        revokeConnectionButton.setTitle("Revoke connection", for: .normal)
-        revokeConnectionButton.setTitleColor(.systemRed, for: .normal)
-        revokeConnectionButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
-        revokeConnectionButton.contentHorizontalAlignment = .leading
-        revokeConnectionButton.accessibilityIdentifier = "revoke-connection-button"
-        revokeConnectionButton.addTarget(self, action: #selector(revokeConnectionTapped), for: .touchUpInside)
+        // Connection: the only place to end a live session or unpair while
+        // connected, since the connected screen shows just the gear button (the
+        // pairing screen's controls are hidden once connected). Disconnect keeps the
+        // pairing; Unpair forgets it on both sides.
+        disconnectButton.setTitle("Disconnect", for: .normal)
+        disconnectButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        disconnectButton.contentHorizontalAlignment = .leading
+        disconnectButton.accessibilityIdentifier = "disconnect-button"
+        disconnectButton.addTarget(self, action: #selector(disconnectTapped), for: .touchUpInside)
+
+        unpairButton.setTitle("Unpair / Forget host", for: .normal)
+        unpairButton.setTitleColor(.systemRed, for: .normal)
+        unpairButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        unpairButton.contentHorizontalAlignment = .leading
+        unpairButton.accessibilityIdentifier = "unpair-button"
+        unpairButton.addTarget(self, action: #selector(unpairTapped), for: .touchUpInside)
+
         let connectionSection = makeSection(
             title: "Connection",
             rows: [],
-            customRows: [revokeConnectionButton],
-            footnote: "Disconnects from your Mac and forgets the pairing. You'll need to pair again from the Mac to reconnect."
+            customRows: [disconnectButton, unpairButton],
+            footnote: "Disconnect ends the current session but stays paired, so you can reconnect with one tap. Unpair forgets this Mac and needs pairing again from the Mac."
         )
 
         let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, spacesSection, previewsSection, crispSection, hostCursorSection, speechSection, accessorySection, connectionSection])
@@ -476,19 +484,25 @@ final class SettingsViewController: UIViewController {
         dismiss(animated: true)
     }
 
-    @objc private func revokeConnectionTapped() {
+    @objc private func disconnectTapped() {
+        // Non-destructive (pairing is kept), so no confirmation. Dismiss first so the
+        // pairing/reconnect screen is what remains on screen.
+        dismiss(animated: true) { [weak self] in
+            self?.onDisconnect?()
+        }
+    }
+
+    @objc private func unpairTapped() {
         let alert = UIAlertController(
-            title: "Revoke connection?",
-            message: "This disconnects from your Mac and forgets the pairing. You'll need to pair again from the Mac to reconnect.",
+            title: "Unpair this Mac?",
+            message: "This forgets the pairing on both your phone and the Mac. You'll need to pair again from the Mac to reconnect.",
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Revoke", style: .destructive) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: "Unpair", style: .destructive) { [weak self] _ in
             guard let self else { return }
-            // Dismiss this modal first, then hand off to the owner's
-            // teardown so the pairing screen is what remains on screen.
             self.dismiss(animated: true) {
-                self.onRevokeConnection?()
+                self.onUnpair?()
             }
         })
         present(alert, animated: true)

@@ -19,6 +19,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
     private let forgetButton = UIButton(type: .system)
+    // Set when the user taps Disconnect in settings: end the session but stay paired,
+    // and suppress the foreground auto-reconnect until they tap Connect (or relaunch,
+    // which resets this in-memory flag). Distinguishes a deliberate disconnect from a
+    // transient drop, which should still auto-reconnect.
+    private var userRequestedDisconnect = false
     var captureSession: AVCaptureSession?
     var previewLayer: AVCaptureVideoPreviewLayer?
     var handshakeTask: Task<Void, Never>?
@@ -245,6 +250,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     func triggerSessionIfPaired() {
         guard sessionTask == nil else { return }
+        // A user-requested disconnect stays down until they explicitly reconnect.
+        guard !userRequestedDisconnect else { return }
         guard case .pairedDisconnected = pairingClient.state else { return }
         sessionAttemptGeneration &+= 1
         let generation = sessionAttemptGeneration
@@ -456,7 +463,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
         actionButton.setTitle("Scan QR", for: .normal)
-        actionButton.addTarget(self, action: #selector(startScanning), for: .touchUpInside)
+        actionButton.addTarget(self, action: #selector(actionButtonTapped), for: .touchUpInside)
         actionButton.translatesAutoresizingMaskIntoConstraints = false
 
         forgetButton.setTitle("Forget host", for: .normal)
@@ -499,17 +506,52 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     @objc func forgetHost() {
+        // Best-effort: tell the host to drop its pairing record before we tear the
+        // input lane down, so both sides forget each other. Await the send so it
+        // flushes before clearStoredCredentials() closes the channel; if there is no
+        // live channel (already disconnected) the host relies on its own liveness.
+        let channel = pairingClient.activeInputChannel
+        Task { @MainActor [weak self] in
+            if let channel {
+                try? await channel.sendRevoke()
+            }
+            guard let self else { return }
+            self.userRequestedDisconnect = false
+            self.cancelSessionAttempt()
+            self.handshakeTask?.cancel()
+            self.stopCamera()
+            self.teardownMediaTransport()
+            self.pairingClient.clearStoredCredentials()
+            self.render()
+        }
+    }
+
+    // Settings "Disconnect": end the live session but keep the pairing. Suppress
+    // auto-reconnect so it stays down until the user taps Connect. handleMediaSessionFailed
+    // closes the session lanes and flips .connected -> .pairedDisconnected without
+    // touching stored credentials.
+    func disconnectFromHost() {
+        userRequestedDisconnect = true
         cancelSessionAttempt()
         handshakeTask?.cancel()
-        stopCamera()
         teardownMediaTransport()
-        pairingClient.clearStoredCredentials()
+        pairingClient.handleMediaSessionFailed()
         render()
+    }
+
+    // Pairing-screen "Connect": clear the suppress flag and re-attempt the session.
+    @objc func reconnect() {
+        userRequestedDisconnect = false
+        render()
+        triggerSessionIfPaired()
     }
 
     func render() {
         forgetButton.isHidden = true
         statusLabel.isHidden = false
+        // Default label; the .pairedDisconnected user-disconnect case overrides it to
+        // "Connect". actionButtonTapped dispatches on the same state it renders.
+        actionButton.setTitle("Scan QR", for: .normal)
         switch pairingClient.state {
         case .unpaired:
             statusLabel.text = unpairedStatusText()
@@ -528,8 +570,14 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             actionButton.isHidden = true
             stopCamera()
         case .pairedDisconnected:
-            statusLabel.text = "Paired (reconnecting)"
-            actionButton.isHidden = true
+            if userRequestedDisconnect {
+                statusLabel.text = "Disconnected\n\nTap Connect to reconnect."
+                actionButton.setTitle("Connect", for: .normal)
+                actionButton.isHidden = false
+            } else {
+                statusLabel.text = "Paired (reconnecting)"
+                actionButton.isHidden = true
+            }
             forgetButton.isHidden = false
             stopCamera()
         case .sessionConnecting:
@@ -730,6 +778,16 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         } catch {
             pairingClient.reject("\(error)")
             render()
+        }
+    }
+
+    // The action button is dual-purpose: "Scan QR" when unpaired/revoked/rejected,
+    // "Connect" when the user disconnected. Dispatch on the same state render() drew.
+    @objc private func actionButtonTapped() {
+        if case .pairedDisconnected = pairingClient.state, userRequestedDisconnect {
+            reconnect()
+        } else {
+            startScanning()
         }
     }
 

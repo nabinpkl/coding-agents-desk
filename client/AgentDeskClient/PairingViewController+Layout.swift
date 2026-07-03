@@ -404,7 +404,10 @@ extension PairingViewController {
 
     @objc func openSettings() {
         let settings = SettingsViewController()
-        settings.onRevokeConnection = { [weak self] in
+        settings.onDisconnect = { [weak self] in
+            self?.disconnectFromHost()
+        }
+        settings.onUnpair = { [weak self] in
             self?.forgetHost()
         }
         let nav = UINavigationController(rootViewController: settings)

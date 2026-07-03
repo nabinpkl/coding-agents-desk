@@ -2567,6 +2567,23 @@ struct AgentProjectsSubscribe: Codable, Equatable {
     }
 }
 
+// Client -> host on the input lane: the phone is revoking the pairing (settings
+// "Unpair / Forget host"). The host removes its paired-device record via the same
+// path as the menubar "Revoke" button, so both sides forget each other. Additive,
+// type-only frame; an older host that does not know it logs "unknown frame type"
+// and simply keeps its stale record, which is a safe degradation.
+struct SessionRevoke: Codable, Equatable {
+    let type: String
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+    }
+
+    init() {
+        self.type = "revoke"
+    }
+}
+
 struct AgentThreadSubscribe: Codable, Equatable {
     let type: String
     // Optional: the phone bridge subscribes by sessionId alone (it has no
