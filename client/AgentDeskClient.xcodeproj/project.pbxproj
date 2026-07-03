@@ -3,169 +3,56 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		A0000000000000000000EE03 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE02 /* AgentDeskWire */; };
 		A0000000000000000000EE05 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE04 /* AgentDeskWire */; };
-		B00000000000000000000201 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000101 /* AppDelegate.swift */; };
-		B00000000000000000000203 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000103 /* Config.swift */; };
-		B00000000000000000000204 /* DeviceSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000104 /* DeviceSigningKeyStore.swift */; };
-		B00000000000000000000205 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000105 /* KeychainStore.swift */; };
-		B00000000000000000000206 /* PairingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000106 /* PairingClient.swift */; };
-		B00000000000000000000D02 /* PairingOfferListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000D01 /* PairingOfferListener.swift */; };
-		B00000000000000000000207 /* PairingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000107 /* PairingViewController.swift */; };
-		B00000000000000000000208 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000108 /* SceneDelegate.swift */; };
-		B00000000000000000000209 /* OwnedMediaClientState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000109 /* OwnedMediaClientState.swift */; };
-		B0000000000000000000020A /* SessionDialer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010B /* SessionDialer.swift */; };
-		B0000000000000000000020B /* MediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010C /* MediaTransport.swift */; };
-		B0000000000000000000020C /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010D /* SignalingChannel.swift */; };
-		B0000000000000000000020E /* MediaStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010F /* MediaStack.swift */; };
-		B0000000000000000000020F /* SessionConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* SessionConnection.swift */; };
-		B00000000000000000000A01 /* OwnedMediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000A00 /* OwnedMediaTransport.swift */; };
-		B00000000000000000000A05 /* OwnedMediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000A00 /* OwnedMediaTransport.swift */; };
-		B00000000000000000000A03 /* OwnedMediaVideoSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000A02 /* OwnedMediaVideoSink.swift */; };
-		B00000000000000000000A04 /* OwnedMediaVideoSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000A02 /* OwnedMediaVideoSink.swift */; };
-		B00000000000000000000212 /* GestureTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000113 /* GestureTranslator.swift */; };
-		B00000000000000000000213 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000114 /* SettingsStore.swift */; };
-		B00000000000000000000214 /* SettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000115 /* SettingsViewController.swift */; };
-		B00000000000000000000215 /* KeyboardSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000116 /* KeyboardSurface.swift */; };
-		B00000000000000000000216 /* InputChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000117 /* InputChannel.swift */; };
-		B00000000000000000000217 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000118 /* Assets.xcassets */; };
-		B0000000000000000000022F1 /* InputChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000117 /* InputChannel.swift */; };
-		B0000000000000000000022E2 /* ThumbnailStripViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000125 /* ThumbnailStripViewTests.swift */; };
-		B00000000000000000000218 /* ThumbnailStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000126 /* ThumbnailStripView.swift */; };
-		B0000000000000000000022F3 /* ThumbnailStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000126 /* ThumbnailStripView.swift */; };
-		B00000000000000000000220 /* SpaceAgentLabelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000140 /* SpaceAgentLabelResolver.swift */; };
-		B0000000000000000000022F5 /* SpaceAgentLabelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000140 /* SpaceAgentLabelResolver.swift */; };
-		B00000000000000000000219 /* EdgeFollow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000127 /* EdgeFollow.swift */; };
-		B0000000000000000000022F4 /* EdgeFollow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000127 /* EdgeFollow.swift */; };
-		B0000000000000000000022E3 /* EdgeFollowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000128 /* EdgeFollowTests.swift */; };
-		B0000000000000000000021A /* HitOutsetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000129 /* HitOutsetView.swift */; };
-		B0000000000000000000021B /* PairingViewController+Layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000012A /* PairingViewController+Layout.swift */; };
-		B0000000000000000000021C /* PairingViewController+Keyboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000012B /* PairingViewController+Keyboard.swift */; };
-		B0000000000000000000021D /* PairingViewController+EdgeFollow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000012C /* PairingViewController+EdgeFollow.swift */; };
-		B000000000000000000009A1 /* CursorPointerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000009A2 /* CursorPointerView.swift */; };
-		B000000000000000000009C1 /* CursorImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000009C2 /* CursorImageStore.swift */; };
-		B000000000000000000009C3 /* CursorImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B000000000000000000009C2 /* CursorImageStore.swift */; };
-		B0000000000000000000021E /* PairingViewController+Gestures.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000012D /* PairingViewController+Gestures.swift */; };
-		B00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000103 /* Config.swift */; };
-		B00000000000000000000223 /* DeviceSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000104 /* DeviceSigningKeyStore.swift */; };
-		B00000000000000000000224 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000105 /* KeychainStore.swift */; };
-		B00000000000000000000225 /* PairingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000106 /* PairingClient.swift */; };
-		B00000000000000000000D03 /* PairingOfferListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000D01 /* PairingOfferListener.swift */; };
-		B00000000000000000000226 /* OwnedMediaClientState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000109 /* OwnedMediaClientState.swift */; };
-		B00000000000000000000227 /* PairingClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000121 /* PairingClientTests.swift */; };
-		B00000000000000000000228 /* SessionDialer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010B /* SessionDialer.swift */; };
-		B00000000000000000000229 /* SessionConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000110 /* SessionConnection.swift */; };
-		B0000000000000000000022A /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010D /* SignalingChannel.swift */; };
-		B0000000000000000000022A1 /* MediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000010C /* MediaTransport.swift */; };
-		B0000000000000000000022B /* GestureTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000113 /* GestureTranslator.swift */; };
-		B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000122 /* GestureTranslatorTests.swift */; };
-		B0000000000000000000CE0B /* DomMirrorSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE0C /* DomMirrorSurfaceTests.swift */; };
-		B0000000000000000000CE0D /* ControlSurfaceVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE0E /* ControlSurfaceVisibilityTests.swift */; };
-		B0000000000000000000022D /* KeyboardSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000116 /* KeyboardSurface.swift */; };
-		B0000000000000000000022E /* KeyboardSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000123 /* KeyboardSurfaceTests.swift */; };
-		B0000000000000000000022E1 /* InputChannelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000124 /* InputChannelTests.swift */; };
-		B00000000000000000000FB1 /* AgentFeedWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FB0 /* AgentFeedWireTests.swift */; };
-		B0000000000000000000022F /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000114 /* SettingsStore.swift */; };
-		B00000000000000000000E02 /* OwnedSurfaceCompositorCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000E01 /* OwnedSurfaceCompositorCacheTests.swift */; };
-		B00000000000000000000F61 /* MediaDatagramFramePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F60 /* MediaDatagramFramePacket.swift */; };
-		B00000000000000000000F62 /* MediaDatagramFramePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F60 /* MediaDatagramFramePacket.swift */; };
-		B00000000000000000000F64 /* OwnedMediaFrameRepairBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F63 /* OwnedMediaFrameRepairBuffer.swift */; };
-		B00000000000000000000F65 /* OwnedMediaFrameRepairBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F63 /* OwnedMediaFrameRepairBuffer.swift */; };
-		B00000000000000000000F67 /* OwnedMediaFrameRepairBufferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F66 /* OwnedMediaFrameRepairBufferTests.swift */; };
-		B00000000000000000000F69 /* OwnedMediaVideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F68 /* OwnedMediaVideoDecoder.swift */; };
-		B00000000000000000000F6A /* OwnedMediaVideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F68 /* OwnedMediaVideoDecoder.swift */; };
-		B00000000000000000000F6C /* OwnedMediaVideoDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000F6B /* OwnedMediaVideoDecoderTests.swift */; };
-		B00000000000000000000FA3 /* ClientDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FA2 /* ClientDiagnostics.swift */; };
-		B00000000000000000000FA4 /* ClientDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FA2 /* ClientDiagnostics.swift */; };
-		B00000000000000000000FC1 /* AgentFeedWebview in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FC0 /* AgentFeedWebview */; };
-		B0000000000000000000CE09 /* DomMirrorWebview in Resources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE0A /* DomMirrorWebview */; };
-		B00000000000000000000FD1 /* AgentFeedSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FD0 /* AgentFeedSurface.swift */; };
-		B0000000000000000000CE00 /* DomMirrorSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE02 /* DomMirrorSurface.swift */; };
-		B0000000000000000000CE10 /* ControlSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE12 /* ControlSurface.swift */; };
-		B0000000000000000000CE13 /* DomMirrorStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE15 /* DomMirrorStatus.swift */; };
-		B0000000000000000000CE01 /* DomMirrorSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE02 /* DomMirrorSurface.swift */; };
-		B0000000000000000000CE11 /* ControlSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE12 /* ControlSurface.swift */; };
-		B0000000000000000000CE14 /* DomMirrorStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE15 /* DomMirrorStatus.swift */; };
-		B0000000000000000000CE03 /* DomMirrorClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE05 /* DomMirrorClient.swift */; };
-		B0000000000000000000CE04 /* DomMirrorClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE05 /* DomMirrorClient.swift */; };
-		B0000000000000000000CE06 /* PairingViewController+DomMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000CE08 /* PairingViewController+DomMirror.swift */; };
-		B00000000000000000000FD2 /* AgentFeedSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FD0 /* AgentFeedSurface.swift */; };
-		B00000000000000000000FD4 /* PairingViewController+AgentSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FD3 /* PairingViewController+AgentSurface.swift */; };
-		B00000000000000000000FD7 /* AgentFeedSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FD6 /* AgentFeedSurfaceTests.swift */; };
-		B00000000000000000000FE1 /* AgentFeedSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FE0 /* AgentFeedSchemeHandler.swift */; };
-		B00000000000000000000FE2 /* AgentFeedSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FE0 /* AgentFeedSchemeHandler.swift */; };
-		B00000000000000000000FE4 /* AgentFeedSchemeHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000FE3 /* AgentFeedSchemeHandlerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		B00000000000000000000101 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		B00000000000000000000103 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
-		B00000000000000000000104 /* DeviceSigningKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceSigningKeyStore.swift; sourceTree = "<group>"; };
-		B00000000000000000000105 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
-		B00000000000000000000106 /* PairingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClient.swift; sourceTree = "<group>"; };
-		B00000000000000000000D01 /* PairingOfferListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingOfferListener.swift; sourceTree = "<group>"; };
-		B00000000000000000000107 /* PairingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingViewController.swift; sourceTree = "<group>"; };
-		B00000000000000000000108 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
-		B00000000000000000000109 /* OwnedMediaClientState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaClientState.swift; sourceTree = "<group>"; };
-		B0000000000000000000010A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		B0000000000000000000010B /* SessionDialer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDialer.swift; sourceTree = "<group>"; };
-		B0000000000000000000010C /* MediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTransport.swift; sourceTree = "<group>"; };
-		B0000000000000000000010D /* SignalingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingChannel.swift; sourceTree = "<group>"; };
-		B0000000000000000000010F /* MediaStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaStack.swift; sourceTree = "<group>"; };
-		B00000000000000000000110 /* SessionConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConnection.swift; sourceTree = "<group>"; };
-		B00000000000000000000A00 /* OwnedMediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaTransport.swift; sourceTree = "<group>"; };
-		B00000000000000000000A02 /* OwnedMediaVideoSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaVideoSink.swift; sourceTree = "<group>"; };
-		B00000000000000000000113 /* GestureTranslator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureTranslator.swift; sourceTree = "<group>"; };
-		B00000000000000000000114 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
-		B00000000000000000000115 /* SettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewController.swift; sourceTree = "<group>"; };
-		B00000000000000000000116 /* KeyboardSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSurface.swift; sourceTree = "<group>"; };
-		B00000000000000000000117 /* InputChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannel.swift; sourceTree = "<group>"; };
-		B00000000000000000000118 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		B00000000000000000000125 /* ThumbnailStripViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailStripViewTests.swift; sourceTree = "<group>"; };
-		B00000000000000000000126 /* ThumbnailStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailStripView.swift; sourceTree = "<group>"; };
-		B00000000000000000000140 /* SpaceAgentLabelResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceAgentLabelResolver.swift; sourceTree = "<group>"; };
-		B00000000000000000000127 /* EdgeFollow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeFollow.swift; sourceTree = "<group>"; };
-		B00000000000000000000128 /* EdgeFollowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeFollowTests.swift; sourceTree = "<group>"; };
-		B00000000000000000000129 /* HitOutsetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HitOutsetView.swift; sourceTree = "<group>"; };
-		B0000000000000000000012A /* PairingViewController+Layout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+Layout.swift"; sourceTree = "<group>"; };
-		B0000000000000000000012B /* PairingViewController+Keyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+Keyboard.swift"; sourceTree = "<group>"; };
-		B0000000000000000000012C /* PairingViewController+EdgeFollow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+EdgeFollow.swift"; sourceTree = "<group>"; };
-		B000000000000000000009A2 /* CursorPointerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorPointerView.swift; sourceTree = "<group>"; };
-		B000000000000000000009C2 /* CursorImageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorImageStore.swift; sourceTree = "<group>"; };
-		B0000000000000000000012D /* PairingViewController+Gestures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+Gestures.swift"; sourceTree = "<group>"; };
-		B00000000000000000000121 /* PairingClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClientTests.swift; sourceTree = "<group>"; };
-		B00000000000000000000122 /* GestureTranslatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureTranslatorTests.swift; sourceTree = "<group>"; };
-		B0000000000000000000CE0C /* DomMirrorSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomMirrorSurfaceTests.swift; sourceTree = "<group>"; };
-		B0000000000000000000CE0E /* ControlSurfaceVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSurfaceVisibilityTests.swift; sourceTree = "<group>"; };
-		B00000000000000000000123 /* KeyboardSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSurfaceTests.swift; sourceTree = "<group>"; };
-		B00000000000000000000124 /* InputChannelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannelTests.swift; sourceTree = "<group>"; };
-		B00000000000000000000FB0 /* AgentFeedWireTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedWireTests.swift; sourceTree = "<group>"; };
-		B00000000000000000000E01 /* OwnedSurfaceCompositorCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedSurfaceCompositorCacheTests.swift; sourceTree = "<group>"; };
-		B00000000000000000000F60 /* MediaDatagramFramePacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDatagramFramePacket.swift; sourceTree = "<group>"; };
-		B00000000000000000000F63 /* OwnedMediaFrameRepairBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaFrameRepairBuffer.swift; sourceTree = "<group>"; };
-		B00000000000000000000F66 /* OwnedMediaFrameRepairBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaFrameRepairBufferTests.swift; sourceTree = "<group>"; };
-		B00000000000000000000F68 /* OwnedMediaVideoDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaVideoDecoder.swift; sourceTree = "<group>"; };
-		B00000000000000000000F6B /* OwnedMediaVideoDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaVideoDecoderTests.swift; sourceTree = "<group>"; };
-		B00000000000000000000FA2 /* ClientDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientDiagnostics.swift; sourceTree = "<group>"; };
-		B00000000000000000000FC0 /* AgentFeedWebview */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AgentFeedWebview; sourceTree = "<group>"; };
-		B0000000000000000000CE0A /* DomMirrorWebview */ = {isa = PBXFileReference; lastKnownFileType = folder; path = DomMirrorWebview; sourceTree = "<group>"; };
-		B00000000000000000000FD0 /* AgentFeedSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedSurface.swift; sourceTree = "<group>"; };
-		B0000000000000000000CE02 /* DomMirrorSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomMirrorSurface.swift; sourceTree = "<group>"; };
-		B0000000000000000000CE12 /* ControlSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSurface.swift; sourceTree = "<group>"; };
-		B0000000000000000000CE15 /* DomMirrorStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomMirrorStatus.swift; sourceTree = "<group>"; };
-		B0000000000000000000CE05 /* DomMirrorClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomMirrorClient.swift; sourceTree = "<group>"; };
-		B0000000000000000000CE08 /* PairingViewController+DomMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+DomMirror.swift"; sourceTree = "<group>"; };
-		B00000000000000000000FD3 /* PairingViewController+AgentSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PairingViewController+AgentSurface.swift"; sourceTree = "<group>"; };
-		B00000000000000000000FD6 /* AgentFeedSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedSurfaceTests.swift; sourceTree = "<group>"; };
-		B00000000000000000000FE0 /* AgentFeedSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedSchemeHandler.swift; sourceTree = "<group>"; };
-		B00000000000000000000FE3 /* AgentFeedSchemeHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedSchemeHandlerTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000141 /* AgentDeskClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000142 /* AgentDeskClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		DDD788912FF7B49100F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = B00000000000000000000004 /* AgentDeskClient */;
+		};
+		DDD788922FF7B49100F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				AgentFeedWebview,
+				AppDelegate.swift,
+				Assets.xcassets,
+				CursorPointerView.swift,
+				DomMirrorWebview,
+				HitOutsetView.swift,
+				Info.plist,
+				MediaStack.swift,
+				PairingViewController.swift,
+				"PairingViewController+AgentSurface.swift",
+				"PairingViewController+DomMirror.swift",
+				"PairingViewController+EdgeFollow.swift",
+				"PairingViewController+Gestures.swift",
+				"PairingViewController+Keyboard.swift",
+				"PairingViewController+Layout.swift",
+				SceneDelegate.swift,
+				SettingsViewController.swift,
+			);
+			target = B00000000000000000000005 /* AgentDeskClientTests */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		DDD788322FF7B49000F8BB76 /* AgentDeskClient */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (DDD788912FF7B49100F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, DDD788922FF7B49100F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (AgentFeedWebview, DomMirrorWebview, ); path = AgentDeskClient; sourceTree = "<group>"; };
+		DDD78B622FF82BFF00F8BB76 /* AgentDeskClientTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = AgentDeskClientTests; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		B00000000000000000000302 /* Frameworks */ = {
@@ -190,8 +77,8 @@
 		B00000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
-				B00000000000000000000010 /* AgentDeskClient */,
-				B00000000000000000000011 /* AgentDeskClientTests */,
+				DDD788322FF7B49000F8BB76 /* AgentDeskClient */,
+				DDD78B622FF82BFF00F8BB76 /* AgentDeskClientTests */,
 				B00000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -203,81 +90,6 @@
 				B00000000000000000000142 /* AgentDeskClientTests.xctest */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		B00000000000000000000010 /* AgentDeskClient */ = {
-			isa = PBXGroup;
-			children = (
-				B00000000000000000000101 /* AppDelegate.swift */,
-				B00000000000000000000103 /* Config.swift */,
-				B00000000000000000000FA2 /* ClientDiagnostics.swift */,
-				B00000000000000000000104 /* DeviceSigningKeyStore.swift */,
-				B00000000000000000000105 /* KeychainStore.swift */,
-				B00000000000000000000106 /* PairingClient.swift */,
-				B00000000000000000000D01 /* PairingOfferListener.swift */,
-				B00000000000000000000107 /* PairingViewController.swift */,
-				B00000000000000000000108 /* SceneDelegate.swift */,
-				B00000000000000000000109 /* OwnedMediaClientState.swift */,
-				B0000000000000000000010B /* SessionDialer.swift */,
-				B0000000000000000000010C /* MediaTransport.swift */,
-				B0000000000000000000010D /* SignalingChannel.swift */,
-				B0000000000000000000010F /* MediaStack.swift */,
-				B00000000000000000000110 /* SessionConnection.swift */,
-				B00000000000000000000A00 /* OwnedMediaTransport.swift */,
-				B00000000000000000000A02 /* OwnedMediaVideoSink.swift */,
-				B00000000000000000000F60 /* MediaDatagramFramePacket.swift */,
-				B00000000000000000000F63 /* OwnedMediaFrameRepairBuffer.swift */,
-				B00000000000000000000F68 /* OwnedMediaVideoDecoder.swift */,
-				B00000000000000000000113 /* GestureTranslator.swift */,
-				B00000000000000000000114 /* SettingsStore.swift */,
-				B00000000000000000000115 /* SettingsViewController.swift */,
-				B00000000000000000000116 /* KeyboardSurface.swift */,
-				B00000000000000000000117 /* InputChannel.swift */,
-				B00000000000000000000126 /* ThumbnailStripView.swift */,
-				B00000000000000000000140 /* SpaceAgentLabelResolver.swift */,
-				B00000000000000000000127 /* EdgeFollow.swift */,
-				B00000000000000000000129 /* HitOutsetView.swift */,
-				B0000000000000000000012A /* PairingViewController+Layout.swift */,
-				B0000000000000000000012B /* PairingViewController+Keyboard.swift */,
-				B0000000000000000000012C /* PairingViewController+EdgeFollow.swift */,
-				B000000000000000000009A2 /* CursorPointerView.swift */,
-				B000000000000000000009C2 /* CursorImageStore.swift */,
-				B0000000000000000000012D /* PairingViewController+Gestures.swift */,
-				B00000000000000000000FD0 /* AgentFeedSurface.swift */,
-				B0000000000000000000CE02 /* DomMirrorSurface.swift */,
-				B0000000000000000000CE12 /* ControlSurface.swift */,
-				B0000000000000000000CE15 /* DomMirrorStatus.swift */,
-				B0000000000000000000CE05 /* DomMirrorClient.swift */,
-				B0000000000000000000CE08 /* PairingViewController+DomMirror.swift */,
-				B00000000000000000000FE0 /* AgentFeedSchemeHandler.swift */,
-				B00000000000000000000FD3 /* PairingViewController+AgentSurface.swift */,
-				B00000000000000000000118 /* Assets.xcassets */,
-				B00000000000000000000FC0 /* AgentFeedWebview */,
-				B0000000000000000000CE0A /* DomMirrorWebview */,
-				B0000000000000000000010A /* Info.plist */,
-			);
-			path = AgentDeskClient;
-			sourceTree = "<group>";
-		};
-		B00000000000000000000011 /* AgentDeskClientTests */ = {
-			isa = PBXGroup;
-			children = (
-				B00000000000000000000121 /* PairingClientTests.swift */,
-				B00000000000000000000122 /* GestureTranslatorTests.swift */,
-				B0000000000000000000CE0C /* DomMirrorSurfaceTests.swift */,
-				B0000000000000000000CE0E /* ControlSurfaceVisibilityTests.swift */,
-				B00000000000000000000123 /* KeyboardSurfaceTests.swift */,
-				B00000000000000000000124 /* InputChannelTests.swift */,
-				B00000000000000000000125 /* ThumbnailStripViewTests.swift */,
-				B00000000000000000000E01 /* OwnedSurfaceCompositorCacheTests.swift */,
-				B00000000000000000000F66 /* OwnedMediaFrameRepairBufferTests.swift */,
-				B00000000000000000000F6B /* OwnedMediaVideoDecoderTests.swift */,
-				B00000000000000000000128 /* EdgeFollowTests.swift */,
-				B00000000000000000000FB0 /* AgentFeedWireTests.swift */,
-				B00000000000000000000FD6 /* AgentFeedSurfaceTests.swift */,
-				B00000000000000000000FE3 /* AgentFeedSchemeHandlerTests.swift */,
-			);
-			path = AgentDeskClientTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -294,6 +106,9 @@
 			buildRules = (
 			);
 			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				DDD788322FF7B49000F8BB76 /* AgentDeskClient */,
 			);
 			name = AgentDeskClient;
 			packageProductDependencies = (
@@ -314,6 +129,10 @@
 			buildRules = (
 			);
 			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				DDD788322FF7B49000F8BB76 /* AgentDeskClient */,
+				DDD78B622FF82BFF00F8BB76 /* AgentDeskClientTests */,
 			);
 			name = AgentDeskClientTests;
 			packageProductDependencies = (
@@ -352,7 +171,7 @@
 			);
 			mainGroup = B00000000000000000000002;
 			packageReferences = (
-				A0000000000000000000EE01 /* XCLocalSwiftPackageReference "AgentDeskWire" */,
+				A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */,
 			);
 			productRefGroup = B00000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -364,16 +183,11 @@
 		};
 /* End PBXProject section */
 
-
-
 /* Begin PBXResourcesBuildPhase section */
 		B00000000000000000000303 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B00000000000000000000217 /* Assets.xcassets in Resources */,
-				B00000000000000000000FC1 /* AgentFeedWebview in Resources */,
-				B0000000000000000000CE09 /* DomMirrorWebview in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -391,49 +205,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B00000000000000000000201 /* AppDelegate.swift in Sources */,
-				B00000000000000000000203 /* Config.swift in Sources */,
-				B00000000000000000000FA3 /* ClientDiagnostics.swift in Sources */,
-				B00000000000000000000204 /* DeviceSigningKeyStore.swift in Sources */,
-				B00000000000000000000205 /* KeychainStore.swift in Sources */,
-				B00000000000000000000206 /* PairingClient.swift in Sources */,
-				B00000000000000000000D02 /* PairingOfferListener.swift in Sources */,
-				B00000000000000000000207 /* PairingViewController.swift in Sources */,
-				B00000000000000000000208 /* SceneDelegate.swift in Sources */,
-				B00000000000000000000209 /* OwnedMediaClientState.swift in Sources */,
-				B00000000000000000000F61 /* MediaDatagramFramePacket.swift in Sources */,
-				B00000000000000000000F64 /* OwnedMediaFrameRepairBuffer.swift in Sources */,
-				B00000000000000000000F69 /* OwnedMediaVideoDecoder.swift in Sources */,
-				B0000000000000000000020A /* SessionDialer.swift in Sources */,
-				B0000000000000000000020B /* MediaTransport.swift in Sources */,
-				B0000000000000000000020C /* SignalingChannel.swift in Sources */,
-				B0000000000000000000020E /* MediaStack.swift in Sources */,
-				B0000000000000000000020F /* SessionConnection.swift in Sources */,
-				B00000000000000000000A01 /* OwnedMediaTransport.swift in Sources */,
-				B00000000000000000000A03 /* OwnedMediaVideoSink.swift in Sources */,
-				B00000000000000000000212 /* GestureTranslator.swift in Sources */,
-				B00000000000000000000213 /* SettingsStore.swift in Sources */,
-				B00000000000000000000214 /* SettingsViewController.swift in Sources */,
-				B00000000000000000000215 /* KeyboardSurface.swift in Sources */,
-				B00000000000000000000216 /* InputChannel.swift in Sources */,
-				B00000000000000000000218 /* ThumbnailStripView.swift in Sources */,
-				B00000000000000000000220 /* SpaceAgentLabelResolver.swift in Sources */,
-				B00000000000000000000219 /* EdgeFollow.swift in Sources */,
-				B0000000000000000000021A /* HitOutsetView.swift in Sources */,
-				B0000000000000000000021B /* PairingViewController+Layout.swift in Sources */,
-				B0000000000000000000021C /* PairingViewController+Keyboard.swift in Sources */,
-				B0000000000000000000021D /* PairingViewController+EdgeFollow.swift in Sources */,
-				B000000000000000000009A1 /* CursorPointerView.swift in Sources */,
-				B000000000000000000009C1 /* CursorImageStore.swift in Sources */,
-				B0000000000000000000021E /* PairingViewController+Gestures.swift in Sources */,
-				B00000000000000000000FD1 /* AgentFeedSurface.swift in Sources */,
-				B0000000000000000000CE00 /* DomMirrorSurface.swift in Sources */,
-				B0000000000000000000CE10 /* ControlSurface.swift in Sources */,
-				B0000000000000000000CE13 /* DomMirrorStatus.swift in Sources */,
-				B0000000000000000000CE03 /* DomMirrorClient.swift in Sources */,
-				B0000000000000000000CE06 /* PairingViewController+DomMirror.swift in Sources */,
-				B00000000000000000000FE1 /* AgentFeedSchemeHandler.swift in Sources */,
-				B00000000000000000000FD4 /* PairingViewController+AgentSurface.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -441,50 +212,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B00000000000000000000222 /* Config.swift in Sources */,
-				B00000000000000000000FA4 /* ClientDiagnostics.swift in Sources */,
-				B00000000000000000000223 /* DeviceSigningKeyStore.swift in Sources */,
-				B00000000000000000000224 /* KeychainStore.swift in Sources */,
-				B00000000000000000000225 /* PairingClient.swift in Sources */,
-				B00000000000000000000D03 /* PairingOfferListener.swift in Sources */,
-				B00000000000000000000226 /* OwnedMediaClientState.swift in Sources */,
-				B000000000000000000009C3 /* CursorImageStore.swift in Sources */,
-				B00000000000000000000227 /* PairingClientTests.swift in Sources */,
-				B00000000000000000000228 /* SessionDialer.swift in Sources */,
-					B00000000000000000000229 /* SessionConnection.swift in Sources */,
-					B0000000000000000000022A /* SignalingChannel.swift in Sources */,
-					B0000000000000000000022A1 /* MediaTransport.swift in Sources */,
-					B00000000000000000000A05 /* OwnedMediaTransport.swift in Sources */,
-					B00000000000000000000A04 /* OwnedMediaVideoSink.swift in Sources */,
-					B0000000000000000000022B /* GestureTranslator.swift in Sources */,
-				B0000000000000000000022C /* GestureTranslatorTests.swift in Sources */,
-				B0000000000000000000CE0B /* DomMirrorSurfaceTests.swift in Sources */,
-				B0000000000000000000CE0D /* ControlSurfaceVisibilityTests.swift in Sources */,
-				B0000000000000000000022D /* KeyboardSurface.swift in Sources */,
-				B0000000000000000000022E /* KeyboardSurfaceTests.swift in Sources */,
-				B0000000000000000000022E1 /* InputChannelTests.swift in Sources */,
-				B0000000000000000000022F /* SettingsStore.swift in Sources */,
-				B0000000000000000000022F1 /* InputChannel.swift in Sources */,
-				B0000000000000000000022E2 /* ThumbnailStripViewTests.swift in Sources */,
-				B0000000000000000000022F3 /* ThumbnailStripView.swift in Sources */,
-				B0000000000000000000022F5 /* SpaceAgentLabelResolver.swift in Sources */,
-				B0000000000000000000022F4 /* EdgeFollow.swift in Sources */,
-				B0000000000000000000022E3 /* EdgeFollowTests.swift in Sources */,
-				B00000000000000000000E02 /* OwnedSurfaceCompositorCacheTests.swift in Sources */,
-				B00000000000000000000F62 /* MediaDatagramFramePacket.swift in Sources */,
-				B00000000000000000000F65 /* OwnedMediaFrameRepairBuffer.swift in Sources */,
-				B00000000000000000000F67 /* OwnedMediaFrameRepairBufferTests.swift in Sources */,
-				B00000000000000000000F6A /* OwnedMediaVideoDecoder.swift in Sources */,
-				B00000000000000000000F6C /* OwnedMediaVideoDecoderTests.swift in Sources */,
-				B00000000000000000000FB1 /* AgentFeedWireTests.swift in Sources */,
-				B00000000000000000000FD2 /* AgentFeedSurface.swift in Sources */,
-				B0000000000000000000CE01 /* DomMirrorSurface.swift in Sources */,
-				B0000000000000000000CE11 /* ControlSurface.swift in Sources */,
-				B0000000000000000000CE14 /* DomMirrorStatus.swift in Sources */,
-				B0000000000000000000CE04 /* DomMirrorClient.swift in Sources */,
-				B00000000000000000000FD7 /* AgentFeedSurfaceTests.swift in Sources */,
-				B00000000000000000000FE2 /* AgentFeedSchemeHandler.swift in Sources */,
-				B00000000000000000000FE4 /* AgentFeedSchemeHandlerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -619,9 +346,9 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.agentdesk.AgentDeskClient;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				MARKETING_VERSION = 1.0;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_VERSION = 6.0;
@@ -645,9 +372,9 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.agentdesk.AgentDeskClient;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				MARKETING_VERSION = 1.0;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_VERSION = 6.0;
@@ -728,7 +455,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		A0000000000000000000EE01 /* XCLocalSwiftPackageReference "AgentDeskWire" */ = {
+		A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/AgentDeskWire;
 		};
@@ -737,12 +464,12 @@
 /* Begin XCSwiftPackageProductDependency section */
 		A0000000000000000000EE02 /* AgentDeskWire */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "AgentDeskWire" */;
+			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */;
 			productName = AgentDeskWire;
 		};
 		A0000000000000000000EE04 /* AgentDeskWire */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "AgentDeskWire" */;
+			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */;
 			productName = AgentDeskWire;
 		};
 /* End XCSwiftPackageProductDependency section */
