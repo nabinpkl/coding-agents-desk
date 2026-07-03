@@ -859,12 +859,13 @@ enum Config {
         .appendingPathComponent("ad.sock", isDirectory: false)
     static let adTokenURL = applicationSupportDirectory
         .appendingPathComponent("ad-token", isDirectory: false)
-    // ADR-0038/0039 DOM mirror (Chrome page mirroring). Feature-flagged off by default
-    // (opt-in beta), like ownedMediaCrispEnabled: the whole subsystem -- the bridge socket,
-    // the .dom QUIC lane, and the client replay surface -- stays dark unless this is set.
+    // ADR-0038/0039 DOM mirror (Chrome page mirroring). Now baked on by default for
+    // every variant (dev and stable alike): the bridge socket, the .dom QUIC lane, and
+    // the client replay surface are live unless this is explicitly disabled via the env
+    // override (AGENTDESK_DOM_MIRROR_ENABLED=0), which a test or a bisect can still use.
     static let domMirrorEnabled: Bool = enabledFlag(
         environmentKey: "AGENTDESK_DOM_MIRROR_ENABLED",
-        defaultValue: false,
+        defaultValue: true,
         environment: ProcessInfo.processInfo.environment
     )
     // Unix domain socket the sacrificial native-messaging shim (dom-bridge) dials and the
