@@ -125,14 +125,14 @@ final class SettingsStore: @unchecked Sendable {
         set { defaults.set(newValue, forKey: Key.accessoryKeySpacing); postChange() }
     }
 
-    // ADR-0006: Spaces preview strip. Default on; a daily-driver agent
-    // surface wants the at-a-glance thumbnails available immediately.
-    // Users who don't want the phone to mirror non-active-Space contents
-    // can flip it off in settings. PairingViewController reads this on
-    // input-channel open and on settings change, sends a ClientConfig
-    // frame, and mounts / unmounts the strip.
+    // ADR-0006: Spaces preview strip. Default OFF; mirroring non-active-Space
+    // contents to the phone is opt-in for trust reasons, and the strip is not
+    // wanted by default. Users who want the at-a-glance thumbnails flip it on
+    // in settings. PairingViewController reads this on input-channel open and
+    // on settings change, sends a ClientConfig frame, and mounts / unmounts
+    // the strip.
     var showSpacePreviews: Bool {
-        get { defaults.object(forKey: Key.showSpacePreviews) as? Bool ?? true }
+        get { defaults.object(forKey: Key.showSpacePreviews) as? Bool ?? false }
         set {
             defaults.set(newValue, forKey: Key.showSpacePreviews)
             postChange()
@@ -141,9 +141,10 @@ final class SettingsStore: @unchecked Sendable {
 
     // Crisp text overlay preference. Sent to the host in ClientConfig (wire key "ce"); the
     // host composes it with its own gate so this only turns the overlay off, never forces it
-    // on when the host disabled it. Default on -- the sharp-text overlay is the good default.
+    // on when the host disabled it. Default OFF -- the plain video stream is the default;
+    // users opt into the sharper (heavier) overlay in settings.
     var crispTextOverlayEnabled: Bool {
-        get { defaults.object(forKey: Key.crispTextOverlayEnabled) as? Bool ?? true }
+        get { defaults.object(forKey: Key.crispTextOverlayEnabled) as? Bool ?? false }
         set {
             defaults.set(newValue, forKey: Key.crispTextOverlayEnabled)
             postChange()
