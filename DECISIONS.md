@@ -92,3 +92,17 @@ assumption throughout the extension (`recordingTabId` is also a single global). 
 recording a second tab without stopping the first while the first is still emulated, the first tab's live
 CDP override is not eagerly cleared (it self-heals when that tab is re-recorded). This is out of scope for
 single-tab v1 and is left as-is deliberately; multi-tab recording would revisit it.
+
+### D9. Client .dom-lane sends must be serialized (bug found on device, missed by the headless gates)
+
+Physical-device testing surfaced a real bug the autonomous gates could not: scroll did nothing and the
+host logged `dom lane receive ended: malformed`. Root cause was in `DomMirrorClient`: each tap/scroll/
+emulate command was sent as its own unstructured `Task { await stream.send(...) }`. A tap is one-off
+(so tap-back, ADR-0040, always worked), but scroll fires up to once per animation frame, so many
+concurrent sends interleaved their bytes on the single bidirectional QUIC stream; the host then read a
+corrupted frame header, threw `malformed`, and its receive loop ended, killing the whole client->host
+reverse channel on the first scroll. The fix serializes all `.dom` sends through a chain (each awaits
+the prior), mirroring the host's own `DomEventLaneServer` send chain. The lesson: the headless CDP gates
+validate the worker/host/JS logic in isolation but do not exercise the client's real QUIC transport, so
+a physical (or full sim) run remains necessary to catch client-transport concurrency bugs. A device pass
+should be part of accepting any client reverse-channel feature, not optional.

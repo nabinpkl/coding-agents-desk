@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import os
 import OSLog
 
 // ADR-0038 client side of the DOM lane. Opens by announcing the .dom role (one 1-byte frame the
@@ -11,6 +12,14 @@ final class DomMirrorClient: @unchecked Sendable {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "dom-mirror-client")
     private let stream: QUIC.Stream<QUICStream>
     private var task: Task<Void, Never>?
+
+    // ADR-0047: all client->host writes on the .dom stream go through this serialized chain. Tap,
+    // scroll, and emulate commands are fire-and-forget from the main actor, and scroll fires up to
+    // once per animation frame; without serialization those concurrent stream.send calls interleave
+    // their bytes on the one QUIC stream, so the host reads a corrupted frame and its receive loop
+    // ends with `malformed` -- killing the whole reverse channel. Each enqueued send awaits the prior,
+    // mirroring the host's DomEventLaneServer send chain, so frames are written whole and in order.
+    private let sendChain = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
 
     // Set by the UI layer before start(): each received batch (raw JSON) is delivered here on the
     // main actor, ready to hand to DomMirrorSurface.deliver(rawJSON:).
@@ -66,35 +75,39 @@ final class DomMirrorClient: @unchecked Sendable {
         }
     }
 
+    // Serialize one client->host frame onto the .dom stream: chain it after the prior send so the two
+    // never interleave their bytes on the wire (see sendChain). Fire-and-forget; errors are logged.
+    private func enqueueSend(_ payload: Data) {
+        sendChain.withLock { tail in
+            let prior = tail
+            tail = Task { [stream, logger] in
+                _ = await prior?.value
+                do {
+                    try await QuicSessionStreamIO.sendPayload(payload, role: .dom, on: stream)
+                } catch {
+                    logger.notice("dom lane send failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+    }
+
     // ADR-0040: send a tap (page CSS-pixel coords, already mapped by the replayer) UP the .dom lane.
     // The host reads it and relays it to the extension for trusted dispatch via chrome.debugger.
     func sendTap(x: Double, y: Double) {
         let cmd = DomInputCommand(x: x, y: y)
         guard let payload = try? JSONEncoder().encode(cmd) else { return }
-        Task { [stream, logger] in
-            do {
-                try await QuicSessionStreamIO.sendPayload(payload, role: .dom, on: stream)
-            } catch {
-                logger.notice("dom lane tap send failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        enqueueSend(payload)
     }
 
     // ADR-0047: scroll-drive-back. Send a scroll gesture (page CSS-pixel anchor + finger movement
     // delta, already mapped by the replayer) UP the .dom lane. The host relays it to the extension,
     // which drives the REAL tab to scroll via chrome.debugger, so dynamic (lazy/infinite) pages load
-    // because it is always the live page. Mirrors sendTap; fire-and-forget, no lane-started guard
-    // needed (a scroll only originates from a gesture on an already-live surface).
+    // because it is always the live page. Serialized (see enqueueSend): scroll fires ~once per frame,
+    // so its sends must not race each other on the stream.
     func sendScroll(x: Double, y: Double, dx: Double, dy: Double) {
         let cmd = DomScrollCommand(x: x, y: y, dx: dx, dy: dy)
         guard let payload = try? JSONEncoder().encode(cmd) else { return }
-        Task { [stream, logger] in
-            do {
-                try await QuicSessionStreamIO.sendPayload(payload, role: .dom, on: stream)
-            } catch {
-                logger.notice("dom lane scroll send failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        enqueueSend(payload)
     }
 
     // ADR-0045: pause/resume DOM capture at the source. Sent UP the .dom lane; the host forwards it
@@ -105,13 +118,7 @@ final class DomMirrorClient: @unchecked Sendable {
         guard task != nil else { return }
         let cmd = DomCaptureCommand(on: on)
         guard let payload = try? JSONEncoder().encode(cmd) else { return }
-        Task { [stream, logger] in
-            do {
-                try await QuicSessionStreamIO.sendPayload(payload, role: .dom, on: stream)
-            } catch {
-                logger.notice("dom lane capture send failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        enqueueSend(payload)
     }
 
     // ADR-0048: toggle host-side device emulation (true mobile). Sent UP the .dom lane; the host
@@ -122,13 +129,7 @@ final class DomMirrorClient: @unchecked Sendable {
         guard task != nil else { return }
         let cmd = DomEmulateCommand(mobile: mobile)
         guard let payload = try? JSONEncoder().encode(cmd) else { return }
-        Task { [stream, logger] in
-            do {
-                try await QuicSessionStreamIO.sendPayload(payload, role: .dom, on: stream)
-            } catch {
-                logger.notice("dom lane emulate send failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        enqueueSend(payload)
     }
 
     func stop() {
