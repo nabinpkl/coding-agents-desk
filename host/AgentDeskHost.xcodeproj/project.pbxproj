@@ -3,181 +3,12 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		A0000000000000000000EE03 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE02 /* AgentDeskWire */; };
 		A0000000000000000000EE05 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE04 /* AgentDeskWire */; };
-		A00000000000000000000201 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000101 /* AppDelegate.swift */; };
-		A00000000000000000000203 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Config.swift */; };
-		A00000000000000000000204 /* HostSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HostSigningKeyStore.swift */; };
-		A00000000000000000000205 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000105 /* KeychainStore.swift */; };
-		A00000000000000000000206 /* Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000106 /* Pairing.swift */; };
-		A00000000000000000000352 /* PairingOfferSender.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000351 /* PairingOfferSender.swift */; };
-		A00000000000000000000362 /* TailnetIdentityProber.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000361 /* TailnetIdentityProber.swift */; };
-		A00000000000000000000372 /* PreArmedTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000371 /* PreArmedTargetStore.swift */; };
-		A00000000000000000000373 /* PreArmedTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000371 /* PreArmedTargetStore.swift */; };
-		A00000000000000000000382 /* PreArmedTargetStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000381 /* PreArmedTargetStoreTests.swift */; };
-		A00000000000000000000207 /* PairingSignalingServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000107 /* PairingSignalingServer.swift */; };
-		A00000000000000000000208 /* PopoverViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000108 /* PopoverViewController.swift */; };
-		A00000000000000000000209 /* QRCodeRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000109 /* QRCodeRenderer.swift */; };
-		A0000000000000000000020A /* GraphicsSendState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010A /* GraphicsSendState.swift */; };
-		A0000000000000000000020B /* TailnetDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010B /* TailnetDiscovery.swift */; };
-		A0000000000000000000020C /* LaunchAgentInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010D /* LaunchAgentInstaller.swift */; };
-		A0000000000000000000020D /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010E /* main.swift */; };
-		A0000000000000000000020F /* TLSIdentityLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010F /* TLSIdentityLoader.swift */; };
-		A00000000000000000000210 /* SessionAuthenticator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000110 /* SessionAuthenticator.swift */; };
-		A00000000000000000000211 /* MediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000111 /* MediaTransport.swift */; };
-		A00000000000000000000212 /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000112 /* SignalingChannel.swift */; };
-		A00000000000000000000213 /* VideoFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000113 /* VideoFrameSource.swift */; };
-		A00000000000000000000214 /* MediaStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000114 /* MediaStack.swift */; };
-		A00000000000000000000A03 /* OwnedMediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A02 /* OwnedMediaTransport.swift */; };
-		A00000000000000000000A05 /* OwnedMediaFrameScaler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */; };
-		A00000000000000000000A06 /* OwnedMediaFrameScaler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */; };
-		A00000000000000000000A08 /* ScrollDeltaEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A07 /* ScrollDeltaEngine.swift */; };
-		A00000000000000000000A09 /* ScrollDeltaEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A07 /* ScrollDeltaEngine.swift */; };
-		A00000000000000000000DA1 /* FrameComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DA0 /* FrameComposer.swift */; };
-		A00000000000000000000DA2 /* FrameComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DA0 /* FrameComposer.swift */; };
-		A00000000000000000000A0E /* ScrollActivityTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A0D /* ScrollActivityTracker.swift */; };
-		A00000000000000000000A0F /* ScrollActivityTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A0D /* ScrollActivityTracker.swift */; };
-		A00000000000000000000E21 /* MotionGovernor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E20 /* MotionGovernor.swift */; };
-		A00000000000000000000E22 /* MotionGovernor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E20 /* MotionGovernor.swift */; };
-		A00000000000000000000E24 /* MotionGovernorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E23 /* MotionGovernorTests.swift */; };
-		A00000000000000000000A11 /* ScrollActivityTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000A10 /* ScrollActivityTrackerTests.swift */; };
-		A00000000000000000000219 /* TestPatternFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000119 /* TestPatternFrameSource.swift */; };
-		A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */; };
-		A0000000000000000000021B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011B /* Assets.xcassets */; };
-		A0000000000000000000021C /* InputDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011C /* InputDispatcher.swift */; };
-		A00000000000000000000231 /* SessionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011D /* SessionRegistry.swift */; };
-		A00000000000000000000232 /* KeyCodeMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011E /* KeyCodeMap.swift */; };
-		A0000000000000000000022E /* QuicSessionStreamFrameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000124 /* QuicSessionStreamFrameTests.swift */; };
-		A00000000000000000001071 /* AgentFeedWireTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001070 /* AgentFeedWireTests.swift */; };
-		A00000000000000000001073 /* AgentEngineSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001072 /* AgentEngineSidecar.swift */; };
-		A00000000000000000001074 /* AgentEngineSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001072 /* AgentEngineSidecar.swift */; };
-		A00000000000000000001076 /* AgentEngineSidecarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001075 /* AgentEngineSidecarTests.swift */; };
-		A00000000000000000001078 /* atc-sidecar in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001077 /* atc-sidecar */; };
-		A00000000000000000001079 /* AgentFeedSidecarClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000107A /* AgentFeedSidecarClient.swift */; };
-		A0000000000000000000107B /* AgentFeedSidecarClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000107A /* AgentFeedSidecarClient.swift */; };
-		A0000000000000000000107C /* AgentFeedBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000107D /* AgentFeedBridge.swift */; };
-		A0000000000000000000107E /* AgentFeedBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000107D /* AgentFeedBridge.swift */; };
-		A00000000000000000001080 /* AgentFeedBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001081 /* AgentFeedBridgeTests.swift */; };
-		A00000000000000000000342 /* TailnetDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000341 /* TailnetDiscoveryTests.swift */; };
-		A00000000000000000000222 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Config.swift */; };
-		A00000000000000000000223 /* HostSigningKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HostSigningKeyStore.swift */; };
-		A00000000000000000000224 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000105 /* KeychainStore.swift */; };
-		A00000000000000000000225 /* Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000106 /* Pairing.swift */; };
-		A00000000000000000000353 /* PairingOfferSender.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000351 /* PairingOfferSender.swift */; };
-		A00000000000000000000363 /* TailnetIdentityProber.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000361 /* TailnetIdentityProber.swift */; };
-		A00000000000000000000226 /* GraphicsSendState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010A /* GraphicsSendState.swift */; };
-		A00000000000000000000227 /* TailnetDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010B /* TailnetDiscovery.swift */; };
-		A00000000000000000000228 /* PairingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000121 /* PairingTests.swift */; };
-		A00000000000000000000229 /* LaunchAgentInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000010D /* LaunchAgentInstaller.swift */; };
-		A0000000000000000000022A /* LaunchAgentInstallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000122 /* LaunchAgentInstallerTests.swift */; };
-		A0000000000000000000022B /* SessionAuthenticator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000110 /* SessionAuthenticator.swift */; };
-		A0000000000000000000022C /* SessionAuthenticatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000123 /* SessionAuthenticatorTests.swift */; };
-		A0000000000000000000022F /* InputDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011C /* InputDispatcher.swift */; };
-		A00000000000000000000230 /* InputDispatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000125 /* InputDispatcherTests.swift */; };
-		A00000000000000000000233 /* KeyCodeMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011E /* KeyCodeMap.swift */; };
-		A00000000000000000000234 /* InputChannelServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011F /* InputChannelServer.swift */; };
-		A00000000000000000000235 /* SpacesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000120 /* SpacesProvider.swift */; };
-		A00000000000000000000236 /* SpacesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000120 /* SpacesProvider.swift */; };
-		A000000000000000000009A1 /* CursorMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009A0 /* CursorMonitor.swift */; };
-		A000000000000000000009A2 /* CursorMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009A0 /* CursorMonitor.swift */; };
-		A000000000000000000009B1 /* CursorMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009B0 /* CursorMonitorTests.swift */; };
-		A0000000000000000000CA01 /* CursorChangeSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CA00 /* CursorChangeSignal.swift */; };
-		A0000000000000000000CA02 /* CursorChangeSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CA00 /* CursorChangeSignal.swift */; };
-		A0000000000000000000CB01 /* CursorChangeSignalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CB00 /* CursorChangeSignalTests.swift */; };
-		A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009D0 /* ScrollQualityTests.swift */; };
-		A00000000000000000000DA4 /* FrameComposerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DA3 /* FrameComposerTests.swift */; };
-		A00000000000000000000DB4 /* ScrollDeltaEngineDamageRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */; };
-		A00000000000000000000F16 /* ScrollDeltaEngineHealTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F15 /* ScrollDeltaEngineHealTests.swift */; };
-		A00000000000000000000DC4 /* TileGridEmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DC3 /* TileGridEmissionTests.swift */; };
-		A00000000000000000000DD4 /* UnackedFrameCapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DD3 /* UnackedFrameCapTests.swift */; };
-		A00000000000000000000DE4 /* ResetPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DE3 /* ResetPolicyTests.swift */; };
-		A00000000000000000000237 /* SpacesProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000126 /* SpacesProviderTests.swift */; };
-		A00000000000000000000238 /* SpaceThumbnailProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000127 /* SpaceThumbnailProvider.swift */; };
-		A00000000000000000000239 /* SpaceAgentModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000128 /* SpaceAgentModel.swift */; };
-		A0000000000000000000023A /* SpaceAgentViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000129 /* SpaceAgentViewController.swift */; };
-		A0000000000000000000023B /* SpaceAgentController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012A /* SpaceAgentController.swift */; };
-		A0000000000000000000023C /* SpaceAgentModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000128 /* SpaceAgentModel.swift */; };
-		A0000000000000000000023D /* SpaceAgentViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000129 /* SpaceAgentViewController.swift */; };
-		A0000000000000000000023E /* SpaceAgentController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012A /* SpaceAgentController.swift */; };
-		A0000000000000000000023F /* SpaceThumbnailProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000127 /* SpaceThumbnailProvider.swift */; };
-		A00000000000000000000240 /* SpaceAgentModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012B /* SpaceAgentModelTests.swift */; };
-		A00000000000000000000241 /* SpaceThumbnailProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */; };
-		A00000000000000000000242 /* SpaceAgentLabelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012D /* SpaceAgentLabelResolver.swift */; };
-		A00000000000000000000243 /* SpaceAgentLabelResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012D /* SpaceAgentLabelResolver.swift */; };
-		A00000000000000000000244 /* WAVEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012E /* WAVEncoder.swift */; };
-		A00000000000000000000245 /* MicRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012F /* MicRecorder.swift */; };
-		A00000000000000000000246 /* TranscriptionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000130 /* TranscriptionClient.swift */; };
-		A00000000000000000000247 /* DictationBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000131 /* DictationBarController.swift */; };
-		A00000000000000000000248 /* DictationBarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000132 /* DictationBarViewController.swift */; };
-		A00000000000000000000250 /* TerminalLauncherController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000150 /* TerminalLauncherController.swift */; };
-		A00000000000000000000251 /* TerminalLauncherViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000151 /* TerminalLauncherViewController.swift */; };
-		A00000000000000000000249 /* WAVEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000012E /* WAVEncoder.swift */; };
-		A0000000000000000000024A /* WAVEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000133 /* WAVEncoderTests.swift */; };
-		A00000000000000000000252 /* MediaTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000111 /* MediaTransport.swift */; };
-		A00000000000000000000253 /* SignalingChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000112 /* SignalingChannel.swift */; };
-		A00000000000000000000254 /* VideoFrameSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000113 /* VideoFrameSource.swift */; };
-		A00000000000000000000255 /* SessionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011D /* SessionRegistry.swift */; };
-		A00000000000000000000256 /* InputChannelServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000011F /* InputChannelServer.swift */; };
-		A00000000000000000000257 /* GestureChildController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000152 /* GestureChildController.swift */; };
-		A00000000000000000000258 /* GestureChildController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000152 /* GestureChildController.swift */; };
-		A00000000000000000000259 /* GestureChildControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000153 /* GestureChildControllerTests.swift */; };
-		A0000000000000000000025A /* GesturePortalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000154 /* GesturePortalController.swift */; };
-		A0000000000000000000025B /* GesturePortalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000154 /* GesturePortalController.swift */; };
-		A0000000000000000000025C /* JsonlChildProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000155 /* JsonlChildProcess.swift */; };
-		A0000000000000000000025D /* JsonlChildProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000155 /* JsonlChildProcess.swift */; };
-		A0000000000000000000025E /* VoiceChildController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000156 /* VoiceChildController.swift */; };
-		A0000000000000000000025F /* VoiceChildController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000156 /* VoiceChildController.swift */; };
-		A00000000000000000000260 /* JsonlChildProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000157 /* JsonlChildProcessTests.swift */; };
-		A00000000000000000000261 /* VoiceChildControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000158 /* VoiceChildControllerTests.swift */; };
-		A00000000000000000000262 /* AgentSayLocalServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000159 /* AgentSayLocalServer.swift */; };
-		A0000000000000000000CC10 /* DomEventLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC12 /* DomEventLaneServer.swift */; };
-		A0000000000000000000CC13 /* DomMirrorRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC15 /* DomMirrorRelay.swift */; };
-		A0000000000000000000CC00 /* DomBridgeServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC02 /* DomBridgeServer.swift */; };
-		A00000000000000000000263 /* AgentSayLocalServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000159 /* AgentSayLocalServer.swift */; };
-		A0000000000000000000CC11 /* DomEventLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC12 /* DomEventLaneServer.swift */; };
-		A0000000000000000000CC14 /* DomMirrorRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC15 /* DomMirrorRelay.swift */; };
-		A0000000000000000000CC01 /* DomBridgeServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC02 /* DomBridgeServer.swift */; };
-		A00000000000000000000264 /* AgentSayLocalServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000015A /* AgentSayLocalServerTests.swift */; };
-		A0000000000000000000CC16 /* DomMirrorRelayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC17 /* DomMirrorRelayTests.swift */; };
-		A0000000000000000000CC18 /* DomBridgeIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC19 /* DomBridgeIntegrationTests.swift */; };
-		A0000000000000000000CC03 /* DomBridgeServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC04 /* DomBridgeServerTests.swift */; };
-		A00000000000000000000DF1 /* TileContentCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DF0 /* TileContentCache.swift */; };
-		A00000000000000000000DF2 /* TileContentCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DF0 /* TileContentCache.swift */; };
-		A00000000000000000000DF4 /* TileContentCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DF3 /* TileContentCacheTests.swift */; };
-		A00000000000000000000F51 /* VideoToolboxOwnedMediaEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F50 /* VideoToolboxOwnedMediaEncoder.swift */; };
-		A00000000000000000000F52 /* VideoToolboxOwnedMediaEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F50 /* VideoToolboxOwnedMediaEncoder.swift */; };
-		A00000000000000000000F54 /* VideoToolboxOwnedMediaEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F53 /* VideoToolboxOwnedMediaEncoderTests.swift */; };
-		A00000000000000000001011 /* MediaQualityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001010 /* MediaQualityController.swift */; };
-		A00000000000000000001012 /* MediaQualityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001010 /* MediaQualityController.swift */; };
-		A00000000000000000001021 /* OwnedTileCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001020 /* OwnedTileCodec.swift */; };
-		A00000000000000000001022 /* OwnedTileCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001020 /* OwnedTileCodec.swift */; };
-		A000000000000000000010B1 /* OwnedMediaCrispConvert.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000010B0 /* OwnedMediaCrispConvert.swift */; };
-		A000000000000000000010B2 /* OwnedMediaCrispConvert.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000010B0 /* OwnedMediaCrispConvert.swift */; };
-		A00000000000000000001031 /* OwnedTileCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001030 /* OwnedTileCodecTests.swift */; };
-		A000000000000000000010A1 /* OwnedMediaCrispConvertTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000010A0 /* OwnedMediaCrispConvertTests.swift */; };
-		A00000000000000000001041 /* RegionCrispController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001040 /* RegionCrispController.swift */; };
-		A00000000000000000001042 /* RegionCrispController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001040 /* RegionCrispController.swift */; };
-		A00000000000000000001051 /* RegionCrispControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001050 /* RegionCrispControllerTests.swift */; };
-		A00000000000000000001061 /* GraphicsLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001060 /* GraphicsLaneServer.swift */; };
-		A00000000000000000001062 /* GraphicsLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000001060 /* GraphicsLaneServer.swift */; };
-		A00000000000000000000F61 /* MediaDatagramFramePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F60 /* MediaDatagramFramePacket.swift */; };
-		A00000000000000000000F62 /* MediaDatagramFramePacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F60 /* MediaDatagramFramePacket.swift */; };
-		A00000000000000000000F64 /* OwnedMediaResendRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F63 /* OwnedMediaResendRing.swift */; };
-		A00000000000000000000F65 /* OwnedMediaResendRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F63 /* OwnedMediaResendRing.swift */; };
-		A00000000000000000000F67 /* MediaDatagramCarrierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F66 /* MediaDatagramCarrierTests.swift */; };
-		A00000000000000000000F69 /* OwnedMediaDatagramSendPacer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F68 /* OwnedMediaDatagramSendPacer.swift */; };
-		A00000000000000000000F6A /* OwnedMediaDatagramSendPacer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F68 /* OwnedMediaDatagramSendPacer.swift */; };
-		A00000000000000000000F6F /* OwnedMediaDatagramSendPacerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000F6E /* OwnedMediaDatagramSendPacerTests.swift */; };
-		A00000000000000000000E02 /* OwnedGraphicsCommandCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E01 /* OwnedGraphicsCommandCodecTests.swift */; };
-		A00000000000000000000E04 /* HybridTileEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E03 /* HybridTileEncodingTests.swift */; };
-		A00000000000000000000E06 /* FullFrameTilerRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E05 /* FullFrameTilerRoutingTests.swift */; };
-		A00000000000000000000E08 /* FrameByteBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E07 /* FrameByteBudgetTests.swift */; };
-		A00000000000000000000E0A /* PerTileJpegRoundTripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000E09 /* PerTileJpegRoundTripTests.swift */; };
-		A00000000000000000000FA3 /* ClientDiagnosticsRequester.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000FA2 /* ClientDiagnosticsRequester.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -191,127 +22,50 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		A00000000000000000000101 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		A00000000000000000000103 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
-		A00000000000000000000104 /* HostSigningKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSigningKeyStore.swift; sourceTree = "<group>"; };
-		A00000000000000000000105 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
-		A00000000000000000000106 /* Pairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pairing.swift; sourceTree = "<group>"; };
-		A00000000000000000000351 /* PairingOfferSender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingOfferSender.swift; sourceTree = "<group>"; };
-		A00000000000000000000361 /* TailnetIdentityProber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailnetIdentityProber.swift; sourceTree = "<group>"; };
-		A00000000000000000000371 /* PreArmedTargetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreArmedTargetStore.swift; sourceTree = "<group>"; };
-		A00000000000000000000381 /* PreArmedTargetStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreArmedTargetStoreTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000107 /* PairingSignalingServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingSignalingServer.swift; sourceTree = "<group>"; };
-		A00000000000000000000108 /* PopoverViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopoverViewController.swift; sourceTree = "<group>"; };
-		A00000000000000000000109 /* QRCodeRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeRenderer.swift; sourceTree = "<group>"; };
-		A0000000000000000000010A /* GraphicsSendState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphicsSendState.swift; sourceTree = "<group>"; };
-		A0000000000000000000011B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A0000000000000000000010B /* TailnetDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailnetDiscovery.swift; sourceTree = "<group>"; };
-		A0000000000000000000010C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A0000000000000000000010D /* LaunchAgentInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstaller.swift; sourceTree = "<group>"; };
-		A0000000000000000000010E /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
-		A0000000000000000000010F /* TLSIdentityLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TLSIdentityLoader.swift; sourceTree = "<group>"; };
-		A00000000000000000000110 /* SessionAuthenticator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAuthenticator.swift; sourceTree = "<group>"; };
-		A00000000000000000000111 /* MediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaTransport.swift; sourceTree = "<group>"; };
-		A00000000000000000000112 /* SignalingChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalingChannel.swift; sourceTree = "<group>"; };
-		A00000000000000000000113 /* VideoFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFrameSource.swift; sourceTree = "<group>"; };
-		A00000000000000000000114 /* MediaStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaStack.swift; sourceTree = "<group>"; };
-		A00000000000000000000FA2 /* ClientDiagnosticsRequester.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientDiagnosticsRequester.swift; sourceTree = "<group>"; };
-		A00000000000000000000A02 /* OwnedMediaTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaTransport.swift; sourceTree = "<group>"; };
-		A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaFrameScaler.swift; sourceTree = "<group>"; };
-		A00000000000000000000A07 /* ScrollDeltaEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaEngine.swift; sourceTree = "<group>"; };
-		A00000000000000000000DA0 /* FrameComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameComposer.swift; sourceTree = "<group>"; };
-		A00000000000000000000A0D /* ScrollActivityTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollActivityTracker.swift; sourceTree = "<group>"; };
-		A00000000000000000000E20 /* MotionGovernor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionGovernor.swift; sourceTree = "<group>"; };
-		A00000000000000000000E23 /* MotionGovernorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionGovernorTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000A10 /* ScrollActivityTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollActivityTrackerTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000119 /* TestPatternFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestPatternFrameSource.swift; sourceTree = "<group>"; };
-		A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureKitFrameSource.swift; sourceTree = "<group>"; };
-		A0000000000000000000011C /* InputDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcher.swift; sourceTree = "<group>"; };
-		A0000000000000000000011D /* SessionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRegistry.swift; sourceTree = "<group>"; };
-		A0000000000000000000011E /* KeyCodeMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCodeMap.swift; sourceTree = "<group>"; };
-		A0000000000000000000011F /* InputChannelServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputChannelServer.swift; sourceTree = "<group>"; };
-		A00000000000000000000120 /* SpacesProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacesProvider.swift; sourceTree = "<group>"; };
-		A00000000000000000000126 /* SpacesProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacesProviderTests.swift; sourceTree = "<group>"; };
-		A000000000000000000009A0 /* CursorMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorMonitor.swift; sourceTree = "<group>"; };
-		A000000000000000000009B0 /* CursorMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorMonitorTests.swift; sourceTree = "<group>"; };
-		A0000000000000000000CA00 /* CursorChangeSignal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorChangeSignal.swift; sourceTree = "<group>"; };
-		A0000000000000000000CB00 /* CursorChangeSignalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorChangeSignalTests.swift; sourceTree = "<group>"; };
-		A000000000000000000009D0 /* ScrollQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollQualityTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000DA3 /* FrameComposerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameComposerTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaEngineDamageRoutingTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000F15 /* ScrollDeltaEngineHealTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaEngineHealTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000DC3 /* TileGridEmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileGridEmissionTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000DD3 /* UnackedFrameCapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnackedFrameCapTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000DE3 /* ResetPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResetPolicyTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000124 /* QuicSessionStreamFrameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuicSessionStreamFrameTests.swift; sourceTree = "<group>"; };
-		A00000000000000000001070 /* AgentFeedWireTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedWireTests.swift; sourceTree = "<group>"; };
-		A00000000000000000001072 /* AgentEngineSidecar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEngineSidecar.swift; sourceTree = "<group>"; };
-		A00000000000000000001075 /* AgentEngineSidecarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEngineSidecarTests.swift; sourceTree = "<group>"; };
-		A00000000000000000001077 /* atc-sidecar */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = "atc-sidecar"; sourceTree = "<group>"; };
-		A0000000000000000000107A /* AgentFeedSidecarClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedSidecarClient.swift; sourceTree = "<group>"; };
-		A0000000000000000000107D /* AgentFeedBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedBridge.swift; sourceTree = "<group>"; };
-		A00000000000000000001081 /* AgentFeedBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentFeedBridgeTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000341 /* TailnetDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TailnetDiscoveryTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000125 /* InputDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDispatcherTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000121 /* PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000122 /* LaunchAgentInstallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentInstallerTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000123 /* SessionAuthenticatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAuthenticatorTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000127 /* SpaceThumbnailProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceThumbnailProvider.swift; sourceTree = "<group>"; };
-		A00000000000000000000128 /* SpaceAgentModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceAgentModel.swift; sourceTree = "<group>"; };
-		A00000000000000000000129 /* SpaceAgentViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceAgentViewController.swift; sourceTree = "<group>"; };
-		A0000000000000000000012A /* SpaceAgentController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceAgentController.swift; sourceTree = "<group>"; };
-		A0000000000000000000012B /* SpaceAgentModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceAgentModelTests.swift; sourceTree = "<group>"; };
-		A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceThumbnailProviderTests.swift; sourceTree = "<group>"; };
-		A0000000000000000000012D /* SpaceAgentLabelResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceAgentLabelResolver.swift; sourceTree = "<group>"; };
-		A0000000000000000000012E /* WAVEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVEncoder.swift; sourceTree = "<group>"; };
-		A0000000000000000000012F /* MicRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicRecorder.swift; sourceTree = "<group>"; };
-		A00000000000000000000130 /* TranscriptionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionClient.swift; sourceTree = "<group>"; };
-		A00000000000000000000131 /* DictationBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationBarController.swift; sourceTree = "<group>"; };
-		A00000000000000000000132 /* DictationBarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationBarViewController.swift; sourceTree = "<group>"; };
-		A00000000000000000000150 /* TerminalLauncherController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLauncherController.swift; sourceTree = "<group>"; };
-		A00000000000000000000151 /* TerminalLauncherViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLauncherViewController.swift; sourceTree = "<group>"; };
-		A00000000000000000000152 /* GestureChildController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureChildController.swift; sourceTree = "<group>"; };
-		A00000000000000000000153 /* GestureChildControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureChildControllerTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000154 /* GesturePortalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GesturePortalController.swift; sourceTree = "<group>"; };
-		A00000000000000000000155 /* JsonlChildProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JsonlChildProcess.swift; sourceTree = "<group>"; };
-		A00000000000000000000156 /* VoiceChildController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChildController.swift; sourceTree = "<group>"; };
-		A00000000000000000000157 /* JsonlChildProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JsonlChildProcessTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000158 /* VoiceChildControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChildControllerTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000159 /* AgentSayLocalServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSayLocalServer.swift; sourceTree = "<group>"; };
-		A0000000000000000000CC12 /* DomEventLaneServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomEventLaneServer.swift; sourceTree = "<group>"; };
-		A0000000000000000000CC15 /* DomMirrorRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomMirrorRelay.swift; sourceTree = "<group>"; };
-		A0000000000000000000CC02 /* DomBridgeServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomBridgeServer.swift; sourceTree = "<group>"; };
-		A0000000000000000000015A /* AgentSayLocalServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSayLocalServerTests.swift; sourceTree = "<group>"; };
-		A0000000000000000000CC17 /* DomMirrorRelayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomMirrorRelayTests.swift; sourceTree = "<group>"; };
-		A0000000000000000000CC19 /* DomBridgeIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomBridgeIntegrationTests.swift; sourceTree = "<group>"; };
-		A0000000000000000000CC04 /* DomBridgeServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomBridgeServerTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000DF0 /* TileContentCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileContentCache.swift; sourceTree = "<group>"; };
-		A00000000000000000000DF3 /* TileContentCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileContentCacheTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000F50 /* VideoToolboxOwnedMediaEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoToolboxOwnedMediaEncoder.swift; sourceTree = "<group>"; };
-		A00000000000000000000F53 /* VideoToolboxOwnedMediaEncoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoToolboxOwnedMediaEncoderTests.swift; sourceTree = "<group>"; };
-		A00000000000000000001010 /* MediaQualityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaQualityController.swift; sourceTree = "<group>"; };
-		A00000000000000000001020 /* OwnedTileCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedTileCodec.swift; sourceTree = "<group>"; };
-		A000000000000000000010B0 /* OwnedMediaCrispConvert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaCrispConvert.swift; sourceTree = "<group>"; };
-		A00000000000000000001030 /* OwnedTileCodecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedTileCodecTests.swift; sourceTree = "<group>"; };
-		A000000000000000000010A0 /* OwnedMediaCrispConvertTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaCrispConvertTests.swift; sourceTree = "<group>"; };
-		A00000000000000000001040 /* RegionCrispController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionCrispController.swift; sourceTree = "<group>"; };
-		A00000000000000000001050 /* RegionCrispControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionCrispControllerTests.swift; sourceTree = "<group>"; };
-		A00000000000000000001060 /* GraphicsLaneServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphicsLaneServer.swift; sourceTree = "<group>"; };
-		A00000000000000000000F60 /* MediaDatagramFramePacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDatagramFramePacket.swift; sourceTree = "<group>"; };
-		A00000000000000000000F63 /* OwnedMediaResendRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaResendRing.swift; sourceTree = "<group>"; };
-		A00000000000000000000F66 /* MediaDatagramCarrierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDatagramCarrierTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000F68 /* OwnedMediaDatagramSendPacer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaDatagramSendPacer.swift; sourceTree = "<group>"; };
-		A00000000000000000000F6E /* OwnedMediaDatagramSendPacerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedMediaDatagramSendPacerTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000E01 /* OwnedGraphicsCommandCodecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OwnedGraphicsCommandCodecTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000E03 /* HybridTileEncodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HybridTileEncodingTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000E05 /* FullFrameTilerRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullFrameTilerRoutingTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000E07 /* FrameByteBudgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameByteBudgetTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000E09 /* PerTileJpegRoundTripTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerTileJpegRoundTripTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000133 /* WAVEncoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WAVEncoderTests.swift; sourceTree = "<group>"; };
-		A00000000000000000000134 /* AgentDeskHost.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AgentDeskHost.entitlements; sourceTree = "<group>"; };
 		A00000000000000000000141 /* AgentDeskHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00000000000000000000142 /* AgentDeskHostTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskHostTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		DDD787A52FF7B21600F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A00000000000000000000004 /* AgentDeskHost */;
+		};
+		DDD787A62FF7B21600F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				AppDelegate.swift,
+				Assets.xcassets,
+				"atc-sidecar",
+				ClientDiagnosticsRequester.swift,
+				DictationBar/DictationBarController.swift,
+				DictationBar/DictationBarViewController.swift,
+				Info.plist,
+				main.swift,
+				MediaStack.swift,
+				MicRecorder.swift,
+				OwnedMediaTransport.swift,
+				PairingSignalingServer.swift,
+				PopoverViewController.swift,
+				QRCodeRenderer.swift,
+				ScreenCaptureKitFrameSource.swift,
+				TerminalLauncher/TerminalLauncherController.swift,
+				TerminalLauncher/TerminalLauncherViewController.swift,
+				TestPatternFrameSource.swift,
+				TLSIdentityLoader.swift,
+				TranscriptionClient.swift,
+			);
+			target = A00000000000000000000005 /* AgentDeskHostTests */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		DDD787112FF7B21500F8BB76 /* AgentDeskHost */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (DDD787A52FF7B21600F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, DDD787A62FF7B21600F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = AgentDeskHost; sourceTree = "<group>"; };
+		DDD787D32FF7B32600F8BB76 /* AgentDeskHostTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = AgentDeskHostTests; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A00000000000000000000302 /* Frameworks */ = {
@@ -336,8 +90,8 @@
 		A00000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
-				A00000000000000000000010 /* AgentDeskHost */,
-				A00000000000000000000011 /* AgentDeskHostTests */,
+				DDD787112FF7B21500F8BB76 /* AgentDeskHost */,
+				DDD787D32FF7B32600F8BB76 /* AgentDeskHostTests */,
 				A00000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -349,162 +103,6 @@
 				A00000000000000000000142 /* AgentDeskHostTests.xctest */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		A00000000000000000000010 /* AgentDeskHost */ = {
-			isa = PBXGroup;
-			children = (
-				A00000000000000000000012 /* SpaceAgent */,
-				A00000000000000000000013 /* DictationBar */,
-				A00000000000000000000050 /* TerminalLauncher */,
-				A00000000000000000000101 /* AppDelegate.swift */,
-				A00000000000000000000134 /* AgentDeskHost.entitlements */,
-				A00000000000000000000103 /* Config.swift */,
-				A00000000000000000000FA2 /* ClientDiagnosticsRequester.swift */,
-				A0000000000000000000012E /* WAVEncoder.swift */,
-				A0000000000000000000012F /* MicRecorder.swift */,
-				A00000000000000000000130 /* TranscriptionClient.swift */,
-				A00000000000000000000104 /* HostSigningKeyStore.swift */,
-				A00000000000000000000105 /* KeychainStore.swift */,
-				A0000000000000000000010D /* LaunchAgentInstaller.swift */,
-				A0000000000000000000010E /* main.swift */,
-				A00000000000000000000106 /* Pairing.swift */,
-				A00000000000000000000351 /* PairingOfferSender.swift */,
-				A00000000000000000000361 /* TailnetIdentityProber.swift */,
-				A00000000000000000000107 /* PairingSignalingServer.swift */,
-				A00000000000000000000108 /* PopoverViewController.swift */,
-				A00000000000000000000109 /* QRCodeRenderer.swift */,
-				A0000000000000000000010A /* GraphicsSendState.swift */,
-				A0000000000000000000010B /* TailnetDiscovery.swift */,
-				A00000000000000000000371 /* PreArmedTargetStore.swift */,
-				A0000000000000000000010F /* TLSIdentityLoader.swift */,
-				A00000000000000000000110 /* SessionAuthenticator.swift */,
-				A00000000000000000000111 /* MediaTransport.swift */,
-				A00000000000000000000112 /* SignalingChannel.swift */,
-				A00000000000000000000113 /* VideoFrameSource.swift */,
-				A00000000000000000000114 /* MediaStack.swift */,
-				A00000000000000000000A04 /* OwnedMediaFrameScaler.swift */,
-				A00000000000000000000A02 /* OwnedMediaTransport.swift */,
-				A000000000000000000010B0 /* OwnedMediaCrispConvert.swift */,
-				A00000000000000000000A07 /* ScrollDeltaEngine.swift */,
-				A00000000000000000000DA0 /* FrameComposer.swift */,
-				A00000000000000000000A0D /* ScrollActivityTracker.swift */,
-				A00000000000000000000E20 /* MotionGovernor.swift */,
-				A00000000000000000000119 /* TestPatternFrameSource.swift */,
-				A0000000000000000000011A /* ScreenCaptureKitFrameSource.swift */,
-				A0000000000000000000011C /* InputDispatcher.swift */,
-				A0000000000000000000011D /* SessionRegistry.swift */,
-				A0000000000000000000011E /* KeyCodeMap.swift */,
-				A0000000000000000000011F /* InputChannelServer.swift */,
-				A00000000000000000000159 /* AgentSayLocalServer.swift */,
-				A0000000000000000000CC12 /* DomEventLaneServer.swift */,
-				A0000000000000000000CC15 /* DomMirrorRelay.swift */,
-				A0000000000000000000CC02 /* DomBridgeServer.swift */,
-				A00000000000000000000155 /* JsonlChildProcess.swift */,
-				A00000000000000000001072 /* AgentEngineSidecar.swift */,
-				A0000000000000000000107A /* AgentFeedSidecarClient.swift */,
-				A0000000000000000000107D /* AgentFeedBridge.swift */,
-				A00000000000000000000152 /* GestureChildController.swift */,
-				A00000000000000000000154 /* GesturePortalController.swift */,
-				A00000000000000000000156 /* VoiceChildController.swift */,
-				A00000000000000000000120 /* SpacesProvider.swift */,
-				A000000000000000000009A0 /* CursorMonitor.swift */,
-				A0000000000000000000CA00 /* CursorChangeSignal.swift */,
-				A00000000000000000000127 /* SpaceThumbnailProvider.swift */,
-				A00000000000000000000DF0 /* TileContentCache.swift */,
-				A00000000000000000001010 /* MediaQualityController.swift */,
-				A00000000000000000001020 /* OwnedTileCodec.swift */,
-				A00000000000000000001040 /* RegionCrispController.swift */,
-				A00000000000000000001060 /* GraphicsLaneServer.swift */,
-				A00000000000000000000F50 /* VideoToolboxOwnedMediaEncoder.swift */,
-				A00000000000000000000F60 /* MediaDatagramFramePacket.swift */,
-				A00000000000000000000F63 /* OwnedMediaResendRing.swift */,
-				A00000000000000000000F68 /* OwnedMediaDatagramSendPacer.swift */,
-				A0000000000000000000011B /* Assets.xcassets */,
-				A00000000000000000001077 /* atc-sidecar */,
-				A0000000000000000000010C /* Info.plist */,
-			);
-			path = AgentDeskHost;
-			sourceTree = "<group>";
-		};
-		A00000000000000000000012 /* SpaceAgent */ = {
-			isa = PBXGroup;
-			children = (
-				A00000000000000000000128 /* SpaceAgentModel.swift */,
-				A00000000000000000000129 /* SpaceAgentViewController.swift */,
-				A0000000000000000000012A /* SpaceAgentController.swift */,
-				A0000000000000000000012D /* SpaceAgentLabelResolver.swift */,
-			);
-			path = SpaceAgent;
-			sourceTree = "<group>";
-		};
-		A00000000000000000000050 /* TerminalLauncher */ = {
-			isa = PBXGroup;
-			children = (
-				A00000000000000000000150 /* TerminalLauncherController.swift */,
-				A00000000000000000000151 /* TerminalLauncherViewController.swift */,
-			);
-			path = TerminalLauncher;
-			sourceTree = "<group>";
-		};
-		A00000000000000000000013 /* DictationBar */ = {
-			isa = PBXGroup;
-			children = (
-				A00000000000000000000131 /* DictationBarController.swift */,
-				A00000000000000000000132 /* DictationBarViewController.swift */,
-			);
-			path = DictationBar;
-			sourceTree = "<group>";
-		};
-		A00000000000000000000011 /* AgentDeskHostTests */ = {
-			isa = PBXGroup;
-			children = (
-				A00000000000000000000121 /* PairingTests.swift */,
-				A00000000000000000000133 /* WAVEncoderTests.swift */,
-				A00000000000000000000122 /* LaunchAgentInstallerTests.swift */,
-				A00000000000000000000123 /* SessionAuthenticatorTests.swift */,
-				A00000000000000000000124 /* QuicSessionStreamFrameTests.swift */,
-				A00000000000000000000341 /* TailnetDiscoveryTests.swift */,
-				A00000000000000000000381 /* PreArmedTargetStoreTests.swift */,
-				A00000000000000000000125 /* InputDispatcherTests.swift */,
-				A00000000000000000000153 /* GestureChildControllerTests.swift */,
-				A00000000000000000000157 /* JsonlChildProcessTests.swift */,
-				A00000000000000000000158 /* VoiceChildControllerTests.swift */,
-				A0000000000000000000015A /* AgentSayLocalServerTests.swift */,
-				A0000000000000000000CC17 /* DomMirrorRelayTests.swift */,
-				A0000000000000000000CC19 /* DomBridgeIntegrationTests.swift */,
-				A0000000000000000000CC04 /* DomBridgeServerTests.swift */,
-				A00000000000000000000126 /* SpacesProviderTests.swift */,
-				A000000000000000000009B0 /* CursorMonitorTests.swift */,
-				A0000000000000000000CB00 /* CursorChangeSignalTests.swift */,
-				A000000000000000000009D0 /* ScrollQualityTests.swift */,
-				A00000000000000000000DA3 /* FrameComposerTests.swift */,
-				A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */,
-				A00000000000000000000F15 /* ScrollDeltaEngineHealTests.swift */,
-				A00000000000000000000DC3 /* TileGridEmissionTests.swift */,
-				A00000000000000000000DD3 /* UnackedFrameCapTests.swift */,
-				A00000000000000000000DE3 /* ResetPolicyTests.swift */,
-				A00000000000000000000A10 /* ScrollActivityTrackerTests.swift */,
-				A00000000000000000000E23 /* MotionGovernorTests.swift */,
-				A00000000000000000000DF3 /* TileContentCacheTests.swift */,
-				A00000000000000000000F53 /* VideoToolboxOwnedMediaEncoderTests.swift */,
-				A00000000000000000000F66 /* MediaDatagramCarrierTests.swift */,
-				A00000000000000000000F6E /* OwnedMediaDatagramSendPacerTests.swift */,
-				A00000000000000000000E01 /* OwnedGraphicsCommandCodecTests.swift */,
-				A00000000000000000001030 /* OwnedTileCodecTests.swift */,
-				A000000000000000000010A0 /* OwnedMediaCrispConvertTests.swift */,
-				A00000000000000000001050 /* RegionCrispControllerTests.swift */,
-				A00000000000000000000E03 /* HybridTileEncodingTests.swift */,
-				A00000000000000000000E05 /* FullFrameTilerRoutingTests.swift */,
-				A00000000000000000000E07 /* FrameByteBudgetTests.swift */,
-				A00000000000000000000E09 /* PerTileJpegRoundTripTests.swift */,
-				A0000000000000000000012B /* SpaceAgentModelTests.swift */,
-				A0000000000000000000012C /* SpaceThumbnailProviderTests.swift */,
-				A00000000000000000001070 /* AgentFeedWireTests.swift */,
-				A00000000000000000001075 /* AgentEngineSidecarTests.swift */,
-				A00000000000000000001081 /* AgentFeedBridgeTests.swift */,
-			);
-			path = AgentDeskHostTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -521,6 +119,9 @@
 			buildRules = (
 			);
 			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				DDD787112FF7B21500F8BB76 /* AgentDeskHost */,
 			);
 			name = AgentDeskHost;
 			packageProductDependencies = (
@@ -542,6 +143,10 @@
 			);
 			dependencies = (
 				A00000000000000000000B01 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				DDD787112FF7B21500F8BB76 /* AgentDeskHost */,
+				DDD787D32FF7B32600F8BB76 /* AgentDeskHostTests */,
 			);
 			name = AgentDeskHostTests;
 			packageProductDependencies = (
@@ -580,7 +185,7 @@
 			);
 			mainGroup = A00000000000000000000002;
 			packageReferences = (
-				A0000000000000000000EE01 /* XCLocalSwiftPackageReference "AgentDeskWire" */,
+				A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */,
 			);
 			productRefGroup = A00000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -592,15 +197,11 @@
 		};
 /* End PBXProject section */
 
-
-
 /* Begin PBXResourcesBuildPhase section */
 		A00000000000000000000303 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A0000000000000000000021B /* Assets.xcassets in Resources */,
-				A00000000000000000001078 /* atc-sidecar in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -618,76 +219,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A00000000000000000000201 /* AppDelegate.swift in Sources */,
-				A00000000000000000000203 /* Config.swift in Sources */,
-				A00000000000000000000FA3 /* ClientDiagnosticsRequester.swift in Sources */,
-				A00000000000000000000204 /* HostSigningKeyStore.swift in Sources */,
-				A00000000000000000000205 /* KeychainStore.swift in Sources */,
-				A00000000000000000000206 /* Pairing.swift in Sources */,
-				A00000000000000000000352 /* PairingOfferSender.swift in Sources */,
-				A00000000000000000000362 /* TailnetIdentityProber.swift in Sources */,
-				A00000000000000000000207 /* PairingSignalingServer.swift in Sources */,
-				A00000000000000000000208 /* PopoverViewController.swift in Sources */,
-				A00000000000000000000209 /* QRCodeRenderer.swift in Sources */,
-				A0000000000000000000020A /* GraphicsSendState.swift in Sources */,
-				A0000000000000000000020B /* TailnetDiscovery.swift in Sources */,
-				A00000000000000000000372 /* PreArmedTargetStore.swift in Sources */,
-				A0000000000000000000020C /* LaunchAgentInstaller.swift in Sources */,
-				A0000000000000000000020D /* main.swift in Sources */,
-				A0000000000000000000020F /* TLSIdentityLoader.swift in Sources */,
-				A00000000000000000000210 /* SessionAuthenticator.swift in Sources */,
-				A00000000000000000000211 /* MediaTransport.swift in Sources */,
-				A00000000000000000000212 /* SignalingChannel.swift in Sources */,
-				A00000000000000000000213 /* VideoFrameSource.swift in Sources */,
-				A00000000000000000000214 /* MediaStack.swift in Sources */,
-				A00000000000000000000A05 /* OwnedMediaFrameScaler.swift in Sources */,
-				A00000000000000000000A03 /* OwnedMediaTransport.swift in Sources */,
-				A000000000000000000010B1 /* OwnedMediaCrispConvert.swift in Sources */,
-				A00000000000000000000A08 /* ScrollDeltaEngine.swift in Sources */,
-				A00000000000000000000DA1 /* FrameComposer.swift in Sources */,
-				A00000000000000000000A0E /* ScrollActivityTracker.swift in Sources */,
-				A00000000000000000000E21 /* MotionGovernor.swift in Sources */,
-				A00000000000000000000219 /* TestPatternFrameSource.swift in Sources */,
-				A0000000000000000000021A /* ScreenCaptureKitFrameSource.swift in Sources */,
-				A0000000000000000000021C /* InputDispatcher.swift in Sources */,
-				A00000000000000000000231 /* SessionRegistry.swift in Sources */,
-				A00000000000000000000232 /* KeyCodeMap.swift in Sources */,
-				A00000000000000000000234 /* InputChannelServer.swift in Sources */,
-				A00000000000000000000235 /* SpacesProvider.swift in Sources */,
-				A000000000000000000009A1 /* CursorMonitor.swift in Sources */,
-				A0000000000000000000CA01 /* CursorChangeSignal.swift in Sources */,
-				A00000000000000000000238 /* SpaceThumbnailProvider.swift in Sources */,
-				A00000000000000000000239 /* SpaceAgentModel.swift in Sources */,
-				A0000000000000000000023A /* SpaceAgentViewController.swift in Sources */,
-				A0000000000000000000023B /* SpaceAgentController.swift in Sources */,
-				A00000000000000000000242 /* SpaceAgentLabelResolver.swift in Sources */,
-				A00000000000000000000244 /* WAVEncoder.swift in Sources */,
-				A00000000000000000000245 /* MicRecorder.swift in Sources */,
-				A00000000000000000000246 /* TranscriptionClient.swift in Sources */,
-				A00000000000000000000247 /* DictationBarController.swift in Sources */,
-				A00000000000000000000248 /* DictationBarViewController.swift in Sources */,
-				A00000000000000000000250 /* TerminalLauncherController.swift in Sources */,
-				A00000000000000000000251 /* TerminalLauncherViewController.swift in Sources */,
-				A0000000000000000000025C /* JsonlChildProcess.swift in Sources */,
-				A00000000000000000000257 /* GestureChildController.swift in Sources */,
-				A0000000000000000000025A /* GesturePortalController.swift in Sources */,
-				A0000000000000000000025E /* VoiceChildController.swift in Sources */,
-				A00000000000000000000262 /* AgentSayLocalServer.swift in Sources */,
-				A0000000000000000000CC10 /* DomEventLaneServer.swift in Sources */,
-				A0000000000000000000CC13 /* DomMirrorRelay.swift in Sources */,
-				A0000000000000000000CC00 /* DomBridgeServer.swift in Sources */,
-				A00000000000000000001073 /* AgentEngineSidecar.swift in Sources */,
-				A00000000000000000001079 /* AgentFeedSidecarClient.swift in Sources */,
-				A0000000000000000000107C /* AgentFeedBridge.swift in Sources */,
-				A00000000000000000000DF1 /* TileContentCache.swift in Sources */,
-				A00000000000000000001011 /* MediaQualityController.swift in Sources */,
-				A00000000000000000001021 /* OwnedTileCodec.swift in Sources */,
-				A00000000000000000001041 /* RegionCrispController.swift in Sources */,
-				A00000000000000000001061 /* GraphicsLaneServer.swift in Sources */,
-				A00000000000000000000F51 /* VideoToolboxOwnedMediaEncoder.swift in Sources */,
-				A00000000000000000000F61 /* MediaDatagramFramePacket.swift in Sources */,
-				A00000000000000000000F64 /* OwnedMediaResendRing.swift in Sources */,
-				A00000000000000000000F69 /* OwnedMediaDatagramSendPacer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -695,103 +226,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A00000000000000000000222 /* Config.swift in Sources */,
-				A00000000000000000000223 /* HostSigningKeyStore.swift in Sources */,
-				A00000000000000000000224 /* KeychainStore.swift in Sources */,
-				A00000000000000000000225 /* Pairing.swift in Sources */,
-				A00000000000000000000353 /* PairingOfferSender.swift in Sources */,
-				A00000000000000000000363 /* TailnetIdentityProber.swift in Sources */,
-				A00000000000000000000226 /* GraphicsSendState.swift in Sources */,
-				A00000000000000000000227 /* TailnetDiscovery.swift in Sources */,
-				A00000000000000000000228 /* PairingTests.swift in Sources */,
-				A00000000000000000000229 /* LaunchAgentInstaller.swift in Sources */,
-				A0000000000000000000022A /* LaunchAgentInstallerTests.swift in Sources */,
-				A0000000000000000000022B /* SessionAuthenticator.swift in Sources */,
-				A0000000000000000000022C /* SessionAuthenticatorTests.swift in Sources */,
-				A00000000000000000000252 /* MediaTransport.swift in Sources */,
-				A00000000000000000000253 /* SignalingChannel.swift in Sources */,
-				A00000000000000000000254 /* VideoFrameSource.swift in Sources */,
-				A00000000000000000000A06 /* OwnedMediaFrameScaler.swift in Sources */,
-				A00000000000000000000A09 /* ScrollDeltaEngine.swift in Sources */,
-				A00000000000000000000DA2 /* FrameComposer.swift in Sources */,
-				A00000000000000000000A0F /* ScrollActivityTracker.swift in Sources */,
-				A00000000000000000000E22 /* MotionGovernor.swift in Sources */,
-				A00000000000000000000255 /* SessionRegistry.swift in Sources */,
-				A00000000000000000000256 /* InputChannelServer.swift in Sources */,
-				A0000000000000000000025D /* JsonlChildProcess.swift in Sources */,
-				A00000000000000000000258 /* GestureChildController.swift in Sources */,
-				A0000000000000000000025B /* GesturePortalController.swift in Sources */,
-				A0000000000000000000025F /* VoiceChildController.swift in Sources */,
-				A0000000000000000000022E /* QuicSessionStreamFrameTests.swift in Sources */,
-				A00000000000000000000342 /* TailnetDiscoveryTests.swift in Sources */,
-				A00000000000000000000373 /* PreArmedTargetStore.swift in Sources */,
-				A00000000000000000000382 /* PreArmedTargetStoreTests.swift in Sources */,
-				A0000000000000000000022F /* InputDispatcher.swift in Sources */,
-				A00000000000000000000230 /* InputDispatcherTests.swift in Sources */,
-				A00000000000000000000259 /* GestureChildControllerTests.swift in Sources */,
-				A00000000000000000000260 /* JsonlChildProcessTests.swift in Sources */,
-				A00000000000000000000261 /* VoiceChildControllerTests.swift in Sources */,
-				A00000000000000000000263 /* AgentSayLocalServer.swift in Sources */,
-				A0000000000000000000CC11 /* DomEventLaneServer.swift in Sources */,
-				A0000000000000000000CC14 /* DomMirrorRelay.swift in Sources */,
-				A0000000000000000000CC01 /* DomBridgeServer.swift in Sources */,
-				A00000000000000000000264 /* AgentSayLocalServerTests.swift in Sources */,
-				A0000000000000000000CC16 /* DomMirrorRelayTests.swift in Sources */,
-				A0000000000000000000CC18 /* DomBridgeIntegrationTests.swift in Sources */,
-				A0000000000000000000CC03 /* DomBridgeServerTests.swift in Sources */,
-				A00000000000000000001074 /* AgentEngineSidecar.swift in Sources */,
-				A00000000000000000001076 /* AgentEngineSidecarTests.swift in Sources */,
-				A0000000000000000000107B /* AgentFeedSidecarClient.swift in Sources */,
-				A0000000000000000000107E /* AgentFeedBridge.swift in Sources */,
-				A00000000000000000001080 /* AgentFeedBridgeTests.swift in Sources */,
-				A00000000000000000000233 /* KeyCodeMap.swift in Sources */,
-				A00000000000000000000236 /* SpacesProvider.swift in Sources */,
-				A00000000000000000000237 /* SpacesProviderTests.swift in Sources */,
-				A000000000000000000009A2 /* CursorMonitor.swift in Sources */,
-				A0000000000000000000CA02 /* CursorChangeSignal.swift in Sources */,
-				A000000000000000000009B1 /* CursorMonitorTests.swift in Sources */,
-				A0000000000000000000CB01 /* CursorChangeSignalTests.swift in Sources */,
-				A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */,
-				A00000000000000000000DA4 /* FrameComposerTests.swift in Sources */,
-				A00000000000000000000DB4 /* ScrollDeltaEngineDamageRoutingTests.swift in Sources */,
-				A00000000000000000000F16 /* ScrollDeltaEngineHealTests.swift in Sources */,
-				A00000000000000000000DC4 /* TileGridEmissionTests.swift in Sources */,
-				A00000000000000000000DD4 /* UnackedFrameCapTests.swift in Sources */,
-				A00000000000000000000DE4 /* ResetPolicyTests.swift in Sources */,
-				A00000000000000000000A11 /* ScrollActivityTrackerTests.swift in Sources */,
-				A00000000000000000000E24 /* MotionGovernorTests.swift in Sources */,
-				A0000000000000000000023F /* SpaceThumbnailProvider.swift in Sources */,
-				A0000000000000000000023C /* SpaceAgentModel.swift in Sources */,
-				A0000000000000000000023D /* SpaceAgentViewController.swift in Sources */,
-				A0000000000000000000023E /* SpaceAgentController.swift in Sources */,
-				A00000000000000000000240 /* SpaceAgentModelTests.swift in Sources */,
-				A00000000000000000000241 /* SpaceThumbnailProviderTests.swift in Sources */,
-				A00000000000000000000243 /* SpaceAgentLabelResolver.swift in Sources */,
-				A00000000000000000000249 /* WAVEncoder.swift in Sources */,
-				A0000000000000000000024A /* WAVEncoderTests.swift in Sources */,
-				A00000000000000000000DF2 /* TileContentCache.swift in Sources */,
-				A00000000000000000000DF4 /* TileContentCacheTests.swift in Sources */,
-				A00000000000000000001012 /* MediaQualityController.swift in Sources */,
-				A00000000000000000001022 /* OwnedTileCodec.swift in Sources */,
-				A000000000000000000010B2 /* OwnedMediaCrispConvert.swift in Sources */,
-				A00000000000000000001031 /* OwnedTileCodecTests.swift in Sources */,
-				A000000000000000000010A1 /* OwnedMediaCrispConvertTests.swift in Sources */,
-				A00000000000000000001042 /* RegionCrispController.swift in Sources */,
-				A00000000000000000001062 /* GraphicsLaneServer.swift in Sources */,
-				A00000000000000000001051 /* RegionCrispControllerTests.swift in Sources */,
-				A00000000000000000000F52 /* VideoToolboxOwnedMediaEncoder.swift in Sources */,
-				A00000000000000000000F54 /* VideoToolboxOwnedMediaEncoderTests.swift in Sources */,
-				A00000000000000000000F62 /* MediaDatagramFramePacket.swift in Sources */,
-				A00000000000000000000F65 /* OwnedMediaResendRing.swift in Sources */,
-				A00000000000000000000F67 /* MediaDatagramCarrierTests.swift in Sources */,
-				A00000000000000000000F6A /* OwnedMediaDatagramSendPacer.swift in Sources */,
-				A00000000000000000000F6F /* OwnedMediaDatagramSendPacerTests.swift in Sources */,
-				A00000000000000000000E02 /* OwnedGraphicsCommandCodecTests.swift in Sources */,
-				A00000000000000000000E04 /* HybridTileEncodingTests.swift in Sources */,
-				A00000000000000000000E06 /* FullFrameTilerRoutingTests.swift in Sources */,
-				A00000000000000000000E08 /* FrameByteBudgetTests.swift in Sources */,
-				A00000000000000000000E0A /* PerTileJpegRoundTripTests.swift in Sources */,
-				A00000000000000000001071 /* AgentFeedWireTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1030,7 +464,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		A0000000000000000000EE01 /* XCLocalSwiftPackageReference "AgentDeskWire" */ = {
+		A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/AgentDeskWire;
 		};
@@ -1039,12 +473,12 @@
 /* Begin XCSwiftPackageProductDependency section */
 		A0000000000000000000EE02 /* AgentDeskWire */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "AgentDeskWire" */;
+			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */;
 			productName = AgentDeskWire;
 		};
 		A0000000000000000000EE04 /* AgentDeskWire */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "AgentDeskWire" */;
+			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */;
 			productName = AgentDeskWire;
 		};
 /* End XCSwiftPackageProductDependency section */
