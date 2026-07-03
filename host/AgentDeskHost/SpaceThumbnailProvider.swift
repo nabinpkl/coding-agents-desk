@@ -4,6 +4,7 @@ import ImageIO
 import ScreenCaptureKit
 import UniformTypeIdentifiers
 import os
+import AgentDeskWire
 
 // R20 / ADR-0006 thumbnail capture pipeline.
 //

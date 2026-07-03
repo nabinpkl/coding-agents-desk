@@ -1,5 +1,6 @@
 import QuartzCore
 import UIKit
+import AgentDeskWire
 
 // R9.2 SPEC §13 module. Owns the UIKit gesture recognizers on the trackpad
 // zone and emits NormalizedInput to its delegate. Only cursorMove and

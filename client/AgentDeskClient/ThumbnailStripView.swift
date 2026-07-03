@@ -1,4 +1,5 @@
 import UIKit
+import AgentDeskWire
 
 @MainActor
 protocol DisplayRailViewDelegate: AnyObject {

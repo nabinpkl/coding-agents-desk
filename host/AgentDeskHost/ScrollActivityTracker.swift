@@ -1,4 +1,5 @@
 import Foundation
+import AgentDeskWire
 
 enum ScrollActivityAxis: String, Equatable, Sendable {
     case vertical

@@ -1,5 +1,6 @@
 import CoreVideo
 import Foundation
+import AgentDeskWire
 
 // Capture seam. ScreenCaptureKitFrameSource is the production impl and
 // TestPatternFrameSource is the diagnostic impl. Both produce

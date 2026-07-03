@@ -1,5 +1,6 @@
 import Foundation
 import os
+import AgentDeskWire
 
 // Ingestion DTOs: decode sidecar JSON verbatim. The sidecar uses the field
 // name "type" for the event kind; the wire ActivityEvent uses CodingKey "tp".

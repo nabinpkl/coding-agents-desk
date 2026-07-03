@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import os
 import Testing
+import AgentDeskWire
 
 @MainActor
 struct SpaceThumbnailProviderTests {

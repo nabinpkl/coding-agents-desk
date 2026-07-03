@@ -1,4 +1,5 @@
 import Foundation
+import AgentDeskWire
 
 struct SpaceAgentTile: Equatable {
     let spaceId: UInt64

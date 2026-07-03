@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Testing
+import AgentDeskWire
 
 struct EdgeFollowTests {
     // The point-spaced "rough Retina MBP" display used throughout. 1.54

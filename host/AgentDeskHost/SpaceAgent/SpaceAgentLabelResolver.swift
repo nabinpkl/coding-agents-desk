@@ -1,4 +1,5 @@
 import Foundation
+import AgentDeskWire
 
 // Pure helper that splits a Space's top-window metadata into the two
 // strings we paint under each tile:

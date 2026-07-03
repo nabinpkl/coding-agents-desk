@@ -2,6 +2,7 @@ import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
 import Testing
+import AgentDeskWire
 
 @MainActor
 struct InputDispatcherTests {

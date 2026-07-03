@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import UIKit
 import WebKit
+import AgentDeskWire
 
 @testable import AgentDeskClient
 

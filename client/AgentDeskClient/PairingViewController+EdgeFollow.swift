@@ -1,4 +1,5 @@
 import UIKit
+import AgentDeskWire
 
 // ADR-0009 cursor-driven viewport pan. The client mirrors the host
 // cursor position in source-display points so the scroll view can follow

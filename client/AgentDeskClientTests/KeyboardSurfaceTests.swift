@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import UIKit
+import AgentDeskWire
 
 @MainActor
 struct KeyboardSurfaceTests {

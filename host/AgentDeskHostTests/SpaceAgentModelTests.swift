@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 import Testing
+import AgentDeskWire
 
 @MainActor
 struct SpaceAgentModelTests {

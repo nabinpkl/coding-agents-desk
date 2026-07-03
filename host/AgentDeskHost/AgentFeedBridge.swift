@@ -1,5 +1,6 @@
 import Foundation
 import os
+import AgentDeskWire
 
 // AgentFeedBridge translates the sidecar's HTTP/SSE surface into the
 // agent-feed input-lane wire messages. It is constructed with an injectable

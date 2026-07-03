@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import AgentDeskWire
 
 // ADR-0009 edge-follow viewport math. The iPhone holds a model of the
 // host cursor's position in source-display points; this helper turns

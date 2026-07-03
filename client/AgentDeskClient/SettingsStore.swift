@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import AgentDeskWire
 
 // UserDefaults-backed store for trackpad / scroll feel preferences. The
 // raw values are unitless multipliers (1.0 = default) so the UI can show

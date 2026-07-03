@@ -2,6 +2,7 @@ import AppKit
 import CryptoKit
 import Foundation
 import os
+import AgentDeskWire
 
 // Samples the system cursor and emits a CursorImagePush whenever its
 // shape changes, plus exposes the latest push so a freshly attached

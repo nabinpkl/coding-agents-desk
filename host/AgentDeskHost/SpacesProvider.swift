@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 import os
+import AgentDeskWire
 
 // Mission Control Spaces. Two responsibilities:
 //

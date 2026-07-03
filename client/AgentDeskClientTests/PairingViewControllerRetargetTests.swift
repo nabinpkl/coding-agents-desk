@@ -1,6 +1,7 @@
 import CoreGraphics
 import Testing
 import UIKit
+import AgentDeskWire
 
 @MainActor
 struct PairingViewControllerRetargetTests {

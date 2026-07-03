@@ -1,4 +1,5 @@
 import UIKit
+import AgentDeskWire
 
 // R12.2: hidden UIKeyInput surface that turns soft-keyboard typing plus
 // accessory-row modifier taps into NormalizedInput.key events. iOS owns

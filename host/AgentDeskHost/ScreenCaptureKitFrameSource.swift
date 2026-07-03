@@ -5,6 +5,7 @@ import CoreVideo
 import Foundation
 import ScreenCaptureKit
 import os
+import AgentDeskWire
 
 // ADR-0004 production VideoFrameSource impl, host side. Captures the
 // selected display via ScreenCaptureKit at native pixel size and 60 Hz,

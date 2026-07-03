@@ -1,4 +1,5 @@
 import UIKit
+import AgentDeskWire
 
 // Bounded hash -> UIImage cache for mirrored host cursors. The host sends
 // each distinct cursor PNG once, keyed by content hash; the client decodes

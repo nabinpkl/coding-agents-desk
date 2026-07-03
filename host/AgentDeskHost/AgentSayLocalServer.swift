@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import os
 import Security
+import AgentDeskWire
 
 final class AgentSayLocalServer: @unchecked Sendable {
     typealias Broadcaster = @MainActor (AgentSayPush) -> Bool

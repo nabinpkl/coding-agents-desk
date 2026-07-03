@@ -1,5 +1,6 @@
 import Carbon.HIToolbox
 import CoreGraphics
+import AgentDeskWire
 
 // R12.1: maps the closed wire string set carried by NormalizedInput.key
 // to the macOS virtual key codes Carbon defines in HIToolbox. The client

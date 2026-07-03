@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Testing
+import AgentDeskWire
 
 @MainActor
 struct SpacesProviderTests {

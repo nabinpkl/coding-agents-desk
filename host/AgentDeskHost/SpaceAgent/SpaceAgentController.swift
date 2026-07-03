@@ -1,5 +1,6 @@
 import AppKit
 import os
+import AgentDeskWire
 
 // Non-activating floating panel that can still take key focus while the
 // desktop search palette is open, so its NSSearchField receives typing. The

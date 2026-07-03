@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import AgentDeskWire
 
 struct AgentSayLocalServerTests {
     @Test func rejectsMissingOrBadToken() {

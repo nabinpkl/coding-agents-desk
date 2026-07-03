@@ -3,6 +3,7 @@ import CoreGraphics
 import Foundation
 import QuartzCore
 import os
+import AgentDeskWire
 
 // R9.3 NormalizedInput sink. Consumes decoded events and posts CGEvents.
 // The eventPoster seam lets tests capture posted events without hitting

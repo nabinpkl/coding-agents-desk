@@ -2,6 +2,7 @@ import Foundation
 import OSLog
 import UIKit
 import WebKit
+import AgentDeskWire
 
 // AgentFeedSurface hosts a WKWebView that loads the bundled agent-feed web app.
 // It bridges JavaScript to the QUIC input lane in both directions:

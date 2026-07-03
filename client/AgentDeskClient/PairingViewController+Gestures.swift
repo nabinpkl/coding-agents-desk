@@ -1,5 +1,6 @@
 import AVFoundation
 import UIKit
+import AgentDeskWire
 
 // Forwarding seam between the in-app gesture surfaces (trackpad,
 // scroll strip, Spaces band) and the input-channel wire. Owns the

@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import AgentDeskWire
 
 @testable import AgentDeskHost
 

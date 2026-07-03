@@ -1,4 +1,5 @@
 import Foundation
+import AgentDeskWire
 
 // Mirror of the host-side resolver. Splits a Space's top-window metadata
 // into a two-line label: primary = window title, secondary = app name.
