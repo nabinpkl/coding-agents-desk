@@ -6,17 +6,24 @@ why it was made independent of any instruction. Architectural decisions that loc
 a full ADR under `architecture-decisions/`; this file captures the smaller judgement calls that would
 otherwise be invisible.
 
-## DOM mirror graduates from opt-in beta to first-class default
+## DOM mirror default-on: attempted, then reverted (breaks tailnet pairing)
 
-### D1. The code default is the single source of truth for "browser mode on"
+### D1. Browser mode was flipped default-on, then reverted; it stays opt-in
 
-Both enable gates flipped to default-on: the host `Config.domMirrorEnabled` and the client
-`SettingsStore.domMirrorEnabled` (which returns true when unset, while a stored value still wins). The
-old per-recipe `AGENTDESK_DOM_MIRROR_ENABLED=1` injection in `host-run`/`host-run-release` (dev-only,
-with a "stable stays off" comment) was removed rather than left in place: with the code default on, that
-env plumbing was dead and its comment was actively false. Env overrides remain for tests/bisects
-(`=0` disables either side), but the default now lives in one place -- the code -- not scattered across
-Justfile branches. Evidence: universal-AGENTS.md "single source of truth" and "no dead code".
+Both enable gates were flipped to default-on (host `Config.domMirrorEnabled`, client
+`SettingsStore.domMirrorEnabled`) and the dead per-recipe `AGENTDESK_DOM_MIRROR_ENABLED=1` injection in
+`host-run`/`host-run-release` was removed. This was **reverted**: with DOM mirror on, the host accepts and
+runs the `.dom` lane (`DomEventLaneServer`), and doing so **breaks session establishment over the tailnet**
+-- a fresh device pair fails at the QUIC handshake (`-9858` / ENETDOWN) and never reaches the app layer.
+The defect was isolated by bisection: a device pairs against the last-good `a0f5a44` host (DOM off, rejects
+the lane) and against a HEAD host run with `AGENTDESK_DOM_MIRROR_ENABLED=0`, but fails against a HEAD host
+with DOM on; the iOS simulator never reproduced it because it dials the host over localhost, not the
+tailnet, so the lane defect stays dormant there. The bug lives in the `.dom` lane itself, not in the
+default flip -- the flip only changed how often the lane is exercised (always vs never-unless-opted-in).
+Both defaults are back to `false` (opt-in). Re-enabling by default is blocked on fixing the
+`.dom`-lane-over-tailnet defect. The `AGENTDESK_DOM_MIRROR_ENABLED` env override and the client's stored
+toggle still work for opting in. Lesson: a localhost/sim pass does not clear a transport-path feature; the
+sim-vs-device split is what isolated code from network here.
 
 ### D2. The native-messaging bridge is wired on every host launch, not by a separate manual step
 
