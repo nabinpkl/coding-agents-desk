@@ -4,10 +4,18 @@ import Testing
 
 @testable import AgentDeskHost
 
-// CursorMonitor's job is change-detection: emit a push only when the
-// cursor image actually changes, with the hotspot expressed as fractions
-// of the image. These tests drive it with an injected sampler so they run
-// without a live window server.
+// Scriptable cursor seed for tests: the monitor reads currentSeed() each tick, so tests
+// bump `seed` to simulate a window-server cursor change.
+final class FakeCursorChangeSignal: CursorChangeSignal, @unchecked Sendable {
+    var seed: UInt64
+    init(_ seed: UInt64 = 0) { self.seed = seed }
+    func currentSeed() -> UInt64 { seed }
+}
+
+// CursorMonitor's job is change-detection: emit a push only when the cursor image actually
+// changes. Detection is now gated on the cursor seed (cheap) and only fingerprints
+// (encode + hash) on a seed change or the heartbeat backstop. These tests drive it with an
+// injected sampler + fake seed + fixed clock so they run without a live window server.
 struct CursorMonitorTests {
     // Builds a deterministic opaque bitmap image. Distinct `value` bytes
     // produce distinct TIFF data, hence distinct content hashes.
@@ -39,25 +47,122 @@ struct CursorMonitorTests {
             hotSpot: NSPoint(x: 2, y: 4),
             hidden: false
         )
-        let monitor = CursorMonitor(sampler: { current }, positionSampler: { nil })
+        let signal = FakeCursorChangeSignal(1)
+        let monitor = CursorMonitor(
+            sampler: { current },
+            positionSampler: { nil },
+            changeSignal: signal,
+            now: { 0 }
+        )
 
-        // First sample is a change from nothing.
+        // First tick establishes the baseline (seed change from nil).
         let first = monitor.tick()
         #expect(first != nil)
         #expect(monitor.latest == first)
 
-        // Same image: no emit.
-        #expect(monitor.tick() == nil)
-
-        // New image: emit again with a different hash.
+        // Same seed: gated out even if we swapped the image, no emit.
         current = CursorMonitor.CursorSample(
             image: makeImage(width: 10, height: 20, value: 0x80),
             hotSpot: NSPoint(x: 2, y: 4),
             hidden: false
         )
+        #expect(monitor.tick() == nil)
+
+        // Seed bumps (window server changed the cursor): re-fingerprint, different hash.
+        signal.seed = 2
         let second = monitor.tick()
         #expect(second != nil)
         #expect(second?.hash != first?.hash)
+    }
+
+    // The CPU-fix regression lock: a static cursor (seed unchanged) must NOT fingerprint.
+    // With the seed held constant and the heartbeat disabled, the sampler is touched exactly
+    // once (the baseline) across many ticks, not once per tick.
+    @Test func constantSeedSkipsImageFingerprint() {
+        let sample = CursorMonitor.CursorSample(
+            image: makeImage(width: 10, height: 20, value: 0x40),
+            hotSpot: NSPoint(x: 0, y: 0),
+            hidden: false
+        )
+        var samplerCalls = 0
+        let signal = FakeCursorChangeSignal(7)
+        let monitor = CursorMonitor(
+            sampler: { samplerCalls += 1; return sample },
+            positionSampler: { nil },
+            changeSignal: signal,
+            heartbeatMs: 0,   // disable the heartbeat so only the seed can trigger work
+            now: { 0 }
+        )
+        var pushes = 0
+        monitor.onChange = { _ in pushes += 1 }
+
+        for _ in 0..<100 { monitor.tick() }
+
+        #expect(samplerCalls == 1)
+        #expect(pushes == 1)
+    }
+
+    // A seed bump with identical pixels must not emit a spurious push (hash dedup), and the
+    // same image yields the same content hash regardless of seed (client cache key stable).
+    @Test func seedBumpWithSamePixelsDoesNotEmitAndHashIsStable() {
+        let sample = CursorMonitor.CursorSample(
+            image: makeImage(width: 8, height: 8, value: 0x33),
+            hotSpot: NSPoint(x: 0, y: 0),
+            hidden: false
+        )
+        let signal = FakeCursorChangeSignal(1)
+        let monitor = CursorMonitor(
+            sampler: { sample },
+            positionSampler: { nil },
+            changeSignal: signal,
+            now: { 0 }
+        )
+        let first = monitor.tick()
+        #expect(first != nil)
+        // Seed moved but the image is identical: no emit.
+        signal.seed = 2
+        #expect(monitor.tick() == nil)
+
+        // A fresh monitor fed the same image produces the same hash (stable cache key).
+        let other = CursorMonitor(
+            sampler: { sample }, positionSampler: { nil },
+            changeSignal: FakeCursorChangeSignal(99), now: { 0 }
+        )
+        #expect(other.tick()?.hash == first?.hash)
+    }
+
+    // Backstop: if the seed never moves (e.g. the private symbol is unavailable and returns
+    // a sentinel), the heartbeat still forces a re-fingerprint so a real change is caught.
+    @Test func heartbeatForcesRefingerprintWhenSeedStuck() {
+        var current = CursorMonitor.CursorSample(
+            image: makeImage(width: 10, height: 10, value: 0x10),
+            hotSpot: NSPoint(x: 0, y: 0),
+            hidden: false
+        )
+        var clock: UInt64 = 0
+        let monitor = CursorMonitor(
+            sampler: { current },
+            positionSampler: { nil },
+            changeSignal: FakeCursorChangeSignal(5),   // constant seed, never moves
+            heartbeatMs: 2_000,
+            now: { clock }
+        )
+        let first = monitor.tick()
+        #expect(first != nil)
+
+        // Seed still 5; before the heartbeat elapses a changed image is NOT picked up.
+        current = CursorMonitor.CursorSample(
+            image: makeImage(width: 10, height: 10, value: 0x90),
+            hotSpot: NSPoint(x: 0, y: 0),
+            hidden: false
+        )
+        #expect(monitor.tick() == nil)
+
+        // Advance past the heartbeat: the re-fingerprint fires despite the stuck seed.
+        clock = 2_000 * 1_000_000
+        let healed = monitor.tick()
+        #expect(healed != nil)
+        #expect(healed?.hash != first?.hash)
     }
 
     @Test func hotspotIsExpressedAsImageFractions() {

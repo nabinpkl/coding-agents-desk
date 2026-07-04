@@ -8,11 +8,13 @@ import os
 // client can be seeded immediately.
 //
 // Runs a main-thread timer because NSCursor is a main-thread AppKit API.
-// Each tick hashes the cursor's TIFF (cheap; cursors are tiny) and only
-// PNG-encodes + broadcasts when the hash changes, so the steady-state
-// cost is one small hash per tick.
+// Change detection is gated on the window-server cursor seed (CursorChangeSignal):
+// a static cursor costs one integer read per tick, and only a seed change (or the
+// periodic heartbeat backstop) triggers the expensive image fetch + PNG encode + hash.
+// This is the TeamViewer/AnyDesk pattern; re-encoding + hashing the cursor image every
+// tick to detect change is what made this a steady CPU eater.
 //
-// The sampler and interval are injectable so the change-detection logic
+// The sampler, interval, change signal, and clock are injectable so the detection logic
 // can be unit-tested without a live window server.
 final class CursorMonitor {
     // One sampled cursor. Abstracts NSCursor.currentSystem so tests can
@@ -27,9 +29,17 @@ final class CursorMonitor {
     private let interval: TimeInterval
     private let sampler: () -> CursorSample?
     private let positionSampler: () -> CGPoint?
+    private let changeSignal: CursorChangeSignal
+    private let now: () -> UInt64
+    private let heartbeatNs: UInt64
     private var timer: DispatchSourceTimer?
     private var lastHash: String?
     private var lastPosition: CGPoint?
+    // Cursor seed at the last fingerprint; nil until the first tick establishes a baseline.
+    private var lastSeed: UInt64?
+    // Uptime of the last actual fingerprint, for the heartbeat backstop. 0 forces the first
+    // tick to fingerprint regardless of the seed.
+    private var lastFingerprintNs: UInt64 = 0
 
     // The most recent push, replayed to a client on attach so it gets the
     // current cursor without waiting for the next shape change.
@@ -42,11 +52,17 @@ final class CursorMonitor {
     init(
         interval: TimeInterval = 0.05,
         sampler: @escaping () -> CursorSample? = CursorMonitor.systemSampler,
-        positionSampler: @escaping () -> CGPoint? = CursorMonitor.systemPositionSampler
+        positionSampler: @escaping () -> CGPoint? = CursorMonitor.systemPositionSampler,
+        changeSignal: CursorChangeSignal = SystemCursorChangeSignal(),
+        heartbeatMs: Int = Config.cursorImageHeartbeatMs,
+        now: @escaping () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
     ) {
         self.interval = interval
         self.sampler = sampler
         self.positionSampler = positionSampler
+        self.changeSignal = changeSignal
+        self.heartbeatNs = UInt64(max(0, heartbeatMs)) * 1_000_000
+        self.now = now
     }
 
     // Reads the system-wide cursor. `currentSystem` reflects whatever app
@@ -80,15 +96,27 @@ final class CursorMonitor {
     @discardableResult
     func tick() -> CursorImagePush? {
         tickPosition()
+        // Cheap gate: read the window-server cursor seed. Skip the whole fetch/encode/hash
+        // unless the seed moved (cursor changed) or the heartbeat backstop is due. This is
+        // the steady-state fast path -- one integer read while the cursor is unchanged.
+        let seed = changeSignal.currentSeed()
+        let nowNs = now()
+        let heartbeatDue = heartbeatNs > 0 && nowNs &- lastFingerprintNs >= heartbeatNs
+        guard seed != lastSeed || heartbeatDue else { return nil }
+        lastSeed = seed
+        lastFingerprintNs = nowNs
         guard let sample = sampler() else { return nil }
-        guard let tiff = sample.image.tiffRepresentation else { return nil }
-        let hash = Self.hash(tiff)
-        guard hash != lastHash else { return nil }
-        guard let rep = NSBitmapImageRep(data: tiff),
+        // Encode the PNG once (the bytes actually sent) and hash that for the wire cache key
+        // and local dedup. A seed bump or heartbeat that did not actually change the pixels
+        // hits the hash guard below and emits nothing.
+        guard let tiff = sample.image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
               let png = rep.representation(using: .png, properties: [:]) else {
             logger.error("cursor PNG encode failed")
             return nil
         }
+        let hash = Self.hash(png)
+        guard hash != lastHash else { return nil }
         lastHash = hash
         let size = sample.image.size
         let w = Float(size.width)

@@ -733,6 +733,16 @@ enum Config {
         defaultValue: true,
         environment: ProcessInfo.processInfo.environment
     )
+    // Backstop cadence for the cursor mirror. CursorMonitor gates its expensive image
+    // fingerprint (TIFF/PNG encode + hash) on the window-server cursor seed, so a static
+    // cursor costs one int read per tick. This heartbeat forces a periodic re-fingerprint
+    // even when the seed looks unchanged, so a change is never missed if the private seed
+    // symbol is ever unavailable (returns a fixed sentinel) -- same "periodic heal" idea as
+    // the crisp controller. With a live seed this rarely fires.
+    static let cursorImageHeartbeatMs = positiveInt(
+        environmentKey: "AGENTDESK_CURSOR_IMAGE_HEARTBEAT_MS",
+        defaultValue: 2_000
+    )
     // Experimental local-only switch backend. Default stays on the
     // stock Dock-swipe path; direct-set is for HITL diagnostics around
     // private SkyLight behavior.
