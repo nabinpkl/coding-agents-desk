@@ -523,9 +523,14 @@ client-sim-reinstall:
     -xcrun simctl uninstall {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient 2>/dev/null || true
     just client-sim-install
 
-# Simulator equivalent of `pair-iphone`. Asks the running host to mint
-# a fresh pair URL (SIGUSR1 -> writes to {{last_pair_url_path}}), then
-# launches the app with two env vars:
+# Simulator equivalent of `pair-iphone`. RELAUNCH + RE-PAIR ONLY: this does
+# NOT build or install -- it re-pairs and `simctl launch`es whatever client
+# binary is ALREADY installed on the sim. To test a CODE change you must build
+# + install first (client-sim-reinstall), or use a full bring-up
+# (sim-fresh-install / agent-feed-sim[-pair]). Running pair-sim alone after
+# editing code silently exercises the stale installed binary.
+# Asks the running host to mint a fresh pair URL (SIGUSR1 -> writes to
+# {{last_pair_url_path}}), then launches the app with two env vars:
 #   AGENTDESK_LAUNCH_URL -- SceneDelegate reads this and routes through
 #     handleIncomingPairingURL on launch (same path as openurl).
 #   AGENTDESK_DEV_HOST_OVERRIDE=localhost -- PairingClient swaps the
@@ -575,6 +580,12 @@ sim-fresh-install:
     just client-sim-reinstall
     just sim-console-run
 
+# DISTINCTION: agent-feed-sim BLOCKS with an attached console (use it to watch
+# host/client traces live); agent-feed-sim-pair RETURNS (use it to then drive
+# the app with `just ui-flow`). Both do a real build+install of host AND client;
+# pair-sim does NOT (relaunch only); sim-fresh-install builds host+client but
+# bundles the artifact placeholders, not the real sidecar/webview.
+#
 # Full agent-feed end-to-end simulator bring-up, blocking (attached console).
 # Unlike sim-fresh-install, this first builds the REAL agent-feed artifacts the
 # app bundles -- the compiled Bun engine sidecar (host resource) and the Vite
