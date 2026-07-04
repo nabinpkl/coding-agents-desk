@@ -197,12 +197,18 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     continue
                 }
                 await send(envelope)
-                // Eager-revert any crisp tile over a region that changed this frame, on the
-                // video cadence, so a live update is never masked by a stale crisp tile while
-                // it waits for the next time-gated crisp pass.
-                processCrispDamage(job.frame)
-                // Crisp runs on the native capture, never the downscaled video frame.
-                processCrisp(job.frame)
+                // The crisp text layer is a coarse-gated add-on to the video floor; when
+                // disabled the video stream above is fully functional on its own. Skipping
+                // both calls here means no eager-revert, no convert, no hash, no crisp lane
+                // sends -- the clean video-only path (and the isolation gate for crisp CPU).
+                if Config.ownedMediaCrispEnabled {
+                    // Eager-revert any crisp tile over a region that changed this frame, on the
+                    // video cadence, so a live update is never masked by a stale crisp tile while
+                    // it waits for the next time-gated crisp pass.
+                    processCrispDamage(job.frame)
+                    // Crisp runs on the native capture, never the downscaled video frame.
+                    processCrisp(job.frame)
+                }
             }
         }
     }

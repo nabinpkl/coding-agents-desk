@@ -505,6 +505,18 @@ enum Config {
     // ADR-0034 crisp-repair (RegionCrispController). A tile must hold the same content
     // for this long before it is promoted to a crisp tile over the reliable graphics
     // lane; shorter sharpens sooner but risks promoting mid-settle.
+    // Master on/off for the crisp text layer. Crisp is the per-tile settle-detect +
+    // BGRA-render + hash + cache pipeline that overlays sharp text on top of the video
+    // floor; the video stream alone is fully functional without it. Default on. Set the
+    // env to 0/off to skip processCrisp entirely (no convert, no hash, no crisp lane
+    // sends) -- the clean gate for isolating crisp's CPU contribution and for a
+    // video-only fallback. This is a coarse gate: when off, processCrisp returns before
+    // any work; the video path is untouched.
+    static let ownedMediaCrispEnabled: Bool = enabledFlag(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_ENABLED",
+        defaultValue: true,
+        environment: ProcessInfo.processInfo.environment
+    )
     static let ownedMediaCrispSettleWindowMs: Int = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_SETTLE_WINDOW_MS",
         defaultValue: 200
