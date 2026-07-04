@@ -596,6 +596,14 @@ dom-bridge-install variant="dev" channel="chrome":
 dom-bridge-uninstall channel="chrome":
     node dom-bridge/install.mjs --remove --channel {{channel}}
 
+# Uninstall + fresh install of the dom-bridge manifest, so each run starts from a clean
+# bridge (mirrors client-install -> client-reinstall). The fresh sim composites call this
+# so a stale manifest (e.g. pointing at the other variant's host socket from a previous
+# run) never lingers. variant: dev (default) | stable; channel: chrome (default).
+dom-bridge-reinstall variant="dev" channel="chrome":
+    -just dom-bridge-uninstall {{channel}}
+    just dom-bridge-install {{variant}} {{channel}}
+
 # ADR-0038..0041 physical-device run of the Chrome DOM mirror -- the one human checkpoint. Builds
 # Release host+client with real artifacts, enables the DOM mirror on BOTH sides (host via launchd
 # env; client via the devicectl env path, since devicectl apps get env not argv), pairs, and attaches
@@ -926,6 +934,7 @@ sim-reinstall-pair:
 sim-fresh-install:
     just host-run-release
     just client-sim-reinstall-release
+    just dom-bridge-reinstall stable
     just sim-console-run
 
 # DISTINCTION: agent-feed-sim BLOCKS with an attached console (use it to watch
@@ -947,6 +956,7 @@ agent-feed-sim:
     just build-agent-webview
     just host-run
     just client-sim-reinstall
+    just dom-bridge-reinstall stable
     just sim-console-run
 
 # Non-blocking twin of agent-feed-sim: builds the real artifacts, rebuilds and
@@ -958,6 +968,7 @@ agent-feed-sim-pair:
     just build-agent-webview
     just host-run
     just client-sim-reinstall
+    just dom-bridge-reinstall stable
     just pair-sim
 
 # Dev-variant twins of agent-feed-sim / agent-feed-sim-pair: a complete dev-stack
@@ -973,6 +984,7 @@ agent-feed-sim-dev:
     just build-agent-webview
     just host-run dev
     just client-sim-reinstall dev
+    just dom-bridge-reinstall dev
     just sim-console-run dev
 
 agent-feed-sim-pair-dev:
@@ -980,6 +992,7 @@ agent-feed-sim-pair-dev:
     just build-agent-webview
     just host-run dev
     just client-sim-reinstall dev
+    just dom-bridge-reinstall dev
     just pair-sim dev
 
 # Drive the iPhone simulator with a Maestro flow. Maestro is the standard
