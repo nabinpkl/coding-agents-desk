@@ -15,6 +15,12 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         codec: .hevc,
         configuration: .fromConfig()
     )
+    // ADR-0033 + ADR-0034: capture always runs at native resolution. The quality
+    // ladder's resolutionScale is applied here, downscaling the frame the video
+    // encoder sees, while crisp taps the untouched native buffer so settled text
+    // is restored at full resolution regardless of the video rung. One reusable
+    // scaler (owns its own CIContext).
+    private let videoScaler = OwnedMediaFrameScaler()
     private let pacer = OwnedMediaDatagramSendPacer(
         burstPacketCount: Config.ownedMediaDatagramBurstPacketCount,
         burstPauseUs: Config.ownedMediaDatagramBurstPauseUs
@@ -141,8 +147,9 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 if job.clientKeyframe {
                     logger.notice("owned media transport accepted client keyframe request")
                 }
+                let videoFrame = videoFrameForEncode(job.frame)
                 guard let envelope = await encoder.encode(
-                    job.frame,
+                    videoFrame,
                     updateId: job.updateId,
                     forceKeyframe: job.forceKeyframe,
                     requestedKeyframeReason: job.forceKeyframe
@@ -152,8 +159,24 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     continue
                 }
                 await send(envelope)
+                // Crisp runs on the native capture, never the downscaled video frame.
                 processCrisp(job.frame)
             }
+        }
+    }
+
+    // Downscale the native capture to the quality ladder's current resolutionScale
+    // for the video encoder. At scale 1.0 (native rung) the frame passes through
+    // untouched. A scale failure falls back to the native frame: a full-resolution
+    // encode is always correct, just heavier, never a dropped frame.
+    private func videoFrameForEncode(_ native: CapturedVideoFrame) -> CapturedVideoFrame {
+        let scale = encodeGate.withLock { $0.mediaState.targetResolutionScale }
+        guard scale < 0.999 else { return native }
+        do {
+            return try videoScaler.scaledFrame(native, scaleDown: 1.0 / scale)
+        } catch {
+            logger.error("video downscale failed scale=\(scale, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return native
         }
     }
 
@@ -494,22 +517,15 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             logger.notice("owned media video bitrate-step windowId=\(decision.observation.windowId, privacy: .public) target=\(outcome.target.bitrateKbps, privacy: .public)kbps rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
         }
         if outcome.resolutionChanged {
-            if let qualitySource = source as? QualitySelectableVideoFrameSource {
-                qualitySource.setResolutionScale(
-                    outcome.target.resolutionScale,
-                    context: MediaCaptureScaleChangeContext(
-                        windowId: decision.observation.windowId,
-                        previousResolutionScale: outcome.previousTarget.resolutionScale,
-                        nextResolutionScale: outcome.target.resolutionScale
-                    )
-                )
-            }
+            // The downscale now happens in the encode pump (videoFrameForEncode), not
+            // by restarting capture, so capture stays native and crisp keeps full
+            // pixels. The encoder recreates its session when the scaled dims change;
+            // force a keyframe so the client decoder transitions cleanly.
             encodeGate.withLock { state in
-                state.latest = nil
                 state.forceKeyframe = true
                 state.mediaState.resetForQualityChange()
             }
-            logger.notice("owned media video resolution-step windowId=\(decision.observation.windowId, privacy: .public) scale=\(outcome.target.resolutionScale, privacy: .public) bitrate=\(outcome.target.bitrateKbps, privacy: .public)kbps fps=\(outcome.target.fps, privacy: .public) rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public)")
+            logger.notice("owned media video resolution-step windowId=\(decision.observation.windowId, privacy: .public) scale=\(outcome.target.resolutionScale, privacy: .public) bitrate=\(outcome.target.bitrateKbps, privacy: .public)kbps fps=\(outcome.target.fps, privacy: .public) rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public) downscale=encode-pump")
         }
         if outcome.fpsChanged {
             encoder.updateExpectedFrameRate(outcome.target.fps)
