@@ -33,8 +33,9 @@ final class AgentFeedSurface: UIView {
     // evaluateJavaScript on (or re-flush into) a torn-down page.
     private var torn = false
     private var pendingJSON: [String] = []
-    // evaluateJavaScript abstraction for testability.
-    var evaluateScript: ((String) -> Void)?
+    // Test seam: when set, receives the delivered payload instead of evaluating
+    // it in the real web view.
+    var deliverForTesting: ((String) -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -84,18 +85,6 @@ final class AgentFeedSurface: UIView {
             wv.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
         webView = wv
-
-        // Set up the default evaluateScript closure so the real WKWebView is used.
-        // Log evaluation errors: a delivered payload injected into JS source that
-        // fails to parse otherwise fails silently (completionHandler was nil),
-        // which is how a bad push left the feed stuck with no visible error.
-        evaluateScript = { [weak self, weak wv] js in
-            wv?.evaluateJavaScript(js) { _, error in
-                if let error {
-                    self?.logger.error("agent-feed: deliver eval failed: \(String(describing: error), privacy: .public)")
-                }
-            }
-        }
 
         loadBundle()
     }
@@ -154,11 +143,28 @@ final class AgentFeedSurface: UIView {
     }
 
     private func callDeliverJS(_ rawJSON: String) {
-        let js = "window.__agentFeedDeliver(\(rawJSON))"
-        if let evaluateScript {
-            evaluateScript(js)
-        } else {
-            webView?.evaluateJavaScript(js, completionHandler: nil)
+        if let deliverForTesting {
+            deliverForTesting(rawJSON)
+            return
+        }
+        // Pass the payload as a marshaled argument (callAsyncJavaScript, iOS 14+)
+        // rather than interpolating it into JS source. Arbitrary agent-transcript
+        // content (quotes, backslashes, U+2028/U+2029, etc.) then cannot break JS
+        // parsing or inject code: the raw JSON crosses as a real string argument
+        // and is parsed on the JS side. Source interpolation failed silently, which
+        // is how a single bad push could leave the feed stuck with no error.
+        Task { @MainActor [weak self] in
+            guard let self, let webView = self.webView else { return }
+            do {
+                _ = try await webView.callAsyncJavaScript(
+                    "window.__agentFeedDeliver(JSON.parse(payload))",
+                    arguments: ["payload": rawJSON],
+                    in: nil,
+                    contentWorld: .page
+                )
+            } catch {
+                self.logger.error("agent-feed: deliver failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 

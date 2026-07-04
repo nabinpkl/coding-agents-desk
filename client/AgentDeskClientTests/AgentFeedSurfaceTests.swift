@@ -123,94 +123,93 @@ struct AgentFeedSurfaceTests {
 
     @Test func deliverBeforeLoadQueuesAndFlushesAfterLoad() {
         let surface = AgentFeedSurface()
-        var capturedScripts: [String] = []
+        var capturedPayloads: [String] = []
 
-        // Override evaluateScript to capture calls without a real WKWebView.
-        surface.evaluateScript = { js in
-            capturedScripts.append(js)
+        // Override the delivery seam to capture payloads without a real WKWebView.
+        surface.deliverForTesting = { payload in
+            capturedPayloads.append(payload)
         }
 
         // Deliver before the page finishes loading (isLoaded is false by default).
         surface.deliver(rawJSON: #"{"t":"agent-projects","p":[]}"#)
         surface.deliver(rawJSON: #"{"t":"agent-thread-chunk","sid":"s1"}"#)
 
-        // Nothing should have been evaluated yet.
-        #expect(capturedScripts.isEmpty)
+        // Nothing should have been delivered yet.
+        #expect(capturedPayloads.isEmpty)
 
         // Trigger the load-complete path synchronously via the testable entry point.
         surface.markLoaded()
 
-        // After the simulated load, all queued payloads should have flushed.
-        #expect(capturedScripts.count == 2)
-        #expect(capturedScripts[0].contains("window.__agentFeedDeliver("))
-        #expect(capturedScripts[0].contains("agent-projects"))
-        #expect(capturedScripts[1].contains("window.__agentFeedDeliver("))
-        #expect(capturedScripts[1].contains("agent-thread-chunk"))
+        // After the simulated load, all queued payloads should have flushed, verbatim.
+        #expect(capturedPayloads.count == 2)
+        #expect(capturedPayloads[0] == #"{"t":"agent-projects","p":[]}"#)
+        #expect(capturedPayloads[1] == #"{"t":"agent-thread-chunk","sid":"s1"}"#)
     }
 
-    @Test func deliverAfterLoadCallsEvaluateImmediately() {
+    @Test func deliverAfterLoadDeliversImmediately() {
         let surface = AgentFeedSurface()
-        var capturedScripts: [String] = []
-        surface.evaluateScript = { js in capturedScripts.append(js) }
+        var capturedPayloads: [String] = []
+        surface.deliverForTesting = { payload in capturedPayloads.append(payload) }
 
         // Mark the surface as loaded via the testable path.
         surface.markLoaded()
-        capturedScripts.removeAll()
+        capturedPayloads.removeAll()
 
         surface.deliver(rawJSON: #"{"t":"agent-projects","p":[]}"#)
 
-        #expect(capturedScripts.count == 1)
-        #expect(capturedScripts[0] == #"window.__agentFeedDeliver({"t":"agent-projects","p":[]})"#)
+        // The raw payload crosses to JS unchanged (marshaled as an argument, not
+        // interpolated into source), so the seam sees it verbatim.
+        #expect(capturedPayloads.count == 1)
+        #expect(capturedPayloads[0] == #"{"t":"agent-projects","p":[]}"#)
     }
 
-    @Test func deliverScriptContainsExpectedPrefix() {
+    @Test func deliverPassesPayloadVerbatim() {
         let surface = AgentFeedSurface()
-        var capturedScripts: [String] = []
-        surface.evaluateScript = { js in capturedScripts.append(js) }
+        var capturedPayloads: [String] = []
+        surface.deliverForTesting = { payload in capturedPayloads.append(payload) }
 
         surface.markLoaded()
-        capturedScripts.removeAll()
+        capturedPayloads.removeAll()
 
         let payload = #"{"t":"agent-thread-error","sid":"s","r":"not-found"}"#
         surface.deliver(rawJSON: payload)
 
-        #expect(capturedScripts.count == 1)
-        #expect(capturedScripts[0].hasPrefix("window.__agentFeedDeliver("))
-        #expect(capturedScripts[0].contains(payload))
+        #expect(capturedPayloads.count == 1)
+        #expect(capturedPayloads[0] == payload)
     }
 
     // MARK: - Teardown: post-teardown callbacks are no-ops
 
     @Test func deliverAfterTeardownDoesNotEvaluate() {
         let surface = AgentFeedSurface()
-        var capturedScripts: [String] = []
-        surface.evaluateScript = { js in capturedScripts.append(js) }
+        var capturedPayloads: [String] = []
+        surface.deliverForTesting = { payload in capturedPayloads.append(payload) }
 
         surface.markLoaded()
         surface.teardown()
-        capturedScripts.removeAll()
+        capturedPayloads.removeAll()
 
         // A lagging onAgentPush task could still call deliver after teardown.
         surface.deliver(rawJSON: #"{"t":"agent-projects","p":[]}"#)
 
-        #expect(capturedScripts.isEmpty)
+        #expect(capturedPayloads.isEmpty)
     }
 
     @Test func markLoadedAfterTeardownDoesNotFlush() {
         let surface = AgentFeedSurface()
-        var capturedScripts: [String] = []
-        surface.evaluateScript = { js in capturedScripts.append(js) }
+        var capturedPayloads: [String] = []
+        surface.deliverForTesting = { payload in capturedPayloads.append(payload) }
 
         // Queue a payload before load completes.
         surface.deliver(rawJSON: #"{"t":"agent-projects","p":[]}"#)
         // Tear down before the page finishes loading.
         surface.teardown()
-        capturedScripts.removeAll()
+        capturedPayloads.removeAll()
 
         // A didFinish firing after teardown must not flush the queued payload.
         surface.markLoaded()
 
-        #expect(capturedScripts.isEmpty)
+        #expect(capturedPayloads.isEmpty)
     }
 
     // MARK: - No-channel safety (mirrors "select Agent before a channel exists")
