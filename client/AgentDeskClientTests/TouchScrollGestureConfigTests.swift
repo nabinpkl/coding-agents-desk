@@ -1,12 +1,11 @@
 import Testing
 
-// Finger-count routing for touch-scroll mode. One finger scrolls the host at any
-// zoom; two fingers drive native UIScrollView pinch + pan-while-pinched. The
-// scroll view stays zoom-capable in both modes (isScrollEnabled must never be
-// false — that was the original bug that killed pinch).
+// Finger-count routing for touch scroll is independent from the Full/As Is
+// layout choice. The scroll view stays zoom-capable in all combinations
+// (isScrollEnabled must never be false — that was the original pinch bug).
 struct TouchScrollGestureConfigTests {
-    @Test func offModeDisablesTouchScrollAndKeepsSingleFingerScrollView() {
-        let config = touchScrollGestureConfig(touchScrollMode: .off)
+    @Test func asIsLayoutWithTouchScrollOffKeepsControlsAndSingleFingerScrollViewPan() {
+        let config = touchScrollGestureConfig(touchScrollEnabled: false, layoutMode: .asIs)
         #expect(config.touchScrollRecognizerEnabled == false)
         #expect(config.scrollViewScrollEnabled == true)
         #expect(config.scrollViewPanMinimumTouches == 1)
@@ -16,8 +15,8 @@ struct TouchScrollGestureConfigTests {
         #expect(config.usesFullLayout == false)
     }
 
-    @Test func asIsModeRoutesOneFingerToTouchScrollAndKeepsControlsVisible() {
-        let config = touchScrollGestureConfig(touchScrollMode: .asIs)
+    @Test func asIsLayoutWithTouchScrollOnKeepsControlsAndRoutesOneFingerToTouchScroll() {
+        let config = touchScrollGestureConfig(touchScrollEnabled: true, layoutMode: .asIs)
         #expect(config.touchScrollRecognizerEnabled == true)
         #expect(config.scrollViewScrollEnabled == true)
         #expect(config.scrollViewPanMinimumTouches == 2)
@@ -27,8 +26,19 @@ struct TouchScrollGestureConfigTests {
         #expect(config.usesFullLayout == false)
     }
 
-    @Test func fullModeRoutesOneFingerToTouchScrollAndHidesControls() {
-        let config = touchScrollGestureConfig(touchScrollMode: .full)
+    @Test func fullLayoutWithTouchScrollOffHidesControlsAndKeepsSingleFingerScrollViewPan() {
+        let config = touchScrollGestureConfig(touchScrollEnabled: false, layoutMode: .full)
+        #expect(config.touchScrollRecognizerEnabled == false)
+        #expect(config.scrollViewScrollEnabled == true)
+        #expect(config.scrollViewPanMinimumTouches == 1)
+        #expect(config.relativeControlsHidden)
+        #expect(config.relativeControlsAlpha == 1.0)
+        #expect(config.relativeControlsInteractionEnabled == false)
+        #expect(config.usesFullLayout)
+    }
+
+    @Test func fullLayoutWithTouchScrollOnHidesControlsAndRoutesOneFingerToTouchScroll() {
+        let config = touchScrollGestureConfig(touchScrollEnabled: true, layoutMode: .full)
         #expect(config.touchScrollRecognizerEnabled == true)
         #expect(config.scrollViewScrollEnabled == true)
         #expect(config.scrollViewPanMinimumTouches == 2)
@@ -40,39 +50,32 @@ struct TouchScrollGestureConfigTests {
 
     // Regression guard against reintroducing isScrollEnabled = false, which also
     // disables pinch-zoom on a UIScrollView.
-    @Test func scrollViewStaysZoomCapableInAllModes() {
-        #expect(touchScrollGestureConfig(touchScrollMode: .off).scrollViewScrollEnabled == true)
-        #expect(touchScrollGestureConfig(touchScrollMode: .asIs).scrollViewScrollEnabled == true)
-        #expect(touchScrollGestureConfig(touchScrollMode: .full).scrollViewScrollEnabled == true)
+    @Test func scrollViewStaysZoomCapableInEveryLayoutAndTouchScrollState() {
+        for layoutMode in TouchScrollLayoutMode.allCases {
+            #expect(touchScrollGestureConfig(touchScrollEnabled: false, layoutMode: layoutMode).scrollViewScrollEnabled == true)
+            #expect(touchScrollGestureConfig(touchScrollEnabled: true, layoutMode: layoutMode).scrollViewScrollEnabled == true)
+        }
     }
 
-    @Test func toggleSelectedFullModeBackOff() {
-        let full = toggledTouchScrollMode(current: .off, selected: .full)
-        #expect(full == .full)
-        #expect(toggledTouchScrollMode(current: full, selected: .full) == .off)
+    @Test func layoutStateChangesDoNotChangeTouchScrollEnabled() {
+        let state = TouchScrollControlState(layoutMode: .asIs, touchScrollEnabled: true)
+        let full = state.with(layoutMode: .full)
+        #expect(full.layoutMode == .full)
+        #expect(full.touchScrollEnabled == true)
+
+        let asIs = full.with(layoutMode: .asIs)
+        #expect(asIs.layoutMode == .asIs)
+        #expect(asIs.touchScrollEnabled == true)
     }
 
-    @Test func toggleSelectedAsIsModeBackOff() {
-        let asIs = toggledTouchScrollMode(current: .off, selected: .asIs)
-        #expect(asIs == .asIs)
-        #expect(toggledTouchScrollMode(current: asIs, selected: .asIs) == .off)
-    }
+    @Test func touchScrollStateChangesDoNotChangeLayout() {
+        let state = TouchScrollControlState(layoutMode: .full, touchScrollEnabled: false)
+        let enabled = state.with(touchScrollEnabled: true)
+        #expect(enabled.layoutMode == .full)
+        #expect(enabled.touchScrollEnabled == true)
 
-    @Test func selectedModeSwitchesDirectlyToOtherMode() {
-        #expect(toggledTouchScrollMode(current: .full, selected: .asIs) == .asIs)
-        #expect(toggledTouchScrollMode(current: .asIs, selected: .full) == .full)
-    }
-
-    @Test func storedBoolMigratesToTriStateMode() {
-        #expect(persistedTouchScrollMode(fromStoredValue: true) == .asIs)
-        #expect(persistedTouchScrollMode(fromStoredValue: false) == .off)
-        #expect(persistedTouchScrollMode(fromStoredValue: nil) == .off)
-    }
-
-    @Test func storedRawValueLoadsTriStateMode() {
-        #expect(persistedTouchScrollMode(fromStoredValue: "off") == .off)
-        #expect(persistedTouchScrollMode(fromStoredValue: "asIs") == .asIs)
-        #expect(persistedTouchScrollMode(fromStoredValue: "full") == .full)
-        #expect(persistedTouchScrollMode(fromStoredValue: "unknown") == .off)
+        let disabled = enabled.with(touchScrollEnabled: false)
+        #expect(disabled.layoutMode == .full)
+        #expect(disabled.touchScrollEnabled == false)
     }
 }

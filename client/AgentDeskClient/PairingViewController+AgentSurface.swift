@@ -210,7 +210,7 @@ extension PairingViewController {
         displayRailView.isHidden = v.controlChromeHidden
         // The keyboard surface is a first-responder helper; just disable it.
         keyboardSurface.isUserInteractionEnabled = v.keyboardInteractive
-        applyTouchScrollMode()
+        applyTouchScrollState()
 
         Self.logger.debug("active surface: \(String(describing: surface))")
     }

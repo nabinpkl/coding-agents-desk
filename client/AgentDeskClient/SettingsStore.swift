@@ -27,7 +27,8 @@ final class SettingsStore: @unchecked Sendable {
         static let accessoryKeyHeight = "agentDesk.accessoryKeyHeight"
         static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
         static let showSpacePreviews = "agentDesk.showSpacePreviews"
-        static let touchScrollMode = "agentDesk.touchScrollMode"
+        static let touchScrollEnabled = "agentDesk.touchScrollEnabled"
+        static let touchScrollLayoutMode = "agentDesk.touchScrollLayoutMode"
         static let crispTextOverlayEnabled = "agentDesk.crispTextOverlayEnabled"
         static let showHostCursorInVideo = "agentDesk.showHostCursorInVideo"
         static let adaptiveMediaQualityEnabled = "agentDesk.adaptiveMediaQualityEnabled"
@@ -226,16 +227,33 @@ final class SettingsStore: @unchecked Sendable {
         )
     }
 
-    // Touch-scroll mode: when on, a one-finger drag on the video surface
-    // primes the host cursor at the touched point and scrolls it, reusing the
-    // right-edge strip's scroll behavior on a larger target. Default off keeps
-    // the relative trackpad + strip as the sole control model.
-    var touchScrollMode: TouchScrollMode {
-        get { persistedTouchScrollMode(fromStoredValue: defaults.object(forKey: Key.touchScrollMode)) }
+    // Touch-scroll input routing is independent from the layout density.
+    // Defaults are As Is layout with video-surface touch scroll off.
+    var touchScrollEnabled: Bool {
+        get { defaults.object(forKey: Key.touchScrollEnabled) as? Bool ?? false }
         set {
-            defaults.set(newValue.rawValue, forKey: Key.touchScrollMode)
+            defaults.set(newValue, forKey: Key.touchScrollEnabled)
             postChange()
         }
+    }
+
+    var touchScrollLayoutMode: TouchScrollLayoutMode {
+        get {
+            guard let raw = defaults.object(forKey: Key.touchScrollLayoutMode) as? String else {
+                return .asIs
+            }
+            return TouchScrollLayoutMode(rawValue: raw) ?? .asIs
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Key.touchScrollLayoutMode)
+            postChange()
+        }
+    }
+
+    func setTouchScroll(layoutMode: TouchScrollLayoutMode, enabled: Bool) {
+        defaults.set(layoutMode.rawValue, forKey: Key.touchScrollLayoutMode)
+        defaults.set(enabled, forKey: Key.touchScrollEnabled)
+        postChange()
     }
 
     // ADR-0038 DOM mirror. Baked on by default for all variants. Gates whether the client opens the

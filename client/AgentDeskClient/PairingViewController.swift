@@ -132,10 +132,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     let buttonRow = UIStackView()
     let rightClickButton = UIButton(type: .system)
     let showKeyboardButton = UIButton(type: .system)
-    // Touch-scroll mode control (bottom row) and the pan recognizer
-    // installed on the video surface while that mode is active. See
+    // Touch-scroll control (bottom row) and the pan recognizer installed
+    // on the video surface while touch-scroll input is active. See
     // PairingViewController+TouchScroll.swift.
-    let touchScrollModeControl = TouchScrollModeControl()
+    let touchScrollControl = TouchScrollControl()
     var touchScrollRecognizer: UIPanGestureRecognizer?
     // R25: merged Spaces band. Replaces the old dots band.
     let displayRailView = DisplayRailView()
@@ -162,7 +162,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var currentIsLandscape: Bool?
     var fullPortraitConstraints: [NSLayoutConstraint] = []
     var fullLandscapeConstraints: [NSLayoutConstraint] = []
-    var currentUsesFullTouchScrollLayout: Bool?
+    var currentUsesFullLayout: Bool?
     // CGEvent posts at the userspace layer don't actually trigger macOS
     // pointer accel (that lives in IOKit, below CGEvent), so we apply
     // our own approximation client-side. The .mac curve keeps the

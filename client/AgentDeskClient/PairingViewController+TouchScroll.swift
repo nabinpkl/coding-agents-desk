@@ -1,14 +1,19 @@
 import UIKit
 import AgentDeskWire
 
-final class TouchScrollModeControl: UIControl {
-    var mode: TouchScrollMode = .off {
+final class TouchScrollControl: UIControl {
+    var layoutMode: TouchScrollLayoutMode = .asIs {
+        didSet { updateAppearance() }
+    }
+
+    var touchScrollEnabled: Bool = false {
         didSet { updateAppearance() }
     }
 
     private let fullButton = UIButton(type: .system)
     private let asIsButton = UIButton(type: .system)
     private let label = UILabel()
+    private let enabledSwitch = UISwitch()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -21,7 +26,7 @@ final class TouchScrollModeControl: UIControl {
     }
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: 44)
+        CGSize(width: UIView.noIntrinsicMetric, height: 52)
     }
 
     private func configure() {
@@ -55,10 +60,21 @@ final class TouchScrollModeControl: UIControl {
         label.text = "Touch scroll"
         label.font = .preferredFont(forTextStyle: .caption2)
         label.textColor = .secondaryLabel
-        label.textAlignment = .center
+        label.textAlignment = .left
         label.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = UIStackView(arrangedSubviews: [choiceRow, label])
+        enabledSwitch.transform = CGAffineTransform(scaleX: 0.68, y: 0.68)
+        enabledSwitch.addTarget(self, action: #selector(enabledChanged), for: .valueChanged)
+        enabledSwitch.translatesAutoresizingMaskIntoConstraints = false
+
+        let switchRow = UIStackView(arrangedSubviews: [label, enabledSwitch])
+        switchRow.axis = .horizontal
+        switchRow.alignment = .center
+        switchRow.distribution = .fill
+        switchRow.spacing = 4
+        switchRow.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = UIStackView(arrangedSubviews: [choiceRow, switchRow])
         stack.axis = .vertical
         stack.alignment = .fill
         stack.spacing = 0
@@ -72,24 +88,33 @@ final class TouchScrollModeControl: UIControl {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
             divider.widthAnchor.constraint(equalToConstant: 1),
             fullButton.widthAnchor.constraint(equalTo: asIsButton.widthAnchor),
-            choiceRow.heightAnchor.constraint(equalToConstant: 24)
+            choiceRow.heightAnchor.constraint(equalToConstant: 24),
+            switchRow.heightAnchor.constraint(equalToConstant: 24)
         ])
         updateAppearance()
     }
 
     @objc private func fullTapped() {
-        mode = toggledTouchScrollMode(current: mode, selected: .full)
+        layoutMode = .full
         sendActions(for: .valueChanged)
     }
 
     @objc private func asIsTapped() {
-        mode = toggledTouchScrollMode(current: mode, selected: .asIs)
+        layoutMode = .asIs
+        sendActions(for: .valueChanged)
+    }
+
+    @objc private func enabledChanged() {
+        touchScrollEnabled = enabledSwitch.isOn
         sendActions(for: .valueChanged)
     }
 
     private func updateAppearance() {
-        style(fullButton, selected: mode == .full)
-        style(asIsButton, selected: mode == .asIs)
+        style(fullButton, selected: layoutMode == .full)
+        style(asIsButton, selected: layoutMode == .asIs)
+        if enabledSwitch.isOn != touchScrollEnabled {
+            enabledSwitch.setOn(touchScrollEnabled, animated: false)
+        }
     }
 
     private func style(_ button: UIButton, selected: Bool) {
@@ -129,7 +154,7 @@ extension PairingViewController {
         sinkView.isUserInteractionEnabled = true
         sinkView.addGestureRecognizer(pan)
         touchScrollRecognizer = pan
-        applyTouchScrollMode()
+        applyTouchScrollState()
     }
 
     @objc func handleVideoTouchScroll(_ gesture: UIPanGestureRecognizer) {
@@ -181,25 +206,31 @@ extension PairingViewController {
         ))
     }
 
-    // Applies the current touch-scroll mode: gate the recognizer and route the
-    // scroll view's own pan so it does not fight ours when zoomed. The relative
-    // trackpad and right-edge scroll strip remain available as alternate inputs.
+    // Applies the current touch-scroll state: gate the recognizer and route the
+    // scroll view's own pan so it does not fight ours when touch-scroll input
+    // is enabled. Full layout independently hides the relative controls.
     // Idempotent; called on attach, on entering the session, and on every
     // settings change.
-    func applyTouchScrollMode() {
-        let mode = SettingsStore.shared.touchScrollMode
-        let config = touchScrollGestureConfig(touchScrollMode: mode)
+    func applyTouchScrollState() {
+        let enabled = SettingsStore.shared.touchScrollEnabled
+        let layoutMode = SettingsStore.shared.touchScrollLayoutMode
+        let config = touchScrollGestureConfig(
+            touchScrollEnabled: enabled,
+            layoutMode: layoutMode
+        )
         touchScrollRecognizer?.isEnabled = config.touchScrollRecognizerEnabled
         if let scroll = sinkScrollView {
             // Keep the scroll view zoom-capable at all times (isScrollEnabled =
             // false would also kill pinch). Route by finger count instead:
-            // minimumNumberOfTouches = 2 means one finger never pans the local
-            // view, so the touch-scroll recognizer owns single-finger drags and
-            // two fingers drive native pinch + pan-while-pinched.
+            // when touch scroll is enabled, minimumNumberOfTouches = 2 means
+            // one finger never pans the local view, so the touch-scroll
+            // recognizer owns single-finger drags and two fingers drive native
+            // pinch + pan-while-pinched.
             scroll.isScrollEnabled = config.scrollViewScrollEnabled
             scroll.panGestureRecognizer.minimumNumberOfTouches = config.scrollViewPanMinimumTouches
         }
-        touchScrollModeControl.mode = mode
+        touchScrollControl.layoutMode = layoutMode
+        touchScrollControl.touchScrollEnabled = enabled
         let controlSurfaceActive = isControlSurfaceActive()
         let relativeControlsHidden = !controlSurfaceActive || config.relativeControlsHidden
         for control in [trackpadView, scrollStripView] {
@@ -218,10 +249,13 @@ extension PairingViewController {
         return seg.titleForSegment(at: seg.selectedSegmentIndex) == "Control"
     }
 
-    @objc func touchScrollModeControlChanged(_ control: TouchScrollModeControl) {
-        SettingsStore.shared.touchScrollMode = control.mode
-        // postChange() also drives settingsChanged -> applyTouchScrollMode, but
-        // apply immediately too so the segmented control feels instant.
-        applyTouchScrollMode()
+    @objc func touchScrollControlChanged(_ control: TouchScrollControl) {
+        SettingsStore.shared.setTouchScroll(
+            layoutMode: control.layoutMode,
+            enabled: control.touchScrollEnabled
+        )
+        // postChange() also drives settingsChanged -> applyTouchScrollState, but
+        // apply immediately too so the control feels instant.
+        applyTouchScrollState()
     }
 }

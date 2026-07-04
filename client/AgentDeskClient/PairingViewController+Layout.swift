@@ -53,8 +53,8 @@ extension PairingViewController {
         // the portrait array; the matching landscape entries (which need
         // the thumbnailStripView reference for the scroll's bottom edge) are
         // appended in showTrackpad before applyOrientationConstraints
-        // fires. Full touch-scroll gets its own portrait constraints because
-        // the normal portrait height is fixed at 55%.
+        // fires. Full layout gets its own portrait constraints because the
+        // normal portrait height is fixed at 55%.
         portraitConstraints.append(contentsOf: [
             scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -148,10 +148,10 @@ extension PairingViewController {
         rightClickButton.addTarget(self, action: #selector(rightClickTapped), for: .touchUpInside)
         buttonRow.addArrangedSubview(rightClickButton)
 
-        // Touch-scroll mode: Full hides the relative controls and expands the
-        // video; As Is keeps the current relative trackpad + scroll strip.
-        touchScrollModeControl.addTarget(self, action: #selector(touchScrollModeControlChanged(_:)), for: .valueChanged)
-        buttonRow.addArrangedSubview(touchScrollModeControl)
+        // Layout and touch-scroll input are independent: Full expands the
+        // video; the switch controls whether one-finger video drags scroll.
+        touchScrollControl.addTarget(self, action: #selector(touchScrollControlChanged(_:)), for: .valueChanged)
+        buttonRow.addArrangedSubview(touchScrollControl)
 
         styleActionButton(showKeyboardButton, title: "Show keyboard")
         showKeyboardButton.addTarget(self, action: #selector(toggleKeyboard), for: .touchUpInside)
@@ -200,7 +200,7 @@ extension PairingViewController {
         // either orientation.
         NSLayoutConstraint.activate([
             bottomConstraint,
-            buttonRow.heightAnchor.constraint(equalToConstant: 44),
+            buttonRow.heightAnchor.constraint(equalToConstant: 52),
 
             // Strip must fit the full cell: tile thumbnail (tileHeight) +
             // two-row caption (tileCaptionHeight). The old 56pt value was
@@ -373,7 +373,7 @@ extension PairingViewController {
         scrollStripView.removeFromSuperview()
         buttonRow.removeFromSuperview()
         rightClickButton.removeFromSuperview()
-        touchScrollModeControl.removeFromSuperview()
+        touchScrollControl.removeFromSuperview()
         showKeyboardButton.removeFromSuperview()
         displayRailView.removeFromSuperview()
         displayRailView.renderEmpty()
@@ -413,7 +413,7 @@ extension PairingViewController {
         fullPortraitConstraints.removeAll()
         fullLandscapeConstraints.removeAll()
         currentIsLandscape = nil
-        currentUsesFullTouchScrollLayout = nil
+        currentUsesFullLayout = nil
     }
 
     // R23: swap the active orientation's constraint set. Safe to call
@@ -421,9 +421,9 @@ extension PairingViewController {
     // session): NSLayoutConstraint.deactivate/activate on an empty
     // array is a no-op.
     func applyOrientationConstraints(forLandscape isLandscape: Bool) {
-        let useFull = SettingsStore.shared.touchScrollMode == .full
+        let useFull = SettingsStore.shared.touchScrollLayoutMode == .full
         if currentIsLandscape == isLandscape,
-           currentUsesFullTouchScrollLayout == useFull,
+           currentUsesFullLayout == useFull,
            (!portraitConstraints.isEmpty || !landscapeConstraints.isEmpty || !fullPortraitConstraints.isEmpty || !fullLandscapeConstraints.isEmpty) {
             return
         }
@@ -437,7 +437,7 @@ extension PairingViewController {
             NSLayoutConstraint.activate(useFull ? fullPortraitConstraints : portraitConstraints)
         }
         currentIsLandscape = isLandscape
-        currentUsesFullTouchScrollLayout = useFull
+        currentUsesFullLayout = useFull
     }
 
     func configureSettingsButton() {
