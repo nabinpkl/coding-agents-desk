@@ -250,12 +250,10 @@ struct OwnedSurfaceCompositorCacheTests {
         #expect(Self.pixel(result, width: surfaceWidth, x: 0, y: 64) == seedPx)
     }
 
-    // drawCachedTile for a slot that was never cached must be rejected (drives
-    // the client reset path) and must not modify the surface.
-    // Black-flash fix part B (ADR-0022): a drawCachedTile for a slot the client does
-    // not hold is non-fatal. It is skipped (pixels left as-is), not rejected, so a
-    // cache gap from a dropped frame no longer forces a black-flashing reset; the
-    // next periodic heal repaints the surface.
+    // drawCachedTile for a slot the client never cached is non-fatal: it must not throw
+    // or force a reset. Per ADR-0034 the cache-miss reverts its region to the live video
+    // floor (transparent) rather than leaving stale pixels. Over the already-transparent
+    // baseline here that revert is a no-op, so the surface is unchanged.
     @Test func drawCachedTileForMissingSlotIsSkipped() throws {
         var compositor = OwnedSurfaceCompositor()
         _ = try compositor.applyGraphicsFrame(Self.makeResetSurfaceEnvelope(
@@ -276,7 +274,7 @@ struct OwnedSurfaceCompositorCacheTests {
         // Must not throw; the missing slot is skipped.
         _ = try compositor.applyGraphicsFrame(badFrame)
 
-        // Surface must not have been modified by the skipped tile.
+        // The revert is a no-op over the transparent baseline, so the surface is unchanged.
         #expect(compositor.pixelBytesForDiagnostics() == pixelsBefore)
     }
 
@@ -333,9 +331,9 @@ struct OwnedSurfaceCompositorCacheTests {
         #expect(compositor.pixelBytesForDiagnostics() == pixelsBefore)
     }
 
-    // The repair path: a drawCachedTile for a missing slot is skipped (surface
-    // unchanged), and a later frame that re-sends the content as cacheTile then
-    // drawCachedTile paints it correctly. This is what the periodic heal does.
+    // The repair path: a drawCachedTile for a missing slot reverts its region to video
+    // (a no-op over the transparent baseline here), and a later frame that re-sends the
+    // content as cacheTile then drawCachedTile paints it correctly.
     @Test func missingSlotThenResendRepaints() throws {
         let w = 128, h = 128
         var compositor = OwnedSurfaceCompositor()
@@ -453,6 +451,36 @@ struct OwnedSurfaceCompositorCacheTests {
         // A pixel inside the skipped region stays fully transparent (video shows through).
         #expect(after[0] == 0 && after[1] == 0 && after[2] == 0 && after[3] == 0,
                 "an uncached drawCachedTile must leave its region transparent, not stale or black")
+    }
+
+    // ADR-0034 crisp-repair (host/client slot divergence): a drawCachedTile for a slot the
+    // client no longer holds must clear its region to the live video floor EVEN when that
+    // region currently shows a crisp tile, so prior-desktop content can never persist. Pins
+    // the fix for stale rects on a desktop switch: the cache-miss reverts, never leaves stale.
+    @Test func uncachedDrawCachedTileOverCrispClearsToVideo() throws {
+        let w = 128, h = 128
+        var compositor = OwnedSurfaceCompositor()
+        _ = try compositor.applyGraphicsFrame(Self.makeSeedSurfaceEnvelope(
+            surfaceGeneration: 1, frameId: 1, width: w, height: h, pixels: Data(count: w * h * 4)
+        ))
+        // Paint a crisp tile at (0,0): slot 3 cached with opaque content.
+        let crisp = Data(repeating: 0x99, count: 64 * 64 * 4)
+        _ = try compositor.applyGraphicsFrame(Self.makeCacheTileEnvelope(
+            surfaceGeneration: 1, frameId: 2, slot: 3, x: 0, y: 0, width: 64, height: 64, pixels: crisp
+        ))
+        #expect(Self.pixel(compositor.pixelBytesForDiagnostics(), width: w, x: 10, y: 10) == Data([0x99, 0x99, 0x99, 0x99]),
+                "precondition: the region shows the crisp tile")
+
+        // A drawCachedTile for an uncached slot (8) over the same region: the client does not
+        // hold slot 8, so it must clear to transparent (show video), not keep the stale crisp.
+        _ = try compositor.applyGraphicsFrame(Self.makeDrawCachedTileEnvelope(
+            surfaceGeneration: 1, frameId: 3, slot: 8, x: 0, y: 0, width: 64, height: 64
+        ))
+        let after = compositor.pixelBytesForDiagnostics()
+        #expect(after[0] == 0 && after[1] == 0 && after[2] == 0 && after[3] == 0,
+                "an uncached drawCachedTile over a crisp region must clear to video, not keep the stale tile")
+        #expect(Self.pixel(after, width: w, x: 10, y: 10) == Data([0, 0, 0, 0]),
+                "the full stale-crisp region must be cleared to transparent")
     }
 
     // ADR-0034 R2: the revertTileToVideo command must survive a JSON round-trip on the

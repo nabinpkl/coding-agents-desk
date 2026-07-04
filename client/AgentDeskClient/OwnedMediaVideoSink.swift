@@ -653,7 +653,13 @@ struct OwnedSurfaceCompositor {
                 // (which re-sends the whole surface) repaint it. Decode and stale-order
                 // guards stay fatal; only the cache miss is tolerated.
                 guard let cached = slotBitmaps[slot], cached.width == width, cached.height == height else {
+                    // Coherence invariant (ADR-0034): the host believes this slot is cached,
+                    // but we do not hold it (host/client slot divergence). Leaving the current
+                    // pixels could show stale crisp from a prior desktop, so revert the region
+                    // to the live video floor instead — stale-crisp must be impossible. The
+                    // host re-caches the tile on its next content change.
                     ownedMediaStderrTrace("drawCachedTile-skip slot=\(slot) x=\(x) y=\(y) reason=missing-or-mismatched-slot")
+                    try clearRect(x: x, y: y, width: width, height: height)
                     continue
                 }
                 let paintStartNs = DispatchTime.now().uptimeNanoseconds
