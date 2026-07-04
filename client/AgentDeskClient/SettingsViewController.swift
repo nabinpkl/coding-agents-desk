@@ -82,7 +82,7 @@ final class SettingsViewController: UIViewController {
             title: "Touch scroll",
             rows: [],
             switchRow: ("Scroll on the video surface", touchScrollModeSwitch),
-            footnote: "Drag on the desktop image to scroll where you touch, instead of the right-edge strip. The relative trackpad is disabled while this is on."
+            footnote: "Drag on the desktop image to scroll where you touch. The trackpad and right-edge scroll strip stay available."
         )
 
         // ADR-0006: opt-in for the thumbnail preview strip.

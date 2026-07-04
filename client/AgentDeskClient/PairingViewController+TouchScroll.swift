@@ -84,10 +84,11 @@ extension PairingViewController {
         ))
     }
 
-    // Applies the current touch-scroll mode: gate the recognizer, disable the
-    // scroll view's own pan so it does not fight ours when zoomed, and dim the
-    // relative controls so nothing double-drives input. Idempotent; called on
-    // attach, on entering the session, and on every settings change.
+    // Applies the current touch-scroll mode: gate the recognizer and route the
+    // scroll view's own pan so it does not fight ours when zoomed. The relative
+    // trackpad and right-edge scroll strip remain available as alternate inputs.
+    // Idempotent; called on attach, on entering the session, and on every
+    // settings change.
     func applyTouchScrollMode() {
         let on = SettingsStore.shared.touchScrollMode
         let config = touchScrollGestureConfig(touchScrollMode: on)
@@ -102,8 +103,8 @@ extension PairingViewController {
             scroll.panGestureRecognizer.minimumNumberOfTouches = config.scrollViewPanMinimumTouches
         }
         for control in [trackpadView, scrollStripView] {
-            control.alpha = on ? 0.4 : 1.0
-            control.isUserInteractionEnabled = !on
+            control.alpha = CGFloat(config.relativeControlsAlpha)
+            control.isUserInteractionEnabled = config.relativeControlsInteractionEnabled
         }
         updateTouchScrollButtonAppearance()
     }

@@ -19,6 +19,12 @@ struct TouchScrollGestureConfigTests {
         #expect(config.scrollViewPanMinimumTouches == 2)
     }
 
+    @Test func touchScrollLeavesTrackpadAndStripAvailable() {
+        let config = touchScrollGestureConfig(touchScrollMode: true)
+        #expect(config.relativeControlsAlpha == 1.0)
+        #expect(config.relativeControlsInteractionEnabled)
+    }
+
     // Regression guard against reintroducing isScrollEnabled = false, which also
     // disables pinch-zoom on a UIScrollView.
     @Test func scrollViewStaysZoomCapableInBothModes() {

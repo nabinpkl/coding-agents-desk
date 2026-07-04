@@ -17,12 +17,16 @@ struct TouchScrollGestureConfig: Equatable {
     let touchScrollRecognizerEnabled: Bool
     let scrollViewScrollEnabled: Bool
     let scrollViewPanMinimumTouches: Int
+    let relativeControlsAlpha: Double
+    let relativeControlsInteractionEnabled: Bool
 }
 
 func touchScrollGestureConfig(touchScrollMode on: Bool) -> TouchScrollGestureConfig {
     TouchScrollGestureConfig(
         touchScrollRecognizerEnabled: on,
         scrollViewScrollEnabled: true,
-        scrollViewPanMinimumTouches: on ? 2 : 1
+        scrollViewPanMinimumTouches: on ? 2 : 1,
+        relativeControlsAlpha: 1.0,
+        relativeControlsInteractionEnabled: true
     )
 }
