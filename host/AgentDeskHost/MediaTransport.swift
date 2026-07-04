@@ -1,4 +1,5 @@
 import Foundation
+import AgentDeskWire
 
 protocol MediaTransport: AnyObject, Sendable {
     func start(videoSource: VideoFrameSource?, videoSink: VideoFrameSink?) async throws
@@ -10,10 +11,10 @@ protocol MediaTransport: AnyObject, Sendable {
     // Applied live on the next drained frame; no restart needed.
     func setClientCrispEnabled(_ enabled: Bool)
 
-    // Per-session client control for the adaptive media-quality ladder. When off, the
-    // transport pins the video stream to the native target while keeping the media lane,
-    // packet repair, and backpressure mechanics alive.
-    func setAdaptiveMediaQualityEnabled(_ enabled: Bool)
+    // Per-session client control for media quality. When adaptive is off and a fixed target
+    // is present, the transport pins bitrate, FPS, and resolution while keeping the media
+    // lane, packet repair, and backpressure mechanics alive.
+    func setClientMediaQuality(_ config: ClientMediaQualityConfig)
 
     var connectionState: AsyncStream<MediaConnectionState> { get }
 }

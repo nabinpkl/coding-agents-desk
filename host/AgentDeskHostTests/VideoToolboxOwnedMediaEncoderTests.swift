@@ -255,7 +255,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(controller.targetResolutionScale, 1.0)
     }
 
-    func testHostMediaStateDisablingAdaptiveQualityPinsNativeTarget() {
+    func testHostMediaStateDisablingAdaptiveQualityPinsManualTarget() {
         var state = QuicSessionHostMediaState(
             qualityControllerConfig: mediaQualityConfig()
         )
@@ -268,11 +268,18 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         }
         XCTAssertLessThan(state.targetResolutionScale, 1.0, "setup should drive the adaptive ladder below native resolution")
 
-        let disabled = state.setAdaptiveQualityEnabled(false)
-        XCTAssertEqual(disabled?.target.bitrateKbps, 2500)
-        XCTAssertEqual(disabled?.target.fps, 30)
-        XCTAssertEqual(disabled?.target.resolutionScale, 1.0)
-        XCTAssertEqual(disabled?.reason, "adaptive-quality-disabled")
+        let disabled = state.applyClientMediaQuality(ClientMediaQualityConfig(
+            adaptiveEnabled: false,
+            fixedTarget: ClientMediaQualityTarget(
+                bitrateKbps: 1_200,
+                fps: 15,
+                resolutionScale: 0.5
+            )
+        ))
+        XCTAssertEqual(disabled?.target.bitrateKbps, 1200)
+        XCTAssertEqual(disabled?.target.fps, 15)
+        XCTAssertEqual(disabled?.target.resolutionScale, 0.5)
+        XCTAssertEqual(disabled?.reason, "manual-quality-fixed")
 
         let stressedWhileDisabled = state.observeLinkHealth(
             completedFrames: 50,
@@ -280,10 +287,16 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             productionSummary: production(actualFps: 1, maxGapMs: 1_500)
         )
         XCTAssertFalse(stressedWhileDisabled.outcome.changed)
-        XCTAssertEqual(stressedWhileDisabled.outcome.reason, "adaptive-quality-disabled")
-        XCTAssertEqual(state.targetKbps, 2500)
-        XCTAssertEqual(state.targetFps, 30)
-        XCTAssertEqual(state.targetResolutionScale, 1.0)
+        XCTAssertEqual(stressedWhileDisabled.outcome.reason, "manual-quality-fixed")
+        XCTAssertEqual(state.targetKbps, 1200)
+        XCTAssertEqual(state.targetFps, 15)
+        XCTAssertEqual(state.targetResolutionScale, 0.5)
+
+        let reenabled = state.applyClientMediaQuality(ClientMediaQualityConfig(adaptiveEnabled: true))
+        XCTAssertEqual(reenabled?.target.bitrateKbps, 2500)
+        XCTAssertEqual(reenabled?.target.fps, 30)
+        XCTAssertEqual(reenabled?.target.resolutionScale, 1.0)
+        XCTAssertEqual(reenabled?.reason, "adaptive-quality-enabled")
     }
 
     func testMediaQualityControllerRaisesOnlyAfterCleanStreak() {

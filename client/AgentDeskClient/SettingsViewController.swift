@@ -19,6 +19,11 @@ final class SettingsViewController: UIViewController {
     private let crispOverlaySwitch = UISwitch()
     private let hostCursorSwitch = UISwitch()
     private let adaptiveMediaQualitySwitch = UISwitch()
+    private let manualMediaBitrateSlider = UISlider()
+    private let manualMediaBitrateLabel = UILabel()
+    private let manualMediaFpsControl = UISegmentedControl(items: ["6", "10", "15", "24", "30"])
+    private let manualMediaResolutionControl = UISegmentedControl(items: ["33%", "50%", "75%", "100%"])
+    private let manualMediaRows = UIStackView()
     private let touchScrollModeSwitch = UISwitch()
     private let accessoryContainerSlider = UISlider()
     private let accessoryContainerLabel = UILabel()
@@ -113,7 +118,8 @@ final class SettingsViewController: UIViewController {
             title: "Video quality",
             rows: [],
             switchRow: ("Adaptive quality ladder", adaptiveMediaQualitySwitch),
-            footnote: "Automatically lowers bitrate, frame rate, and video resolution when the link cannot keep up. Turn off to pin the stream at native quality."
+            customRows: [manualMediaRows],
+            footnote: "Automatically lowers bitrate, frame rate, and video resolution when the link cannot keep up. Turn off to pin the stream to the manual target below."
         )
 
         let accessorySection = makeSection(
@@ -213,6 +219,13 @@ final class SettingsViewController: UIViewController {
         crispOverlaySwitch.addTarget(self, action: #selector(crispOverlayChanged), for: .valueChanged)
         hostCursorSwitch.addTarget(self, action: #selector(hostCursorChanged), for: .valueChanged)
         adaptiveMediaQualitySwitch.addTarget(self, action: #selector(adaptiveMediaQualityChanged), for: .valueChanged)
+        manualMediaBitrateSlider.minimumValue = Float(SettingsStore.manualMediaBitrateKbpsRange.lowerBound)
+        manualMediaBitrateSlider.maximumValue = Float(SettingsStore.manualMediaBitrateKbpsRange.upperBound)
+        manualMediaBitrateSlider.isContinuous = true
+        manualMediaBitrateSlider.addTarget(self, action: #selector(manualMediaBitrateChanged), for: .valueChanged)
+        manualMediaFpsControl.addTarget(self, action: #selector(manualMediaFpsChanged), for: .valueChanged)
+        manualMediaResolutionControl.addTarget(self, action: #selector(manualMediaResolutionChanged), for: .valueChanged)
+        configureManualMediaRows()
         touchScrollModeSwitch.addTarget(self, action: #selector(touchScrollModeChanged), for: .valueChanged)
 
         // Accessory bar tunings live in points so the slider value maps
@@ -246,6 +259,9 @@ final class SettingsViewController: UIViewController {
         crispOverlaySwitch.isOn = store.crispTextOverlayEnabled
         hostCursorSwitch.isOn = store.showHostCursorInVideo
         adaptiveMediaQualitySwitch.isOn = store.adaptiveMediaQualityEnabled
+        manualMediaBitrateSlider.value = Float(store.manualMediaBitrateKbps)
+        manualMediaFpsControl.selectedSegmentIndex = index(for: store.manualMediaFps, in: manualFpsValues())
+        manualMediaResolutionControl.selectedSegmentIndex = index(for: store.manualMediaResolutionScale, in: manualResolutionValues())
         touchScrollModeSwitch.isOn = store.touchScrollMode
         accessoryContainerSlider.value = Float(store.accessoryContainerHeight)
         accessoryKeySlider.value = Float(store.accessoryKeyHeight)
@@ -262,6 +278,8 @@ final class SettingsViewController: UIViewController {
         accessoryContainerLabel.text = formattedPoints(accessoryContainerSlider.value)
         accessoryKeyLabel.text = formattedPoints(accessoryKeySlider.value)
         accessoryGapLabel.text = formattedPoints(accessoryGapSlider.value)
+        manualMediaBitrateLabel.text = "\(roundedManualBitrate()) kbps"
+        manualMediaRows.isHidden = adaptiveMediaQualitySwitch.isOn
     }
 
     private func formatted(_ value: Float) -> String {
@@ -311,6 +329,26 @@ final class SettingsViewController: UIViewController {
 
     @objc private func adaptiveMediaQualityChanged() {
         store.adaptiveMediaQualityEnabled = adaptiveMediaQualitySwitch.isOn
+        refreshLabels()
+    }
+
+    @objc private func manualMediaBitrateChanged() {
+        store.manualMediaBitrateKbps = roundedManualBitrate()
+        refreshLabels()
+    }
+
+    @objc private func manualMediaFpsChanged() {
+        let values = manualFpsValues()
+        let index = manualMediaFpsControl.selectedSegmentIndex
+        guard values.indices.contains(index) else { return }
+        store.manualMediaFps = values[index]
+    }
+
+    @objc private func manualMediaResolutionChanged() {
+        let values = manualResolutionValues()
+        let index = manualMediaResolutionControl.selectedSegmentIndex
+        guard values.indices.contains(index) else { return }
+        store.manualMediaResolutionScale = values[index]
     }
 
     @objc private func touchScrollModeChanged() {
@@ -615,6 +653,51 @@ final class SettingsViewController: UIViewController {
         row.spacing = 8
         row.alignment = .center
         return row
+    }
+
+    private func configureManualMediaRows() {
+        manualMediaRows.axis = .vertical
+        manualMediaRows.spacing = 12
+        manualMediaRows.addArrangedSubview(makeSliderRow(
+            name: "Manual bitrate",
+            valueLabel: manualMediaBitrateLabel,
+            slider: manualMediaBitrateSlider
+        ))
+        manualMediaRows.addArrangedSubview(makeSegmentedRow(
+            name: "Manual FPS",
+            control: manualMediaFpsControl
+        ))
+        manualMediaRows.addArrangedSubview(makeSegmentedRow(
+            name: "Manual resolution",
+            control: manualMediaResolutionControl
+        ))
+    }
+
+    private func makeSegmentedRow(name: String, control: UISegmentedControl) -> UIStackView {
+        let nameLabel = UILabel()
+        nameLabel.text = name
+        nameLabel.font = .preferredFont(forTextStyle: .body)
+
+        let row = UIStackView(arrangedSubviews: [nameLabel, control])
+        row.axis = .vertical
+        row.spacing = 6
+        return row
+    }
+
+    private func roundedManualBitrate() -> Int {
+        Int((manualMediaBitrateSlider.value / 50).rounded() * 50)
+    }
+
+    private func manualFpsValues() -> [Int] {
+        SettingsStore.manualMediaFpsValues
+    }
+
+    private func manualResolutionValues() -> [Double] {
+        SettingsStore.manualMediaResolutionScaleValues
+    }
+
+    private func index<T: Equatable>(for value: T, in values: [T]) -> Int {
+        values.firstIndex(of: value) ?? max(values.count - 1, 0)
     }
 
     private func makeLanguageRow() -> UIStackView {

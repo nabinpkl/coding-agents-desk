@@ -56,6 +56,34 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     try roundTrip(NormalizedInput.switchSpaceGesture(phase: .changed, progress: 0.5, velocityX: -3))
 }
 
+@Test func clientConfigRoundTripsManualMediaQuality() throws {
+    let config = ClientConfig(
+        thumbnailsEnabled: true,
+        selectedDisplayId: "display-1",
+        crispTextOverlayEnabled: false,
+        showHostCursorInVideo: true,
+        mediaQuality: ClientMediaQualityConfig(
+            adaptiveEnabled: false,
+            fixedTarget: ClientMediaQualityTarget(
+                bitrateKbps: 1_200,
+                fps: 15,
+                resolutionScale: 0.5
+            )
+        )
+    )
+    try roundTrip(config)
+
+    let object = try JSONSerialization.jsonObject(
+        with: try JSONEncoder().encode(config)
+    ) as? [String: Any]
+    let mediaQuality = object?["mq"] as? [String: Any]
+    let fixedTarget = mediaQuality?["ft"] as? [String: Any]
+    #expect(mediaQuality?["a"] as? Bool == false)
+    #expect(fixedTarget?["bk"] as? Int == 1_200)
+    #expect(fixedTarget?["fps"] as? Int == 15)
+    #expect(fixedTarget?["rs"] as? Double == 0.5)
+}
+
 @Test func ownedGraphicsFrameAckUsesCanonicalInitOrder() throws {
     // Drift: the two copies declared the memberwise init in different orders. The
     // canonical order is (surfaceGeneration, frameId, compositorMs, ...); the wire

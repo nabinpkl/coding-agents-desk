@@ -135,6 +135,39 @@ public struct CursorPositionPush: Codable, Equatable, Sendable {
         self.cursorY = cursorY
     }
 }
+public struct ClientMediaQualityTarget: Codable, Equatable, Sendable {
+    public let bitrateKbps: Int
+    public let fps: Int
+    public let resolutionScale: Double
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case bitrateKbps = "bk"
+        case fps = "fps"
+        case resolutionScale = "rs"
+    }
+
+    public init(bitrateKbps: Int, fps: Int, resolutionScale: Double) {
+        self.bitrateKbps = bitrateKbps
+        self.fps = fps
+        self.resolutionScale = resolutionScale
+    }
+}
+
+public struct ClientMediaQualityConfig: Codable, Equatable, Sendable {
+    public let adaptiveEnabled: Bool
+    public let fixedTarget: ClientMediaQualityTarget?
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case adaptiveEnabled = "a"
+        case fixedTarget = "ft"
+    }
+
+    public init(adaptiveEnabled: Bool, fixedTarget: ClientMediaQualityTarget? = nil) {
+        self.adaptiveEnabled = adaptiveEnabled
+        self.fixedTarget = fixedTarget
+    }
+}
+
 public struct ClientConfig: Codable, Equatable, Sendable {
     public let type: String
     public let thumbnailsEnabled: Bool
@@ -150,11 +183,10 @@ public struct ClientConfig: Codable, Equatable, Sendable {
     // client draws its own sharp low-latency cursor overlay, so baking it into the video is
     // a redundant double-draw.
     public let showHostCursorInVideo: Bool?
-    // Client's control over the host-owned adaptive media quality ladder. Optional for the
-    // same reason as the other client preferences: nil = no opinion, so the host keeps the
-    // adaptive default on. The client settings UI sends an explicit value on session start
-    // and on each settings change.
-    public let adaptiveMediaQualityEnabled: Bool?
+    // Client's control over host-owned media quality. Optional for the same reason as the
+    // other client preferences: nil = no opinion, so the host keeps adaptive quality on at
+    // the native target. When adaptive is off, fixedTarget pins bitrate/FPS/resolution.
+    public let mediaQuality: ClientMediaQualityConfig?
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case type = "t"
@@ -163,7 +195,7 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         case selectedDisplayId = "sd"
         case crispTextOverlayEnabled = "ce"
         case showHostCursorInVideo = "hc"
-        case adaptiveMediaQualityEnabled = "aq"
+        case mediaQuality = "mq"
     }
 
     public init(
@@ -172,7 +204,7 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         selectedDisplayId: String? = nil,
         crispTextOverlayEnabled: Bool? = nil,
         showHostCursorInVideo: Bool? = nil,
-        adaptiveMediaQualityEnabled: Bool? = nil
+        mediaQuality: ClientMediaQualityConfig? = nil
     ) {
         self.type = "client-config"
         self.thumbnailsEnabled = thumbnailsEnabled
@@ -180,6 +212,6 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         self.selectedDisplayId = selectedDisplayId
         self.crispTextOverlayEnabled = crispTextOverlayEnabled
         self.showHostCursorInVideo = showHostCursorInVideo
-        self.adaptiveMediaQualityEnabled = adaptiveMediaQualityEnabled
+        self.mediaQuality = mediaQuality
     }
 }

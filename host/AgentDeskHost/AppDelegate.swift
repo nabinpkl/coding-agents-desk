@@ -717,14 +717,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // client overlay is the cursor).
             let showHostCursor = config.showHostCursorInVideo ?? false
             // nil = no opinion -> adaptive media quality remains on, matching ADR-0033.
-            let adaptiveQualityEnabled = config.adaptiveMediaQualityEnabled ?? true
+            let mediaQuality = config.mediaQuality ?? ClientMediaQualityConfig(adaptiveEnabled: true)
             Task { @MainActor [weak self, provider, thumbnailOwner, server] in
                 guard let self else { return }
                 let transport = self.sessions.transport(for: clientFingerprint)
                 transport?.setClientCrispEnabled(crispEnabled)
-                transport?.setAdaptiveMediaQualityEnabled(adaptiveQualityEnabled)
+                transport?.setClientMediaQuality(mediaQuality)
                 (self.frameSource as? DisplaySelectableVideoFrameSource)?.setShowsCursorInVideo(showHostCursor)
-                self.thumbnailsLogger.notice("client thumbnail config fp=\(clientFingerprint.rawValue, privacy: .public) enabled=\(enabled, privacy: .public) refresh=\(String(describing: refresh), privacy: .public) selectedDisplay=\(selectedDisplayId ?? "nil", privacy: .public) crisp=\(crispEnabled, privacy: .public) adaptiveQuality=\(adaptiveQualityEnabled, privacy: .public)")
+                let fixedTarget = mediaQuality.fixedTarget
+                self.thumbnailsLogger.notice("client thumbnail config fp=\(clientFingerprint.rawValue, privacy: .public) enabled=\(enabled, privacy: .public) refresh=\(String(describing: refresh), privacy: .public) selectedDisplay=\(selectedDisplayId ?? "nil", privacy: .public) crisp=\(crispEnabled, privacy: .public) adaptiveQuality=\(mediaQuality.adaptiveEnabled, privacy: .public) fixedBitrateKbps=\(fixedTarget?.bitrateKbps ?? 0, privacy: .public) fixedFps=\(fixedTarget?.fps ?? 0, privacy: .public) fixedResolutionScale=\(fixedTarget?.resolutionScale ?? 0, privacy: .public)")
                 if enabled {
                     self.thumbnailEnabledClients.insert(clientFingerprint)
                 } else {

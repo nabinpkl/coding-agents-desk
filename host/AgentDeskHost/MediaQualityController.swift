@@ -315,6 +315,14 @@ struct MediaQualityController {
         recoveryStatus(blocker: "none")
     }
 
+    mutating func pin(to target: MediaQualityTarget) {
+        self.target = target
+        self.stableTarget = target
+        cleanRecoveryMs = 0
+        cadencePressureStreak = 0
+        clearProbe()
+    }
+
     mutating func observe(_ input: MediaQualityControllerInput) -> MediaQualityEvaluation {
         let previous = target
         let signals = makeSignals(input)
@@ -878,16 +886,31 @@ struct QuicSessionHostMediaState {
     var inFlightFrames: Int { backpressure.inFlight }
     var inFlightBytes: Int { backpressure.bytesInFlight }
 
-    mutating func setAdaptiveQualityEnabled(_ enabled: Bool) -> MediaQualityOutcome? {
-        guard adaptiveQualityEnabled != enabled else { return nil }
-        adaptiveQualityEnabled = enabled
+    mutating func applyClientMediaQuality(_ config: ClientMediaQualityConfig) -> MediaQualityOutcome? {
         let previous = qualityController.target
+        if config.adaptiveEnabled {
+            guard !adaptiveQualityEnabled else { return nil }
+            adaptiveQualityEnabled = true
+            qualityController = MediaQualityController(config: qualityControllerConfig)
+            resetForQualityChange()
+            clearQualityWindow()
+            let target = qualityController.target.with(reason: "adaptive-quality-enabled")
+            return MediaQualityOutcome(
+                target: target,
+                previousTarget: previous,
+                reason: target.reason
+            )
+        }
+
+        let target = manualTarget(from: config.fixedTarget, reason: "manual-quality-fixed")
+        guard adaptiveQualityEnabled || !sameQualityTarget(previous, target) else {
+            return nil
+        }
+        adaptiveQualityEnabled = false
         qualityController = MediaQualityController(config: qualityControllerConfig)
+        qualityController.pin(to: target)
         resetForQualityChange()
         clearQualityWindow()
-        let target = qualityController.target.with(
-            reason: enabled ? "adaptive-quality-enabled" : "adaptive-quality-disabled"
-        )
         return MediaQualityOutcome(
             target: target,
             previousTarget: previous,
@@ -994,7 +1017,7 @@ struct QuicSessionHostMediaState {
             ackAgeP95Ms: ackStats.p95
         )
         if !adaptiveQualityEnabled {
-            let target = qualityController.target.with(reason: "adaptive-quality-disabled")
+            let target = qualityController.target.with(reason: "manual-quality-fixed")
             let total = sample.completedFrames + sample.expiredFrames
             let lossPermille = total > 0 ? (sample.expiredFrames * 1000) / total : 0
             let observation = MediaQualityObservation(
@@ -1027,7 +1050,7 @@ struct QuicSessionHostMediaState {
                 outcome: MediaQualityOutcome(
                     target: target,
                     previousTarget: target,
-                    reason: "adaptive-quality-disabled"
+                    reason: "manual-quality-fixed"
                 )
             )
         }
@@ -1076,6 +1099,26 @@ struct QuicSessionHostMediaState {
         let fps = qualityController.targetFps
         guard fps > 0, fps < expectedFrameRate else { return 0 }
         return UInt64(1_000_000_000 / fps)
+    }
+
+    private func manualTarget(from clientTarget: ClientMediaQualityTarget?, reason: String) -> MediaQualityTarget {
+        let bitrate = clientTarget?.bitrateKbps ?? qualityControllerConfig.ceilingKbps
+        let fps = clientTarget?.fps ?? qualityControllerConfig.fpsCeiling
+        let scale = clientTarget?.resolutionScale ?? 1.0
+        return MediaQualityTarget(
+            bitrateKbps: min(max(bitrate, 1), 20_000),
+            fps: min(max(fps, 1), expectedFrameRate),
+            resolutionScale: min(max(scale, 0.1), 1.0),
+            rung: .native,
+            reason: reason
+        )
+    }
+
+    private func sameQualityTarget(_ lhs: MediaQualityTarget, _ rhs: MediaQualityTarget) -> Bool {
+        lhs.bitrateKbps == rhs.bitrateKbps &&
+            lhs.fps == rhs.fps &&
+            lhs.resolutionScale == rhs.resolutionScale &&
+            lhs.rung == rhs.rung
     }
 
     private func percentile(_ fraction: Double) -> Double? {

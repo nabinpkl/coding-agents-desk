@@ -31,6 +31,9 @@ final class SettingsStore: @unchecked Sendable {
         static let crispTextOverlayEnabled = "agentDesk.crispTextOverlayEnabled"
         static let showHostCursorInVideo = "agentDesk.showHostCursorInVideo"
         static let adaptiveMediaQualityEnabled = "agentDesk.adaptiveMediaQualityEnabled"
+        static let manualMediaBitrateKbps = "agentDesk.manualMediaBitrateKbps"
+        static let manualMediaFps = "agentDesk.manualMediaFps"
+        static let manualMediaResolutionScale = "agentDesk.manualMediaResolutionScale"
         static let domMirrorEnabled = "agentDesk.domMirrorEnabled"
         static let agentSayVoiceLanguage = "agentDesk.agentSayVoiceLanguage"
         static let agentSayVoiceIdentifier = "agentDesk.agentSayVoiceIdentifier"
@@ -42,6 +45,12 @@ final class SettingsStore: @unchecked Sendable {
     static let defaultAccessoryContainerHeight: Double = 44
     static let defaultAccessoryKeyHeight: Double = 36
     static let defaultAccessoryKeySpacing: Double = 6
+    static let defaultManualMediaBitrateKbps = 2_500
+    static let manualMediaBitrateKbpsRange: ClosedRange<Int> = 300...5_000
+    static let defaultManualMediaFps = 30
+    static let manualMediaFpsValues = [6, 10, 15, 24, 30]
+    static let defaultManualMediaResolutionScale = 1.0
+    static let manualMediaResolutionScaleValues = [0.33, 0.5, 0.75, 1.0]
 
     // Materialize the current tuning as one value. PairingViewController
     // copies this onto the translator on each change; SettingsViewController
@@ -167,14 +176,54 @@ final class SettingsStore: @unchecked Sendable {
     }
 
     // Host-owned adaptive media ladder. Default ON: the host should keep motion alive on
-    // constrained links unless the user explicitly pins the stream to native quality.
-    // Sent in ClientConfig (wire key "aq") and applied live by the host transport.
+    // constrained links unless the user explicitly pins the stream to a manual target.
+    // Sent in ClientConfig.mediaQuality (wire key "mq") and applied live by the host transport.
     var adaptiveMediaQualityEnabled: Bool {
         get { defaults.object(forKey: Key.adaptiveMediaQualityEnabled) as? Bool ?? true }
         set {
             defaults.set(newValue, forKey: Key.adaptiveMediaQualityEnabled)
             postChange()
         }
+    }
+
+    var manualMediaBitrateKbps: Int {
+        get { defaults.object(forKey: Key.manualMediaBitrateKbps) as? Int ?? Self.defaultManualMediaBitrateKbps }
+        set {
+            defaults.set(
+                clamp(newValue, min: Self.manualMediaBitrateKbpsRange.lowerBound, max: Self.manualMediaBitrateKbpsRange.upperBound),
+                forKey: Key.manualMediaBitrateKbps
+            )
+            postChange()
+        }
+    }
+
+    var manualMediaFps: Int {
+        get { defaults.object(forKey: Key.manualMediaFps) as? Int ?? Self.defaultManualMediaFps }
+        set {
+            let nearest = Self.manualMediaFpsValues.min { abs($0 - newValue) < abs($1 - newValue) } ?? Self.defaultManualMediaFps
+            defaults.set(nearest, forKey: Key.manualMediaFps)
+            postChange()
+        }
+    }
+
+    var manualMediaResolutionScale: Double {
+        get { defaults.object(forKey: Key.manualMediaResolutionScale) as? Double ?? Self.defaultManualMediaResolutionScale }
+        set {
+            let nearest = Self.manualMediaResolutionScaleValues.min { abs($0 - newValue) < abs($1 - newValue) } ?? Self.defaultManualMediaResolutionScale
+            defaults.set(nearest, forKey: Key.manualMediaResolutionScale)
+            postChange()
+        }
+    }
+
+    var mediaQualityConfig: ClientMediaQualityConfig {
+        ClientMediaQualityConfig(
+            adaptiveEnabled: adaptiveMediaQualityEnabled,
+            fixedTarget: adaptiveMediaQualityEnabled ? nil : ClientMediaQualityTarget(
+                bitrateKbps: manualMediaBitrateKbps,
+                fps: manualMediaFps,
+                resolutionScale: manualMediaResolutionScale
+            )
+        )
     }
 
     // Touch-scroll mode: when on, a one-finger drag on the video surface
@@ -238,5 +287,9 @@ final class SettingsStore: @unchecked Sendable {
 
     private func postChange() {
         NotificationCenter.default.post(name: Self.changedNotification, object: self)
+    }
+
+    private func clamp<T: Comparable>(_ value: T, min lower: T, max upper: T) -> T {
+        Swift.min(Swift.max(value, lower), upper)
     }
 }

@@ -115,9 +115,9 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         clientCrispEnabledGate.withLock { $0 = enabled }
     }
 
-    func setAdaptiveMediaQualityEnabled(_ enabled: Bool) {
+    func setClientMediaQuality(_ config: ClientMediaQualityConfig) {
         let outcome = encodeGate.withLock { state -> MediaQualityOutcome? in
-            guard let outcome = state.mediaState.setAdaptiveQualityEnabled(enabled) else {
+            guard let outcome = state.mediaState.applyClientMediaQuality(config) else {
                 return nil
             }
             if outcome.resolutionChanged {
@@ -132,7 +132,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         if outcome.fpsChanged {
             encoder.updateExpectedFrameRate(outcome.target.fps)
         }
-        logger.notice("adaptive media quality setting applied enabled=\(enabled, privacy: .public) bitrateKbps=\(outcome.target.bitrateKbps, privacy: .public) fps=\(outcome.target.fps, privacy: .public) resolutionScale=\(outcome.target.resolutionScale, privacy: .public) changedAxes=\(Self.changedAxes(for: outcome), privacy: .public) reason=\(outcome.reason, privacy: .public)")
+        logger.notice("client media quality setting applied adaptive=\(config.adaptiveEnabled, privacy: .public) fixed=\((config.fixedTarget != nil), privacy: .public) bitrateKbps=\(outcome.target.bitrateKbps, privacy: .public) fps=\(outcome.target.fps, privacy: .public) resolutionScale=\(outcome.target.resolutionScale, privacy: .public) changedAxes=\(Self.changedAxes(for: outcome), privacy: .public) reason=\(outcome.reason, privacy: .public)")
         startDrainIfNeeded()
     }
 

@@ -15,7 +15,7 @@ ADR-0027 added bitrate adaptation, ADR-0028 added selective resend, and ADR-0029
 
 ## Decision Drivers
 
-- Keep the quality policy host-owned; the client reports observations, not desired quality. A client setting may disable the adaptive ladder entirely for user control, but it must not choose a rung.
+- Keep the adaptive quality policy host-owned; the client reports observations, not adaptive rungs. A client setting may disable the adaptive ladder entirely for user control and provide an explicit fixed bitrate/FPS/resolution target, but it must not choose an adaptive rung.
 - Avoid a bolt-on resolution fallback. Bitrate, cadence, and pixels are one adaptive target.
 - Smoothness is the first priority on constrained paths. Full-resolution text is allowed only while host production cadence is healthy.
 - High-latency links are not automatically bad. Queue age alone should hold; queue age plus bad cadence, loss, expiry, or repair pressure should downshift.
@@ -32,7 +32,7 @@ ADR-0027 added bitrate adaptation, ADR-0028 added selective resend, and ADR-0029
 
 Chose **Option B**. Option A is rejected because it keeps three independent levers that can fight each other, for example lower fps while retaining oversized frames. Option C is rejected because it splits policy ownership across peers and turns client render symptoms into quality commands. The host already sees send admission, ACK age, keyframe requests, and client link-health reports, so one host controller can choose a coherent target and apply it atomically.
 
-The controller consumes one observation input per window: packet results, ACK p50/p95/max/count, host production actual fps and max send gap, in-flight byte/frame counts, oldest in-flight age, and stale recovery count. The same controller derives the logged pressure classes and the policy decision, so diagnostics cannot drift from behavior. The phone exposes an on/off setting for this policy; off pins the host video target to native bitrate/FPS/resolution while leaving packet repair and backpressure active.
+The controller consumes one observation input per window: packet results, ACK p50/p95/max/count, host production actual fps and max send gap, in-flight byte/frame counts, oldest in-flight age, and stale recovery count. The same controller derives the logged pressure classes and the policy decision, so diagnostics cannot drift from behavior. The phone exposes an on/off setting for this policy; off pins the host video target to the client's fixed manual bitrate/FPS/resolution while leaving packet repair and backpressure active. If the fixed target is absent, off falls back to the host's native target.
 
 Pressure classes:
 
@@ -73,7 +73,7 @@ Keyframe recovery is reason-scoped. Resolution changes and explicit client keyfr
 
 ### Confirmation
 
-Pure controller tests assert the downshift order, latency-hold behavior, cadence-pressure capacity shifts, freeze-pressure capacity shifts, stale-pressure capacity shifts, emergency entry, production-backed recovery, neutral handling for link-only windows without production summaries, recovery-blocker diagnostics, staged bitrate-resolution-FPS recovery, transition warmup after resolution restart, resolution-probe rollback, and FPS-only rollback. Host tests assert ACK age is measured from sent-frame time, diagnostics carry the same pressure classes and recovery fields the policy used, stale admission recovery does not force keyframes, explicit client keyframe requests are coalesced while a keyframe is in flight, and resolution changes clear stale admission state. Client tests assert keyframes can resync to new dimensions and mismatched deltas are dropped with a keyframe request.
+Pure controller tests assert the downshift order, latency-hold behavior, cadence-pressure capacity shifts, freeze-pressure capacity shifts, stale-pressure capacity shifts, emergency entry, production-backed recovery, neutral handling for link-only windows without production summaries, recovery-blocker diagnostics, staged bitrate-resolution-FPS recovery, transition warmup after resolution restart, resolution-probe rollback, and FPS-only rollback. Host tests assert ACK age is measured from sent-frame time, diagnostics carry the same pressure classes and recovery fields the policy used, stale admission recovery does not force keyframes, explicit client keyframe requests are coalesced while a keyframe is in flight, resolution changes clear stale admission state, and adaptive-off fixed manual targets ignore link-pressure downshift decisions until adaptive is re-enabled. Client tests assert keyframes can resync to new dimensions and mismatched deltas are dropped with a keyframe request.
 
 ## Pros and Cons of the Options
 
