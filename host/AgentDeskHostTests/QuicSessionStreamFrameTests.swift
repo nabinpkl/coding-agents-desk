@@ -391,9 +391,23 @@ struct QuicSessionHostMediaStateTests {
         #expect(decision.observation.ackCount == 0)
     }
 
-    @Test func smoothnessCapacityDecisionReportsResolutionAxisAndReason() {
+    @Test func smoothnessCapacityDecisionReportsResolutionAxisAndReason() throws {
         var state = makeState()
 
+        // Cadence pressure now requires the link to be genuinely stressed: a clean
+        // link with sparse production reads as a calm screen, not a capacity
+        // problem. Lag the ack past the hold threshold (180ms) so the poor cadence
+        // is attributed to the link, not to a settled screen.
+        func injectSlowAck(sentNs: UInt64, ackNs: UInt64) throws {
+            let sent = try requireReady(
+                state.reserveUpdateId(nowNs: sentNs),
+                "expected update id for slow ack"
+            )
+            state.noteSent(frameId: sent.frameId, encodedBytes: 1_000, packets: [], sentAtUptimeNs: sentNs)
+            _ = state.noteAck(frameId: sent.frameId, nowNs: ackNs)
+        }
+
+        try injectSlowAck(sentNs: 0, ackNs: 250_000_000)
         let hold = state.observeLinkHealth(
             completedFrames: 100,
             expiredFrames: 0,
@@ -414,6 +428,7 @@ struct QuicSessionHostMediaStateTests {
         #expect(!hold.outcome.changed)
         #expect(hold.outcome.reason == "cadence-hold")
 
+        try injectSlowAck(sentNs: 1_000_000_000, ackNs: 1_250_000_000)
         let down = state.observeLinkHealth(
             completedFrames: 100,
             expiredFrames: 0,

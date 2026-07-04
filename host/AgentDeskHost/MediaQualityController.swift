@@ -476,8 +476,11 @@ struct MediaQualityController {
             )
         }
 
-        let productionWindowMs = max(input.productionSummary?.windowMs ?? 0, 1)
-        return accrueCleanRecovery(signals: signals, previous: previous, windowMs: productionWindowMs)
+        // A clean window with no production summary (sparse, ack-only) still
+        // represents real elapsed link-clean time; credit a nominal window so
+        // recovery progresses instead of stalling between sparse production windows.
+        let cleanWindowMs = input.productionSummary?.windowMs ?? idleRecoveryWindowMs
+        return accrueCleanRecovery(signals: signals, previous: previous, windowMs: cleanWindowMs)
     }
 
     // Shared climb path for a clean window, whether it carried production (active
@@ -525,14 +528,26 @@ struct MediaQualityController {
             repairPressure
         let queuePressure = (sample.ackAgeP95Ms ?? 0) >= config.ackDownP95Ms
         let stalePressure = input.staleRecoveryCount > 0
-        let cadencePressure = input.productionSummary.map { summary in
+        // Production cadence (low fps, big gaps) measures how much the screen is
+        // changing, not link capacity: a settled screen is change-driven sparse,
+        // not a frozen link. Only read sparse production as freeze/cadence
+        // pressure when the link itself is under stress (loss, repair, stale, or
+        // slow acks). Without this gate a calm screen reads as a freeze, so the
+        // ladder both downshifts and rolls back recovery probes, pinning
+        // resolution low after motion stops.
+        let linkStressed = sample.expiredFrames > 0 ||
+            repairPressure ||
+            sample.keyframeRequests > 0 ||
+            stalePressure ||
+            (sample.ackAgeP95Ms ?? 0) >= config.ackHoldP95Ms
+        let cadencePressure = linkStressed && (input.productionSummary.map { summary in
             summary.fpsDeficit * 2 >= max(summary.targetFps, 1) ||
                 summary.maxGapMs >= config.cadenceGapMs
-        } ?? false
-        let freezePressure = input.productionSummary.map { summary in
+        } ?? false)
+        let freezePressure = linkStressed && (input.productionSummary.map { summary in
             summary.maxGapMs >= config.freezeGapMs ||
                 summary.actualFps <= config.freezeFpsCeiling
-        } ?? false
+        } ?? false)
         return MediaQualityObservationSignals(
             lossPressure: lossPressure,
             repairPressure: repairPressure,
@@ -562,16 +577,13 @@ struct MediaQualityController {
         guard (input.sample.ackAgeP95Ms ?? Double.greatestFiniteMagnitude) < config.ackHoldP95Ms else {
             return "recovery-wait-ack"
         }
-        guard let production = input.productionSummary else {
-            return "recovery-wait-no-production"
-        }
-        let fpsPermille = (production.actualFps * 1_000) / max(production.targetFps, 1)
-        guard fpsPermille >= config.recoveryMinFpsPermille else {
-            return "recovery-wait-fps"
-        }
-        guard production.maxGapMs <= config.recoveryMaxGapMs else {
-            return "recovery-wait-gap"
-        }
+        // Recovery is gated on link health (loss, queue, stale, fast acks), not on
+        // how many frames the screen produced. A calm screen yields sparse
+        // production with clean acks, which is healthy: climb. Production cadence
+        // (fps, gaps) reflects content activity, not link capacity, so it must not
+        // block the climb, that was pinning resolution low whenever the user
+        // stopped moving. A probe rolls back if a later motion burst reveals the
+        // link cannot sustain the higher rung.
         return nil
     }
 
