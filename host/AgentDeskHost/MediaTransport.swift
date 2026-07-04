@@ -4,6 +4,12 @@ protocol MediaTransport: AnyObject, Sendable {
     func start(videoSource: VideoFrameSource?, videoSink: VideoFrameSink?) async throws
     func stop()
 
+    // Per-session client preference for the crisp text overlay (from the client-config
+    // wire message). The host composes this with its own Config.ownedMediaCrispEnabled
+    // gate as an AND: the host env is the hard kill switch, the client chooses within it.
+    // Applied live on the next drained frame; no restart needed.
+    func setClientCrispEnabled(_ enabled: Bool)
+
     var connectionState: AsyncStream<MediaConnectionState> { get }
 }
 

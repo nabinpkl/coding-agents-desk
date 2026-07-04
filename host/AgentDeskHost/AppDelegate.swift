@@ -600,9 +600,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let enabled = config.thumbnailsEnabled
             let refresh = config.thumbnailRefresh
             let selectedDisplayId = config.selectedDisplayId
+            // nil = client expressed no crisp opinion -> host keeps its default (on); the
+            // transport composes this with Config.ownedMediaCrispEnabled as the hard gate.
+            let crispEnabled = config.crispTextOverlayEnabled ?? true
             Task { @MainActor [weak self, provider, thumbnailOwner, server] in
                 guard let self else { return }
-                self.thumbnailsLogger.notice("client thumbnail config fp=\(clientFingerprint.rawValue, privacy: .public) enabled=\(enabled, privacy: .public) refresh=\(String(describing: refresh), privacy: .public) selectedDisplay=\(selectedDisplayId ?? "nil", privacy: .public)")
+                self.sessions.transport(for: clientFingerprint)?.setClientCrispEnabled(crispEnabled)
+                self.thumbnailsLogger.notice("client thumbnail config fp=\(clientFingerprint.rawValue, privacy: .public) enabled=\(enabled, privacy: .public) refresh=\(String(describing: refresh), privacy: .public) selectedDisplay=\(selectedDisplayId ?? "nil", privacy: .public) crisp=\(crispEnabled, privacy: .public)")
                 if enabled {
                     self.thumbnailEnabledClients.insert(clientFingerprint)
                 } else {

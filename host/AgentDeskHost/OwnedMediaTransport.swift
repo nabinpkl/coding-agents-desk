@@ -77,6 +77,12 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         uncheckedState: CrispBufferState()
     )
 
+    // ADR-0006 client-config: the client's crisp-overlay preference for this session.
+    // Defaults true (crisp on until the client says otherwise, matching the client default).
+    // Composed with Config.ownedMediaCrispEnabled as an AND at the drain-loop gate, and read
+    // live each frame so a settings toggle takes effect on the next frame with no restart.
+    private let clientCrispEnabledGate = OSAllocatedUnfairLock<Bool>(initialState: true)
+
     // ADR-0036: which reconciliation a crisp window runs. `heal` is the periodic
     // full-surface pass (also forced before the first baseline); `gated` visits only the
     // damage rects plus tiles due for promotion. A window with neither (no work) never
@@ -102,6 +108,10 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             self?.enqueue(frame)
         }
         startControlReceiveLoop()
+    }
+
+    func setClientCrispEnabled(_ enabled: Bool) {
+        clientCrispEnabledGate.withLock { $0 = enabled }
     }
 
     func stop() {
@@ -201,7 +211,9 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 // disabled the video stream above is fully functional on its own. Skipping
                 // both calls here means no eager-revert, no convert, no hash, no crisp lane
                 // sends -- the clean video-only path (and the isolation gate for crisp CPU).
-                if Config.ownedMediaCrispEnabled {
+                // Gate = host env (hard kill switch) AND the client's per-session preference.
+                let clientCrispEnabled = clientCrispEnabledGate.withLock { $0 }
+                if Config.ownedMediaCrispEnabled, clientCrispEnabled {
                     // Eager-revert any crisp tile over a region that changed this frame, on the
                     // video cadence, so a live update is never masked by a stale crisp tile while
                     // it waits for the next time-gated crisp pass.

@@ -436,6 +436,11 @@ private final class FakeMediaTransport: MediaTransport, @unchecked Sendable {
         videoSink: VideoFrameSink?
     ) async throws {}
 
+    private(set) var clientCrispEnabled = true
+    func setClientCrispEnabled(_ enabled: Bool) {
+        clientCrispEnabled = enabled
+    }
+
     func stop() {
         stopped = true
     }

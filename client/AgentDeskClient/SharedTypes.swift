@@ -2287,19 +2287,31 @@ struct ClientConfig: Codable, Equatable {
     let thumbnailsEnabled: Bool
     let thumbnailRefresh: UInt64?
     let selectedDisplayId: String?
+    // Client's preference for the crisp text overlay. Optional tri-state: nil means the
+    // client expressed no opinion (host falls back to its Config.ownedMediaCrispEnabled
+    // default); true/false is an explicit request. The host composes it with its own gate
+    // as an AND, so the host env stays the hard kill switch and the client chooses within it.
+    let crispTextOverlayEnabled: Bool?
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
         case thumbnailsEnabled = "te"
         case thumbnailRefresh = "tr"
         case selectedDisplayId = "sd"
+        case crispTextOverlayEnabled = "ce"
     }
 
-    init(thumbnailsEnabled: Bool, thumbnailRefresh: UInt64? = nil, selectedDisplayId: String? = nil) {
+    init(
+        thumbnailsEnabled: Bool,
+        thumbnailRefresh: UInt64? = nil,
+        selectedDisplayId: String? = nil,
+        crispTextOverlayEnabled: Bool? = nil
+    ) {
         self.type = "client-config"
         self.thumbnailsEnabled = thumbnailsEnabled
         self.thumbnailRefresh = thumbnailRefresh
         self.selectedDisplayId = selectedDisplayId
+        self.crispTextOverlayEnabled = crispTextOverlayEnabled
     }
 }
 

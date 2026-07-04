@@ -26,6 +26,7 @@ final class SettingsStore: @unchecked Sendable {
         static let accessoryKeyHeight = "agentDesk.accessoryKeyHeight"
         static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
         static let showSpacePreviews = "agentDesk.showSpacePreviews"
+        static let crispTextOverlayEnabled = "agentDesk.crispTextOverlayEnabled"
         static let agentSayVoiceLanguage = "agentDesk.agentSayVoiceLanguage"
         static let agentSayVoiceIdentifier = "agentDesk.agentSayVoiceIdentifier"
     }
@@ -132,6 +133,17 @@ final class SettingsStore: @unchecked Sendable {
         get { defaults.object(forKey: Key.showSpacePreviews) as? Bool ?? true }
         set {
             defaults.set(newValue, forKey: Key.showSpacePreviews)
+            postChange()
+        }
+    }
+
+    // Crisp text overlay preference. Sent to the host in ClientConfig (wire key "ce"); the
+    // host composes it with its own gate so this only turns the overlay off, never forces it
+    // on when the host disabled it. Default on -- the sharp-text overlay is the good default.
+    var crispTextOverlayEnabled: Bool {
+        get { defaults.object(forKey: Key.crispTextOverlayEnabled) as? Bool ?? true }
+        set {
+            defaults.set(newValue, forKey: Key.crispTextOverlayEnabled)
             postChange()
         }
     }
