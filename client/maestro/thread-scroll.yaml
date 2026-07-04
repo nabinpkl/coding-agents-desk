@@ -1,0 +1,39 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- extendedWaitUntil:
+    visible: "Agent"
+    timeout: 30000
+- tapOn: "Agent"
+- extendedWaitUntil:
+    notVisible: "No projects yet"
+    timeout: 30000
+# Drill: project row -> session row -> thread. Maestro cannot read webview
+# text, so navigation is by coordinate tap; add explicit settle waits and pick
+# a lower (stable, non-live) session row so the live top row re-sorting cannot
+# make the tap miss.
+- tapOn:
+    point: 50%, 22%
+- waitForAnimationToEnd:
+    timeout: 4000
+- tapOn:
+    point: 50%, 46%
+- waitForAnimationToEnd:
+    timeout: 6000
+- takeScreenshot: scroll-before
+# Thread loads at the bottom; swipe DOWN (finger 25% -> 85%) to travel UP
+# through older turns, where a prior USER message sits above the viewport top
+# and should pin as the sticky header.
+- swipe:
+    start: 50%, 30%
+    end: 50%, 88%
+- swipe:
+    start: 50%, 30%
+    end: 50%, 88%
+- takeScreenshot: scroll-mid
+- swipe:
+    start: 50%, 30%
+    end: 50%, 88%
+- swipe:
+    start: 50%, 30%
+    end: 50%, 88%
+- takeScreenshot: scroll-after
