@@ -563,7 +563,7 @@ iphone-console-run variant="stable":
 # env; client via the devicectl env path, since devicectl apps get env not argv), pairs, and attaches
 # the console. Once it is up: open a Chrome tab that the extension is recording, and the mirror
 # appears on the phone; tap the mirror to drive Chrome. Installs on / launches the PHYSICAL iPhone --
-# a STOP-and-wait checkpoint.
+# a STOP-and-wait checkpoint. dom-mirror-device-run-dev is the Debug/AgentDesk-Dev twin.
 dom-mirror-device-run:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -580,6 +580,32 @@ dom-mirror-device-run:
     i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     URL="$(cat "{{last_pair_url_path}}")"
+    DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" \
+      DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED="1" \
+      DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" \
+      xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
+
+# Dev-variant twin of dom-mirror-device-run. The dev client side-by-side install has no
+# Release build path (client-reinstall-release is stable-only), so this stays Debug on
+# both host and client -- same shape as fresh-install-dev vs fresh-install. Runs against
+# the AgentDesk Dev app/host, pairing URL under the dev host's own Application Support
+# tree. Installs on / launches the PHYSICAL iPhone -- a STOP-and-wait checkpoint.
+dom-mirror-device-run-dev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just build-agent-sidecar
+    just build-agent-webview
+    launchctl setenv AGENTDESK_DOM_MIRROR_ENABLED 1
+    trap 'launchctl unsetenv AGENTDESK_DOM_MIRROR_ENABLED 2>/dev/null || true' EXIT
+    just host-run dev
+    just client-reinstall dev
+    test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running"; exit 1; }
+    BID='{{client_dev_bundle_id}}'
+    rm -f "{{host_dev_last_pair_url_path}}" "{{iphone_console_log}}"
+    kill -USR1 $(pgrep -f AgentDeskHost)
+    i=0; while [ ! -s "{{host_dev_last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    test -s "{{host_dev_last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
+    URL="$(cat "{{host_dev_last_pair_url_path}}")"
     DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" \
       DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED="1" \
       DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" \
