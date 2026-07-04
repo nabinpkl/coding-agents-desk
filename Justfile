@@ -861,16 +861,22 @@ pair-sim variant="stable":
 # and tees owned-media stderr traces into {{sim_console_log}}. Maestro flows
 # used with this recipe must not include `launchApp`, because relaunching the
 # app drops the explicit pairing URL and simulator-only localhost override.
-sim-console-run:
-    @test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
-    rm -f "{{last_pair_url_path}}" "{{sim_console_log}}"
-    trap 'rm -f "{{last_pair_url_path}}"' EXIT
+# variant: stable (default) | dev. dev targets the dev sim + dev bundle + dev host
+# pair URL and enables the Chrome DOM mirror on the client (ADR-0038), matching the
+# dev host default set by host-run.
+sim-console-run variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
+    if [ "{{variant}}" = "dev" ]; then SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(SIMCTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    rm -f "$PAIR_URL" "{{sim_console_log}}"
+    trap 'rm -f "$PAIR_URL"' EXIT
     kill -USR1 $(pgrep -f AgentDeskHost)
-    @i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
-    @test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
-    @echo "URL: <redacted; delivered to simulator>"
-    xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
-    bash -o pipefail -c 'URL="$(cat "{{last_pair_url_path}}")"; SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost SIMCTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE=1 xcrun simctl launch --console --terminate-running-process {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient 2>&1 | tee "{{sim_console_log}}"'
+    i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
+    echo "URL: <redacted; delivered to simulator>"
+    xcrun simctl bootstatus "$SIM" -b >/dev/null
+    URL="$(cat "$PAIR_URL")"; SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost SIMCTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun simctl launch --console --terminate-running-process "$SIM" "$BID" 2>&1 | tee "{{sim_console_log}}"
 
 # Point the sim at a host you started yourself (a Release build, or any host
 # launched outside `just host-run`): every full composite (sim-fresh-install /
@@ -927,6 +933,28 @@ agent-feed-sim-pair:
     just host-run
     just client-sim-reinstall
     just pair-sim
+
+# Dev-variant twins of agent-feed-sim / agent-feed-sim-pair: a complete dev-stack
+# simulator bring-up (dev host + dev client on the dev sim {{ios_sim_udid_dev}},
+# separate ports and derived-data), with the Chrome DOM mirror enabled on both
+# sides by default (ADR-0038). This is the sim analog of fresh-install-dev /
+# fresh-diagnostic-run-dev on the physical device; it leaves the stable stack
+# untouched so both can run side by side. agent-feed-sim-dev BLOCKS with an
+# attached console (watch DOM-mirror probes + traces live); agent-feed-sim-pair-dev
+# RETURNS so you can drive the app with `just ui-flow <flow>`.
+agent-feed-sim-dev:
+    just build-agent-sidecar
+    just build-agent-webview
+    just host-run dev
+    just client-sim-reinstall dev
+    just sim-console-run dev
+
+agent-feed-sim-pair-dev:
+    just build-agent-sidecar
+    just build-agent-webview
+    just host-run dev
+    just client-sim-reinstall dev
+    just pair-sim dev
 
 # Drive the iPhone simulator with a Maestro flow. Maestro is the standard
 # tool for declarative iOS UI automation (Playwright-equivalent for mobile);
