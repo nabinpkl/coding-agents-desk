@@ -326,6 +326,7 @@ extension PairingViewController {
         panFollowAnchor = nil
         lastSentPanFollowHostPoint = nil
         panFollowEdgeAxes = []
+        panFollowEdgeReturnAxes = []
         lastPanFollowGestureTranslation = nil
         stopAgentSayForegroundPresentation()
         lastDesktopState = nil

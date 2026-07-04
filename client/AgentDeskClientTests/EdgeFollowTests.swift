@@ -286,6 +286,7 @@ struct EdgeFollowTests {
                 cursorSourcePoint: CGPoint(x: 250, y: 300),
                 lastSentHostPoint: CGPoint(x: 250, y: 300),
                 edgeAxes: [],
+                edgeReturnAxes: [],
                 lastGestureTranslation: .zero
             ),
             input: PanFollowStepInput(
@@ -306,6 +307,7 @@ struct EdgeFollowTests {
         #expect(step.cursorRetarget == nil)
         #expect(step.state.lastSentHostPoint == nil)
         #expect(step.state.edgeAxes == [.x])
+        #expect(step.state.edgeReturnAxes.isEmpty)
         #expect(step.edgeGestureFrames == [
             PanFollowEdgeGestureFrame(phase: .began, translation: .zero, velocity: .zero),
             PanFollowEdgeGestureFrame(
@@ -324,6 +326,7 @@ struct EdgeFollowTests {
             cursorSourcePoint: CGPoint(x: 250, y: 150),
             lastSentHostPoint: CGPoint(x: 250, y: 150),
             edgeAxes: [],
+            edgeReturnAxes: [],
             lastGestureTranslation: .zero
         )
         let edgeStep = try #require(PointerRetargeting.panFollowStep(
@@ -344,12 +347,10 @@ struct EdgeFollowTests {
         ))
         reducerState = edgeStep.state
         // Mirror the delegate-side relative cursorMove that happened during
-        // edge push: the host and client cursor models have moved to the edge,
-        // so the old absolute cursorSet dedupe point must not suppress the
-        // first interior reconcile.
-        reducerState.cursorSourcePoint = CGPoint(x: 0, y: 150)
+        // edge push: the host and client cursor models have moved left.
+        reducerState.cursorSourcePoint = CGPoint(x: 80, y: 150)
 
-        let returnStep = try #require(PointerRetargeting.panFollowStep(
+        let clampReturnStep = try #require(PointerRetargeting.panFollowStep(
             state: reducerState,
             input: PanFollowStepInput(
                 anchorViewportPoint: CGPoint(x: sink.width / 2, y: sink.height / 2),
@@ -366,12 +367,57 @@ struct EdgeFollowTests {
             )
         ))
 
-        #expect(returnStep.cursorRetarget?.sourcePoint == CGPoint(x: 250, y: 150))
-        #expect(returnStep.cursorRetarget?.hostPoint == CGPoint(x: 250, y: 150))
-        #expect(returnStep.edgeGestureFrames == [
+        #expect(clampReturnStep.cursorRetarget == nil)
+        #expect(clampReturnStep.state.cursorSourcePoint == CGPoint(x: 80, y: 150))
+        #expect(clampReturnStep.state.lastSentHostPoint == nil)
+        #expect(clampReturnStep.state.edgeReturnAxes == [.x])
+        #expect(clampReturnStep.edgeGestureFrames == [
             PanFollowEdgeGestureFrame(phase: .ended, translation: .zero, velocity: .zero)
         ])
-        #expect(returnStep.state.edgeAxes.isEmpty)
+        #expect(clampReturnStep.state.edgeAxes.isEmpty)
+
+        let repeatedClampStep = try #require(PointerRetargeting.panFollowStep(
+            state: clampReturnStep.state,
+            input: PanFollowStepInput(
+                anchorViewportPoint: CGPoint(x: sink.width / 2, y: sink.height / 2),
+                desktopState: state,
+                displayId: "d1",
+                displayBounds: bounds,
+                sinkViewSize: sink,
+                zoomScale: 2.0,
+                contentOffset: .zero,
+                contentSize: CGSize(width: 800, height: 480),
+                viewportSize: sink,
+                panTranslation: CGPoint(x: 65, y: 0),
+                panVelocity: CGPoint(x: -250, y: 0)
+            )
+        ))
+
+        #expect(repeatedClampStep.cursorRetarget == nil)
+        #expect(repeatedClampStep.state.cursorSourcePoint == CGPoint(x: 80, y: 150))
+        #expect(repeatedClampStep.state.edgeReturnAxes == [.x])
+        #expect(repeatedClampStep.edgeGestureFrames.isEmpty)
+
+        let interiorStep = try #require(PointerRetargeting.panFollowStep(
+            state: repeatedClampStep.state,
+            input: PanFollowStepInput(
+                anchorViewportPoint: CGPoint(x: sink.width / 2, y: sink.height / 2),
+                desktopState: state,
+                displayId: "d1",
+                displayBounds: bounds,
+                sinkViewSize: sink,
+                zoomScale: 2.0,
+                contentOffset: CGPoint(x: 10, y: 0),
+                contentSize: CGSize(width: 800, height: 480),
+                viewportSize: sink,
+                panTranslation: CGPoint(x: 50, y: 0),
+                panVelocity: CGPoint(x: -200, y: 0)
+            )
+        ))
+
+        #expect(interiorStep.cursorRetarget?.sourcePoint == CGPoint(x: 262.5, y: 150))
+        #expect(interiorStep.cursorRetarget?.hostPoint == CGPoint(x: 262.5, y: 150))
+        #expect(interiorStep.state.edgeReturnAxes.isEmpty)
     }
 
     // MARK: - hostPoint(forContentViewLocation:) — touch-scroll inverse map

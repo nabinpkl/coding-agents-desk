@@ -253,12 +253,13 @@ extension PairingViewController: UIScrollViewDelegate {
             y: max(0, scrollView.contentSize.height - scrollView.bounds.height)
         )
         PanFollowDiagnostics.log(
-            "scroll offset=\(scrollView.contentOffset) max=\(maxOffset) translation=\(rawTranslation) velocity=\(rawVelocity) priorCursor=\(String(describing: cursorSourcePos)) priorAxes=\(panFollowEdgeAxes.rawValue) lastSent=\(String(describing: lastSentPanFollowHostPoint))"
+            "scroll offset=\(scrollView.contentOffset) max=\(maxOffset) translation=\(rawTranslation) velocity=\(rawVelocity) priorCursor=\(String(describing: cursorSourcePos)) priorAxes=\(panFollowEdgeAxes.rawValue) returnAxes=\(panFollowEdgeReturnAxes.rawValue) lastSent=\(String(describing: lastSentPanFollowHostPoint))"
         )
         let stepState = PanFollowStepState(
             cursorSourcePoint: cursorSourcePos,
             lastSentHostPoint: lastSentPanFollowHostPoint,
             edgeAxes: panFollowEdgeAxes,
+            edgeReturnAxes: panFollowEdgeReturnAxes,
             lastGestureTranslation: lastPanFollowGestureTranslation
         )
         let stepInput = PanFollowStepInput(
@@ -285,9 +286,10 @@ extension PairingViewController: UIScrollViewDelegate {
         cursorSourcePos = step.state.cursorSourcePoint
         lastSentPanFollowHostPoint = step.state.lastSentHostPoint
         panFollowEdgeAxes = step.state.edgeAxes
+        panFollowEdgeReturnAxes = step.state.edgeReturnAxes
         lastPanFollowGestureTranslation = step.state.lastGestureTranslation
         PanFollowDiagnostics.log(
-            "step cursor=\(String(describing: step.state.cursorSourcePoint)) axes=\(step.state.edgeAxes.rawValue) retarget=\(String(describing: step.cursorRetarget?.hostPoint)) edgeFrames=\(step.edgeGestureFrames.map { $0.phase })"
+            "step cursor=\(String(describing: step.state.cursorSourcePoint)) axes=\(step.state.edgeAxes.rawValue) returnAxes=\(step.state.edgeReturnAxes.rawValue) retarget=\(String(describing: step.cursorRetarget?.hostPoint)) edgeFrames=\(step.edgeGestureFrames.map { $0.phase })"
         )
         updateCursorDot()
 
@@ -339,6 +341,7 @@ extension PairingViewController: UIScrollViewDelegate {
             velocity: .zero
         )
         panFollowEdgeAxes = []
+        panFollowEdgeReturnAxes = []
     }
 
     private func applyPanFollowEdgeFrames(_ frames: [PanFollowEdgeGestureFrame]) {

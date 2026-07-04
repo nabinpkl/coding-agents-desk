@@ -53,6 +53,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var panFollowAnchor: CGPoint?
     var lastSentPanFollowHostPoint: CGPoint?
     var panFollowEdgeAxes: PanFollowOverscrollAxes = []
+    var panFollowEdgeReturnAxes: PanFollowOverscrollAxes = []
     var lastPanFollowGestureTranslation: CGPoint?
     // Local cursor overlay. Moves immediately from cursorSourcePos on
     // every gesture delta so the user sees instant cursor response
@@ -430,6 +431,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         panFollowAnchor = nil
         lastSentPanFollowHostPoint = nil
         panFollowEdgeAxes = []
+        panFollowEdgeReturnAxes = []
         lastPanFollowGestureTranslation = nil
         activeDisplayRect = .zero
         activeDisplayIdMirror = nil
@@ -454,6 +456,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             self.panFollowAnchor = nil
             self.lastSentPanFollowHostPoint = nil
             self.panFollowEdgeAxes = []
+            self.panFollowEdgeReturnAxes = []
             self.lastPanFollowGestureTranslation = nil
             self.sinkScrollView?.setZoomScale(1.0, animated: false)
             self.sinkScrollView?.setContentOffset(.zero, animated: false)
