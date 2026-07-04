@@ -1,12 +1,12 @@
 import UIKit
 import AgentDeskWire
 
-final class TouchScrollControl: UIControl {
-    var layoutMode: TouchScrollLayoutMode = .asIs {
+final class VideoTouchControl: UIControl {
+    var layoutMode: VideoLayoutMode = .asIs {
         didSet { updateAppearance() }
     }
 
-    var touchScrollEnabled: Bool = false {
+    var videoTouchEnabled: Bool = false {
         didSet { updateAppearance() }
     }
 
@@ -57,7 +57,7 @@ final class TouchScrollControl: UIControl {
         choiceRow.spacing = 0
         choiceRow.translatesAutoresizingMaskIntoConstraints = false
 
-        label.text = "Touch scroll"
+        label.text = "Touch mode"
         label.font = .preferredFont(forTextStyle: .caption2)
         label.textColor = .secondaryLabel
         label.textAlignment = .left
@@ -105,15 +105,15 @@ final class TouchScrollControl: UIControl {
     }
 
     @objc private func enabledChanged() {
-        touchScrollEnabled = enabledSwitch.isOn
+        videoTouchEnabled = enabledSwitch.isOn
         sendActions(for: .valueChanged)
     }
 
     private func updateAppearance() {
         style(fullButton, selected: layoutMode == .full)
         style(asIsButton, selected: layoutMode == .asIs)
-        if enabledSwitch.isOn != touchScrollEnabled {
-            enabledSwitch.setOn(touchScrollEnabled, animated: false)
+        if enabledSwitch.isOn != videoTouchEnabled {
+            enabledSwitch.setOn(videoTouchEnabled, animated: false)
         }
     }
 
@@ -123,19 +123,20 @@ final class TouchScrollControl: UIControl {
     }
 }
 
-// Touch-scroll mode. Relocates the right-edge scroll strip's exact scroll
-// behavior onto the video surface: a one-finger drag on the desktop image
-// primes the host cursor at the touched point (.cursorSet) and then scrolls
-// it, reusing GestureTranslator.processScrollPan (acceleration + momentum)
-// unchanged. Design: docs/superpowers/specs/2026-07-03-touch-scroll-mode-design.md
+// Touch mode. A tap on the desktop image retargets the host cursor and clicks;
+// a one-finger drag reuses the right-edge scroll strip's exact scroll behavior
+// after priming the host cursor at the touched point.
 extension PairingViewController {
 
-    // Installs the touch-scroll pan recognizer on the video sink content view.
-    // Called from showTrackpad after the sink is mounted. Idempotent: removes
-    // any prior instance first so a reconnect re-attaches cleanly.
-    func attachTouchScrollRecognizer() {
+    // Installs Touch mode recognizers on the video sink content view. Called
+    // from showTrackpad after the sink is mounted. Idempotent: removes any
+    // prior instances first so a reconnect re-attaches cleanly.
+    func attachVideoTouchRecognizers() {
         guard let sinkView = videoSink?.view else { return }
-        if let existing = touchScrollRecognizer {
+        if let existing = videoTouchScrollRecognizer {
+            existing.view?.removeGestureRecognizer(existing)
+        }
+        if let existing = videoTouchTapRecognizer {
             existing.view?.removeGestureRecognizer(existing)
         }
         // Standard pan (NOT InstantPanGestureRecognizer): it waits for a few px
@@ -151,10 +152,22 @@ extension PairingViewController {
         )
         pan.minimumNumberOfTouches = 1
         pan.maximumNumberOfTouches = 1
+
+        let tap = UITapGestureRecognizer(
+            target: self,
+            action: #selector(handleVideoTouchTap(_:))
+        )
+        tap.numberOfTouchesRequired = 1
+        tap.numberOfTapsRequired = 1
+        tap.delaysTouchesBegan = false
+        tap.delaysTouchesEnded = false
+
         sinkView.isUserInteractionEnabled = true
         sinkView.addGestureRecognizer(pan)
-        touchScrollRecognizer = pan
-        applyTouchScrollState()
+        sinkView.addGestureRecognizer(tap)
+        videoTouchScrollRecognizer = pan
+        videoTouchTapRecognizer = tap
+        applyVideoTouchState()
     }
 
     @objc func handleVideoTouchScroll(_ gesture: UIPanGestureRecognizer) {
@@ -162,10 +175,16 @@ extension PairingViewController {
         if gesture.state == .began, let sinkView = videoSink?.view {
             // Prime from the content view's own coordinate space, which is
             // already zoom/scroll-independent.
-            primeTouchScrollCursor(
+            if let retarget = retargetVideoTouchCursor(
                 at: gesture.location(in: sinkView),
                 contentViewSize: sinkView.bounds.size
-            )
+            ) {
+                sendInput(.cursorSet(
+                    displayId: retarget.displayId,
+                    x: Float(retarget.hostPoint.x),
+                    y: Float(retarget.hostPoint.y)
+                ))
+            }
             // Drop any leftover viewport retarget so the scroll events that
             // follow (routed through sendPointerAwareInput) do not consume a
             // stale cursorSet and override the prime we just sent.
@@ -180,11 +199,23 @@ extension PairingViewController {
         )
     }
 
-    // Map the touch point to a host coordinate and move the host cursor there
-    // so the scroll lands on the window under the finger. `loc` is in the
-    // content view's own coordinate space; swallows the touch when geometry is
-    // unavailable (no DesktopState / zero display bounds).
-    private func primeTouchScrollCursor(at loc: CGPoint, contentViewSize: CGSize) {
+    @objc func handleVideoTouchTap(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended, let sinkView = videoSink?.view else { return }
+        let retarget = retargetVideoTouchCursor(
+            at: gesture.location(in: sinkView),
+            contentViewSize: sinkView.bounds.size
+        )
+        pendingCursorRetarget = nil
+        for input in videoTouchTapInputs(for: retarget) {
+            sendInput(input)
+        }
+    }
+
+    // Map the touch point to a host coordinate and move the local cursor model
+    // there so tap and scroll both land on the window under the finger. `loc`
+    // is in the content view's own coordinate space; returns nil when geometry
+    // is unavailable (no DesktopState / zero display bounds).
+    private func retargetVideoTouchCursor(at loc: CGPoint, contentViewSize: CGSize) -> CursorViewportRetarget? {
         let displayId = activeDisplayIdMirror
             ?? lastDesktopState?.selectedDisplayId
             ?? lastDesktopState?.activeDisplayId
@@ -194,43 +225,41 @@ extension PairingViewController {
             displayId: displayId,
             displayBounds: activeDisplayRect,
             contentViewSize: contentViewSize
-        ) else { return }
+        ) else { return nil }
         // Move the local cursor model + overlay dot to the touched point so the
         // priming is visible, matching the pointer-retarget branch's behavior.
         cursorSourcePos = retarget.sourcePoint
         updateCursorDot()
-        sendInput(.cursorSet(
-            displayId: retarget.displayId,
-            x: Float(retarget.hostPoint.x),
-            y: Float(retarget.hostPoint.y)
-        ))
+        return retarget
     }
 
-    // Applies the current touch-scroll state: gate the recognizer and route the
-    // scroll view's own pan so it does not fight ours when touch-scroll input
+    // Applies the current Touch mode state: gate the recognizers and route the
+    // scroll view's own pan so it does not fight ours when video touch input
     // is enabled. Full layout independently hides the relative controls.
     // Idempotent; called on attach, on entering the session, and on every
     // settings change.
-    func applyTouchScrollState() {
-        let enabled = SettingsStore.shared.touchScrollEnabled
-        let layoutMode = SettingsStore.shared.touchScrollLayoutMode
-        let config = touchScrollGestureConfig(
-            touchScrollEnabled: enabled,
+    func applyVideoTouchState() {
+        let enabled = SettingsStore.shared.videoTouchEnabled
+        let layoutMode = SettingsStore.shared.videoLayoutMode
+        let config = videoTouchGestureConfig(
+            videoTouchEnabled: enabled,
             layoutMode: layoutMode
         )
-        touchScrollRecognizer?.isEnabled = config.touchScrollRecognizerEnabled
+        videoTouchTapRecognizer?.isEnabled = config.videoTouchTapRecognizerEnabled
+        videoTouchScrollRecognizer?.isEnabled = config.videoTouchScrollRecognizerEnabled
+        videoDoubleTapZoomRecognizer?.isEnabled = config.doubleTapZoomRecognizerEnabled
         if let scroll = sinkScrollView {
             // Keep the scroll view zoom-capable at all times (isScrollEnabled =
             // false would also kill pinch). Route by finger count instead:
-            // when touch scroll is enabled, minimumNumberOfTouches = 2 means
-            // one finger never pans the local view, so the touch-scroll
+            // when Touch mode is enabled, minimumNumberOfTouches = 2 means
+            // one finger never pans the local view, so the video touch
             // recognizer owns single-finger drags and two fingers drive native
             // pinch + pan-while-pinched.
             scroll.isScrollEnabled = config.scrollViewScrollEnabled
             scroll.panGestureRecognizer.minimumNumberOfTouches = config.scrollViewPanMinimumTouches
         }
-        touchScrollControl.layoutMode = layoutMode
-        touchScrollControl.touchScrollEnabled = enabled
+        videoTouchControl.layoutMode = layoutMode
+        videoTouchControl.videoTouchEnabled = enabled
         let controlSurfaceActive = isControlSurfaceActive()
         let relativeControlsHidden = !controlSurfaceActive || config.relativeControlsHidden
         for control in [trackpadView, scrollStripView] {
@@ -249,13 +278,13 @@ extension PairingViewController {
         return seg.titleForSegment(at: seg.selectedSegmentIndex) == "Control"
     }
 
-    @objc func touchScrollControlChanged(_ control: TouchScrollControl) {
-        SettingsStore.shared.setTouchScroll(
+    @objc func videoTouchControlChanged(_ control: VideoTouchControl) {
+        SettingsStore.shared.setVideoTouch(
             layoutMode: control.layoutMode,
-            enabled: control.touchScrollEnabled
+            enabled: control.videoTouchEnabled
         )
-        // postChange() also drives settingsChanged -> applyTouchScrollState, but
+        // postChange() also drives settingsChanged -> applyVideoTouchState, but
         // apply immediately too so the control feels instant.
-        applyTouchScrollState()
+        applyVideoTouchState()
     }
 }

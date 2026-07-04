@@ -451,7 +451,7 @@ enum PointerRetargeting {
     }
 
     // Map a touch on the video sink to a host point (global CG points), used by
-    // touch-scroll mode to prime the host cursor at the touched spot.
+    // video touch mode to prime the host cursor at the touched spot.
     //
     // `loc` is the touch location in the *content view's own* coordinate system
     // (`location(in: videoSink.view)`), which UIKit reports pre-transform: it is

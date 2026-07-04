@@ -27,8 +27,8 @@ final class SettingsStore: @unchecked Sendable {
         static let accessoryKeyHeight = "agentDesk.accessoryKeyHeight"
         static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
         static let showSpacePreviews = "agentDesk.showSpacePreviews"
-        static let touchScrollEnabled = "agentDesk.touchScrollEnabled"
-        static let touchScrollLayoutMode = "agentDesk.touchScrollLayoutMode"
+        static let videoTouchEnabled = "agentDesk.videoTouchEnabled"
+        static let videoLayoutMode = "agentDesk.videoLayoutMode"
         static let crispTextOverlayEnabled = "agentDesk.crispTextOverlayEnabled"
         static let showHostCursorInVideo = "agentDesk.showHostCursorInVideo"
         static let adaptiveMediaQualityEnabled = "agentDesk.adaptiveMediaQualityEnabled"
@@ -227,32 +227,32 @@ final class SettingsStore: @unchecked Sendable {
         )
     }
 
-    // Touch-scroll input routing is independent from the layout density.
-    // Defaults are As Is layout with video-surface touch scroll off.
-    var touchScrollEnabled: Bool {
-        get { defaults.object(forKey: Key.touchScrollEnabled) as? Bool ?? false }
+    // Video touch input routing is independent from the layout density.
+    // Defaults are As Is layout with video-surface touch mode off.
+    var videoTouchEnabled: Bool {
+        get { defaults.object(forKey: Key.videoTouchEnabled) as? Bool ?? false }
         set {
-            defaults.set(newValue, forKey: Key.touchScrollEnabled)
+            defaults.set(newValue, forKey: Key.videoTouchEnabled)
             postChange()
         }
     }
 
-    var touchScrollLayoutMode: TouchScrollLayoutMode {
+    var videoLayoutMode: VideoLayoutMode {
         get {
-            guard let raw = defaults.object(forKey: Key.touchScrollLayoutMode) as? String else {
+            guard let raw = defaults.object(forKey: Key.videoLayoutMode) as? String else {
                 return .asIs
             }
-            return TouchScrollLayoutMode(rawValue: raw) ?? .asIs
+            return VideoLayoutMode(rawValue: raw) ?? .asIs
         }
         set {
-            defaults.set(newValue.rawValue, forKey: Key.touchScrollLayoutMode)
+            defaults.set(newValue.rawValue, forKey: Key.videoLayoutMode)
             postChange()
         }
     }
 
-    func setTouchScroll(layoutMode: TouchScrollLayoutMode, enabled: Bool) {
-        defaults.set(layoutMode.rawValue, forKey: Key.touchScrollLayoutMode)
-        defaults.set(enabled, forKey: Key.touchScrollEnabled)
+    func setVideoTouch(layoutMode: VideoLayoutMode, enabled: Bool) {
+        defaults.set(layoutMode.rawValue, forKey: Key.videoLayoutMode)
+        defaults.set(enabled, forKey: Key.videoTouchEnabled)
         postChange()
     }
 

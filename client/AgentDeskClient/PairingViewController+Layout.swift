@@ -73,6 +73,7 @@ extension PairingViewController {
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleSinkDoubleTap(_:)))
         doubleTap.numberOfTapsRequired = 2
         scroll.addGestureRecognizer(doubleTap)
+        videoDoubleTapZoomRecognizer = doubleTap
 
         sinkScrollView = scroll
 
@@ -148,10 +149,10 @@ extension PairingViewController {
         rightClickButton.addTarget(self, action: #selector(rightClickTapped), for: .touchUpInside)
         buttonRow.addArrangedSubview(rightClickButton)
 
-        // Layout and touch-scroll input are independent: Full expands the
-        // video; the switch controls whether one-finger video drags scroll.
-        touchScrollControl.addTarget(self, action: #selector(touchScrollControlChanged(_:)), for: .valueChanged)
-        buttonRow.addArrangedSubview(touchScrollControl)
+        // Layout and video touch input are independent: Full expands the
+        // video; the switch controls whether video taps/drags hit the Mac.
+        videoTouchControl.addTarget(self, action: #selector(videoTouchControlChanged(_:)), for: .valueChanged)
+        buttonRow.addArrangedSubview(videoTouchControl)
 
         styleActionButton(showKeyboardButton, title: "Show keyboard")
         showKeyboardButton.addTarget(self, action: #selector(toggleKeyboard), for: .touchUpInside)
@@ -358,8 +359,8 @@ extension PairingViewController {
         scrollStripView.gestureRecognizers?.forEach { scrollStripView.removeGestureRecognizer($0) }
         gestureTranslator.attach(to: trackpadView)
         gestureTranslator.attachScrollStrip(to: scrollStripView)
-        // Touch-scroll mode: recognizer on the video surface + apply current mode.
-        attachTouchScrollRecognizer()
+        // Touch mode: recognizers on the video surface + apply current mode.
+        attachVideoTouchRecognizers()
 
         startDesktopStateObservation()
         startThumbnailsObservation()
@@ -373,7 +374,7 @@ extension PairingViewController {
         scrollStripView.removeFromSuperview()
         buttonRow.removeFromSuperview()
         rightClickButton.removeFromSuperview()
-        touchScrollControl.removeFromSuperview()
+        videoTouchControl.removeFromSuperview()
         showKeyboardButton.removeFromSuperview()
         displayRailView.removeFromSuperview()
         displayRailView.renderEmpty()
@@ -421,7 +422,7 @@ extension PairingViewController {
     // session): NSLayoutConstraint.deactivate/activate on an empty
     // array is a no-op.
     func applyOrientationConstraints(forLandscape isLandscape: Bool) {
-        let useFull = SettingsStore.shared.touchScrollLayoutMode == .full
+        let useFull = SettingsStore.shared.videoLayoutMode == .full
         if currentIsLandscape == isLandscape,
            currentUsesFullLayout == useFull,
            (!portraitConstraints.isEmpty || !landscapeConstraints.isEmpty || !fullPortraitConstraints.isEmpty || !fullLandscapeConstraints.isEmpty) {

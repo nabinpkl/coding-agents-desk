@@ -410,14 +410,14 @@ struct EdgeFollowTests {
         ])
     }
 
-    // MARK: - hostPoint(forContentViewLocation:) — touch-scroll inverse map
+    // MARK: - hostPoint(forContentViewLocation:) — video touch inverse map
     //
     // `loc` is the touch in the content view's own (pre-transform) coordinate
     // space, so the map needs no zoom/offset — those are already inverted by
     // UIKit hit-testing. Geometry: display 2000x1000 origin (100,200), content
     // view 500x500 -> fitScale 0.25, padX 0, padY 125.
 
-    private static func touchScrollState() -> DesktopState {
+    private static func videoTouchState() -> DesktopState {
         DesktopState(
             displays: [
                 DisplayMetadata(
@@ -440,7 +440,7 @@ struct EdgeFollowTests {
     @Test func hostPointCenterTouchMapsToDisplayCenter() {
         let retarget = PointerRetargeting.hostPoint(
             forContentViewLocation: CGPoint(x: 250, y: 250),
-            state: Self.touchScrollState(),
+            state: Self.videoTouchState(),
             displayId: "display-a",
             displayBounds: CGRect(x: 0, y: 0, width: 2000, height: 1000),
             contentViewSize: CGSize(width: 500, height: 500)
@@ -454,7 +454,7 @@ struct EdgeFollowTests {
         // map to the display origin.
         let retarget = PointerRetargeting.hostPoint(
             forContentViewLocation: CGPoint(x: 0, y: 125),
-            state: Self.touchScrollState(),
+            state: Self.videoTouchState(),
             displayId: "display-a",
             displayBounds: CGRect(x: 0, y: 0, width: 2000, height: 1000),
             contentViewSize: CGSize(width: 500, height: 500)
@@ -469,7 +469,7 @@ struct EdgeFollowTests {
         // input that, mis-transformed, produced the "jumps to the bottom" bug.
         let retarget = PointerRetargeting.hostPoint(
             forContentViewLocation: CGPoint(x: 500, y: 375),
-            state: Self.touchScrollState(),
+            state: Self.videoTouchState(),
             displayId: "display-a",
             displayBounds: CGRect(x: 0, y: 0, width: 2000, height: 1000),
             contentViewSize: CGSize(width: 500, height: 500)
@@ -489,7 +489,7 @@ struct EdgeFollowTests {
 
         #expect(PointerRetargeting.hostPoint(
             forContentViewLocation: CGPoint(x: 10, y: 10),
-            state: Self.touchScrollState(),
+            state: Self.videoTouchState(),
             displayId: "display-a",
             displayBounds: .zero,
             contentViewSize: CGSize(width: 500, height: 500)

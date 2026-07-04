@@ -132,11 +132,13 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     let buttonRow = UIStackView()
     let rightClickButton = UIButton(type: .system)
     let showKeyboardButton = UIButton(type: .system)
-    // Touch-scroll control (bottom row) and the pan recognizer installed
-    // on the video surface while touch-scroll input is active. See
-    // PairingViewController+TouchScroll.swift.
-    let touchScrollControl = TouchScrollControl()
-    var touchScrollRecognizer: UIPanGestureRecognizer?
+    // Touch mode control (bottom row) and the recognizers installed
+    // on the video surface while video touch input is active. See
+    // PairingViewController+VideoTouch.swift.
+    let videoTouchControl = VideoTouchControl()
+    var videoTouchScrollRecognizer: UIPanGestureRecognizer?
+    var videoTouchTapRecognizer: UITapGestureRecognizer?
+    var videoDoubleTapZoomRecognizer: UITapGestureRecognizer?
     // R25: merged Spaces band. Replaces the old dots band.
     let displayRailView = DisplayRailView()
     let thumbnailStripView = ThumbnailStripView()

@@ -42,7 +42,7 @@
 				"PairingViewController+Gestures.swift",
 				"PairingViewController+Keyboard.swift",
 				"PairingViewController+Layout.swift",
-				"PairingViewController+TouchScroll.swift",
+				"PairingViewController+VideoTouch.swift",
 				SceneDelegate.swift,
 				SettingsViewController.swift,
 			);
