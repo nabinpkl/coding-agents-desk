@@ -39,6 +39,26 @@
     function inflateEvents(b64) {
       return JSON.parse(fflate.strFromU8(fflate.unzlibSync(base64ToBytes(b64))));
     }
+    function inflateStr(b64) {
+      return fflate.strFromU8(fflate.unzlibSync(base64ToBytes(b64)));
+    }
+
+    // ADR-0044 Tier A: adopted-stylesheet CSS the isolated recorder read and shipped (see
+    // content-isolated.js / worker.js). rrweb rebuilds the replay iframe on each FullSnapshot, wiping
+    // anything we injected, so keep the latest CSS and re-inject after every snapshot into a singleton
+    // <style id="agentdesk-adopted">.
+    var adoptedCss = null;
+    function injectAdoptedCss() {
+      if (adoptedCss == null || !replayer || !replayer.iframe || !replayer.iframe.contentDocument) return;
+      var doc = replayer.iframe.contentDocument;
+      var el = doc.getElementById('agentdesk-adopted');
+      if (!el) {
+        el = doc.createElement('style');
+        el.id = 'agentdesk-adopted';
+        (doc.head || doc.documentElement).appendChild(el);
+      }
+      if (el.textContent !== adoptedCss) el.textContent = adoptedCss;
+    }
 
     function haveSnapshot(evts) {
       for (var i = 0; i < evts.length; i++) if (evts[i].type === FULL_SNAPSHOT) return true;
@@ -67,6 +87,11 @@
       try { batch = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON; }
       catch (e) { return; }
       if (!batch) return;
+      // ADR-0044 Tier A: a css-only line carries adopted-stylesheet CSS (no events). Stash + inject.
+      if (batch.cssz) {
+        try { adoptedCss = inflateStr(batch.cssz); injectAdoptedCss(); } catch (e) {}
+        return;
+      }
       // ADR-0043: a checkout batch is a fresh keyframe, so any still-incomplete chunk set from before
       // it is now stale (superseded). Dropping pending slots here bounds the chunks map (no slot
       // outlives the next keyframe -> no leak on a late-join-mid-chunk) and makes a cid reused after
@@ -92,6 +117,7 @@
         ev = (batch && batch.ev) || [];
       }
       for (var i = 0; i < ev.length; i++) applyEvent(ev[i]);
+      injectAdoptedCss(); // re-apply after a (possibly rebuilt) snapshot
       scheduleProbe();
     };
 
@@ -106,6 +132,7 @@
 
     function postProbe() {
       if (!replayer || !replayer.iframe || !replayer.iframe.contentDocument) return;
+      injectAdoptedCss(); // the snapshot rebuild is async; ensure the style survives the settled DOM
       var doc = replayer.iframe.contentDocument;
       var markerEl = doc.querySelector('[data-agentdesk-fixture]');
       var marker = markerEl ? markerEl.getAttribute('data-agentdesk-fixture') : '';

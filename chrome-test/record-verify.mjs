@@ -36,6 +36,13 @@ const USER_TEXT = 'alice-visible-USERTEXT';           // text-input value -> mus
 const SECRET = 'SUPERSECRET_PW_ZZZ99';                // password value -> must be masked (absent)
 const ATTR_SECRET = 'SECRET_TITLE_ATTR_ZZ99';         // title attribute -> must be masked (absent)
 const TOKEN = 'record-verify-token';
+// ADR-0044 Tier A: the fixture applies an adopted (constructable) stylesheet via a same-origin script
+// (the CSP is script-src 'self', so an inline script would be blocked). The isolated recorder must
+// read its rules and ship them in a compressed `cssz` line even though rrweb can't capture them.
+const ADOPTED_MARKER = 'agentdesk-adopted-probe';     // selector in the adopted rule -> asserted PRESENT (post-inflate)
+const ADOPTED_COLOR = 'rgb(7, 8, 9)';                 // its declaration -> asserted PRESENT (post-inflate)
+const ADOPTED_SETUP_JS =
+  `const s = new CSSStyleSheet(); s.replaceSync('.${ADOPTED_MARKER}{color:${ADOPTED_COLOR};}'); document.adoptedStyleSheets = [s];`;
 
 const extId = extensionId();
 const work = mkdtempSync(join(tmpdir(), 'dom-record-verify-'));
@@ -92,9 +99,16 @@ const hostServer = net.createServer((socket) => {
 });
 
 // --- static server for the CSP-strict fixture ---
+// Serves the shared fixture with a same-origin <script> that applies an adopted stylesheet (ADR-0044
+// Tier A). Injected here at serve-time so the on-disk fixture (also used by e2e/input) is untouched.
 const fixtureServer = http.createServer((req, res) => {
+  if (req.url && req.url.startsWith('/adopted-setup.js')) {
+    res.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8' });
+    res.end(ADOPTED_SETUP_JS);
+    return;
+  }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(FIXTURE);
+  res.end(FIXTURE.replace('</body>', '<script src="adopted-setup.js"></script></body>'));
 });
 
 let ctx = null;
@@ -150,6 +164,8 @@ async function main() {
 
   // Wait (bounded) for a checkout batch to reach the host through the whole real chain.
   for (let i = 0; i < 60 && !host.batches.some((b) => b.co); i++) await sleep(250);
+  // The adopted-CSS (cssz) line is sent right after the checkout; give it a brief extra window.
+  for (let i = 0; i < 20 && !host.batches.some((b) => b.cssz); i++) await sleep(100);
 
   // --- diagnostics (printed always; the chain has many links) ---
   let swId = null, nativeProbe = null;
@@ -186,8 +202,8 @@ async function main() {
   check(host.authed, 'shim authenticated to the host (manifest path + connectNative confirmed)');
   check(host.batches.length > 0, `host received DOM batches (${host.batches.length})`);
   check(host.batches.some((b) => b.co), 'received a checkout batch (full snapshot for late-join)');
-  check(host.batches.every((b) => b.enc === 'deflate-b64' && typeof b.ev === 'string'),
-    'batches wire-encoded as compressed base64 (ADR-0043), not raw JSON');
+  check(host.batches.every((b) => b.enc === 'deflate-b64' && (typeof b.ev === 'string' || typeof b.cssz === 'string')),
+    'batches wire-encoded as compressed base64 (ADR-0043/0044), not raw JSON');
   check(!rawWire.includes(CAPTURE_MARKER),
     'raw wire is genuinely compressed (marker absent until inflated)');
   check(allEvents.length > 0, `batches carried rrweb events (${allEvents.length})`);
@@ -196,6 +212,16 @@ async function main() {
   check(!json.includes(USER_TEXT), 'text-input value MASKED (absent from stream)');
   check(!json.includes(SECRET), 'password value MASKED (absent from stream)');
   check(!json.includes(ATTR_SECRET), 'attribute-borne text (title) MASKED (absent from stream)');
+
+  // ADR-0044 Tier A: the isolated recorder read the adopted (constructable) stylesheet rrweb can't
+  // capture, and shipped it in a compressed cssz line. Assert it arrived and decompresses to the rule.
+  const cssBatch = host.batches.find((b) => typeof b.cssz === 'string');
+  let adoptedCss = '';
+  if (cssBatch) { try { adoptedCss = zlib.inflateSync(Buffer.from(cssBatch.cssz, 'base64')).toString('utf8'); } catch {} }
+  check(!!cssBatch, 'received an adopted-stylesheet (cssz) line on checkout (ADR-0044 Tier A)');
+  check(adoptedCss.includes(ADOPTED_MARKER) && adoptedCss.includes(ADOPTED_COLOR),
+    'adopted-stylesheet CSS captured from the isolated world (post-inflate)');
+  check(!rawWire.includes(ADOPTED_MARKER), 'adopted CSS is compressed on the wire (marker absent until inflated)');
   check(leak.rrweb === false, 'page context has NO window.rrweb (recorder invisible to page JS)');
   check(leak.started === false, 'page context has NO window.__agentdeskDomMirrorStarted');
   check(leak.batches === 0, 'page received ZERO agentdesk batches (no window.postMessage leak)');

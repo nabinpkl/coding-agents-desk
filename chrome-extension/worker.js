@@ -222,25 +222,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     if (b64.length <= CHUNK_LIMIT) {
       p.postMessage({ t: 'dom-batch', tb, co, enc: 'deflate-b64', ev: b64, meta: message.meta });
-      return;
+    } else {
+      // Backstop: a compressed batch still over the limit is split into ordered parts reassembled by
+      // cid in the webview. co rides part 0 only, so the host's late-join buffer resets once per
+      // snapshot (not per part) and keeps the whole chunked snapshot together.
+      const cid = nextChunkId++;
+      const total = Math.ceil(b64.length / CHUNK_LIMIT);
+      for (let seq = 0; seq < total; seq++) {
+        p.postMessage({
+          t: 'dom-batch',
+          tb,
+          co: seq === 0 ? co : false,
+          enc: 'deflate-b64',
+          ev: b64.slice(seq * CHUNK_LIMIT, (seq + 1) * CHUNK_LIMIT),
+          meta: seq === 0 ? message.meta : undefined,
+          cid,
+          seq,
+          total,
+        });
+      }
     }
-    // Backstop: a compressed batch still over the limit is split into ordered parts reassembled by
-    // cid in the webview. co rides part 0 only, so the host's late-join buffer resets once per
-    // snapshot (not per part) and keeps the whole chunked snapshot together.
-    const cid = nextChunkId++;
-    const total = Math.ceil(b64.length / CHUNK_LIMIT);
-    for (let seq = 0; seq < total; seq++) {
-      p.postMessage({
-        t: 'dom-batch',
-        tb,
-        co: seq === 0 ? co : false,
-        enc: 'deflate-b64',
-        ev: b64.slice(seq * CHUNK_LIMIT, (seq + 1) * CHUNK_LIMIT),
-        meta: seq === 0 ? message.meta : undefined,
-        cid,
-        seq,
-        total,
-      });
+    // ADR-0044 Tier A: adopted-stylesheet CSS (keyframes only) rides its OWN compressed line, sent
+    // right after the events. Kept off the ev payload so the ADR-0043 ev path is byte-for-byte
+    // unchanged, and off the chunked seq-0 line so it can't push that line past the 2 MB frame cap.
+    // co:false -- the events checkout already reset the late-join buffer; this appends to it. The
+    // webview injects it as a <style>. If it's still too big (huge design-system sheet), drop it with
+    // a log rather than risk a frame-cap violation; the next keyframe retries.
+    if (message.css) {
+      try {
+        const cssz = bytesToBase64(fflate.zlibSync(fflate.strToU8(message.css)));
+        if (cssz.length <= CHUNK_LIMIT) {
+          p.postMessage({ t: 'dom-batch', tb, co: false, enc: 'deflate-b64', cssz });
+        } else {
+          console.warn('[agentdesk] adopted css too large, skipped', cssz.length);
+        }
+      } catch (e) {
+        console.error('[agentdesk] css compress failed', e && e.message);
+      }
     }
     return;
   }

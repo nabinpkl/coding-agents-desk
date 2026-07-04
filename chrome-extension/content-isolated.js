@@ -62,6 +62,35 @@
     try { return !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; }
   }
 
+  // ADR-0044 Tier A: the isolated world CAN read adopted/constructable stylesheets (document + open
+  // shadow roots) and their rules -- rrweb can't, because it captures them by monkeypatching
+  // CSSStyleSheet in the page's MAIN world (patches don't cross realms), and its snapshot serializer
+  // doesn't read document.adoptedStyleSheets (rrweb #1567). So a page styled via adopted sheets (e.g.
+  // Google) serializes as structure with no CSS -> renders blank. We read the rule text ourselves on
+  // each keyframe and ship it alongside; the replay injects it as a <style>. No MAIN world needed.
+  // Closed shadow roots are null here (that residue is Tier B / CDP).
+  function collectAdoptedCSS() {
+    const parts = [];
+    const fromSheets = (sheets) => {
+      if (!sheets) return;
+      for (let i = 0; i < sheets.length; i++) {
+        try {
+          const rules = sheets[i].cssRules;
+          for (let j = 0; j < rules.length; j++) parts.push(rules[j].cssText);
+        } catch (e) { /* cross-origin or detached sheet: skip */ }
+      }
+    };
+    try { fromSheets(document.adoptedStyleSheets); } catch (e) {}
+    try {
+      const all = document.querySelectorAll('*');
+      for (let k = 0; k < all.length; k++) {
+        const sr = all[k].shadowRoot; // open roots only; closed returns null
+        if (sr) fromSheets(sr.adoptedStyleSheets);
+      }
+    } catch (e) {}
+    return parts.join('\n');
+  }
+
   function flush() {
     // `if (recording)` keeps stopRecording()'s own residual flush() from re-entering this branch.
     if (!contextAlive()) { if (recording) stopRecording(); return; }
@@ -78,12 +107,16 @@
     const events = batch;
     batch = [];
     const checkout = events.some((e) => e.type === FULL_SNAPSHOT);
+    // ADR-0044 Tier A: attach adopted-stylesheet CSS on keyframes only (rare, and the read walks the
+    // DOM for open shadow roots, so keep it off the incremental path).
+    const css = checkout ? collectAdoptedCSS() : '';
     try {
       chrome.runtime.sendMessage({
         type: 'agentdesk-batch',
         __agentdesk: CHANNEL,
         checkout,
         events,
+        css: css || undefined,
         meta: {
           w: window.innerWidth,
           h: window.innerHeight,
