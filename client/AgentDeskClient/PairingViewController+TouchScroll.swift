@@ -1,6 +1,103 @@
 import UIKit
 import AgentDeskWire
 
+final class TouchScrollModeControl: UIControl {
+    var mode: TouchScrollMode = .off {
+        didSet { updateAppearance() }
+    }
+
+    private let fullButton = UIButton(type: .system)
+    private let asIsButton = UIButton(type: .system)
+    private let label = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        configure()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configure()
+    }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: 44)
+    }
+
+    private func configure() {
+        backgroundColor = .secondarySystemBackground
+        layer.cornerRadius = 8
+        layer.borderColor = UIColor.separator.cgColor
+        layer.borderWidth = 0.5
+        clipsToBounds = true
+
+        let divider = UIView()
+        divider.backgroundColor = .separator
+        divider.translatesAutoresizingMaskIntoConstraints = false
+
+        for button in [fullButton, asIsButton] {
+            button.titleLabel?.font = .preferredFont(forTextStyle: .caption1)
+            button.tintColor = .label
+            button.translatesAutoresizingMaskIntoConstraints = false
+        }
+        fullButton.setTitle("Full", for: .normal)
+        asIsButton.setTitle("As Is", for: .normal)
+        fullButton.addTarget(self, action: #selector(fullTapped), for: .touchUpInside)
+        asIsButton.addTarget(self, action: #selector(asIsTapped), for: .touchUpInside)
+
+        let choiceRow = UIStackView(arrangedSubviews: [fullButton, divider, asIsButton])
+        choiceRow.axis = .horizontal
+        choiceRow.alignment = .fill
+        choiceRow.distribution = .fill
+        choiceRow.spacing = 0
+        choiceRow.translatesAutoresizingMaskIntoConstraints = false
+
+        label.text = "Touch scroll"
+        label.font = .preferredFont(forTextStyle: .caption2)
+        label.textColor = .secondaryLabel
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = UIStackView(arrangedSubviews: [choiceRow, label])
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 0
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+            divider.widthAnchor.constraint(equalToConstant: 1),
+            fullButton.widthAnchor.constraint(equalTo: asIsButton.widthAnchor),
+            choiceRow.heightAnchor.constraint(equalToConstant: 24)
+        ])
+        updateAppearance()
+    }
+
+    @objc private func fullTapped() {
+        mode = toggledTouchScrollMode(current: mode, selected: .full)
+        sendActions(for: .valueChanged)
+    }
+
+    @objc private func asIsTapped() {
+        mode = toggledTouchScrollMode(current: mode, selected: .asIs)
+        sendActions(for: .valueChanged)
+    }
+
+    private func updateAppearance() {
+        style(fullButton, selected: mode == .full)
+        style(asIsButton, selected: mode == .asIs)
+    }
+
+    private func style(_ button: UIButton, selected: Bool) {
+        button.backgroundColor = selected ? UIColor.systemBlue.withAlphaComponent(0.25) : .clear
+        button.setTitleColor(selected ? .systemBlue : .label, for: .normal)
+    }
+}
+
 // Touch-scroll mode. Relocates the right-edge scroll strip's exact scroll
 // behavior onto the video surface: a one-finger drag on the desktop image
 // primes the host cursor at the touched point (.cursorSet) and then scrolls
@@ -90,8 +187,8 @@ extension PairingViewController {
     // Idempotent; called on attach, on entering the session, and on every
     // settings change.
     func applyTouchScrollMode() {
-        let on = SettingsStore.shared.touchScrollMode
-        let config = touchScrollGestureConfig(touchScrollMode: on)
+        let mode = SettingsStore.shared.touchScrollMode
+        let config = touchScrollGestureConfig(touchScrollMode: mode)
         touchScrollRecognizer?.isEnabled = config.touchScrollRecognizerEnabled
         if let scroll = sinkScrollView {
             // Keep the scroll view zoom-capable at all times (isScrollEnabled =
@@ -102,25 +199,29 @@ extension PairingViewController {
             scroll.isScrollEnabled = config.scrollViewScrollEnabled
             scroll.panGestureRecognizer.minimumNumberOfTouches = config.scrollViewPanMinimumTouches
         }
+        touchScrollModeControl.mode = mode
+        let controlSurfaceActive = isControlSurfaceActive()
+        let relativeControlsHidden = !controlSurfaceActive || config.relativeControlsHidden
         for control in [trackpadView, scrollStripView] {
             control.alpha = CGFloat(config.relativeControlsAlpha)
             control.isUserInteractionEnabled = config.relativeControlsInteractionEnabled
+            control.isHidden = relativeControlsHidden
         }
-        updateTouchScrollButtonAppearance()
+        trackpadHint.isHidden = relativeControlsHidden
+        scrollStripHint.isHidden = relativeControlsHidden
+        applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
+        refreshThumbnailStripVisibility()
     }
 
-    private func updateTouchScrollButtonAppearance() {
-        let on = SettingsStore.shared.touchScrollMode
-        touchScrollToggleButton.isSelected = on
-        touchScrollToggleButton.backgroundColor = on
-            ? UIColor.systemBlue.withAlphaComponent(0.25)
-            : .secondarySystemBackground
+    func isControlSurfaceActive() -> Bool {
+        guard let seg = surfaceSegmentedControl else { return true }
+        return seg.titleForSegment(at: seg.selectedSegmentIndex) == "Control"
     }
 
-    @objc func touchScrollToggleTapped() {
-        SettingsStore.shared.touchScrollMode.toggle()
+    @objc func touchScrollModeControlChanged(_ control: TouchScrollModeControl) {
+        SettingsStore.shared.touchScrollMode = control.mode
         // postChange() also drives settingsChanged -> applyTouchScrollMode, but
-        // apply immediately too so the button feels instant.
+        // apply immediately too so the segmented control feels instant.
         applyTouchScrollMode()
     }
 }

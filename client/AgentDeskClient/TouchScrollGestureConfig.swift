@@ -1,5 +1,26 @@
 import Foundation
 
+enum TouchScrollMode: String, CaseIterable, Equatable {
+    case off
+    case asIs
+    case full
+}
+
+func persistedTouchScrollMode(fromStoredValue value: Any?) -> TouchScrollMode {
+    if let raw = value as? String {
+        return TouchScrollMode(rawValue: raw) ?? .off
+    }
+    if let enabled = value as? Bool {
+        return enabled ? .asIs : .off
+    }
+    return .off
+}
+
+func toggledTouchScrollMode(current: TouchScrollMode, selected: TouchScrollMode) -> TouchScrollMode {
+    guard selected == .full || selected == .asIs else { return .off }
+    return current == selected ? .off : selected
+}
+
 // Finger-count gesture routing for touch-scroll mode, as a pure value so the
 // UIKit apply step (applyTouchScrollMode) stays a trivial translator and the
 // routing is unit-testable without a view controller. Mirrors the
@@ -17,16 +38,22 @@ struct TouchScrollGestureConfig: Equatable {
     let touchScrollRecognizerEnabled: Bool
     let scrollViewScrollEnabled: Bool
     let scrollViewPanMinimumTouches: Int
+    let relativeControlsHidden: Bool
     let relativeControlsAlpha: Double
     let relativeControlsInteractionEnabled: Bool
+    let usesFullLayout: Bool
 }
 
-func touchScrollGestureConfig(touchScrollMode on: Bool) -> TouchScrollGestureConfig {
-    TouchScrollGestureConfig(
+func touchScrollGestureConfig(touchScrollMode mode: TouchScrollMode) -> TouchScrollGestureConfig {
+    let on = mode != .off
+    let full = mode == .full
+    return TouchScrollGestureConfig(
         touchScrollRecognizerEnabled: on,
         scrollViewScrollEnabled: true,
         scrollViewPanMinimumTouches: on ? 2 : 1,
+        relativeControlsHidden: full,
         relativeControlsAlpha: 1.0,
-        relativeControlsInteractionEnabled: true
+        relativeControlsInteractionEnabled: !full,
+        usesFullLayout: full
     )
 }

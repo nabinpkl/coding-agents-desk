@@ -230,10 +230,10 @@ final class SettingsStore: @unchecked Sendable {
     // primes the host cursor at the touched point and scrolls it, reusing the
     // right-edge strip's scroll behavior on a larger target. Default off keeps
     // the relative trackpad + strip as the sole control model.
-    var touchScrollMode: Bool {
-        get { defaults.object(forKey: Key.touchScrollMode) as? Bool ?? false }
+    var touchScrollMode: TouchScrollMode {
+        get { persistedTouchScrollMode(fromStoredValue: defaults.object(forKey: Key.touchScrollMode)) }
         set {
-            defaults.set(newValue, forKey: Key.touchScrollMode)
+            defaults.set(newValue.rawValue, forKey: Key.touchScrollMode)
             postChange()
         }
     }

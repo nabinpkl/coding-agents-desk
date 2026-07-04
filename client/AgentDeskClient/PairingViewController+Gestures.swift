@@ -267,6 +267,12 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // previews setting still gates host-side thumbnail capture (see
     // sendCurrentClientConfig) but no longer hides the strip.
     func refreshThumbnailStripVisibility() {
+        guard isControlSurfaceActive(), SettingsStore.shared.touchScrollMode != .full else {
+            displayRailView.isHidden = true
+            thumbnailStripView.isHidden = true
+            return
+        }
+        displayRailView.isHidden = displayRailView.displayCount <= 1
         thumbnailStripView.isHidden = thumbnailStripView.userSpaceCount <= 1
     }
 

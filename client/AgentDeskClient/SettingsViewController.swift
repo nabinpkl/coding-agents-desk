@@ -24,7 +24,7 @@ final class SettingsViewController: UIViewController {
     private let manualMediaFpsControl = UISegmentedControl(items: ["6", "10", "15", "24", "30"])
     private let manualMediaResolutionControl = UISegmentedControl(items: ["33%", "50%", "75%", "100%"])
     private let manualMediaRows = UIStackView()
-    private let touchScrollModeSwitch = UISwitch()
+    private let touchScrollModeControl = TouchScrollModeControl()
     private let accessoryContainerSlider = UISlider()
     private let accessoryContainerLabel = UILabel()
     private let accessoryKeySlider = UISlider()
@@ -81,8 +81,8 @@ final class SettingsViewController: UIViewController {
         let touchScrollSection = makeSection(
             title: "Touch scroll",
             rows: [],
-            switchRow: ("Scroll on the video surface", touchScrollModeSwitch),
-            footnote: "Drag on the desktop image to scroll where you touch. The trackpad and right-edge scroll strip stay available."
+            customRows: [touchScrollModeControl],
+            footnote: "Full expands the video and hides the trackpad strip. As Is keeps the current trackpad and right-edge scroll strip. Tap the selected mode again to turn touch scroll off."
         )
 
         // ADR-0006: opt-in for the thumbnail preview strip.
@@ -226,7 +226,7 @@ final class SettingsViewController: UIViewController {
         manualMediaFpsControl.addTarget(self, action: #selector(manualMediaFpsChanged), for: .valueChanged)
         manualMediaResolutionControl.addTarget(self, action: #selector(manualMediaResolutionChanged), for: .valueChanged)
         configureManualMediaRows()
-        touchScrollModeSwitch.addTarget(self, action: #selector(touchScrollModeChanged), for: .valueChanged)
+        touchScrollModeControl.addTarget(self, action: #selector(touchScrollModeChanged), for: .valueChanged)
 
         // Accessory bar tunings live in points so the slider value maps
         // directly to layout. Ranges chosen to cover "tiny chiclet" to
@@ -262,7 +262,7 @@ final class SettingsViewController: UIViewController {
         manualMediaBitrateSlider.value = Float(store.manualMediaBitrateKbps)
         manualMediaFpsControl.selectedSegmentIndex = index(for: store.manualMediaFps, in: manualFpsValues())
         manualMediaResolutionControl.selectedSegmentIndex = index(for: store.manualMediaResolutionScale, in: manualResolutionValues())
-        touchScrollModeSwitch.isOn = store.touchScrollMode
+        touchScrollModeControl.mode = store.touchScrollMode
         accessoryContainerSlider.value = Float(store.accessoryContainerHeight)
         accessoryKeySlider.value = Float(store.accessoryKeyHeight)
         accessoryGapSlider.value = Float(store.accessoryKeySpacing)
@@ -354,7 +354,7 @@ final class SettingsViewController: UIViewController {
     @objc private func touchScrollModeChanged() {
         // Writing the store posts changedNotification, which PairingViewController
         // observes and applies via applyTouchScrollMode.
-        store.touchScrollMode = touchScrollModeSwitch.isOn
+        store.touchScrollMode = touchScrollModeControl.mode
     }
 
     @objc private func accessoryContainerChanged() {
