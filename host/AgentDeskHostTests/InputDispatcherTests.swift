@@ -329,6 +329,44 @@ struct InputDispatcherTests {
         #expect(recorder.events[5].getIntegerValueField(.scrollWheelEventMomentumPhase) == 3)
     }
 
+    @Test func scrollEventIsMarkedContinuous() {
+        // A real trackpad continuous scroll carries isContinuous=1; AppKit's
+        // elastic/rubber-band boundary handling (reverse-out-of-overscroll)
+        // keys off it. Regression guard for the "scroll up after hitting the
+        // bottom is inert" bug.
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 12, phase: .changed))
+
+        #expect(recorder.events.count == 1)
+        #expect(recorder.events[0].getIntegerValueField(.scrollWheelEventIsContinuous) == 1)
+    }
+
+    @Test func scrollRemainderResetsAtGestureStart() {
+        // A leftover sub-pixel remainder from a prior stroke must not leak into
+        // the next gesture's first delta. 0.9 accumulates but does not emit;
+        // the next gesture's .began resets it, so the delimiter posts wheel1=0
+        // rather than the 1 a leaked 0.9 + 0.4 = 1.3 would produce.
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 0.9, phase: .changed))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 0.4, phase: .began))
+
+        #expect(recorder.events.count == 1)
+        #expect(recorder.events[0].getIntegerValueField(.scrollWheelEventScrollPhase) == 1)
+        #expect(recorder.events[0].getIntegerValueField(.scrollWheelEventPointDeltaAxis1) == 0)
+    }
+
     @Test func scrollDelimiterPhasesEmitEvenWithZeroDelta() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(

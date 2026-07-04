@@ -462,6 +462,12 @@ final class InputDispatcher: @unchecked Sendable {
         // current view). So a finger flick UP -> negative dy -> negative
         // wheel1 -> document scrolls forward -> content visibly moves UP
         // out of view, matching iOS Safari behavior.
+        // A fresh gesture (or the end of one) must not inherit a stale
+        // fractional remainder from the previous gesture; reset at the gesture
+        // delimiters so the first delta of a new stroke is not skewed.
+        if phase == .began || phase == .ended || phase == .momentumEnded {
+            scrollRemainder = 0
+        }
         scrollRemainder += CGFloat(dy)
         let dyInt = Int32(scrollRemainder.rounded(.towardZero))
         scrollRemainder -= CGFloat(dyInt)
@@ -481,6 +487,17 @@ final class InputDispatcher: @unchecked Sendable {
         let (scrollPhase, momentumPhase) = cgPhaseValues(phase)
         event.setIntegerValueField(.scrollWheelEventScrollPhase, value: scrollPhase)
         event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentumPhase)
+        // A real trackpad continuous scroll carries isContinuous=1; native
+        // AppKit scroll views key their elastic/rubber-band handling off it.
+        // Known limitation: Electron/Chromium targets (e.g. the Claude desktop
+        // app) still swallow reverse deltas after an overscrolled boundary even
+        // with well-formed continuous-scroll events (correct began/changed/ended
+        // phases, isContinuous=1, correctly-signed deltas), because Chromium's
+        // scroll-latching handles synthetic scroll differently. Native apps
+        // reverse out of the boundary fine, so this is target-side, not a defect
+        // in this pipeline. Verified via host postScroll traces (2026-07-03).
+        event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        logger.debug("postScroll wheel1=\(dyInt, privacy: .public) scrollPhase=\(scrollPhase, privacy: .public) momentumPhase=\(momentumPhase, privacy: .public)")
         eventPoster(event)
     }
 

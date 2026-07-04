@@ -89,6 +89,20 @@ on-device instrumentation and covered by `hostPointBeyondVideoClampsToDisplayBou
   `pendingCursorRetarget` on `.began` so a stale viewport retarget cannot
   override the prime.
 
+## Known limitation (target-side, not this pipeline)
+
+Reversing scroll direction out of an overscrolled boundary (e.g. scroll to the
+bottom, then scroll back up) is inert in **Electron/Chromium** target windows
+(the Claude desktop app). This is not specific to touch-scroll — the right-edge
+strip behaves identically, because both feed the same `postScroll` path. Host
+`postScroll` traces confirm the pipeline emits well-formed continuous-scroll
+events (correct `began/changed/ended` phases, `isContinuous=1`, correctly-signed
+up-deltas at the boundary); Chromium's scroll-latching swallows them anyway.
+Native macOS apps reverse out of the boundary correctly, so this is target-app
+behavior. Hardening applied while confirming this (`isContinuous=1`, resetting
+`scrollRemainder` at gesture delimiters) is retained as correctness, but does not
+change the Electron behavior.
+
 ## Testing
 
 `EdgeFollowTests`: `hostPoint(forSinkLocation:)` at zoom 1.0 and >1.0, with
