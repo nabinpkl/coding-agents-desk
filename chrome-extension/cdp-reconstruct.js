@@ -27,6 +27,11 @@ const CDP_SENSITIVE_ATTRS = new Set(['title', 'alt', 'aria-label', 'aria-descrip
 const cdpEscAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const cdpEscText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const cdpMask = (s) => String(s).replace(/\S/g, '*'); // mask every non-whitespace char (rrweb parity)
+// Defense-in-depth: real DOMSnapshot tag/attribute names come from the browser's own machinery, but
+// this string is documented as safe-for-egress HTML, so validate names (we escape values already).
+// An invalid tag flattens to its children (content kept, no injected element); an invalid attribute
+// name is dropped -- neither can break out of quoting or inject markup.
+const CDP_NAME_OK = /^[a-zA-Z_:][\w:.-]*$/;
 
 function reconstructMaskedHtml(snap) {
   const strings = (snap && snap.strings) || [];
@@ -70,11 +75,12 @@ function reconstructMaskedHtml(snap) {
     if (t !== 1) return;                                                    // elements only
     const tag = (S(nodeName[i]) || 'div').toLowerCase();
     if (CDP_SKIP.has(tag)) return;
+    if (!CDP_NAME_OK.test(tag)) { children[i].forEach(emit); return; }      // invalid tag -> flatten children
     let attrs = '';
     const a = attributes[i] || [];
     for (let k = 0; k + 1 < a.length; k += 2) {
       const name = S(a[k]);
-      if (!name || /^on/i.test(name) || name.toLowerCase() === 'style') continue; // drop handlers + author inline style
+      if (!name || /^on/i.test(name) || name.toLowerCase() === 'style' || !CDP_NAME_OK.test(name)) continue; // drop handlers, author inline style, malformed names
       let val = S(a[k + 1]);
       if (CDP_SENSITIVE_ATTRS.has(name.toLowerCase())) val = cdpMask(val);
       attrs += ' ' + name + '="' + cdpEscAttr(val) + '"';

@@ -42,9 +42,29 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8">
 const failures = [];
 const check = (cond, msg) => { console.log(`  ${cond ? 'ok  ' : 'FAIL'} - ${msg}`); if (!cond) failures.push(msg); };
 
+// Synthetic defense-in-depth check (no Chrome): a crafted snapshot whose tag/attribute NAMES carry
+// HTML metacharacters must not break out of quoting or inject markup in the reconstructed string.
+function checkNameInjection() {
+  const strings = ['', 'div', 'x" onmouseover="evil()', 'y', 'p><script>alert(1)</script', 'hi'];
+  const snap = { strings, documents: [{
+    nodes: {
+      parentIndex: [-1, 0, 1],
+      nodeType:    [ 9, 1, 1],  // doc > div(malicious attr) > <p><script...>(malicious tag)
+      nodeName:    [ 0, 1, 4],
+      nodeValue:   [ 0, 0, 0],
+      attributes:  [[], [2, 3], []], // div has attr name = 'x" onmouseover="evil()'
+    },
+    layout: { nodeIndex: [], styles: [] },
+  }]};
+  const html = reconstructMaskedHtml(snap);
+  check(!/onmouseover/i.test(html), 'malformed attribute name dropped (no attribute-quote breakout)');
+  check(!/<script/i.test(html), 'malformed tag name flattened (no injected element)');
+}
+
 const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(PAGE); });
 let ctx = null;
 async function main() {
+  checkNameInjection(); // hermetic; runs before any browser work
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
   ctx = await chromium.launchPersistentContext(join(__dirname, '..', '.cdp-verify-profile'), {

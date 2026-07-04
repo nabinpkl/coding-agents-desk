@@ -211,6 +211,9 @@ async function setBadge(tabId, on) {
 
 async function startTabRecording(tabId) {
   if (tabId == null) return null;
+  // Fresh fidelity state for the new session: never let CDP polling (banner) follow a tab switch
+  // onto a tab that didn't opt in. Mirrors the reset in stopTabRecording / tab-removed / navigated.
+  stopCdp(false); cdpMode = false; cdpUserSet = false;
   try {
     await chrome.tabs.sendMessage(tabId, { type: 'agentdesk-start' });
   } catch (e) {
