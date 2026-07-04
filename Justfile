@@ -500,6 +500,33 @@ iphone-console-run variant="stable":
     echo "URL: <redacted; delivered to client>"
     URL="$(cat "{{last_pair_url_path}}")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
+# ADR-0038..0041 physical-device run of the Chrome DOM mirror -- the one human checkpoint. Builds
+# Release host+client with real artifacts, enables the DOM mirror on BOTH sides (host via launchd
+# env; client via the devicectl env path, since devicectl apps get env not argv), pairs, and attaches
+# the console. Once it is up: open a Chrome tab that the extension is recording, and the mirror
+# appears on the phone; tap the mirror to drive Chrome. Installs on / launches the PHYSICAL iPhone --
+# a STOP-and-wait checkpoint.
+dom-mirror-device-run:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just build-agent-sidecar
+    just build-agent-webview
+    launchctl setenv AGENTDESK_DOM_MIRROR_ENABLED 1
+    trap 'launchctl unsetenv AGENTDESK_DOM_MIRROR_ENABLED 2>/dev/null || true' EXIT
+    just host-run-release
+    just client-reinstall-release
+    test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running"; exit 1; }
+    BID='{{client_bundle_id}}'
+    rm -f "{{last_pair_url_path}}" "{{iphone_console_log}}"
+    kill -USR1 $(pgrep -f AgentDeskHost)
+    i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
+    URL="$(cat "{{last_pair_url_path}}")"
+    DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" \
+      DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED="1" \
+      DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" \
+      xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
+
 # Physical-device feel/diagnostic runs. Two launch modes x two client variants. All
 # rebuild and relaunch the host and reinstall the client (the "fresh" prefix is the
 # reinstall). They differ in how the client is launched and in build configuration:
