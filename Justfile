@@ -470,16 +470,24 @@ host-run variant="stable":
     # host's own code default carries it (single source of truth). The native-messaging
     # bridge is wired at the end of this recipe so browser mode works out of the box.
     if [ "{{variant}}" = "dev" ]; then
-        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app}}'
+        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app}}'; SIGPORT=41988
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
-        DD='{{derived_data}}'; APP='{{host_app}}'
+        DD='{{derived_data}}'; APP='{{host_app}}'; SIGPORT=41888
         EXTRA=()
     fi
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     # Kill only THIS variant's running host, matched by its derived-data path, so
     # relaunching one variant never kills the other (concurrent stacks).
     pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
+    # Backstop: a host from a DIFFERENT checkout has the same bundle id but a
+    # different derived-data path, so the pkill above misses it and the two stacks
+    # collide on the signaling port. Also kill whoever holds THIS variant's port.
+    # Scoped to the tier-derived port (env override honored, matching Config), so
+    # the sibling variant on its own port is never touched.
+    SIGPORT="${AGENTDESK_SIGNALING_PORT:-$SIGPORT}"
+    PORT_PIDS=$(lsof -ti tcp:"$SIGPORT" 2>/dev/null || true)
+    [ -n "$PORT_PIDS" ] && kill $PORT_PIDS 2>/dev/null || true
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
     open "$APP"
@@ -502,14 +510,21 @@ host-run-release variant="stable":
     set -euo pipefail
     # DOM mirror is baked on by default (see host-run); no enable override injected here.
     if [ "{{variant}}" = "dev" ]; then
-        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app_release}}'
+        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app_release}}'; SIGPORT=41988
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
-        DD='{{derived_data}}'; APP='{{host_app_release}}'
+        DD='{{derived_data}}'; APP='{{host_app_release}}'; SIGPORT=41888
         EXTRA=()
     fi
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
+    # Path-scoped kill: only THIS variant's host from THIS checkout (see host-run).
     pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
+    # Backstop: kill a same-bundle-id host from a different checkout that holds this
+    # variant's signaling port (the path-scoped pkill misses it). Port-scoped, so the
+    # sibling variant on its own tier-derived port is untouched.
+    SIGPORT="${AGENTDESK_SIGNALING_PORT:-$SIGPORT}"
+    PORT_PIDS=$(lsof -ti tcp:"$SIGPORT" 2>/dev/null || true)
+    [ -n "$PORT_PIDS" ] && kill $PORT_PIDS 2>/dev/null || true
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
     open "$APP"
