@@ -49,11 +49,28 @@ final class AgentFeedSurface: UIView {
         let contentController = WKUserContentController()
         let proxy = WeakScriptMessageProxy(target: self)
         contentController.add(proxy, name: "agentFeed")
+        // JS-error bridge so a blank/erroring page is never debugged blind: the
+        // documentStart shim forwards window.onerror and console.error/warn to
+        // this handler, which logs to OSLog (category agent-surface).
+        contentController.add(proxy, name: "agentLog")
+        contentController.addUserScript(WKUserScript(
+            source: Self.diagnosticsShimSource,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        ))
 
         let config = WKWebViewConfiguration()
         config.userContentController = contentController
-        // Allow file:// access to assets/ siblings of index.html.
         config.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Serve the bundle under a custom scheme. A scheme handler MUST be set on
+        // the configuration before the WKWebView is created; it cannot be added
+        // afterward. The custom scheme gives the page a real origin so Vite's ES
+        // module entry and dynamic imports load (file:// null-origin CORS-blocks
+        // them, producing the blank page).
+        config.setURLSchemeHandler(
+            AgentFeedSchemeHandler(rootDirectory: Config.agentFeedWebviewRootURL),
+            forURLScheme: Config.agentFeedWebviewScheme
+        )
 
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = self
@@ -76,13 +93,40 @@ final class AgentFeedSurface: UIView {
     }
 
     private func loadBundle() {
-        guard let url = Config.agentFeedWebviewIndexURL else {
-            logger.error("AgentFeedSurface: agentFeedWebviewIndexURL is nil; bundle missing")
+        guard let url = Config.agentFeedWebviewIndexRequestURL else {
+            logger.error("AgentFeedSurface: agentFeedWebviewIndexRequestURL is nil")
             return
         }
-        // allowingReadAccessTo the directory so assets/ is reachable.
-        webView?.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        webView?.load(URLRequest(url: url))
     }
+
+    // Forwards JS errors and console.error/warn to the native agentLog handler so
+    // they surface in OSLog. Injected at documentStart so it catches early errors.
+    private static let diagnosticsShimSource = """
+    (function () {
+      function post(kind, args) {
+        try {
+          window.webkit.messageHandlers.agentLog.postMessage({
+            kind: kind,
+            message: Array.prototype.map.call(args, function (a) {
+              try { return typeof a === 'string' ? a : JSON.stringify(a); }
+              catch (e) { return String(a); }
+            }).join(' ')
+          });
+        } catch (e) {}
+      }
+      window.addEventListener('error', function (e) {
+        post('error', [e.message + ' @ ' + (e.filename || '?') + ':' + (e.lineno || 0)]);
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        post('error', ['unhandledrejection: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)]);
+      });
+      var origError = console.error;
+      console.error = function () { post('error', arguments); origError.apply(console, arguments); };
+      var origWarn = console.warn;
+      console.warn = function () { post('warn', arguments); origWarn.apply(console, arguments); };
+    })();
+    """
 
     // MARK: - Outbound: native -> webview
 
@@ -122,8 +166,9 @@ final class AgentFeedSurface: UIView {
         // re-set isLoaded and re-flush (navigationDelegate is weak, so this is not a
         // leak fix, just an ordering guard).
         webView?.navigationDelegate = nil
-        // Remove the message handler so the content controller no longer holds the proxy.
+        // Remove all message handlers so the content controller no longer holds the proxy.
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "agentFeed")
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "agentLog")
         // Ask the JS side to clean up if it exposes a destroy hook.
         webView?.evaluateJavaScript("window.__agentFeedBridge?.destroy?.()", completionHandler: nil)
         isLoaded = false
@@ -136,6 +181,7 @@ final class AgentFeedSurface: UIView {
 extension AgentFeedSurface: WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor [weak self] in
+            self?.logger.info("AgentFeedSurface: navigation didFinish")
             self?.markLoaded()
         }
     }
@@ -147,7 +193,19 @@ extension AgentFeedSurface: WKNavigationDelegate {
     ) {
         Task { @MainActor [weak self] in
             self?.logger.error(
-                "AgentFeedSurface: navigation failed: \(String(describing: error), privacy: .public)"
+                "AgentFeedSurface: navigation didFail: \(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        Task { @MainActor [weak self] in
+            self?.logger.error(
+                "AgentFeedSurface: provisional navigation didFail: \(String(describing: error), privacy: .public)"
             )
         }
     }
@@ -168,6 +226,24 @@ extension AgentFeedSurface: WKScriptMessageHandler {
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
+        // Route by handler name. agentLog carries {kind, message} from the
+        // diagnostics shim; agentFeed carries {t, ...} for bridge protocol.
+        if message.name == "agentLog" {
+            guard let body = message.body as? [String: Any],
+                  let kind = body["kind"] as? String,
+                  let text = body["message"] as? String else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if kind == "error" {
+                    self.logger.error("JS \(kind, privacy: .public): \(text, privacy: .public)")
+                } else {
+                    self.logger.warning("JS \(kind, privacy: .public): \(text, privacy: .public)")
+                }
+            }
+            return
+        }
+
+        // agentFeed bridge messages.
         guard let body = message.body as? [String: Any],
               let tag = body["t"] as? String else {
             return

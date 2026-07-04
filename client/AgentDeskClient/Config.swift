@@ -183,4 +183,22 @@ enum Config {
         )
     }
 
+    // Root directory of the bundled webview folder. Resolved from index.html's
+    // parent so it matches however the resource folder was copied into the bundle.
+    // The WKURLSchemeHandler maps custom-scheme paths under this directory.
+    static var agentFeedWebviewRootURL: URL? {
+        agentFeedWebviewIndexURL?.deletingLastPathComponent()
+    }
+
+    // Custom scheme + host the bundled webview is served under. A custom scheme
+    // gives the page a real (non-null) origin, which file:// does not. Vite's
+    // ES-module entry script and its dynamic imports are CORS-blocked under a
+    // file:// null origin in WKWebView, so the app would render blank; the custom
+    // scheme is the standard fix. index is loaded as agentfeed://app/index.html.
+    static let agentFeedWebviewScheme = "agentfeed"
+    static let agentFeedWebviewHost = "app"
+    static var agentFeedWebviewIndexRequestURL: URL? {
+        URL(string: "\(agentFeedWebviewScheme)://\(agentFeedWebviewHost)/index.html")
+    }
+
 }
