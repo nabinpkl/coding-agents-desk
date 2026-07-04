@@ -54,7 +54,17 @@ async function main() {
     args: [`--disable-extensions-except=${EXT_DIR}`, `--load-extension=${EXT_DIR}`, '--no-first-run', '--no-default-browser-check'],
   });
   const page = await ctx.newPage();
-  await page.goto(`http://127.0.0.1:${port}/page.html?agentdesk_record=1`, { waitUntil: 'load' });
+  await page.goto(`http://127.0.0.1:${port}/page.html`, { waitUntil: 'load' });
+
+  // Start recording from the CHROME layer (ADR-0042): drive the service worker directly, no URL param.
+  let sw = ctx.serviceWorkers()[0];
+  if (!sw) { try { sw = await ctx.waitForEvent('serviceworker', { timeout: 5000 }); } catch {} }
+  if (!sw) throw new Error('service worker not found; cannot start recording');
+  await sw.evaluate(async () => {
+    const [t] = await chrome.tabs.query({ active: true });
+    await startTabRecording(t.id);
+  });
+
   console.log(`e2e-chrome: recording fixture for ${RECORD_SECONDS}s...`);
   await sleep(RECORD_SECONDS * 1000);
   console.log('e2e-chrome: done recording');

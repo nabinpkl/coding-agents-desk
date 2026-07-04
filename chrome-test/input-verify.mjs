@@ -81,13 +81,23 @@ async function main() {
     args: [`--disable-extensions-except=${EXT_DIR}`, `--load-extension=${EXT_DIR}`, '--no-first-run', '--no-default-browser-check'],
   });
   const page = await ctx.newPage();
-  await page.goto(`http://127.0.0.1:${port}/page.html?agentdesk_record=1`, { waitUntil: 'load' });
+  await page.goto(`http://127.0.0.1:${port}/page.html`, { waitUntil: 'load' });
 
   // Observe clicks from the harness side (bypasses page CSP; coexists with the extension's
   // chrome.debugger). Capture phase so it sees the click first.
   await page.evaluate(() => {
     window.__clicks = [];
     document.addEventListener('click', (e) => window.__clicks.push({ x: e.clientX, y: e.clientY, trusted: e.isTrusted }), true);
+  });
+
+  // Start recording from the CHROME layer (ADR-0042): drive the service worker, which sets the
+  // worker's recordingTabId -- the precondition for ADR-0040 tap dispatch. No URL param.
+  let sw = ctx.serviceWorkers()[0];
+  if (!sw) { try { sw = await ctx.waitForEvent('serviceworker', { timeout: 5000 }); } catch {} }
+  if (!sw) throw new Error('service worker not found; cannot start recording');
+  await sw.evaluate(async () => {
+    const [t] = await chrome.tabs.query({ active: true });
+    await startTabRecording(t.id);
   });
 
   // Wait until the recorder is running (a batch arrived) so the worker's recordingTabId is set.

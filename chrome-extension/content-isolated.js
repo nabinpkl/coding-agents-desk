@@ -1,38 +1,115 @@
-// M2 — isolated content script (ADR-0038).
+// Isolated-world DOM recorder (ADR-0038, ADR-0042).
 //
-// The only page-context code that can touch chrome.*. It decides whether this page should be
-// recorded, asks the service worker to inject the MAIN-world recorder, and relays the recorder's
-// window.postMessage batches to the worker. It shares the page's `window` with the MAIN world, so
-// postMessage from the recorder is received here.
+// This is the ONLY code that records the page, and it runs entirely in the extension's isolated
+// content-script world -- never the page's MAIN world. Consequences (ADR-0042): the page cannot see
+// that it is being recorded via its own JS or URL. There is no `?agentdesk_record` URL gate, no
+// `window.rrweb`/`window.__agentdesk*` global on the page, and no `window.postMessage` traffic;
+// batches go straight to the service worker over chrome.runtime.sendMessage. rrweb is loaded as the
+// prior file in this content_scripts entry (`vendor/rrweb.min.js`), so its top-level `var rrweb`
+// binding lives in this isolated realm and is referenced here as globalThis.rrweb.
+//
+// Recording is started/stopped by the service worker (toolbar action or Alt+Shift+M command), which
+// sends an `agentdesk-start` / `agentdesk-stop` message. It never self-starts.
+//
+// Fidelity note (ADR-0042): isolated-world rrweb cannot patch the page realm's prototypes, so
+// dynamic/closed shadow DOM, canvas/WebGL pixels, and adopted/constructable stylesheets created by
+// page script are not captured. Static shadow roots and initial stylesheets still serialize.
 (() => {
-  if (window.__agentdeskDomMirrorContent) return;
-  window.__agentdeskDomMirrorContent = true;
-
   const CHANNEL = 'agentdesk-dom-mirror';
+  const FULL_SNAPSHOT = 2; // rrweb EventType.FullSnapshot -> marks a checkout batch
 
-  // Test-only auto-start gate: only pages that explicitly opt in via ?agentdesk_record=1 are
-  // recorded automatically. Real use will start recording from a user action (toolbar), never
-  // silently on arbitrary sites. This keeps the recorder dark on normal browsing.
-  const autoStart = new URLSearchParams(location.search).has('agentdesk_record');
-  if (!autoStart) return;
+  const rrweb = globalThis.rrweb || (typeof rrweb !== 'undefined' && rrweb) || null;
 
-  // Relay recorder batches (from the MAIN world) to the service worker.
-  window.addEventListener('message', (event) => {
-    if (event.source !== window) return;
-    const data = event.data;
-    if (!data || data.__agentdesk !== CHANNEL) return;
-    if (data.kind === 'batch') {
-      chrome.runtime.sendMessage({
-        type: 'agentdesk-batch',
-        checkout: data.checkout,
-        events: data.events,
-        meta: data.meta,
-      });
-    } else if (data.kind === 'error') {
-      chrome.runtime.sendMessage({ type: 'agentdesk-error', reason: data.reason });
+  // ADR-0038/0041 attribute masking. rrweb 2.0.0-alpha.4 has no maskAttributeFn, and maskTextSelector
+  // only masks text NODES -- attribute-borne text (title/alt/aria-label/placeholder) can still carry
+  // PII. Redact those attribute values in a post-emit pass, on both the FullSnapshot tree and
+  // incremental attribute mutations. data-* and structural attributes are untouched (the mirror still
+  // reconstructs layout; only human-readable attribute text is masked).
+  const SENSITIVE_ATTRS = ['title', 'alt', 'aria-label', 'aria-description', 'placeholder'];
+  function redactAttrs(attrs) {
+    if (!attrs) return;
+    for (var k in attrs) {
+      if (SENSITIVE_ATTRS.indexOf(k) >= 0 && typeof attrs[k] === 'string' && attrs[k].length) {
+        attrs[k] = '*'.repeat(Math.min(attrs[k].length, 8));
+      }
     }
-  });
+  }
+  function redactNode(node) {
+    if (!node) return;
+    redactAttrs(node.attributes);
+    if (node.childNodes) for (var i = 0; i < node.childNodes.length; i++) redactNode(node.childNodes[i]);
+  }
+  function redactEvent(e) {
+    if (e.type === 2 && e.data && e.data.node) redactNode(e.data.node); // FullSnapshot
+    if (e.type === 3 && e.data && e.data.source === 0 && Array.isArray(e.data.attributes)) {
+      e.data.attributes.forEach(function (m) { redactAttrs(m && m.attributes); }); // attribute mutations
+    }
+    return e;
+  }
 
-  // Ask the worker to inject the MAIN-world recorder into this tab.
-  chrome.runtime.sendMessage({ type: 'agentdesk-start' });
+  // Recorder state lives in this isolated realm only -- no page-visible flags.
+  let recording = false;
+  let stopFn = null;       // rrweb.record() returns its own stop function
+  let flushTimer = null;
+  let batch = [];
+
+  function flush() {
+    if (!batch.length) return;
+    const events = batch;
+    batch = [];
+    const checkout = events.some((e) => e.type === FULL_SNAPSHOT);
+    chrome.runtime.sendMessage({
+      type: 'agentdesk-batch',
+      __agentdesk: CHANNEL,
+      checkout,
+      events,
+      meta: {
+        w: window.innerWidth,
+        h: window.innerHeight,
+        dpr: window.devicePixelRatio || 1,
+        sx: window.scrollX,
+        sy: window.scrollY,
+      },
+    });
+  }
+
+  function startRecording() {
+    if (recording) return; // idempotent
+    if (!rrweb || !rrweb.record) {
+      chrome.runtime.sendMessage({ type: 'agentdesk-error', reason: 'rrweb-not-loaded' });
+      return;
+    }
+    recording = true;
+    batch = [];
+    // Privacy: mask-by-default for an arbitrary tab (ADR-0038). This rrweb (2.0.0-alpha.4) has no
+    // `maskAllText` boolean, so `maskTextSelector: '*'` matches every element and redacts every
+    // visible text node; `maskAllInputs` redacts every input value. Together, no page content --
+    // email bodies, chat, dollar figures, typed text, passwords -- streams in the clear.
+    stopFn = rrweb.record({
+      emit(event) { batch.push(redactEvent(event)); },
+      checkoutEveryNms: 5000, // periodic full snapshot so a late-joining phone can bootstrap
+      maskTextSelector: '*',
+      maskAllInputs: true,
+      blockClass: 'agentdesk-block',
+      sampling: { mousemove: 50, scroll: 100, input: 'last' },
+    }) || null;
+    flushTimer = setInterval(flush, 250);
+  }
+
+  function stopRecording() {
+    if (!recording) return;
+    recording = false;
+    if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
+    if (typeof stopFn === 'function') { try { stopFn(); } catch (e) {} }
+    stopFn = null;
+    flush(); // ship any residual events
+    batch = [];
+  }
+
+  // The service worker drives start/stop; the page has no way to trigger or observe this.
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (!msg) return;
+    if (msg.type === 'agentdesk-start') { startRecording(); sendResponse({ recording }); return true; }
+    if (msg.type === 'agentdesk-stop') { stopRecording(); sendResponse({ recording }); return true; }
+  });
 })();

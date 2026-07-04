@@ -76,3 +76,12 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0031 | Selected display projection on the client | accepted | 2026-06-27 |
 | ADR-0032 | Durable client diagnostics | accepted | 2026-06-27 |
 | ADR-0033 | Adaptive media quality ladder | proposed | 2026-06-28 |
+| ADR-0034 | Motion-region crisp-repair: revive tiles at rest as a per-region sharpen over video | proposed | 2026-06-28 |
+| ADR-0035 | Phone-side agent-feed observability surface fed by an embedded engine sidecar | accepted | 2026-06-30 |
+| ADR-0036 | Crisp observe is damage-gated with a periodic full-surface heal | accepted | 2026-07-01 |
+| ADR-0037 | Host identity is the bundle id; dev and stable hosts are concurrent variants | accepted | 2026-07-01 |
+| ADR-0038 | Mirror Chrome DOM over a dedicated reliable QUIC lane instead of pixels | superseded by ADR-0042 | 2026-07-01 |
+| ADR-0039 | Bridge Chrome to the host through a sacrificial native-messaging shim | proposed | 2026-07-01 |
+| ADR-0040 | Route phone taps back to Chrome as trusted input via chrome.debugger | proposed | 2026-07-01 |
+| ADR-0041 | DOM-mirror hardening: attribute masking, pixel fallback, asset reachability, mask audit | proposed | 2026-07-01 |
+| ADR-0042 | Run the DOM recorder in the extension's isolated world, triggered from the chrome layer | proposed | 2026-07-01 |

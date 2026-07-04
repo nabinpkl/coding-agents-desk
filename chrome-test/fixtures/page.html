@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <!-- Strict CSP: no inline or external page scripts. The extension records this page anyway,
-     because MAIN-world scripts injected by an extension are exempt from the page CSP. A
+     because extension content scripts (isolated world, ADR-0042) are exempt from the page CSP. A
      page-context bookmarklet could NOT inject rrweb here. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:" />
 <title>AgentDesk DOM Mirror fixture</title>

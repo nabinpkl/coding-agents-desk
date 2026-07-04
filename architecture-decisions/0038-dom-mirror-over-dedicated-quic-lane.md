@@ -1,9 +1,15 @@
 ---
-status: proposed
+status: superseded by ADR-0042
 date: 2026-07-01
+superseded-by: ADR-0042
 ---
 
 # Mirror Chrome DOM over a dedicated reliable QUIC lane instead of pixels
+
+> **Scoped supersession (ADR-0042):** only the MAIN-world recorder mechanism described here is
+> superseded — recording now runs in the extension's isolated content-script world, triggered from
+> the chrome layer. The dedicated `.dom` QUIC lane, host `DomEventLaneServer`, and client
+> `DomMirrorSurface` decisions in this ADR remain in force.
 
 ## Context and Problem Statement
 

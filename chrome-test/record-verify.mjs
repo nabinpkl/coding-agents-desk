@@ -101,33 +101,54 @@ async function main() {
   });
 
   const page = await ctx.newPage();
-  await page.goto(`http://127.0.0.1:${port}/page.html?agentdesk_record=1`, { waitUntil: 'load' });
+  await page.goto(`http://127.0.0.1:${port}/page.html`, { waitUntil: 'load' });
+
+  // Invisibility guard (ADR-0042): install a page-context message spy BEFORE recording starts, so if
+  // any rrweb batch ever reached the page window (the old MAIN-world postMessage leak) we catch it.
+  await page.evaluate((channel) => {
+    window.__agentdeskLeak = { batches: 0 };
+    window.addEventListener('message', (e) => {
+      const d = e && e.data;
+      if (d && d.__agentdesk === channel) window.__agentdeskLeak.batches++;
+    });
+  }, 'agentdesk-dom-mirror');
+
+  // Start recording from the CHROME layer (no URL param): drive the service worker directly.
+  // Playwright cannot click the toolbar action, but it can evaluate the worker's global functions.
+  let sw = ctx.serviceWorkers()[0];
+  if (!sw) { try { sw = await ctx.waitForEvent('serviceworker', { timeout: 5000 }); } catch {} }
+  if (!sw) throw new Error('service worker not found; cannot start recording');
+  await sw.evaluate(async () => {
+    const [t] = await chrome.tabs.query({ active: true });
+    await startTabRecording(t.id);
+  });
 
   // Wait (bounded) for a checkout batch to reach the host through the whole real chain.
   for (let i = 0; i < 60 && !host.batches.some((b) => b.co); i++) await sleep(250);
 
   // --- diagnostics (printed always; the chain has many links) ---
-  let sw = ctx.serviceWorkers()[0];
-  if (!sw) { try { sw = await ctx.waitForEvent('serviceworker', { timeout: 5000 }); } catch {} }
   let swId = null, nativeProbe = null;
-  if (sw) {
-    try { swId = await sw.evaluate(() => chrome.runtime.id); } catch (e) { swId = 'eval-err:' + e.message; }
-    try {
-      nativeProbe = await sw.evaluate(() => new Promise((res) => {
-        try {
-          const p = chrome.runtime.connectNative('com.example.agentdesk.agentdesk.dom_bridge');
-          let done = false;
-          const finish = (v) => { if (!done) { done = true; res(v); } };
-          p.onDisconnect.addListener(() => finish('disconnect:' + (chrome.runtime.lastError && chrome.runtime.lastError.message)));
-          p.onMessage.addListener(() => finish('message'));
-          setTimeout(() => finish('connected-no-event'), 2500);
-        } catch (e) { res('throw:' + e.message); }
-      }));
-    } catch (e) { nativeProbe = 'probe-eval-err:' + e.message; }
-  }
-  const pageStarted = await page.evaluate(() => !!window.__agentdeskDomMirrorStarted).catch(() => 'err');
+  try { swId = await sw.evaluate(() => chrome.runtime.id); } catch (e) { swId = 'eval-err:' + e.message; }
+  try {
+    nativeProbe = await sw.evaluate(() => new Promise((res) => {
+      try {
+        const p = chrome.runtime.connectNative('com.example.agentdesk.agentdesk.dom_bridge');
+        let done = false;
+        const finish = (v) => { if (!done) { done = true; res(v); } };
+        p.onDisconnect.addListener(() => finish('disconnect:' + (chrome.runtime.lastError && chrome.runtime.lastError.message)));
+        p.onMessage.addListener(() => finish('message'));
+        setTimeout(() => finish('connected-no-event'), 2500);
+      } catch (e) { res('throw:' + e.message); }
+    }));
+  } catch (e) { nativeProbe = 'probe-eval-err:' + e.message; }
+  // Invisibility readout (ADR-0042): the page must see none of the recorder.
+  const leak = await page.evaluate(() => ({
+    rrweb: typeof window.rrweb !== 'undefined',
+    started: typeof window.__agentdeskDomMirrorStarted !== 'undefined',
+    batches: (window.__agentdeskLeak && window.__agentdeskLeak.batches) || 0,
+  })).catch(() => ({ rrweb: true, started: true, batches: -1 }));
   console.log(`  ..  - SW present: ${!!sw}, ext id: ${swId} (expected ${extId})`);
-  console.log(`  ..  - recorder started on page (MAIN world flag): ${pageStarted}`);
+  console.log(`  ..  - page-visible recorder globals: rrweb=${leak.rrweb} started=${leak.started}; page-received batches=${leak.batches}`);
   console.log(`  ..  - native connect probe: ${nativeProbe}`);
 
   const allEvents = host.batches.flatMap((b) => b.ev || []);
@@ -141,6 +162,9 @@ async function main() {
   check(!json.includes(USER_TEXT), 'text-input value MASKED (absent from stream)');
   check(!json.includes(SECRET), 'password value MASKED (absent from stream)');
   check(!json.includes(ATTR_SECRET), 'attribute-borne text (title) MASKED (absent from stream)');
+  check(leak.rrweb === false, 'page context has NO window.rrweb (recorder invisible to page JS)');
+  check(leak.started === false, 'page context has NO window.__agentdeskDomMirrorStarted');
+  check(leak.batches === 0, 'page received ZERO agentdesk batches (no window.postMessage leak)');
   console.log(`  ..  - wire bytes received: ${(host.bytes / 1024).toFixed(1)} KB`);
 }
 

@@ -1,9 +1,13 @@
-// M3 — MV3 background service worker (ADR-0038/0039/0040).
+// M3 — MV3 background service worker (ADR-0038/0039/0040/0042).
 //
-// Holds the single native-messaging port to the dom-bridge shim (which also keeps this worker
-// alive), injects the MAIN-world recorder on request, fans batches from N tabs into the one native
-// port, and (ADR-0040) dispatches host-originated taps back into the recorded tab as TRUSTED input
-// via chrome.debugger.
+// Owns the chrome-layer recording controls (toolbar action + Alt+Shift+M command), holds the single
+// native-messaging port to the dom-bridge shim (which also keeps this worker alive), fans batches
+// from the isolated-world recorder into the one native port, and (ADR-0040) dispatches host-
+// originated taps back into the recorded tab as TRUSTED input via chrome.debugger.
+//
+// ADR-0042: recording runs in the page's isolated content-script world, started/stopped by messaging
+// the content script from here -- the worker never injects into the page MAIN world. The page cannot
+// observe recording via its own JS or URL.
 const NATIVE_HOST = 'com.example.agentdesk.agentdesk.dom_bridge';
 
 let port = null;
@@ -74,20 +78,87 @@ async function dispatchInput(cmd) {
   }
 }
 
+// --- Chrome-layer recording controls (ADR-0042) ---
+// Start/stop drive the isolated-world recorder by messaging the content script. recordingTabId is the
+// single-tab-v1 target for ADR-0040 tap dispatch. These are top-level so a test can invoke them in
+// the service worker via Playwright's sw.evaluate (which cannot click the toolbar action).
+
+async function setBadge(tabId, on) {
+  try {
+    await chrome.action.setBadgeText({ tabId, text: on ? 'REC' : '' });
+    if (on) await chrome.action.setBadgeBackgroundColor({ tabId, color: '#D00000' });
+  } catch (e) {}
+}
+
+async function startTabRecording(tabId) {
+  if (tabId == null) return null;
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'agentdesk-start' });
+  } catch (e) {
+    // Restricted pages (chrome://, webstore) have no content script; nothing to record.
+    console.warn('[agentdesk] cannot start recording on tab', tabId, e && e.message);
+    return null;
+  }
+  recordingTabId = tabId;
+  await setBadge(tabId, true);
+  return tabId;
+}
+
+async function stopTabRecording(tabId) {
+  if (tabId == null) return;
+  try { await chrome.tabs.sendMessage(tabId, { type: 'agentdesk-stop' }); } catch (e) {}
+  if (recordingTabId === tabId) recordingTabId = null;
+  await setBadge(tabId, false);
+}
+
+async function toggleTabRecording(tabId) {
+  if (tabId == null) return;
+  if (recordingTabId === tabId) await stopTabRecording(tabId);
+  else await startTabRecording(tabId);
+}
+
+async function activeTab() {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  return tab || null;
+}
+
+// Test entry point (Playwright sw.evaluate) and the command fallback: resolve the active tab and
+// start it. The real toolbar path uses the tab handed to onClicked directly.
+async function startActiveTabRecording() {
+  const tab = await activeTab();
+  return tab ? startTabRecording(tab.id) : null;
+}
+
+async function stopRecording() {
+  if (recordingTabId != null) await stopTabRecording(recordingTabId);
+}
+
+// Toolbar click: onClicked fires only when there is no default_popup. Toggle the clicked tab.
+chrome.action.onClicked.addListener((tab) => { if (tab && tab.id != null) toggleTabRecording(tab.id); });
+
+// Keyboard command (Alt+Shift+M): no tab is passed, so resolve the active one.
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command !== 'toggle-recording') return;
+  const tab = await activeTab();
+  if (tab && tab.id != null) toggleTabRecording(tab.id);
+});
+
+// Lifecycle: keep recordingTabId/attachedTabId honest so ADR-0040 tap dispatch never targets a tab
+// that is no longer recording.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (recordingTabId === tabId) recordingTabId = null;
+  if (attachedTabId === tabId) attachedTabId = null;
+});
+chrome.tabs.onUpdated.addListener((tabId, info) => {
+  // A navigation re-injects a fresh, non-recording content script; drop the stale recording state.
+  if (tabId === recordingTabId && info.status === 'loading' && info.url) {
+    recordingTabId = null;
+    setBadge(tabId, false);
+  }
+});
+
 chrome.runtime.onMessage.addListener((message, sender) => {
   const tabId = sender.tab && sender.tab.id;
-  if (message.type === 'agentdesk-start') {
-    if (tabId == null) return;
-    recordingTabId = tabId;
-    // Inject rrweb + the MAIN-world recorder. Extension-injected scripts are exempt from the page
-    // CSP, which is why this works where a page-context bookmarklet would be blocked.
-    chrome.scripting.executeScript({
-      target: { tabId },
-      world: 'MAIN',
-      files: ['vendor/rrweb.min.js', 'record-main.js'],
-    }).catch((e) => console.error('[agentdesk] inject failed', e));
-    return;
-  }
   if (message.type === 'agentdesk-batch') {
     const p = ensurePort();
     if (!p) return;
