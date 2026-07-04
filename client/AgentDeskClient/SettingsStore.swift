@@ -30,6 +30,7 @@ final class SettingsStore: @unchecked Sendable {
         static let touchScrollMode = "agentDesk.touchScrollMode"
         static let crispTextOverlayEnabled = "agentDesk.crispTextOverlayEnabled"
         static let showHostCursorInVideo = "agentDesk.showHostCursorInVideo"
+        static let adaptiveMediaQualityEnabled = "agentDesk.adaptiveMediaQualityEnabled"
         static let domMirrorEnabled = "agentDesk.domMirrorEnabled"
         static let agentSayVoiceLanguage = "agentDesk.agentSayVoiceLanguage"
         static let agentSayVoiceIdentifier = "agentDesk.agentSayVoiceIdentifier"
@@ -161,6 +162,17 @@ final class SettingsStore: @unchecked Sendable {
         get { defaults.object(forKey: Key.showHostCursorInVideo) as? Bool ?? false }
         set {
             defaults.set(newValue, forKey: Key.showHostCursorInVideo)
+            postChange()
+        }
+    }
+
+    // Host-owned adaptive media ladder. Default ON: the host should keep motion alive on
+    // constrained links unless the user explicitly pins the stream to native quality.
+    // Sent in ClientConfig (wire key "aq") and applied live by the host transport.
+    var adaptiveMediaQualityEnabled: Bool {
+        get { defaults.object(forKey: Key.adaptiveMediaQualityEnabled) as? Bool ?? true }
+        set {
+            defaults.set(newValue, forKey: Key.adaptiveMediaQualityEnabled)
             postChange()
         }
     }

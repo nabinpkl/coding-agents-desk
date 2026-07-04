@@ -276,12 +276,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // or off.
     func sendCurrentClientConfig() {
         guard let channel = pairingClient.activeInputChannel else { return }
-        let config = ClientConfig(
-            thumbnailsEnabled: SettingsStore.shared.showSpacePreviews,
-            selectedDisplayId: selectedDisplayIdForConfig(),
-            crispTextOverlayEnabled: SettingsStore.shared.crispTextOverlayEnabled,
-            showHostCursorInVideo: SettingsStore.shared.showHostCursorInVideo
-        )
+        let config = currentClientConfig()
         ClientDiagnostics.shared.record(
             type: "clientConfigSendStarted",
             fields: [
@@ -361,11 +356,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
 
     func thumbnailStrip(_ view: ThumbnailStripView, didLongPressSpaceId spaceId: UInt64) {
         guard let channel = pairingClient.activeInputChannel else { return }
-        let config = ClientConfig(
-            thumbnailsEnabled: SettingsStore.shared.showSpacePreviews,
-            thumbnailRefresh: spaceId,
-            selectedDisplayId: selectedDisplayIdForConfig()
-        )
+        let config = currentClientConfig(thumbnailRefresh: spaceId)
         Task { [channel, config] in
             try? await channel.sendConfig(config)
         }
@@ -374,13 +365,24 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     func displayRail(_ view: DisplayRailView, didSelectDisplayId displayId: String) {
         guard let channel = pairingClient.activeInputChannel else { return }
         selectedDisplayIdForClientConfig = displayId
-        let config = ClientConfig(
-            thumbnailsEnabled: SettingsStore.shared.showSpacePreviews,
-            selectedDisplayId: displayId
-        )
+        let config = currentClientConfig(selectedDisplayId: displayId)
         Task { [channel, config] in
             try? await channel.sendConfig(config)
         }
+    }
+
+    private func currentClientConfig(
+        thumbnailRefresh: UInt64? = nil,
+        selectedDisplayId explicitSelectedDisplayId: String? = nil
+    ) -> ClientConfig {
+        ClientConfig(
+            thumbnailsEnabled: SettingsStore.shared.showSpacePreviews,
+            thumbnailRefresh: thumbnailRefresh,
+            selectedDisplayId: explicitSelectedDisplayId ?? selectedDisplayIdForConfig(),
+            crispTextOverlayEnabled: SettingsStore.shared.crispTextOverlayEnabled,
+            showHostCursorInVideo: SettingsStore.shared.showHostCursorInVideo,
+            adaptiveMediaQualityEnabled: SettingsStore.shared.adaptiveMediaQualityEnabled
+        )
     }
 
     private func selectedDisplayIdForConfig() -> String? {

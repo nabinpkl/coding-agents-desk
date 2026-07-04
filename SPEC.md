@@ -63,7 +63,7 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 10. **MediaTransport.** Uses the session datagram lane to verify `ADMD` v2 packets, repair missing packet indexes before deadline, skip stale delta frames, and ask for keyframe recovery only when decoder continuity requires it.
 11. **OwnedHEVCFrameDecoder.** Planned `VTDecompressionSession` bridge for the hybrid worktree. It decodes HEVC refreshes into `CVPixelBuffer` output instead of enqueueing directly into `AVSampleBufferDisplayLayer`.
 12. **OwnedSurfaceCompositor.** Planned `@MainActor` single writer for the retained BGRA surface. It applies HEVC full-surface refreshes and retained graphics commands in strict `(surfaceGeneration, frameId)` order, then commits the visible layer.
-13. **InputChannel.** Reliable input lane inside the authenticated session QUIC connection. It stays logically independent from media even though both lanes share the same connection. It sends `ClientConfig.selectedDisplayId` when the user picks a display, receives cursor-position corrections and `DiagnosticsRequest` from the host, and returns diagnostics summaries and chunks.
+13. **InputChannel.** Reliable input lane inside the authenticated session QUIC connection. It stays logically independent from media even though both lanes share the same connection. It sends `ClientConfig.selectedDisplayId` when the user picks a display and sends client-owned media preferences (`crispTextOverlayEnabled`, `showHostCursorInVideo`, `adaptiveMediaQualityEnabled`) on input-channel open and settings changes. The adaptive media-quality setting is on/off control only: when on, the host still owns rung selection; when off, the host pins the video target to native bitrate/FPS/resolution while packet repair and backpressure stay active. The lane receives cursor-position corrections and `DiagnosticsRequest` from the host, and returns diagnostics summaries and chunks.
 14. **ClientDiagnosticsStore.** Bounded durable client diagnostics store in `Application Support/Diagnostics`. It persists structured NDJSON essentials for the current run plus two prior runs, rotates unclean exits on bootstrap, mirrors essentials to OSLog, summarizes delayed MetricKit payloads, and serves prior-run tails on demand over the input lane or the foreground tailnet control listener.
 
 Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView.** Additional owned-media contract tests pin wire shapes, packet repair, and decoder recovery behavior where regressions are expensive.
@@ -257,7 +257,9 @@ InputChannelClose  { reason }                                         // t: "inp
 DesktopStatePush   { state: DesktopState }                            // t: "desktop-state"
 CursorPositionPush { displayId?, cursorX, cursorY }                    // t: "cursor-position"
 ClientConfig        { thumbnailsEnabled, thumbnailRefresh?,
-                      selectedDisplayId? }                             // t: "client-config"
+                      selectedDisplayId?, crispTextOverlayEnabled?,
+                      showHostCursorInVideo?, adaptiveMediaQualityEnabled? }
+                                                                        // t: "client-config"
 DiagnosticsRequest  { requestId, sinceRunId?, includePreviousRuns,
                       maxBytes? }                                      // t: "diagnostics-request"
 DiagnosticsSummary  { requestId, runs, droppedEvents, droppedBytes,

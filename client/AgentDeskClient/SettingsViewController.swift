@@ -18,6 +18,7 @@ final class SettingsViewController: UIViewController {
     private let showSpacePreviewsSwitch = UISwitch()
     private let crispOverlaySwitch = UISwitch()
     private let hostCursorSwitch = UISwitch()
+    private let adaptiveMediaQualitySwitch = UISwitch()
     private let touchScrollModeSwitch = UISwitch()
     private let accessoryContainerSlider = UISlider()
     private let accessoryContainerLabel = UILabel()
@@ -108,6 +109,13 @@ final class SettingsViewController: UIViewController {
             footnote: "Also draws the Mac cursor inside the video stream. Off by default; the phone already shows a sharp cursor overlay, so this is usually redundant."
         )
 
+        let mediaQualitySection = makeSection(
+            title: "Video quality",
+            rows: [],
+            switchRow: ("Adaptive quality ladder", adaptiveMediaQualitySwitch),
+            footnote: "Automatically lowers bitrate, frame rate, and video resolution when the link cannot keep up. Turn off to pin the stream at native quality."
+        )
+
         let accessorySection = makeSection(
             title: "Keyboard accessory bar",
             rows: [
@@ -148,7 +156,7 @@ final class SettingsViewController: UIViewController {
             footnote: "Disconnect ends the current session but stays paired, so you can reconnect with one tap. Unpair forgets this Mac and needs pairing again from the Mac."
         )
 
-        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, touchScrollSection, spacesSection, previewsSection, crispSection, hostCursorSection, speechSection, accessorySection, connectionSection])
+        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, touchScrollSection, spacesSection, previewsSection, crispSection, hostCursorSection, mediaQualitySection, speechSection, accessorySection, connectionSection])
         stack.axis = .vertical
         stack.spacing = 28
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -204,6 +212,7 @@ final class SettingsViewController: UIViewController {
         showSpacePreviewsSwitch.addTarget(self, action: #selector(showSpacePreviewsChanged), for: .valueChanged)
         crispOverlaySwitch.addTarget(self, action: #selector(crispOverlayChanged), for: .valueChanged)
         hostCursorSwitch.addTarget(self, action: #selector(hostCursorChanged), for: .valueChanged)
+        adaptiveMediaQualitySwitch.addTarget(self, action: #selector(adaptiveMediaQualityChanged), for: .valueChanged)
         touchScrollModeSwitch.addTarget(self, action: #selector(touchScrollModeChanged), for: .valueChanged)
 
         // Accessory bar tunings live in points so the slider value maps
@@ -236,6 +245,7 @@ final class SettingsViewController: UIViewController {
         showSpacePreviewsSwitch.isOn = store.showSpacePreviews
         crispOverlaySwitch.isOn = store.crispTextOverlayEnabled
         hostCursorSwitch.isOn = store.showHostCursorInVideo
+        adaptiveMediaQualitySwitch.isOn = store.adaptiveMediaQualityEnabled
         touchScrollModeSwitch.isOn = store.touchScrollMode
         accessoryContainerSlider.value = Float(store.accessoryContainerHeight)
         accessoryKeySlider.value = Float(store.accessoryKeyHeight)
@@ -297,6 +307,10 @@ final class SettingsViewController: UIViewController {
 
     @objc private func hostCursorChanged() {
         store.showHostCursorInVideo = hostCursorSwitch.isOn
+    }
+
+    @objc private func adaptiveMediaQualityChanged() {
+        store.adaptiveMediaQualityEnabled = adaptiveMediaQualitySwitch.isOn
     }
 
     @objc private func touchScrollModeChanged() {

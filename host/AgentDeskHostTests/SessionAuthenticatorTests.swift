@@ -444,6 +444,11 @@ private final class FakeMediaTransport: MediaTransport, @unchecked Sendable {
         clientCrispEnabled = enabled
     }
 
+    private(set) var adaptiveMediaQualityEnabled = true
+    func setAdaptiveMediaQualityEnabled(_ enabled: Bool) {
+        adaptiveMediaQualityEnabled = enabled
+    }
+
     func stop() {
         stopped = true
     }

@@ -716,11 +716,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // nil = no opinion -> host keeps its default (cursor NOT baked into video; the
             // client overlay is the cursor).
             let showHostCursor = config.showHostCursorInVideo ?? false
+            // nil = no opinion -> adaptive media quality remains on, matching ADR-0033.
+            let adaptiveQualityEnabled = config.adaptiveMediaQualityEnabled ?? true
             Task { @MainActor [weak self, provider, thumbnailOwner, server] in
                 guard let self else { return }
-                self.sessions.transport(for: clientFingerprint)?.setClientCrispEnabled(crispEnabled)
+                let transport = self.sessions.transport(for: clientFingerprint)
+                transport?.setClientCrispEnabled(crispEnabled)
+                transport?.setAdaptiveMediaQualityEnabled(adaptiveQualityEnabled)
                 (self.frameSource as? DisplaySelectableVideoFrameSource)?.setShowsCursorInVideo(showHostCursor)
-                self.thumbnailsLogger.notice("client thumbnail config fp=\(clientFingerprint.rawValue, privacy: .public) enabled=\(enabled, privacy: .public) refresh=\(String(describing: refresh), privacy: .public) selectedDisplay=\(selectedDisplayId ?? "nil", privacy: .public) crisp=\(crispEnabled, privacy: .public)")
+                self.thumbnailsLogger.notice("client thumbnail config fp=\(clientFingerprint.rawValue, privacy: .public) enabled=\(enabled, privacy: .public) refresh=\(String(describing: refresh), privacy: .public) selectedDisplay=\(selectedDisplayId ?? "nil", privacy: .public) crisp=\(crispEnabled, privacy: .public) adaptiveQuality=\(adaptiveQualityEnabled, privacy: .public)")
                 if enabled {
                     self.thumbnailEnabledClients.insert(clientFingerprint)
                 } else {

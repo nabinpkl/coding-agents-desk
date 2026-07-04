@@ -255,6 +255,37 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(controller.targetResolutionScale, 1.0)
     }
 
+    func testHostMediaStateDisablingAdaptiveQualityPinsNativeTarget() {
+        var state = QuicSessionHostMediaState(
+            qualityControllerConfig: mediaQualityConfig()
+        )
+        for _ in 0..<8 {
+            _ = state.observeLinkHealth(
+                completedFrames: 80,
+                expiredFrames: 20,
+                productionSummary: production()
+            )
+        }
+        XCTAssertLessThan(state.targetResolutionScale, 1.0, "setup should drive the adaptive ladder below native resolution")
+
+        let disabled = state.setAdaptiveQualityEnabled(false)
+        XCTAssertEqual(disabled?.target.bitrateKbps, 2500)
+        XCTAssertEqual(disabled?.target.fps, 30)
+        XCTAssertEqual(disabled?.target.resolutionScale, 1.0)
+        XCTAssertEqual(disabled?.reason, "adaptive-quality-disabled")
+
+        let stressedWhileDisabled = state.observeLinkHealth(
+            completedFrames: 50,
+            expiredFrames: 50,
+            productionSummary: production(actualFps: 1, maxGapMs: 1_500)
+        )
+        XCTAssertFalse(stressedWhileDisabled.outcome.changed)
+        XCTAssertEqual(stressedWhileDisabled.outcome.reason, "adaptive-quality-disabled")
+        XCTAssertEqual(state.targetKbps, 2500)
+        XCTAssertEqual(state.targetFps, 30)
+        XCTAssertEqual(state.targetResolutionScale, 1.0)
+    }
+
     func testMediaQualityControllerRaisesOnlyAfterCleanStreak() {
         var controller = MediaQualityController(config: mediaQualityConfig())
         let down = controller.observe(input(MediaQualitySample(completedFrames: 50, expiredFrames: 50), productionSummary: production())).outcome

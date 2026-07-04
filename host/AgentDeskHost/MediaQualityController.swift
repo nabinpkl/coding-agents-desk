@@ -835,6 +835,7 @@ struct QuicSessionHostMediaState {
     private var nextFrameId: UInt64 = 0
     private var lastProduceUptimeNs: UInt64?
     private var backpressure: GraphicsBackpressure
+    private let qualityControllerConfig: MediaQualityControllerConfig
     private var qualityController: MediaQualityController
     private var resendRing: OwnedMediaResendRing
     private let expectedFrameRate: Int
@@ -847,12 +848,14 @@ struct QuicSessionHostMediaState {
     private var ackAgesMs: [Double] = []
     private var staleRecoveryCountInWindow = 0
     private var qualityWindowId: UInt64 = 0
+    private var adaptiveQualityEnabled = true
 
     init(
         maxInflightFrames: Int = Config.ownedMediaBackpressureMaxInflightFrames,
         maxInflightBytes: Int = Config.ownedMediaBackpressureMaxInflightBytes,
         expectedFrameRate: Int = Config.ownedMediaExpectedFrameRate,
-        qualityController: MediaQualityController = MediaQualityController(config: .fromConfig()),
+        qualityControllerConfig: MediaQualityControllerConfig = .fromConfig(),
+        qualityController: MediaQualityController? = nil,
         resendRingFrames: Int = Config.ownedMediaResendRingFrames,
         retryIntervalNs: UInt64 = UInt64(Config.ownedMediaDrainRetryIntervalMs) * 1_000_000,
         staleInflightTimeoutNs: UInt64 = UInt64(Config.ownedMediaBackpressureStaleTimeoutMs) * 1_000_000
@@ -862,7 +865,8 @@ struct QuicSessionHostMediaState {
             maxUnackedBytes: maxInflightBytes
         )
         self.expectedFrameRate = max(1, expectedFrameRate)
-        self.qualityController = qualityController
+        self.qualityControllerConfig = qualityControllerConfig
+        self.qualityController = qualityController ?? MediaQualityController(config: qualityControllerConfig)
         self.resendRing = OwnedMediaResendRing(capacityFrames: resendRingFrames)
         self.retryIntervalNs = max(1, retryIntervalNs)
         self.staleInflightTimeoutNs = max(1, staleInflightTimeoutNs)
@@ -873,6 +877,23 @@ struct QuicSessionHostMediaState {
     var targetResolutionScale: Double { qualityController.targetResolutionScale }
     var inFlightFrames: Int { backpressure.inFlight }
     var inFlightBytes: Int { backpressure.bytesInFlight }
+
+    mutating func setAdaptiveQualityEnabled(_ enabled: Bool) -> MediaQualityOutcome? {
+        guard adaptiveQualityEnabled != enabled else { return nil }
+        adaptiveQualityEnabled = enabled
+        let previous = qualityController.target
+        qualityController = MediaQualityController(config: qualityControllerConfig)
+        resetForQualityChange()
+        clearQualityWindow()
+        let target = qualityController.target.with(
+            reason: enabled ? "adaptive-quality-enabled" : "adaptive-quality-disabled"
+        )
+        return MediaQualityOutcome(
+            target: target,
+            previousTarget: previous,
+            reason: target.reason
+        )
+    }
 
     mutating func reserveUpdateId(nowNs: UInt64) -> Admission {
         if !backpressure.canProduce() {
@@ -972,6 +993,44 @@ struct QuicSessionHostMediaState {
             ackAgeP50Ms: ackStats.p50,
             ackAgeP95Ms: ackStats.p95
         )
+        if !adaptiveQualityEnabled {
+            let target = qualityController.target.with(reason: "adaptive-quality-disabled")
+            let total = sample.completedFrames + sample.expiredFrames
+            let lossPermille = total > 0 ? (sample.expiredFrames * 1000) / total : 0
+            let observation = MediaQualityObservation(
+                windowId: qualityWindowId,
+                sample: sample,
+                previousTarget: target,
+                productionSummary: productionSummary,
+                ackCount: ackStats.count,
+                ackAgeMaxMs: ackStats.max,
+                inFlightFrames: backpressure.inFlight,
+                inFlightBytes: backpressure.bytesInFlight,
+                oldestInflightMs: backpressure.oldestSentUptimeNs.map { sentNs in
+                    Double(nowNs >= sentNs ? nowNs - sentNs : 0) / 1_000_000.0
+                },
+                staleRecoveryCount: staleRecoveryCountInWindow,
+                signals: MediaQualityObservationSignals(
+                    lossPressure: false,
+                    repairPressure: resendRequestsInWindow > 0,
+                    queuePressure: false,
+                    cadencePressure: false,
+                    stalePressure: staleRecoveryCountInWindow > 0,
+                    freezePressure: false,
+                    lossPermille: lossPermille
+                ),
+                recoveryStatus: qualityController.currentRecoveryStatus
+            )
+            clearQualityWindow()
+            return MediaQualityDecision(
+                observation: observation,
+                outcome: MediaQualityOutcome(
+                    target: target,
+                    previousTarget: target,
+                    reason: "adaptive-quality-disabled"
+                )
+            )
+        }
         let oldestInflightMs = backpressure.oldestSentUptimeNs.map { sentNs in
             Double(nowNs >= sentNs ? nowNs - sentNs : 0) / 1_000_000.0
         }
@@ -1000,10 +1059,7 @@ struct QuicSessionHostMediaState {
             signals: evaluation.signals,
             recoveryStatus: evaluation.recoveryStatus
         )
-        resendRequestsInWindow = 0
-        keyframeRequestsInWindow = 0
-        staleRecoveryCountInWindow = 0
-        ackAgesMs.removeAll(keepingCapacity: true)
+        clearQualityWindow()
         return MediaQualityDecision(
             observation: observation,
             outcome: evaluation.outcome
@@ -1040,5 +1096,12 @@ struct QuicSessionHostMediaState {
             percentile(0.95),
             ackAgesMs.max()
         )
+    }
+
+    private mutating func clearQualityWindow() {
+        resendRequestsInWindow = 0
+        keyframeRequestsInWindow = 0
+        staleRecoveryCountInWindow = 0
+        ackAgesMs.removeAll(keepingCapacity: true)
     }
 }

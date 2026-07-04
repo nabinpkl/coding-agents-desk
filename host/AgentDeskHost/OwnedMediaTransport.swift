@@ -115,6 +115,27 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         clientCrispEnabledGate.withLock { $0 = enabled }
     }
 
+    func setAdaptiveMediaQualityEnabled(_ enabled: Bool) {
+        let outcome = encodeGate.withLock { state -> MediaQualityOutcome? in
+            guard let outcome = state.mediaState.setAdaptiveQualityEnabled(enabled) else {
+                return nil
+            }
+            if outcome.resolutionChanged {
+                state.forceKeyframe = true
+            }
+            return outcome
+        }
+        guard let outcome else { return }
+        if outcome.bitrateChanged {
+            encoder.updateBitrate(outcome.target.bitrateKbps)
+        }
+        if outcome.fpsChanged {
+            encoder.updateExpectedFrameRate(outcome.target.fps)
+        }
+        logger.notice("adaptive media quality setting applied enabled=\(enabled, privacy: .public) bitrateKbps=\(outcome.target.bitrateKbps, privacy: .public) fps=\(outcome.target.fps, privacy: .public) resolutionScale=\(outcome.target.resolutionScale, privacy: .public) changedAxes=\(Self.changedAxes(for: outcome), privacy: .public) reason=\(outcome.reason, privacy: .public)")
+        startDrainIfNeeded()
+    }
+
     func stop() {
         controlTask?.cancel()
         controlTask = nil
@@ -749,6 +770,15 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     private func formatMs(_ value: Double?) -> String {
         guard let value else { return "nil" }
         return String(format: "%.1f", value)
+    }
+
+    private static func changedAxes(for outcome: MediaQualityOutcome) -> String {
+        var axes: [String] = []
+        if outcome.bitrateChanged { axes.append("bitrate") }
+        if outcome.fpsChanged { axes.append("fps") }
+        if outcome.resolutionChanged { axes.append("resolution") }
+        if outcome.target.rung != outcome.previousTarget.rung { axes.append("rung") }
+        return axes.isEmpty ? "none" : axes.joined(separator: ",")
     }
 
     private struct EncodeJob {

@@ -150,6 +150,11 @@ public struct ClientConfig: Codable, Equatable, Sendable {
     // client draws its own sharp low-latency cursor overlay, so baking it into the video is
     // a redundant double-draw.
     public let showHostCursorInVideo: Bool?
+    // Client's control over the host-owned adaptive media quality ladder. Optional for the
+    // same reason as the other client preferences: nil = no opinion, so the host keeps the
+    // adaptive default on. The client settings UI sends an explicit value on session start
+    // and on each settings change.
+    public let adaptiveMediaQualityEnabled: Bool?
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case type = "t"
@@ -158,6 +163,7 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         case selectedDisplayId = "sd"
         case crispTextOverlayEnabled = "ce"
         case showHostCursorInVideo = "hc"
+        case adaptiveMediaQualityEnabled = "aq"
     }
 
     public init(
@@ -165,7 +171,8 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         thumbnailRefresh: UInt64? = nil,
         selectedDisplayId: String? = nil,
         crispTextOverlayEnabled: Bool? = nil,
-        showHostCursorInVideo: Bool? = nil
+        showHostCursorInVideo: Bool? = nil,
+        adaptiveMediaQualityEnabled: Bool? = nil
     ) {
         self.type = "client-config"
         self.thumbnailsEnabled = thumbnailsEnabled
@@ -173,5 +180,6 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         self.selectedDisplayId = selectedDisplayId
         self.crispTextOverlayEnabled = crispTextOverlayEnabled
         self.showHostCursorInVideo = showHostCursorInVideo
+        self.adaptiveMediaQualityEnabled = adaptiveMediaQualityEnabled
     }
 }
