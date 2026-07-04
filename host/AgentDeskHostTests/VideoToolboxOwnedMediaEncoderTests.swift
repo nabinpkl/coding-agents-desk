@@ -315,6 +315,63 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(outcome.target.fps, 30, "fps holds at the ceiling on an idle window")
     }
 
+    func testMediaQualityControllerIdleWindowBelowNativeAccruesRecovery() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        for _ in 0..<40 { _ = controller.observe(lossInput()) }
+        XCTAssertEqual(controller.target.rung, .emergency)
+
+        let idle = input(MediaQualitySample(completedFrames: 0, expiredFrames: 0))
+        let first = controller.observe(idle)
+        XCTAssertEqual(first.outcome.reason, "clean-hold", "a calm window below native accrues recovery, not idle")
+        XCTAssertEqual(first.recoveryStatus.cleanMs, 1_000)
+        XCTAssertFalse(first.outcome.changed)
+    }
+
+    func testMediaQualityControllerIdleRecoversToNativeAtRest() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        for _ in 0..<40 { _ = controller.observe(lossInput()) }
+        XCTAssertEqual(controller.target.rung, .emergency)
+        XCTAssertEqual(controller.targetResolutionScale, 0.33)
+
+        // The screen settles: zero-activity, link-clean windows. The ladder climbs
+        // back to native with no production to measure, so the next motion is crisp.
+        let idle = input(MediaQualitySample(completedFrames: 0, expiredFrames: 0))
+        var windows = 0
+        while controller.target.rung != .native && windows < 400 {
+            _ = controller.observe(idle)
+            windows += 1
+        }
+        XCTAssertEqual(controller.target.rung, .native, "sustained rest climbs the ladder back to native")
+        XCTAssertEqual(controller.targetResolutionScale, 1.0)
+        XCTAssertEqual(controller.targetKbps, 2500)
+        XCTAssertEqual(controller.targetFps, 30)
+    }
+
+    func testMediaQualityControllerInflightStallDoesNotClimbAtRest() {
+        var controller = MediaQualityController(config: mediaQualityConfig())
+        for _ in 0..<40 { _ = controller.observe(lossInput()) }
+        XCTAssertEqual(controller.target.rung, .emergency)
+
+        // Zero completions this window, but frames are still inflight: a pre-timeout
+        // stall, not an idle screen. Recovery must not climb.
+        let stall = MediaQualityControllerInput(
+            sample: MediaQualitySample(completedFrames: 0, expiredFrames: 0),
+            productionSummary: nil,
+            ackCount: 0,
+            ackAgeMaxMs: nil,
+            inFlightFrames: 3,
+            inFlightBytes: 90_000,
+            oldestInflightMs: 1_200,
+            staleRecoveryCount: 0
+        )
+        for _ in 0..<20 {
+            let decision = controller.observe(stall)
+            XCTAssertNotEqual(decision.outcome.reason, "clean-up")
+            XCTAssertNotEqual(decision.outcome.reason, "probe-stable")
+        }
+        XCTAssertEqual(controller.target.rung, .emergency, "a stall must not be mistaken for idle recovery")
+    }
+
     func testMediaQualityControllerStepsCapacityRungsAfterBitrateFloor() {
         var controller = MediaQualityController(config: mediaQualityConfig())
         while controller.targetKbps > 800 {

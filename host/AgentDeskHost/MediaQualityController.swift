@@ -287,6 +287,11 @@ struct MediaQualityController {
     private var probeAxis: MediaQualityProbeAxis = .none
     private var recoveryPhaseState: MediaQualityRecoveryPhase = .steady
     private var stableTarget: MediaQualityTarget
+    // Nominal window credited per idle (zero-activity) observation. The controller
+    // counts recovery in one-second windows (requiredRecoveryMs = raiseCleanWindows
+    // * 1000, probeWindowsRemaining decremented once per window), so an idle window
+    // credits the same unit to keep ms-accrual and probe-window counting aligned.
+    private let idleRecoveryWindowMs = 1_000
 
     init(config: MediaQualityControllerConfig) {
         self.config = config
@@ -313,8 +318,25 @@ struct MediaQualityController {
         let previous = target
         let signals = makeSignals(input)
         let total = input.sample.completedFrames + input.sample.expiredFrames
-        guard total > 0 else {
+        if total == 0 {
             resetPressureStreaks()
+            // A calm screen is change-driven quiet, not a frozen link: ScreenCaptureKit
+            // produces no frames when nothing moves, so a zero-activity window with a
+            // clean link is a recovery opportunity, climb back so the next motion burst
+            // starts crisp, rather than wiping recovery credit. A window with frames
+            // still inflight is a pre-timeout stall, not idle, and must not climb.
+            let idleLinkClean = input.inFlightFrames == 0
+                && input.staleRecoveryCount == 0
+                && !signals.lossPressure
+                && !signals.repairPressure
+                && !signals.queuePressure
+            if idleLinkClean && target.rung != .native {
+                return accrueCleanRecovery(
+                    signals: signals,
+                    previous: previous,
+                    windowMs: idleRecoveryWindowMs
+                )
+            }
             resetRecovery()
             return evaluation(signals: signals, previous: previous, reason: "idle", recoveryBlocker: "idle")
         }
@@ -455,7 +477,18 @@ struct MediaQualityController {
         }
 
         let productionWindowMs = max(input.productionSummary?.windowMs ?? 0, 1)
-        cleanRecoveryMs += productionWindowMs
+        return accrueCleanRecovery(signals: signals, previous: previous, windowMs: productionWindowMs)
+    }
+
+    // Shared climb path for a clean window, whether it carried production (active
+    // recovery) or was idle (rest recovery). Accrues recovery credit, advances any
+    // probe, and lifts the ladder one step once the clean streak clears the bar.
+    private mutating func accrueCleanRecovery(
+        signals: MediaQualityObservationSignals,
+        previous: MediaQualityTarget,
+        windowMs: Int
+    ) -> MediaQualityEvaluation {
+        cleanRecoveryMs += max(windowMs, 1)
         if probeWindowsRemaining > 0 {
             probeWindowsRemaining -= 1
         }
