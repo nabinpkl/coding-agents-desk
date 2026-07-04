@@ -2395,7 +2395,11 @@ struct AgentProjectsSubscribe: Codable, Equatable {
 
 struct AgentThreadSubscribe: Codable, Equatable {
     let type: String
-    let projectPath: String
+    // Optional: the phone bridge subscribes by sessionId alone (it has no
+    // projectPath at drill-in time). handleThreadSubscribe falls back to
+    // projectPath only when sessionId is absent, so a sid-only request must
+    // decode without `pp` present.
+    let projectPath: String?
     let source: String?
     let sessionId: String?
 
@@ -2406,7 +2410,7 @@ struct AgentThreadSubscribe: Codable, Equatable {
         case sessionId = "sid"
     }
 
-    init(projectPath: String, source: String? = nil, sessionId: String? = nil) {
+    init(projectPath: String? = nil, source: String? = nil, sessionId: String? = nil) {
         self.type = "agent-thread-sub"
         self.projectPath = projectPath
         self.source = source

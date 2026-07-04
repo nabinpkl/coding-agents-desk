@@ -250,4 +250,40 @@ struct AgentFeedWireTests {
                            "agent-thread-error"].contains(tag.t ?? "")
         #expect(!isKnownType)
     }
+
+    // MARK: - Literal wire-key contract (anchors the JS BridgeDataSource mirror)
+
+    // The Swift<->Swift round-trip tests above pass even if a CodingKey raw value
+    // changes, because encode and decode move together. But the JS bridge
+    // (dashboard/.../BridgeDataSource.ts) mirrors these EXACT abbreviated keys by
+    // hand; a silent rename there breaks every push with no failing Swift test.
+    // This test pins the literal JSON keys so any change forces a deliberate
+    // update on both sides. Keep in lockstep with the WireProjectDigest /
+    // WireThreadChunk interfaces in BridgeDataSource.ts.
+    @Test func agentProjectsPushWireKeysAreStable() throws {
+        let session = AgentSessionSummary(
+            sessionId: "s1", source: "claude", title: "A", lastEventAt: 1.0, isLive: true
+        )
+        let digest = ProjectDigest(projectPath: "/p", displayName: "p", sessions: [session])
+        let json = String(decoding: try JSONEncoder().encode(AgentProjectsPush(projects: [digest])), as: UTF8.self)
+        // Push envelope + project digest + session summary keys.
+        for key in ["\"t\":\"agent-projects\"", "\"p\":", "\"pp\":", "\"dn\":", "\"ss\":",
+                    "\"sid\":", "\"src\":", "\"ttl\":", "\"lea\":", "\"lv\":"] {
+            #expect(json.contains(key), "AgentProjectsPush wire missing \(key); JS BridgeDataSource mirror will break")
+        }
+    }
+
+    @Test func agentThreadChunkWireKeysAreStable() throws {
+        let block = ActivityBlock(
+            kind: "text", text: "hi", tool: nil, summary: nil, preview: nil, callId: nil
+        )
+        let event = ActivityEvent(index: 0, ts: 1.0, type: "user", blocks: [block])
+        let chunk = AgentThreadChunk(sessionId: "s", events: [event], windowStart: 0, total: 1, isLive: true)
+        let json = String(decoding: try JSONEncoder().encode(chunk), as: UTF8.self)
+        // Chunk + nested event + nested block keys.
+        for key in ["\"t\":\"agent-thread-chunk\"", "\"sid\":", "\"ev\":", "\"ws\":", "\"tot\":",
+                    "\"lv\":", "\"i\":", "\"ts\":", "\"tp\":", "\"b\":", "\"k\":", "\"tx\":"] {
+            #expect(json.contains(key), "AgentThreadChunk wire missing \(key); JS BridgeDataSource mirror will break")
+        }
+    }
 }

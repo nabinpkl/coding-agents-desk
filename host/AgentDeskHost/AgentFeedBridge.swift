@@ -59,7 +59,11 @@ final class AgentFeedBridge: @unchecked Sendable {
     }
 
     func handleThreadSubscribe(_ request: AgentThreadSubscribe) {
-        let sessionId = request.sessionId ?? request.projectPath
+        guard let sessionId = request.sessionId ?? request.projectPath else {
+            logger.error("agent-feed-bridge: thread subscribe missing both sessionId and projectPath")
+            sendCodable(AgentThreadError(sessionId: "", reason: "missing session identifier"))
+            return
+        }
         Task {
             do {
                 // Probe total to compute the last-page window.
