@@ -81,8 +81,8 @@ extension PairingViewController {
     }
 
     func teardownAgentSurface() {
-        // Detach the push closure so the transport no longer delivers to a dead surface.
-        pairingClient.activeSessionTransport?.onAgentPush = nil
+        // Detach the push sink so no transport delivers to a dead surface.
+        pairingClient.onAgentPush = nil
 
         agentSurface?.teardown()
         agentSurface?.removeFromSuperview()
@@ -136,11 +136,15 @@ extension PairingViewController {
             self.forwardAgentRequest(request, on: channel)
         }
 
-        // Wire outbound: OwnedMediaTransport pushes -> surface.deliver.
-        if let transport = pairingClient.activeSessionTransport {
-            transport.onAgentPush = { [weak surface] json in
-                surface?.deliver(rawJSON: json)
-            }
+        // Wire outbound: host pushes -> surface.deliver, via the pairing client's
+        // stable sink rather than a captured transport. A reconnect/resume
+        // replaces activeSessionTransport; binding a specific transport here
+        // would silently drop every push after that swap (feed stuck on
+        // "waiting", unfixable by re-subscribing) until the surface is recreated.
+        // The sink is symmetric with the onAgentRequest closure above, which
+        // reads activeInputChannel live on each send.
+        pairingClient.onAgentPush = { [weak surface] json in
+            surface?.deliver(rawJSON: json)
         }
 
         // Keep the toggle above the freshly-added full-bleed surface.

@@ -224,6 +224,13 @@ final class PairingClient {
     }
 
     private(set) var activeSessionTransport: QuicSessionClientTransport?
+    // Stable sink for host agent-feed pushes. The agent surface sets this once;
+    // every session transport (including reconnect/resume replacements) forwards
+    // its onAgentPush here. This keeps the receive path alive across a transport
+    // swap the same way the send path stays alive by reading activeInputChannel
+    // live -- binding a captured transport instead drops pushes after any
+    // reconnect until the surface is recreated.
+    var onAgentPush: ((String) -> Void)?
     // ADR-0038 DOM mirror: the active .dom lane reader, if this session opened one. The VC starts it
     // and wires it to the replay surface on connect; cleared/stopped on disconnect.
     private(set) var activeDomMirror: DomMirrorClient?
@@ -331,6 +338,12 @@ final class PairingClient {
                 domMirror: connection.domMirror
             )
             activeSessionTransport = session.transport
+            // Forward this transport's agent pushes to the stable sink so a
+            // reconnect that replaces the transport keeps delivering to the
+            // agent surface without re-wiring at the call site.
+            session.transport.onAgentPush = { [weak self] json in
+                self?.onAgentPush?(json)
+            }
             activeDomMirror = session.domMirror
             activeInputChannel = session.inputChannel
             activeHost = session.host
