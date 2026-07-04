@@ -201,3 +201,27 @@ Takeaways:
 - Crisp (~14% here) is now damage-proportional after Unit D; on a localized-change desktop
   both crisp and the video feed shrink, leaving the send path + cursor poll as the dominant
   at-rest floor.
+
+## CursorMonitor seed-gating landed (sha a8223d3)
+
+The steady crisp-off floor's top *content-independent* eater was `CursorMonitor`: it
+re-encoded the cursor to TIFF and SHA256-hashed it every 20Hz tick just to detect change.
+Fixed by gating the fingerprint on the window-server cursor seed (`CGSCurrentCursorSeed`,
+isolated behind `CursorChangeSignal`); the expensive path now runs only on a seed change
+or a periodic heartbeat backstop.
+
+Live-measured, crisp off, host+client Release, matched churning-TUI screen, 15s `sample`:
+
+| Metric | Before | After |
+| --- | --- | --- |
+| `CursorMonitor` subtree (max inclusive samples) | 557 | 43 |
+| `CursorMonitor.hash` self | 99 | 1 |
+| `AccelerateCrypto_SHA256` self | 73 | 10 |
+| `tiffRepresentation` (cursor image encode) | 280 | 8 |
+| Host CPU% (steady) | ~17-24% | ~12-15% |
+
+The seed read is below the sampling noise floor (zero frames) — the "one int read per tick"
+goal. `tiffRepresentation` = 8 (not 0) confirms the mirror still re-fingerprints on real
+cursor changes (the cursor changed a few times in the window), so it is cheaper, not frozen.
+Regression is unit-locked by `constantSeedSkipsImageFingerprint` (static cursor ⇒ sampler
+touched once over 100 ticks). ~5-8 points off the crisp-off floor.
