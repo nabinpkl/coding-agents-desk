@@ -11,7 +11,7 @@ import os
 // using the configured capture pixel format. Selection comes from the
 // input-channel client config and falls back to the first display.
 
-final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySelectableVideoFrameSource, QualitySelectableVideoFrameSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySelectableVideoFrameSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "capture")
     private let sampleQueue = DispatchQueue(label: "com.example.agentdesk.AgentDeskHost.scstream", qos: .userInteractive)
     private let baseScaleDownBy: Double
@@ -56,28 +56,6 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         }
     }
 
-    func setResolutionScale(_ scale: Double, context: MediaCaptureScaleChangeContext? = nil) {
-        let shouldRestart = controlState.withLock { state -> Bool in
-            let normalized = CaptureSizing.normalizedResolutionScale(scale)
-            let previous = state.resolutionScale
-            let changed = abs(state.resolutionScale - normalized) > 0.001
-            state.resolutionScale = normalized
-            if changed {
-                state.pendingScaleChangeContext = context ?? MediaCaptureScaleChangeContext(
-                    windowId: 0,
-                    previousResolutionScale: previous,
-                    nextResolutionScale: normalized
-                )
-            }
-            return changed && state.isRunning && state.onFrame != nil
-        }
-        guard shouldRestart else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            await self.restartCurrentSelection()
-        }
-    }
-
     private func startCurrentSelection() async throws {
         let content: SCShareableContent
         do {
@@ -110,23 +88,19 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         // to do) makes SCK downsample the framebuffer to half resolution
         // before encode, leaving text consistently soft on the phone.
         // The backing scale comes from NSScreen matched by displayID.
+        // Capture always runs at native resolution. The media quality ladder's
+        // resolutionScale is applied later in the encode pump (see
+        // QuicSessionHostMediaTransport.videoFrameForEncode), so capture never
+        // downsamples and the crisp emitter keeps full pixels.
         let scale = Self.backingScale(for: display.displayID)
-        let resolutionScale = controlState.withLock { $0.resolutionScale }
-        let effectiveScaleDownBy = CaptureSizing.scaleDownBy(
-            baseScaleDownBy: baseScaleDownBy,
-            resolutionScale: resolutionScale
-        )
         let pixelSize = CaptureSizing.pixelSize(
             displayWidthPoints: display.width,
             displayHeightPoints: display.height,
             backingScale: Double(scale),
-            scaleDownBy: effectiveScaleDownBy
+            scaleDownBy: baseScaleDownBy
         )
         config.width = pixelSize.width
         config.height = pixelSize.height
-        controlState.withLock { state in
-            state.currentPixelSize = pixelSize
-        }
         // queueDepth=3 minimizes capture-side buffering while staying within
         // SCStreamConfiguration's valid range (3..8). queueDepth=1 silently
         // makes the stream stop delivering frames altogether. Default 5
@@ -144,7 +118,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         try await stream.startCapture()
         self.stream = stream
-        logger.notice("screen capture started \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) backingScale=\(scale, privacy: .public) resolutionScale=\(resolutionScale, privacy: .public) captureScaleDown=\(effectiveScaleDownBy, privacy: .public) pixelFormat=\(Self.fourCC(self.pixelFormat), privacy: .public)")
+        logger.notice("screen capture started \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) backingScale=\(scale, privacy: .public) captureScaleDown=\(self.baseScaleDownBy, privacy: .public) pixelFormat=\(Self.fourCC(self.pixelFormat), privacy: .public)")
     }
 
     private func selectDisplay(from displays: [SCDisplay]) -> SCDisplay? {
@@ -156,11 +130,10 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         return displays.first
     }
 
+    // Restart capture for a display switch. Resolution changes no longer restart
+    // capture (the ladder downscales in the encode pump), so this path is now
+    // display-selection only.
     private func restartCurrentSelection() async {
-        let restartStartedNs = DispatchTime.now().uptimeNanoseconds
-        let restartContext = controlState.withLock { state in
-            (context: state.pendingScaleChangeContext, previousPixelSize: state.currentPixelSize)
-        }
         let oldStream = stream
         stream = nil
         if let oldStream {
@@ -170,34 +143,10 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
             state.forceKeyframeNextFrame = true
             return state.onFrame
         }
-        guard let callback else {
-            controlState.withLock { state in
-                state.pendingScaleChangeContext = nil
-            }
-            return
-        }
+        guard let callback else { return }
         do {
             try await start(onFrame: callback)
-            let restartEndedNs = DispatchTime.now().uptimeNanoseconds
-            let nextPixelSize = controlState.withLock { state -> CapturePixelSize? in
-                state.pendingScaleChangeContext = nil
-                return state.currentPixelSize
-            }
-            if let context = restartContext.context {
-                logger.notice(
-                    "mediaCaptureScaleApplied windowId=\(context.windowId, privacy: .public) previousResolutionScale=\(context.previousResolutionScale, privacy: .public) nextResolutionScale=\(context.nextResolutionScale, privacy: .public) previousSize=\(Self.describe(restartContext.previousPixelSize), privacy: .public) nextSize=\(Self.describe(nextPixelSize), privacy: .public) restartDurationMs=\(Self.ms(restartEndedNs &- restartStartedNs), privacy: .public) firstKeyframePending=true"
-                )
-            }
         } catch {
-            let restartEndedNs = DispatchTime.now().uptimeNanoseconds
-            controlState.withLock { state in
-                state.pendingScaleChangeContext = nil
-            }
-            if let context = restartContext.context {
-                logger.error(
-                    "mediaCaptureScaleFailed windowId=\(context.windowId, privacy: .public) previousResolutionScale=\(context.previousResolutionScale, privacy: .public) nextResolutionScale=\(context.nextResolutionScale, privacy: .public) previousSize=\(Self.describe(restartContext.previousPixelSize), privacy: .public) restartDurationMs=\(Self.ms(restartEndedNs &- restartStartedNs), privacy: .public) failure=\(String(describing: error), privacy: .public)"
-                )
-            }
             logger.error("screen capture display switch failed: \(String(describing: error), privacy: .public)")
         }
     }
@@ -224,15 +173,6 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
             UInt8(value & 0xff)
         ]
         return String(bytes: bytes, encoding: .macOSRoman) ?? "????"
-    }
-
-    private static func describe(_ size: CapturePixelSize?) -> String {
-        guard let size else { return "unknown" }
-        return "\(size.width)x\(size.height)"
-    }
-
-    private static func ms(_ durationNs: UInt64) -> String {
-        String(format: "%.1f", Double(durationNs) / 1_000_000.0)
     }
 
     func stop() {
@@ -345,9 +285,6 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
 
 private struct CaptureControlState: Sendable {
     var selectedDisplayId: String?
-    var resolutionScale = 1.0
-    var currentPixelSize: CapturePixelSize?
-    var pendingScaleChangeContext: MediaCaptureScaleChangeContext?
     var isRunning = false
     var forceKeyframeNextFrame = true
     var onFrame: (@Sendable (CapturedVideoFrame) -> Void)?

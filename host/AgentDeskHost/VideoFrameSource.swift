@@ -21,16 +21,6 @@ protocol DisplaySelectableVideoFrameSource: AnyObject, Sendable {
     func selectDisplay(id: String?)
 }
 
-struct MediaCaptureScaleChangeContext: Equatable, Sendable {
-    let windowId: UInt64
-    let previousResolutionScale: Double
-    let nextResolutionScale: Double
-}
-
-protocol QualitySelectableVideoFrameSource: AnyObject, Sendable {
-    func setResolutionScale(_ scale: Double, context: MediaCaptureScaleChangeContext?)
-}
-
 // CVPixelBuffer is a CoreFoundation reference type; we never mutate it
 // after creation, so crossing task boundaries is safe in practice. Swift's
 // strict-concurrency checker doesn't know that, hence @unchecked.
