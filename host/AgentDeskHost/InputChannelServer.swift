@@ -218,7 +218,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
                 logger.error("diagnostics-error decode failed")
             }
         case "agent-projects-sub":
-            logger.debug("input lane agent-projects-sub received fp=\(self.fingerprint.rawValue, privacy: .public)")
+            logger.notice("input lane agent-projects-sub received fp=\(self.fingerprint.rawValue, privacy: .public)")
             if let msg = try? JSONDecoder().decode(AgentProjectsSubscribe.self, from: data) {
                 agentRequestHandler?(.projectsSubscribe(msg))
             }

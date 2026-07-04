@@ -86,8 +86,15 @@ final class AgentFeedSurface: UIView {
         webView = wv
 
         // Set up the default evaluateScript closure so the real WKWebView is used.
-        evaluateScript = { [weak wv] js in
-            wv?.evaluateJavaScript(js, completionHandler: nil)
+        // Log evaluation errors: a delivered payload injected into JS source that
+        // fails to parse otherwise fails silently (completionHandler was nil),
+        // which is how a bad push left the feed stuck with no visible error.
+        evaluateScript = { [weak self, weak wv] js in
+            wv?.evaluateJavaScript(js) { _, error in
+                if let error {
+                    self?.logger.error("agent-feed: deliver eval failed: \(String(describing: error), privacy: .public)")
+                }
+            }
         }
 
         loadBundle()
@@ -134,7 +141,11 @@ final class AgentFeedSurface: UIView {
     // Deliver raw push JSON from the host to the webview. If the page has not
     // finished loading yet the payload is queued and flushed on didFinish.
     func deliver(rawJSON: String) {
-        guard !torn else { return }
+        guard !torn else {
+            logger.notice("agent-feed: deliver skipped, surface torn")
+            return
+        }
+        logger.notice("agent-feed: deliver len=\(rawJSON.count, privacy: .public) isLoaded=\(self.isLoaded, privacy: .public)")
         if isLoaded {
             callDeliverJS(rawJSON)
         } else {

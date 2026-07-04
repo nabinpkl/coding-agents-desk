@@ -44,12 +44,14 @@ final class AgentFeedBridge: @unchecked Sendable {
     // MARK: - Request handlers
 
     func handleProjectsSubscribe() {
+        logger.notice("agent-feed: projects subscribe received; fetching digest")
         Task {
             do {
                 let digests = try await client.fetchDigest()
                 let wireProjects = digests.map { wireDigest(from: $0) }
                 let push = AgentProjectsPush(projects: wireProjects)
                 sendCodable(push)
+                logger.notice("agent-feed: projects push sent count=\(wireProjects.count, privacy: .public)")
             } catch {
                 logger.error("agent-feed-bridge: projects fetch failed: \(String(describing: error), privacy: .public)")
                 // Projects errors use an empty sessionId per the brief note.

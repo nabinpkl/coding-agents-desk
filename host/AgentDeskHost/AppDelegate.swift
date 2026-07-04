@@ -658,28 +658,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // lane re-attach (session resume), so the previous bridge's stream Tasks
         // do not keep iterating the sidecar byte stream.
         agentFeedBridge?.reset()
-        if let sidecar = agentEngineSidecar, let baseURL = sidecar.baseURL {
-            let httpClient = HttpSidecarClient(baseURL: baseURL)
-            let bridge = AgentFeedBridge(client: httpClient, send: { [weak server] data in
-                server?.pushAgentData(data)
-            })
-            agentFeedBridge = bridge
-            server.agentRequestHandler = { [weak bridge] request in
-                switch request {
-                case .projectsSubscribe:
-                    bridge?.handleProjectsSubscribe()
-                case .threadSubscribe(let msg):
-                    bridge?.handleThreadSubscribe(msg)
-                case .threadLoadOlder(let msg):
-                    bridge?.handleThreadLoadOlder(msg)
-                case .threadUnsubscribe(let msg):
-                    bridge?.handleThreadUnsubscribe(msg)
-                }
+        // Wire the bridge UNCONDITIONALLY, even if the sidecar is not ready right
+        // now. The sidecar can be mid-restart at the moment a session attaches (a
+        // ~1s window); gating the wiring on readiness here disabled the feed for
+        // the entire session even after the sidecar recovered ms later, which is
+        // how the phone feed got stuck on "waiting" until an app reopen. The
+        // sidecar base URL is resolved lazily per request, so a subscribe that
+        // arrives once the sidecar is back succeeds, and one that arrives while it
+        // is still down fails transiently and the client retries.
+        let sidecar = agentEngineSidecar
+        let httpClient = HttpSidecarClient(baseURLProvider: { [weak sidecar] in sidecar?.baseURL })
+        let bridge = AgentFeedBridge(client: httpClient, send: { [weak server] data in
+            server?.pushAgentData(data)
+        })
+        agentFeedBridge = bridge
+        server.agentRequestHandler = { [weak bridge] request in
+            switch request {
+            case .projectsSubscribe:
+                bridge?.handleProjectsSubscribe()
+            case .threadSubscribe(let msg):
+                bridge?.handleThreadSubscribe(msg)
+            case .threadLoadOlder(let msg):
+                bridge?.handleThreadLoadOlder(msg)
+            case .threadUnsubscribe(let msg):
+                bridge?.handleThreadUnsubscribe(msg)
             }
-        } else {
-            signalingLogger.notice("agent sidecar not ready at lane attach; agent feed disabled for this session")
-            // Already reset above; just drop the reference.
-            agentFeedBridge = nil
         }
         // R11: push the current DesktopState as soon as the channel is
         // attached so the client can render the dots band immediately

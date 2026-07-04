@@ -503,3 +503,34 @@ struct AgentFeedBridgeTests {
         #expect(event.blocks[2].callId == "call-1")
     }
 }
+
+// MARK: - HttpSidecarClient lazy base-URL resolution
+
+// Regression: the sidecar can be mid-restart when a session attaches. The
+// client must resolve the base URL per request (not capture it at construction)
+// and surface a transient `notReady` when it is down, so the feed recovers on a
+// later retry instead of being disabled for the whole session.
+@Suite struct HttpSidecarClientNotReadyTests {
+    @Test func fetchDigestThrowsNotReadyWhenSidecarDown() async {
+        let client = HttpSidecarClient(baseURLProvider: { nil })
+        do {
+            _ = try await client.fetchDigest()
+            Issue.record("expected notReady when base URL provider returns nil")
+        } catch {
+            #expect((error as? SidecarClientError) == .notReady)
+        }
+    }
+
+    @Test func openEventStreamReportsNotReadyWhenSidecarDown() async {
+        let client = HttpSidecarClient(baseURLProvider: { nil })
+        let err: Error = await withCheckedContinuation { cont in
+            _ = client.openEventStream(
+                sessionId: "s1",
+                after: 0,
+                onEvent: { _ in },
+                onError: { cont.resume(returning: $0) }
+            )
+        }
+        #expect((err as? SidecarClientError) == .notReady)
+    }
+}

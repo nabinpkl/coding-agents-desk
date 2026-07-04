@@ -120,18 +120,28 @@ protocol SidecarClient: Sendable {
 
 // Real implementation over URLSession.
 final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
-    private let baseURL: URL
+    // Resolve the sidecar base URL lazily on each request rather than capturing a
+    // fixed value at construction. The sidecar can be mid-restart when a session
+    // attaches; binding its readiness at wire time would disable the feed for the
+    // whole session even after it recovers. A request that arrives while the
+    // sidecar is down throws `notReady`, and the client retries.
+    private let baseURLProvider: @Sendable () -> URL?
     private let session: URLSession
     private let logger: Logger
 
-    init(baseURL: URL, session: URLSession = .shared) {
-        self.baseURL = baseURL
+    init(baseURLProvider: @escaping @Sendable () -> URL?, session: URLSession = .shared) {
+        self.baseURLProvider = baseURLProvider
         self.session = session
         self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-sidecar-client")
     }
 
+    private func currentBaseURL() throws -> URL {
+        guard let url = baseURLProvider() else { throw SidecarClientError.notReady }
+        return url
+    }
+
     func fetchDigest() async throws -> [EngineProjectDigest] {
-        let url = baseURL.appendingPathComponent("/api/projects/digest")
+        let url = try currentBaseURL().appendingPathComponent("/api/projects/digest")
         let (data, response) = try await session.data(from: url)
         try validateHTTP(response, url: url)
         struct Envelope: Decodable {
@@ -143,7 +153,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
 
     func fetchEventsPage(sessionId: String, offset: Int, limit: Int) async throws -> EngineEventsPage {
         var components = URLComponents(
-            url: baseURL.appendingPathComponent("/api/sessions/\(sessionId)/events"),
+            url: try currentBaseURL().appendingPathComponent("/api/sessions/\(sessionId)/events"),
             resolvingAgainstBaseURL: false
         )
         components?.queryItems = [
@@ -169,12 +179,15 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         onEvent: @escaping @Sendable (EngineActivityEvent) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
+        guard let base = baseURLProvider() else {
+            return SidecarStreamHandle(task: Task { onError(SidecarClientError.notReady) })
+        }
         var components = URLComponents(
-            url: baseURL.appendingPathComponent("/api/sessions/\(sessionId)/stream"),
+            url: base.appendingPathComponent("/api/sessions/\(sessionId)/stream"),
             resolvingAgainstBaseURL: false
         )
         components?.queryItems = [URLQueryItem(name: "after", value: String(after))]
-        let url = components?.url ?? baseURL.appendingPathComponent("/api/sessions/\(sessionId)/stream")
+        let url = components?.url ?? base.appendingPathComponent("/api/sessions/\(sessionId)/stream")
         let logger = logger
         let session = session
         let task = Task<Void, Never> {
@@ -225,4 +238,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
 enum SidecarClientError: Error, Equatable {
     case badURL
     case badStatusCode
+    // The sidecar has no ready base URL right now (starting or mid-restart). The
+    // request is transient-failed; the client retries.
+    case notReady
 }

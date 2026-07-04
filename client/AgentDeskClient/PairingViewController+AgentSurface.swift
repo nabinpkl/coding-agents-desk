@@ -132,7 +132,12 @@ extension PairingViewController {
         // Wire inbound: JS requests -> InputChannel sends. The channel is pulled
         // live on each request so a reconnect's fresh channel is used.
         surface.onAgentRequest = { [weak self] request in
-            guard let self, let channel = self.pairingClient.activeInputChannel else { return }
+            guard let self else { return }
+            guard let channel = self.pairingClient.activeInputChannel else {
+                Self.logger.notice("agent-feed: request dropped, no active input channel")
+                return
+            }
+            Self.logger.notice("agent-feed: forwarding agent request on input channel")
             self.forwardAgentRequest(request, on: channel)
         }
 
