@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "AgentDesk DOM Mirror (dev)",
+  "version": "0.0.1",
+  "description": "Mirrors a Chrome tab's DOM to AgentDesk via rrweb (ADR-0038/0039). Read-only v1.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApLIfrskGGk+uGfkgV1HZPhRrcNQw4UgSSwm0j/DXRe5J3ZVOL+/cF19ZVQdnhOP1hL5JscwxHEo5o3EjOHPaOLXI8H11K6sSLn6AdpuWZFuANKPaSR7Z5oL3ZaGOW1PTacXmo7n3STbjXkQU82rOCI2N/IOoB75Q+xwUzOPdOkcTdaU258uWebyyqOeU2SyNzAsBr8KxAyYIwQoMPwIXO7+/EeGY/8okr9rTzKK4oJP/o0O29f9+NCrK5fcw8RGepFcHL4ojC+HK5rHQnwd+tDjqKFC1RcRmexbbWR1TT/JdHt47N8xnT6Gy1hu0zGI/780JHaw2Er6YnR2FdZOaDQIDAQAB",
+  "minimum_chrome_version": "111",
+  "permissions": [
+    "nativeMessaging",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content-isolated.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "vendor/rrweb.min.js",
+        "record-main.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}

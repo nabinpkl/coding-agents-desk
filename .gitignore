@@ -47,3 +47,4 @@ client/AgentDeskClient/AgentFeedWebview/*
 
 # SDD coordinator ledger (scratch)
 .superpowers/
+dom-bridge/dom-bridge

@@ -221,6 +221,17 @@ dom-mirror-bridge-verify:
     set -euo pipefail
     node '{{justfile_directory()}}/chrome-test/bridge-verify.mjs'
 
+# ADR-0038/0039 Phase 2 autonomous gate + live-Chrome native-messaging manifest-path confirmation.
+# Loads the real MV3 extension (rrweb, MAIN-world, masking ON) into a throwaway Chrome profile via
+# Playwright, records the CSP-strict fixture through the real connectNative -> shim -> fake host
+# chain, and asserts checkout + events + sentinel-present + secret-masked. Uses the globally
+# installed Playwright and the system Google Chrome (channel:chrome); no browser download.
+dom-mirror-record-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    node '{{justfile_directory()}}/chrome-test/record-verify.mjs'
+
 # Fast correctness gate: guard scripts plus the host build and tests. Excludes
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
