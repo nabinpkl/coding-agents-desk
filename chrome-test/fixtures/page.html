@@ -19,8 +19,9 @@
   <!-- Visible body text: under mask-by-default this MUST be redacted, so the harness asserts it is
        ABSENT from the stream. -->
   <h1>VISIBLE_BODY_SENTINEL_7C3A</h1>
-  <p class="lede">This CSP-strict fixture is recorded by the AgentDesk DOM-mirror extension. Its
-    visible text must not reach the phone unmasked.</p>
+  <!-- Attribute-borne text (title) must be masked too (ADR-0041): asserted ABSENT. -->
+  <p class="lede" title="SECRET_TITLE_ATTR_ZZ99">This CSP-strict fixture is recorded by the AgentDesk
+    DOM-mirror extension. Its visible text must not reach the phone unmasked.</p>
   <p>Some body copy so the snapshot has real text to carry: the quick brown fox jumps over the
     lazy dog, and then reads a paragraph about <code>rrweb</code> checkout batches.</p>
 

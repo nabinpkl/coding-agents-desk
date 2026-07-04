@@ -17,9 +17,36 @@
     return;
   }
 
+  // ADR-0038/0041 attribute masking. rrweb 2.0.0-alpha.4 has no maskAttributeFn, and maskTextSelector
+  // only masks text NODES -- attribute-borne text (title/alt/aria-label/placeholder) can still carry
+  // PII. Redact those attribute values in a post-emit pass, on both the FullSnapshot tree and
+  // incremental attribute mutations. data-* and structural attributes are untouched (the mirror still
+  // reconstructs layout; only human-readable attribute text is masked).
+  var SENSITIVE_ATTRS = ['title', 'alt', 'aria-label', 'aria-description', 'placeholder'];
+  function redactAttrs(attrs) {
+    if (!attrs) return;
+    for (var k in attrs) {
+      if (SENSITIVE_ATTRS.indexOf(k) >= 0 && typeof attrs[k] === 'string' && attrs[k].length) {
+        attrs[k] = '*'.repeat(Math.min(attrs[k].length, 8));
+      }
+    }
+  }
+  function redactNode(node) {
+    if (!node) return;
+    redactAttrs(node.attributes);
+    if (node.childNodes) for (var i = 0; i < node.childNodes.length; i++) redactNode(node.childNodes[i]);
+  }
+  function redactEvent(e) {
+    if (e.type === 2 && e.data && e.data.node) redactNode(e.data.node); // FullSnapshot
+    if (e.type === 3 && e.data && e.data.source === 0 && Array.isArray(e.data.attributes)) {
+      e.data.attributes.forEach(function (m) { redactAttrs(m && m.attributes); }); // attribute mutations
+    }
+    return e;
+  }
+
   let batch = [];
   window.rrweb.record({
-    emit(event) { batch.push(event); },
+    emit(event) { batch.push(redactEvent(event)); },
     checkoutEveryNms: 5000, // periodic full snapshot so a late-joining phone can bootstrap
     // Privacy: mask-by-default for an arbitrary tab (ADR-0038). This rrweb (2.0.0-alpha.4) has no
     // `maskAllText` boolean, so `maskTextSelector: '*'` matches every element and redacts every

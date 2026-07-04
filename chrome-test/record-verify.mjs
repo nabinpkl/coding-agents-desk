@@ -33,6 +33,7 @@ const CAPTURE_MARKER = 'dommirror-capture-ok';       // data-attribute value: su
 const VISIBLE_TEXT = 'VISIBLE_BODY_SENTINEL_7C3A';    // visible text node -> must be masked (absent)
 const USER_TEXT = 'alice-visible-USERTEXT';           // text-input value -> must be masked (absent)
 const SECRET = 'SUPERSECRET_PW_ZZZ99';                // password value -> must be masked (absent)
+const ATTR_SECRET = 'SECRET_TITLE_ATTR_ZZ99';         // title attribute -> must be masked (absent)
 const TOKEN = 'record-verify-token';
 
 const extId = extensionId();
@@ -139,6 +140,7 @@ async function main() {
   check(!json.includes(VISIBLE_TEXT), 'visible body text MASKED (absent from stream)');
   check(!json.includes(USER_TEXT), 'text-input value MASKED (absent from stream)');
   check(!json.includes(SECRET), 'password value MASKED (absent from stream)');
+  check(!json.includes(ATTR_SECRET), 'attribute-borne text (title) MASKED (absent from stream)');
   console.log(`  ..  - wire bytes received: ${(host.bytes / 1024).toFixed(1)} KB`);
 }
 
