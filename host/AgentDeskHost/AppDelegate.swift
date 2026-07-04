@@ -752,14 +752,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let dispatcher = inputDispatcher
         let scrollActivityHints = scrollActivityHints
         let logger = signalingLogger
-	        sessions.attachInputTask(
-	            Task { [server, dispatcher, scrollActivityHints, logger] in
-	                for await input in server.events {
-	                    scrollActivityHints.record(input)
-	                    dispatcher.dispatch(input)
-	                }
-	                logger.notice("input event stream finished")
-	            },
+        sessions.attachInputTask(
+            Task { [server, dispatcher, scrollActivityHints, logger] in
+                for await input in server.events {
+                    switch input {
+                    case .cursorMove(let dx, let dy):
+                        logger.notice("[DEBUG-pan-follow-host] receive cursorMove dx=\(dx) dy=\(dy)")
+                    case .cursorSet(let displayId, let x, let y):
+                        logger.notice("[DEBUG-pan-follow-host] receive cursorSet display=\(displayId, privacy: .public) x=\(x) y=\(y)")
+                    default:
+                        break
+                    }
+                    scrollActivityHints.record(input)
+                    dispatcher.dispatch(input)
+                }
+                logger.notice("input event stream finished")
+            },
             for: fingerprint
         )
     }
