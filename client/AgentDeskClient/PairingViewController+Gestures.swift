@@ -395,7 +395,12 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // fire-and-forget into a detached Task so the trackpad / keyboard
     // caller stays synchronous and main-thread.
     func sendInput(_ input: NormalizedInput) {
-        guard let channel = pairingClient.activeInputChannel else { return }
+        guard let channel = pairingClient.activeInputChannel else {
+            if panFollowActive || !panFollowEdgeAxes.isEmpty {
+                PanFollowDiagnostics.log("drop-no-input-channel input=\(input)")
+            }
+            return
+        }
         Task { [channel, input] in
             try? await channel.send(input)
         }
@@ -416,6 +421,11 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             ))
         }
         if case let .cursorMove(dx, dy) = input {
+            if panFollowActive || !panFollowEdgeAxes.isEmpty {
+                PanFollowDiagnostics.log(
+                    "delegate cursorMove dx=\(dx) dy=\(dy) panFollowActive=\(panFollowActive) edgeAxes=\(panFollowEdgeAxes.rawValue)"
+                )
+            }
             advanceCursorModel(dx: CGFloat(dx), dy: CGFloat(dy))
         }
         sendInput(input)

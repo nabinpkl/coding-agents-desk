@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import OSLog
 import AgentDeskWire
 
 // ADR-0009 edge-follow viewport math. The iPhone holds a model of the
@@ -160,6 +161,16 @@ struct PanFollowStepResult: Equatable {
     let state: PanFollowStepState
     let cursorRetarget: CursorViewportRetarget?
     let edgeGestureFrames: [PanFollowEdgeGestureFrame]
+}
+
+enum PanFollowDiagnostics {
+    private static let logger = Logger(subsystem: Config.logSubsystem, category: "pan-follow")
+
+    static func log(_ message: String) {
+        let line = "[DEBUG-pan-follow] \(message)"
+        logger.notice("\(line, privacy: .public)")
+        FileHandle.standardError.write(Data((line + "\n").utf8))
+    }
 }
 
 enum PointerRetargeting {

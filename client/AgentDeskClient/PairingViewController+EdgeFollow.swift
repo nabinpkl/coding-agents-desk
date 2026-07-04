@@ -232,6 +232,13 @@ extension PairingViewController: UIScrollViewDelegate {
                contentOffset: scrollView.contentOffset) {
             panFollowAnchor = anchor
             panFollowActive = true
+            PanFollowDiagnostics.log(
+                "begin zoom=\(scrollView.zoomScale) offset=\(scrollView.contentOffset) contentSize=\(scrollView.contentSize) bounds=\(scrollView.bounds.size) source=\(source) anchor=\(anchor)"
+            )
+        } else {
+            PanFollowDiagnostics.log(
+                "begin-missing-anchor zoom=\(scrollView.zoomScale) offset=\(scrollView.contentOffset) source=\(String(describing: cursorSourcePos)) displayRect=\(activeDisplayRect)"
+            )
         }
     }
 
@@ -240,6 +247,14 @@ extension PairingViewController: UIScrollViewDelegate {
               let anchor = panFollowAnchor else { return }
         let pan = scrollView.panGestureRecognizer
         let rawTranslation = pan.translation(in: scrollView)
+        let rawVelocity = pan.velocity(in: scrollView)
+        let maxOffset = CGPoint(
+            x: max(0, scrollView.contentSize.width - scrollView.bounds.width),
+            y: max(0, scrollView.contentSize.height - scrollView.bounds.height)
+        )
+        PanFollowDiagnostics.log(
+            "scroll offset=\(scrollView.contentOffset) max=\(maxOffset) translation=\(rawTranslation) velocity=\(rawVelocity) priorCursor=\(String(describing: cursorSourcePos)) priorAxes=\(panFollowEdgeAxes.rawValue) lastSent=\(String(describing: lastSentPanFollowHostPoint))"
+        )
         let stepState = PanFollowStepState(
             cursorSourcePoint: cursorSourcePos,
             lastSentHostPoint: lastSentPanFollowHostPoint,
@@ -257,20 +272,29 @@ extension PairingViewController: UIScrollViewDelegate {
             contentSize: scrollView.contentSize,
             viewportSize: scrollView.bounds.size,
             panTranslation: rawTranslation,
-            panVelocity: pan.velocity(in: scrollView)
+            panVelocity: rawVelocity
         )
         guard let step = PointerRetargeting.panFollowStep(
             state: stepState,
             input: stepInput
-        ) else { return }
+        ) else {
+            PanFollowDiagnostics.log("step-nil activeDisplay=\(String(describing: activeDisplayIdMirror)) displayRect=\(activeDisplayRect) statePresent=\(lastDesktopState != nil)")
+            return
+        }
 
         cursorSourcePos = step.state.cursorSourcePoint
         lastSentPanFollowHostPoint = step.state.lastSentHostPoint
         panFollowEdgeAxes = step.state.edgeAxes
         lastPanFollowGestureTranslation = step.state.lastGestureTranslation
+        PanFollowDiagnostics.log(
+            "step cursor=\(String(describing: step.state.cursorSourcePoint)) axes=\(step.state.edgeAxes.rawValue) retarget=\(String(describing: step.cursorRetarget?.hostPoint)) edgeFrames=\(step.edgeGestureFrames.map { $0.phase })"
+        )
         updateCursorDot()
 
         if let retarget = step.cursorRetarget {
+            PanFollowDiagnostics.log(
+                "send cursorSet display=\(retarget.displayId) host=\(retarget.hostPoint) source=\(retarget.sourcePoint)"
+            )
             sendInput(.cursorSet(
                 displayId: retarget.displayId,
                 x: Float(retarget.hostPoint.x),
@@ -328,6 +352,9 @@ extension PairingViewController: UIScrollViewDelegate {
             case .ended:
                 state = .ended
             }
+            PanFollowDiagnostics.log(
+                "edge-frame phase=\(frame.phase) translation=\(frame.translation) velocity=\(frame.velocity) currentAxes=\(panFollowEdgeAxes.rawValue)"
+            )
             gestureTranslator.processPan(
                 state: state,
                 translation: frame.translation,
