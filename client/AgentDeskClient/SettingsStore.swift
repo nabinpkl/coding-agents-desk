@@ -28,6 +28,7 @@ final class SettingsStore: @unchecked Sendable {
         static let showSpacePreviews = "agentDesk.showSpacePreviews"
         static let crispTextOverlayEnabled = "agentDesk.crispTextOverlayEnabled"
         static let showHostCursorInVideo = "agentDesk.showHostCursorInVideo"
+        static let domMirrorEnabled = "agentDesk.domMirrorEnabled"
         static let agentSayVoiceLanguage = "agentDesk.agentSayVoiceLanguage"
         static let agentSayVoiceIdentifier = "agentDesk.agentSayVoiceIdentifier"
     }
@@ -157,6 +158,18 @@ final class SettingsStore: @unchecked Sendable {
         get { defaults.object(forKey: Key.showHostCursorInVideo) as? Bool ?? false }
         set {
             defaults.set(newValue, forKey: Key.showHostCursorInVideo)
+            postChange()
+        }
+    }
+
+    // ADR-0038 DOM mirror. Default off (opt-in beta). Gates whether the client opens the .dom lane
+    // and shows the replay surface; the host still gates with its own flag. Uses bool(forKey:) so a
+    // launch argument (`-agentDesk.domMirrorEnabled YES`, the NSUserDefaults argument domain) flips
+    // it on for the autonomous sim e2e, which the object-as?-Bool form would not coerce.
+    var domMirrorEnabled: Bool {
+        get { defaults.bool(forKey: Key.domMirrorEnabled) }
+        set {
+            defaults.set(newValue, forKey: Key.domMirrorEnabled)
             postChange()
         }
     }

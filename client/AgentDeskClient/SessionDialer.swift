@@ -109,6 +109,7 @@ final class SessionDialer {
         )
         let inputStream = try await connection.openStream()
         let graphicsStream = try await connection.openStream()
+        let domMirror = try await Self.openDomMirrorIfEnabled(connection)
         let datagrams = try await connection.datagrams
         let mediaKey = MediaDatagramCrypto.sessionKey(
             sessionId: ready.sessionId,
@@ -135,8 +136,18 @@ final class SessionDialer {
                 mediaKeySalt: ready.mediaKeySalt,
                 clientNonce: clientNonce,
                 hostNonce: challenge.hostNonce
-            )
+            ),
+            domMirror: domMirror
         )
+    }
+
+    // ADR-0038: open a dedicated .dom stream only when the client opted in. The host still gates it
+    // (rejects when its own flag is off), which DomMirrorClient handles by stopping.
+    @available(iOS 26.0, *)
+    private static func openDomMirrorIfEnabled(_ connection: NetworkConnection<QUIC>) async throws -> DomMirrorClient? {
+        guard SettingsStore.shared.domMirrorEnabled else { return nil }
+        let stream = try await connection.openStream()
+        return DomMirrorClient(stream: stream)
     }
 
     @available(iOS 26.0, *)
@@ -231,6 +242,7 @@ final class SessionDialer {
 
         let inputStream = try await connection.openStream()
         let graphicsStream = try await connection.openStream()
+        let domMirror = try await Self.openDomMirrorIfEnabled(connection)
         let datagrams = try await connection.datagrams
         let mediaKey = MediaDatagramCrypto.sessionKey(
             sessionId: ready.sessionId,
@@ -257,7 +269,8 @@ final class SessionDialer {
                 mediaKeySalt: ready.mediaKeySalt,
                 clientNonce: clientNonce,
                 hostNonce: challenge.hostNonce
-            )
+            ),
+            domMirror: domMirror
         )
     }
 

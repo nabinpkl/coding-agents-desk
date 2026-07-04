@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>AgentDesk DOM Mirror</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #fff; }
+  #stage { width: 100%; height: 100%; overflow: hidden; }
+  /* rrweb renders into an iframe inside .replayer-wrapper; fill the stage. */
+  #stage .replayer-wrapper { transform: none !important; }
+  #stage iframe { width: 100% !important; border: 0; display: block; }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <script src="rrweb.min.js"></script>
+  <script>
+  (function () {
+    var FULL_SNAPSHOT = 2;
+    var stage = document.getElementById('stage');
+    var replayer = null;
+    var pending = [];
+
+    function haveSnapshot(evts) {
+      for (var i = 0; i < evts.length; i++) if (evts[i].type === FULL_SNAPSHOT) return true;
+      return false;
+    }
+
+    function applyEvent(e) {
+      if (!replayer) {
+        pending.push(e);
+        if (haveSnapshot(pending)) {
+          replayer = new rrweb.Replayer(pending, { liveMode: true, root: stage });
+          replayer.startLive(pending[0].timestamp);
+          pending = [];
+        }
+      } else {
+        replayer.addEvent(e);
+      }
+    }
+
+    // Native -> webview: one batch { t, tb, co, ev:[...], meta }. Feed its rrweb events, then
+    // report a probe summary of the reconstructed DOM so the autonomous harness can assert the
+    // mirror worked (visible text is masked, so the probe keys on a data-attribute marker +
+    // node count, not on page text).
+    window.__domMirrorDeliver = function (rawJSON) {
+      var batch;
+      try { batch = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON; }
+      catch (e) { return; }
+      var ev = (batch && batch.ev) || [];
+      for (var i = 0; i < ev.length; i++) applyEvent(ev[i]);
+      scheduleProbe();
+    };
+
+    // rrweb liveMode renders the FullSnapshot on a timed tick, not synchronously, so probing right
+    // after addEvent would read an unrendered (empty) iframe. Debounce: probe ~700ms after the last
+    // batch, by which point the replayer has reconstructed the DOM.
+    var probeTimer = null;
+    function scheduleProbe() {
+      if (probeTimer) clearTimeout(probeTimer);
+      probeTimer = setTimeout(postProbe, 700);
+    }
+
+    function postProbe() {
+      if (!replayer || !replayer.iframe || !replayer.iframe.contentDocument) return;
+      var doc = replayer.iframe.contentDocument;
+      var markerEl = doc.querySelector('[data-agentdesk-fixture]');
+      var marker = markerEl ? markerEl.getAttribute('data-agentdesk-fixture') : '';
+      var nodes = doc.querySelectorAll('*').length;
+      try {
+        window.webkit.messageHandlers.domMirror.postMessage({ kind: 'probe', marker: marker, nodes: nodes });
+      } catch (e) {}
+    }
+
+    window.__domMirrorBridge = { destroy: function () { try { replayer && replayer.pause(); } catch (e) {} } };
+  })();
+  </script>
+</body>
+</html>

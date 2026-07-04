@@ -232,6 +232,68 @@ dom-mirror-record-verify:
     export NODE_PATH="$(npm root -g)"
     node '{{justfile_directory()}}/chrome-test/record-verify.mjs'
 
+# ADR-0038 Phase 4 read-only-v1 acceptance test: the full three-process chain (real host with DOM
+# mirror on + paired sim client + real Chrome-for-Testing extension). Chrome records the CSP-strict
+# fixture; the batch flows extension -> shim -> host -> .dom QUIC lane -> sim client -> replay
+# surface, which emits a probe of the reconstructed DOM. Asserts the sim console shows the capture
+# marker (page text is masked, so the probe keys on a data-attribute marker + node count).
+# Standing sim + throwaway-Chrome approval covers this (physical device stays a checkpoint).
+dom-mirror-e2e:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ROOT='{{justfile_directory()}}'
+    UDID='{{ios_sim_udid}}'
+    CONSOLE='{{sim_console_log}}'
+    PAIRURL='{{last_pair_url_path}}'
+    cleanup() {
+      kill "${SIMTEE_PID:-0}" 2>/dev/null || true
+      xcrun simctl terminate "$UDID" com.example.agentdesk.AgentDeskClient 2>/dev/null || true
+      kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
+      for v in AGENTDESK_AUTO_APPROVE AGENTDESK_DEV_PERMISSIVE_KEYSTORE AGENTDESK_DOM_MIRROR_ENABLED; do launchctl unsetenv "$v" 2>/dev/null || true; done
+    }
+    trap cleanup EXIT
+
+    echo "== build + launch host with DOM mirror enabled =="
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
+    kill $(pgrep -f AgentDeskHost) 2>/dev/null || true; sleep 1
+    launchctl setenv AGENTDESK_AUTO_APPROVE 1
+    launchctl setenv AGENTDESK_DEV_PERMISSIVE_KEYSTORE 1
+    launchctl setenv AGENTDESK_DOM_MIRROR_ENABLED 1
+    open "{{host_app}}"; sleep 3
+    pgrep -lf AgentDeskHost >/dev/null || { echo "host did not start"; exit 1; }
+
+    echo "== build + install sim client =="
+    just client-sim-reinstall >/dev/null
+
+    echo "== pair + launch sim client with DOM mirror on (console tee) =="
+    xcrun simctl bootstatus "$UDID" -b >/dev/null
+    rm -f "$PAIRURL" "$CONSOLE"
+    kill -USR1 $(pgrep -f AgentDeskHost)
+    i=0; while [ ! -s "$PAIRURL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+    test -s "$PAIRURL" || { echo "host did not write pairing URL"; exit 1; }
+    ( SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$(cat "$PAIRURL")" SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost \
+        SIMCTL_CHILD_AGENTDESK_DOM_MIRROR_PROBE_STDERR=1 \
+        xcrun simctl launch --console --terminate-running-process "$UDID" com.example.agentdesk.AgentDeskClient -agentDesk.domMirrorEnabled YES 2>&1 | tee "$CONSOLE" ) &
+    SIMTEE_PID=$!
+    echo "waiting for client to connect + open the .dom lane..."; sleep 10
+
+    echo "== drive Chrome: record the fixture through the real chain =="
+    node "$ROOT/chrome-test/e2e-chrome.mjs"
+
+    echo "== assert the sim client's DOM-mirror probe shows the capture marker =="
+    ok=0
+    for i in $(seq 1 20); do
+      if grep -q "dom-mirror-probe marker=dommirror-capture-ok" "$CONSOLE"; then ok=1; break; fi
+      sleep 1
+    done
+    if [ "$ok" = "1" ]; then
+      echo "dom-mirror-e2e: PASS"; grep "dom-mirror-probe" "$CONSOLE" | tail -2
+    else
+      echo "dom-mirror-e2e: FAIL - no probe with the capture marker in the sim console"
+      echo "--- sim console tail ---"; tail -30 "$CONSOLE" || true
+      exit 1
+    fi
+
 # Fast correctness gate: guard scripts plus the host build and tests. Excludes
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
