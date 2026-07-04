@@ -225,3 +225,30 @@ goal. `tiffRepresentation` = 8 (not 0) confirms the mirror still re-fingerprints
 cursor changes (the cursor changed a few times in the window), so it is cheaper, not frozen.
 Regression is unit-locked by `constantSeedSkipsImageFingerprint` (static cursor ⇒ sampler
 touched once over 100 ticks). ~5-8 points off the crisp-off floor.
+
+## Lean floor: crisp OFF + thumbnails OFF + cursor-out-of-video (sha 984e4e8)
+
+Everything reducible disabled at once, to isolate the irreducible streaming floor:
+`AGENTDESK_OWNED_MEDIA_CRISP_ENABLED=0`, `AGENTDESK_SPACE_THUMBNAILS_ENABLED=0`, and the
+cursor no longer baked into video (new default) + the seed-gated CursorMonitor. Confirmed
+live: 0 crisp windows, 0 thumbnail captures, streaming. 15s `sample`, host CPU ~13-20%
+(~15.6% avg; the absolute number tracks screen motion / video bitrate on this churning TUI).
+
+Leaf self-time probes (self-sum samples):
+- CursorMonitor **0** (was 557 pre-seed-gate), SpaceThumbnail **0**, vImage **3** (was ~626,
+  all thumbnails), processCrisp **0**, videotoolbox **0** (HW-offloaded), our AgentDeskHost
+  code only **62** (~2%).
+
+What remains IS the datagram send pipeline:
+- `__sendmsg` 8.5% (the send syscall, top single leaf) + Network 5.5% + libquic 2.4% +
+  `__recvmsg` -- the QUIC/socket send-receive machinery.
+- CoreFoundation 14.5% + libswiftCore 12.8% + libobjc 10.6% + libdispatch 8.3% + malloc 6.1%
+  -- the per-packet/per-frame object churn of packetize -> pace -> send (objc_msgSend,
+  CFDictionary get/set + CFBasicHashFindBucket, ARC, malloc/free, dispatch drain).
+
+Conclusion: after removing crisp (convert), thumbnails (vImage composite), and cursor (per-
+tick hash + baked-in video damage), the floor is the cost of PUSHING ~2 Mbps of video
+datagrams at 25-30 fps, not producing them -- video encode is hardware, our code is ~2%.
+The only remaining lever is send-path efficiency: batch more packets per `__sendmsg`, cut
+per-packet allocation/dictionary churn, or lower send cadence/bitrate at rest. This is
+inherent-to-streaming work, a different (harder) class than the add-ons already removed.
