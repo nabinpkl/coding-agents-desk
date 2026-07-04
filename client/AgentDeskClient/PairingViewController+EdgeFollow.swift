@@ -91,7 +91,13 @@ extension PairingViewController: UIScrollViewDelegate {
             displayBounds: activeDisplayRect
         )
         cursorSourcePos = next
-        applyEdgeFollow()
+        if isManualViewportPanActive || panFollowActive || !panFollowEdgeAxes.isEmpty || !panFollowEdgeReturnAxes.isEmpty {
+            PanFollowDiagnostics.log(
+                "skip-auto-follow-during-pan cursor=\(next) panFollowActive=\(panFollowActive) edgeAxes=\(panFollowEdgeAxes.rawValue) returnAxes=\(panFollowEdgeReturnAxes.rawValue)"
+            )
+        } else {
+            applyEdgeFollow()
+        }
         updateCursorDot()
     }
 
@@ -122,6 +128,12 @@ extension PairingViewController: UIScrollViewDelegate {
     // originate on the iPhone, such as a physical mouse or trackpad move on
     // the Mac while remote input was idle.
     func applyCursorPosition(_ push: CursorPositionPush) {
+        if isManualViewportPanActive || panFollowActive || !panFollowEdgeAxes.isEmpty || !panFollowEdgeReturnAxes.isEmpty {
+            PanFollowDiagnostics.log(
+                "ignore-host-correction-during-pan display=\(String(describing: push.displayId)) host=(\(push.cursorX), \(push.cursorY)) panFollowActive=\(panFollowActive) edgeAxes=\(panFollowEdgeAxes.rawValue) returnAxes=\(panFollowEdgeReturnAxes.rawValue)"
+            )
+            return
+        }
         guard let state = lastDesktopState else { return }
         let displayId = push.displayId
             ?? activeDisplayIdMirror
