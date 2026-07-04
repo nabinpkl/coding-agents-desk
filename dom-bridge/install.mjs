@@ -7,13 +7,16 @@
 //
 // Usage:
 //   node install.mjs --ext-id <id> [--channel chrome|canary|chromium] [--nmdir <dir>]
-//                    [--socket <path>] [--token <path>]
-//   node install.mjs --remove [--channel chrome|canary|chromium] [--nmdir <dir>]
+//                    [--socket <path>] [--token <path>] [--wrapper <path>]
+//   node install.mjs --remove [--channel chrome|canary|chromium] [--nmdir <dir>] [--wrapper <path>]
 //
 // `--nmdir` overrides the channel preset. `--socket`/`--token`, when given, are baked into the
-// wrapper's env so the shim never falls back to its hardcoded default path. It writes a tiny wrapper
-// executable (the manifest `path`; the browser spawns it with a minimal PATH, so it uses an absolute
-// node + absolute bridge.mjs) and renders the manifest template.
+// wrapper's env so the shim never falls back to its hardcoded default path. `--wrapper <path>`
+// overrides where the wrapper executable is written (default `dom-bridge/dom-bridge`, the path a real
+// install uses); the autonomous harness points this at a throwaway temp path so a test run never
+// touches a live install's wrapper. It writes a tiny wrapper executable (the manifest `path`; the
+// browser spawns it with a minimal PATH, so it uses an absolute node + absolute bridge.mjs) and
+// renders the manifest template.
 
 import { readFileSync, writeFileSync, mkdirSync, chmodSync, rmSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -47,7 +50,9 @@ if (!nmhDir) {
   process.exit(1);
 }
 const manifestPath = join(nmhDir, `${HOST_NAME}.json`);
-const wrapperPath = join(__dirname, 'dom-bridge');
+// `--wrapper <path>` overrides the default repo wrapper. The harness passes a throwaway temp path so
+// a test run writes and cleans its own wrapper and never removes a live install's `dom-bridge/dom-bridge`.
+const wrapperPath = arg('--wrapper', null) || join(__dirname, 'dom-bridge');
 
 if (remove) {
   for (const p of [manifestPath, wrapperPath]) {
@@ -72,6 +77,7 @@ const bridgePath = join(__dirname, 'bridge.mjs');
 let envLines = '';
 if (socket) envLines += `export AGENTDESK_DOM_BRIDGE_SOCKET=${JSON.stringify(socket)}\n`;
 if (token) envLines += `export AGENTDESK_DOM_BRIDGE_TOKEN=${JSON.stringify(token)}\n`;
+mkdirSync(dirname(wrapperPath), { recursive: true });
 writeFileSync(wrapperPath, `#!/bin/sh\n${envLines}exec "${process.execPath}" "${bridgePath}"\n`);
 chmodSync(wrapperPath, 0o755);
 
