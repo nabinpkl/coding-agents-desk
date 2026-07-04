@@ -190,6 +190,15 @@ final class PairingSignalingServer: @unchecked Sendable {
             }
             let lane = GraphicsLaneServer(stream: stream, fingerprint: active.deviceFingerprint)
             graphicsLaneReadyHandler(active.deviceFingerprint, lane)
+        case .dom:
+            // ADR-0038: the DOM-mirror lane is dispatched for real in Phase 3
+            // (DomEventLaneServer). Until then, reject cleanly so a stray open does not hang.
+            // Config.domMirrorEnabled is off by default, so no client opens .dom yet.
+            try await QuicSessionStreamIO.send(
+                SessionRejected(reason: .malformed),
+                role: .dom,
+                on: stream
+            )
         }
     }
 
