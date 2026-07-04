@@ -10,8 +10,16 @@ import WebKit
 // the existing interactive surfaces are hidden so gestures do not conflict;
 // when control is shown the webview is hidden.
 //
-// The surface is created at session-start and torn down at session-end, matching
-// the mediaTransport lifecycle. It is NOT created when unpaired.
+// Lifecycle (state-driven, race-free):
+//   - The TOGGLE is added from render()'s .connected case via
+//     showSurfaceToggleIfNeeded() (idempotent). render() runs on every state
+//     change, so the toggle can never be skipped by a one-shot channel-set race.
+//   - The WEBVIEW is created LAZILY the first time the user switches to Agent
+//     (ensureAgentSurface), pulling the channel and transport at that moment
+//     (both reliably non-nil once connected). This removes any need for a valid
+//     channel at toggle-creation time.
+//   - teardownAgentSurface() (toggle + surface) runs on every non-connected
+//     state, so a reconnect re-shows the toggle cleanly.
 
 extension PairingViewController {
     private static let logger = Logger(subsystem: Config.logSubsystem, category: "agent-surface")
@@ -34,38 +42,33 @@ extension PairingViewController {
         set { objc_setAssociatedObject(self, &Keys.surfaceSegmentedControl, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    // MARK: - Mount / tear down
+    // MARK: - Toggle UI (state-driven from render())
 
-    func mountAgentSurface(channel: InputChannel) {
-        guard agentSurface == nil else { return }
-
-        let surface = AgentFeedSurface()
-        surface.translatesAutoresizingMaskIntoConstraints = false
-        surface.isHidden = true
-        view.addSubview(surface)
-        NSLayoutConstraint.activate([
-            surface.topAnchor.constraint(equalTo: view.topAnchor),
-            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-        agentSurface = surface
-
-        // Wire inbound: JS requests -> InputChannel sends.
-        surface.onAgentRequest = { [weak self, weak channel] request in
-            guard let channel else { return }
-            self?.forwardAgentRequest(request, on: channel)
-        }
-
-        // Wire outbound: OwnedMediaTransport pushes -> surface.deliver.
-        if let transport = pairingClient.activeSessionTransport {
-            transport.onAgentPush = { [weak surface] json in
-                surface?.deliver(rawJSON: json)
+    // Idempotent: adds the Control/Agent segmented toggle once, with the
+    // safe-area-top constraints. Called from render()'s .connected case, which
+    // runs on every state change, so the toggle cannot be skipped by a channel
+    // timing race. The webview itself is created lazily on first Agent select.
+    func showSurfaceToggleIfNeeded() {
+        guard surfaceSegmentedControl == nil else {
+            // Already present; keep it on top of any later-added media chrome.
+            if let seg = surfaceSegmentedControl {
+                view.bringSubviewToFront(seg)
             }
+            return
         }
 
-        // Add the segmented surface toggle.
-        addSurfaceToggle()
+        let seg = UISegmentedControl(items: ["Control", "Agent"])
+        seg.selectedSegmentIndex = 0
+        seg.translatesAutoresizingMaskIntoConstraints = false
+        seg.addTarget(self, action: #selector(surfaceSegmentChanged(_:)), for: .valueChanged)
+        view.addSubview(seg)
+        NSLayoutConstraint.activate([
+            seg.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            seg.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8)
+        ])
+        // Cheap z-order safety: keep the toggle above the media sink / surfaces.
+        view.bringSubviewToFront(seg)
+        surfaceSegmentedControl = seg
     }
 
     func teardownAgentSurface() {
@@ -80,25 +83,59 @@ extension PairingViewController {
         surfaceSegmentedControl = nil
     }
 
-    // MARK: - Toggle UI
+    // MARK: - Lazy webview creation
 
-    private func addSurfaceToggle() {
-        guard surfaceSegmentedControl == nil else { return }
+    // Creates the full-bleed hidden AgentFeedSurface and wires both bridge
+    // directions, pulling the live channel and transport at call time. A nil
+    // channel (not yet connected) is tolerated: the surface is still created so
+    // the UI does not crash, and the inbound closure no-ops until a channel is
+    // available. Idempotent.
+    @discardableResult
+    func ensureAgentSurface() -> AgentFeedSurface {
+        if let existing = agentSurface {
+            return existing
+        }
 
-        let seg = UISegmentedControl(items: ["Control", "Agent"])
-        seg.selectedSegmentIndex = 0
-        seg.translatesAutoresizingMaskIntoConstraints = false
-        seg.addTarget(self, action: #selector(surfaceSegmentChanged(_:)), for: .valueChanged)
-        view.addSubview(seg)
+        let surface = AgentFeedSurface()
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        surface.isHidden = true
+        view.addSubview(surface)
         NSLayoutConstraint.activate([
-            seg.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            seg.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8)
+            surface.topAnchor.constraint(equalTo: view.topAnchor),
+            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
-        surfaceSegmentedControl = seg
+        agentSurface = surface
+
+        // Wire inbound: JS requests -> InputChannel sends. The channel is pulled
+        // live on each request so a reconnect's fresh channel is used.
+        surface.onAgentRequest = { [weak self] request in
+            guard let self, let channel = self.pairingClient.activeInputChannel else { return }
+            self.forwardAgentRequest(request, on: channel)
+        }
+
+        // Wire outbound: OwnedMediaTransport pushes -> surface.deliver.
+        if let transport = pairingClient.activeSessionTransport {
+            transport.onAgentPush = { [weak surface] json in
+                surface?.deliver(rawJSON: json)
+            }
+        }
+
+        // Keep the toggle above the freshly-added full-bleed surface.
+        if let seg = surfaceSegmentedControl {
+            view.bringSubviewToFront(seg)
+        }
+
+        return surface
     }
 
     @objc private func surfaceSegmentChanged(_ sender: UISegmentedControl) {
         let showAgent = sender.selectedSegmentIndex == 1
+        if showAgent {
+            // Create the webview and wire the bridge on first switch to Agent.
+            ensureAgentSurface()
+        }
         applyAgentSurfaceVisibility(showAgent: showAgent)
     }
 

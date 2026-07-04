@@ -272,7 +272,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                         self.startDiagnosticsHandlingIfNeeded(channel: channel)
                         self.sendReconnectDiagnosticsAnnouncementIfNeeded(channel: channel)
                         self.sendCurrentClientConfig()
-                        self.mountAgentSurface(channel: channel)
                     }
                     self.render()
                     return
@@ -552,6 +551,16 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             statusLabel.text = "Pairing rejected: \(reason)"
             actionButton.isHidden = false
             stopCamera()
+        }
+
+        // The agent-surface toggle is state-driven, not gated on a one-shot
+        // channel check: render() runs on every state change so it cannot race
+        // the session/channel timing. Shown only while connected; torn down on
+        // every other state so a reconnect re-shows it cleanly.
+        if case .connected = pairingClient.state {
+            showSurfaceToggleIfNeeded()
+        } else {
+            teardownAgentSurface()
         }
 
         startOfferListenerIfNeeded()

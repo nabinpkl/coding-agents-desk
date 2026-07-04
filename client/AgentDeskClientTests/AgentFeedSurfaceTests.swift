@@ -198,6 +198,26 @@ struct AgentFeedSurfaceTests {
         #expect(capturedScripts.isEmpty)
     }
 
+    // MARK: - No-channel safety (mirrors "select Agent before a channel exists")
+
+    // When the user switches to Agent before any input channel is wired, the
+    // surface must construct and accept inbound messages without crashing. The
+    // onAgentRequest closure is simply absent (nil), so an inbound message is a
+    // no-op rather than a trap. This mirrors PairingViewController.ensureAgentSurface
+    // tolerating a nil activeInputChannel (which we cannot drive in a unit test
+    // because PairingViewController is not in the test target).
+    @Test func inboundWithNoRequestClosureDoesNotCrash() async {
+        let surface = AgentFeedSurface()
+        // onAgentRequest intentionally left nil (no channel wired yet).
+
+        let body: [String: Any] = ["t": "agent-projects-sub"]
+        surface.userContentController(WKUserContentController(), didReceive: FakeScriptMessage(body: body))
+
+        await Task.yield()
+        // No assertion needed beyond "did not crash"; reaching here is the pass.
+        #expect(Bool(true))
+    }
+
     // MARK: - Inbound: request closure is called with correct type
 
     @Test func inboundProjectsSubscribeCallsOnAgentRequest() async {
