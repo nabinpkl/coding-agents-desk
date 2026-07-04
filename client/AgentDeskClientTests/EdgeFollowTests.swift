@@ -277,6 +277,103 @@ struct EdgeFollowTests {
         #expect(projection.velocity == .zero)
     }
 
+    @Test func panFollowStepDoesNotSendCursorSetWhileLeftEdgeIsOverscrolled() throws {
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
+        let sink = CGSize(width: 400, height: 240)
+        let state = Self.singleDisplayState(id: "d1", width: 1000, height: 600, originX: 0, originY: 0)
+        let step = try #require(PointerRetargeting.panFollowStep(
+            state: PanFollowStepState(
+                cursorSourcePoint: CGPoint(x: 250, y: 300),
+                lastSentHostPoint: CGPoint(x: 250, y: 300),
+                edgeAxes: [],
+                lastGestureTranslation: .zero
+            ),
+            input: PanFollowStepInput(
+                anchorViewportPoint: CGPoint(x: sink.width / 2, y: sink.height / 2),
+                desktopState: state,
+                displayId: "d1",
+                displayBounds: bounds,
+                sinkViewSize: sink,
+                zoomScale: 2.0,
+                contentOffset: CGPoint(x: -40, y: 0),
+                contentSize: CGSize(width: 800, height: 480),
+                viewportSize: sink,
+                panTranslation: CGPoint(x: 120, y: 0),
+                panVelocity: CGPoint(x: 700, y: 0)
+            )
+        ))
+
+        #expect(step.cursorRetarget == nil)
+        #expect(step.state.lastSentHostPoint == nil)
+        #expect(step.state.edgeAxes == [.x])
+        #expect(step.edgeGestureFrames == [
+            PanFollowEdgeGestureFrame(phase: .began, translation: .zero, velocity: .zero),
+            PanFollowEdgeGestureFrame(
+                phase: .changed,
+                translation: CGPoint(x: -120, y: 0),
+                velocity: CGPoint(x: -700, y: 0)
+            )
+        ])
+    }
+
+    @Test func panFollowStepSendsInteriorRetargetAfterReturningFromLeftEdgeOverscroll() throws {
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
+        let sink = CGSize(width: 400, height: 240)
+        let state = Self.singleDisplayState(id: "d1", width: 1000, height: 600, originX: 0, originY: 0)
+        var reducerState = PanFollowStepState(
+            cursorSourcePoint: CGPoint(x: 250, y: 150),
+            lastSentHostPoint: CGPoint(x: 250, y: 150),
+            edgeAxes: [],
+            lastGestureTranslation: .zero
+        )
+        let edgeStep = try #require(PointerRetargeting.panFollowStep(
+            state: reducerState,
+            input: PanFollowStepInput(
+                anchorViewportPoint: CGPoint(x: sink.width / 2, y: sink.height / 2),
+                desktopState: state,
+                displayId: "d1",
+                displayBounds: bounds,
+                sinkViewSize: sink,
+                zoomScale: 2.0,
+                contentOffset: CGPoint(x: -40, y: 0),
+                contentSize: CGSize(width: 800, height: 480),
+                viewportSize: sink,
+                panTranslation: CGPoint(x: 120, y: 0),
+                panVelocity: CGPoint(x: 700, y: 0)
+            )
+        ))
+        reducerState = edgeStep.state
+        // Mirror the delegate-side relative cursorMove that happened during
+        // edge push: the host and client cursor models have moved to the edge,
+        // so the old absolute cursorSet dedupe point must not suppress the
+        // first interior reconcile.
+        reducerState.cursorSourcePoint = CGPoint(x: 0, y: 150)
+
+        let returnStep = try #require(PointerRetargeting.panFollowStep(
+            state: reducerState,
+            input: PanFollowStepInput(
+                anchorViewportPoint: CGPoint(x: sink.width / 2, y: sink.height / 2),
+                desktopState: state,
+                displayId: "d1",
+                displayBounds: bounds,
+                sinkViewSize: sink,
+                zoomScale: 2.0,
+                contentOffset: .zero,
+                contentSize: CGSize(width: 800, height: 480),
+                viewportSize: sink,
+                panTranslation: CGPoint(x: 70, y: 0),
+                panVelocity: CGPoint(x: -300, y: 0)
+            )
+        ))
+
+        #expect(returnStep.cursorRetarget?.sourcePoint == CGPoint(x: 250, y: 150))
+        #expect(returnStep.cursorRetarget?.hostPoint == CGPoint(x: 250, y: 150))
+        #expect(returnStep.edgeGestureFrames == [
+            PanFollowEdgeGestureFrame(phase: .ended, translation: .zero, velocity: .zero)
+        ])
+        #expect(returnStep.state.edgeAxes.isEmpty)
+    }
+
     // MARK: - hostPoint(forContentViewLocation:) — touch-scroll inverse map
     //
     // `loc` is the touch in the content view's own (pre-transform) coordinate

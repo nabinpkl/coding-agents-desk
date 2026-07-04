@@ -123,6 +123,45 @@ struct PanFollowEdgeProjection: Equatable {
     let velocity: CGPoint
 }
 
+enum PanFollowEdgeGesturePhase: Equatable {
+    case began
+    case changed
+    case ended
+}
+
+struct PanFollowEdgeGestureFrame: Equatable {
+    let phase: PanFollowEdgeGesturePhase
+    let translation: CGPoint
+    let velocity: CGPoint
+}
+
+struct PanFollowStepState: Equatable {
+    var cursorSourcePoint: CGPoint?
+    var lastSentHostPoint: CGPoint?
+    var edgeAxes: PanFollowOverscrollAxes
+    var lastGestureTranslation: CGPoint?
+}
+
+struct PanFollowStepInput: Equatable {
+    let anchorViewportPoint: CGPoint
+    let desktopState: DesktopState?
+    let displayId: String?
+    let displayBounds: CGRect
+    let sinkViewSize: CGSize
+    let zoomScale: CGFloat
+    let contentOffset: CGPoint
+    let contentSize: CGSize
+    let viewportSize: CGSize
+    let panTranslation: CGPoint
+    let panVelocity: CGPoint
+}
+
+struct PanFollowStepResult: Equatable {
+    let state: PanFollowStepState
+    let cursorRetarget: CursorViewportRetarget?
+    let edgeGestureFrames: [PanFollowEdgeGestureFrame]
+}
+
 enum PointerRetargeting {
     // The dot's viewport position for a source-display point, at the given
     // zoom/offset. Used to capture the fixed pan anchor at drag start.
@@ -209,8 +248,9 @@ enum PointerRetargeting {
     // Projects a UIScrollView rubber-band pan into the trackpad cursor domain.
     // UIScrollView contentOffset grows when the finger moves left/up, while a
     // cursorMove grows when the finger moves right/down, so overscrolled axes
-    // invert the pan translation and velocity. Interior axes are zeroed so the
-    // scroll delegate can keep absolute reconciliation on those axes.
+    // invert the pan translation and velocity. Interior axes are zeroed here;
+    // panFollowStep decides whether an absolute reconcile is safe for the
+    // whole pointer.
     static func panFollowEdgeProjection(
         contentOffset: CGPoint,
         contentSize: CGSize,
@@ -250,6 +290,116 @@ enum PointerRetargeting {
                 y: axes.contains(.y) ? -panVelocity.y : 0
             )
         )
+    }
+
+    static func panFollowStep(
+        state: PanFollowStepState,
+        input: PanFollowStepInput
+    ) -> PanFollowStepResult? {
+        guard let retarget = panFollowRetarget(
+            anchorViewportPoint: input.anchorViewportPoint,
+            state: input.desktopState,
+            displayId: input.displayId,
+            displayBounds: input.displayBounds,
+            sinkViewSize: input.sinkViewSize,
+            zoomScale: input.zoomScale,
+            contentOffset: input.contentOffset
+        ) else { return nil }
+
+        let edgeProjection = panFollowEdgeProjection(
+            contentOffset: input.contentOffset,
+            contentSize: input.contentSize,
+            viewportSize: input.viewportSize,
+            panTranslation: input.panTranslation,
+            panVelocity: input.panVelocity
+        )
+        let priorSource = state.cursorSourcePoint ?? retarget.sourcePoint
+        let sourcePoint = CGPoint(
+            x: edgeProjection.axes.contains(.x) ? priorSource.x : retarget.sourcePoint.x,
+            y: edgeProjection.axes.contains(.y) ? priorSource.y : retarget.sourcePoint.y
+        )
+
+        var nextState = state
+        nextState.cursorSourcePoint = sourcePoint
+
+        var cursorRetarget: CursorViewportRetarget?
+        if edgeProjection.axes.isEmpty {
+            let hostPoint = CGPoint(
+                x: retarget.hostPoint.x + sourcePoint.x - retarget.sourcePoint.x,
+                y: retarget.hostPoint.y + sourcePoint.y - retarget.sourcePoint.y
+            )
+            if hostPoint != state.lastSentHostPoint {
+                nextState.lastSentHostPoint = hostPoint
+                cursorRetarget = CursorViewportRetarget(
+                    displayId: retarget.displayId,
+                    sourcePoint: sourcePoint,
+                    hostPoint: hostPoint
+                )
+            }
+        } else {
+            nextState.lastSentHostPoint = nil
+        }
+
+        let edgeFrames = panFollowEdgeGestureFrames(
+            previousAxes: state.edgeAxes,
+            previousRawTranslation: state.lastGestureTranslation,
+            projection: edgeProjection,
+            rawTranslation: input.panTranslation
+        )
+        nextState.edgeAxes = edgeProjection.axes
+        nextState.lastGestureTranslation = input.panTranslation
+
+        return PanFollowStepResult(
+            state: nextState,
+            cursorRetarget: cursorRetarget,
+            edgeGestureFrames: edgeFrames
+        )
+    }
+
+    private static func panFollowEdgeGestureFrames(
+        previousAxes: PanFollowOverscrollAxes,
+        previousRawTranslation: CGPoint?,
+        projection: PanFollowEdgeProjection,
+        rawTranslation: CGPoint
+    ) -> [PanFollowEdgeGestureFrame] {
+        guard !projection.axes.isEmpty else {
+            if previousAxes.isEmpty { return [] }
+            return [
+                PanFollowEdgeGestureFrame(
+                    phase: .ended,
+                    translation: .zero,
+                    velocity: .zero
+                )
+            ]
+        }
+
+        var frames: [PanFollowEdgeGestureFrame] = []
+        if previousAxes != projection.axes {
+            if !previousAxes.isEmpty {
+                frames.append(PanFollowEdgeGestureFrame(
+                    phase: .ended,
+                    translation: .zero,
+                    velocity: .zero
+                ))
+            }
+            let previousRaw = previousRawTranslation ?? rawTranslation
+            frames.append(PanFollowEdgeGestureFrame(
+                phase: .began,
+                translation: panFollowEdgeProjection(
+                    axes: projection.axes,
+                    panTranslation: previousRaw,
+                    panVelocity: .zero
+                ).translation,
+                velocity: .zero
+            ))
+        }
+
+        frames.append(PanFollowEdgeGestureFrame(
+            phase: .changed,
+            translation: projection.translation,
+            velocity: projection.velocity
+        ))
+        return frames
     }
 
     // Map a touch on the video sink to a host point (global CG points), used by

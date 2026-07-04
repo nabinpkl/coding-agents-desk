@@ -6,6 +6,20 @@ why it was made independent of any instruction. Architectural decisions that loc
 a full ADR under `architecture-decisions/`; this file captures the smaller judgement calls that would
 otherwise be invisible.
 
+## Zoomed pan-follow edge return
+
+### D1. Suppress full cursorSet while any pan-follow axis is rubber-banding
+
+During a zoomed viewport pan, `UIScrollView` can be overscrolled on one axis while still moving normally
+on the other. The existing wire has only full absolute `cursorSet(x,y)` and relative `cursorMove(dx,dy)`;
+there is no axis-partial absolute reconcile. Sending a `cursorSet` during one-axis rubber-band therefore
+reasserts the overscrolled axis with a stale/clamped value, exactly when the relative edge-push path is
+trying to move that same axis away from the edge. The reducer now treats any overscrolled axis as making
+absolute reconcile unsafe for the whole pointer for that frame. It emits only edge gesture frames while
+rubber-banding, clears the last-sent absolute dedupe point, and sends the next interior `cursorSet` once
+the viewport returns to the scrollable range. This was chosen because it preserves one source of truth per
+frame and prevents the absolute and relative cursor paths from fighting across the left-edge return seam.
+
 ## DOM mirror default-on (reverted once on a confound, then restored)
 
 ### D1. Browser mode is default-on; the pairing failures were network, not DOM

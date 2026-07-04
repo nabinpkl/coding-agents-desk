@@ -237,48 +237,46 @@ extension PairingViewController: UIScrollViewDelegate {
 
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === sinkScrollView, panFollowActive,
-              let anchor = panFollowAnchor,
-              let retarget = PointerRetargeting.panFollowRetarget(
-                  anchorViewportPoint: anchor,
-                  state: lastDesktopState,
-                  displayId: activeDisplayIdMirror,
-                  displayBounds: activeDisplayRect,
-                  sinkViewSize: scrollView.bounds.size,
-                  zoomScale: scrollView.zoomScale,
-                  contentOffset: scrollView.contentOffset) else { return }
+              let anchor = panFollowAnchor else { return }
         let pan = scrollView.panGestureRecognizer
         let rawTranslation = pan.translation(in: scrollView)
-        let edgeProjection = PointerRetargeting.panFollowEdgeProjection(
+        let stepState = PanFollowStepState(
+            cursorSourcePoint: cursorSourcePos,
+            lastSentHostPoint: lastSentPanFollowHostPoint,
+            edgeAxes: panFollowEdgeAxes,
+            lastGestureTranslation: lastPanFollowGestureTranslation
+        )
+        let stepInput = PanFollowStepInput(
+            anchorViewportPoint: anchor,
+            desktopState: lastDesktopState,
+            displayId: activeDisplayIdMirror,
+            displayBounds: activeDisplayRect,
+            sinkViewSize: scrollView.bounds.size,
+            zoomScale: scrollView.zoomScale,
             contentOffset: scrollView.contentOffset,
             contentSize: scrollView.contentSize,
             viewportSize: scrollView.bounds.size,
             panTranslation: rawTranslation,
             panVelocity: pan.velocity(in: scrollView)
         )
+        guard let step = PointerRetargeting.panFollowStep(
+            state: stepState,
+            input: stepInput
+        ) else { return }
 
-        let priorSource = cursorSourcePos ?? retarget.sourcePoint
-        let sourcePoint = CGPoint(
-            x: edgeProjection.axes.contains(.x) ? priorSource.x : retarget.sourcePoint.x,
-            y: edgeProjection.axes.contains(.y) ? priorSource.y : retarget.sourcePoint.y
-        )
-        cursorSourcePos = sourcePoint
+        cursorSourcePos = step.state.cursorSourcePoint
+        lastSentPanFollowHostPoint = step.state.lastSentHostPoint
+        panFollowEdgeAxes = step.state.edgeAxes
+        lastPanFollowGestureTranslation = step.state.lastGestureTranslation
         updateCursorDot()
 
-        if edgeProjection.axes != [.x, .y],
-           let hostPoint = panFollowHostPoint(displayId: retarget.displayId, sourcePoint: sourcePoint) {
-            // Pointer only. Dedupe identical points to avoid flooding the channel.
-            if hostPoint != lastSentPanFollowHostPoint {
-                lastSentPanFollowHostPoint = hostPoint
-                sendInput(.cursorSet(
-                    displayId: retarget.displayId,
-                    x: Float(hostPoint.x),
-                    y: Float(hostPoint.y)))
-            }
+        if let retarget = step.cursorRetarget {
+            sendInput(.cursorSet(
+                displayId: retarget.displayId,
+                x: Float(retarget.hostPoint.x),
+                y: Float(retarget.hostPoint.y)))
         }
-        drivePanFollowEdgePush(
-            projection: edgeProjection,
-            rawTranslation: rawTranslation
-        )
+        applyPanFollowEdgeFrames(step.edgeGestureFrames)
     }
 
     public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -309,39 +307,6 @@ extension PairingViewController: UIScrollViewDelegate {
         lastPanFollowGestureTranslation = nil
     }
 
-    private func drivePanFollowEdgePush(
-        projection: PanFollowEdgeProjection,
-        rawTranslation: CGPoint
-    ) {
-        if projection.axes.isEmpty {
-            finishPanFollowEdgePush()
-            lastPanFollowGestureTranslation = rawTranslation
-            return
-        }
-
-        if panFollowEdgeAxes != projection.axes {
-            finishPanFollowEdgePush()
-            let previousRaw = lastPanFollowGestureTranslation ?? rawTranslation
-            gestureTranslator.processPan(
-                state: .began,
-                translation: PointerRetargeting.panFollowEdgeProjection(
-                    axes: projection.axes,
-                    panTranslation: previousRaw,
-                    panVelocity: .zero
-                ).translation,
-                velocity: .zero
-            )
-            panFollowEdgeAxes = projection.axes
-        }
-
-        gestureTranslator.processPan(
-            state: .changed,
-            translation: projection.translation,
-            velocity: projection.velocity
-        )
-        lastPanFollowGestureTranslation = rawTranslation
-    }
-
     private func finishPanFollowEdgePush() {
         guard !panFollowEdgeAxes.isEmpty else { return }
         gestureTranslator.processPan(
@@ -352,14 +317,22 @@ extension PairingViewController: UIScrollViewDelegate {
         panFollowEdgeAxes = []
     }
 
-    private func panFollowHostPoint(displayId: String, sourcePoint: CGPoint) -> CGPoint? {
-        guard let state = lastDesktopState,
-              let display = state.displays.first(where: { $0.id == displayId }) else {
-            return nil
+    private func applyPanFollowEdgeFrames(_ frames: [PanFollowEdgeGestureFrame]) {
+        for frame in frames {
+            let state: UIGestureRecognizer.State
+            switch frame.phase {
+            case .began:
+                state = .began
+            case .changed:
+                state = .changed
+            case .ended:
+                state = .ended
+            }
+            gestureTranslator.processPan(
+                state: state,
+                translation: frame.translation,
+                velocity: frame.velocity
+            )
         }
-        return CGPoint(
-            x: CGFloat(display.originX) + sourcePoint.x,
-            y: CGFloat(display.originY) + sourcePoint.y
-        )
     }
 }
