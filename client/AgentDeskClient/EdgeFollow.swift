@@ -326,25 +326,26 @@ enum PointerRetargeting {
             panVelocity: input.panVelocity
         )
         let priorSource = state.cursorSourcePoint ?? retarget.sourcePoint
-        let boundaryAxes = panFollowBoundaryAxes(
-            contentOffset: input.contentOffset,
-            contentSize: input.contentSize,
-            viewportSize: input.viewportSize
-        )
-        // UIScrollView can report a clamped boundary offset immediately after
-        // rubber-band overscroll. Keep the relative edge cursor source
-        // authoritative until that axis moves back inside the scrollable range.
+        // Once a finger pan hits an edge, keep that axis on the same relative
+        // cursorMove path as the trackpad until the drag ends. Switching back
+        // to absolute cursorSet reconciliation mid-gesture makes the cursor
+        // fight the user's return movement.
         let edgeReturnAxes = panFollowEdgeReturnAxes(
             previousReturnAxes: state.edgeReturnAxes,
             previousEdgeAxes: state.edgeAxes,
-            currentEdgeAxes: edgeProjection.axes,
-            boundaryAxes: boundaryAxes
+            currentEdgeAxes: edgeProjection.axes
+        )
+        let relativeAxes = edgeProjection.axes.union(edgeReturnAxes)
+        let relativeProjection = panFollowEdgeProjection(
+            axes: relativeAxes,
+            panTranslation: input.panTranslation,
+            panVelocity: input.panVelocity
         )
         let sourcePoint = CGPoint(
-            x: edgeProjection.axes.contains(.x) || edgeReturnAxes.contains(.x)
+            x: relativeAxes.contains(.x)
                 ? priorSource.x
                 : retarget.sourcePoint.x,
-            y: edgeProjection.axes.contains(.y) || edgeReturnAxes.contains(.y)
+            y: relativeAxes.contains(.y)
                 ? priorSource.y
                 : retarget.sourcePoint.y
         )
@@ -354,7 +355,7 @@ enum PointerRetargeting {
         nextState.edgeReturnAxes = edgeReturnAxes
 
         var cursorRetarget: CursorViewportRetarget?
-        if edgeProjection.axes.isEmpty && edgeReturnAxes.isEmpty {
+        if relativeAxes.isEmpty {
             let hostPoint = CGPoint(
                 x: retarget.hostPoint.x + sourcePoint.x - retarget.sourcePoint.x,
                 y: retarget.hostPoint.y + sourcePoint.y - retarget.sourcePoint.y
@@ -374,10 +375,10 @@ enum PointerRetargeting {
         let edgeFrames = panFollowEdgeGestureFrames(
             previousAxes: state.edgeAxes,
             previousRawTranslation: state.lastGestureTranslation,
-            projection: edgeProjection,
+            projection: relativeProjection,
             rawTranslation: input.panTranslation
         )
-        nextState.edgeAxes = edgeProjection.axes
+        nextState.edgeAxes = relativeAxes
         nextState.lastGestureTranslation = input.panTranslation
 
         return PanFollowStepResult(
@@ -387,28 +388,10 @@ enum PointerRetargeting {
         )
     }
 
-    private static func panFollowBoundaryAxes(
-        contentOffset: CGPoint,
-        contentSize: CGSize,
-        viewportSize: CGSize
-    ) -> PanFollowOverscrollAxes {
-        let maxOffsetX = max(0, contentSize.width - viewportSize.width)
-        let maxOffsetY = max(0, contentSize.height - viewportSize.height)
-        var axes: PanFollowOverscrollAxes = []
-        if contentOffset.x <= 0 || contentOffset.x >= maxOffsetX {
-            axes.insert(.x)
-        }
-        if contentOffset.y <= 0 || contentOffset.y >= maxOffsetY {
-            axes.insert(.y)
-        }
-        return axes
-    }
-
     private static func panFollowEdgeReturnAxes(
         previousReturnAxes: PanFollowOverscrollAxes,
         previousEdgeAxes: PanFollowOverscrollAxes,
-        currentEdgeAxes: PanFollowOverscrollAxes,
-        boundaryAxes: PanFollowOverscrollAxes
+        currentEdgeAxes: PanFollowOverscrollAxes
     ) -> PanFollowOverscrollAxes {
         guard currentEdgeAxes.isEmpty else { return [] }
         var axes = previousReturnAxes
@@ -418,7 +401,6 @@ enum PointerRetargeting {
         if previousEdgeAxes.contains(.y) {
             axes.insert(.y)
         }
-        axes.formIntersection(boundaryAxes)
         return axes
     }
 
