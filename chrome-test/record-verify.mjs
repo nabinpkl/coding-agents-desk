@@ -9,6 +9,7 @@
 
 import net from 'node:net';
 import http from 'node:http';
+import zlib from 'node:zlib';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -46,6 +47,27 @@ writeFileSync(tokenPath, TOKEN + '\n');
 const failures = [];
 const check = (cond, msg) => { console.log(`  ${cond ? 'ok  ' : 'FAIL'} - ${msg}`); if (!cond) failures.push(msg); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ADR-0043 wire decode: reassemble chunked batches by cid, then zlib-inflate each batch's base64 ev
+// (node's zlib reads fflate's zlibSync output) into the rrweb events array. Mirrors the webview sink.
+function decodeBatchEvents(batches) {
+  const chunks = {};
+  const all = [];
+  for (const b of batches) {
+    if (b.enc !== 'deflate-b64') { if (Array.isArray(b.ev)) all.push(...b.ev); continue; }
+    let b64 = b.ev || '';
+    if (b.total > 1) {
+      const slot = chunks[b.cid] || (chunks[b.cid] = { total: b.total, parts: [], count: 0 });
+      if (slot.parts[b.seq] === undefined) { slot.parts[b.seq] = b64; slot.count++; }
+      if (slot.count < slot.total) continue;
+      delete chunks[b.cid];
+      b64 = slot.parts.join('');
+    }
+    try { all.push(...JSON.parse(zlib.inflateSync(Buffer.from(b64, 'base64')).toString('utf8'))); }
+    catch { /* skip a corrupt/partial batch */ }
+  }
+  return all;
+}
 
 // --- fake host on the temp socket (token auth + newline JSON), records batches ---
 const host = { authed: false, batches: [], bytes: 0 };
@@ -151,13 +173,22 @@ async function main() {
   console.log(`  ..  - page-visible recorder globals: rrweb=${leak.rrweb} started=${leak.started}; page-received batches=${leak.batches}`);
   console.log(`  ..  - native connect probe: ${nativeProbe}`);
 
-  const allEvents = host.batches.flatMap((b) => b.ev || []);
-  const json = JSON.stringify(host.batches);
+  // ADR-0043: the wire now carries compressed base64 events (enc:'deflate-b64'), reassembled by cid
+  // for chunked batches. Inflate to the real rrweb events before the capture/masking assertions, so
+  // marker-present + secrets-absent are checked on the DECOMPRESSED stream (a compressed blob would
+  // trivially "not include" any plaintext and hide a masking regression).
+  const allEvents = decodeBatchEvents(host.batches);
+  const json = JSON.stringify(allEvents);
+  const rawWire = JSON.stringify(host.batches);
   check(host.authed, 'shim authenticated to the host (manifest path + connectNative confirmed)');
   check(host.batches.length > 0, `host received DOM batches (${host.batches.length})`);
   check(host.batches.some((b) => b.co), 'received a checkout batch (full snapshot for late-join)');
+  check(host.batches.every((b) => b.enc === 'deflate-b64' && typeof b.ev === 'string'),
+    'batches wire-encoded as compressed base64 (ADR-0043), not raw JSON');
+  check(!rawWire.includes(CAPTURE_MARKER),
+    'raw wire is genuinely compressed (marker absent until inflated)');
   check(allEvents.length > 0, `batches carried rrweb events (${allEvents.length})`);
-  check(json.includes(CAPTURE_MARKER), 'DOM structure captured (data-attribute marker present)');
+  check(json.includes(CAPTURE_MARKER), 'DOM structure captured (data-attribute marker present, post-inflate)');
   check(!json.includes(VISIBLE_TEXT), 'visible body text MASKED (absent from stream)');
   check(!json.includes(USER_TEXT), 'text-input value MASKED (absent from stream)');
   check(!json.includes(SECRET), 'password value MASKED (absent from stream)');

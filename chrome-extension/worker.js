@@ -8,7 +8,31 @@
 // ADR-0042: recording runs in the page's isolated content-script world, started/stopped by messaging
 // the content script from here -- the worker never injects into the page MAIN world. The page cannot
 // observe recording via its own JS or URL.
+//
+// ADR-0043: each batch's rrweb events are deflate-compressed (zlib) and base64-encoded HERE, off the
+// recorded page's main thread, then shipped opaquely through the whole chain (shim, host, .dom lane,
+// Swift client) and inflated only in the replay webview. This is the fix for heavy pages: a raw
+// masked FullSnapshot can exceed the host's 2 MB line cap, but compressed it is tens of KB. A still-
+// oversized compressed batch (>~15 MB raw) is chunked into cid/seq/total parts, each a normal line.
+importScripts('vendor/fflate.min.js');
+
 const NATIVE_HOST = 'com.example.agentdesk.agentdesk.dom_bridge';
+
+// A compressed+base64 batch line larger than this is split into chunk parts, each well under the
+// host's 2 MB newline-frame cap. ~15 MB of raw events is needed to reach this after deflate.
+const CHUNK_LIMIT = 1_500_000; // base64 chars per part
+let nextChunkId = 0;
+
+// btoa over a large String.fromCharCode(...bytes) overflows the call stack, so encode in 32 KB
+// windows. Input is fflate.zlibSync output (a Uint8Array of raw deflate/zlib bytes).
+function bytesToBase64(bytes) {
+  let bin = '';
+  const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  }
+  return btoa(bin);
+}
 
 let port = null;
 // The tab currently being recorded; input from the phone is dispatched here (single-tab v1).
@@ -185,17 +209,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'agentdesk-batch') {
     const p = ensurePort();
     if (!p) return;
-    // NOTE (Phase 3): Chrome silently drops an ext->host native message over ~1 MB, a tighter limit
-    // than the host's 2 MB line cap. rrweb inlineImages/dataURL is off by default so batches stay
-    // small (~KB), but a huge DOM could exceed it -- Phase 3 should chunk or drop-with-signal rather
-    // than rely on Chrome truncating.
-    p.postMessage({
-      t: 'dom-batch',
-      tb: tabId == null ? -1 : tabId,
-      co: !!message.checkout,
-      ev: message.events,
-      meta: message.meta,
-    });
+    const tb = tabId == null ? -1 : tabId;
+    const co = !!message.checkout;
+    // ADR-0043: compress the events off the page thread. Chrome drops an ext->host native message
+    // over ~1 MB and the host caps a line at 2 MB; deflate keeps a masked snapshot well under both.
+    let b64;
+    try {
+      b64 = bytesToBase64(fflate.zlibSync(fflate.strToU8(JSON.stringify(message.events))));
+    } catch (e) {
+      console.error('[agentdesk] batch compress failed', e && e.message);
+      return;
+    }
+    if (b64.length <= CHUNK_LIMIT) {
+      p.postMessage({ t: 'dom-batch', tb, co, enc: 'deflate-b64', ev: b64, meta: message.meta });
+      return;
+    }
+    // Backstop: a compressed batch still over the limit is split into ordered parts reassembled by
+    // cid in the webview. co rides part 0 only, so the host's late-join buffer resets once per
+    // snapshot (not per part) and keeps the whole chunked snapshot together.
+    const cid = nextChunkId++;
+    const total = Math.ceil(b64.length / CHUNK_LIMIT);
+    for (let seq = 0; seq < total; seq++) {
+      p.postMessage({
+        t: 'dom-batch',
+        tb,
+        co: seq === 0 ? co : false,
+        enc: 'deflate-b64',
+        ev: b64.slice(seq * CHUNK_LIMIT, (seq + 1) * CHUNK_LIMIT),
+        meta: seq === 0 ? message.meta : undefined,
+        cid,
+        seq,
+        total,
+      });
+    }
     return;
   }
   if (message.type === 'agentdesk-error') {

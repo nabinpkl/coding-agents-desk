@@ -52,8 +52,18 @@
   let stopFn = null;       // rrweb.record() returns its own stop function
   let flushTimer = null;
   let batch = [];
+  let lastHref = '';       // ADR-0043: SPA-nav detection -> force a fresh full snapshot (keyframe)
 
   function flush() {
+    // ADR-0043: rrweb's own checkoutEveryNms is a wall-clock keyframe; SPA route changes don't move
+    // it, so a client that late-joins mid-route would wait up to 2 min for a usable snapshot. Poll the
+    // URL on the flush tick and force a full snapshot on change (no MAIN-world history hook needed).
+    if (recording && location.href !== lastHref) {
+      lastHref = location.href;
+      if (rrweb && typeof rrweb.record.takeFullSnapshot === 'function') {
+        try { rrweb.record.takeFullSnapshot(true); } catch (e) {}
+      }
+    }
     if (!batch.length) return;
     const events = batch;
     batch = [];
@@ -81,13 +91,27 @@
     }
     recording = true;
     batch = [];
+    lastHref = location.href;
     // Privacy: mask-by-default for an arbitrary tab (ADR-0038). This rrweb (2.0.0-alpha.4) has no
     // `maskAllText` boolean, so `maskTextSelector: '*'` matches every element and redacts every
     // visible text node; `maskAllInputs` redacts every input value. Together, no page content --
     // email bodies, chat, dollar figures, typed text, passwords -- streams in the clear.
     stopFn = rrweb.record({
       emit(event) { batch.push(redactEvent(event)); },
-      checkoutEveryNms: 5000, // periodic full snapshot so a late-joining phone can bootstrap
+      // ADR-0043: keyframe every 2 min (not 5 s). Each full snapshot is the biggest line on the wire;
+      // at 5 s it dominated bandwidth and (uncompressed) blew the host's 2 MB frame cap on heavy pages.
+      // Compression + a rare keyframe + SPA-nav snapshots (see flush) keep late-join fast and cheap.
+      checkoutEveryNms: 120000,
+      // Trim non-visual nodes from the snapshot before it is serialized/compressed: scripts, comments,
+      // and head metadata never render in the mirror, so dropping them shrinks the keyframe further.
+      slimDOMOptions: {
+        script: true,
+        comment: true,
+        headFavicon: true,
+        headWhitespace: true,
+        headMetaSocial: true,
+        headMetaRobots: true,
+      },
       maskTextSelector: '*',
       maskAllInputs: true,
       blockClass: 'agentdesk-block',

@@ -16,6 +16,7 @@
 </head>
 <body>
   <div id="stage"><div id="tap-overlay"></div></div>
+  <script src="fflate.min.js"></script>
   <script src="rrweb.min.js"></script>
   <script>
   (function () {
@@ -23,6 +24,21 @@
     var stage = document.getElementById('stage');
     var replayer = null;
     var pending = [];
+    // ADR-0043: chunk reassembly buffer, keyed by cid. A compressed batch too large for one line is
+    // split into total parts; hold them until all arrive, then concat and inflate.
+    var chunks = {};
+
+    function base64ToBytes(b64) {
+      var bin = atob(b64);
+      var out = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+    // ADR-0043: events ship deflate-compressed + base64 (see worker.js). Inflate here, at the sink;
+    // the host and Swift client relay the string opaquely.
+    function inflateEvents(b64) {
+      return JSON.parse(fflate.strFromU8(fflate.unzlibSync(base64ToBytes(b64))));
+    }
 
     function haveSnapshot(evts) {
       for (var i = 0; i < evts.length; i++) if (evts[i].type === FULL_SNAPSHOT) return true;
@@ -50,7 +66,25 @@
       var batch;
       try { batch = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON; }
       catch (e) { return; }
-      var ev = (batch && batch.ev) || [];
+      if (!batch) return;
+      var ev;
+      if (batch.enc === 'deflate-b64') {
+        var b64 = batch.ev || '';
+        if (batch.total > 1) {
+          // Reassemble by cid. The .dom lane is reliable+ordered so parts arrive in seq order, but key
+          // each part by its seq index so a duplicate or reorder can't corrupt the concatenation.
+          var slot = chunks[batch.cid] || (chunks[batch.cid] = { total: batch.total, parts: [], count: 0 });
+          if (slot.parts[batch.seq] === undefined) { slot.parts[batch.seq] = b64; slot.count++; }
+          if (slot.count < slot.total) return; // wait for the remaining parts
+          delete chunks[batch.cid];
+          b64 = slot.parts.join('');
+        }
+        try { ev = inflateEvents(b64); }
+        catch (e) { return; } // corrupt/partial batch: drop it, the next keyframe recovers
+      } else {
+        // Defensive: an uncompressed batch (array ev) still replays.
+        ev = (batch && batch.ev) || [];
+      }
       for (var i = 0; i < ev.length; i++) applyEvent(ev[i]);
       scheduleProbe();
     };

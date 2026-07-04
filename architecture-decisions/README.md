@@ -85,3 +85,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0040 | Route phone taps back to Chrome as trusted input via chrome.debugger | proposed | 2026-07-01 |
 | ADR-0041 | DOM-mirror hardening: attribute masking, pixel fallback, asset reachability, mask audit | proposed | 2026-07-01 |
 | ADR-0042 | Run the DOM recorder in the extension's isolated world, triggered from the chrome layer | proposed | 2026-07-01 |
+| ADR-0043 | Compress DOM-mirror batches end-to-end, snapshot as a rare keyframe, chunk as a backstop | proposed | 2026-07-01 |

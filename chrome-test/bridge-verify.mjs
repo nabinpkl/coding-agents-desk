@@ -102,11 +102,15 @@ async function main() {
   check(state.authed === true, 'shim authenticated with the shared token');
   check(state.lastAuthToken === TOKEN, 'host received the exact token');
 
-  shim.stdin.write(frameForShim({ t: 'dom-batch', tb: 5, co: true, ev: [{ type: 4 }, { type: 2 }] }));
+  // ADR-0043: the real wire ships events as a compressed base64 string (enc:'deflate-b64'); the shim
+  // is an opaque relay, so it must forward the string byte-for-byte regardless of shape.
+  const SAMPLE_EV = 'eNqrVkpUslJQclTSUUpSsjI0MDAwMDBQ0lFKArKMgKwkIMsYyDIBAKb2Cq4=';
+  shim.stdin.write(frameForShim({ t: 'dom-batch', tb: 5, co: true, enc: 'deflate-b64', ev: SAMPLE_EV }));
   await sleep(300);
   check(state.batches.length === 1, 'host received exactly one dom-batch');
   check(state.batches[0]?.tb === 5 && state.batches[0]?.co === true, 'batch tab/checkout preserved');
-  check(Array.isArray(state.batches[0]?.ev) && state.batches[0].ev.length === 2, 'rrweb events forwarded verbatim');
+  check(state.batches[0]?.enc === 'deflate-b64' && state.batches[0]?.ev === SAMPLE_EV,
+    'compressed base64 batch forwarded verbatim (opaque shim)');
 
   // Host -> shim -> "Chrome" (input command, framed back to 4-byte-LE).
   shimOutput = [];

@@ -16,8 +16,9 @@ import Security
 final class DomBridgeServer: @unchecked Sendable {
     enum Constants {
         // Cap on a single newline-framed line from the shim. Chrome caps extension->host native
-        // messages at 1 MB; the shim may coalesce, so allow headroom above that. A full rrweb
-        // snapshot batch is ~tens of KB, so this is a generous safety bound, not a working limit.
+        // messages at 1 MB; the shim may coalesce, so allow headroom above that. Since ADR-0043 the
+        // extension deflate-compresses each batch (and chunks a still-oversized one), so every line is
+        // well under this -- it is a memory safety bound, not a working limit.
         static let maxLineBytes = 2 * 1024 * 1024
     }
 
