@@ -34,13 +34,18 @@ struct RegionCrispConfig: Equatable {
     }
 }
 
-// Paces crisp sends so they never steal the link from motion. The crisp tiles ride the
+// Paces crisp sends so a large settle cannot flood the link. The crisp tiles ride the
 // reliable graphics lane, which shares a QUIC connection with the video datagrams; an
-// unpaced crisp stream serializes ahead of video and spikes its latency. Two rules:
-//   - Yield while video has frames in flight (motion owns the link); crisp waits for an
-//     idle moment, which is exactly when content has settled and is worth sharpening.
-//   - Cap the cumulative crisp bytes per rolling second, so a large settle trickles out
-//     instead of flooding the link the instant it goes idle.
+// unpaced crisp stream serializes ahead of video and spikes its latency. The rule is a
+// single per-second crisp byte ceiling, so a full-surface settle (e.g. a desktop switch)
+// trickles out instead of bursting all at once.
+//
+// It deliberately does NOT gate on whether video is "busy". Which regions crisp is decided
+// per-tile by RegionCrispController: a moving region never settles, so it never emits; only
+// regions that actually went static emit, paced by this cap. A prior whole-frame in-flight
+// gate was both wrong-grained (one in-flight frame, or a blinking cursor, suppressed crisp
+// for the whole screen) and self-defeating (crisp runs right after a video send, when a
+// frame is always in flight, so it never passed). The cap is the only link-protection here.
 // A pure value type so the policy is unit-testable without the transport, lanes, or locks.
 struct CrispPacingGate {
     let maxBytesPerSecond: Int
@@ -52,15 +57,14 @@ struct CrispPacingGate {
     }
 
     // May a crisp window emit now? Rolls the 1s rate window over by wall time first, then
-    // gates on video idleness and the remaining byte budget. Returning true does not spend
-    // budget; the caller spends it via recordSent once the payload size is known.
-    mutating func mayEmit(inFlightVideoFrames: Int, nowNs: UInt64) -> Bool {
+    // gates on the remaining byte budget. Returning true does not spend budget; the caller
+    // spends it via recordSent once the payload size is known.
+    mutating func mayEmit(nowNs: UInt64) -> Bool {
         let windowNs: UInt64 = 1_000_000_000
         if nowNs &- windowStartNs >= windowNs {
             windowStartNs = nowNs
             bytesInWindow = 0
         }
-        if inFlightVideoFrames > 0 { return false }
         return bytesInWindow < maxBytesPerSecond
     }
 

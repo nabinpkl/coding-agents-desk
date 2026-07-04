@@ -42,8 +42,9 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var surfaceInitialized = false
         var lastCrispNs: UInt64 = 0
         var lastConvertWarnNs: UInt64 = 0
-        // Paces crisp sends so they yield to video and never exceed the per-second byte
-        // budget (see CrispPacingGate). Crisp shares the QUIC link with video datagrams.
+        // Caps crisp's sustained link share at the per-second byte budget (see
+        // CrispPacingGate) so a large settle cannot flood the QUIC link it shares with the
+        // video datagrams. Which regions crisp is decided per-tile by the controller.
         var pacing = CrispPacingGate(maxBytesPerSecond: Config.ownedMediaCrispMaxBytesPerSecond)
     }
     private let crispGate = OSAllocatedUnfairLock<CrispState>(initialState: CrispState())
@@ -227,15 +228,15 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             return true
         }
         guard shouldRun else { return }
-        // Crisp yields to motion: skip this window unless the video link is idle (no frames
-        // in flight) and the per-second crisp byte budget has room. On a constrained link a
-        // crisp chunk serializes ahead of the video datagrams and spikes their latency, so
-        // crisp only fills genuinely idle moments (which is when content has settled and is
-        // worth sharpening). Skipping before extractBGRA also avoids the full-surface hash
-        // cost while motion owns the link. Eager reverts (processCrispDamage) are unaffected.
-        let inFlightVideoFrames = encodeGate.withLock { $0.mediaState.inFlightFrames }
+        // Pace crisp against its per-second byte budget; skip this window if the budget for
+        // the current second is spent. This bounds crisp's sustained link share so a large
+        // settle trickles out instead of bursting. It is NOT a motion gate: which regions
+        // crisp is decided per-tile by the controller (a moving region never settles, so it
+        // never emits), and checking the budget before extractBGRA also avoids the
+        // full-surface hash when nothing can be sent. Eager reverts (processCrispDamage)
+        // carry no payload and are unaffected.
         let mayEmit = crispGate.withLock { state in
-            state.pacing.mayEmit(inFlightVideoFrames: inFlightVideoFrames, nowNs: nowNs)
+            state.pacing.mayEmit(nowNs: nowNs)
         }
         guard mayEmit else { return }
         guard let surface = Self.extractBGRA(frame.pixelBuffer) else {
