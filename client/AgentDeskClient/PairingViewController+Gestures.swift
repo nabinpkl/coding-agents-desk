@@ -11,6 +11,7 @@ import AgentDeskWire
 extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDelegate, DisplayRailViewDelegate {
     @objc func settingsChanged() {
         applySettingsToTranslator()
+        applyTouchScrollMode()
         // R20: settings toggle is the only source of truth for whether
         // thumbnails capture should run host-side. On every change we
         // resend the current ClientConfig and refresh strip visibility.

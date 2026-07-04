@@ -27,6 +27,7 @@ final class SettingsStore: @unchecked Sendable {
         static let accessoryKeyHeight = "agentDesk.accessoryKeyHeight"
         static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
         static let showSpacePreviews = "agentDesk.showSpacePreviews"
+        static let touchScrollMode = "agentDesk.touchScrollMode"
         static let crispTextOverlayEnabled = "agentDesk.crispTextOverlayEnabled"
         static let showHostCursorInVideo = "agentDesk.showHostCursorInVideo"
         static let domMirrorEnabled = "agentDesk.domMirrorEnabled"
@@ -160,6 +161,18 @@ final class SettingsStore: @unchecked Sendable {
         get { defaults.object(forKey: Key.showHostCursorInVideo) as? Bool ?? false }
         set {
             defaults.set(newValue, forKey: Key.showHostCursorInVideo)
+            postChange()
+        }
+    }
+
+    // Touch-scroll mode: when on, a one-finger drag on the video surface
+    // primes the host cursor at the touched point and scrolls it, reusing the
+    // right-edge strip's scroll behavior on a larger target. Default off keeps
+    // the relative trackpad + strip as the sole control model.
+    var touchScrollMode: Bool {
+        get { defaults.object(forKey: Key.touchScrollMode) as? Bool ?? false }
+        set {
+            defaults.set(newValue, forKey: Key.touchScrollMode)
             postChange()
         }
     }

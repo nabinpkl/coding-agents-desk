@@ -145,6 +145,13 @@ extension PairingViewController {
         showKeyboardButton.addTarget(self, action: #selector(toggleKeyboard), for: .touchUpInside)
         buttonRow.addArrangedSubview(showKeyboardButton)
 
+        // Touch-scroll mode toggle: flips the scroll control from the narrow
+        // right-edge strip onto the whole video surface. Live mid-session flip,
+        // persisted via SettingsStore; appearance reflects on/off state.
+        styleActionButton(touchScrollToggleButton, title: "Touch scroll")
+        touchScrollToggleButton.addTarget(self, action: #selector(touchScrollToggleTapped), for: .touchUpInside)
+        buttonRow.addArrangedSubview(touchScrollToggleButton)
+
         // R25: the merged Spaces band is just the thumbnail strip.
         displayRailView.translatesAutoresizingMaskIntoConstraints = false
         displayRailView.delegate = self
@@ -283,6 +290,8 @@ extension PairingViewController {
         scrollStripView.gestureRecognizers?.forEach { scrollStripView.removeGestureRecognizer($0) }
         gestureTranslator.attach(to: trackpadView)
         gestureTranslator.attachScrollStrip(to: scrollStripView)
+        // Touch-scroll mode: recognizer on the video surface + apply current mode.
+        attachTouchScrollRecognizer()
 
         startDesktopStateObservation()
         startThumbnailsObservation()
