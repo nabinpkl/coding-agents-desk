@@ -252,7 +252,7 @@ dom-mirror-bridge-verify:
 # Playwright, records the CSP-strict fixture through the real connectNative -> shim -> fake host
 # chain, and asserts checkout + events + sentinel-present + secret-masked. Uses the globally
 # installed Playwright and the system Google Chrome (channel:chrome); no browser download.
-dom-mirror-record-verify:
+dom-mirror-record-verify: ext-stamp
     #!/usr/bin/env bash
     set -euo pipefail
     export NODE_PATH="$(npm root -g)"
@@ -273,7 +273,7 @@ dom-mirror-input-verify:
 # surface, which emits a probe of the reconstructed DOM. Asserts the sim console shows the capture
 # marker (page text is masked, so the probe keys on a data-attribute marker + node count).
 # Standing sim + throwaway-Chrome approval covers this (physical device stays a checkpoint).
-dom-mirror-e2e:
+dom-mirror-e2e: ext-stamp
     #!/usr/bin/env bash
     set -euo pipefail
     ROOT='{{justfile_directory()}}'
@@ -581,7 +581,27 @@ iphone-console-run variant="stable":
 # current host. variant: dev (default -- the DOM-mirror dev stack) | stable. channel: chrome
 # (default) | canary | chromium. Writes to ~/Library/Application Support/Google/<channel>/
 # NativeMessagingHosts/; undo with `just dom-bridge-uninstall`.
-dom-bridge-install variant="dev" channel="chrome":
+# Stamp the extension with its git build identity (chrome-extension/build-info.json) so the toolbar
+# popup shows exactly which build is loaded -- the extension parallel of the host/client
+# AgentDeskGitSHA. An unpacked extension runs whatever is on disk at reload time, so the manifest
+# `version` alone can't tell you whether you reloaded after an edit; the sha can. build-info.json is
+# gitignored and regenerated here; reload the extension after stamping to pick it up. `dirty` flags
+# uncommitted edits under chrome-extension/ so a felt read is never silently against an unshipped
+# diff. The marketing version is read from manifest.json (its `version` is the single source of
+# truth); bump that per release -- feature -> minor, fix -> patch (see AGENTS.md "Versioning").
+ext-stamp:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd '{{justfile_directory()}}'
+    VER="$(node -p "require('./chrome-extension/manifest.json').version")"
+    SHA="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
+    COMMITS="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
+    if [ -n "$(git status --porcelain chrome-extension 2>/dev/null)" ]; then DIRTY=true; else DIRTY=false; fi
+    printf '{\n  "version": "%s",\n  "commits": %s,\n  "sha": "%s",\n  "dirty": %s\n}\n' \
+        "$VER" "$COMMITS" "$SHA" "$DIRTY" > chrome-extension/build-info.json
+    echo "stamped chrome-extension/build-info.json -> v$VER ($COMMITS) $SHA dirty=$DIRTY"
+
+dom-bridge-install variant="dev" channel="chrome": ext-stamp
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{variant}}" = "dev" ]; then SUPPORT="$HOME/Library/Application Support/{{host_dev_bundle_id}}"; else SUPPORT="$HOME/Library/Application Support/{{host_bundle_id}}"; fi
@@ -590,7 +610,7 @@ dom-bridge-install variant="dev" channel="chrome":
     node dom-bridge/install.mjs --ext-id "$EXT_ID" --channel {{channel}} \
         --socket "$SUPPORT/ad-dom-bridge.sock" \
         --token  "$SUPPORT/ad-dom-bridge-token"
-    echo "done. Reload the extension in chrome://extensions if it was already running."
+    echo "done (extension stamped). Reload the extension in chrome://extensions if it was already running."
 
 # Remove the dom-bridge native-messaging manifest + wrapper (channel: chrome default).
 dom-bridge-uninstall channel="chrome":

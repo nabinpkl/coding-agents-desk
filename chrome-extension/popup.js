@@ -6,6 +6,28 @@ const dot = document.getElementById('dot');
 const statusEl = document.getElementById('status');
 const subEl = document.getElementById('sub');
 const btn = document.getElementById('toggle');
+const verEl = document.getElementById('ver');
+
+// Which build is loaded (ADR-0043 versioning). The marketing version always comes from the manifest;
+// the exact git identity comes from build-info.json, which `just ext-stamp` regenerates and reload
+// picks up (an unpacked extension runs whatever is on disk, so the sha is the only reliable "which
+// build" signal). Reads as "v0.2.0 (128) 4ba5e8a"; a yellow "dirty" marks uncommitted edits at stamp
+// time. Unstamped (no build-info.json) shows just the manifest version.
+async function renderVersion() {
+  const ver = chrome.runtime.getManifest().version;
+  try {
+    const info = await (await fetch(chrome.runtime.getURL('build-info.json'))).json();
+    verEl.textContent = `v${info.version || ver} (${info.commits}) ${info.sha}`;
+    if (info.dirty) {
+      const tag = document.createElement('span');
+      tag.className = 'dirty';
+      tag.textContent = ' dirty';
+      verEl.appendChild(tag);
+    }
+  } catch (e) {
+    verEl.textContent = `v${ver} · unstamped`;
+  }
+}
 
 function render(state) {
   const rec = !!(state && state.recording);
@@ -30,3 +52,4 @@ btn.addEventListener('click', async () => {
 });
 
 refresh();
+renderVersion();

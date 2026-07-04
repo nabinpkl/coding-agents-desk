@@ -15,6 +15,8 @@
   button.stop { background: #e8e8ed; color: #1d1d1f; }
   button:disabled { background: #e8e8ed; color: #aeaeb2; cursor: default; }
   .hint { color: #8e8e93; font-size: 11px; margin-top: 8px; text-align: center; }
+  .ver { color: #aeaeb2; font-size: 10px; margin-top: 10px; text-align: center; font-variant-numeric: tabular-nums; }
+  .ver .dirty { color: #d0a000; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -23,6 +25,7 @@
     <div class="sub" id="sub"></div>
     <button id="toggle" disabled>…</button>
     <div class="hint">Shortcut: Alt+Shift+M</div>
+    <div class="ver" id="ver"></div>
   </div>
   <script src="popup.js"></script>
 </body>
