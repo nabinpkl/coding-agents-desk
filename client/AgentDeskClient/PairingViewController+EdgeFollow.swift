@@ -62,6 +62,7 @@ extension PairingViewController: UIScrollViewDelegate {
         if !isSameDisplay || cursorSourcePos == nil {
             pendingCursorRetarget = nil
             isManualViewportPanActive = false
+            finishPanFollowEdgePush()
             if let cx = state.cursorX, let cy = state.cursorY {
                 cursorSourcePos = EdgeFollow.advanceCursor(
                     from: CGPoint(
@@ -218,6 +219,8 @@ extension PairingViewController: UIScrollViewDelegate {
         panFollowActive = false
         panFollowAnchor = nil
         lastSentPanFollowHostPoint = nil
+        finishPanFollowEdgePush()
+        lastPanFollowGestureTranslation = scrollView.panGestureRecognizer.translation(in: scrollView)
         // Hold the dot's current viewport position fixed for the gesture; the
         // content slides under it and we reproject to the source now beneath it.
         if let source = cursorSourcePos,
@@ -243,16 +246,39 @@ extension PairingViewController: UIScrollViewDelegate {
                   sinkViewSize: scrollView.bounds.size,
                   zoomScale: scrollView.zoomScale,
                   contentOffset: scrollView.contentOffset) else { return }
-        cursorSourcePos = retarget.sourcePoint
+        let pan = scrollView.panGestureRecognizer
+        let rawTranslation = pan.translation(in: scrollView)
+        let edgeProjection = PointerRetargeting.panFollowEdgeProjection(
+            contentOffset: scrollView.contentOffset,
+            contentSize: scrollView.contentSize,
+            viewportSize: scrollView.bounds.size,
+            panTranslation: rawTranslation,
+            panVelocity: pan.velocity(in: scrollView)
+        )
+
+        let priorSource = cursorSourcePos ?? retarget.sourcePoint
+        let sourcePoint = CGPoint(
+            x: edgeProjection.axes.contains(.x) ? priorSource.x : retarget.sourcePoint.x,
+            y: edgeProjection.axes.contains(.y) ? priorSource.y : retarget.sourcePoint.y
+        )
+        cursorSourcePos = sourcePoint
         updateCursorDot()
-        // Pointer only. Dedupe identical points to avoid flooding the channel.
-        if retarget.hostPoint != lastSentPanFollowHostPoint {
-            lastSentPanFollowHostPoint = retarget.hostPoint
-            sendInput(.cursorSet(
-                displayId: retarget.displayId,
-                x: Float(retarget.hostPoint.x),
-                y: Float(retarget.hostPoint.y)))
+
+        if edgeProjection.axes != [.x, .y],
+           let hostPoint = panFollowHostPoint(displayId: retarget.displayId, sourcePoint: sourcePoint) {
+            // Pointer only. Dedupe identical points to avoid flooding the channel.
+            if hostPoint != lastSentPanFollowHostPoint {
+                lastSentPanFollowHostPoint = hostPoint
+                sendInput(.cursorSet(
+                    displayId: retarget.displayId,
+                    x: Float(hostPoint.x),
+                    y: Float(hostPoint.y)))
+            }
         }
+        drivePanFollowEdgePush(
+            projection: edgeProjection,
+            rawTranslation: rawTranslation
+        )
     }
 
     public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -260,6 +286,7 @@ extension PairingViewController: UIScrollViewDelegate {
         // Freeze at finger-lift: ignore momentum/bounce frames so the cursor
         // holds where the user aimed it (this is a pointing gesture).
         panFollowActive = false
+        finishPanFollowEdgePush()
         if !decelerate {
             finishManualViewportPan(scrollView)
         }
@@ -278,5 +305,61 @@ extension PairingViewController: UIScrollViewDelegate {
         panFollowActive = false
         panFollowAnchor = nil
         lastSentPanFollowHostPoint = nil
+        finishPanFollowEdgePush()
+        lastPanFollowGestureTranslation = nil
+    }
+
+    private func drivePanFollowEdgePush(
+        projection: PanFollowEdgeProjection,
+        rawTranslation: CGPoint
+    ) {
+        if projection.axes.isEmpty {
+            finishPanFollowEdgePush()
+            lastPanFollowGestureTranslation = rawTranslation
+            return
+        }
+
+        if panFollowEdgeAxes != projection.axes {
+            finishPanFollowEdgePush()
+            let previousRaw = lastPanFollowGestureTranslation ?? rawTranslation
+            gestureTranslator.processPan(
+                state: .began,
+                translation: PointerRetargeting.panFollowEdgeProjection(
+                    axes: projection.axes,
+                    panTranslation: previousRaw,
+                    panVelocity: .zero
+                ).translation,
+                velocity: .zero
+            )
+            panFollowEdgeAxes = projection.axes
+        }
+
+        gestureTranslator.processPan(
+            state: .changed,
+            translation: projection.translation,
+            velocity: projection.velocity
+        )
+        lastPanFollowGestureTranslation = rawTranslation
+    }
+
+    private func finishPanFollowEdgePush() {
+        guard !panFollowEdgeAxes.isEmpty else { return }
+        gestureTranslator.processPan(
+            state: .ended,
+            translation: .zero,
+            velocity: .zero
+        )
+        panFollowEdgeAxes = []
+    }
+
+    private func panFollowHostPoint(displayId: String, sourcePoint: CGPoint) -> CGPoint? {
+        guard let state = lastDesktopState,
+              let display = state.displays.first(where: { $0.id == displayId }) else {
+            return nil
+        }
+        return CGPoint(
+            x: CGFloat(display.originX) + sourcePoint.x,
+            y: CGFloat(display.originY) + sourcePoint.y
+        )
     }
 }

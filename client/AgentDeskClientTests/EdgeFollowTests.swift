@@ -185,7 +185,7 @@ struct EdgeFollowTests {
         let back = PointerRetargeting.panFollowRetarget(
             anchorViewportPoint: anchor!, state: state, displayId: "d1",
             displayBounds: bounds, sinkViewSize: sink, zoomScale: zoom,
-            contentOffset: offset, edgeReachOverscroll: 44)
+            contentOffset: offset)
         #expect(back != nil)
         #expect(abs(back!.sourcePoint.x - source.x) < 0.001)
         #expect(abs(back!.sourcePoint.y - source.y) < 0.001)
@@ -203,13 +203,13 @@ struct EdgeFollowTests {
         let r = PointerRetargeting.panFollowRetarget(
             anchorViewportPoint: anchor, state: state, displayId: "d1",
             displayBounds: bounds, sinkViewSize: sink, zoomScale: zoom,
-            contentOffset: maxOffset, edgeReachOverscroll: 44)!
+            contentOffset: maxOffset)!
         // Centre reaches W - W/2z = 1000 - 250 = 750, NOT the 999 edge.
         #expect(abs(r.sourcePoint.x - 750) < 0.5)
         #expect(r.sourcePoint.x < 999)
     }
 
-    @Test func panFollowOverscrollReachesTheFarEdge() {
+    @Test func panFollowClampsPositiveOverscrollToReachableInterior() {
         let bounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
         let sink = CGSize(width: 400, height: 240)
         let state = Self.singleDisplayState(id: "d1", width: 1000, height: 600, originX: 0, originY: 0)
@@ -217,17 +217,16 @@ struct EdgeFollowTests {
         let anchor = CGPoint(x: sink.width / 2, y: sink.height / 2)
         let maxOffset = CGPoint(x: sink.width * zoom - sink.width,
                                 y: sink.height * zoom - sink.height)
-        // Push a full edgeReachOverscroll past the right/bottom max.
         let over = CGPoint(x: maxOffset.x + 44, y: maxOffset.y + 44)
         let r = PointerRetargeting.panFollowRetarget(
             anchorViewportPoint: anchor, state: state, displayId: "d1",
             displayBounds: bounds, sinkViewSize: sink, zoomScale: zoom,
-            contentOffset: over, edgeReachOverscroll: 44)!
-        #expect(abs(r.sourcePoint.x - 999) < 0.5)   // advanceCursor clamps to W-1
-        #expect(abs(r.sourcePoint.y - 599) < 0.5)
+            contentOffset: over)!
+        #expect(abs(r.sourcePoint.x - 750) < 0.5)
+        #expect(abs(r.sourcePoint.y - 450) < 0.5)
     }
 
-    @Test func panFollowNegativeOverscrollReachesZeroEdge() {
+    @Test func panFollowClampsNegativeOverscrollToReachableInterior() {
         let bounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
         let sink = CGSize(width: 400, height: 240)
         let state = Self.singleDisplayState(id: "d1", width: 1000, height: 600, originX: 0, originY: 0)
@@ -237,25 +236,9 @@ struct EdgeFollowTests {
         let r = PointerRetargeting.panFollowRetarget(
             anchorViewportPoint: anchor, state: state, displayId: "d1",
             displayBounds: bounds, sinkViewSize: sink, zoomScale: zoom,
-            contentOffset: over, edgeReachOverscroll: 44)!
-        #expect(abs(r.sourcePoint.x - 0) < 0.5)
-        #expect(abs(r.sourcePoint.y - 0) < 0.5)
-    }
-
-    @Test func panFollowPartialOverscrollLandsBetweenMarginAndEdge() {
-        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
-        let sink = CGSize(width: 400, height: 240)
-        let state = Self.singleDisplayState(id: "d1", width: 1000, height: 600, originX: 0, originY: 0)
-        let zoom: CGFloat = 2.0
-        let anchor = CGPoint(x: sink.width / 2, y: sink.height / 2)
-        let maxOffset = CGPoint(x: sink.width * zoom - sink.width, y: 0)
-        let over = CGPoint(x: maxOffset.x + 22, y: 0)   // half of edgeReachOverscroll
-        let r = PointerRetargeting.panFollowRetarget(
-            anchorViewportPoint: anchor, state: state, displayId: "d1",
-            displayBounds: bounds, sinkViewSize: sink, zoomScale: zoom,
-            contentOffset: over, edgeReachOverscroll: 44)!
-        // base 750, remaining 250, frac 0.5 => 750 + 125 = 875.
-        #expect(abs(r.sourcePoint.x - 875) < 0.5)
+            contentOffset: over)!
+        #expect(abs(r.sourcePoint.x - 250) < 0.5)
+        #expect(abs(r.sourcePoint.y - 150) < 0.5)
     }
 
     @Test func panFollowReturnsNilWhenNotZoomed() {
@@ -265,7 +248,33 @@ struct EdgeFollowTests {
         #expect(PointerRetargeting.panFollowRetarget(
             anchorViewportPoint: .zero, state: state, displayId: "d1",
             displayBounds: bounds, sinkViewSize: sink, zoomScale: 1.0,
-            contentOffset: .zero, edgeReachOverscroll: 44) == nil)
+            contentOffset: .zero) == nil)
+    }
+
+    @Test func panFollowEdgeProjectionInvertsOverscrolledAxesOnly() {
+        let projection = PointerRetargeting.panFollowEdgeProjection(
+            contentOffset: CGPoint(x: 410, y: 30),
+            contentSize: CGSize(width: 800, height: 480),
+            viewportSize: CGSize(width: 400, height: 240),
+            panTranslation: CGPoint(x: -18, y: -12),
+            panVelocity: CGPoint(x: -900, y: -500)
+        )
+        #expect(projection.axes == [.x])
+        #expect(projection.translation == CGPoint(x: 18, y: 0))
+        #expect(projection.velocity == CGPoint(x: 900, y: 0))
+    }
+
+    @Test func panFollowEdgeProjectionReturnsEmptyInsideScrollableRange() {
+        let projection = PointerRetargeting.panFollowEdgeProjection(
+            contentOffset: CGPoint(x: 200, y: 120),
+            contentSize: CGSize(width: 800, height: 480),
+            viewportSize: CGSize(width: 400, height: 240),
+            panTranslation: CGPoint(x: -18, y: -12),
+            panVelocity: CGPoint(x: -900, y: -500)
+        )
+        #expect(projection.axes.isEmpty)
+        #expect(projection.translation == .zero)
+        #expect(projection.velocity == .zero)
     }
 
     // MARK: - hostPoint(forContentViewLocation:) — touch-scroll inverse map

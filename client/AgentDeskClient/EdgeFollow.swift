@@ -110,6 +110,19 @@ struct CursorViewportRetarget: Equatable {
     let hostPoint: CGPoint
 }
 
+struct PanFollowOverscrollAxes: OptionSet, Equatable {
+    let rawValue: Int
+
+    static let x = PanFollowOverscrollAxes(rawValue: 1 << 0)
+    static let y = PanFollowOverscrollAxes(rawValue: 1 << 1)
+}
+
+struct PanFollowEdgeProjection: Equatable {
+    let axes: PanFollowOverscrollAxes
+    let translation: CGPoint
+    let velocity: CGPoint
+}
+
 enum PointerRetargeting {
     // The dot's viewport position for a source-display point, at the given
     // zoom/offset. Used to capture the fixed pan anchor at drag start.
@@ -135,11 +148,12 @@ enum PointerRetargeting {
 
     // Continuous pan-follow (Option E). During a manual viewport pan the dot is
     // held at a fixed viewport anchor while the content slides beneath it; this
-    // reprojects that anchor through the live contentOffset to the source point
-    // now under it, so the host cursor can be reconciled to follow the pan.
-    // Overscroll past the scrollable range (iOS rubber-band) drives an edge
-    // push that carries the cursor the final unreachable margin (W/2z) to the
-    // true display edge — the part plain reconciliation cannot reach.
+    // reprojects that anchor through the reachable contentOffset to the source
+    // point now under it, so the host cursor can be reconciled to follow the
+    // pan. Rubber-band movement beyond the scrollable range is intentionally
+    // excluded here; the live scroll delegate hands that movement to
+    // GestureTranslator.processPan so it uses the same accelerated cursorMove
+    // path as the trackpad.
     static func panFollowRetarget(
         anchorViewportPoint anchor: CGPoint,
         state: DesktopState?,
@@ -147,8 +161,7 @@ enum PointerRetargeting {
         displayBounds: CGRect,
         sinkViewSize: CGSize,
         zoomScale: CGFloat,
-        contentOffset: CGPoint,
-        edgeReachOverscroll: CGFloat = 44
+        contentOffset: CGPoint
     ) -> CursorViewportRetarget? {
         guard let state,
               let displayId,
@@ -168,25 +181,21 @@ enum PointerRetargeting {
         let maxOffsetX = max(0, sinkViewSize.width * zoomScale - sinkViewSize.width)
         let maxOffsetY = max(0, sinkViewSize.height * zoomScale - sinkViewSize.height)
 
-        // Per-axis: interior reconcile of the fixed anchor, then an
-        // overscroll-gained push toward the near display edge.
+        // Per-axis: interior reconcile of the fixed anchor, clamped to the
+        // scrollable range. Boundary cursor movement is relative input, not a
+        // second absolute retarget.
         func axis(anchor: CGFloat, offset: CGFloat, maxOffset: CGFloat,
-                  pad: CGFloat, span: CGFloat) -> CGFloat {
+                  pad: CGFloat) -> CGFloat {
             let clamped = min(max(0, offset), maxOffset)
-            let overscroll = offset - clamped               // signed; 0 interior
             let sink = (anchor + clamped) / zoomScale
-            let base = (sink - pad) / fitScale
-            guard overscroll != 0, edgeReachOverscroll > 0 else { return base }
-            let frac = min(1, abs(overscroll) / edgeReachOverscroll)
-            return overscroll > 0 ? base + frac * (span - base)
-                                  : base - frac * base
+            return (sink - pad) / fitScale
         }
 
         let source = CGPoint(
             x: axis(anchor: anchor.x, offset: contentOffset.x, maxOffset: maxOffsetX,
-                    pad: padX, span: displayBounds.width),
+                    pad: padX),
             y: axis(anchor: anchor.y, offset: contentOffset.y, maxOffset: maxOffsetY,
-                    pad: padY, span: displayBounds.height))
+                    pad: padY))
         let clamped = EdgeFollow.advanceCursor(
             from: source, delta: .zero, displayBounds: displayBounds)
         return CursorViewportRetarget(
@@ -195,6 +204,52 @@ enum PointerRetargeting {
             hostPoint: CGPoint(
                 x: CGFloat(display.originX) + clamped.x,
                 y: CGFloat(display.originY) + clamped.y))
+    }
+
+    // Projects a UIScrollView rubber-band pan into the trackpad cursor domain.
+    // UIScrollView contentOffset grows when the finger moves left/up, while a
+    // cursorMove grows when the finger moves right/down, so overscrolled axes
+    // invert the pan translation and velocity. Interior axes are zeroed so the
+    // scroll delegate can keep absolute reconciliation on those axes.
+    static func panFollowEdgeProjection(
+        contentOffset: CGPoint,
+        contentSize: CGSize,
+        viewportSize: CGSize,
+        panTranslation: CGPoint,
+        panVelocity: CGPoint
+    ) -> PanFollowEdgeProjection {
+        let maxOffsetX = max(0, contentSize.width - viewportSize.width)
+        let maxOffsetY = max(0, contentSize.height - viewportSize.height)
+        var axes: PanFollowOverscrollAxes = []
+        if contentOffset.x < 0 || contentOffset.x > maxOffsetX {
+            axes.insert(.x)
+        }
+        if contentOffset.y < 0 || contentOffset.y > maxOffsetY {
+            axes.insert(.y)
+        }
+        return panFollowEdgeProjection(
+            axes: axes,
+            panTranslation: panTranslation,
+            panVelocity: panVelocity
+        )
+    }
+
+    static func panFollowEdgeProjection(
+        axes: PanFollowOverscrollAxes,
+        panTranslation: CGPoint,
+        panVelocity: CGPoint
+    ) -> PanFollowEdgeProjection {
+        return PanFollowEdgeProjection(
+            axes: axes,
+            translation: CGPoint(
+                x: axes.contains(.x) ? -panTranslation.x : 0,
+                y: axes.contains(.y) ? -panTranslation.y : 0
+            ),
+            velocity: CGPoint(
+                x: axes.contains(.x) ? -panVelocity.x : 0,
+                y: axes.contains(.y) ? -panVelocity.y : 0
+            )
+        )
     }
 
     // Map a touch on the video sink to a host point (global CG points), used by

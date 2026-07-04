@@ -322,6 +322,11 @@ extension PairingViewController {
         cursorPositionTask = nil
         pendingCursorRetarget = nil
         isManualViewportPanActive = false
+        panFollowActive = false
+        panFollowAnchor = nil
+        lastSentPanFollowHostPoint = nil
+        panFollowEdgeAxes = []
+        lastPanFollowGestureTranslation = nil
         stopAgentSayForegroundPresentation()
         lastDesktopState = nil
         selectedDisplayIdForClientConfig = nil
