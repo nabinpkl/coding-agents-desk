@@ -21,6 +21,10 @@ struct HostTextInputKeyboardPolicyTests {
             from: .shown,
             intent: .toggle
         ).next == .hidden)
+        #expect(KeyboardPresentationStateMachine.transition(
+            from: .awaitingEditableFocusAfterIBeamTap,
+            intent: .toggle
+        ).next == .shown)
     }
 
     @Test func stateMachineReportsUnchangedTransition() {
@@ -32,14 +36,18 @@ struct HostTextInputKeyboardPolicyTests {
         #expect(!transition.changed)
     }
 
-    @Test func editableFocusPushShowsKeyboard() {
+    @Test func editableFocusPushAloneDoesNotShowKeyboard() {
         let push = HostTextInputFocusPush(
             editable: true,
             secure: false,
             source: .accessibility,
             role: "AXTextArea"
         )
-        #expect(HostTextInputKeyboardPolicy.intent(for: push) == .show)
+        let transition = KeyboardPresentationStateMachine.transition(
+            from: .hidden,
+            intent: HostTextInputKeyboardPolicy.intent(for: push)
+        )
+        #expect(transition.next == .hidden)
     }
 
     @Test func nonEditableFocusPushLeavesVisibleKeyboardAlone() {
@@ -49,41 +57,74 @@ struct HostTextInputKeyboardPolicyTests {
             source: .accessibility,
             role: "AXGroup"
         )
-        #expect(HostTextInputKeyboardPolicy.intent(for: push) == nil)
+        let transition = KeyboardPresentationStateMachine.transition(
+            from: .shown,
+            intent: HostTextInputKeyboardPolicy.intent(for: push)
+        )
+        #expect(transition.next == .shown)
     }
 
-    @Test func iBeamTapShowsKeyboardWhenAccessibilityDoesNotConfirmEditable() {
-        #expect(HostTextInputKeyboardPolicy.intentAfterRemoteTap(
-            lastCursorKind: .ibeam,
-            keyboardState: .hidden
-        ) == .show)
+    @Test func iBeamTapWaitsForAccessibilityWhenFocusIsNotKnownEditable() {
+        #expect(KeyboardPresentationStateMachine.transition(
+            from: .hidden,
+            intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
+                lastCursorKind: .ibeam,
+                focusedEditable: false
+            )
+        ).next == .awaitingEditableFocusAfterIBeamTap)
     }
 
-    @Test func arrowTapLeavesHiddenKeyboardAlone() {
-        #expect(HostTextInputKeyboardPolicy.intentAfterRemoteTap(
-            lastCursorKind: .arrow,
-            keyboardState: .hidden
-        ) == nil)
+    @Test func pendingIBeamTapShowsWhenAccessibilityConfirmsEditable() {
+        #expect(KeyboardPresentationStateMachine.transition(
+            from: .awaitingEditableFocusAfterIBeamTap,
+            intent: .hostFocus(editable: true)
+        ).next == .shown)
+    }
+
+    @Test func pendingIBeamTapHidesWhenAccessibilityReportsNonEditable() {
+        #expect(KeyboardPresentationStateMachine.transition(
+            from: .awaitingEditableFocusAfterIBeamTap,
+            intent: .hostFocus(editable: false)
+        ).next == .hidden)
     }
 
     @Test func iBeamTapShowsWhenAccessibilityAlreadyConfirmedEditable() {
-        #expect(HostTextInputKeyboardPolicy.intentAfterRemoteTap(
-            lastCursorKind: .ibeam,
-            keyboardState: .hidden
-        ) == .show)
+        #expect(KeyboardPresentationStateMachine.transition(
+            from: .hidden,
+            intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
+                lastCursorKind: .ibeam,
+                focusedEditable: true
+            )
+        ).next == .shown)
+    }
+
+    @Test func arrowTapLeavesHiddenKeyboardAlone() {
+        #expect(KeyboardPresentationStateMachine.transition(
+            from: .hidden,
+            intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
+                lastCursorKind: .arrow,
+                focusedEditable: true
+            )
+        ).next == .hidden)
     }
 
     @Test func presentedKeyboardTapHidesEvenWhenCursorIsIBeam() {
-        #expect(HostTextInputKeyboardPolicy.intentAfterRemoteTap(
-            lastCursorKind: .ibeam,
-            keyboardState: .shown
-        ) == .hide)
+        #expect(KeyboardPresentationStateMachine.transition(
+            from: .shown,
+            intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
+                lastCursorKind: .ibeam,
+                focusedEditable: true
+            )
+        ).next == .hidden)
     }
 
     @Test func hiddenNonIBeamTapLeavesKeyboardAlone() {
-        #expect(HostTextInputKeyboardPolicy.intentAfterRemoteTap(
-            lastCursorKind: .pointingHand,
-            keyboardState: .hidden
-        ) == nil)
+        #expect(KeyboardPresentationStateMachine.transition(
+            from: .hidden,
+            intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
+                lastCursorKind: .pointingHand,
+                focusedEditable: false
+            )
+        ).next == .hidden)
     }
 }

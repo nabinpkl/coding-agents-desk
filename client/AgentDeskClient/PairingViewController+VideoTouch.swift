@@ -161,6 +161,9 @@ extension PairingViewController {
         tap.numberOfTapsRequired = 1
         tap.delaysTouchesBegan = false
         tap.delaysTouchesEnded = false
+        if let dismissKeyboardTap {
+            tap.require(toFail: dismissKeyboardTap)
+        }
 
         sinkView.isUserInteractionEnabled = true
         sinkView.addGestureRecognizer(pan)
@@ -217,14 +220,11 @@ extension PairingViewController {
         guard !inputs.isEmpty else {
             return
         }
-        guard let intent = HostTextInputKeyboardPolicy.intentAfterRemoteTap(
+        let transition = applyKeyboardPresentationIntent(HostTextInputKeyboardPolicy.intentForRemoteTap(
             lastCursorKind: lastCursorKind,
-            keyboardState: keyboardPresentationState
-        ) else {
-            return
-        }
-        switch intent {
-        case .show:
+            focusedEditable: lastHostTextInputFocus.editable
+        ))
+        if transition.next == .shown {
             ClientDiagnostics.shared.record(
                 type: "hostTextInputFocus",
                 fields: [
@@ -237,11 +237,6 @@ extension PairingViewController {
                 ],
                 level: .info
             )
-            applyKeyboardPresentationIntent(intent)
-        case .hide:
-            applyKeyboardPresentationIntent(intent)
-        case .toggle:
-            applyKeyboardPresentationIntent(intent)
         }
     }
 

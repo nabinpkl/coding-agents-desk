@@ -22,9 +22,12 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
         NSLayoutConstraint.activate([
             keyboardSurface.heightAnchor.constraint(equalToConstant: 36)
         ])
-        // Any tap on the app's main view dismisses the keyboard.
-        // cancelsTouchesInView=false so button taps and trackpad
-        // gestures still reach their own handlers.
+        // Any tap on the app's main view outside the keyboard echo field
+        // dismisses the keyboard.
+        // cancelsTouchesInView=false keeps normal controls responsive when
+        // the keyboard is down; video taps are separately required to fail
+        // behind this recognizer so an outside tap cannot hide and re-show
+        // the keyboard in the same touch.
         //
         // delaysTouchesEnded defaults to true on UITapGestureRecognizer,
         // which would hold back the trackpad pan's touchesEnded by
@@ -58,8 +61,7 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
 
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer === dismissKeyboardTap else { return true }
-        guard let sinkView = videoSink?.view else { return true }
-        return touch.view?.isDescendant(of: sinkView) != true
+        return touch.view?.isDescendant(of: keyboardSurface) != true
     }
 
     @objc func dismissKeyboardIfShown() {
@@ -70,19 +72,21 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
         applyKeyboardPresentationIntent(.toggle)
     }
 
-    func applyKeyboardPresentationIntent(_ intent: KeyboardPresentationIntent) {
+    @discardableResult
+    func applyKeyboardPresentationIntent(_ intent: KeyboardPresentationIntent) -> KeyboardPresentationTransition {
         let transition = KeyboardPresentationStateMachine.transition(
             from: keyboardPresentationState,
             intent: intent
         )
-        guard transition.changed else { return }
+        guard transition.changed else { return transition }
         keyboardPresentationState = transition.next
         renderKeyboardPresentationState()
+        return transition
     }
 
     private func renderKeyboardPresentationState() {
         switch keyboardPresentationState {
-        case .hidden:
+        case .hidden, .awaitingEditableFocusAfterIBeamTap:
             keyboardSurface.setVisible(false)
             keyboardSurface.isHidden = true
             keyboardSurface.text = ""

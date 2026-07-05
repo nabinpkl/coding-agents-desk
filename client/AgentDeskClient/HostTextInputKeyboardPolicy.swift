@@ -2,6 +2,7 @@ import AgentDeskWire
 
 enum KeyboardPresentationState: Equatable {
     case hidden
+    case awaitingEditableFocusAfterIBeamTap
     case shown
 }
 
@@ -9,6 +10,8 @@ enum KeyboardPresentationIntent: Equatable {
     case show
     case hide
     case toggle
+    case hostFocus(editable: Bool)
+    case remoteTap(cursorKind: CursorKind, focusedEditable: Bool)
 }
 
 struct KeyboardPresentationTransition: Equatable {
@@ -33,25 +36,37 @@ enum KeyboardPresentationStateMachine {
             next = .hidden
         case .toggle:
             next = state == .shown ? .hidden : .shown
+        case let .hostFocus(editable):
+            if state == .awaitingEditableFocusAfterIBeamTap {
+                next = editable ? .shown : .hidden
+            } else {
+                next = state
+            }
+        case let .remoteTap(cursorKind, focusedEditable):
+            switch state {
+            case .shown:
+                next = .hidden
+            case .hidden, .awaitingEditableFocusAfterIBeamTap:
+                guard cursorKind == .ibeam else {
+                    next = .hidden
+                    break
+                }
+                next = focusedEditable ? .shown : .awaitingEditableFocusAfterIBeamTap
+            }
         }
         return KeyboardPresentationTransition(previous: state, next: next)
     }
 }
 
 enum HostTextInputKeyboardPolicy {
-    static func intent(for push: HostTextInputFocusPush) -> KeyboardPresentationIntent? {
-        push.editable ? .show : nil
+    static func intent(for push: HostTextInputFocusPush) -> KeyboardPresentationIntent {
+        .hostFocus(editable: push.editable)
     }
 
-    static func intentAfterRemoteTap(
+    static func intentForRemoteTap(
         lastCursorKind: CursorKind,
-        keyboardState: KeyboardPresentationState
-    ) -> KeyboardPresentationIntent? {
-        switch keyboardState {
-        case .shown:
-            return .hide
-        case .hidden:
-            return lastCursorKind == .ibeam ? .show : nil
-        }
+        focusedEditable: Bool
+    ) -> KeyboardPresentationIntent {
+        .remoteTap(cursorKind: lastCursorKind, focusedEditable: focusedEditable)
     }
 }
