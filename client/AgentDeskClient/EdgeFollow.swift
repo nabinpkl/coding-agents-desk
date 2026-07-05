@@ -111,13 +111,44 @@ struct CursorViewportRetarget: Equatable {
 }
 
 enum PointerRetargeting {
-    static func viewportCenterRetarget(
+    // The dot's viewport position for a source-display point, at the given
+    // zoom/offset. Used to capture the fixed pan anchor at drag start.
+    static func viewportPoint(
+        forSource source: CGPoint,
+        displayBounds: CGRect,
+        sinkViewSize: CGSize,
+        zoomScale: CGFloat,
+        contentOffset: CGPoint
+    ) -> CGPoint? {
+        guard displayBounds.width > 0, displayBounds.height > 0,
+              sinkViewSize.width > 0, sinkViewSize.height > 0,
+              zoomScale > 0 else { return nil }
+        let fitScale = min(sinkViewSize.width / displayBounds.width,
+                           sinkViewSize.height / displayBounds.height)
+        guard fitScale > 0 else { return nil }
+        let padX = (sinkViewSize.width - displayBounds.width * fitScale) / 2
+        let padY = (sinkViewSize.height - displayBounds.height * fitScale) / 2
+        let contentX = (padX + source.x * fitScale) * zoomScale
+        let contentY = (padY + source.y * fitScale) * zoomScale
+        return CGPoint(x: contentX - contentOffset.x, y: contentY - contentOffset.y)
+    }
+
+    // Continuous pan-follow (Option E). During a manual viewport pan the dot is
+    // held at a fixed viewport anchor while the content slides beneath it; this
+    // reprojects that anchor through the live contentOffset to the source point
+    // now under it, so the host cursor can be reconciled to follow the pan.
+    // Overscroll past the scrollable range (iOS rubber-band) drives an edge
+    // push that carries the cursor the final unreachable margin (W/2z) to the
+    // true display edge — the part plain reconciliation cannot reach.
+    static func panFollowRetarget(
+        anchorViewportPoint anchor: CGPoint,
         state: DesktopState?,
         displayId: String?,
         displayBounds: CGRect,
         sinkViewSize: CGSize,
         zoomScale: CGFloat,
-        contentOffset: CGPoint
+        contentOffset: CGPoint,
+        edgeReachOverscroll: CGFloat = 44
     ) -> CursorViewportRetarget? {
         guard let state,
               let displayId,
@@ -129,39 +160,41 @@ enum PointerRetargeting {
               zoomScale > 1.0 else {
             return nil
         }
-
-        let fitScale = min(
-            sinkViewSize.width / displayBounds.width,
-            sinkViewSize.height / displayBounds.height
-        )
+        let fitScale = min(sinkViewSize.width / displayBounds.width,
+                           sinkViewSize.height / displayBounds.height)
         guard fitScale > 0 else { return nil }
+        let padX = (sinkViewSize.width - displayBounds.width * fitScale) / 2
+        let padY = (sinkViewSize.height - displayBounds.height * fitScale) / 2
+        let maxOffsetX = max(0, sinkViewSize.width * zoomScale - sinkViewSize.width)
+        let maxOffsetY = max(0, sinkViewSize.height * zoomScale - sinkViewSize.height)
 
-        let videoWidth = displayBounds.width * fitScale
-        let videoHeight = displayBounds.height * fitScale
-        let padX = (sinkViewSize.width - videoWidth) / 2
-        let padY = (sinkViewSize.height - videoHeight) / 2
+        // Per-axis: interior reconcile of the fixed anchor, then an
+        // overscroll-gained push toward the near display edge.
+        func axis(anchor: CGFloat, offset: CGFloat, maxOffset: CGFloat,
+                  pad: CGFloat, span: CGFloat) -> CGFloat {
+            let clamped = min(max(0, offset), maxOffset)
+            let overscroll = offset - clamped               // signed; 0 interior
+            let sink = (anchor + clamped) / zoomScale
+            let base = (sink - pad) / fitScale
+            guard overscroll != 0, edgeReachOverscroll > 0 else { return base }
+            let frac = min(1, abs(overscroll) / edgeReachOverscroll)
+            return overscroll > 0 ? base + frac * (span - base)
+                                  : base - frac * base
+        }
 
-        let centerContentX = contentOffset.x + sinkViewSize.width / 2
-        let centerContentY = contentOffset.y + sinkViewSize.height / 2
-        let sinkX = centerContentX / zoomScale
-        let sinkY = centerContentY / zoomScale
         let source = CGPoint(
-            x: (sinkX - padX) / fitScale,
-            y: (sinkY - padY) / fitScale
-        )
+            x: axis(anchor: anchor.x, offset: contentOffset.x, maxOffset: maxOffsetX,
+                    pad: padX, span: displayBounds.width),
+            y: axis(anchor: anchor.y, offset: contentOffset.y, maxOffset: maxOffsetY,
+                    pad: padY, span: displayBounds.height))
         let clamped = EdgeFollow.advanceCursor(
-            from: source,
-            delta: .zero,
-            displayBounds: displayBounds
-        )
+            from: source, delta: .zero, displayBounds: displayBounds)
         return CursorViewportRetarget(
             displayId: displayId,
             sourcePoint: clamped,
             hostPoint: CGPoint(
                 x: CGFloat(display.originX) + clamped.x,
-                y: CGFloat(display.originY) + clamped.y
-            )
-        )
+                y: CGFloat(display.originY) + clamped.y))
     }
 
     // Map a touch on the video sink to a host point (global CG points), used by

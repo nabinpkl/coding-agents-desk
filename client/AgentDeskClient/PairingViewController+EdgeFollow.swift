@@ -213,10 +213,53 @@ extension PairingViewController: UIScrollViewDelegate {
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         guard scrollView === sinkScrollView, scrollView.zoomScale > 1.0 else { return }
         isManualViewportPanActive = true
+        // Drop any stale retarget so a queued cursorSet can't fight the reconcile.
+        pendingCursorRetarget = nil
+        panFollowActive = false
+        panFollowAnchor = nil
+        lastSentPanFollowHostPoint = nil
+        // Hold the dot's current viewport position fixed for the gesture; the
+        // content slides under it and we reproject to the source now beneath it.
+        if let source = cursorSourcePos,
+           let anchor = PointerRetargeting.viewportPoint(
+               forSource: source,
+               displayBounds: activeDisplayRect,
+               sinkViewSize: scrollView.bounds.size,
+               zoomScale: scrollView.zoomScale,
+               contentOffset: scrollView.contentOffset) {
+            panFollowAnchor = anchor
+            panFollowActive = true
+        }
+    }
+
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === sinkScrollView, panFollowActive,
+              let anchor = panFollowAnchor,
+              let retarget = PointerRetargeting.panFollowRetarget(
+                  anchorViewportPoint: anchor,
+                  state: lastDesktopState,
+                  displayId: activeDisplayIdMirror,
+                  displayBounds: activeDisplayRect,
+                  sinkViewSize: scrollView.bounds.size,
+                  zoomScale: scrollView.zoomScale,
+                  contentOffset: scrollView.contentOffset) else { return }
+        cursorSourcePos = retarget.sourcePoint
+        updateCursorDot()
+        // Pointer only. Dedupe identical points to avoid flooding the channel.
+        if retarget.hostPoint != lastSentPanFollowHostPoint {
+            lastSentPanFollowHostPoint = retarget.hostPoint
+            sendInput(.cursorSet(
+                displayId: retarget.displayId,
+                x: Float(retarget.hostPoint.x),
+                y: Float(retarget.hostPoint.y)))
+        }
     }
 
     public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         guard scrollView === sinkScrollView else { return }
+        // Freeze at finger-lift: ignore momentum/bounce frames so the cursor
+        // holds where the user aimed it (this is a pointing gesture).
+        panFollowActive = false
         if !decelerate {
             finishManualViewportPan(scrollView)
         }
@@ -230,13 +273,10 @@ extension PairingViewController: UIScrollViewDelegate {
     func finishManualViewportPan(_ scrollView: UIScrollView) {
         guard isManualViewportPanActive else { return }
         isManualViewportPanActive = false
-        pendingCursorRetarget = PointerRetargeting.viewportCenterRetarget(
-            state: lastDesktopState,
-            displayId: activeDisplayIdMirror,
-            displayBounds: activeDisplayRect,
-            sinkViewSize: scrollView.bounds.size,
-            zoomScale: scrollView.zoomScale,
-            contentOffset: scrollView.contentOffset
-        )
+        // No viewport-center snap: the continuous reconcile has already kept the
+        // host cursor under the dot, so a center cursorSet would jump it.
+        panFollowActive = false
+        panFollowAnchor = nil
+        lastSentPanFollowHostPoint = nil
     }
 }

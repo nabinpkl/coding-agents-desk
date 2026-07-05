@@ -48,6 +48,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var activeDisplayIdMirror: String?
     var pendingCursorRetarget: CursorViewportRetarget?
     var isManualViewportPanActive = false
+    // Continuous pan-follow (Option E). Active only during a manual zoomed pan.
+    var panFollowActive = false
+    var panFollowAnchor: CGPoint?
+    var lastSentPanFollowHostPoint: CGPoint?
     // Local cursor overlay. Moves immediately from cursorSourcePos on
     // every gesture delta so the user sees instant cursor response
     // without waiting for the Mac -> owned media -> iOS video round-trip.
@@ -420,6 +424,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         cursorSourcePos = nil
         pendingCursorRetarget = nil
         isManualViewportPanActive = false
+        panFollowActive = false
+        panFollowAnchor = nil
+        lastSentPanFollowHostPoint = nil
         activeDisplayRect = .zero
         activeDisplayIdMirror = nil
         selectedDisplayIdForClientConfig = nil
@@ -439,6 +446,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             self.applyOrientationConstraints(forLandscape: willBeLandscape)
             self.pendingCursorRetarget = nil
             self.isManualViewportPanActive = false
+            self.panFollowActive = false
+            self.panFollowAnchor = nil
+            self.lastSentPanFollowHostPoint = nil
             self.sinkScrollView?.setZoomScale(1.0, animated: false)
             self.sinkScrollView?.setContentOffset(.zero, animated: false)
             self.updateOrientationToggleIcon(forLandscape: willBeLandscape)
