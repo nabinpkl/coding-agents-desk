@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "AgentDesk Browser Mirror",
-  "version": "0.2.0",
-  "version_name": "0.2.0 (compressed transport)",
+  "version": "0.3.0",
+  "version_name": "0.3.0 (tiered fidelity)",
   "description": "Lets AgentDesk show and control this browser tab on your other devices.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApLIfrskGGk+uGfkgV1HZPhRrcNQw4UgSSwm0j/DXRe5J3ZVOL+/cF19ZVQdnhOP1hL5JscwxHEo5o3EjOHPaOLXI8H11K6sSLn6AdpuWZFuANKPaSR7Z5oL3ZaGOW1PTacXmo7n3STbjXkQU82rOCI2N/IOoB75Q+xwUzOPdOkcTdaU258uWebyyqOeU2SyNzAsBr8KxAyYIwQoMPwIXO7+/EeGY/8okr9rTzKK4oJP/o0O29f9+NCrK5fcw8RGepFcHL4ojC+HK5rHQnwd+tDjqKFC1RcRmexbbWR1TT/JdHt47N8xnT6Gy1hu0zGI/780JHaw2Er6YnR2FdZOaDQIDAQAB",
   "minimum_chrome_version": "111",

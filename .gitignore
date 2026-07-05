@@ -52,3 +52,6 @@ dom-bridge/dom-bridge
 # Extension git-identity stamp (regenerated per load by `just ext-stamp`; the extension parallel of
 # the host/client AgentDeskGitSHA -- a build artifact, never committed).
 chrome-extension/build-info.json
+
+# CDP-verify throwaway Chrome profile (ADR-0044 Tier B test)
+.cdp-verify-profile/

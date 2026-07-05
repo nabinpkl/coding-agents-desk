@@ -7,6 +7,8 @@ const statusEl = document.getElementById('status');
 const subEl = document.getElementById('sub');
 const btn = document.getElementById('toggle');
 const verEl = document.getElementById('ver');
+const fidelityRow = document.getElementById('fidelity-row');
+const fidelityBox = document.getElementById('fidelity');
 
 // Which build is loaded (ADR-0043 versioning). The marketing version always comes from the manifest;
 // the exact git identity comes from build-info.json, which `just ext-stamp` regenerates and reload
@@ -38,6 +40,9 @@ function render(state) {
   btn.className = rec ? 'stop' : 'start';
   btn.disabled = !rec && !canRecord;
   btn.textContent = rec ? 'Stop mirroring' : (canRecord ? 'Start mirroring' : 'Not available on this page');
+  // ADR-0044 Tier B: the high-fidelity (CDP) toggle only applies while mirroring this tab.
+  fidelityRow.hidden = !rec;
+  fidelityBox.checked = !!(state && state.fidelity);
 }
 
 async function refresh() {
@@ -48,6 +53,11 @@ async function refresh() {
 btn.addEventListener('click', async () => {
   btn.disabled = true;
   try { render(await chrome.runtime.sendMessage({ type: 'agentdesk-popup-toggle' })); }
+  catch (e) { await refresh(); }
+});
+
+fidelityBox.addEventListener('change', async () => {
+  try { render(await chrome.runtime.sendMessage({ type: 'agentdesk-popup-fidelity', on: fidelityBox.checked })); }
   catch (e) { await refresh(); }
 });
 

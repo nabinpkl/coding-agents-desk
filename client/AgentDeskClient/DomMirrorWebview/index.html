@@ -27,6 +27,11 @@
     // ADR-0043: chunk reassembly buffer, keyed by cid. A compressed batch too large for one line is
     // split into total parts; hold them until all arrive, then concat and inflate.
     var chunks = {};
+    // ADR-0044 Tier B: CDP high-fidelity keyframes arrive as a self-contained masked HTML doc and
+    // render into this overlay iframe (above the rrweb replayer, below the tap overlay). cdpSize is the
+    // page CSS size for tap mapping.
+    var cdpFrame = null;
+    var cdpSize = null;
 
     function base64ToBytes(b64) {
       var bin = atob(b64);
@@ -41,6 +46,21 @@
     }
     function inflateStr(b64) {
       return fflate.strFromU8(fflate.unzlibSync(base64ToBytes(b64)));
+    }
+
+    // ADR-0043 chunk reassembly, shared by the events and CDP paths. Returns the full base64 string,
+    // or null while still waiting for parts. Keyed by cid; parts placed by seq so a dup/reorder on the
+    // (reliable, ordered) .dom lane still can't corrupt the concatenation.
+    function reassemble(batch) {
+      var b64 = batch.ev || '';
+      if (batch.total > 1) {
+        var slot = chunks[batch.cid] || (chunks[batch.cid] = { total: batch.total, parts: [], count: 0 });
+        if (slot.parts[batch.seq] === undefined) { slot.parts[batch.seq] = b64; slot.count++; }
+        if (slot.count < slot.total) return null;
+        delete chunks[batch.cid];
+        b64 = slot.parts.join('');
+      }
+      return b64;
     }
 
     // ADR-0044 Tier A: adopted-stylesheet CSS the isolated recorder read and shipped (see
@@ -58,6 +78,27 @@
         (doc.head || doc.documentElement).appendChild(el);
       }
       if (el.textContent !== adoptedCss) el.textContent = adoptedCss;
+    }
+
+    // ADR-0044 Tier B: render/replace the CDP snapshot. Overlays the rrweb replayer (which keeps
+    // running underneath, harmless); the tap overlay stays on top. w/h size the frame for tap mapping.
+    function renderCdp(html, w, h) {
+      var stageEl = document.getElementById('stage');
+      if (!cdpFrame) {
+        cdpFrame = document.createElement('iframe');
+        cdpFrame.id = 'cdp-frame';
+        cdpFrame.setAttribute('sandbox', ''); // no scripts: it's a static, masked snapshot
+        cdpFrame.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff;z-index:2;';
+        stageEl.insertBefore(cdpFrame, document.getElementById('tap-overlay'));
+      }
+      cdpSize = { w: w || 0, h: h || 0 };
+      if (w) cdpFrame.setAttribute('width', w);
+      if (h) cdpFrame.setAttribute('height', h);
+      cdpFrame.srcdoc = html;
+    }
+    function removeCdp() {
+      if (cdpFrame) { cdpFrame.remove(); cdpFrame = null; }
+      cdpSize = null;
     }
 
     function haveSnapshot(evts) {
@@ -87,29 +128,31 @@
       try { batch = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON; }
       catch (e) { return; }
       if (!batch) return;
+      // ADR-0043/0044: a keyframe (co:true) supersedes any incomplete chunk set, for events AND CDP.
+      // Clearing here bounds the chunks map (no slot outlives the next keyframe) and makes a cid reused
+      // after an MV3 service-worker restart harmless (part 0's co:true clears the old slot first).
+      if (batch.co) chunks = {};
+      // ADR-0044 Tier B: CDP high-fidelity keyframe (self-contained masked HTML) or a turn-off signal.
+      if (batch.k === 'cdp') {
+        if (batch.enc !== 'deflate-b64') return;
+        var cb64 = reassemble(batch);
+        if (cb64 == null) return;
+        var chtml;
+        try { chtml = inflateStr(cb64); } catch (e) { return; }
+        renderCdp(chtml, batch.w, batch.h);
+        scheduleProbe();
+        return;
+      }
+      if (batch.k === 'cdp-off') { removeCdp(); return; }
       // ADR-0044 Tier A: a css-only line carries adopted-stylesheet CSS (no events). Stash + inject.
       if (batch.cssz) {
         try { adoptedCss = inflateStr(batch.cssz); injectAdoptedCss(); } catch (e) {}
         return;
       }
-      // ADR-0043: a checkout batch is a fresh keyframe, so any still-incomplete chunk set from before
-      // it is now stale (superseded). Dropping pending slots here bounds the chunks map (no slot
-      // outlives the next keyframe -> no leak on a late-join-mid-chunk) and makes a cid reused after
-      // an MV3 service-worker restart harmless: the new snapshot's part 0 (co=true) clears the old
-      // slot before its own parts accumulate, so two snapshots can never interleave on one cid.
-      if (batch.co) chunks = {};
       var ev;
       if (batch.enc === 'deflate-b64') {
-        var b64 = batch.ev || '';
-        if (batch.total > 1) {
-          // Reassemble by cid. The .dom lane is reliable+ordered so parts arrive in seq order, but key
-          // each part by its seq index so a duplicate or reorder can't corrupt the concatenation.
-          var slot = chunks[batch.cid] || (chunks[batch.cid] = { total: batch.total, parts: [], count: 0 });
-          if (slot.parts[batch.seq] === undefined) { slot.parts[batch.seq] = b64; slot.count++; }
-          if (slot.count < slot.total) return; // wait for the remaining parts
-          delete chunks[batch.cid];
-          b64 = slot.parts.join('');
-        }
+        var b64 = reassemble(batch);
+        if (b64 == null) return; // waiting for the remaining parts
         try { ev = inflateEvents(b64); }
         catch (e) { return; } // corrupt/partial batch: drop it, the next keyframe recovers
       } else {
@@ -131,9 +174,12 @@
     }
 
     function postProbe() {
-      if (!replayer || !replayer.iframe || !replayer.iframe.contentDocument) return;
+      // In CDP mode probe the overlay frame; otherwise the rrweb replayer iframe.
+      var doc = null;
+      if (cdpFrame && cdpFrame.contentDocument) doc = cdpFrame.contentDocument;
+      else if (replayer && replayer.iframe && replayer.iframe.contentDocument) doc = replayer.iframe.contentDocument;
+      if (!doc) return;
       injectAdoptedCss(); // the snapshot rebuild is async; ensure the style survives the settled DOM
-      var doc = replayer.iframe.contentDocument;
       var markerEl = doc.querySelector('[data-agentdesk-fixture]');
       var marker = markerEl ? markerEl.getAttribute('data-agentdesk-fixture') : '';
       var nodes = doc.querySelectorAll('*').length;
@@ -147,18 +193,20 @@
     // sets the replayer iframe's width/height attributes to the recorded page size, so the scale is
     // recordedSize / displayedSize.
     document.getElementById('tap-overlay').addEventListener('click', function (e) {
-      if (!replayer || !replayer.iframe) return;
-      var rect = replayer.iframe.getBoundingClientRect();
+      // Map against whichever surface is showing: the CDP overlay (Tier B) or the rrweb iframe.
+      var frame = cdpFrame || (replayer && replayer.iframe);
+      if (!frame) return;
+      var rect = frame.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
-      var pageW = parseInt(replayer.iframe.getAttribute('width'), 10) || rect.width;
-      var pageH = parseInt(replayer.iframe.getAttribute('height'), 10) || rect.height;
+      var pageW = (cdpFrame && cdpSize && cdpSize.w) || parseInt(frame.getAttribute('width'), 10) || rect.width;
+      var pageH = (cdpFrame && cdpSize && cdpSize.h) || parseInt(frame.getAttribute('height'), 10) || rect.height;
       var x = (e.clientX - rect.left) * (pageW / rect.width);
       var y = (e.clientY - rect.top) * (pageH / rect.height);
       if (x < 0 || y < 0 || x > pageW || y > pageH) return; // tap landed outside the mirrored page
       try { window.webkit.messageHandlers.domMirror.postMessage({ kind: 'tap', x: x, y: y }); } catch (err) {}
     });
 
-    window.__domMirrorBridge = { destroy: function () { try { replayer && replayer.pause(); } catch (e) {} } };
+    window.__domMirrorBridge = { destroy: function () { try { removeCdp(); replayer && replayer.pause(); } catch (e) {} } };
   })();
   </script>
 </body>

@@ -267,6 +267,16 @@ dom-mirror-input-verify:
     set -euo pipefail
     node '{{justfile_directory()}}/chrome-test/input-verify.mjs'
 
+# ADR-0044 Tier B autonomous gate: capture a REAL DOMSnapshot.captureSnapshot (piercing a CLOSED
+# shadow root) via Playwright's CDP session, run it through the SAME reconstructMaskedHtml the service
+# worker uses, and assert the closed-shadow subtree is captured AND every sensitive value is masked.
+# Uses the global Playwright + Chrome for Testing; the extension is not loaded.
+dom-mirror-cdp-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export NODE_PATH="$(npm root -g)"
+    node '{{justfile_directory()}}/chrome-test/cdp-verify.mjs'
+
 # ADR-0038 Phase 4 read-only-v1 acceptance test: the full three-process chain (real host with DOM
 # mirror on + paired sim client + real Chrome-for-Testing extension). Chrome records the CSP-strict
 # fixture; the batch flows extension -> shim -> host -> .dom QUIC lane -> sim client -> replay

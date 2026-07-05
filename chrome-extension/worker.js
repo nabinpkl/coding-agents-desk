@@ -14,7 +14,7 @@
 // Swift client) and inflated only in the replay webview. This is the fix for heavy pages: a raw
 // masked FullSnapshot can exceed the host's 2 MB line cap, but compressed it is tens of KB. A still-
 // oversized compressed batch (>~15 MB raw) is chunked into cid/seq/total parts, each a normal line.
-importScripts('vendor/fflate.min.js');
+importScripts('vendor/fflate.min.js', 'cdp-reconstruct.js');
 
 const NATIVE_HOST = 'com.example.agentdesk.agentdesk.dom_bridge';
 
@@ -32,6 +32,36 @@ function bytesToBase64(bytes) {
     bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
   }
   return btoa(bin);
+}
+
+// Compress a string payload and post it as one or more dom-batch lines (chunked past CHUNK_LIMIT,
+// same backstop as the ADR-0043 events path), merging `extra` fields onto each line. Used by the
+// ADR-0044 Tier B CDP path so its large HTML snapshot rides the identical compressed/opaque pipeline.
+function postCompressed(p, extra, str) {
+  let b64;
+  try {
+    b64 = bytesToBase64(fflate.zlibSync(fflate.strToU8(str)));
+  } catch (e) {
+    console.error('[agentdesk] compress failed', e && e.message);
+    return;
+  }
+  if (b64.length <= CHUNK_LIMIT) {
+    p.postMessage({ ...extra, enc: 'deflate-b64', ev: b64 });
+    return;
+  }
+  const cid = nextChunkId++;
+  const total = Math.ceil(b64.length / CHUNK_LIMIT);
+  for (let seq = 0; seq < total; seq++) {
+    p.postMessage({
+      ...extra,
+      co: seq === 0 ? extra.co : false, // co on part 0 only, like the events path
+      enc: 'deflate-b64',
+      ev: b64.slice(seq * CHUNK_LIMIT, (seq + 1) * CHUNK_LIMIT),
+      cid,
+      seq,
+      total,
+    });
+  }
 }
 
 let port = null;
@@ -63,7 +93,11 @@ function ensurePort() {
 
 // Keep attachedTabId honest if the tab (or user) detaches the debugger.
 chrome.debugger.onDetach.addListener((source) => {
-  if (source.tabId === attachedTabId) attachedTabId = null;
+  if (source.tabId === attachedTabId) {
+    attachedTabId = null;
+    // The user closed the debug banner -> they want the banner gone: drop CDP fidelity (Tier B).
+    stopCdp(false); cdpMode = false; cdpUserSet = false;
+  }
 });
 
 async function ensureAttached(tabId) {
@@ -88,6 +122,9 @@ async function dispatchInput(cmd) {
   const tabId = recordingTabId;
   if (tabId == null) return;
   if (!(await ensureAttached(tabId))) return;
+  // ADR-0044 Tier B: the debugger banner is now shown for this tap, so its cost is already paid.
+  // Auto-upgrade to CDP high fidelity unless the user explicitly chose a mode in the popup.
+  if (!cdpUserSet && !cdpMode) setCdpMode(true, false);
   const target = { tabId };
   // Defense-in-depth (ADR-0040): clamp to finite, non-negative coordinates before dispatch, so a
   // compromised/buggy client cannot probe negative or non-finite points. CDP already ignores points
@@ -100,6 +137,64 @@ async function dispatchInput(cmd) {
   } catch (e) {
     console.error('[agentdesk] dispatch failed', e && e.message);
   }
+}
+
+// --- ADR-0044 Tier B: CDP high-fidelity keyframe (opt-in / banner-already-paid) ---
+// Reuses the ADR-0040 chrome.debugger attachment. DOMSnapshot.captureSnapshot pierces shadow
+// boundaries (so closed shadow DOM is captured) and returns computed styles, which we inline per node
+// so the flattened snapshot renders WITHOUT external/adopted stylesheets (that is the whole point).
+// Text is MASKED here, before egress (ADR-0041 parity), because captureSnapshot returns raw text.
+// Engages only when the user opted in via the popup, OR the debugger is already attached for taps
+// (banner already shown) -- so the default view-only session stays banner-free on Tier A.
+const CDP_POLL_MS = 1500;
+let cdpMode = false;      // whether CDP keyframes are being sent for the recording tab
+let cdpUserSet = false;   // the user explicitly toggled it -> don't auto-upgrade over their choice
+let cdpTimer = null;
+// reconstructMaskedHtml + CDP_STYLE_PROPS come from cdp-reconstruct.js (importScripts above); the same
+// file is require()'d by the cdp-verify test so the masking reconstruction is exercised as real code.
+
+async function captureCdpSnapshot() {
+  const tabId = recordingTabId;
+  if (tabId == null || !cdpMode) return;
+  if (!(await ensureAttached(tabId))) return;
+  let snap, metrics;
+  try {
+    snap = await chrome.debugger.sendCommand({ tabId }, 'DOMSnapshot.captureSnapshot', { computedStyles: CDP_STYLE_PROPS });
+  } catch (e) {
+    console.error('[agentdesk] cdp snapshot failed', e && e.message);
+    return;
+  }
+  try { metrics = await chrome.debugger.sendCommand({ tabId }, 'Page.getLayoutMetrics', {}); } catch (e) {}
+  const vp = (metrics && (metrics.cssLayoutViewport || metrics.layoutViewport)) || {};
+  let html;
+  try { html = reconstructMaskedHtml(snap); } catch (e) { console.error('[agentdesk] cdp reconstruct failed', e && e.message); return; }
+  const p = ensurePort();
+  if (!p) return;
+  // k:'cdp' + full-keyframe (co:true). w/h let the replay size the frame for tap mapping.
+  postCompressed(p, { t: 'dom-batch', tb: tabId, co: true, k: 'cdp', w: vp.clientWidth || 0, h: vp.clientHeight || 0 }, html);
+}
+
+function maybeStartCdp() {
+  if (!cdpMode || recordingTabId == null || cdpTimer) return;
+  captureCdpSnapshot();
+  cdpTimer = setInterval(captureCdpSnapshot, CDP_POLL_MS);
+}
+
+function stopCdp(notify) {
+  if (cdpTimer) { clearInterval(cdpTimer); cdpTimer = null; }
+  if (notify && port && recordingTabId != null) {
+    try { port.postMessage({ t: 'dom-batch', tb: recordingTabId, co: false, k: 'cdp-off' }); } catch (e) {}
+  }
+}
+
+// Set the CDP fidelity mode. userSet=true means the popup toggle drove it (sticky: auto-upgrade won't
+// override an explicit choice). notify=true tells the replay to drop the CDP overlay when turning off.
+function setCdpMode(on, userSet) {
+  if (userSet) cdpUserSet = true;
+  const was = cdpMode;
+  cdpMode = !!on;
+  if (cdpMode) maybeStartCdp();
+  else if (was) stopCdp(true);
 }
 
 // --- Chrome-layer recording controls (ADR-0042) ---
@@ -132,6 +227,7 @@ async function stopTabRecording(tabId) {
   if (tabId == null) return;
   try { await chrome.tabs.sendMessage(tabId, { type: 'agentdesk-stop' }); } catch (e) {}
   if (recordingTabId === tabId) recordingTabId = null;
+  stopCdp(false); cdpMode = false; cdpUserSet = false; // fresh fidelity state next session
   await setBadge(tabId, false);
 }
 
@@ -165,6 +261,7 @@ function popupState(tab) {
     recording: !!tab && recordingTabId === tab.id,
     title: tab ? (tab.title || tab.url || '') : '',
     canRecord,
+    fidelity: !!tab && recordingTabId === tab.id && cdpMode, // ADR-0044 Tier B state for the popup
   };
 }
 
@@ -180,13 +277,14 @@ chrome.commands.onCommand.addListener(async (command) => {
 // Lifecycle: keep recordingTabId/attachedTabId honest so ADR-0040 tap dispatch never targets a tab
 // that is no longer recording.
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (recordingTabId === tabId) recordingTabId = null;
+  if (recordingTabId === tabId) { recordingTabId = null; stopCdp(false); cdpMode = false; cdpUserSet = false; }
   if (attachedTabId === tabId) attachedTabId = null;
 });
 chrome.tabs.onUpdated.addListener((tabId, info) => {
   // A navigation re-injects a fresh, non-recording content script; drop the stale recording state.
   if (tabId === recordingTabId && info.status === 'loading' && info.url) {
     recordingTabId = null;
+    stopCdp(false); cdpMode = false; cdpUserSet = false;
     setBadge(tabId, false);
   }
 });
@@ -202,6 +300,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'agentdesk-popup-toggle') {
     activeTab().then(async (tab) => {
       if (tab && tab.id != null) await toggleTabRecording(tab.id);
+      sendResponse(popupState(tab));
+    });
+    return true;
+  }
+  // ADR-0044 Tier B: the popup high-fidelity toggle. Only meaningful for the recording tab; engaging
+  // it attaches chrome.debugger (banner) and starts CDP keyframes.
+  if (message.type === 'agentdesk-popup-fidelity') {
+    activeTab().then((tab) => {
+      if (tab && tab.id != null && recordingTabId === tab.id) setCdpMode(!!message.on, true);
       sendResponse(popupState(tab));
     });
     return true;
