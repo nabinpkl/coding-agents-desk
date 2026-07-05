@@ -78,31 +78,54 @@ final class HostTextInputFocusMonitor {
         return push
     }
 
-    func sampleCurrentFocus() -> HostTextInputFocusPush {
-        let push = query()
+    func sampleCurrentFocus(cursorKind: CursorKind? = nil) -> HostTextInputFocusPush {
+        let queried = query()
+        let push = HostTextInputFocusPush(
+            editable: queried.editable,
+            secure: queried.secure,
+            source: queried.source,
+            role: queried.role,
+            subrole: queried.subrole,
+            cursorKind: cursorKind ?? queried.cursorKind
+        )
         latest = push
-        logger.debug("text input focus sampled editable=\(push.editable, privacy: .public) secure=\(push.secure, privacy: .public) source=\(push.source.rawValue, privacy: .public) role=\(push.role ?? "nil", privacy: .public) subrole=\(push.subrole ?? "nil", privacy: .public)")
+        logger.debug("text input focus sampled editable=\(push.editable, privacy: .public) secure=\(push.secure, privacy: .public) source=\(push.source.rawValue, privacy: .public) role=\(push.role ?? "nil", privacy: .public) subrole=\(push.subrole ?? "nil", privacy: .public) cursorKind=\(push.cursorKind?.rawValue ?? "nil", privacy: .public)")
         return push
     }
 
     private static func queryFrontmostFocusedElement() -> HostTextInputFocusPush {
-        guard AXIsProcessTrusted(),
-              let app = NSWorkspace.shared.frontmostApplication else {
+        guard AXIsProcessTrusted() else {
             return HostTextInputFocusPush(editable: false, secure: false, source: .none)
         }
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        if let app = NSWorkspace.shared.frontmostApplication {
+            let appElement = AXUIElementCreateApplication(app.processIdentifier)
+            if let focus = focusedElement(from: appElement) {
+                return classifyFocusedElement(focus)
+            }
+        }
+        let systemElement = AXUIElementCreateSystemWide()
+        guard let focused = focusedElement(from: systemElement) else {
+            return HostTextInputFocusPush(editable: false, secure: false, source: .none)
+        }
+        return classifyFocusedElement(focused)
+    }
+
+    private static func focusedElement(from root: AXUIElement) -> AXUIElement? {
         var focusedValue: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(
-            appElement,
+            root,
             kAXFocusedUIElementAttribute as CFString,
             &focusedValue
         )
         guard error == .success,
               let focused = focusedValue,
               CFGetTypeID(focused) == AXUIElementGetTypeID() else {
-            return HostTextInputFocusPush(editable: false, secure: false, source: .none)
+            return nil
         }
-        let element = focused as! AXUIElement
+        return (focused as! AXUIElement)
+    }
+
+    private static func classifyFocusedElement(_ element: AXUIElement) -> HostTextInputFocusPush {
         let role = stringAttribute(kAXRoleAttribute as CFString, from: element)
         let subrole = stringAttribute(kAXSubroleAttribute as CFString, from: element)
         return HostTextInputFocusClassifier.classify(

@@ -1,0 +1,18 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+- extendedWaitUntil:
+    visible: "Trackpad"
+    timeout: 30000
+- takeScreenshot: text-focus-before
+- tapOn:
+    point: 42%, 25%
+- extendedWaitUntil:
+    visible: "Hide keyboard"
+    timeout: 5000
+- takeScreenshot: text-focus-keyboard-open
+- tapOn:
+    point: 20%, 36%
+- extendedWaitUntil:
+    visible: "Show keyboard"
+    timeout: 5000
+- takeScreenshot: text-focus-keyboard-hidden

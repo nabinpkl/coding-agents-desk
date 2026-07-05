@@ -87,4 +87,27 @@ struct HostTextInputFocusMonitorTests {
         #expect(monitor.sampleCurrentFocus() == current)
         #expect(emitted.isEmpty)
     }
+
+    @Test func sampleCurrentFocusCanAnnotateCursorKindWithoutEmitting() {
+        let current = HostTextInputFocusPush(
+            editable: false,
+            secure: false,
+            source: .accessibility,
+            role: "AXGroup"
+        )
+        let monitor = HostTextInputFocusMonitor(query: { current })
+        var emitted: [HostTextInputFocusPush] = []
+        monitor.onChange = { emitted.append($0) }
+
+        let sampled = monitor.sampleCurrentFocus(cursorKind: .ibeam)
+
+        #expect(sampled == HostTextInputFocusPush(
+            editable: false,
+            secure: false,
+            source: .accessibility,
+            role: "AXGroup",
+            cursorKind: .ibeam
+        ))
+        #expect(emitted.isEmpty)
+    }
 }

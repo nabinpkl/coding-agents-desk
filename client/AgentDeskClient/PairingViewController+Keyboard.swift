@@ -86,7 +86,7 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
 
     private func renderKeyboardPresentationState() {
         switch keyboardPresentationState {
-        case .hidden, .awaitingEditableFocusAfterIBeamTap:
+        case .hidden, .awaitingEditableFocusAfterVideoTap:
             keyboardSurface.setVisible(false)
             keyboardSurface.isHidden = true
             keyboardSurface.text = ""

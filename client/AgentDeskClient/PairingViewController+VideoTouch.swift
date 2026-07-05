@@ -164,6 +164,9 @@ extension PairingViewController {
         if let dismissKeyboardTap {
             tap.require(toFail: dismissKeyboardTap)
         }
+        if let doubleTap = videoDoubleTapZoomRecognizer {
+            tap.require(toFail: doubleTap)
+        }
 
         sinkView.isUserInteractionEnabled = true
         sinkView.addGestureRecognizer(pan)

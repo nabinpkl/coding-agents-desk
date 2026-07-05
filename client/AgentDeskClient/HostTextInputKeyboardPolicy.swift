@@ -2,7 +2,7 @@ import AgentDeskWire
 
 enum KeyboardPresentationState: Equatable {
     case hidden
-    case awaitingEditableFocusAfterIBeamTap
+    case awaitingEditableFocusAfterVideoTap
     case shown
 }
 
@@ -10,7 +10,7 @@ enum KeyboardPresentationIntent: Equatable {
     case show
     case hide
     case toggle
-    case hostFocus(editable: Bool)
+    case hostFocus(editable: Bool, cursorKind: CursorKind?)
     case remoteTap(cursorKind: CursorKind, focusedEditable: Bool)
 }
 
@@ -36,9 +36,9 @@ enum KeyboardPresentationStateMachine {
             next = .hidden
         case .toggle:
             next = state == .shown ? .hidden : .shown
-        case let .hostFocus(editable):
-            if state == .awaitingEditableFocusAfterIBeamTap {
-                next = editable ? .shown : .hidden
+        case let .hostFocus(editable, cursorKind):
+            if state == .awaitingEditableFocusAfterVideoTap {
+                next = editable || cursorKind == .ibeam ? .shown : .hidden
             } else {
                 next = state
             }
@@ -46,12 +46,8 @@ enum KeyboardPresentationStateMachine {
             switch state {
             case .shown:
                 next = .hidden
-            case .hidden, .awaitingEditableFocusAfterIBeamTap:
-                guard cursorKind == .ibeam else {
-                    next = .hidden
-                    break
-                }
-                next = focusedEditable ? .shown : .awaitingEditableFocusAfterIBeamTap
+            case .hidden, .awaitingEditableFocusAfterVideoTap:
+                next = cursorKind == .ibeam && focusedEditable ? .shown : .awaitingEditableFocusAfterVideoTap
             }
         }
         return KeyboardPresentationTransition(previous: state, next: next)
@@ -60,7 +56,7 @@ enum KeyboardPresentationStateMachine {
 
 enum HostTextInputKeyboardPolicy {
     static func intent(for push: HostTextInputFocusPush) -> KeyboardPresentationIntent {
-        .hostFocus(editable: push.editable)
+        .hostFocus(editable: push.editable, cursorKind: push.cursorKind)
     }
 
     static func intentForRemoteTap(

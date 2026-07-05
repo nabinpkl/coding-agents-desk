@@ -799,10 +799,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let logger = signalingLogger
         let postClickTextFocusRefresh: @Sendable () -> Void = { [weak self, weak server, logger] in
             Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 120_000_000)
                 guard let self, let server else { return }
-                let focus = self.textInputFocusMonitor.sampleCurrentFocus()
-                logger.notice("post-click text focus refresh editable=\(focus.editable, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public)")
+                var lastFocus: HostTextInputFocusPush?
+                for delayNs in [120_000_000, 180_000_000, 300_000_000] {
+                    try? await Task.sleep(nanoseconds: UInt64(delayNs))
+                    let cursorKind = CursorMonitor.systemSampler()?.cursorKind
+                    let focus = self.textInputFocusMonitor.sampleCurrentFocus(cursorKind: cursorKind)
+                    lastFocus = focus
+                    if focus.editable || focus.cursorKind == .ibeam {
+                        logger.notice("post-click text focus refresh editable=\(focus.editable, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public) cursorKind=\(focus.cursorKind?.rawValue ?? "nil", privacy: .public) attempt=positive")
+                        server.pushTextInputFocus(focus)
+                        return
+                    }
+                }
+                guard let focus = lastFocus else { return }
+                logger.notice("post-click text focus refresh editable=\(focus.editable, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public) cursorKind=\(focus.cursorKind?.rawValue ?? "nil", privacy: .public) attempt=final")
                 server.pushTextInputFocus(focus)
             }
         }

@@ -25,10 +25,10 @@ struct VideoTouchControlState: Equatable {
 // ControlSurface.visibility(for:) pattern. Design:
 // docs/superpowers/specs/2026-07-03-touch-scroll-pinch-zoom-design.md
 //
-// When video touch is on, one finger taps/clicks or scrolls the host at any
-// zoom level and two fingers behave as native UIScrollView pinch +
-// pan-while-pinched. Full layout is independent: it hides the relative controls
-// and expands the video without forcing video touch input routing.
+// A single tap is always routed so text fields can be focused and the iOS
+// keyboard can be shown from host AX confirmation. Touch mode only controls
+// one-finger drag/scroll routing; when it is off, local UIScrollView gestures
+// keep their normal one-finger behavior.
 struct VideoTouchGestureConfig: Equatable {
     let videoTouchTapRecognizerEnabled: Bool
     let videoTouchScrollRecognizerEnabled: Bool
@@ -47,7 +47,7 @@ func videoTouchGestureConfig(
 ) -> VideoTouchGestureConfig {
     let full = layoutMode == .full
     return VideoTouchGestureConfig(
-        videoTouchTapRecognizerEnabled: videoTouchEnabled,
+        videoTouchTapRecognizerEnabled: true,
         videoTouchScrollRecognizerEnabled: videoTouchEnabled,
         doubleTapZoomRecognizerEnabled: !videoTouchEnabled,
         scrollViewScrollEnabled: true,

@@ -22,7 +22,7 @@ struct HostTextInputKeyboardPolicyTests {
             intent: .toggle
         ).next == .hidden)
         #expect(KeyboardPresentationStateMachine.transition(
-            from: .awaitingEditableFocusAfterIBeamTap,
+            from: .awaitingEditableFocusAfterVideoTap,
             intent: .toggle
         ).next == .shown)
     }
@@ -64,27 +64,34 @@ struct HostTextInputKeyboardPolicyTests {
         #expect(transition.next == .shown)
     }
 
-    @Test func iBeamTapWaitsForAccessibilityWhenFocusIsNotKnownEditable() {
+    @Test func videoTapWaitsForAccessibilityWhenFocusIsNotKnownEditable() {
         #expect(KeyboardPresentationStateMachine.transition(
             from: .hidden,
             intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
                 lastCursorKind: .ibeam,
                 focusedEditable: false
             )
-        ).next == .awaitingEditableFocusAfterIBeamTap)
+        ).next == .awaitingEditableFocusAfterVideoTap)
     }
 
-    @Test func pendingIBeamTapShowsWhenAccessibilityConfirmsEditable() {
+    @Test func pendingVideoTapShowsWhenAccessibilityConfirmsEditable() {
         #expect(KeyboardPresentationStateMachine.transition(
-            from: .awaitingEditableFocusAfterIBeamTap,
-            intent: .hostFocus(editable: true)
+            from: .awaitingEditableFocusAfterVideoTap,
+            intent: .hostFocus(editable: true, cursorKind: nil)
         ).next == .shown)
     }
 
-    @Test func pendingIBeamTapHidesWhenAccessibilityReportsNonEditable() {
+    @Test func pendingVideoTapShowsWhenHostReportsIBeamCursor() {
         #expect(KeyboardPresentationStateMachine.transition(
-            from: .awaitingEditableFocusAfterIBeamTap,
-            intent: .hostFocus(editable: false)
+            from: .awaitingEditableFocusAfterVideoTap,
+            intent: .hostFocus(editable: false, cursorKind: .ibeam)
+        ).next == .shown)
+    }
+
+    @Test func pendingVideoTapHidesWhenAccessibilityReportsNonEditable() {
+        #expect(KeyboardPresentationStateMachine.transition(
+            from: .awaitingEditableFocusAfterVideoTap,
+            intent: .hostFocus(editable: false, cursorKind: .arrow)
         ).next == .hidden)
     }
 
@@ -98,14 +105,14 @@ struct HostTextInputKeyboardPolicyTests {
         ).next == .shown)
     }
 
-    @Test func arrowTapLeavesHiddenKeyboardAlone() {
+    @Test func arrowTapWaitsForAccessibilityConfirmation() {
         #expect(KeyboardPresentationStateMachine.transition(
             from: .hidden,
             intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
                 lastCursorKind: .arrow,
                 focusedEditable: true
             )
-        ).next == .hidden)
+        ).next == .awaitingEditableFocusAfterVideoTap)
     }
 
     @Test func presentedKeyboardTapHidesEvenWhenCursorIsIBeam() {
@@ -118,13 +125,13 @@ struct HostTextInputKeyboardPolicyTests {
         ).next == .hidden)
     }
 
-    @Test func hiddenNonIBeamTapLeavesKeyboardAlone() {
+    @Test func hiddenNonIBeamTapWaitsForAccessibilityConfirmation() {
         #expect(KeyboardPresentationStateMachine.transition(
             from: .hidden,
             intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
                 lastCursorKind: .pointingHand,
                 focusedEditable: false
             )
-        ).next == .hidden)
+        ).next == .awaitingEditableFocusAfterVideoTap)
     }
 }

@@ -8,7 +8,7 @@ import AgentDeskWire
 struct VideoTouchGestureConfigTests {
     @Test func asIsLayoutWithTouchModeOffKeepsControlsAndLocalVideoGestures() {
         let config = videoTouchGestureConfig(videoTouchEnabled: false, layoutMode: .asIs)
-        #expect(config.videoTouchTapRecognizerEnabled == false)
+        #expect(config.videoTouchTapRecognizerEnabled)
         #expect(config.videoTouchScrollRecognizerEnabled == false)
         #expect(config.doubleTapZoomRecognizerEnabled)
         #expect(config.scrollViewScrollEnabled == true)
@@ -34,7 +34,7 @@ struct VideoTouchGestureConfigTests {
 
     @Test func fullLayoutWithTouchModeOffHidesControlsAndKeepsLocalVideoGestures() {
         let config = videoTouchGestureConfig(videoTouchEnabled: false, layoutMode: .full)
-        #expect(config.videoTouchTapRecognizerEnabled == false)
+        #expect(config.videoTouchTapRecognizerEnabled)
         #expect(config.videoTouchScrollRecognizerEnabled == false)
         #expect(config.doubleTapZoomRecognizerEnabled)
         #expect(config.scrollViewScrollEnabled == true)
