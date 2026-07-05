@@ -30,6 +30,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     let cursorUpdates: AsyncStream<CursorImagePush>
     private let cursorPositionContinuation: AsyncStream<CursorPositionPush>.Continuation
     let cursorPositionUpdates: AsyncStream<CursorPositionPush>
+    private let hostAvailabilityContinuation: AsyncStream<HostAvailabilityPush>.Continuation
+    let hostAvailabilityUpdates: AsyncStream<HostAvailabilityPush>
     private let diagnosticsContinuation: AsyncStream<InputChannelDiagnosticsUpdate>.Continuation
     let diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate>
     private let closedContinuation: AsyncStream<Void>.Continuation
@@ -83,6 +85,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         var cursorPositionCont: AsyncStream<CursorPositionPush>.Continuation!
         cursorPositionUpdates = AsyncStream { cursorPositionCont = $0 }
         cursorPositionContinuation = cursorPositionCont
+        var availabilityCont: AsyncStream<HostAvailabilityPush>.Continuation!
+        hostAvailabilityUpdates = AsyncStream { availabilityCont = $0 }
+        hostAvailabilityContinuation = availabilityCont
         var diagnosticsCont: AsyncStream<InputChannelDiagnosticsUpdate>.Continuation!
         diagnosticsUpdates = AsyncStream { diagnosticsCont = $0 }
         diagnosticsContinuation = diagnosticsCont
@@ -194,6 +199,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         agentSayContinuation.finish()
         cursorContinuation.finish()
         cursorPositionContinuation.finish()
+        hostAvailabilityContinuation.finish()
         diagnosticsContinuation.finish()
         closedContinuation.yield(())
         closedContinuation.finish()
@@ -331,6 +337,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         case "cursor-position":
             if let push = try? JSONDecoder().decode(CursorPositionPush.self, from: data) {
                 cursorPositionContinuation.yield(push)
+            }
+        case "host-availability":
+            if let push = try? JSONDecoder().decode(HostAvailabilityPush.self, from: data) {
+                hostAvailabilityContinuation.yield(push)
             }
         case "diagnostics-request":
             if let request = try? JSONDecoder().decode(DiagnosticsRequest.self, from: data) {

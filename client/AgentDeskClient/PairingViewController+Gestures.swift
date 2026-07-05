@@ -123,6 +123,49 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         }
     }
 
+    func startHostAvailabilityObservation() {
+        hostAvailabilityTask?.cancel()
+        hostAvailabilityTask = nil
+        guard let channel = pairingClient.activeInputChannel else { return }
+        hostAvailabilityTask = Task { [weak self, channel] in
+            for await push in channel.hostAvailabilityUpdates {
+                await MainActor.run {
+                    self?.applyHostAvailability(push)
+                }
+            }
+        }
+    }
+
+    func applyHostAvailability(_ push: HostAvailabilityPush) {
+        ClientDiagnostics.shared.record(
+            type: "hostAvailability",
+            fields: [
+                "availability": push.availability.rawValue,
+                "reason": push.reason ?? "nil"
+            ],
+            level: .info
+        )
+        guard let label = hostAvailabilityLabel else { return }
+        switch push.availability {
+        case .active:
+            label.isHidden = true
+            label.text = nil
+        case .locked:
+            label.text = "Mac locked\nKeyboard input stays available"
+            label.isHidden = false
+            view.bringSubviewToFront(label)
+            view.bringSubviewToFront(settingsButton)
+        case .captureUnavailable:
+            label.text = "Mac display unavailable\nInput stays connected"
+            label.isHidden = false
+            view.bringSubviewToFront(label)
+            view.bringSubviewToFront(settingsButton)
+        case .disconnected:
+            label.isHidden = true
+            label.text = nil
+        }
+    }
+
     func stopAgentSayForegroundPresentation() {
         agentSayTask?.cancel()
         agentSayTask = nil

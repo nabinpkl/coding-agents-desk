@@ -24,6 +24,7 @@ final class PopoverViewController: NSViewController {
     var onRevoke: ((DeviceFingerprint) -> Void)?
     var onRequestScreenRecording: (() -> Void)?
     var onRequestAccessibility: (() -> Void)?
+    var onRequestRemoteDesktop: (() -> Void)?
     var onQuit: (() -> Void)?
 
     private let stack = NSStackView()
@@ -127,12 +128,14 @@ final class PopoverViewController: NSViewController {
             connectedFingerprint = record.deviceFingerprint
             label("Connected", font: .boldSystemFont(ofSize: 16))
             label(deviceDisplayName(record), font: .systemFont(ofSize: 13, weight: .medium))
+            label("Remote Desktop permission is recommended for reliable lock-screen access.", font: .systemFont(ofSize: 12))
             label(record.deviceFingerprint.rawValue, font: .monospacedSystemFont(ofSize: 10, weight: .regular), lineBreakMode: .byTruncatingMiddle)
             if let lastSeenAt = record.lastSeenAt {
                 label("Last seen \(Date(timeIntervalSince1970: TimeInterval(lastSeenAt)).formatted())", font: .systemFont(ofSize: 12))
             } else {
                 label("Last seen pending", font: .systemFont(ofSize: 12))
             }
+            button(title: "Open Remote Desktop Settings", action: #selector(requestRemoteDesktop))
             button(title: "Revoke", action: #selector(revoke))
         case .tailscaleRequired:
             label("Tailscale required", font: .boldSystemFont(ofSize: 16))
@@ -168,6 +171,10 @@ final class PopoverViewController: NSViewController {
 
     @objc private func requestAccessibility() {
         onRequestAccessibility?()
+    }
+
+    @objc private func requestRemoteDesktop() {
+        onRequestRemoteDesktop?()
     }
 
     @objc private func startPairing() {

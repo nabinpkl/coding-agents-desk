@@ -102,6 +102,26 @@ extension PairingViewController {
         ])
         view.bringSubviewToFront(diag)
         mediaDiagnosticsLabel = diag
+
+        let availability = UILabel()
+        availability.backgroundColor = UIColor.black.withAlphaComponent(0.72)
+        availability.textColor = .white
+        availability.font = .preferredFont(forTextStyle: .headline)
+        availability.numberOfLines = 2
+        availability.textAlignment = .center
+        availability.layer.cornerRadius = 10
+        availability.layer.masksToBounds = true
+        availability.isHidden = true
+        availability.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(availability)
+        NSLayoutConstraint.activate([
+            availability.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
+            availability.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
+            availability.leadingAnchor.constraint(greaterThanOrEqualTo: scroll.leadingAnchor, constant: 24),
+            availability.trailingAnchor.constraint(lessThanOrEqualTo: scroll.trailingAnchor, constant: -24)
+        ])
+        view.bringSubviewToFront(availability)
+        hostAvailabilityLabel = availability
     }
 
     func showTrackpad() {
@@ -366,6 +386,7 @@ extension PairingViewController {
         startThumbnailsObservation()
         startAgentSayObservation()
         startCursorObservation()
+        startHostAvailabilityObservation()
         sendCurrentClientConfig()
     }
 
@@ -390,6 +411,8 @@ extension PairingViewController {
         cursorTask = nil
         cursorPositionTask?.cancel()
         cursorPositionTask = nil
+        hostAvailabilityTask?.cancel()
+        hostAvailabilityTask = nil
         pendingCursorRetarget = nil
         isManualViewportPanActive = false
         panFollowActive = false

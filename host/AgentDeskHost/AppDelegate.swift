@@ -95,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let sessions = SessionRegistry()
     private let scrollActivityHints = ScrollActivityStore()
     private let displaySelection = DisplaySelectionStore()
+    private var hostAvailability = HostAvailabilityController()
     private lazy var inputDispatcher = InputDispatcher(
         displayBoundsProvider: { [displaySelection] in
             displaySelection.selectedBounds()
@@ -179,6 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         resumePreArms()
         installSpacesSwitchHandler()
         installSpacesChangeObserver()
+        installLockAvailabilityObserver()
         installThumbnailsBroadcast()
         installCursorPositionMonitor()
         installCursorMonitor()
@@ -324,6 +326,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSWorkspace.shared.open(url)
             }
         }
+        popoverController.onRequestRemoteDesktop = {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_RemoteDesktop") {
+                NSWorkspace.shared.open(url)
+            }
+        }
         popoverController.onQuit = {
             self.gestureChildController?.stop()
             self.gesturePortalController?.stop()
@@ -424,6 +431,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         sessions.noteReady(active, ready: ready, transport: transport)
         signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public) session=\(active.sessionId, privacy: .public)")
+        updateHostAvailability(.active, reason: "session-ready")
         startMediaTransport(transport, for: active)
         refreshConnectedState()
     }
@@ -581,6 +589,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // to the current session for this fingerprint.
     private func handleInputLaneClosed(_ fingerprint: DeviceFingerprint) {
         guard sessions.isActive(fingerprint) else { return }
+        if hostAvailability.preservesSessionOnInputLaneClose {
+            signalingLogger.notice("input lane closed during availability=\(self.hostAvailability.availability.rawValue, privacy: .public) fp=\(fingerprint.rawValue, privacy: .public); preserving session")
+            return
+        }
         signalingLogger.notice("input lane closed by peer fp=\(fingerprint.rawValue, privacy: .public); suspending session")
         handleSessionSuspended(fingerprint, sessionId: nil)
     }
@@ -601,6 +613,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         thumbnailEnabledClients.remove(fingerprint)
         spaceThumbnailProvider.setDemand(owner: .client(fingerprint.rawValue), enabled: false)
         domMirrorRelay.detach(for: fingerprint)
+        updateHostAvailability(.disconnected, reason: "session-ended")
         sessions.endSession(fingerprint, sessionId: sessionId)
         signalingLogger.notice("session ended fingerprint=\(fingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
@@ -635,6 +648,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleInputLaneReady(_ fingerprint: DeviceFingerprint, server: InputChannelServer) {
         signalingLogger.notice("input lane ready fp=\(fingerprint.rawValue, privacy: .public)")
         sessions.attachInputChannelServer(server, for: fingerprint)
+        server.pushHostAvailability(HostAvailabilityPush(
+            availability: hostAvailability.availability,
+            reason: hostAvailability.reason
+        ))
         // The QUIC connection's state handler does not reliably fire .cancelled on a
         // half-dead socket, so the input lane dropping is our disconnect signal. Route
         // it through the existing suspend path (resume-grace, then end) so the popover
@@ -642,6 +659,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         server.onClosed = { [weak self] in
             Task { @MainActor in
                 self?.handleInputLaneClosed(fingerprint)
+            }
+        }
+        server.receiveErrorPreservationHandler = { [weak self] error in
+            await MainActor.run {
+                guard let self else { return false }
+                let preserve = self.hostAvailability.preservesSessionOnInputLaneClose
+                if preserve {
+                    self.signalingLogger.notice("preserving input lane receive error during availability=\(self.hostAvailability.availability.rawValue, privacy: .public) fp=\(fingerprint.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                }
+                return preserve
             }
         }
         // Explicit client-initiated unpair: drop the paired-device record, same as
@@ -936,6 +963,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func installLockAvailabilityObserver() {
+        let center = NSWorkspace.shared.notificationCenter
+        center.addObserver(
+            forName: NSWorkspace.sessionDidResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateHostAvailability(.locked, reason: "session-resigned-active")
+            }
+        }
+        center.addObserver(
+            forName: NSWorkspace.screensDidSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateHostAvailability(.captureUnavailable, reason: "screens-did-sleep")
+            }
+        }
+        center.addObserver(
+            forName: NSWorkspace.sessionDidBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateHostAvailability(.active, reason: "session-became-active")
+            }
+        }
+        center.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateHostAvailability(.active, reason: "screens-did-wake")
+            }
+        }
+    }
+
+    private func updateHostAvailability(_ availability: HostAvailability, reason: String) {
+        let snapshot: HostAvailabilitySnapshot?
+        switch availability {
+        case .active:
+            snapshot = hostAvailability.noteActive(reason: reason)
+        case .locked:
+            snapshot = hostAvailability.noteLock(reason: reason)
+        case .captureUnavailable:
+            snapshot = hostAvailability.noteCaptureUnavailable(reason: reason)
+        case .disconnected:
+            snapshot = hostAvailability.noteDisconnected(reason: reason)
+        }
+        guard let snapshot else { return }
+        signalingLogger.notice("host availability=\(snapshot.availability.rawValue, privacy: .public) reason=\(snapshot.reason ?? "nil", privacy: .public)")
+        broadcastHostAvailability(snapshot)
+    }
+
+    private func broadcastHostAvailability(_ snapshot: HostAvailabilitySnapshot) {
+        let push = HostAvailabilityPush(availability: snapshot.availability, reason: snapshot.reason)
+        for server in sessions.allInputChannelServers() {
+            server.pushHostAvailability(push)
+        }
+    }
+
     // Cursor mirror: CursorMonitor polls NSCursor.currentSystem and emits
     // a CursorImagePush on every shape change. Broadcast each change to all
     // attached clients. Runs for the process lifetime; a fresh client is
@@ -1008,11 +1099,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .connecting:
             break
         case .connected:
-            break
+            updateHostAvailability(.active, reason: "media-connected")
         case .disconnected:
-            sessions.markSuspended(fingerprint)
+            updateHostAvailability(.captureUnavailable, reason: "media-disconnected")
         case .failed, .closed:
-            handleSessionEnded(fingerprint)
+            updateHostAvailability(.captureUnavailable, reason: "media-\(String(describing: state))")
         }
     }
 

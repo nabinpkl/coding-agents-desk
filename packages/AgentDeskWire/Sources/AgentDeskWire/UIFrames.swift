@@ -135,6 +135,32 @@ public struct CursorPositionPush: Codable, Equatable, Sendable {
         self.cursorY = cursorY
     }
 }
+
+public enum HostAvailability: String, Codable, Equatable, Sendable {
+    case active
+    case locked
+    case captureUnavailable
+    case disconnected
+}
+
+public struct HostAvailabilityPush: Codable, Equatable, Sendable {
+    public let type: String
+    public let availability: HostAvailability
+    public let reason: String?
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case type = "t"
+        case availability = "a"
+        case reason = "r"
+    }
+
+    public init(availability: HostAvailability, reason: String? = nil) {
+        self.type = "host-availability"
+        self.availability = availability
+        self.reason = reason
+    }
+}
+
 public struct ClientMediaQualityTarget: Codable, Equatable, Sendable {
     public let bitrateKbps: Int
     public let fps: Int

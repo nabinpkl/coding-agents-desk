@@ -32,6 +32,8 @@
 	<string></string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>AgentDesk needs Screen Recording to stream this Mac's display to your iPhone.</string>
+	<key>NSRemoteDesktopUsageDescription</key>
+	<string>AgentDesk uses Remote Desktop consent to keep remote control available when this Mac is locked.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>AgentDesk records short clips from this Mac's microphone to transcribe them to text.</string>
 	<key>NSCameraUsageDescription</key>

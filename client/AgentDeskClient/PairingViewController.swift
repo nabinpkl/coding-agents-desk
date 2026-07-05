@@ -63,12 +63,14 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // like settingsButton and cursorDotView, so it never rides the sink's pinch-zoom/pan.
     // The sink publishes status into it via onOwnedMediaStatusChange.
     var mediaDiagnosticsLabel: UILabel?
+    var hostAvailabilityLabel: UILabel?
     // Cursor-image mirror state. The host pushes the real cursor glyph on
     // shape change; we cache it and stamp it at the predicted position.
     // Defaults describe the drawn-arrow fallback (tip hotspot, small size).
     let cursorImageStore = CursorImageStore()
     var cursorTask: Task<Void, Never>?
     var cursorPositionTask: Task<Void, Never>?
+    var hostAvailabilityTask: Task<Void, Never>?
     var diagnosticsTask: Task<Void, Never>?
     var cursorHotspotFrac: CGPoint = .zero
     var cursorRenderSize: CGSize = CursorPointerView.pointerSize
@@ -332,6 +334,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         desktopStateTask?.cancel()
         cursorTask?.cancel()
         cursorPositionTask?.cancel()
+        hostAvailabilityTask?.cancel()
         diagnosticsTask?.cancel()
         agentSayTask?.cancel()
         agentSaySpeechTask?.cancel()
@@ -403,11 +406,21 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         case .failed(let rejection):
             iceGraceTask?.cancel()
             iceGraceTask = nil
-            failMediaSession(rejection: rejection)
+            if let rejection {
+                failMediaSession(rejection: rejection)
+            } else {
+                applyHostAvailability(HostAvailabilityPush(
+                    availability: .captureUnavailable,
+                    reason: "media-failed"
+                ))
+            }
         case .closed:
             iceGraceTask?.cancel()
             iceGraceTask = nil
-            failMediaSession()
+            applyHostAvailability(HostAvailabilityPush(
+                availability: .captureUnavailable,
+                reason: "media-closed"
+            ))
         }
     }
 
@@ -427,6 +440,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         sinkScrollView = nil
         mediaDiagnosticsLabel?.removeFromSuperview()
         mediaDiagnosticsLabel = nil
+        hostAvailabilityLabel?.removeFromSuperview()
+        hostAvailabilityLabel = nil
         cursorDotView?.removeFromSuperview()
         cursorDotView = nil
         cursorSourcePos = nil

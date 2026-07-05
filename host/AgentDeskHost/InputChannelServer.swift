@@ -28,6 +28,7 @@ protocol InputChannelServing: AnyObject, Sendable {
     // half-dead socket, so lane death is the host's disconnect signal; the owner
     // uses it to suspend the session and stop the stale-send flood.
     var onClosed: (() -> Void)? { get set }
+    var receiveErrorPreservationHandler: (@Sendable (Error) async -> Bool)? { get set }
     // Fired when the client sends an explicit revoke frame (settings "Unpair").
     // The owner removes the paired-device record so both sides forget each other.
     var revokeHandler: (() -> Void)? { get set }
@@ -38,6 +39,7 @@ protocol InputChannelServing: AnyObject, Sendable {
     func pushAgentSay(_ push: AgentSayPush)
     func pushCursor(_ push: CursorImagePush)
     func pushCursorPosition(_ push: CursorPositionPush)
+    func pushHostAvailability(_ push: HostAvailabilityPush)
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest)
     func pushAgentData(_ data: Data)
 }
@@ -56,6 +58,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     var configHandler: ((ClientConfig) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
     var onClosed: (() -> Void)?
+    var receiveErrorPreservationHandler: (@Sendable (Error) async -> Bool)?
     var revokeHandler: (() -> Void)?
 
     init(stream: QUIC.Stream<QUICStream>, fingerprint: DeviceFingerprint) {
@@ -84,6 +87,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         configHandler = nil
         agentRequestHandler = nil
         onClosed = nil
+        receiveErrorPreservationHandler = nil
         revokeHandler = nil
     }
 
@@ -100,6 +104,10 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     }
 
     func pushCursorPosition(_ push: CursorPositionPush) {
+        sendCodableFrame(push)
+    }
+
+    func pushHostAvailability(_ push: HostAvailabilityPush) {
         sendCodableFrame(push)
     }
 
@@ -162,6 +170,17 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
                     dispatch(data: frame.payload)
                 } catch {
                     logger.notice("input lane receive ended fp=\(self.fingerprint.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                    let shouldPreserve: Bool
+                    if let receiveErrorPreservationHandler {
+                        shouldPreserve = await receiveErrorPreservationHandler(error)
+                    } else {
+                        shouldPreserve = false
+                    }
+                    if !Task.isCancelled, shouldPreserve {
+                        logger.notice("input lane receive error preserved during host availability transition fp=\(self.fingerprint.rawValue, privacy: .public)")
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        continue
+                    }
                     // Only a peer-driven drop is a disconnect. A cancelled receive
                     // loop means the owner called close() (session teardown or a
                     // newer lane superseding this one), so it must NOT re-enter the

@@ -84,6 +84,16 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(fixedTarget?["rs"] as? Double == 0.5)
 }
 
+@Test func hostAvailabilityPushRoundTripsLockedAndCaptureUnavailable() throws {
+    try roundTrip(HostAvailabilityPush(availability: .locked, reason: "session-resigned-active"))
+    try roundTrip(HostAvailabilityPush(availability: .captureUnavailable, reason: "media-closed"))
+
+    let data = try JSONEncoder().encode(HostAvailabilityPush(availability: .active))
+    let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    #expect(object?["t"] as? String == "host-availability")
+    #expect(object?["a"] as? String == "active")
+}
+
 @Test func ownedGraphicsFrameAckUsesCanonicalInitOrder() throws {
     // Drift: the two copies declared the memberwise init in different orders. The
     // canonical order is (surfaceGeneration, frameId, compositorMs, ...); the wire

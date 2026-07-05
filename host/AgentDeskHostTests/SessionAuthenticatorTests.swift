@@ -394,6 +394,7 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     var configHandler: ((ClientConfig) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
     var onClosed: (() -> Void)?
+    var receiveErrorPreservationHandler: (@Sendable (Error) async -> Bool)?
     var revokeHandler: (() -> Void)?
 
     init() {
@@ -420,6 +421,8 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     func pushCursor(_ push: CursorImagePush) {}
 
     func pushCursorPosition(_ push: CursorPositionPush) {}
+
+    func pushHostAvailability(_ push: HostAvailabilityPush) {}
 
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest) {}
 
