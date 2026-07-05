@@ -133,9 +133,19 @@ async function stopRecording() {
   if (recordingTabId != null) await stopTabRecording(recordingTabId);
 }
 
-// Toolbar click: onClicked fires only when there is no default_popup. Toggle the clicked tab.
-chrome.action.onClicked.addListener((tab) => { if (tab && tab.id != null) toggleTabRecording(tab.id); });
+// Status snapshot for the action popup. canRecord is false on pages with no content script
+// (chrome://, the Web Store), where mirroring can't start.
+function popupState(tab) {
+  const canRecord = !!tab && /^https?:/.test(tab.url || '');
+  return {
+    recording: !!tab && recordingTabId === tab.id,
+    title: tab ? (tab.title || tab.url || '') : '',
+    canRecord,
+  };
+}
 
+// The toolbar click opens popup.html (default_popup), so chrome.action.onClicked does not fire;
+// the popup drives start/stop through these messages. The keyboard command toggles directly below.
 // Keyboard command (Alt+Shift+M): no tab is passed, so resolve the active one.
 chrome.commands.onCommand.addListener(async (command) => {
   if (command !== 'toggle-recording') return;
@@ -157,8 +167,21 @@ chrome.tabs.onUpdated.addListener((tabId, info) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message, sender) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const tabId = sender.tab && sender.tab.id;
+  // Action popup: report status / toggle the active tab. Resolved worker-side so recordingTabId is
+  // the single source of truth. Async responses -> return true to keep the channel open.
+  if (message.type === 'agentdesk-popup-query') {
+    activeTab().then((tab) => sendResponse(popupState(tab)));
+    return true;
+  }
+  if (message.type === 'agentdesk-popup-toggle') {
+    activeTab().then(async (tab) => {
+      if (tab && tab.id != null) await toggleTabRecording(tab.id);
+      sendResponse(popupState(tab));
+    });
+    return true;
+  }
   if (message.type === 'agentdesk-batch') {
     const p = ensurePort();
     if (!p) return;

@@ -17,7 +17,8 @@
     "service_worker": "worker.js"
   },
   "action": {
-    "default_title": "AgentDesk: start/stop mirroring"
+    "default_title": "AgentDesk Browser Mirror",
+    "default_popup": "popup.html"
   },
   "commands": {
     "toggle-recording": {
