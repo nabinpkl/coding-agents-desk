@@ -18,6 +18,7 @@ final class InputDispatcher: @unchecked Sendable {
     typealias Clock = () -> CFTimeInterval
     typealias SwitchSpaceGestureHandler = (NormalizedInput.SwipePhase, Float, Float) -> Void
     typealias SwitchSpaceStepHandler = (Int) -> Void
+    typealias SystemCommandHandler = (NormalizedInput.SystemCommand) -> Void
     typealias ScrollFocusHandler = @Sendable (NormalizedInput, ScrollFocusSnapshot) -> Void
     typealias CursorPositionHandler = (CGPoint) -> Void
 
@@ -45,6 +46,7 @@ final class InputDispatcher: @unchecked Sendable {
     // queue inside SpacesProvider. Default no-op so unit tests can
     // leave it unset.
     var switchSpaceStepHandler: SwitchSpaceStepHandler?
+    var systemCommandHandler: SystemCommandHandler?
     var cursorPositionHandler: CursorPositionHandler?
     private var loggedUntrusted = false
     // Custom event source so we can disable the 0.25s synthetic-event
@@ -206,6 +208,10 @@ final class InputDispatcher: @unchecked Sendable {
             // and click dispatch for the duration of the jump.
             if let switchSpaceStepHandler {
                 switchSpaceStepHandler(delta)
+            }
+        case .systemCommand(let command):
+            if let systemCommandHandler {
+                systemCommandHandler(command)
             }
         }
     }

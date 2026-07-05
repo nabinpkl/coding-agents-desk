@@ -182,5 +182,8 @@ struct HostTextInputKeyboardPolicyTests {
         #expect(HostTextInputKeyboardPolicy.intentForRemoteInput(
             .cursorMove(dx: 1, dy: 2)
         ) == nil)
+        #expect(HostTextInputKeyboardPolicy.intentForRemoteInput(
+            .systemCommand(.missionControl)
+        ) == nil)
     }
 }

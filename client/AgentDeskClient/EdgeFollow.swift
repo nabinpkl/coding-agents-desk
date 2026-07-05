@@ -524,7 +524,7 @@ extension NormalizedInput {
         switch self {
         case .cursorMove, .click, .dragStart, .scroll:
             return true
-        case .cursorSet, .dragEnd, .switchSpaceGesture, .switchSpaceStep, .key, .modifierArm:
+        case .cursorSet, .dragEnd, .switchSpaceGesture, .switchSpaceStep, .systemCommand, .key, .modifierArm:
             return false
         }
     }

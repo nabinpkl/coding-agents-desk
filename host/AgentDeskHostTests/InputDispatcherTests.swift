@@ -733,6 +733,40 @@ struct InputDispatcherTests {
 
         #expect(calls == 0)
     }
+
+    @Test func systemCommandForwardsToHandler() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+        var seen: [NormalizedInput.SystemCommand] = []
+        dispatcher.systemCommandHandler = { command in
+            seen.append(command)
+        }
+
+        dispatcher.performDispatch(.systemCommand(.missionControl))
+
+        #expect(seen == [.missionControl])
+        #expect(recorder.events.isEmpty)
+    }
+
+    @Test func systemCommandHandlerNotCalledWhenUntrusted() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { false },
+            locationProvider: { .zero }
+        )
+        var calls = 0
+        dispatcher.systemCommandHandler = { _ in calls += 1 }
+
+        dispatcher.performDispatch(.systemCommand(.missionControl))
+
+        #expect(calls == 0)
+        #expect(recorder.events.isEmpty)
+    }
 }
 
 private final class EventRecorder {

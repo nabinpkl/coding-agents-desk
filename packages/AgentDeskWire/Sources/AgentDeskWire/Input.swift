@@ -19,6 +19,7 @@ public enum NormalizedInput: Codable, Equatable, Sendable {
     // commit. Client applies its direction toggle when computing the
     // sign so tap-to-jump and swipe-to-jump stay in agreement.
     case switchSpaceStep(delta: Int)
+    case systemCommand(SystemCommand)
     case key(code: String, modifiers: [Modifier])
     case modifierArm(mod: Modifier)
 
@@ -45,6 +46,10 @@ public enum NormalizedInput: Codable, Equatable, Sendable {
         case ctrl
         case option
         case shift
+    }
+
+    public enum SystemCommand: String, Codable, Sendable {
+        case missionControl
     }
 
     // Mirrors the two-axis macOS scroll phase model so the host can post

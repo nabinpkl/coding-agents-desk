@@ -69,7 +69,7 @@ private struct SkyLight {
 }
 
 // Reverse-engineered CGEventField indices for the dock-swipe synthesis
-// path. Names mirror the constants InstantSpaceSwitcher / iss /
+// paths. Names mirror the constants InstantSpaceSwitcher / iss /
 // Karabiner-Elements expose. Stable since 3-finger swipe shipped in
 // 10.11; if Apple ever changes them the symptom is "swipe posts but
 // nothing happens" and the smoke for that is HITL.
@@ -87,6 +87,7 @@ private enum DockSwipeConstant {
     static let dockControl: Int64 = 30
     static let dockSwipeHIDType: Int64 = 23
     static let motionHorizontal: Int64 = 1
+    static let motionVertical: Int64 = 2
 }
 
 // CGSGesturePhase mapping for the wire-level SwipePhase. Began=1,
@@ -360,6 +361,33 @@ final class SpacesProvider {
         event.setDoubleValueField(DockSwipeField.gestureSwipeProgress, value: Double(progress))
         event.setDoubleValueField(DockSwipeField.gestureSwipeVelocityX, value: Double(velocityX))
         event.setDoubleValueField(DockSwipeField.gestureSwipeVelocityY, value: Double(velocityX))
+        eventPoster(event)
+        return true
+    }
+
+    func openMissionControl() {
+        postDockMissionControlFrame(phase: .began, progress: 0, velocityY: 0)
+        postDockMissionControlFrame(phase: .changed, progress: 0.5, velocityY: 1500)
+        postDockMissionControlFrame(phase: .ended, progress: 1.0, velocityY: 2000)
+    }
+
+    @discardableResult
+    func postDockMissionControlFrame(
+        phase: NormalizedInput.SwipePhase,
+        progress: Float,
+        velocityY: Float
+    ) -> Bool {
+        guard let event = CGEvent(source: nil) else {
+            logger.error("CGEvent(source:nil) returned nil")
+            return false
+        }
+        event.setIntegerValueField(DockSwipeField.cgsEventType, value: DockSwipeConstant.dockControl)
+        event.setIntegerValueField(DockSwipeField.gestureHIDType, value: DockSwipeConstant.dockSwipeHIDType)
+        event.setIntegerValueField(DockSwipeField.gesturePhase, value: cgsPhase(phase))
+        event.setIntegerValueField(DockSwipeField.gestureSwipeMotion, value: DockSwipeConstant.motionVertical)
+        event.setDoubleValueField(DockSwipeField.gestureSwipeProgress, value: Double(progress))
+        event.setDoubleValueField(DockSwipeField.gestureSwipeVelocityX, value: 0)
+        event.setDoubleValueField(DockSwipeField.gestureSwipeVelocityY, value: Double(velocityY))
         eventPoster(event)
         return true
     }

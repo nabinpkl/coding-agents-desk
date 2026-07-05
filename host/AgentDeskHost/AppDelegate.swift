@@ -1114,6 +1114,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         inputDispatcher.switchSpaceStepHandler = { delta in
             provider.commitStep(delta: delta)
         }
+        inputDispatcher.systemCommandHandler = { command in
+            switch command {
+            case .missionControl:
+                provider.openMissionControl()
+            }
+        }
     }
 
     private func handleMediaConnectionState(_ state: MediaConnectionState, for fingerprint: DeviceFingerprint) {

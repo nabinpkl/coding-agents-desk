@@ -88,6 +88,7 @@ NormalizedInput =
   | { kind: "scroll", dx: Float, dy: Float, phase?: "began"|"changed"|"ended"|"momentumBegan"|"momentumChanged"|"momentumEnded" }
   | { kind: "dragStart" } | { kind: "dragEnd" }
   | { kind: "switchSpaceGesture", phase: "began"|"changed"|"ended"|"cancelled", progress: Float, velocityX: Float }
+  | { kind: "systemCommand", command: "missionControl" }
   | { kind: "key", code: KeyCode, modifiers: ModifierMask }
   | { kind: "modifierArm", mod: "cmd" | "ctrl" | "option" | "shift" }
 ```

@@ -259,10 +259,8 @@ struct GestureTuning: Equatable, Sendable {
 //                   horizontal swipe; wire shape NormalizedInput.switchSpace
 //                   is unchanged.
 //
-// Multi-touch recognizers stay off the trackpad surface by default for
-// the same reason. If a future target (iPad two-handed, dock with a
-// stand) makes multi-touch reachable, the wire shapes already abstract
-// the affordance so the change is recognizer-only.
+// Mission Control is the one multi-touch exception: it mirrors the Mac's
+// three-finger-up gesture and emits a single explicit system command.
 
 // MARK: - Translator
 
@@ -352,6 +350,14 @@ final class GestureTranslator: NSObject {
         drag.minimumPressDuration = 0.25
         drag.allowableMovement = 25
         view.addGestureRecognizer(drag)
+
+        let missionControl = UISwipeGestureRecognizer(
+            target: self,
+            action: #selector(handleMissionControlSwipe(_:))
+        )
+        missionControl.numberOfTouchesRequired = 3
+        missionControl.direction = .up
+        view.addGestureRecognizer(missionControl)
     }
 
     // Shared cursor emission used by both the new coalescing recognizer
@@ -406,6 +412,11 @@ final class GestureTranslator: NSObject {
     func processTap(state: UIGestureRecognizer.State) {
         guard state == .ended else { return }
         delegate?.gestureTranslator(self, didProduce: .click(button: .left))
+    }
+
+    func processMissionControlSwipe(state: UIGestureRecognizer.State) {
+        guard state == .ended else { return }
+        delegate?.gestureTranslator(self, didProduce: .systemCommand(.missionControl))
     }
 
     // Right-edge scroll strip pan. Vertical only; horizontal scrolling is
@@ -518,6 +529,10 @@ final class GestureTranslator: NSObject {
     @objc private func handleDragGesture(_ gesture: UILongPressGestureRecognizer) {
         guard let view = gesture.view else { return }
         processDrag(state: gesture.state, point: gesture.location(in: view))
+    }
+
+    @objc private func handleMissionControlSwipe(_ gesture: UISwipeGestureRecognizer) {
+        processMissionControlSwipe(state: gesture.state)
     }
 
     // Pure function so tests can drive the state machine without a live

@@ -106,6 +106,30 @@ struct GestureTranslatorTests {
         #expect(recorder.events.isEmpty)
     }
 
+    @Test func missionControlSwipeEndedEmitsSystemCommand() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        translator.processMissionControlSwipe(state: .ended)
+
+        #expect(recorder.events == [.systemCommand(.missionControl)])
+    }
+
+    @Test func missionControlSwipeIgnoresNonEndedStates() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        translator.processMissionControlSwipe(state: .began)
+        translator.processMissionControlSwipe(state: .changed)
+        translator.processMissionControlSwipe(state: .cancelled)
+        translator.processMissionControlSwipe(state: .failed)
+        translator.processMissionControlSwipe(state: .possible)
+
+        #expect(recorder.events.isEmpty)
+    }
+
     @Test func dragBeganEmitsDragStart() {
         let recorder = InputRecorder()
         let translator = GestureTranslator()

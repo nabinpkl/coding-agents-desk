@@ -54,6 +54,7 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     try roundTrip(NormalizedInput.click(button: .right))
     try roundTrip(NormalizedInput.scroll(dx: 1, dy: -2, phase: .momentumBegan))
     try roundTrip(NormalizedInput.switchSpaceGesture(phase: .changed, progress: 0.5, velocityX: -3))
+    try roundTrip(NormalizedInput.systemCommand(.missionControl))
 }
 
 @Test func clientConfigRoundTripsManualMediaQuality() throws {
