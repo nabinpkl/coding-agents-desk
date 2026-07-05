@@ -183,10 +183,10 @@ final class AgentFeedBridge: @unchecked Sendable {
             ActivityBlock(
                 kind: block.kind,
                 text: block.text,
-                tool: nil,
-                summary: nil,
-                preview: nil,
-                callId: nil
+                tool: block.tool,
+                summary: block.summary,
+                preview: block.preview,
+                callId: block.callId
             )
         }
         // The sidecar emits the event field as "type"; ActivityEvent uses CodingKey "tp".

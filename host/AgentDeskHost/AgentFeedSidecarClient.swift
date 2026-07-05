@@ -8,6 +8,36 @@ import os
 struct EngineActivityBlock: Codable {
     let kind: String
     let text: String?
+    // tool_use carries tool + summary (+ callId); tool_result carries preview
+    // (+ callId). The sidecar emits these with full field names, matching the
+    // engine's ActivityBlock shape. Decoded here so the wire block can carry
+    // them; without this, only text survived and TOOL/RESULT rows rendered
+    // empty on the client. `input`/`hidden*` are intentionally omitted (the
+    // mobile surface renders summary/preview/text, not raw tool input).
+    let tool: String?
+    let summary: String?
+    let preview: String?
+    let callId: String?
+
+    // Convenience init with defaults for the optional tool fields. Codable's
+    // init(from:) is still synthesized (a non-decoder init does not suppress
+    // it), so decode keeps reading every field; this just keeps block
+    // construction in tests terse.
+    init(
+        kind: String,
+        text: String? = nil,
+        tool: String? = nil,
+        summary: String? = nil,
+        preview: String? = nil,
+        callId: String? = nil
+    ) {
+        self.kind = kind
+        self.text = text
+        self.tool = tool
+        self.summary = summary
+        self.preview = preview
+        self.callId = callId
+    }
 }
 
 struct EngineActivityEvent: Codable {
