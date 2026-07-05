@@ -131,10 +131,16 @@
 		A00000000000000000000260 /* JsonlChildProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000157 /* JsonlChildProcessTests.swift */; };
 		A00000000000000000000261 /* VoiceChildControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000158 /* VoiceChildControllerTests.swift */; };
 		A00000000000000000000262 /* AgentSayLocalServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000159 /* AgentSayLocalServer.swift */; };
+		A0000000000000000000CC10 /* DomEventLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC12 /* DomEventLaneServer.swift */; };
+		A0000000000000000000CC13 /* DomMirrorRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC15 /* DomMirrorRelay.swift */; };
 		A0000000000000000000CC00 /* DomBridgeServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC02 /* DomBridgeServer.swift */; };
 		A00000000000000000000263 /* AgentSayLocalServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000159 /* AgentSayLocalServer.swift */; };
+		A0000000000000000000CC11 /* DomEventLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC12 /* DomEventLaneServer.swift */; };
+		A0000000000000000000CC14 /* DomMirrorRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC15 /* DomMirrorRelay.swift */; };
 		A0000000000000000000CC01 /* DomBridgeServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC02 /* DomBridgeServer.swift */; };
 		A00000000000000000000264 /* AgentSayLocalServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000015A /* AgentSayLocalServerTests.swift */; };
+		A0000000000000000000CC16 /* DomMirrorRelayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC17 /* DomMirrorRelayTests.swift */; };
+		A0000000000000000000CC18 /* DomBridgeIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC19 /* DomBridgeIntegrationTests.swift */; };
 		A0000000000000000000CC03 /* DomBridgeServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CC04 /* DomBridgeServerTests.swift */; };
 		A00000000000000000000DF1 /* TileContentCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DF0 /* TileContentCache.swift */; };
 		A00000000000000000000DF2 /* TileContentCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DF0 /* TileContentCache.swift */; };
@@ -268,8 +274,12 @@
 		A00000000000000000000157 /* JsonlChildProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JsonlChildProcessTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000158 /* VoiceChildControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChildControllerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000159 /* AgentSayLocalServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSayLocalServer.swift; sourceTree = "<group>"; };
+		A0000000000000000000CC12 /* DomEventLaneServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomEventLaneServer.swift; sourceTree = "<group>"; };
+		A0000000000000000000CC15 /* DomMirrorRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomMirrorRelay.swift; sourceTree = "<group>"; };
 		A0000000000000000000CC02 /* DomBridgeServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomBridgeServer.swift; sourceTree = "<group>"; };
 		A0000000000000000000015A /* AgentSayLocalServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSayLocalServerTests.swift; sourceTree = "<group>"; };
+		A0000000000000000000CC17 /* DomMirrorRelayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomMirrorRelayTests.swift; sourceTree = "<group>"; };
+		A0000000000000000000CC19 /* DomBridgeIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomBridgeIntegrationTests.swift; sourceTree = "<group>"; };
 		A0000000000000000000CC04 /* DomBridgeServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomBridgeServerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DF0 /* TileContentCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileContentCache.swift; sourceTree = "<group>"; };
 		A00000000000000000000DF3 /* TileContentCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TileContentCacheTests.swift; sourceTree = "<group>"; };
@@ -381,6 +391,8 @@
 				A0000000000000000000011E /* KeyCodeMap.swift */,
 				A0000000000000000000011F /* InputChannelServer.swift */,
 				A00000000000000000000159 /* AgentSayLocalServer.swift */,
+				A0000000000000000000CC12 /* DomEventLaneServer.swift */,
+				A0000000000000000000CC15 /* DomMirrorRelay.swift */,
 				A0000000000000000000CC02 /* DomBridgeServer.swift */,
 				A00000000000000000000155 /* JsonlChildProcess.swift */,
 				A00000000000000000001072 /* AgentEngineSidecar.swift */,
@@ -452,6 +464,8 @@
 				A00000000000000000000157 /* JsonlChildProcessTests.swift */,
 				A00000000000000000000158 /* VoiceChildControllerTests.swift */,
 				A0000000000000000000015A /* AgentSayLocalServerTests.swift */,
+				A0000000000000000000CC17 /* DomMirrorRelayTests.swift */,
+				A0000000000000000000CC19 /* DomBridgeIntegrationTests.swift */,
 				A0000000000000000000CC04 /* DomBridgeServerTests.swift */,
 				A00000000000000000000126 /* SpacesProviderTests.swift */,
 				A000000000000000000009B0 /* CursorMonitorTests.swift */,
@@ -647,6 +661,8 @@
 				A0000000000000000000025A /* GesturePortalController.swift in Sources */,
 				A0000000000000000000025E /* VoiceChildController.swift in Sources */,
 				A00000000000000000000262 /* AgentSayLocalServer.swift in Sources */,
+				A0000000000000000000CC10 /* DomEventLaneServer.swift in Sources */,
+				A0000000000000000000CC13 /* DomMirrorRelay.swift in Sources */,
 				A0000000000000000000CC00 /* DomBridgeServer.swift in Sources */,
 				A00000000000000000001073 /* AgentEngineSidecar.swift in Sources */,
 				A00000000000000000001079 /* AgentFeedSidecarClient.swift in Sources */,
@@ -703,8 +719,12 @@
 				A00000000000000000000260 /* JsonlChildProcessTests.swift in Sources */,
 				A00000000000000000000261 /* VoiceChildControllerTests.swift in Sources */,
 				A00000000000000000000263 /* AgentSayLocalServer.swift in Sources */,
+				A0000000000000000000CC11 /* DomEventLaneServer.swift in Sources */,
+				A0000000000000000000CC14 /* DomMirrorRelay.swift in Sources */,
 				A0000000000000000000CC01 /* DomBridgeServer.swift in Sources */,
 				A00000000000000000000264 /* AgentSayLocalServerTests.swift in Sources */,
+				A0000000000000000000CC16 /* DomMirrorRelayTests.swift in Sources */,
+				A0000000000000000000CC18 /* DomBridgeIntegrationTests.swift in Sources */,
 				A0000000000000000000CC03 /* DomBridgeServerTests.swift in Sources */,
 				A00000000000000000001074 /* AgentEngineSidecar.swift in Sources */,
 				A00000000000000000001076 /* AgentEngineSidecarTests.swift in Sources */,

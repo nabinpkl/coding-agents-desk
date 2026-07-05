@@ -140,6 +140,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }()
     // Bridge between the sidecar and the active session's input lane.
     private var agentFeedBridge: AgentFeedBridge?
+    // ADR-0038 DOM mirror: the Chrome-fed native-messaging bridge server and the relay that buffers
+    // checkouts and fans rrweb batches to the attached client .dom lane. Constructed and started
+    // only when Config.domMirrorEnabled; otherwise the whole subsystem stays dark.
+    private var domBridgeServer: DomBridgeServer?
+    private let domMirrorRelay = DomMirrorRelay()
     // ADR-0019: bounds the .pairingOffered state so a device that never dials
     // back does not strand the popover. Cancelled when the device starts
     // connecting or the user leaves the offered state.
@@ -153,6 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configurePopover()
         bootstrapTLSIdentity()
         startSignalingServer()
+        startDomMirrorIfEnabled()
         installAutomationSignalHandlers()
         refreshConnectedState()
         installSpacesSwitchHandler()
@@ -361,6 +367,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor in
                     self?.handleGraphicsLaneReady(fingerprint, lane: lane)
                 }
+            },
+            domLaneReadyHandler: { [weak self] fingerprint, lane in
+                Task { @MainActor in
+                    self?.handleDomLaneReady(fingerprint, lane: lane)
+                }
             }
         )
         do {
@@ -405,6 +416,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         transport.attachGraphicsLane(lane)
+    }
+
+    // ADR-0038: the client opened its .dom lane; seed it from the relay's checkout buffer and go
+    // live. Decoupled from the media transport -- DOM batches come from the Chrome bridge, not video.
+    private func handleDomLaneReady(_ fingerprint: DeviceFingerprint, lane: DomEventLaneServer) {
+        signalingLogger.notice("dom lane ready fp=\(fingerprint.rawValue, privacy: .public)")
+        domMirrorRelay.attach(lane, for: fingerprint)
+    }
+
+    // Start the Chrome-fed native-messaging bridge and pipe its batches into the relay, but only
+    // when the subsystem is flag-enabled. onBatch fires on the bridge's own queue; the relay is
+    // lock-guarded, so no MainActor hop is needed.
+    private func startDomMirrorIfEnabled() {
+        guard Config.domMirrorEnabled else { return }
+        let relay = domMirrorRelay
+        let server = DomBridgeServer()
+        server.onBatch = { raw, envelope in
+            relay.ingest(line: raw, checkout: envelope.checkout)
+        }
+        server.start()
+        domBridgeServer = server
+        signalingLogger.notice("dom-mirror bridge started")
     }
 
     private func handleSessionResumeChallenge(_ request: SessionResumeInit) throws -> SessionResumeChallenge {
@@ -510,6 +543,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ) {
         thumbnailEnabledClients.remove(fingerprint)
         spaceThumbnailProvider.setDemand(owner: .client(fingerprint.rawValue), enabled: false)
+        domMirrorRelay.detach(for: fingerprint)
         sessions.endSession(fingerprint, sessionId: sessionId)
         signalingLogger.notice("session ended fingerprint=\(fingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
