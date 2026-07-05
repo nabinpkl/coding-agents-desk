@@ -7,7 +7,6 @@ enum KeyboardAutoPresentationDecision: Equatable {
 
 enum KeyboardRemoteTapDecision: Equatable {
     case show
-    case keepVisible
     case hide
 }
 
@@ -17,12 +16,8 @@ enum HostTextInputKeyboardPolicy {
     }
 
     static func decisionAfterRemoteTap(
-        lastCursorKind: CursorKind,
-        lastHostFocus: HostTextInputFocusPush
+        lastCursorKind: CursorKind
     ) -> KeyboardRemoteTapDecision {
-        guard lastCursorKind == .ibeam else {
-            return .hide
-        }
-        return lastHostFocus.editable ? .keepVisible : .show
+        lastCursorKind == .ibeam ? .show : .hide
     }
 }
