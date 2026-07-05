@@ -73,6 +73,29 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
     }
 
     @discardableResult
+    func applyKeyboardPresentationIntentForRemoteInput(_ input: NormalizedInput) -> KeyboardPresentationTransition? {
+        guard let intent = HostTextInputKeyboardPolicy.intentForRemoteInput(
+            input,
+            lastCursorKind: lastCursorKind,
+            focusedEditable: lastHostTextInputFocus.editable
+        ) else { return nil }
+        let transition = applyKeyboardPresentationIntent(intent)
+        ClientDiagnostics.shared.record(
+            type: "remoteInputKeyboardIntent",
+            fields: [
+                "input": input.keyboardDiagnosticsName,
+                "previous": String(describing: transition.previous),
+                "next": String(describing: transition.next),
+                "changed": String(transition.changed),
+                "lastCursorKind": lastCursorKind.rawValue,
+                "focusedEditable": String(lastHostTextInputFocus.editable)
+            ],
+            level: transition.changed ? .default : .info
+        )
+        return transition
+    }
+
+    @discardableResult
     func applyKeyboardPresentationIntent(_ intent: KeyboardPresentationIntent) -> KeyboardPresentationTransition {
         let transition = KeyboardPresentationStateMachine.transition(
             from: keyboardPresentationState,
@@ -150,5 +173,32 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
 
     func keyboardSurface(_ surface: KeyboardSurface, didProduce input: NormalizedInput) {
         sendInput(input)
+    }
+}
+
+private extension NormalizedInput {
+    var keyboardDiagnosticsName: String {
+        switch self {
+        case .click(let button):
+            return "click.\(button.rawValue)"
+        case .cursorSet:
+            return "cursorSet"
+        case .cursorMove:
+            return "cursorMove"
+        case .scroll:
+            return "scroll"
+        case .dragStart:
+            return "dragStart"
+        case .dragEnd:
+            return "dragEnd"
+        case .switchSpaceGesture:
+            return "switchSpaceGesture"
+        case .switchSpaceStep:
+            return "switchSpaceStep"
+        case .key:
+            return "key"
+        case .modifierArm:
+            return "modifierArm"
+        }
     }
 }

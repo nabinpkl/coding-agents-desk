@@ -47,7 +47,11 @@ enum KeyboardPresentationStateMachine {
             case .shown:
                 next = .hidden
             case .hidden, .awaitingEditableFocusAfterVideoTap:
-                next = cursorKind == .ibeam && focusedEditable ? .shown : .awaitingEditableFocusAfterVideoTap
+                if cursorKind == .ibeam {
+                    next = focusedEditable ? .shown : .awaitingEditableFocusAfterVideoTap
+                } else {
+                    next = .hidden
+                }
             }
         }
         return KeyboardPresentationTransition(previous: state, next: next)
@@ -64,5 +68,17 @@ enum HostTextInputKeyboardPolicy {
         focusedEditable: Bool
     ) -> KeyboardPresentationIntent {
         .remoteTap(cursorKind: lastCursorKind, focusedEditable: focusedEditable)
+    }
+
+    static func intentForRemoteInput(
+        _ input: NormalizedInput,
+        lastCursorKind: CursorKind,
+        focusedEditable: Bool
+    ) -> KeyboardPresentationIntent? {
+        guard case .click(.left) = input else { return nil }
+        return intentForRemoteTap(
+            lastCursorKind: lastCursorKind,
+            focusedEditable: focusedEditable
+        )
     }
 }

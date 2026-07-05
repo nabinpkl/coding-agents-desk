@@ -105,14 +105,14 @@ struct HostTextInputKeyboardPolicyTests {
         ).next == .shown)
     }
 
-    @Test func arrowTapWaitsForAccessibilityConfirmation() {
+    @Test func arrowTapDoesNotArmKeyboard() {
         #expect(KeyboardPresentationStateMachine.transition(
             from: .hidden,
             intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
                 lastCursorKind: .arrow,
                 focusedEditable: true
             )
-        ).next == .awaitingEditableFocusAfterVideoTap)
+        ).next == .hidden)
     }
 
     @Test func presentedKeyboardTapHidesEvenWhenCursorIsIBeam() {
@@ -125,13 +125,35 @@ struct HostTextInputKeyboardPolicyTests {
         ).next == .hidden)
     }
 
-    @Test func hiddenNonIBeamTapWaitsForAccessibilityConfirmation() {
+    @Test func hiddenNonIBeamTapStaysHidden() {
         #expect(KeyboardPresentationStateMachine.transition(
             from: .hidden,
             intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
                 lastCursorKind: .pointingHand,
                 focusedEditable: false
             )
-        ).next == .awaitingEditableFocusAfterVideoTap)
+        ).next == .hidden)
+    }
+
+    @Test func leftClickInputUsesRemoteTapPolicy() {
+        let intent = HostTextInputKeyboardPolicy.intentForRemoteInput(
+            .click(button: .left),
+            lastCursorKind: .ibeam,
+            focusedEditable: false
+        )
+        #expect(intent == .remoteTap(cursorKind: .ibeam, focusedEditable: false))
+    }
+
+    @Test func nonLeftClickInputDoesNotAffectKeyboardPolicy() {
+        #expect(HostTextInputKeyboardPolicy.intentForRemoteInput(
+            .click(button: .right),
+            lastCursorKind: .ibeam,
+            focusedEditable: true
+        ) == nil)
+        #expect(HostTextInputKeyboardPolicy.intentForRemoteInput(
+            .cursorMove(dx: 1, dy: 2),
+            lastCursorKind: .ibeam,
+            focusedEditable: true
+        ) == nil)
     }
 }

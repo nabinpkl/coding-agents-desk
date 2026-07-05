@@ -414,6 +414,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // MARK: - GestureTranslatorDelegate
 
     func gestureTranslator(_ translator: GestureTranslator, didProduce input: NormalizedInput) {
+        applyKeyboardPresentationIntentForRemoteInput(input)
         sendPointerAwareInput(input)
     }
 
