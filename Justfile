@@ -232,6 +232,15 @@ dom-mirror-record-verify:
     export NODE_PATH="$(npm root -g)"
     node '{{justfile_directory()}}/chrome-test/record-verify.mjs'
 
+# ADR-0040 Phase 5 autonomous gate: the tap-back WRITE path, deterministic, no simulator. A fake host
+# sends a dom-input command through the shim to the real extension, which dispatches it as trusted
+# input via chrome.debugger; a gated click-report confirms an isTrusted click landed at the mapped
+# coordinate. Uses the globally-installed Playwright + Chrome for Testing.
+dom-mirror-input-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    node '{{justfile_directory()}}/chrome-test/input-verify.mjs'
+
 # ADR-0038 Phase 4 read-only-v1 acceptance test: the full three-process chain (real host with DOM
 # mirror on + paired sim client + real Chrome-for-Testing extension). Chrome records the CSP-strict
 # fixture; the batch flows extension -> shim -> host -> .dom QUIC lane -> sim client -> replay

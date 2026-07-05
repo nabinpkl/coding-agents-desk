@@ -2135,6 +2135,31 @@ struct DomBatchEnvelope: Codable, Equatable {
     }
 }
 
+// ADR-0040 DOM-mirror input command. The client sends this UP the .dom lane when the user taps the
+// mirror; the host decodes it (to validate the frame is an input, not something else) and forwards
+// the raw JSON to the bridge, which relays it to the extension worker to dispatch as trusted input
+// via chrome.debugger. x/y are page CSS-pixel coordinates already mapped by the client.
+struct DomInputCommand: Codable, Equatable {
+    let type: String
+    let kind: String
+    let x: Double
+    let y: Double
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case kind = "k"
+        case x
+        case y
+    }
+
+    init(kind: String = "mouse", x: Double, y: Double) {
+        self.type = "dom-input"
+        self.kind = kind
+        self.x = x
+        self.y = y
+    }
+}
+
 // R11 DesktopState. Pushed host -> client over the session input stream,
 // distinct from the client -> host InputChannelEvent path. The client
 // uses it to render the dots band (one dot per user Space on the

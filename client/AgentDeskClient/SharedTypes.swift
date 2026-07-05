@@ -2048,6 +2048,29 @@ struct DomBatchEnvelope: Codable, Equatable {
     }
 }
 
+// ADR-0040 DOM-mirror input command. Mirror of the host's definition. The client sends this up the
+// .dom lane when the user taps the mirror; x/y are page CSS-pixel coordinates already mapped.
+struct DomInputCommand: Codable, Equatable {
+    let type: String
+    let kind: String
+    let x: Double
+    let y: Double
+
+    enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case kind = "k"
+        case x
+        case y
+    }
+
+    init(kind: String = "mouse", x: Double, y: Double) {
+        self.type = "dom-input"
+        self.kind = kind
+        self.x = x
+        self.y = y
+    }
+}
+
 // R11 DesktopState. Mirror of host's definition. Pushed host -> client
 // over the session input stream; drives the dots band rendering.
 

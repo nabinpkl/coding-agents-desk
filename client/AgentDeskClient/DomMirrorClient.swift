@@ -53,6 +53,20 @@ final class DomMirrorClient: @unchecked Sendable {
         }
     }
 
+    // ADR-0040: send a tap (page CSS-pixel coords, already mapped by the replayer) UP the .dom lane.
+    // The host reads it and relays it to the extension for trusted dispatch via chrome.debugger.
+    func sendTap(x: Double, y: Double) {
+        let cmd = DomInputCommand(x: x, y: y)
+        guard let payload = try? JSONEncoder().encode(cmd) else { return }
+        Task { [stream, logger] in
+            do {
+                try await QuicSessionStreamIO.sendPayload(payload, role: .dom, on: stream)
+            } catch {
+                logger.notice("dom lane tap send failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
     func stop() {
         task?.cancel()
         task = nil

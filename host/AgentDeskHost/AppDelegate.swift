@@ -422,6 +422,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // live. Decoupled from the media transport -- DOM batches come from the Chrome bridge, not video.
     private func handleDomLaneReady(_ fingerprint: DeviceFingerprint, lane: DomEventLaneServer) {
         signalingLogger.notice("dom lane ready fp=\(fingerprint.rawValue, privacy: .public)")
+        // ADR-0040: forward client taps read off the lane to the bridge, which relays them to the
+        // extension for trusted dispatch. Kept on the DOM path, never the Mac input dispatcher.
+        lane.onInput = { [weak self] raw in
+            self?.domBridgeServer?.sendToBridge(raw)
+        }
+        lane.startReceiving()
         domMirrorRelay.attach(lane, for: fingerprint)
     }
 

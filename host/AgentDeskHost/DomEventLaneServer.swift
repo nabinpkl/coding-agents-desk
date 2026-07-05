@@ -18,10 +18,40 @@ final class DomEventLaneServer: @unchecked Sendable {
     // to a dead stream).
     private struct SendChain { var tail: Task<Void, Never>?; var closed = false }
     private let sendChain = OSAllocatedUnfairLock(initialState: SendChain())
+    private let receiveTask = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
+
+    // ADR-0040: raw client tap frames ({t:"dom-input",...}) read off the lane, forwarded verbatim to
+    // the bridge (which relays them to the extension). The lane stays send-only for DOM batches; this
+    // is the one client->host direction, kept on the DOM lane so DOM input never touches the Mac
+    // input path.
+    var onInput: ((Data) -> Void)?
 
     init(stream: QUIC.Stream<QUICStream>, fingerprint: DeviceFingerprint) {
         self.stream = stream
         self.fingerprint = fingerprint
+    }
+
+    // Begin reading client tap frames. The role announce was already consumed by the signaling
+    // server, so the first frame here is client content. Idempotent.
+    func startReceiving() {
+        receiveTask.withLock { task in
+            guard task == nil else { return }
+            task = Task { [weak self] in
+                guard let self else { return }
+                while !(self.sendChain.withLock { $0.closed }) {
+                    do {
+                        let frame = try await QuicSessionStreamIO.receiveFrame(on: self.stream)
+                        guard frame.role == .dom,
+                              let cmd = try? JSONDecoder().decode(DomInputCommand.self, from: frame.payload),
+                              cmd.type == "dom-input" else { continue }
+                        self.onInput?(frame.payload)
+                    } catch {
+                        self.logger.notice("dom lane receive ended: \(String(describing: error), privacy: .public)")
+                        return
+                    }
+                }
+            }
+        }
     }
 
     // Send one rrweb batch (the raw newline-free JSON the shim forwarded) down the lane.
@@ -53,6 +83,10 @@ final class DomEventLaneServer: @unchecked Sendable {
             chain.tail?.cancel()
             chain.tail = nil
             chain.closed = true
+        }
+        receiveTask.withLock { task in
+            task?.cancel()
+            task = nil
         }
     }
 }

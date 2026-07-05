@@ -6,14 +6,16 @@
 <title>AgentDesk DOM Mirror</title>
 <style>
   html, body { margin: 0; height: 100%; background: #fff; }
-  #stage { width: 100%; height: 100%; overflow: hidden; }
+  #stage { width: 100%; height: 100%; overflow: hidden; position: relative; }
+  /* Transparent overlay captures taps (the replayer iframe would otherwise swallow them). */
+  #tap-overlay { position: absolute; inset: 0; z-index: 5; background: transparent; }
   /* rrweb renders into an iframe inside .replayer-wrapper; fill the stage. */
   #stage .replayer-wrapper { transform: none !important; }
   #stage iframe { width: 100% !important; border: 0; display: block; }
 </style>
 </head>
 <body>
-  <div id="stage"></div>
+  <div id="stage"><div id="tap-overlay"></div></div>
   <script src="rrweb.min.js"></script>
   <script>
   (function () {
@@ -72,6 +74,22 @@
         window.webkit.messageHandlers.domMirror.postMessage({ kind: 'probe', marker: marker, nodes: nodes });
       } catch (e) {}
     }
+
+    // ADR-0040: capture a tap on the overlay, map it from the displayed (scaled) mirror back to the
+    // page's own CSS-pixel coordinate space, and post it to native to route back to Chrome. rrweb
+    // sets the replayer iframe's width/height attributes to the recorded page size, so the scale is
+    // recordedSize / displayedSize.
+    document.getElementById('tap-overlay').addEventListener('click', function (e) {
+      if (!replayer || !replayer.iframe) return;
+      var rect = replayer.iframe.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      var pageW = parseInt(replayer.iframe.getAttribute('width'), 10) || rect.width;
+      var pageH = parseInt(replayer.iframe.getAttribute('height'), 10) || rect.height;
+      var x = (e.clientX - rect.left) * (pageW / rect.width);
+      var y = (e.clientY - rect.top) * (pageH / rect.height);
+      if (x < 0 || y < 0 || x > pageW || y > pageH) return; // tap landed outside the mirrored page
+      try { window.webkit.messageHandlers.domMirror.postMessage({ kind: 'tap', x: x, y: y }); } catch (err) {}
+    });
 
     window.__domMirrorBridge = { destroy: function () { try { replayer && replayer.pause(); } catch (e) {} } };
   })();

@@ -84,6 +84,20 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded.type == "dom-batch")
     }
 
+    @Test func domInputCommandRoundTripsWithCompactKeys() throws {
+        let cmd = DomInputCommand(x: 100.5, y: 60)
+        let data = try JSONEncoder().encode(cmd)
+        let decoded = try JSONDecoder().decode(DomInputCommand.self, from: data)
+        let json = String(data: data, encoding: .utf8) ?? ""
+
+        #expect(decoded == cmd)
+        #expect(decoded.type == "dom-input")
+        #expect(decoded.kind == "mouse")
+        #expect(json.contains("\"t\":\"dom-input\""))
+        #expect(json.contains("\"k\":\"mouse\""))
+        #expect(json.contains("\"x\":100.5"))
+    }
+
     @Test func domMirrorFlagDefaultsOff() {
         // ADR-0038: the whole DOM-mirror subsystem is gated off by default. Verify the flag's
         // default hermetically (empty environment), and that an explicit opt-in flips it.

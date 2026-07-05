@@ -45,6 +45,8 @@ extension PairingViewController {
 
         // Wire the lane -> surface (pulled fresh so a reconnect's new lane is used), then start it.
         domMirror.onBatch = { [weak surface] json in surface?.deliver(rawJSON: json) }
+        // ADR-0040: taps in the mirror go back up the .dom lane to Chrome.
+        surface.onTap = { [weak self] x, y in self?.pairingClient.activeDomMirror?.sendTap(x: x, y: y) }
         domMirror.start()
 
         if let seg = surfaceSegmentedControl { view.bringSubviewToFront(seg) }

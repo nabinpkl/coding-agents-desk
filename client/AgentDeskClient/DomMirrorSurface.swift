@@ -17,6 +17,8 @@ final class DomMirrorSurface: UIView {
 
     // Observers can watch the probe (e.g. tests); production just logs it.
     var onProbe: ((_ marker: String, _ nodes: Int) -> Void)?
+    // ADR-0040: a tap in the replayer, mapped to page CSS-pixel coords, to be sent back to Chrome.
+    var onTap: ((_ x: Double, _ y: Double) -> Void)?
 
     private var webView: WKWebView?
     private var isLoaded = false
@@ -56,8 +58,7 @@ final class DomMirrorSurface: UIView {
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = self
         wv.translatesAutoresizingMaskIntoConstraints = false
-        wv.isUserInteractionEnabled = false // read-only v1: no taps back to Chrome yet (Phase 5)
-        addSubview(wv)
+        addSubview(wv) // ADR-0040: interactive -- taps are captured in the replayer and sent back
         NSLayoutConstraint.activate([
             wv.topAnchor.constraint(equalTo: topAnchor),
             wv.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -162,8 +163,16 @@ extension DomMirrorSurface: WKScriptMessageHandler {
             }
             return
         }
-        // domMirror: the probe summary of the reconstructed DOM.
-        guard let body = message.body as? [String: Any], (body["kind"] as? String) == "probe" else { return }
+        // domMirror: either a tap (ADR-0040) or the probe summary of the reconstructed DOM.
+        guard let body = message.body as? [String: Any] else { return }
+        if (body["kind"] as? String) == "tap" {
+            // JSON numbers arrive as NSNumber; coerce to Double.
+            let x = (body["x"] as? NSNumber)?.doubleValue ?? 0
+            let y = (body["y"] as? NSNumber)?.doubleValue ?? 0
+            Task { @MainActor [weak self] in self?.onTap?(x, y) }
+            return
+        }
+        guard (body["kind"] as? String) == "probe" else { return }
         let marker = body["marker"] as? String ?? ""
         let nodes = body["nodes"] as? Int ?? 0
         Task { @MainActor [weak self] in
