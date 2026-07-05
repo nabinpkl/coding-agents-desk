@@ -27,6 +27,7 @@ final class SettingsStore: @unchecked Sendable {
         static let accessoryKeySpacing = "agentDesk.accessoryKeySpacing"
         static let showSpacePreviews = "agentDesk.showSpacePreviews"
         static let crispTextOverlayEnabled = "agentDesk.crispTextOverlayEnabled"
+        static let showHostCursorInVideo = "agentDesk.showHostCursorInVideo"
         static let agentSayVoiceLanguage = "agentDesk.agentSayVoiceLanguage"
         static let agentSayVoiceIdentifier = "agentDesk.agentSayVoiceIdentifier"
     }
@@ -144,6 +145,18 @@ final class SettingsStore: @unchecked Sendable {
         get { defaults.object(forKey: Key.crispTextOverlayEnabled) as? Bool ?? true }
         set {
             defaults.set(newValue, forKey: Key.crispTextOverlayEnabled)
+            postChange()
+        }
+    }
+
+    // Whether the host bakes its OS cursor into the video stream. Sent to the host in
+    // ClientConfig (wire key "hc"). Default OFF: the client already draws its own sharp,
+    // low-latency cursor overlay, so the baked-in video cursor is a redundant, laggier
+    // double-draw. On is for parity/debugging or clients without the overlay.
+    var showHostCursorInVideo: Bool {
+        get { defaults.object(forKey: Key.showHostCursorInVideo) as? Bool ?? false }
+        set {
+            defaults.set(newValue, forKey: Key.showHostCursorInVideo)
             postChange()
         }
     }

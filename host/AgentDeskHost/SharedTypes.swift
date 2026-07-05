@@ -2417,6 +2417,11 @@ struct ClientConfig: Codable, Equatable {
     // default); true/false is an explicit request. The host composes it with its own gate
     // as an AND, so the host env stays the hard kill switch and the client chooses within it.
     let crispTextOverlayEnabled: Bool?
+    // Client's preference for compositing the OS cursor into the captured video. Optional
+    // tri-state: nil = no opinion (host keeps its default, off). Default off because the
+    // client draws its own sharp low-latency cursor overlay, so baking it into the video is
+    // a redundant double-draw.
+    let showHostCursorInVideo: Bool?
 
     enum CodingKeys: String, CodingKey {
         case type = "t"
@@ -2424,19 +2429,22 @@ struct ClientConfig: Codable, Equatable {
         case thumbnailRefresh = "tr"
         case selectedDisplayId = "sd"
         case crispTextOverlayEnabled = "ce"
+        case showHostCursorInVideo = "hc"
     }
 
     init(
         thumbnailsEnabled: Bool,
         thumbnailRefresh: UInt64? = nil,
         selectedDisplayId: String? = nil,
-        crispTextOverlayEnabled: Bool? = nil
+        crispTextOverlayEnabled: Bool? = nil,
+        showHostCursorInVideo: Bool? = nil
     ) {
         self.type = "client-config"
         self.thumbnailsEnabled = thumbnailsEnabled
         self.thumbnailRefresh = thumbnailRefresh
         self.selectedDisplayId = selectedDisplayId
         self.crispTextOverlayEnabled = crispTextOverlayEnabled
+        self.showHostCursorInVideo = showHostCursorInVideo
     }
 }
 

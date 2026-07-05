@@ -19,6 +19,11 @@ protocol VideoFrameSource: AnyObject, Sendable {
 
 protocol DisplaySelectableVideoFrameSource: AnyObject, Sendable {
     func selectDisplay(id: String?)
+    // Whether the OS cursor is composited into the captured video. Default off: the client
+    // draws its own sharp, low-latency cursor overlay, so baking it into the (laggy,
+    // compressed) video too is a redundant double-draw that also adds cursor-move damage.
+    // Client-controlled via ClientConfig; applied live (restarts capture, rare event).
+    func setShowsCursorInVideo(_ enabled: Bool)
 }
 
 // CVPixelBuffer is a CoreFoundation reference type; we never mutate it

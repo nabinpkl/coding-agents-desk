@@ -56,6 +56,22 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         }
     }
 
+    func setShowsCursorInVideo(_ enabled: Bool) {
+        // showsCursor is a start-time SCStreamConfiguration field, so a change while running
+        // restarts capture to rebuild the config (same path as a display switch). This is a
+        // rare, user-initiated settings toggle, so the brief keyframe is acceptable.
+        let shouldRestart = controlState.withLock { state -> Bool in
+            let changed = state.showsCursorInVideo != enabled
+            state.showsCursorInVideo = enabled
+            return changed && state.isRunning && state.onFrame != nil
+        }
+        guard shouldRestart else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.restartCurrentSelection()
+        }
+    }
+
     private func startCurrentSelection() async throws {
         let content: SCShareableContent
         do {
@@ -107,7 +123,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         // buffers ~165 ms; 3 buffers ~100 ms. The remaining latency budget
         // has to come from the encode and wire paths.
         config.queueDepth = 3
-        config.showsCursor = true
+        config.showsCursor = controlState.withLock { $0.showsCursorInVideo }
         // Without an explicit color space, SCStream's BGRA arrives untagged.
         // Without a tag, downstream conversion can use a different range
         // assumption and true black (0,0,0) can surface as grey on the phone.
@@ -288,6 +304,9 @@ private struct CaptureControlState: Sendable {
     var isRunning = false
     var forceKeyframeNextFrame = true
     var onFrame: (@Sendable (CapturedVideoFrame) -> Void)?
+    // Composite the OS cursor into the captured video? Default off; the client's overlay is
+    // the cursor. A client can turn it on via ClientConfig (setShowsCursorInVideo).
+    var showsCursorInVideo = false
 }
 
 enum ScreenCaptureError: Error {

@@ -277,7 +277,8 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         let config = ClientConfig(
             thumbnailsEnabled: SettingsStore.shared.showSpacePreviews,
             selectedDisplayId: selectedDisplayIdForConfig(),
-            crispTextOverlayEnabled: SettingsStore.shared.crispTextOverlayEnabled
+            crispTextOverlayEnabled: SettingsStore.shared.crispTextOverlayEnabled,
+            showHostCursorInVideo: SettingsStore.shared.showHostCursorInVideo
         )
         ClientDiagnostics.shared.record(
             type: "clientConfigSendStarted",

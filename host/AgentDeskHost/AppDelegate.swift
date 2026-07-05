@@ -603,9 +603,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // nil = client expressed no crisp opinion -> host keeps its default (on); the
             // transport composes this with Config.ownedMediaCrispEnabled as the hard gate.
             let crispEnabled = config.crispTextOverlayEnabled ?? true
+            // nil = no opinion -> host keeps its default (cursor NOT baked into video; the
+            // client overlay is the cursor).
+            let showHostCursor = config.showHostCursorInVideo ?? false
             Task { @MainActor [weak self, provider, thumbnailOwner, server] in
                 guard let self else { return }
                 self.sessions.transport(for: clientFingerprint)?.setClientCrispEnabled(crispEnabled)
+                (self.frameSource as? DisplaySelectableVideoFrameSource)?.setShowsCursorInVideo(showHostCursor)
                 self.thumbnailsLogger.notice("client thumbnail config fp=\(clientFingerprint.rawValue, privacy: .public) enabled=\(enabled, privacy: .public) refresh=\(String(describing: refresh), privacy: .public) selectedDisplay=\(selectedDisplayId ?? "nil", privacy: .public) crisp=\(crispEnabled, privacy: .public)")
                 if enabled {
                     self.thumbnailEnabledClients.insert(clientFingerprint)

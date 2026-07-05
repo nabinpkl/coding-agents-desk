@@ -17,6 +17,7 @@ final class SettingsViewController: UIViewController {
     private let spacesDirectionSwitch = UISwitch()
     private let showSpacePreviewsSwitch = UISwitch()
     private let crispOverlaySwitch = UISwitch()
+    private let hostCursorSwitch = UISwitch()
     private let accessoryContainerSlider = UISlider()
     private let accessoryContainerLabel = UILabel()
     private let accessoryKeySlider = UISlider()
@@ -81,6 +82,15 @@ final class SettingsViewController: UIViewController {
             footnote: "Overlays crisp text on settled regions for sharper reading. Turn off for a lighter, video-only stream."
         )
 
+        // The client always draws its own sharp cursor overlay; this only controls whether
+        // the host ALSO bakes the cursor into the video. Off by default (no double-draw).
+        let hostCursorSection = makeSection(
+            title: "Cursor",
+            rows: [],
+            switchRow: ("Show host cursor in video", hostCursorSwitch),
+            footnote: "Also draws the Mac cursor inside the video stream. Off by default; the phone already shows a sharp cursor overlay, so this is usually redundant."
+        )
+
         let accessorySection = makeSection(
             title: "Keyboard accessory bar",
             rows: [
@@ -97,7 +107,7 @@ final class SettingsViewController: UIViewController {
             footnote: "Used for AgentDesk spoken subtitles. Download higher-quality voices in Settings > Accessibility > Read & Speak > Voices."
         )
 
-        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, spacesSection, previewsSection, crispSection, speechSection, accessorySection])
+        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, spacesSection, previewsSection, crispSection, hostCursorSection, speechSection, accessorySection])
         stack.axis = .vertical
         stack.spacing = 28
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -152,6 +162,7 @@ final class SettingsViewController: UIViewController {
         spacesDirectionSwitch.addTarget(self, action: #selector(spacesDirectionChanged), for: .valueChanged)
         showSpacePreviewsSwitch.addTarget(self, action: #selector(showSpacePreviewsChanged), for: .valueChanged)
         crispOverlaySwitch.addTarget(self, action: #selector(crispOverlayChanged), for: .valueChanged)
+        hostCursorSwitch.addTarget(self, action: #selector(hostCursorChanged), for: .valueChanged)
 
         // Accessory bar tunings live in points so the slider value maps
         // directly to layout. Ranges chosen to cover "tiny chiclet" to
@@ -182,6 +193,7 @@ final class SettingsViewController: UIViewController {
         spacesDirectionSwitch.isOn = store.useMacOSSpacesDirection
         showSpacePreviewsSwitch.isOn = store.showSpacePreviews
         crispOverlaySwitch.isOn = store.crispTextOverlayEnabled
+        hostCursorSwitch.isOn = store.showHostCursorInVideo
         accessoryContainerSlider.value = Float(store.accessoryContainerHeight)
         accessoryKeySlider.value = Float(store.accessoryKeyHeight)
         accessoryGapSlider.value = Float(store.accessoryKeySpacing)
@@ -238,6 +250,10 @@ final class SettingsViewController: UIViewController {
         // Writing the store posts changedNotification, which PairingViewController observes
         // and resends the client-config from (carrying this crisp preference to the host).
         store.crispTextOverlayEnabled = crispOverlaySwitch.isOn
+    }
+
+    @objc private func hostCursorChanged() {
+        store.showHostCursorInVideo = hostCursorSwitch.isOn
     }
 
     @objc private func accessoryContainerChanged() {
