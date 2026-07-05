@@ -212,6 +212,15 @@ webview-smoke: build-agent-webview
     echo "webview-smoke: index.html ${INDEX_BYTES} bytes, assets/ ${ASSET_COUNT} file(s)"
     echo "webview-smoke: PASS"
 
+# ADR-0038/0039 Phase 1 autonomous gate: hermetic test of the dom-bridge shim against a
+# protocol-faithful fake host (token auth + newline JSON), with no Chrome and no Mac host.
+# Asserts batch/input round-trips and reconnect. The real DomBridgeServer is covered by the
+# Swift DomBridgeServerTests against the same wire contract.
+dom-mirror-bridge-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    node '{{justfile_directory()}}/chrome-test/bridge-verify.mjs'
+
 # Fast correctness gate: guard scripts plus the host build and tests. Excludes
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run

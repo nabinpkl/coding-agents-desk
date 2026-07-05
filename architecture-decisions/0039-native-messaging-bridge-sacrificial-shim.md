@@ -35,7 +35,7 @@ Chose **Option A** because the lifecycle-sovereignty driver eliminates B (Chrome
 
 ### Confirmation
 
-`just dom-mirror-bridge-verify` (autonomous) asserts a round-trip through the shim and clean reconnect after the throwaway Chrome is killed. The host manifest's `allowed_origins` is the pinned extension ID; a stub connection from any other origin is rejected by Chrome. Phase 1 empirically confirms the native-messaging manifest search path for the chosen Chrome channel before anything builds on it.
+`just dom-mirror-bridge-verify` (autonomous, Phase 1) asserts a batch and input round-trip through the shim plus a clean reconnect after the shim is killed, by driving the shim's stdio against a protocol-faithful fake host; the real host-side `DomBridgeServer` is covered by `DomBridgeServerTests` against the same wire contract. Two confirmations are deferred and tracked, not dropped: (1) the live-Chrome native-messaging manifest-search-path confirmation (a real `connectNative` from the real pinned extension) is a hard gate at the START of Phase 2, before any extension code depends on the path; (2) running the real Swift `DomBridgeServer` against the shim in one process (drift check between the two hand-written peers) is a required gate at the START of Phase 3, where `DomBridgeServer` is first constructed for real. The host manifest's `allowed_origins` is the pinned extension ID, so only our extension can connect.
 
 ## Links
 

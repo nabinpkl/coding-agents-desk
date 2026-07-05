@@ -833,6 +833,21 @@ enum Config {
     // normal Chrome-spawned process with the user's permissions, so it can open this path.
     static let domBridgeSocketURL = applicationSupportDirectory
         .appendingPathComponent("ad-dom-bridge.sock", isDirectory: false)
+    // Shared-secret file gating the bridge socket, mirroring adTokenURL. The 0o600 Unix socket
+    // already limits connections to the user's own processes; the token is defence-in-depth so a
+    // rogue same-user process cannot inject DOM into the phone or read input commands. The shim
+    // (spawned by Chrome as the same user) reads this file and presents it as its first frame.
+    static let domBridgeTokenURL = applicationSupportDirectory
+        .appendingPathComponent("ad-dom-bridge-token", isDirectory: false)
+    // Durable probe log the DOM-mirror path appends structured lines to (batch counts, checkout
+    // markers) so the autonomous harness can assert the bridge loop without a human. Env-overridable.
+    static let domMirrorProbeLogURL: URL = {
+        let raw = ProcessInfo.processInfo.environment["AGENTDESK_DOM_MIRROR_PROBE_LOG"]
+        if let raw, !raw.isEmpty {
+            return URL(fileURLWithPath: (raw as NSString).expandingTildeInPath)
+        }
+        return URL(fileURLWithPath: "/tmp/agentdesk-dom-mirror-host.log")
+    }()
     static let devLastPairURLPath = applicationSupportDirectory
         .appendingPathComponent(".last-pair-url", isDirectory: false)
     static let devDiagnosticsRequestPath = applicationSupportDirectory
