@@ -67,6 +67,12 @@
       try { batch = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON; }
       catch (e) { return; }
       if (!batch) return;
+      // ADR-0043: a checkout batch is a fresh keyframe, so any still-incomplete chunk set from before
+      // it is now stale (superseded). Dropping pending slots here bounds the chunks map (no slot
+      // outlives the next keyframe -> no leak on a late-join-mid-chunk) and makes a cid reused after
+      // an MV3 service-worker restart harmless: the new snapshot's part 0 (co=true) clears the old
+      // slot before its own parts accumulate, so two snapshots can never interleave on one cid.
+      if (batch.co) chunks = {};
       var ev;
       if (batch.enc === 'deflate-b64') {
         var b64 = batch.ev || '';
