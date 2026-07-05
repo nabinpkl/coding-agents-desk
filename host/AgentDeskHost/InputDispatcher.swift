@@ -130,7 +130,11 @@ final class InputDispatcher: @unchecked Sendable {
         self.cursorEventSource = source
     }
 
-    func dispatch(_ input: NormalizedInput, scrollFocusHandler: ScrollFocusHandler? = nil) {
+    func dispatch(
+        _ input: NormalizedInput,
+        scrollFocusHandler: ScrollFocusHandler? = nil,
+        afterDispatch: (@Sendable () -> Void)? = nil
+    ) {
         // async so the caller's Task moves on while CGEvent.post runs on
         // our queue. The queue is serial, so events stay in order.
         queue.async { [self] in
@@ -138,6 +142,7 @@ final class InputDispatcher: @unchecked Sendable {
                 scrollFocusHandler(input, makeScrollFocusSnapshot())
             }
             performDispatch(input)
+            afterDispatch?()
         }
     }
 

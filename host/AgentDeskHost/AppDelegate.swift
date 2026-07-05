@@ -797,8 +797,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let dispatcher = inputDispatcher
         let scrollActivityHints = scrollActivityHints
         let logger = signalingLogger
+        let postClickTextFocusRefresh: @Sendable () -> Void = { [weak self, weak server, logger] in
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 120_000_000)
+                guard let self, let server else { return }
+                let focus = self.textInputFocusMonitor.sampleCurrentFocus()
+                logger.notice("post-click text focus refresh editable=\(focus.editable, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public)")
+                server.pushTextInputFocus(focus)
+            }
+        }
         sessions.attachInputTask(
-            Task { [server, dispatcher, scrollActivityHints, logger] in
+            Task { [server, dispatcher, scrollActivityHints, logger, postClickTextFocusRefresh] in
                 for await input in server.events {
                     switch input {
                     case .cursorMove(let dx, let dy):
@@ -809,7 +818,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         break
                     }
                     scrollActivityHints.record(input)
-                    dispatcher.dispatch(input)
+                    dispatcher.dispatch(input, afterDispatch: {
+                        guard case .click(.left) = input else { return }
+                        postClickTextFocusRefresh()
+                    })
                 }
                 logger.notice("input event stream finished")
             },

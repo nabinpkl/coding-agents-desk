@@ -69,4 +69,22 @@ struct HostTextInputFocusMonitorTests {
             HostTextInputFocusPush(editable: true, secure: false, source: .accessibility, role: "AXTextArea")
         ])
     }
+
+    @Test func sampleCurrentFocusReturnsUnchangedFocusWithoutEmitting() {
+        let current = HostTextInputFocusPush(
+            editable: true,
+            secure: false,
+            source: .accessibility,
+            role: "AXTextArea"
+        )
+        let monitor = HostTextInputFocusMonitor(query: { current })
+        var emitted: [HostTextInputFocusPush] = []
+        monitor.onChange = { emitted.append($0) }
+
+        #expect(monitor.tick() == current)
+        emitted.removeAll()
+
+        #expect(monitor.sampleCurrentFocus() == current)
+        #expect(emitted.isEmpty)
+    }
 }

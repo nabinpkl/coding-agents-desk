@@ -78,6 +78,13 @@ final class HostTextInputFocusMonitor {
         return push
     }
 
+    func sampleCurrentFocus() -> HostTextInputFocusPush {
+        let push = query()
+        latest = push
+        logger.debug("text input focus sampled editable=\(push.editable, privacy: .public) secure=\(push.secure, privacy: .public) source=\(push.source.rawValue, privacy: .public) role=\(push.role ?? "nil", privacy: .public) subrole=\(push.subrole ?? "nil", privacy: .public)")
+        return push
+    }
+
     private static func queryFrontmostFocusedElement() -> HostTextInputFocusPush {
         guard AXIsProcessTrusted(),
               let app = NSWorkspace.shared.frontmostApplication else {
