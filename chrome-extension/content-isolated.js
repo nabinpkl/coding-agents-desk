@@ -54,7 +54,17 @@
   let batch = [];
   let lastHref = '';       // ADR-0043: SPA-nav detection -> force a fresh full snapshot (keyframe)
 
+  // An orphaned content script -- extension reloaded/updated while this tab stayed open -- has an
+  // invalidated chrome.runtime: every sendMessage throws "Extension context invalidated". Detect it so
+  // the 250 ms flush tick tears the recorder down instead of spinning a permanent error loop; a fresh
+  // content script loads on this tab's next navigation/reload.
+  function contextAlive() {
+    try { return !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; }
+  }
+
   function flush() {
+    // `if (recording)` keeps stopRecording()'s own residual flush() from re-entering this branch.
+    if (!contextAlive()) { if (recording) stopRecording(); return; }
     // ADR-0043: rrweb's own checkoutEveryNms is a wall-clock keyframe; SPA route changes don't move
     // it, so a client that late-joins mid-route would wait up to 2 min for a usable snapshot. Poll the
     // URL on the flush tick and force a full snapshot on change (no MAIN-world history hook needed).
@@ -68,19 +78,24 @@
     const events = batch;
     batch = [];
     const checkout = events.some((e) => e.type === FULL_SNAPSHOT);
-    chrome.runtime.sendMessage({
-      type: 'agentdesk-batch',
-      __agentdesk: CHANNEL,
-      checkout,
-      events,
-      meta: {
-        w: window.innerWidth,
-        h: window.innerHeight,
-        dpr: window.devicePixelRatio || 1,
-        sx: window.scrollX,
-        sy: window.scrollY,
-      },
-    });
+    try {
+      chrome.runtime.sendMessage({
+        type: 'agentdesk-batch',
+        __agentdesk: CHANNEL,
+        checkout,
+        events,
+        meta: {
+          w: window.innerWidth,
+          h: window.innerHeight,
+          dpr: window.devicePixelRatio || 1,
+          sx: window.scrollX,
+          sy: window.scrollY,
+        },
+      });
+    } catch (e) {
+      // Context died between the guard and here (extension reloaded mid-tick): stop cleanly.
+      stopRecording();
+    }
   }
 
   function startRecording() {
