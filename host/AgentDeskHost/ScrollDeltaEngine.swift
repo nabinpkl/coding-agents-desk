@@ -700,7 +700,7 @@ struct ScrollDeltaEngine {
         var payload = Data()
         for cell in cells {
             guard cell.area > 0,
-                  let tile = tileData(surface: current, x: cell.x, y: cell.y, width: cell.width, height: cell.height) else { return .failed }
+                  let (tile, tileHash) = tileDataWithHash(surface: current, x: cell.x, y: cell.y, width: cell.width, height: cell.height) else { return .failed }
             // Rung 1: the client already shows these exact pixels here (the retained
             // baseline mirrors previous), so omit the tile. macOS dirtyRects often
             // report a redraw that produced identical pixels; this absorbs them. A
@@ -711,7 +711,7 @@ struct ScrollDeltaEngine {
                 continue
             }
             if Config.hybridTileCacheEnabled {
-                let h = TileContentCache.hash(tile)
+                let h = tileHash  // precomputed in the extraction pass; no second buffer walk
                 // Rung 2: client already holds this content in a slot; reference it.
                 // Touch the slot so its recency refreshes on commit and the hot
                 // content the cache exists to keep resident is not evicted first.
@@ -1046,6 +1046,38 @@ struct ScrollDeltaEngine {
             }
         }
         return data
+    }
+
+    // Fused variant: copies the tile and accumulates the FNV-1a content hash in the
+    // same pass. The hash is bit-identical to TileContentCache.hash(tileData(...))
+    // so this eliminates the second buffer walk in the hybridTileCache path.
+    private func tileDataWithHash(surface: Surface, x: Int, y: Int, width: Int, height: Int) -> (tile: Data, hash: UInt64)? {
+        guard x >= 0, y >= 0, width > 0, height > 0,
+              x <= surface.width - width,
+              y <= surface.height - height else { return nil }
+        let rowBytes = width * 4
+        var data = Data(count: rowBytes * height)
+        // FNV-1a constants matching TileContentCache.hash(_:).
+        let fnvPrime: UInt64 = 0x00000100000001B3
+        var h: UInt64 = 0xcbf29ce484222325
+        surface.pixels.withUnsafeBytes { sourceBytes in
+            data.withUnsafeMutableBytes { targetBytes in
+                guard let sourceBase = sourceBytes.baseAddress,
+                      let targetBase = targetBytes.baseAddress else { return }
+                let src = sourceBase.assumingMemoryBound(to: UInt8.self)
+                let dst = targetBase.assumingMemoryBound(to: UInt8.self)
+                for row in 0..<height {
+                    let srcRow = src.advanced(by: (y + row) * surface.bytesPerRow + x * 4)
+                    let dstRow = dst.advanced(by: row * rowBytes)
+                    for col in 0..<rowBytes {
+                        let byte = srcRow[col]
+                        dstRow[col] = byte
+                        h = (h ^ UInt64(byte)) &* fnvPrime
+                    }
+                }
+            }
+        }
+        return (tile: data, hash: h)
     }
 
     private func compressLZFSE(_ data: Data) -> Data? {
