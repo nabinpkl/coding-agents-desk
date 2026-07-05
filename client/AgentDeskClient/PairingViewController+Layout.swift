@@ -417,8 +417,10 @@ extension PairingViewController {
         hostAvailabilityTask = nil
         textInputFocusTask?.cancel()
         textInputFocusTask = nil
+        keyboardPendingTimeoutTask?.cancel()
+        keyboardPendingTimeoutTask = nil
         lastCursorKind = .unknown
-        lastHostTextInputFocus = HostTextInputFocusPush(editable: false, secure: false, source: .none)
+        lastHostTextInputFocus = HostTextInputFocusPush(editability: .ambiguous, secure: false, source: .none)
         pendingCursorRetarget = nil
         isManualViewportPanActive = false
         panFollowActive = false

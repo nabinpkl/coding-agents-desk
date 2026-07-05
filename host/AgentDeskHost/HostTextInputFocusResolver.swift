@@ -1,7 +1,6 @@
 import AppKit
 import ApplicationServices
 import Foundation
-import os
 import AgentDeskWire
 
 enum HostTextInputFocusClassifier {
@@ -16,6 +15,22 @@ enum HostTextInputFocusClassifier {
         "AXSearchField",
         "AXSecureTextField"
     ]
+    private static let ordinaryNonEditableRoles: Set<String> = [
+        "AXButton",
+        "AXCheckBox",
+        "AXImage",
+        "AXLink",
+        "AXMenu",
+        "AXMenuBar",
+        "AXMenuButton",
+        "AXMenuItem",
+        "AXPopUpButton",
+        "AXRadioButton",
+        "AXSlider",
+        "AXStaticText",
+        "AXSwitch",
+        "AXToolbar"
+    ]
 
     static func classify(
         role: String?,
@@ -26,8 +41,16 @@ enum HostTextInputFocusClassifier {
         let roleIsEditable = role.map { editableRoles.contains($0) } ?? false
         let subroleIsEditable = subrole.map { editableSubroles.contains($0) } ?? false
         let secure = role == "AXSecureTextField" || subrole == "AXSecureTextField"
+        let editability: HostTextInputEditability
+        if roleIsEditable || subroleIsEditable {
+            editability = .editable
+        } else if role.map({ ordinaryNonEditableRoles.contains($0) }) == true {
+            editability = .nonEditable
+        } else {
+            editability = .ambiguous
+        }
         return HostTextInputFocusPush(
-            editable: roleIsEditable || subroleIsEditable,
+            editability: editability,
             secure: secure,
             source: source,
             role: role,
@@ -37,65 +60,30 @@ enum HostTextInputFocusClassifier {
     }
 }
 
-final class HostTextInputFocusMonitor {
-    private let logger = Logger(subsystem: Config.logSubsystem, category: "text-input-focus")
-    private let interval: TimeInterval
+final class HostTextInputFocusResolver {
     private let query: () -> HostTextInputFocusPush
-    private var timer: DispatchSourceTimer?
-    private(set) var latest: HostTextInputFocusPush?
-
-    var onChange: ((HostTextInputFocusPush) -> Void)?
 
     init(
-        interval: TimeInterval = 0.25,
-        query: @escaping () -> HostTextInputFocusPush = HostTextInputFocusMonitor.queryFrontmostFocusedElement
+        query: @escaping () -> HostTextInputFocusPush = HostTextInputFocusResolver.queryFrontmostFocusedElement
     ) {
-        self.interval = interval
         self.query = query
-    }
-
-    func start() {
-        guard timer == nil else { return }
-        let source = DispatchSource.makeTimerSource(queue: .main)
-        source.schedule(deadline: .now(), repeating: interval)
-        source.setEventHandler { [weak self] in self?.tick() }
-        timer = source
-        source.resume()
-    }
-
-    func stop() {
-        timer?.cancel()
-        timer = nil
-    }
-
-    @discardableResult
-    func tick() -> HostTextInputFocusPush? {
-        let push = query()
-        guard push != latest else { return nil }
-        latest = push
-        logger.debug("text input focus editable=\(push.editable, privacy: .public) secure=\(push.secure, privacy: .public) source=\(push.source.rawValue, privacy: .public) role=\(push.role ?? "nil", privacy: .public) subrole=\(push.subrole ?? "nil", privacy: .public)")
-        onChange?(push)
-        return push
     }
 
     func sampleCurrentFocus(cursorKind: CursorKind? = nil) -> HostTextInputFocusPush {
         let queried = query()
-        let push = HostTextInputFocusPush(
-            editable: queried.editable,
+        return HostTextInputFocusPush(
+            editability: queried.editability,
             secure: queried.secure,
             source: queried.source,
             role: queried.role,
             subrole: queried.subrole,
             cursorKind: cursorKind ?? queried.cursorKind
         )
-        latest = push
-        logger.debug("text input focus sampled editable=\(push.editable, privacy: .public) secure=\(push.secure, privacy: .public) source=\(push.source.rawValue, privacy: .public) role=\(push.role ?? "nil", privacy: .public) subrole=\(push.subrole ?? "nil", privacy: .public) cursorKind=\(push.cursorKind?.rawValue ?? "nil", privacy: .public)")
-        return push
     }
 
     private static func queryFrontmostFocusedElement() -> HostTextInputFocusPush {
         guard AXIsProcessTrusted() else {
-            return HostTextInputFocusPush(editable: false, secure: false, source: .none)
+            return HostTextInputFocusPush(editability: .ambiguous, secure: false, source: .none)
         }
         if let app = NSWorkspace.shared.frontmostApplication {
             let appElement = AXUIElementCreateApplication(app.processIdentifier)
@@ -105,7 +93,7 @@ final class HostTextInputFocusMonitor {
         }
         let systemElement = AXUIElementCreateSystemWide()
         guard let focused = focusedElement(from: systemElement) else {
-            return HostTextInputFocusPush(editable: false, secure: false, source: .none)
+            return HostTextInputFocusPush(editability: .ambiguous, secure: false, source: .none)
         }
         return classifyFocusedElement(focused)
     }

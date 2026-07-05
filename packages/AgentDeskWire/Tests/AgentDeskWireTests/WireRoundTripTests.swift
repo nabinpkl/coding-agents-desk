@@ -112,7 +112,7 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(cursorObject?["k"] as? String == "ibeam")
 
     let focus = HostTextInputFocusPush(
-        editable: true,
+        editability: .editable,
         secure: true,
         source: .accessibility,
         role: "AXTextField",
@@ -124,7 +124,7 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
         with: try JSONEncoder().encode(focus)
     ) as? [String: Any]
     #expect(focusObject?["t"] as? String == "text-input-focus")
-    #expect(focusObject?["e"] as? Bool == true)
+    #expect(focusObject?["e"] as? String == "editable")
     #expect(focusObject?["s"] as? Bool == true)
     #expect(focusObject?["src"] as? String == "accessibility")
     #expect(focusObject?["r"] as? String == "AXTextField")

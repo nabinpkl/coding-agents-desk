@@ -111,18 +111,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             for await push in channel.cursorUpdates {
                 await MainActor.run {
                     guard let self else { return }
-                    let previous = self.lastCursorKind
                     self.lastCursorKind = push.cursorKind
-                    ClientDiagnostics.shared.record(
-                        type: "hostCursorKind",
-                        fields: [
-                            "previous": previous.rawValue,
-                            "current": push.cursorKind.rawValue,
-                            "hidden": String(push.hidden),
-                            "hash": push.hash
-                        ],
-                        level: push.cursorKind == .ibeam || previous == .ibeam ? .default : .info
-                    )
                     self.applyCursorImage(push)
                 }
             }
@@ -164,32 +153,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
 
     func applyHostTextInputFocus(_ push: HostTextInputFocusPush) {
         lastHostTextInputFocus = push
-        ClientDiagnostics.shared.record(
-            type: "hostTextInputFocus",
-            fields: [
-                "keyboardStateBefore": String(describing: keyboardPresentationState),
-                "editable": String(push.editable),
-                "secure": String(push.secure),
-                "source": push.source.rawValue,
-                "role": push.role ?? "nil",
-                "subrole": push.subrole ?? "nil",
-                "cursorKind": push.cursorKind?.rawValue ?? "nil"
-            ],
-            level: .info
-        )
-        let transition = applyKeyboardPresentationIntent(HostTextInputKeyboardPolicy.intent(for: push))
-        if transition.changed {
-            ClientDiagnostics.shared.record(
-                type: "hostTextInputFocusApplied",
-                fields: [
-                    "previous": String(describing: transition.previous),
-                    "next": String(describing: transition.next),
-                    "editable": String(push.editable),
-                    "cursorKind": push.cursorKind?.rawValue ?? "nil"
-                ],
-                level: .default
-            )
-        }
+        applyKeyboardPresentationIntent(HostTextInputKeyboardPolicy.intent(for: push))
     }
 
     func applyHostAvailability(_ push: HostAvailabilityPush) {
@@ -414,7 +378,6 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // MARK: - GestureTranslatorDelegate
 
     func gestureTranslator(_ translator: GestureTranslator, didProduce input: NormalizedInput) {
-        applyKeyboardPresentationIntentForRemoteInput(input)
         sendPointerAwareInput(input)
     }
 
@@ -503,6 +466,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // fire-and-forget into a detached Task so the trackpad / keyboard
     // caller stays synchronous and main-thread.
     func sendInput(_ input: NormalizedInput) {
+        applyKeyboardPresentationIntentForRemoteInput(input)
         guard let channel = pairingClient.activeInputChannel else {
             if panFollowActive || !panFollowEdgeAxes.isEmpty {
                 PanFollowDiagnostics.log("drop-no-input-channel input=\(input)")

@@ -1067,7 +1067,7 @@ struct InputChannelTests {
 
     @Test func textInputFocusFrameDecodes() throws {
         let push = HostTextInputFocusPush(
-            editable: true,
+            editability: .editable,
             secure: false,
             source: .accessibility,
             role: "AXTextArea",
@@ -1078,7 +1078,7 @@ struct InputChannelTests {
         let decoded = try JSONDecoder().decode(HostTextInputFocusPush.self, from: data)
 
         #expect(json.contains("\"t\":\"text-input-focus\""))
-        #expect(json.contains("\"e\":true"))
+        #expect(json.contains("\"e\":\"editable\""))
         #expect(json.contains("\"src\":\"accessibility\""))
         #expect(json.contains("\"k\":\"ibeam\""))
         #expect(decoded == push)

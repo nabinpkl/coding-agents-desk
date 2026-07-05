@@ -2,7 +2,7 @@ import AgentDeskWire
 
 enum KeyboardPresentationState: Equatable {
     case hidden
-    case awaitingEditableFocusAfterVideoTap
+    case pendingTextFocus
     case shown
 }
 
@@ -10,8 +10,9 @@ enum KeyboardPresentationIntent: Equatable {
     case show
     case hide
     case toggle
-    case hostFocus(editable: Bool, cursorKind: CursorKind?)
-    case remoteTap(cursorKind: CursorKind, focusedEditable: Bool)
+    case timeoutPendingTextFocus
+    case hostFocus(editability: HostTextInputEditability, cursorKind: CursorKind?)
+    case remoteTap(cursorKind: CursorKind)
 }
 
 struct KeyboardPresentationTransition: Equatable {
@@ -21,6 +22,10 @@ struct KeyboardPresentationTransition: Equatable {
     var changed: Bool {
         previous != next
     }
+}
+
+enum KeyboardPresentationTiming {
+    static let pendingTextFocusTimeoutNs: UInt64 = 700_000_000
 }
 
 enum KeyboardPresentationStateMachine {
@@ -36,22 +41,31 @@ enum KeyboardPresentationStateMachine {
             next = .hidden
         case .toggle:
             next = state == .shown ? .hidden : .shown
-        case let .hostFocus(editable, cursorKind):
-            if state == .awaitingEditableFocusAfterVideoTap {
-                next = editable || cursorKind == .ibeam ? .shown : .hidden
+        case .timeoutPendingTextFocus:
+            if state == .pendingTextFocus {
+                next = .hidden
             } else {
                 next = state
             }
-        case let .remoteTap(cursorKind, focusedEditable):
+        case let .hostFocus(editability, cursorKind):
+            if state == .pendingTextFocus {
+                switch editability {
+                case .editable:
+                    next = .shown
+                case .ambiguous:
+                    next = cursorKind == .ibeam ? .shown : .hidden
+                case .nonEditable:
+                    next = .hidden
+                }
+            } else {
+                next = state
+            }
+        case let .remoteTap(cursorKind):
             switch state {
             case .shown:
                 next = .hidden
-            case .hidden, .awaitingEditableFocusAfterVideoTap:
-                if cursorKind == .ibeam {
-                    next = focusedEditable ? .shown : .awaitingEditableFocusAfterVideoTap
-                } else {
-                    next = .hidden
-                }
+            case .hidden, .pendingTextFocus:
+                next = cursorKind == .ibeam ? .pendingTextFocus : .hidden
             }
         }
         return KeyboardPresentationTransition(previous: state, next: next)
@@ -60,25 +74,18 @@ enum KeyboardPresentationStateMachine {
 
 enum HostTextInputKeyboardPolicy {
     static func intent(for push: HostTextInputFocusPush) -> KeyboardPresentationIntent {
-        .hostFocus(editable: push.editable, cursorKind: push.cursorKind)
+        .hostFocus(editability: push.editability, cursorKind: push.cursorKind)
     }
 
-    static func intentForRemoteTap(
-        lastCursorKind: CursorKind,
-        focusedEditable: Bool
-    ) -> KeyboardPresentationIntent {
-        .remoteTap(cursorKind: lastCursorKind, focusedEditable: focusedEditable)
+    static func intentForRemoteTap(lastCursorKind: CursorKind) -> KeyboardPresentationIntent {
+        .remoteTap(cursorKind: lastCursorKind)
     }
 
     static func intentForRemoteInput(
         _ input: NormalizedInput,
-        lastCursorKind: CursorKind,
-        focusedEditable: Bool
+        lastCursorKind: CursorKind
     ) -> KeyboardPresentationIntent? {
         guard case .click(.left) = input else { return nil }
-        return intentForRemoteTap(
-            lastCursorKind: lastCursorKind,
-            focusedEditable: focusedEditable
-        )
+        return intentForRemoteTap(lastCursorKind: lastCursorKind)
     }
 }

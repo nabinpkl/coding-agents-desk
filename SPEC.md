@@ -260,8 +260,8 @@ CursorImagePush    { hash, png?, hotspotXFrac, hotspotYFrac,
 CursorPositionPush { displayId?, cursorX, cursorY }                    // t: "cursor-position"
 HostAvailability   { active | locked | captureUnavailable |
                       disconnected }                                  // t: "host-availability"
-HostTextInputFocus { editable, secure, source, role?, subrole?,
-                      cursorKind? }                                   // t: "text-input-focus"
+HostTextInputFocus { editability: editable | nonEditable | ambiguous,
+                      secure, source, role?, subrole?, cursorKind? }  // t: "text-input-focus"
 ClientConfig        { thumbnailsEnabled, thumbnailRefresh?,
                       selectedDisplayId?, crispTextOverlayEnabled?,
                       showHostCursorInVideo?, mediaQuality? }

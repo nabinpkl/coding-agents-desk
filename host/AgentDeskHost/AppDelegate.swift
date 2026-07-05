@@ -111,7 +111,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private let spaceThumbnailProvider = SpaceThumbnailProvider()
     private let cursorMonitor = CursorMonitor()
-    private let textInputFocusMonitor = HostTextInputFocusMonitor()
+    private let textInputFocusResolver = HostTextInputFocusResolver()
+    private var textInputFocusProbeTasks: [DeviceFingerprint: Task<Void, Never>] = [:]
     private var spaceAgentController: SpaceAgentController?
     private var dictationBarController: DictationBarController?
     private var terminalLauncherController: TerminalLauncherController?
@@ -184,7 +185,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installThumbnailsBroadcast()
         installCursorPositionMonitor()
         installCursorMonitor()
-        installTextInputFocusMonitor()
         startAgentSayServer()
         startSpaceAgent()
         startVoiceChildIfConfigured()
@@ -279,6 +279,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         agentSayServer = server
         server.start()
+    }
+
+    private func scheduleTextInputFocusProbe(
+        for fingerprint: DeviceFingerprint,
+        server: InputChannelServing
+    ) {
+        textInputFocusProbeTasks[fingerprint]?.cancel()
+        let resolver = textInputFocusResolver
+        let logger = signalingLogger
+        textInputFocusProbeTasks[fingerprint] = Task { @MainActor [weak self, weak server] in
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard !Task.isCancelled, let self, let server else { return }
+            guard let cursorKind = CursorMonitor.systemSampler()?.cursorKind, cursorKind == .ibeam else {
+                self.textInputFocusProbeTasks[fingerprint] = nil
+                return
+            }
+
+            logger.notice("textFocusProbeStarted cursorKind=\(cursorKind.rawValue, privacy: .public)")
+            var focus = resolver.sampleCurrentFocus(cursorKind: cursorKind)
+            if focus.editability == .nonEditable {
+                try? await Task.sleep(nanoseconds: 160_000_000)
+                guard !Task.isCancelled else { return }
+                let settledCursorKind = CursorMonitor.systemSampler()?.cursorKind ?? cursorKind
+                focus = resolver.sampleCurrentFocus(cursorKind: settledCursorKind)
+            }
+
+            logger.notice("textFocusProbeResolved editability=\(focus.editability.rawValue, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public) subrole=\(focus.subrole ?? "nil", privacy: .public) cursorKind=\(focus.cursorKind?.rawValue ?? "nil", privacy: .public)")
+            server.pushTextInputFocus(focus)
+            self.textInputFocusProbeTasks[fingerprint] = nil
+        }
     }
 
     private func applyIcon(_ icon: HostStatusIcon) {
@@ -733,9 +763,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let cursor = cursorMonitor.latest {
             server.pushCursor(cursor)
         }
-        if let focus = textInputFocusMonitor.latest ?? textInputFocusMonitor.tick() {
-            server.pushTextInputFocus(focus)
-        }
         // ADR-0006 + D22: clients opt in to thumbnail capture via a
         // client-config frame. Demand is owner-scoped so the iPhone
         // strip and Space Agent cannot disable each other.
@@ -797,45 +824,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let dispatcher = inputDispatcher
         let scrollActivityHints = scrollActivityHints
         let logger = signalingLogger
-        let postClickTextFocusRefresh: @Sendable () -> Void = { [weak self, weak server, logger] in
+        let scheduleTextFocusProbe: @Sendable () -> Void = { [weak self, weak server] in
             Task { @MainActor in
                 guard let self, let server else { return }
-                var lastFocus: HostTextInputFocusPush?
-                for (index, delayNs) in [120_000_000, 180_000_000, 300_000_000].enumerated() {
-                    try? await Task.sleep(nanoseconds: UInt64(delayNs))
-                    let cursorKind = CursorMonitor.systemSampler()?.cursorKind
-                    let focus = self.textInputFocusMonitor.sampleCurrentFocus(cursorKind: cursorKind)
-                    lastFocus = focus
-                    logger.notice("post-click text focus refresh attempt=\(index + 1, privacy: .public) editable=\(focus.editable, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public) subrole=\(focus.subrole ?? "nil", privacy: .public) cursorKind=\(focus.cursorKind?.rawValue ?? "nil", privacy: .public)")
-                    if focus.editable || focus.cursorKind == .ibeam {
-                        logger.notice("post-click text focus refresh result=positive editable=\(focus.editable, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public) cursorKind=\(focus.cursorKind?.rawValue ?? "nil", privacy: .public)")
-                        server.pushTextInputFocus(focus)
-                        return
-                    }
-                }
-                guard let focus = lastFocus else { return }
-                logger.notice("post-click text focus refresh result=final-negative editable=\(focus.editable, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public) cursorKind=\(focus.cursorKind?.rawValue ?? "nil", privacy: .public)")
-                server.pushTextInputFocus(focus)
+                self.scheduleTextInputFocusProbe(for: fingerprint, server: server)
             }
         }
         sessions.attachInputTask(
-            Task { [server, dispatcher, scrollActivityHints, logger, postClickTextFocusRefresh] in
+            Task { [server, dispatcher, scrollActivityHints, logger, scheduleTextFocusProbe] in
                 for await input in server.events {
-                    switch input {
-                    case .cursorMove(let dx, let dy):
-                        logger.notice("[DEBUG-pan-follow-host] receive cursorMove dx=\(dx) dy=\(dy)")
-                    case .cursorSet(let displayId, let x, let y):
-                        logger.notice("[DEBUG-pan-follow-host] receive cursorSet display=\(displayId, privacy: .public) x=\(x) y=\(y)")
-                    default:
-                        break
-                    }
                     scrollActivityHints.record(input)
                     dispatcher.dispatch(input, afterDispatch: {
                         guard case .click(.left) = input else { return }
-                        postClickTextFocusRefresh()
+                        scheduleTextFocusProbe()
                     })
                 }
                 logger.notice("input event stream finished")
+                Task { @MainActor [weak self] in
+                    self?.textInputFocusProbeTasks[fingerprint]?.cancel()
+                    self?.textInputFocusProbeTasks[fingerprint] = nil
+                }
             },
             for: fingerprint
         )
@@ -1073,7 +1081,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let logger = signalingLogger
         cursorMonitor.onChange = { [weak registry] push in
             guard let registry else { return }
-            logger.notice("host cursor kind changed kind=\(push.cursorKind.rawValue, privacy: .public) hash=\(push.hash, privacy: .public) hidden=\(push.hidden, privacy: .public)")
+            logger.debug("host cursor kind changed kind=\(push.cursorKind.rawValue, privacy: .public) hash=\(push.hash, privacy: .public) hidden=\(push.hidden, privacy: .public)")
             for server in registry.allInputChannelServers() {
                 server.pushCursor(push)
             }
@@ -1112,17 +1120,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for server in sessions.allInputChannelServers() {
             server.pushCursorPosition(push)
         }
-    }
-
-    private func installTextInputFocusMonitor() {
-        let registry = sessions
-        textInputFocusMonitor.onChange = { [weak registry] push in
-            guard let registry else { return }
-            for server in registry.allInputChannelServers() {
-                server.pushTextInputFocus(push)
-            }
-        }
-        textInputFocusMonitor.start()
     }
 
     // R11: dispatcher streams each iPhone-side swipe phase

@@ -207,20 +207,6 @@ extension PairingViewController {
 
     @objc func handleVideoTouchTap(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended, let sinkView = videoSink?.view else { return }
-        if keyboardPresentationState == .shown {
-            ClientDiagnostics.shared.record(
-                type: "videoKeyboardTap",
-                fields: [
-                    "action": "hideShownKeyboard",
-                    "stateBefore": String(describing: keyboardPresentationState),
-                    "lastCursorKind": lastCursorKind.rawValue,
-                    "focusedEditable": String(lastHostTextInputFocus.editable)
-                ],
-                level: .default
-            )
-            applyKeyboardPresentationIntent(.hide)
-            return
-        }
         let tapLocation = gesture.location(in: sinkView)
         let retarget = retargetVideoTouchCursor(
             at: tapLocation,
@@ -228,69 +214,8 @@ extension PairingViewController {
         )
         pendingCursorRetarget = nil
         let inputs = videoTouchTapInputs(for: retarget)
-        let stateBefore = keyboardPresentationState
-        ClientDiagnostics.shared.record(
-            type: "videoKeyboardTap",
-            fields: [
-                "action": "tapEnded",
-                "stateBefore": String(describing: stateBefore),
-                "lastCursorKind": lastCursorKind.rawValue,
-                "focusedEditable": String(lastHostTextInputFocus.editable),
-                "focusedSource": lastHostTextInputFocus.source.rawValue,
-                "focusedRole": lastHostTextInputFocus.role ?? "nil",
-                "tapX": String(format: "%.1f", tapLocation.x),
-                "tapY": String(format: "%.1f", tapLocation.y),
-                "hostX": retarget.map { String(format: "%.1f", $0.hostPoint.x) } ?? "nil",
-                "hostY": retarget.map { String(format: "%.1f", $0.hostPoint.y) } ?? "nil",
-                "displayId": retarget?.displayId ?? "nil",
-                "inputCount": String(inputs.count)
-            ],
-            level: .default
-        )
         for input in inputs {
             sendInput(input)
-        }
-        guard !inputs.isEmpty else {
-            ClientDiagnostics.shared.record(
-                type: "videoKeyboardTap",
-                fields: [
-                    "action": "noInputs",
-                    "stateBefore": String(describing: stateBefore),
-                    "lastCursorKind": lastCursorKind.rawValue
-                ],
-                level: .error
-            )
-            return
-        }
-        let transition = applyKeyboardPresentationIntent(HostTextInputKeyboardPolicy.intentForRemoteTap(
-            lastCursorKind: lastCursorKind,
-            focusedEditable: lastHostTextInputFocus.editable
-        ))
-        ClientDiagnostics.shared.record(
-            type: "videoKeyboardTap",
-            fields: [
-                "action": "keyboardIntentApplied",
-                "previous": String(describing: transition.previous),
-                "next": String(describing: transition.next),
-                "changed": String(transition.changed),
-                "lastCursorKind": lastCursorKind.rawValue,
-                "focusedEditable": String(lastHostTextInputFocus.editable)
-            ],
-            level: .default
-        )
-        if transition.next == .shown {
-            ClientDiagnostics.shared.record(
-                type: "hostTextInputFocus",
-                fields: [
-                    "editable": "true",
-                    "secure": "false",
-                    "source": HostTextInputFocusSource.cursorTapHeuristic.rawValue,
-                    "role": "nil",
-                    "subrole": "nil",
-                    "cursorKind": lastCursorKind.rawValue
-                ],
-                level: .info
-            )
         }
     }
 

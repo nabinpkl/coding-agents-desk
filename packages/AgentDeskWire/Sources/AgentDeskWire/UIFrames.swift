@@ -130,12 +130,18 @@ public enum HostTextInputFocusSource: String, Codable, Equatable, Sendable {
     case none
 }
 
+public enum HostTextInputEditability: String, Codable, Equatable, Sendable {
+    case editable
+    case nonEditable
+    case ambiguous
+}
+
 // Host -> client text-input intent. Carries only metadata required for the
 // client to decide whether to show its keyboard. It never carries selected text,
 // field values, or password contents.
 public struct HostTextInputFocusPush: Codable, Equatable, Sendable {
     public let type: String
-    public let editable: Bool
+    public let editability: HostTextInputEditability
     public let secure: Bool
     public let source: HostTextInputFocusSource
     public let role: String?
@@ -144,7 +150,7 @@ public struct HostTextInputFocusPush: Codable, Equatable, Sendable {
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case type = "t"
-        case editable = "e"
+        case editability = "e"
         case secure = "s"
         case source = "src"
         case role = "r"
@@ -153,7 +159,7 @@ public struct HostTextInputFocusPush: Codable, Equatable, Sendable {
     }
 
     public init(
-        editable: Bool,
+        editability: HostTextInputEditability,
         secure: Bool,
         source: HostTextInputFocusSource,
         role: String? = nil,
@@ -161,12 +167,16 @@ public struct HostTextInputFocusPush: Codable, Equatable, Sendable {
         cursorKind: CursorKind? = nil
     ) {
         self.type = "text-input-focus"
-        self.editable = editable
+        self.editability = editability
         self.secure = secure
         self.source = source
         self.role = role
         self.subrole = subrole
         self.cursorKind = cursorKind
+    }
+
+    public var isEditable: Bool {
+        editability == .editable
     }
 }
 

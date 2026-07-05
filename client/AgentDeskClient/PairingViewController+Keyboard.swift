@@ -76,23 +76,9 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
     func applyKeyboardPresentationIntentForRemoteInput(_ input: NormalizedInput) -> KeyboardPresentationTransition? {
         guard let intent = HostTextInputKeyboardPolicy.intentForRemoteInput(
             input,
-            lastCursorKind: lastCursorKind,
-            focusedEditable: lastHostTextInputFocus.editable
+            lastCursorKind: lastCursorKind
         ) else { return nil }
-        let transition = applyKeyboardPresentationIntent(intent)
-        ClientDiagnostics.shared.record(
-            type: "remoteInputKeyboardIntent",
-            fields: [
-                "input": input.keyboardDiagnosticsName,
-                "previous": String(describing: transition.previous),
-                "next": String(describing: transition.next),
-                "changed": String(transition.changed),
-                "lastCursorKind": lastCursorKind.rawValue,
-                "focusedEditable": String(lastHostTextInputFocus.editable)
-            ],
-            level: transition.changed ? .default : .info
-        )
-        return transition
+        return applyKeyboardPresentationIntent(intent)
     }
 
     @discardableResult
@@ -103,13 +89,41 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
         )
         guard transition.changed else { return transition }
         keyboardPresentationState = transition.next
+        if transition.next == .pendingTextFocus {
+            schedulePendingTextFocusTimeout()
+        } else {
+            keyboardPendingTimeoutTask?.cancel()
+            keyboardPendingTimeoutTask = nil
+        }
         renderKeyboardPresentationState()
+        ClientDiagnostics.shared.record(
+            type: "keyboardStateChanged",
+            fields: [
+                "previous": String(describing: transition.previous),
+                "next": String(describing: transition.next),
+                "lastCursorKind": lastCursorKind.rawValue,
+                "lastHostEditability": lastHostTextInputFocus.editability.rawValue
+            ],
+            level: .default
+        )
         return transition
+    }
+
+    private func schedulePendingTextFocusTimeout() {
+        keyboardPendingTimeoutTask?.cancel()
+        keyboardPendingTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: KeyboardPresentationTiming.pendingTextFocusTimeoutNs)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard self?.keyboardPresentationState == .pendingTextFocus else { return }
+                self?.applyKeyboardPresentationIntent(.timeoutPendingTextFocus)
+            }
+        }
     }
 
     private func renderKeyboardPresentationState() {
         switch keyboardPresentationState {
-        case .hidden, .awaitingEditableFocusAfterVideoTap:
+        case .hidden, .pendingTextFocus:
             keyboardSurface.setVisible(false)
             keyboardSurface.isHidden = true
             keyboardSurface.text = ""

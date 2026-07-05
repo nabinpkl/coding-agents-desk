@@ -33,10 +33,6 @@ final class InputDispatcher: @unchecked Sendable {
     private let displayBoundsProvider: DisplayBoundsProvider
     private let selectedDisplayIdProvider: SelectedDisplayIdProvider
     private let clock: Clock
-    private func logPanFollowHost(_ message: String) {
-        let line = "[DEBUG-pan-follow-host] \(message)"
-        logger.notice("\(line, privacy: .public)")
-    }
 
     // R11: AppDelegate installs this to forward continuous
     // .switchSpaceGesture frames into the SpacesProvider dock-swipe
@@ -171,9 +167,6 @@ final class InputDispatcher: @unchecked Sendable {
                 logger.warning("Accessibility not granted; dropping input events")
                 loggedUntrusted = true
             }
-            if case .cursorMove = input {
-                logPanFollowHost("drop-untrusted input=\(input)")
-            }
             return
         }
         loggedUntrusted = false
@@ -236,21 +229,18 @@ final class InputDispatcher: @unchecked Sendable {
     private func postCursorSet(displayId: String, x: CGFloat, y: CGFloat) {
         guard selectedDisplayIdProvider() == displayId else {
             logger.notice("dropping cursorSet for stale display id=\(displayId, privacy: .public)")
-            logPanFollowHost("drop-stale-cursorSet display=\(displayId) selected=\(String(describing: selectedDisplayIdProvider())) point=(\(x), \(y))")
             return
         }
         let bounds = displayBoundsProvider()
         let next = Self.clamp(CGPoint(x: x, y: y), to: bounds)
         cursorPosition = next
         lastCursorMoveTime = clock()
-        logPanFollowHost("post cursorSet display=\(displayId) next=\(next) bounds=\(bounds)")
         guard let event = CGEvent(
             mouseEventSource: cursorEventSource,
             mouseType: .mouseMoved,
             mouseCursorPosition: next,
             mouseButton: .left
         ) else {
-            logPanFollowHost("event-nil cursorSet next=\(next)")
             return
         }
         event.flags = []
@@ -277,14 +267,12 @@ final class InputDispatcher: @unchecked Sendable {
         // the OS treats it as a continuation of the leftMouseDown that
         // opened the drag, not a separate cursor pass that loses the click.
         let type: CGEventType = inDrag ? .leftMouseDragged : .mouseMoved
-        logPanFollowHost("post cursorMove dx=\(dx) dy=\(dy) base=\(base) raw=\(raw) next=\(next) bounds=\(bounds) type=\(type.rawValue) inDrag=\(inDrag)")
         guard let event = CGEvent(
             mouseEventSource: cursorEventSource,
             mouseType: type,
             mouseCursorPosition: next,
             mouseButton: .left
         ) else {
-            logPanFollowHost("event-nil cursorMove dx=\(dx) dy=\(dy) next=\(next)")
             return
         }
         event.flags = []

@@ -72,13 +72,14 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var cursorPositionTask: Task<Void, Never>?
     var hostAvailabilityTask: Task<Void, Never>?
     var textInputFocusTask: Task<Void, Never>?
+    var keyboardPendingTimeoutTask: Task<Void, Never>?
     var diagnosticsTask: Task<Void, Never>?
     var cursorHotspotFrac: CGPoint = .zero
     var cursorRenderSize: CGSize = CursorPointerView.pointerSize
     var cursorHidden = false
     var lastCursorKind: CursorKind = .unknown
     var lastHostTextInputFocus = HostTextInputFocusPush(
-        editable: false,
+        editability: .ambiguous,
         secure: false,
         source: .none
     )
@@ -264,6 +265,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         cursorPositionTask = nil
         textInputFocusTask?.cancel()
         textInputFocusTask = nil
+        keyboardPendingTimeoutTask?.cancel()
+        keyboardPendingTimeoutTask = nil
         diagnosticsTask?.cancel()
         diagnosticsTask = nil
         stopAgentSayForegroundPresentation()

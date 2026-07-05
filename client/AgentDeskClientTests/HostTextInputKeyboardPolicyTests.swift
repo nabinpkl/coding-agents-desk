@@ -22,7 +22,7 @@ struct HostTextInputKeyboardPolicyTests {
             intent: .toggle
         ).next == .hidden)
         #expect(KeyboardPresentationStateMachine.transition(
-            from: .awaitingEditableFocusAfterVideoTap,
+            from: .pendingTextFocus,
             intent: .toggle
         ).next == .shown)
     }
@@ -38,7 +38,7 @@ struct HostTextInputKeyboardPolicyTests {
 
     @Test func editableFocusPushAloneDoesNotShowKeyboard() {
         let push = HostTextInputFocusPush(
-            editable: true,
+            editability: .editable,
             secure: false,
             source: .accessibility,
             role: "AXTextArea"
@@ -52,10 +52,10 @@ struct HostTextInputKeyboardPolicyTests {
 
     @Test func nonEditableFocusPushLeavesVisibleKeyboardAlone() {
         let push = HostTextInputFocusPush(
-            editable: false,
+            editability: .nonEditable,
             secure: false,
             source: .accessibility,
-            role: "AXGroup"
+            role: "AXButton"
         )
         let transition = KeyboardPresentationStateMachine.transition(
             from: .shown,
@@ -64,53 +64,55 @@ struct HostTextInputKeyboardPolicyTests {
         #expect(transition.next == .shown)
     }
 
-    @Test func videoTapWaitsForAccessibilityWhenFocusIsNotKnownEditable() {
+    @Test func iBeamClickWaitsForHostFocusResult() {
         #expect(KeyboardPresentationStateMachine.transition(
             from: .hidden,
             intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
-                lastCursorKind: .ibeam,
-                focusedEditable: false
+                lastCursorKind: .ibeam
             )
-        ).next == .awaitingEditableFocusAfterVideoTap)
+        ).next == .pendingTextFocus)
     }
 
-    @Test func pendingVideoTapShowsWhenAccessibilityConfirmsEditable() {
+    @Test func pendingTextFocusShowsWhenAccessibilityConfirmsEditable() {
         #expect(KeyboardPresentationStateMachine.transition(
-            from: .awaitingEditableFocusAfterVideoTap,
-            intent: .hostFocus(editable: true, cursorKind: nil)
+            from: .pendingTextFocus,
+            intent: .hostFocus(editability: .editable, cursorKind: nil)
         ).next == .shown)
     }
 
-    @Test func pendingVideoTapShowsWhenHostReportsIBeamCursor() {
+    @Test func pendingTextFocusShowsForAmbiguousIBeamResult() {
         #expect(KeyboardPresentationStateMachine.transition(
-            from: .awaitingEditableFocusAfterVideoTap,
-            intent: .hostFocus(editable: false, cursorKind: .ibeam)
+            from: .pendingTextFocus,
+            intent: .hostFocus(editability: .ambiguous, cursorKind: .ibeam)
         ).next == .shown)
     }
 
-    @Test func pendingVideoTapHidesWhenAccessibilityReportsNonEditable() {
+    @Test func pendingTextFocusHidesWhenAccessibilityReportsNonEditable() {
         #expect(KeyboardPresentationStateMachine.transition(
-            from: .awaitingEditableFocusAfterVideoTap,
-            intent: .hostFocus(editable: false, cursorKind: .arrow)
+            from: .pendingTextFocus,
+            intent: .hostFocus(editability: .nonEditable, cursorKind: .ibeam)
         ).next == .hidden)
     }
 
-    @Test func iBeamTapShowsWhenAccessibilityAlreadyConfirmedEditable() {
+    @Test func pendingTextFocusHidesWhenAmbiguousResultIsNotIBeam() {
         #expect(KeyboardPresentationStateMachine.transition(
-            from: .hidden,
-            intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
-                lastCursorKind: .ibeam,
-                focusedEditable: true
-            )
-        ).next == .shown)
+            from: .pendingTextFocus,
+            intent: .hostFocus(editability: .ambiguous, cursorKind: .arrow)
+        ).next == .hidden)
+    }
+
+    @Test func pendingTextFocusTimeoutReturnsHidden() {
+        #expect(KeyboardPresentationStateMachine.transition(
+            from: .pendingTextFocus,
+            intent: .timeoutPendingTextFocus
+        ).next == .hidden)
     }
 
     @Test func arrowTapDoesNotArmKeyboard() {
         #expect(KeyboardPresentationStateMachine.transition(
             from: .hidden,
             intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
-                lastCursorKind: .arrow,
-                focusedEditable: true
+                lastCursorKind: .arrow
             )
         ).next == .hidden)
     }
@@ -119,8 +121,7 @@ struct HostTextInputKeyboardPolicyTests {
         #expect(KeyboardPresentationStateMachine.transition(
             from: .shown,
             intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
-                lastCursorKind: .ibeam,
-                focusedEditable: true
+                lastCursorKind: .ibeam
             )
         ).next == .hidden)
     }
@@ -129,8 +130,7 @@ struct HostTextInputKeyboardPolicyTests {
         #expect(KeyboardPresentationStateMachine.transition(
             from: .hidden,
             intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
-                lastCursorKind: .pointingHand,
-                focusedEditable: false
+                lastCursorKind: .pointingHand
             )
         ).next == .hidden)
     }
@@ -138,22 +138,19 @@ struct HostTextInputKeyboardPolicyTests {
     @Test func leftClickInputUsesRemoteTapPolicy() {
         let intent = HostTextInputKeyboardPolicy.intentForRemoteInput(
             .click(button: .left),
-            lastCursorKind: .ibeam,
-            focusedEditable: false
+            lastCursorKind: .ibeam
         )
-        #expect(intent == .remoteTap(cursorKind: .ibeam, focusedEditable: false))
+        #expect(intent == .remoteTap(cursorKind: .ibeam))
     }
 
     @Test func nonLeftClickInputDoesNotAffectKeyboardPolicy() {
         #expect(HostTextInputKeyboardPolicy.intentForRemoteInput(
             .click(button: .right),
-            lastCursorKind: .ibeam,
-            focusedEditable: true
+            lastCursorKind: .ibeam
         ) == nil)
         #expect(HostTextInputKeyboardPolicy.intentForRemoteInput(
             .cursorMove(dx: 1, dy: 2),
-            lastCursorKind: .ibeam,
-            focusedEditable: true
+            lastCursorKind: .ibeam
         ) == nil)
     }
 }
