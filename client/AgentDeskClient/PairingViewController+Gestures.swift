@@ -110,8 +110,20 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         cursorTask = Task { [weak self, channel] in
             for await push in channel.cursorUpdates {
                 await MainActor.run {
-                    self?.lastCursorKind = push.cursorKind
-                    self?.applyCursorImage(push)
+                    guard let self else { return }
+                    let previous = self.lastCursorKind
+                    self.lastCursorKind = push.cursorKind
+                    ClientDiagnostics.shared.record(
+                        type: "hostCursorKind",
+                        fields: [
+                            "previous": previous.rawValue,
+                            "current": push.cursorKind.rawValue,
+                            "hidden": String(push.hidden),
+                            "hash": push.hash
+                        ],
+                        level: push.cursorKind == .ibeam || previous == .ibeam ? .default : .info
+                    )
+                    self.applyCursorImage(push)
                 }
             }
         }
@@ -155,6 +167,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         ClientDiagnostics.shared.record(
             type: "hostTextInputFocus",
             fields: [
+                "keyboardStateBefore": String(describing: keyboardPresentationState),
                 "editable": String(push.editable),
                 "secure": String(push.secure),
                 "source": push.source.rawValue,
@@ -164,7 +177,19 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             ],
             level: .info
         )
-        applyKeyboardPresentationIntent(HostTextInputKeyboardPolicy.intent(for: push))
+        let transition = applyKeyboardPresentationIntent(HostTextInputKeyboardPolicy.intent(for: push))
+        if transition.changed {
+            ClientDiagnostics.shared.record(
+                type: "hostTextInputFocusApplied",
+                fields: [
+                    "previous": String(describing: transition.previous),
+                    "next": String(describing: transition.next),
+                    "editable": String(push.editable),
+                    "cursorKind": push.cursorKind?.rawValue ?? "nil"
+                ],
+                level: .default
+            )
+        }
     }
 
     func applyHostAvailability(_ push: HostAvailabilityPush) {

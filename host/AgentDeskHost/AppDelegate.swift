@@ -801,19 +801,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 guard let self, let server else { return }
                 var lastFocus: HostTextInputFocusPush?
-                for delayNs in [120_000_000, 180_000_000, 300_000_000] {
+                for (index, delayNs) in [120_000_000, 180_000_000, 300_000_000].enumerated() {
                     try? await Task.sleep(nanoseconds: UInt64(delayNs))
                     let cursorKind = CursorMonitor.systemSampler()?.cursorKind
                     let focus = self.textInputFocusMonitor.sampleCurrentFocus(cursorKind: cursorKind)
                     lastFocus = focus
+                    logger.notice("post-click text focus refresh attempt=\(index + 1, privacy: .public) editable=\(focus.editable, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public) subrole=\(focus.subrole ?? "nil", privacy: .public) cursorKind=\(focus.cursorKind?.rawValue ?? "nil", privacy: .public)")
                     if focus.editable || focus.cursorKind == .ibeam {
-                        logger.notice("post-click text focus refresh editable=\(focus.editable, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public) cursorKind=\(focus.cursorKind?.rawValue ?? "nil", privacy: .public) attempt=positive")
+                        logger.notice("post-click text focus refresh result=positive editable=\(focus.editable, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public) cursorKind=\(focus.cursorKind?.rawValue ?? "nil", privacy: .public)")
                         server.pushTextInputFocus(focus)
                         return
                     }
                 }
                 guard let focus = lastFocus else { return }
-                logger.notice("post-click text focus refresh editable=\(focus.editable, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public) cursorKind=\(focus.cursorKind?.rawValue ?? "nil", privacy: .public) attempt=final")
+                logger.notice("post-click text focus refresh result=final-negative editable=\(focus.editable, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public) cursorKind=\(focus.cursorKind?.rawValue ?? "nil", privacy: .public)")
                 server.pushTextInputFocus(focus)
             }
         }
@@ -1069,8 +1070,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // separately seeded with `cursorMonitor.latest` on attach.
     private func installCursorMonitor() {
         let registry = sessions
+        let logger = signalingLogger
         cursorMonitor.onChange = { [weak registry] push in
             guard let registry else { return }
+            logger.notice("host cursor kind changed kind=\(push.cursorKind.rawValue, privacy: .public) hash=\(push.hash, privacy: .public) hidden=\(push.hidden, privacy: .public)")
             for server in registry.allInputChannelServers() {
                 server.pushCursor(push)
             }
