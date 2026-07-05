@@ -73,6 +73,7 @@ When in doubt about which direction a code path should produce, the test is: fin
 - `.env` is gitignored by reflex. If you create one, gitignore it before the first commit.
 - Iteration over compatibility. Until v0 ships, breaking changes are free. After v0, breaking changes require an ADR.
 - Tests exxists for **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView** .`SpacesProvider`'s smoke test runs against the live SkyLight binding and is the canary for private-API surface drift across macOS versions. 
+- Keyboard and text-focus behavior is **input-model behavior, not video-surface behavior**. When adding or debugging "tap/click opens keyboard" flows, start at the shared input/click path (`GestureTranslator` / `sendInput` / host focus push) and only add surface-specific hooks when the requirement is explicitly limited to that surface. A tap can originate from the video surface, trackpad surface, scroll/chrome controls, or future input surfaces; do not gate universal keyboard state transitions behind `handleVideoTouchTap` or another narrow recognizer just because that was the most recent context.
 
 ## Versioning
 
