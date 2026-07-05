@@ -25,37 +25,37 @@ struct HostTextInputKeyboardPolicyTests {
     }
 
     @Test func iBeamTapShowsKeyboardWhenAccessibilityDoesNotConfirmEditable() {
-        let lastFocus = HostTextInputFocusPush(
-            editable: false,
-            secure: false,
-            source: .none
-        )
         #expect(HostTextInputKeyboardPolicy.decisionAfterRemoteTap(
-            lastCursorKind: .ibeam
+            lastCursorKind: .ibeam,
+            keyboardPresented: false
         ) == .show)
     }
 
     @Test func arrowTapHidesKeyboard() {
         #expect(HostTextInputKeyboardPolicy.decisionAfterRemoteTap(
-            lastCursorKind: .arrow
+            lastCursorKind: .arrow,
+            keyboardPresented: false
         ) == .hide)
     }
 
     @Test func iBeamTapShowsWhenAccessibilityAlreadyConfirmedEditable() {
-        let lastFocus = HostTextInputFocusPush(
-            editable: true,
-            secure: false,
-            source: .accessibility,
-            role: "AXTextField"
-        )
         #expect(HostTextInputKeyboardPolicy.decisionAfterRemoteTap(
-            lastCursorKind: .ibeam
+            lastCursorKind: .ibeam,
+            keyboardPresented: false
         ) == .show)
+    }
+
+    @Test func presentedKeyboardTapHidesEvenWhenCursorIsIBeam() {
+        #expect(HostTextInputKeyboardPolicy.decisionAfterRemoteTap(
+            lastCursorKind: .ibeam,
+            keyboardPresented: true
+        ) == .hide)
     }
 
     @Test func nonIBeamTapHidesEvenIfPreviousFocusWasEditable() {
         #expect(HostTextInputKeyboardPolicy.decisionAfterRemoteTap(
-            lastCursorKind: .pointingHand
+            lastCursorKind: .pointingHand,
+            keyboardPresented: false
         ) == .hide)
     }
 }

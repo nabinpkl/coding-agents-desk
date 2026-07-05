@@ -45,9 +45,13 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
 
     // MARK: - UIGestureRecognizerDelegate
 
+    var isKeyboardSurfacePresented: Bool {
+        keyboardSurface.isFirstResponder || !keyboardSurface.isHidden
+    }
+
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         if gestureRecognizer === dismissKeyboardTap {
-            return keyboardSurface.isFirstResponder
+            return isKeyboardSurfacePresented
         }
         return true
     }
@@ -59,28 +63,32 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
     }
 
     @objc func dismissKeyboardIfShown() {
-        if keyboardSurface.isFirstResponder {
-            toggleKeyboard()
-        }
+        guard isKeyboardSurfacePresented else { return }
+        hideKeyboardSurface()
     }
 
     @objc func toggleKeyboard() {
-        if keyboardSurface.isFirstResponder {
-            keyboardSurface.setVisible(false)
-            keyboardSurface.isHidden = true
-            keyboardSurface.text = ""
-            setTrackpadHidden(false)
-            showKeyboardButton.setTitle("Show keyboard", for: .normal)
+        if isKeyboardSurfacePresented {
+            hideKeyboardSurface()
         } else {
-            keyboardSurface.isHidden = false
-            setTrackpadHidden(true)
-            keyboardSurface.setVisible(true)
-            showKeyboardButton.setTitle("Hide keyboard", for: .normal)
+            showKeyboardSurface()
         }
     }
 
     func showKeyboardFromHostTextInput() {
-        guard !keyboardSurface.isFirstResponder else { return }
+        guard !isKeyboardSurfacePresented else { return }
+        showKeyboardSurface()
+    }
+
+    private func hideKeyboardSurface() {
+        keyboardSurface.setVisible(false)
+        keyboardSurface.isHidden = true
+        keyboardSurface.text = ""
+        setTrackpadHidden(false)
+        showKeyboardButton.setTitle("Show keyboard", for: .normal)
+    }
+
+    private func showKeyboardSurface() {
         keyboardSurface.isHidden = false
         setTrackpadHidden(true)
         keyboardSurface.setVisible(true)

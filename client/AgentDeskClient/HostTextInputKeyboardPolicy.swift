@@ -16,8 +16,12 @@ enum HostTextInputKeyboardPolicy {
     }
 
     static func decisionAfterRemoteTap(
-        lastCursorKind: CursorKind
+        lastCursorKind: CursorKind,
+        keyboardPresented: Bool
     ) -> KeyboardRemoteTapDecision {
-        lastCursorKind == .ibeam ? .show : .hide
+        guard !keyboardPresented else {
+            return .hide
+        }
+        return lastCursorKind == .ibeam ? .show : .hide
     }
 }

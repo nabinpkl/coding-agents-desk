@@ -210,16 +210,19 @@ extension PairingViewController {
         for input in inputs {
             sendInput(input)
         }
-        if keyboardSurface.isFirstResponder {
+        let keyboardPresented = isKeyboardSurfacePresented
+        let tapDecision = HostTextInputKeyboardPolicy.decisionAfterRemoteTap(
+            lastCursorKind: lastCursorKind,
+            keyboardPresented: keyboardPresented
+        )
+        if tapDecision == .hide, keyboardPresented {
             dismissKeyboardIfShown()
             return
         }
         guard !inputs.isEmpty else {
             return
         }
-        switch HostTextInputKeyboardPolicy.decisionAfterRemoteTap(
-            lastCursorKind: lastCursorKind
-        ) {
+        switch tapDecision {
         case .show:
             ClientDiagnostics.shared.record(
                 type: "hostTextInputFocus",
