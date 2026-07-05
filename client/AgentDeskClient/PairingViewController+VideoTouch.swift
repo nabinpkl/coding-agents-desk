@@ -210,26 +210,33 @@ extension PairingViewController {
         for input in inputs {
             sendInput(input)
         }
-        guard !inputs.isEmpty,
-              HostTextInputKeyboardPolicy.decisionAfterRemoteTap(
-                lastCursorKind: lastCursorKind,
-                lastHostFocus: lastHostTextInputFocus
-              ) == .show else {
+        guard !inputs.isEmpty else {
+            dismissKeyboardIfShown()
             return
         }
-        ClientDiagnostics.shared.record(
-            type: "hostTextInputFocus",
-            fields: [
-                "editable": "true",
-                "secure": "false",
-                "source": HostTextInputFocusSource.cursorTapHeuristic.rawValue,
-                "role": "nil",
-                "subrole": "nil",
-                "cursorKind": lastCursorKind.rawValue
-            ],
-            level: .info
-        )
-        showKeyboardFromHostTextInput()
+        switch HostTextInputKeyboardPolicy.decisionAfterRemoteTap(
+            lastCursorKind: lastCursorKind,
+            lastHostFocus: lastHostTextInputFocus
+        ) {
+        case .show:
+            ClientDiagnostics.shared.record(
+                type: "hostTextInputFocus",
+                fields: [
+                    "editable": "true",
+                    "secure": "false",
+                    "source": HostTextInputFocusSource.cursorTapHeuristic.rawValue,
+                    "role": "nil",
+                    "subrole": "nil",
+                    "cursorKind": lastCursorKind.rawValue
+                ],
+                level: .info
+            )
+            showKeyboardFromHostTextInput()
+        case .keepVisible:
+            break
+        case .hide:
+            dismissKeyboardIfShown()
+        }
     }
 
     // Map the touch point to a host coordinate and move the local cursor model

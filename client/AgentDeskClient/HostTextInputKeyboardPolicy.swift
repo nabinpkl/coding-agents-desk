@@ -5,6 +5,12 @@ enum KeyboardAutoPresentationDecision: Equatable {
     case leaveUnchanged
 }
 
+enum KeyboardRemoteTapDecision: Equatable {
+    case show
+    case keepVisible
+    case hide
+}
+
 enum HostTextInputKeyboardPolicy {
     static func decision(for push: HostTextInputFocusPush) -> KeyboardAutoPresentationDecision {
         push.editable ? .show : .leaveUnchanged
@@ -13,10 +19,10 @@ enum HostTextInputKeyboardPolicy {
     static func decisionAfterRemoteTap(
         lastCursorKind: CursorKind,
         lastHostFocus: HostTextInputFocusPush
-    ) -> KeyboardAutoPresentationDecision {
-        guard !lastHostFocus.editable, lastCursorKind == .ibeam else {
-            return .leaveUnchanged
+    ) -> KeyboardRemoteTapDecision {
+        guard lastCursorKind == .ibeam else {
+            return .hide
         }
-        return .show
+        return lastHostFocus.editable ? .keepVisible : .show
     }
 }
