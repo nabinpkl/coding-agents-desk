@@ -1,27 +1,57 @@
 import AgentDeskWire
 
-enum KeyboardAutoPresentationDecision: Equatable {
-    case show
-    case leaveUnchanged
+enum KeyboardPresentationState: Equatable {
+    case hidden
+    case shown
 }
 
-enum KeyboardRemoteTapDecision: Equatable {
+enum KeyboardPresentationIntent: Equatable {
     case show
     case hide
+    case toggle
+}
+
+struct KeyboardPresentationTransition: Equatable {
+    let previous: KeyboardPresentationState
+    let next: KeyboardPresentationState
+
+    var changed: Bool {
+        previous != next
+    }
+}
+
+enum KeyboardPresentationStateMachine {
+    static func transition(
+        from state: KeyboardPresentationState,
+        intent: KeyboardPresentationIntent
+    ) -> KeyboardPresentationTransition {
+        let next: KeyboardPresentationState
+        switch intent {
+        case .show:
+            next = .shown
+        case .hide:
+            next = .hidden
+        case .toggle:
+            next = state == .shown ? .hidden : .shown
+        }
+        return KeyboardPresentationTransition(previous: state, next: next)
+    }
 }
 
 enum HostTextInputKeyboardPolicy {
-    static func decision(for push: HostTextInputFocusPush) -> KeyboardAutoPresentationDecision {
-        push.editable ? .show : .leaveUnchanged
+    static func intent(for push: HostTextInputFocusPush) -> KeyboardPresentationIntent? {
+        push.editable ? .show : nil
     }
 
-    static func decisionAfterRemoteTap(
+    static func intentAfterRemoteTap(
         lastCursorKind: CursorKind,
-        keyboardPresented: Bool
-    ) -> KeyboardRemoteTapDecision {
-        guard !keyboardPresented else {
+        keyboardState: KeyboardPresentationState
+    ) -> KeyboardPresentationIntent? {
+        switch keyboardState {
+        case .shown:
             return .hide
+        case .hidden:
+            return lastCursorKind == .ibeam ? .show : nil
         }
-        return lastCursorKind == .ibeam ? .show : .hide
     }
 }

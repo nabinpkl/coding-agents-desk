@@ -201,6 +201,10 @@ extension PairingViewController {
 
     @objc func handleVideoTouchTap(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended, let sinkView = videoSink?.view else { return }
+        if keyboardPresentationState == .shown {
+            applyKeyboardPresentationIntent(.hide)
+            return
+        }
         let retarget = retargetVideoTouchCursor(
             at: gesture.location(in: sinkView),
             contentViewSize: sinkView.bounds.size
@@ -210,19 +214,16 @@ extension PairingViewController {
         for input in inputs {
             sendInput(input)
         }
-        let keyboardPresented = isKeyboardSurfacePresented
-        let tapDecision = HostTextInputKeyboardPolicy.decisionAfterRemoteTap(
-            lastCursorKind: lastCursorKind,
-            keyboardPresented: keyboardPresented
-        )
-        if tapDecision == .hide, keyboardPresented {
-            dismissKeyboardIfShown()
-            return
-        }
         guard !inputs.isEmpty else {
             return
         }
-        switch tapDecision {
+        guard let intent = HostTextInputKeyboardPolicy.intentAfterRemoteTap(
+            lastCursorKind: lastCursorKind,
+            keyboardState: keyboardPresentationState
+        ) else {
+            return
+        }
+        switch intent {
         case .show:
             ClientDiagnostics.shared.record(
                 type: "hostTextInputFocus",
@@ -236,9 +237,11 @@ extension PairingViewController {
                 ],
                 level: .info
             )
-            showKeyboardFromHostTextInput()
+            applyKeyboardPresentationIntent(intent)
         case .hide:
-            dismissKeyboardIfShown()
+            applyKeyboardPresentationIntent(intent)
+        case .toggle:
+            applyKeyboardPresentationIntent(intent)
         }
     }
 

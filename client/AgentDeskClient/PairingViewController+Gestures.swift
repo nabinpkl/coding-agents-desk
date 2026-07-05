@@ -164,8 +164,8 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             ],
             level: .info
         )
-        guard HostTextInputKeyboardPolicy.decision(for: push) == .show else { return }
-        showKeyboardFromHostTextInput()
+        guard let intent = HostTextInputKeyboardPolicy.intent(for: push) else { return }
+        applyKeyboardPresentationIntent(intent)
     }
 
     func applyHostAvailability(_ push: HostAvailabilityPush) {

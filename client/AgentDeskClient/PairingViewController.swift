@@ -160,6 +160,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var selectedDisplayIdForClientConfig: String?
     // R12.3: hidden first-responder that backs the iOS soft keyboard.
     let keyboardSurface = KeyboardSurface()
+    var keyboardPresentationState: KeyboardPresentationState = .hidden
     var buttonRowBottomConstraint: NSLayoutConstraint?
     var dismissKeyboardTap: UITapGestureRecognizer?
     // R23: orientation-variant constraints built fresh on every session

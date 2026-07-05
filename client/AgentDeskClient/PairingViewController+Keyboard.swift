@@ -46,7 +46,7 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
     // MARK: - UIGestureRecognizerDelegate
 
     var isKeyboardSurfacePresented: Bool {
-        keyboardSurface.isFirstResponder || !keyboardSurface.isHidden
+        keyboardPresentationState == .shown
     }
 
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -63,36 +63,37 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
     }
 
     @objc func dismissKeyboardIfShown() {
-        guard isKeyboardSurfacePresented else { return }
-        hideKeyboardSurface()
+        applyKeyboardPresentationIntent(.hide)
     }
 
     @objc func toggleKeyboard() {
-        if isKeyboardSurfacePresented {
-            hideKeyboardSurface()
-        } else {
-            showKeyboardSurface()
+        applyKeyboardPresentationIntent(.toggle)
+    }
+
+    func applyKeyboardPresentationIntent(_ intent: KeyboardPresentationIntent) {
+        let transition = KeyboardPresentationStateMachine.transition(
+            from: keyboardPresentationState,
+            intent: intent
+        )
+        guard transition.changed else { return }
+        keyboardPresentationState = transition.next
+        renderKeyboardPresentationState()
+    }
+
+    private func renderKeyboardPresentationState() {
+        switch keyboardPresentationState {
+        case .hidden:
+            keyboardSurface.setVisible(false)
+            keyboardSurface.isHidden = true
+            keyboardSurface.text = ""
+            setTrackpadHidden(false)
+            showKeyboardButton.setTitle("Show keyboard", for: .normal)
+        case .shown:
+            keyboardSurface.isHidden = false
+            setTrackpadHidden(true)
+            keyboardSurface.setVisible(true)
+            showKeyboardButton.setTitle("Hide keyboard", for: .normal)
         }
-    }
-
-    func showKeyboardFromHostTextInput() {
-        guard !isKeyboardSurfacePresented else { return }
-        showKeyboardSurface()
-    }
-
-    private func hideKeyboardSurface() {
-        keyboardSurface.setVisible(false)
-        keyboardSurface.isHidden = true
-        keyboardSurface.text = ""
-        setTrackpadHidden(false)
-        showKeyboardButton.setTitle("Show keyboard", for: .normal)
-    }
-
-    private func showKeyboardSurface() {
-        keyboardSurface.isHidden = false
-        setTrackpadHidden(true)
-        keyboardSurface.setVisible(true)
-        showKeyboardButton.setTitle("Hide keyboard", for: .normal)
     }
 
     // Trackpad and scroll-strip serve no purpose while the keyboard is
@@ -128,6 +129,7 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
     }
 
     @objc func keyboardWillHide(_ note: Notification) {
+        applyKeyboardPresentationIntent(.hide)
         animateButtonRow(to: -12, with: note)
     }
 

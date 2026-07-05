@@ -430,7 +430,7 @@ extension PairingViewController {
         stopAgentSayForegroundPresentation()
         lastDesktopState = nil
         selectedDisplayIdForClientConfig = nil
-        keyboardSurface.setVisible(false)
+        applyKeyboardPresentationIntent(.hide)
         buttonRowBottomConstraint = nil
         // R23: drop the orientation-variant constraints; the next
         // mountSinkView/showTrackpad will repopulate fresh arrays.
