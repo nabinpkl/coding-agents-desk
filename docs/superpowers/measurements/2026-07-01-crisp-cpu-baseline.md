@@ -157,3 +157,47 @@ but the structural win is real and measured — the convert no longer pays for t
 frame, and the hash is off fast memory. On a localized-change desktop `renderRegion`
 converts a small bbox and `reconcile` visits a handful of tiles, so both costs fall
 proportionally; that case is not measurable from inside the captured animating session.
+
+## Clean-gate crisp-OFF decomposition (sha 546b088, AGENTDESK_OWNED_MEDIA_CRISP_ENABLED=0)
+
+Added a first-class `AGENTDESK_OWNED_MEDIA_CRISP_ENABLED` master flag (replaces the
+min-interval hack). With it off, `processCrisp`/`processCrispDamage` are skipped at the
+drain-loop call site (0 crisp windows confirmed in the log). Fresh sim bring-up, host +
+client Release, 8s `sample` on the same churning-TUI screen.
+
+- **Host CPU ~18% steady** (16.5-19.4%), vs crisp-on ~32% avg (19-43%, bouncy). So on
+  this screen crisp adds ~14%, and it is the source of the variance (crisp cost tracks
+  how much of the screen settled into hashable/convertible tiles).
+
+Leaf self-time of the ~18% floor (on-CPU only; the 6354-frame threads are parked idle),
+largest reducible chunks first:
+
+1. **Video-encode surface feed ~1100** — `IOSurfaceAcceleratorTransformSurface` (892) +
+   `IOSurfaceClientBindAccel` (201): the GPU transform of each capture IOSurface into the
+   HEVC encoder's input format. The HW encode itself is offloaded (the big
+   `videotoolbox.compressionQueue` / `coremedia.sharedRootQueue` thread totals are mostly
+   AVE-blocked wait, not CPU). This is inherent to streaming video and scales with fps.
+2. **Datagram send path ~800** — our `packetize`(44)/`enqueue`(81)/`send`(58)/
+   `drainEncodeQueue`(84) + Network.framework socket writes (`nw_socket_service_writes` +
+   `add_write_request` ~330) + libquic (`quic_conn_send_*` ~150) + kernel `__sendmsg`(75).
+   Always-on, every frame. The biggest chunk we own outright and the top floor lever.
+3. **Thumbnails ~1000 when bursting** — `SpaceThumbnailProvider.captureAsyncWithTimeout`
+   (517) + `composite`(226) + the vImage/CGDataProvider convert under it (~300). Bursty on
+   the 3s capture timer, so ~2-3% averaged (consistent with the A/B kill-switch result);
+   the leaf cost is high only during a capture tick.
+4. **CursorMonitor ~480 (steady)** — `CursorMonitor.tick`(483) + `hash`(44): a timer-driven
+   cursor position/image poll with per-tick hashing. Not bursty; a steady, previously
+   un-isolated slice of the floor. Candidate lever: slower poll or skip-hash when unchanged.
+5. **Capture ingest ~300** — replayd XPC (239) + `scstream` queue (103) + our
+   `ScreenCaptureKitFrameSource.stream(didOutput:)`(21) + `damageRects`(12). Cheap; our
+   callback is a small part, most is ScreenCaptureKit's out-of-process plumbing.
+
+Takeaways:
+- The ~18% floor is NOT one thing. Ranked reducible levers: (a) the datagram send path
+  (~800, ours) — batch packetization / relax pacing wakeups / lower cadence at rest;
+  (b) CursorMonitor (~480, steady) — cheap to slow down; (c) thumbnails (bursty) — already
+  have the kill switch. The video surface-feed (~1100) and HW encode are inherent to
+  streaming and only fall with lower fps/resolution at rest.
+- Crisp (~14% here) is now damage-proportional after Unit D; on a localized-change desktop
+  both crisp and the video feed shrink, leaving the send path + cursor poll as the dominant
+  at-rest floor.
