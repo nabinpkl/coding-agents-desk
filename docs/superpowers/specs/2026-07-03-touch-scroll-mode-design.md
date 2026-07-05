@@ -103,6 +103,15 @@ behavior. Hardening applied while confirming this (`isContinuous=1`, resetting
 `scrollRemainder` at gesture delimiters) is retained as correctness, but does not
 change the Electron behavior.
 
+**Trigger and workaround.** The inertness is specifically triggered by
+*overscrolling against* the boundary first (pushing down when already at the
+bottom); that leaves Chromium's scroll latch stuck so the reverse stroke is
+swallowed. Scrolling the still-scrollable direction first never latches, and the
+scroll then behaves normally. So the user-side workaround is: don't push against
+a boundary first. The corresponding code-side fix, if wanted, is to drop the
+latch on direction reversal by injecting an `ended`+`began` phase break in
+`postScroll` when the sign of the accumulated delta flips.
+
 ## Testing
 
 `EdgeFollowTests`: `hostPoint(forSinkLocation:)` at zoom 1.0 and >1.0, with
