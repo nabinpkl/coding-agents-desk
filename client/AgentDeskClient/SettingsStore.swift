@@ -163,11 +163,18 @@ final class SettingsStore: @unchecked Sendable {
     }
 
     // ADR-0038 DOM mirror. Default off (opt-in beta). Gates whether the client opens the .dom lane
-    // and shows the replay surface; the host still gates with its own flag. Uses bool(forKey:) so a
-    // launch argument (`-agentDesk.domMirrorEnabled YES`, the NSUserDefaults argument domain) flips
-    // it on for the autonomous sim e2e, which the object-as?-Bool form would not coerce.
+    // and shows the replay surface; the host still gates with its own flag. An env override
+    // (`AGENTDESK_DOM_MIRROR_ENABLED=1`) wins, so a physical-device run can enable it via the
+    // devicectl `--environment-variables` path (devicectl apps get env, not argv). Otherwise
+    // bool(forKey:), so the sim launch arg (`-agentDesk.domMirrorEnabled YES`, the NSUserDefaults
+    // argument domain) also works.
     var domMirrorEnabled: Bool {
-        get { defaults.bool(forKey: Key.domMirrorEnabled) }
+        get {
+            if let env = ProcessInfo.processInfo.environment["AGENTDESK_DOM_MIRROR_ENABLED"] {
+                return env == "1" || env.lowercased() == "true"
+            }
+            return defaults.bool(forKey: Key.domMirrorEnabled)
+        }
         set {
             defaults.set(newValue, forKey: Key.domMirrorEnabled)
             postChange()
