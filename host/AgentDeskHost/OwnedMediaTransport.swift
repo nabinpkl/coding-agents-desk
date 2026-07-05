@@ -232,7 +232,15 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 let laneAttached = state.lane != nil
                 logger.notice("crisp window tiles=\(tiles, privacy: .public) payloadBytes=\(payloadBytes, privacy: .public) dropped=\(dropped, privacy: .public) throttled=\(throttled, privacy: .public) resized=\(emission.surfaceDidReset, privacy: .public) laneAttached=\(laneAttached, privacy: .public)")
             }
-            guard let lane = state.lane else { return }
+            guard let lane = state.lane else {
+                // No lane to receive these assignments: discard the staged slot commits so
+                // the host's cache does not get ahead of the client (it would later emit a
+                // drawCachedTile for a slot the client never got). This is the pre-attach
+                // window only; attachGraphicsLane calls reset() before any resume, so the
+                // optimistic per-tile crispHash state is cleared too.
+                state.controller.discardEmission()
+                return
+            }
             // Both lane.send calls below MUST stay within this single crispGate scope: the
             // resetSurface and the tile frame are enqueued on the lane in call order, and a
             // tile frame ahead of its resetSurface would composite against stale geometry.
@@ -261,19 +269,23 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 ))
                 state.surfaceInitialized = true
             }
-            guard !emission.isEmpty else { return }
-            state.crispFrameId &+= 1
-            lane.send(OwnedGraphicsFrameEnvelope(
-                header: OwnedGraphicsFrameHeader(
-                    surfaceGeneration: state.surfaceGeneration,
-                    frameId: state.crispFrameId,
-                    capturedAtUptimeNs: nowNs,
-                    commandCount: emission.commands.count,
-                    payloadLength: emission.payload.count
-                ),
-                commands: emission.commands,
-                payload: emission.payload
-            ))
+            if !emission.isEmpty {
+                state.crispFrameId &+= 1
+                lane.send(OwnedGraphicsFrameEnvelope(
+                    header: OwnedGraphicsFrameHeader(
+                        surfaceGeneration: state.surfaceGeneration,
+                        frameId: state.crispFrameId,
+                        capturedAtUptimeNs: nowNs,
+                        commandCount: emission.commands.count,
+                        payloadLength: emission.payload.count
+                    ),
+                    commands: emission.commands,
+                    payload: emission.payload
+                ))
+            }
+            // The emission was handed to the (reliable, ordered) lane: commit the staged
+            // slot assignments so the host's cache matches what the client now holds.
+            state.controller.commitEmission()
         }
     }
 

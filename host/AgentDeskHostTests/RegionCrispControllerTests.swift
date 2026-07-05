@@ -18,7 +18,12 @@ final class RegionCrispControllerTests: XCTestCase {
         _ c: inout RegionCrispController, _ pixels: Data, at nowMs: Int,
         width: Int = 64, height: Int = 64
     ) -> RegionCrispEmission {
-        c.observe(pixels: pixels, width: width, height: height, bytesPerRow: width * 4, nowMs: nowMs)
+        let emission = c.observe(pixels: pixels, width: width, height: height, bytesPerRow: width * 4, nowMs: nowMs)
+        // The transport commits the staged slot assignments once the emission is handed to
+        // the lane (commitEmission); mirror that here so cross-frame dedup and eviction
+        // behave as in production now that observe() no longer commits unconditionally.
+        c.commitEmission()
+        return emission
     }
 
     // Behavior 1 (tracer): a tile static for >= the settle window promotes to a crisp

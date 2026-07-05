@@ -179,7 +179,17 @@ struct RegionCrispController {
             y += grid
         }
 
-        cache.commitPending()
+        // Slot assignments are staged in `cache` but NOT committed here. The transport
+        // commits only after the emission is handed to an attached lane (commitEmission),
+        // and discards otherwise (discardEmission). This keeps the host's slot model from
+        // getting ahead of what the client received, which is what made the host emit a
+        // drawCachedTile for a slot the client never got. See TileContentCache's contract.
         return RegionCrispEmission(commands: commands, payload: payload, surfaceDidReset: surfaceDidReset)
     }
+
+    // Commit / discard the slot assignments staged by the most recent observe(), so the
+    // host's slot cache rides the lane's delivery: commit when the frame was sent, discard
+    // when there was no lane to receive it. Exactly one must be called per observe().
+    mutating func commitEmission() { cache.commitPending() }
+    mutating func discardEmission() { cache.discardPending() }
 }
