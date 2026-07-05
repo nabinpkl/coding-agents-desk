@@ -85,4 +85,6 @@ R7       2026-06-29  committed   client per-region transparency compositing (ret
 R8       2026-06-29  committed   client graphics lane intake + reset feedback (sink-ordering review fix)
 R7/R8-rv 2026-06-29  reviewed    two independent reviewers (concurrency + coherence) green after fixes; clean for merge
 R9       2026-06-29  validated   sim end-to-end: empty-announce bug found+fixed (receive(exactly:0)); lane live both ways, laneAttached=true, applies clean (failed=0, resets=0, stale=0), composites "tiles live". Perceptual crisp-vs-video sign-off still by-eye on user's device.
+R10      2026-06-29  committed   recover media ladder at rest: a calm, link-clean, below-native window climbs instead of wiping recovery credit (idle != frozen link). Fixes "stuck at 0.33 after the link came back". Unit-tested.
+R11      2026-06-29  committed   native-resolution crisp: capture stays native, video downscales in the encode pump (videoFrameForEncode reusing OwnedMediaFrameScaler), crisp taps native. Settled text sharpens to full res regardless of video rung. Removed dead capture-side resolution scaling. Device sign-off pending (gated).
 ```
