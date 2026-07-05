@@ -570,6 +570,32 @@ iphone-console-run variant="stable":
     echo "URL: <redacted; delivered to client>"
     URL="$(cat "$PAIR_URL")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
+# Install the native-messaging manifest that lets the loaded Chrome extension spawn the dom-bridge
+# shim and reach the running host (ADR-0039). Required ONCE per real Chrome profile before any
+# dom-mirror run shows anything -- without it connectNative finds no host and the mirror stays white.
+# (The dom-mirror-*-verify / -e2e recipes only install into throwaway Chrome-for-Testing profiles,
+# never your real Chrome.) The ext id is derived from the extension's pinned manifest key
+# (chrome-test/ext-id.mjs), so a load-unpacked extension matches without hardcoding the id. The shim
+# is pointed at the chosen host's bundle-id-derived socket/token EXPLICITLY, because the shim's own
+# default (~/Library/Application Support/AgentDesk/) predates the bundle-id migration and matches no
+# current host. variant: dev (default -- the DOM-mirror dev stack) | stable. channel: chrome
+# (default) | canary | chromium. Writes to ~/Library/Application Support/Google/<channel>/
+# NativeMessagingHosts/; undo with `just dom-bridge-uninstall`.
+dom-bridge-install variant="dev" channel="chrome":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{variant}}" = "dev" ]; then SUPPORT="$HOME/Library/Application Support/{{host_dev_bundle_id}}"; else SUPPORT="$HOME/Library/Application Support/{{host_bundle_id}}"; fi
+    EXT_ID="$(node chrome-test/ext-id.mjs)"
+    echo "installing dom-bridge NM manifest: ext=$EXT_ID channel={{channel}} host-socket=$SUPPORT"
+    node dom-bridge/install.mjs --ext-id "$EXT_ID" --channel {{channel}} \
+        --socket "$SUPPORT/ad-dom-bridge.sock" \
+        --token  "$SUPPORT/ad-dom-bridge-token"
+    echo "done. Reload the extension in chrome://extensions if it was already running."
+
+# Remove the dom-bridge native-messaging manifest + wrapper (channel: chrome default).
+dom-bridge-uninstall channel="chrome":
+    node dom-bridge/install.mjs --remove --channel {{channel}}
+
 # ADR-0038..0041 physical-device run of the Chrome DOM mirror -- the one human checkpoint. Builds
 # Release host+client with real artifacts, enables the DOM mirror on BOTH sides (host via launchd
 # env; client via the devicectl env path, since devicectl apps get env not argv), pairs, and attaches
