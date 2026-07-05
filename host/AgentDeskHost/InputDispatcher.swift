@@ -210,6 +210,7 @@ final class InputDispatcher: @unchecked Sendable {
                 switchSpaceStepHandler(delta)
             }
         case .systemCommand(let command):
+            logger.notice("systemCommand received command=\(command.rawValue, privacy: .public)")
             if let systemCommandHandler {
                 systemCommandHandler(command)
             }

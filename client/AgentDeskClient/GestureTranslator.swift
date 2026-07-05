@@ -1,6 +1,7 @@
 import QuartzCore
 import UIKit
 import AgentDeskWire
+import os
 
 // R9.2 SPEC §13 module. Owns the UIKit gesture recognizers on the trackpad
 // zone and emits NormalizedInput to its delegate. Only cursorMove and
@@ -267,6 +268,7 @@ struct GestureTuning: Equatable, Sendable {
 @MainActor
 final class GestureTranslator: NSObject {
     weak var delegate: GestureTranslatorDelegate?
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "gestures")
     private let acceleration: GestureAcceleration
     private let scrollAcceleration: GestureAcceleration
     var tuning: GestureTuning = .default
@@ -416,6 +418,7 @@ final class GestureTranslator: NSObject {
 
     func processMissionControlSwipe(state: UIGestureRecognizer.State) {
         guard state == .ended else { return }
+        logger.notice("missionControlGesture recognized source=trackpad touches=3 direction=up")
         delegate?.gestureTranslator(self, didProduce: .systemCommand(.missionControl))
     }
 

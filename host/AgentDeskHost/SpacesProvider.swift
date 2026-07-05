@@ -366,9 +366,13 @@ final class SpacesProvider {
     }
 
     func openMissionControl() {
-        postDockMissionControlFrame(phase: .began, progress: 0, velocityY: 0)
-        postDockMissionControlFrame(phase: .changed, progress: 0.5, velocityY: 1500)
-        postDockMissionControlFrame(phase: .ended, progress: 1.0, velocityY: 2000)
+        logger.notice("missionControlDockGesture posting frames=3")
+        let began = postDockMissionControlFrame(phase: .began, progress: 0, velocityY: 0)
+        let changed = postDockMissionControlFrame(phase: .changed, progress: 0.5, velocityY: 1500)
+        let ended = postDockMissionControlFrame(phase: .ended, progress: 1.0, velocityY: 2000)
+        logger.notice(
+            "missionControlDockGesture posted began=\(began, privacy: .public) changed=\(changed, privacy: .public) ended=\(ended, privacy: .public)"
+        )
     }
 
     @discardableResult
