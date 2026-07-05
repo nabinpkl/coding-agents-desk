@@ -415,22 +415,27 @@ iphone-log-collect variant="stable":
 host-run variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
+    # The dev variant runs the Chrome DOM mirror on by default (ADR-0038): dev
+    # install/run is where DOM-mirror work is exercised, so the dev host enables
+    # AGENTDESK_DOM_MIRROR_ENABLED. Stable stays off to protect the daily driver.
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; APP='{{host_dev_app}}'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
+        DOM_ENV=(AGENTDESK_DOM_MIRROR_ENABLED=1)
     else
         DD='{{derived_data}}'; APP='{{host_app}}'
         EXTRA=()
+        DOM_ENV=()
     fi
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     # Kill only THIS variant's running host, matched by its derived-data path, so
     # relaunching one variant never kills the other (concurrent stacks).
     pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
     sleep 1
-    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
+    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh set
     open "$APP"
     sleep 2
-    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh unset
+    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh unset
     pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true
 
 # Release-configuration twin of host-run: same kill + rebuild + relaunch lifecycle,
@@ -445,17 +450,19 @@ host-run-release variant="stable":
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; APP='{{host_dev_app_release}}'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
+        DOM_ENV=(AGENTDESK_DOM_MIRROR_ENABLED=1)
     else
         DD='{{derived_data}}'; APP='{{host_app_release}}'
         EXTRA=()
+        DOM_ENV=()
     fi
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
     sleep 1
-    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
+    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh set
     open "$APP"
     sleep 2
-    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh unset
+    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh unset
     pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true
 
 # Build client Debug for the iPhone and install (does not launch).
@@ -509,14 +516,17 @@ pair-iphone variant="stable":
     test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
     # dev client pairs with the dev host, which writes its pair URL under its own
     # bundle-id Application Support tree; read that variant's path.
-    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; else BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; fi
+    # dev pairs with the dev host; it also enables the Chrome DOM mirror on the client
+    # (ADR-0038), matching the dev host default set by host-run. devicectl apps get env
+    # not argv, so the client reads AGENTDESK_DOM_MIRROR_ENABLED via the CHILD prefix.
+    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
     rm -f "$PAIR_URL"
     trap 'rm -f "$PAIR_URL"' EXIT
     kill -USR1 $(pgrep -f AgentDeskHost)
     i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
-    URL="$(cat "$PAIR_URL")"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" xcrun devicectl device process launch --device {{ios_device}} --terminate-existing "$BID"
+    URL="$(cat "$PAIR_URL")"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --terminate-existing "$BID"
 
 # Ask the running host to collect durable client diagnostics and write them under
 # /tmp. Uses the active QUIC input lane first and falls back to the foreground
@@ -549,14 +559,16 @@ iphone-console-run variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
     test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
-    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; else BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; fi
+    # dev also enables the Chrome DOM mirror on the client (ADR-0038), matching the dev
+    # host default; devicectl apps get env not argv, so it rides the CHILD prefix.
+    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
     rm -f "$PAIR_URL" "{{iphone_console_log}}"
     trap 'rm -f "$PAIR_URL"' EXIT
     kill -USR1 $(pgrep -f AgentDeskHost)
     i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
-    URL="$(cat "$PAIR_URL")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
+    URL="$(cat "$PAIR_URL")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
 # ADR-0038..0041 physical-device run of the Chrome DOM mirror -- the one human checkpoint. Builds
 # Release host+client with real artifacts, enables the DOM mirror on BOTH sides (host via launchd
@@ -829,7 +841,9 @@ pair-sim variant="stable":
     test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
     # dev sim pairs with the dev host, which mints its pair URL under its own
     # bundle-id Application Support tree; read that variant's path and sim.
-    if [ "{{variant}}" = "dev" ]; then SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; else SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; fi
+    # dev sim pairs with the dev host and enables the Chrome DOM mirror on the client
+    # (ADR-0038), matching the dev host default; simctl forwards it via the CHILD prefix.
+    if [ "{{variant}}" = "dev" ]; then SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(SIMCTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
     rm -f "$PAIR_URL"
     trap 'rm -f "$PAIR_URL"' EXIT
     kill -USR1 $(pgrep -f AgentDeskHost)
@@ -839,6 +853,7 @@ pair-sim variant="stable":
     xcrun simctl bootstatus "$SIM" -b >/dev/null
     SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$(cat "$PAIR_URL")" \
         SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost \
+        ${DOM_ENV[@]+"${DOM_ENV[@]}"} \
         xcrun simctl launch --terminate-running-process "$SIM" "$BID"
 
 # Pair-launch the simulator client with stdout/stderr attached. This is
