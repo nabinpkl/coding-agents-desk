@@ -432,10 +432,10 @@ host-run variant="stable":
     # relaunching one variant never kills the other (concurrent stacks).
     pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
     sleep 1
-    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh set
+    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh set
     open "$APP"
     sleep 2
-    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh unset
+    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh unset
     pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true
 
 # Release-configuration twin of host-run: same kill + rebuild + relaunch lifecycle,
@@ -459,10 +459,10 @@ host-run-release variant="stable":
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
     sleep 1
-    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh set
+    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh set
     open "$APP"
     sleep 2
-    AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh unset
+    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} tools/launch-env.sh unset
     pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true
 
 # Build client Debug for the iPhone and install (does not launch).
@@ -526,7 +526,7 @@ pair-iphone variant="stable":
     i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
-    URL="$(cat "$PAIR_URL")"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --terminate-existing "$BID"
+    URL="$(cat "$PAIR_URL")"; env DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --terminate-existing "$BID"
 
 # Ask the running host to collect durable client diagnostics and write them under
 # /tmp. Uses the active QUIC input lane first and falls back to the foreground
@@ -568,7 +568,7 @@ iphone-console-run variant="stable":
     i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
-    URL="$(cat "$PAIR_URL")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
+    URL="$(cat "$PAIR_URL")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; env DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
 # Install the native-messaging manifest that lets the loaded Chrome extension spawn the dom-bridge
 # shim and reach the running host (ADR-0039). Required ONCE per real Chrome profile before any
@@ -885,7 +885,7 @@ pair-sim variant="stable":
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to simulator>"
     xcrun simctl bootstatus "$SIM" -b >/dev/null
-    SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$(cat "$PAIR_URL")" \
+    env SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$(cat "$PAIR_URL")" \
         SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost \
         ${DOM_ENV[@]+"${DOM_ENV[@]}"} \
         xcrun simctl launch --terminate-running-process "$SIM" "$BID"
@@ -910,7 +910,7 @@ sim-console-run variant="stable":
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to simulator>"
     xcrun simctl bootstatus "$SIM" -b >/dev/null
-    URL="$(cat "$PAIR_URL")"; SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost SIMCTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun simctl launch --console --terminate-running-process "$SIM" "$BID" 2>&1 | tee "{{sim_console_log}}"
+    URL="$(cat "$PAIR_URL")"; env SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost SIMCTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE=1 ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun simctl launch --console --terminate-running-process "$SIM" "$BID" 2>&1 | tee "{{sim_console_log}}"
 
 # Point the sim at a host you started yourself (a Release build, or any host
 # launched outside `just host-run`): every full composite (sim-fresh-install /
