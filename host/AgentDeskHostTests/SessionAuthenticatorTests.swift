@@ -432,6 +432,8 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
 
     func pushHostAvailability(_ push: HostAvailabilityPush) {}
 
+    func pushTextInputFocus(_ push: HostTextInputFocusPush) {}
+
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest) {}
 
     func pushAgentData(_ data: Data) {}

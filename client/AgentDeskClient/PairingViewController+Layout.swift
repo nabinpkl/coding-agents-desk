@@ -1,3 +1,4 @@
+import AgentDeskWire
 import UIKit
 
 // R23/R24 layout + orientation. Owns mountSinkView (UIScrollView + sink
@@ -386,6 +387,7 @@ extension PairingViewController {
         startThumbnailsObservation()
         startAgentSayObservation()
         startCursorObservation()
+        startTextInputFocusObservation()
         startHostAvailabilityObservation()
         sendCurrentClientConfig()
     }
@@ -413,6 +415,10 @@ extension PairingViewController {
         cursorPositionTask = nil
         hostAvailabilityTask?.cancel()
         hostAvailabilityTask = nil
+        textInputFocusTask?.cancel()
+        textInputFocusTask = nil
+        lastCursorKind = .unknown
+        lastHostTextInputFocus = HostTextInputFocusPush(editable: false, secure: false, source: .none)
         pendingCursorRetarget = nil
         isManualViewportPanActive = false
         panFollowActive = false

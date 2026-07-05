@@ -71,10 +71,17 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var cursorTask: Task<Void, Never>?
     var cursorPositionTask: Task<Void, Never>?
     var hostAvailabilityTask: Task<Void, Never>?
+    var textInputFocusTask: Task<Void, Never>?
     var diagnosticsTask: Task<Void, Never>?
     var cursorHotspotFrac: CGPoint = .zero
     var cursorRenderSize: CGSize = CursorPointerView.pointerSize
     var cursorHidden = false
+    var lastCursorKind: CursorKind = .unknown
+    var lastHostTextInputFocus = HostTextInputFocusPush(
+        editable: false,
+        secure: false,
+        source: .none
+    )
     var mediaStateTask: Task<Void, Never>?
     var iceGraceTask: Task<Void, Never>?
     // R11: observes the input channel's desktopStateUpdates stream and
@@ -254,6 +261,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         cursorTask = nil
         cursorPositionTask?.cancel()
         cursorPositionTask = nil
+        textInputFocusTask?.cancel()
+        textInputFocusTask = nil
         diagnosticsTask?.cancel()
         diagnosticsTask = nil
         stopAgentSayForegroundPresentation()

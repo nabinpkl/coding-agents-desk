@@ -24,6 +24,19 @@ final class CursorMonitor {
         let image: NSImage
         let hotSpot: NSPoint
         let hidden: Bool
+        let cursorKind: CursorKind
+
+        init(
+            image: NSImage,
+            hotSpot: NSPoint,
+            hidden: Bool,
+            cursorKind: CursorKind = .unknown
+        ) {
+            self.image = image
+            self.hotSpot = hotSpot
+            self.hidden = hidden
+            self.cursorKind = cursorKind
+        }
     }
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "cursor-monitor")
@@ -71,7 +84,12 @@ final class CursorMonitor {
     // some secure contexts, so fall back to the in-process `current`.
     static func systemSampler() -> CursorSample? {
         let cursor = NSCursor.currentSystem ?? NSCursor.current
-        return CursorSample(image: cursor.image, hotSpot: cursor.hotSpot, hidden: false)
+        return CursorSample(
+            image: cursor.image,
+            hotSpot: cursor.hotSpot,
+            hidden: false,
+            cursorKind: CursorClassifier.kind(for: cursor)
+        )
     }
 
     static func systemPositionSampler() -> CGPoint? {
@@ -129,7 +147,8 @@ final class CursorMonitor {
             hotspotYFrac: h > 0 ? Float(sample.hotSpot.y) / h : 0,
             widthPoints: w,
             heightPoints: h,
-            hidden: sample.hidden
+            hidden: sample.hidden,
+            cursorKind: sample.cursorKind
         )
         latest = push
         onChange?(push)
@@ -147,5 +166,49 @@ final class CursorMonitor {
 
     private static func hash(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+enum CursorClassifier {
+    static func kind(for cursor: NSCursor) -> CursorKind {
+        if matches(cursor, NSCursor.arrow) {
+            return .arrow
+        }
+        if matches(cursor, NSCursor.iBeam) || matches(cursor, NSCursor.iBeamCursorForVerticalLayout) {
+            return .ibeam
+        }
+        if matches(cursor, NSCursor.pointingHand) {
+            return .pointingHand
+        }
+        if isResize(cursor) {
+            return .resize
+        }
+        return .unknown
+    }
+
+    private static func isResize(_ cursor: NSCursor) -> Bool {
+        let resizeCursors = [
+            NSCursor.resizeLeftRight,
+            NSCursor.resizeUpDown,
+            NSCursor.resizeLeft,
+            NSCursor.resizeRight,
+            NSCursor.resizeUp,
+            NSCursor.resizeDown
+        ]
+        return resizeCursors.contains { matches(cursor, $0) }
+    }
+
+    private static func matches(_ cursor: NSCursor, _ candidate: NSCursor) -> Bool {
+        if cursor === candidate {
+            return true
+        }
+        guard cursor.hotSpot == candidate.hotSpot else {
+            return false
+        }
+        guard let cursorData = cursor.image.tiffRepresentation,
+              let candidateData = candidate.image.tiffRepresentation else {
+            return false
+        }
+        return cursorData == candidateData
     }
 }

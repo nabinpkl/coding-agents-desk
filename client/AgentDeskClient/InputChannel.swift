@@ -19,6 +19,7 @@ protocol InputChannel: AnyObject, Sendable {
     var cursorUpdates: AsyncStream<CursorImagePush> { get }
     var cursorPositionUpdates: AsyncStream<CursorPositionPush> { get }
     var hostAvailabilityUpdates: AsyncStream<HostAvailabilityPush> { get }
+    var textInputFocusUpdates: AsyncStream<HostTextInputFocusPush> { get }
     var diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate> { get }
 
     func sendConfig(_ config: ClientConfig) async throws

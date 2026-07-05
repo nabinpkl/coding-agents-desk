@@ -248,6 +248,7 @@ final class InputDispatcher: @unchecked Sendable {
             logPanFollowHost("event-nil cursorSet next=\(next)")
             return
         }
+        event.flags = []
         eventPoster(event)
         emitCursorPosition(next, force: true)
     }
@@ -281,6 +282,7 @@ final class InputDispatcher: @unchecked Sendable {
             logPanFollowHost("event-nil cursorMove dx=\(dx) dy=\(dy) next=\(next)")
             return
         }
+        event.flags = []
         if inDrag {
             // Inherit the click state captured at dragStart so all
             // dragged events form one cohesive click-and-drag from the
@@ -365,6 +367,7 @@ final class InputDispatcher: @unchecked Sendable {
             mouseCursorPosition: point,
             mouseButton: button
         ) else { return }
+        event.flags = []
         event.setIntegerValueField(.mouseEventClickState, value: clickState)
         eventPoster(event)
     }
@@ -503,6 +506,7 @@ final class InputDispatcher: @unchecked Sendable {
             wheel2: 0,
             wheel3: 0
         ) else { return }
+        event.flags = []
         let (scrollPhase, momentumPhase) = cgPhaseValues(phase)
         event.setIntegerValueField(.scrollWheelEventScrollPhase, value: scrollPhase)
         event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentumPhase)

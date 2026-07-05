@@ -52,6 +52,12 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
         return true
     }
 
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === dismissKeyboardTap else { return true }
+        guard let sinkView = videoSink?.view else { return true }
+        return touch.view?.isDescendant(of: sinkView) != true
+    }
+
     @objc func dismissKeyboardIfShown() {
         if keyboardSurface.isFirstResponder {
             toggleKeyboard()
@@ -71,6 +77,14 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
             keyboardSurface.setVisible(true)
             showKeyboardButton.setTitle("Hide keyboard", for: .normal)
         }
+    }
+
+    func showKeyboardFromHostTextInput() {
+        guard !keyboardSurface.isFirstResponder else { return }
+        keyboardSurface.isHidden = false
+        setTrackpadHidden(true)
+        keyboardSurface.setVisible(true)
+        showKeyboardButton.setTitle("Hide keyboard", for: .normal)
     }
 
     // Trackpad and scroll-strip serve no purpose while the keyboard is

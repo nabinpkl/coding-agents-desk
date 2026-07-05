@@ -40,6 +40,7 @@ protocol InputChannelServing: AnyObject, Sendable {
     func pushCursor(_ push: CursorImagePush)
     func pushCursorPosition(_ push: CursorPositionPush)
     func pushHostAvailability(_ push: HostAvailabilityPush)
+    func pushTextInputFocus(_ push: HostTextInputFocusPush)
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest)
     func pushAgentData(_ data: Data)
 }
@@ -108,6 +109,10 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     }
 
     func pushHostAvailability(_ push: HostAvailabilityPush) {
+        sendCodableFrame(push)
+    }
+
+    func pushTextInputFocus(_ push: HostTextInputFocusPush) {
         sendCodableFrame(push)
     }
 

@@ -111,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private let spaceThumbnailProvider = SpaceThumbnailProvider()
     private let cursorMonitor = CursorMonitor()
+    private let textInputFocusMonitor = HostTextInputFocusMonitor()
     private var spaceAgentController: SpaceAgentController?
     private var dictationBarController: DictationBarController?
     private var terminalLauncherController: TerminalLauncherController?
@@ -183,6 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installThumbnailsBroadcast()
         installCursorPositionMonitor()
         installCursorMonitor()
+        installTextInputFocusMonitor()
         startAgentSayServer()
         startSpaceAgent()
         startVoiceChildIfConfigured()
@@ -731,6 +733,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let cursor = cursorMonitor.latest {
             server.pushCursor(cursor)
         }
+        if let focus = textInputFocusMonitor.latest ?? textInputFocusMonitor.tick() {
+            server.pushTextInputFocus(focus)
+        }
         // ADR-0006 + D22: clients opt in to thumbnail capture via a
         // client-config frame. Demand is owner-scoped so the iPhone
         // strip and Space Agent cannot disable each other.
@@ -1081,6 +1086,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for server in sessions.allInputChannelServers() {
             server.pushCursorPosition(push)
         }
+    }
+
+    private func installTextInputFocusMonitor() {
+        let registry = sessions
+        textInputFocusMonitor.onChange = { [weak registry] push in
+            guard let registry else { return }
+            for server in registry.allInputChannelServers() {
+                server.pushTextInputFocus(push)
+            }
+        }
+        textInputFocusMonitor.start()
     }
 
     // R11: dispatcher streams each iPhone-side swipe phase

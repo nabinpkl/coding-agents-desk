@@ -32,6 +32,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     let cursorPositionUpdates: AsyncStream<CursorPositionPush>
     private let hostAvailabilityContinuation: AsyncStream<HostAvailabilityPush>.Continuation
     let hostAvailabilityUpdates: AsyncStream<HostAvailabilityPush>
+    private let textInputFocusContinuation: AsyncStream<HostTextInputFocusPush>.Continuation
+    let textInputFocusUpdates: AsyncStream<HostTextInputFocusPush>
     private let diagnosticsContinuation: AsyncStream<InputChannelDiagnosticsUpdate>.Continuation
     let diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate>
     private let closedContinuation: AsyncStream<Void>.Continuation
@@ -88,6 +90,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         var availabilityCont: AsyncStream<HostAvailabilityPush>.Continuation!
         hostAvailabilityUpdates = AsyncStream { availabilityCont = $0 }
         hostAvailabilityContinuation = availabilityCont
+        var textInputFocusCont: AsyncStream<HostTextInputFocusPush>.Continuation!
+        textInputFocusUpdates = AsyncStream { textInputFocusCont = $0 }
+        textInputFocusContinuation = textInputFocusCont
         var diagnosticsCont: AsyncStream<InputChannelDiagnosticsUpdate>.Continuation!
         diagnosticsUpdates = AsyncStream { diagnosticsCont = $0 }
         diagnosticsContinuation = diagnosticsCont
@@ -200,6 +205,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         cursorContinuation.finish()
         cursorPositionContinuation.finish()
         hostAvailabilityContinuation.finish()
+        textInputFocusContinuation.finish()
         diagnosticsContinuation.finish()
         closedContinuation.yield(())
         closedContinuation.finish()
@@ -341,6 +347,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         case "host-availability":
             if let push = try? JSONDecoder().decode(HostAvailabilityPush.self, from: data) {
                 hostAvailabilityContinuation.yield(push)
+            }
+        case "text-input-focus":
+            if let push = try? JSONDecoder().decode(HostTextInputFocusPush.self, from: data) {
+                textInputFocusContinuation.yield(push)
             }
         case "diagnostics-request":
             if let request = try? JSONDecoder().decode(DiagnosticsRequest.self, from: data) {

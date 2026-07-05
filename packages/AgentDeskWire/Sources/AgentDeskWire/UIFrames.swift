@@ -60,6 +60,15 @@ public struct AgentSayPush: Codable, Equatable, Sendable {
         self.text = text
     }
 }
+
+public enum CursorKind: String, Codable, Equatable, Sendable {
+    case arrow
+    case ibeam
+    case pointingHand
+    case resize
+    case unknown
+}
+
 // Host -> client cursor-image mirror. Pushed on the session input stream whenever
 // NSCursor.currentSystem changes shape (arrow, I-beam, pointing-hand,
 // resize, busy, custom app cursors), plus once on attach. The client
@@ -79,6 +88,7 @@ public struct CursorImagePush: Codable, Equatable, Sendable {
     public let widthPoints: Float
     public let heightPoints: Float
     public let hidden: Bool
+    public let cursorKind: CursorKind
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case type = "t"
@@ -89,6 +99,7 @@ public struct CursorImagePush: Codable, Equatable, Sendable {
         case widthPoints = "iw"
         case heightPoints = "ih"
         case hidden = "hd"
+        case cursorKind = "k"
     }
 
     public init(
@@ -98,7 +109,8 @@ public struct CursorImagePush: Codable, Equatable, Sendable {
         hotspotYFrac: Float,
         widthPoints: Float,
         heightPoints: Float,
-        hidden: Bool
+        hidden: Bool,
+        cursorKind: CursorKind
     ) {
         self.type = "cursor"
         self.hash = hash
@@ -108,8 +120,56 @@ public struct CursorImagePush: Codable, Equatable, Sendable {
         self.widthPoints = widthPoints
         self.heightPoints = heightPoints
         self.hidden = hidden
+        self.cursorKind = cursorKind
     }
 }
+
+public enum HostTextInputFocusSource: String, Codable, Equatable, Sendable {
+    case accessibility
+    case cursorTapHeuristic
+    case none
+}
+
+// Host -> client text-input intent. Carries only metadata required for the
+// client to decide whether to show its keyboard. It never carries selected text,
+// field values, or password contents.
+public struct HostTextInputFocusPush: Codable, Equatable, Sendable {
+    public let type: String
+    public let editable: Bool
+    public let secure: Bool
+    public let source: HostTextInputFocusSource
+    public let role: String?
+    public let subrole: String?
+    public let cursorKind: CursorKind?
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case type = "t"
+        case editable = "e"
+        case secure = "s"
+        case source = "src"
+        case role = "r"
+        case subrole = "sr"
+        case cursorKind = "k"
+    }
+
+    public init(
+        editable: Bool,
+        secure: Bool,
+        source: HostTextInputFocusSource,
+        role: String? = nil,
+        subrole: String? = nil,
+        cursorKind: CursorKind? = nil
+    ) {
+        self.type = "text-input-focus"
+        self.editable = editable
+        self.secure = secure
+        self.source = source
+        self.role = role
+        self.subrole = subrole
+        self.cursorKind = cursorKind
+    }
+}
+
 // Host -> client cursor-position correction. This is not sent for every
 // iPhone-driven cursor delta. It is a low-rate authoritative reseed when the
 // Mac-side system cursor moves outside the remote input stream, so the

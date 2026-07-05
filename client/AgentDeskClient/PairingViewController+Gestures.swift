@@ -110,6 +110,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         cursorTask = Task { [weak self, channel] in
             for await push in channel.cursorUpdates {
                 await MainActor.run {
+                    self?.lastCursorKind = push.cursorKind
                     self?.applyCursorImage(push)
                 }
             }
@@ -118,6 +119,19 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             for await push in channel.cursorPositionUpdates {
                 await MainActor.run {
                     self?.applyCursorPosition(push)
+                }
+            }
+        }
+    }
+
+    func startTextInputFocusObservation() {
+        textInputFocusTask?.cancel()
+        textInputFocusTask = nil
+        guard let channel = pairingClient.activeInputChannel else { return }
+        textInputFocusTask = Task { [weak self, channel] in
+            for await push in channel.textInputFocusUpdates {
+                await MainActor.run {
+                    self?.applyHostTextInputFocus(push)
                 }
             }
         }
@@ -134,6 +148,24 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
                 }
             }
         }
+    }
+
+    func applyHostTextInputFocus(_ push: HostTextInputFocusPush) {
+        lastHostTextInputFocus = push
+        ClientDiagnostics.shared.record(
+            type: "hostTextInputFocus",
+            fields: [
+                "editable": String(push.editable),
+                "secure": String(push.secure),
+                "source": push.source.rawValue,
+                "role": push.role ?? "nil",
+                "subrole": push.subrole ?? "nil",
+                "cursorKind": push.cursorKind?.rawValue ?? "nil"
+            ],
+            level: .info
+        )
+        guard HostTextInputKeyboardPolicy.decision(for: push) == .show else { return }
+        showKeyboardFromHostTextInput()
     }
 
     func applyHostAvailability(_ push: HostAvailabilityPush) {

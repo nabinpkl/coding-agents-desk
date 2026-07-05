@@ -94,6 +94,44 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(object?["a"] as? String == "active")
 }
 
+@Test func cursorKindAndTextInputFocusPushUseCompactKeys() throws {
+    let cursor = CursorImagePush(
+        hash: "abc123",
+        png: nil,
+        hotspotXFrac: 0.25,
+        hotspotYFrac: 0.5,
+        widthPoints: 16,
+        heightPoints: 24,
+        hidden: false,
+        cursorKind: .ibeam
+    )
+    try roundTrip(cursor)
+    let cursorObject = try JSONSerialization.jsonObject(
+        with: try JSONEncoder().encode(cursor)
+    ) as? [String: Any]
+    #expect(cursorObject?["k"] as? String == "ibeam")
+
+    let focus = HostTextInputFocusPush(
+        editable: true,
+        secure: true,
+        source: .accessibility,
+        role: "AXTextField",
+        subrole: "AXSecureTextField",
+        cursorKind: .ibeam
+    )
+    try roundTrip(focus)
+    let focusObject = try JSONSerialization.jsonObject(
+        with: try JSONEncoder().encode(focus)
+    ) as? [String: Any]
+    #expect(focusObject?["t"] as? String == "text-input-focus")
+    #expect(focusObject?["e"] as? Bool == true)
+    #expect(focusObject?["s"] as? Bool == true)
+    #expect(focusObject?["src"] as? String == "accessibility")
+    #expect(focusObject?["r"] as? String == "AXTextField")
+    #expect(focusObject?["sr"] as? String == "AXSecureTextField")
+    #expect(focusObject?["k"] as? String == "ibeam")
+}
+
 @Test func sessionRejectedRoundTripsSigningKeyUnavailableReason() throws {
     try roundTrip(SessionRejected(reason: .signingKeyUnavailable))
 }

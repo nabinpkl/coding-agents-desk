@@ -206,9 +206,30 @@ extension PairingViewController {
             contentViewSize: sinkView.bounds.size
         )
         pendingCursorRetarget = nil
-        for input in videoTouchTapInputs(for: retarget) {
+        let inputs = videoTouchTapInputs(for: retarget)
+        for input in inputs {
             sendInput(input)
         }
+        guard !inputs.isEmpty,
+              HostTextInputKeyboardPolicy.decisionAfterRemoteTap(
+                lastCursorKind: lastCursorKind,
+                lastHostFocus: lastHostTextInputFocus
+              ) == .show else {
+            return
+        }
+        ClientDiagnostics.shared.record(
+            type: "hostTextInputFocus",
+            fields: [
+                "editable": "true",
+                "secure": "false",
+                "source": HostTextInputFocusSource.cursorTapHeuristic.rawValue,
+                "role": "nil",
+                "subrole": "nil",
+                "cursorKind": lastCursorKind.rawValue
+            ],
+            level: .info
+        )
+        showKeyboardFromHostTextInput()
     }
 
     // Map the touch point to a host coordinate and move the local cursor model

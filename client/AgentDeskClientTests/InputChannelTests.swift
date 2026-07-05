@@ -1037,13 +1037,15 @@ struct InputChannelTests {
             hotspotYFrac: 0.25,
             widthPoints: 16,
             heightPoints: 24,
-            hidden: false
+            hidden: false,
+            cursorKind: .ibeam
         )
         let data = try JSONEncoder().encode(push)
         let json = String(data: data, encoding: .utf8) ?? ""
         let decoded = try JSONDecoder().decode(CursorImagePush.self, from: data)
 
         #expect(json.contains("\"t\":\"cursor\""))
+        #expect(json.contains("\"k\":\"ibeam\""))
         #expect(decoded == push)
     }
 
@@ -1063,6 +1065,25 @@ struct InputChannelTests {
         #expect(decoded == push)
     }
 
+    @Test func textInputFocusFrameDecodes() throws {
+        let push = HostTextInputFocusPush(
+            editable: true,
+            secure: false,
+            source: .accessibility,
+            role: "AXTextArea",
+            cursorKind: .ibeam
+        )
+        let data = try JSONEncoder().encode(push)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        let decoded = try JSONDecoder().decode(HostTextInputFocusPush.self, from: data)
+
+        #expect(json.contains("\"t\":\"text-input-focus\""))
+        #expect(json.contains("\"e\":true"))
+        #expect(json.contains("\"src\":\"accessibility\""))
+        #expect(json.contains("\"k\":\"ibeam\""))
+        #expect(decoded == push)
+    }
+
     @Test func cursorImageStoreCachesByHashAndServesNilPayloadFromCache() {
         // 1x1 PNG, enough for UIImage(data:) to succeed.
         let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC"
@@ -1070,7 +1091,8 @@ struct InputChannelTests {
         let withBytes = CursorImagePush(
             hash: "h1", png: png,
             hotspotXFrac: 0, hotspotYFrac: 0,
-            widthPoints: 1, heightPoints: 1, hidden: false
+            widthPoints: 1, heightPoints: 1, hidden: false,
+            cursorKind: .arrow
         )
         #expect(store.resolve(withBytes) != nil)
 
@@ -1078,7 +1100,8 @@ struct InputChannelTests {
         let hashOnly = CursorImagePush(
             hash: "h1", png: nil,
             hotspotXFrac: 0, hotspotYFrac: 0,
-            widthPoints: 1, heightPoints: 1, hidden: false
+            widthPoints: 1, heightPoints: 1, hidden: false,
+            cursorKind: .arrow
         )
         #expect(store.resolve(hashOnly) != nil)
 
@@ -1086,7 +1109,8 @@ struct InputChannelTests {
         let unknown = CursorImagePush(
             hash: "h2", png: nil,
             hotspotXFrac: 0, hotspotYFrac: 0,
-            widthPoints: 1, heightPoints: 1, hidden: false
+            widthPoints: 1, heightPoints: 1, hidden: false,
+            cursorKind: .unknown
         )
         #expect(store.resolve(unknown) == nil)
     }

@@ -190,14 +190,27 @@ struct CursorMonitorTests {
             hotspotYFrac: 0.25,
             widthPoints: 16,
             heightPoints: 24,
-            hidden: false
+            hidden: false,
+            cursorKind: .ibeam
         )
         let data = try JSONEncoder().encode(push)
         // The discriminator the client dispatches on must be present.
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         #expect(object?["t"] as? String == "cursor")
+        #expect(object?["k"] as? String == "ibeam")
         let decoded = try JSONDecoder().decode(CursorImagePush.self, from: data)
         #expect(decoded == push)
+    }
+
+    @Test func monitorPropagatesInjectedUnknownCursorKind() {
+        let sample = CursorMonitor.CursorSample(
+            image: makeImage(width: 3, height: 3, value: 0x77),
+            hotSpot: .zero,
+            hidden: false,
+            cursorKind: .unknown
+        )
+        let monitor = CursorMonitor(sampler: { sample }, positionSampler: { nil })
+        #expect(monitor.tick()?.cursorKind == .unknown)
     }
 
     @Test func positionChangesEmitOnlyWhenAllowed() {
