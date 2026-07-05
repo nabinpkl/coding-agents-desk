@@ -505,15 +505,30 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_MIN_INTERVAL_MS",
         defaultValue: 100
     )
-    // Cap on NEW crisp tile bytes emitted per crisp window. A full-surface settle (e.g.
-    // a desktop switch) would otherwise re-cache the whole native screen as one multi-MB
-    // burst that saturates the reliable graphics lane and stalls video. With a budget the
-    // excess settled tiles retry on later windows, spreading a big re-cache over ~seconds
-    // at a steady trickle instead of one spike. Reverts and cache hits carry no payload, so
-    // only fresh cacheTile payload counts against this.
+    // Cap on NEW crisp tile bytes emitted per crisp window. This bounds the size of a
+    // single crisp chunk on the reliable graphics lane. The lane shares one QUIC
+    // connection with the video datagrams, so a large chunk serializes ahead of them: a
+    // 256KB chunk takes ~0.5-1s to clear on a few-Mbps link, spiking video latency to
+    // ~1s and reading as steppy motion. A small chunk (~48KB) clears in <150ms and
+    // interleaves with video instead of blocking it. A full-surface settle is spread
+    // across many windows (and bounded further by the per-second rate cap below).
+    // Reverts and cache hits carry no payload, so only fresh cacheTile payload counts.
     static let ownedMediaCrispMaxBytesPerWindow: Int = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_MAX_BYTES_PER_WINDOW",
-        defaultValue: 262_144
+        defaultValue: 32_768
+    )
+    // Sustained crisp byte-rate ceiling, enforced in the transport across crisp windows.
+    // Crisp is a settled-content luxury that must never steal the link from motion. The
+    // per-window cap bounds one chunk; this bounds the cumulative rate so a big re-cache
+    // (e.g. a desktop full of text) trickles out over seconds at a rate that leaves the
+    // link free for video, instead of pacing windows straight at the per-window cap. Kept
+    // well under the video link estimate (hybridLinkBytesPerSecond, ~256KB/s) so crisp is
+    // clearly subordinate to video; crisp only consumes the calm-time headroom that the
+    // in-flight-frame yield gate confirms video is not using. Only fresh cacheTile payload
+    // bytes count. Tune on device alongside hybridLinkBytesPerSecond.
+    static let ownedMediaCrispMaxBytesPerSecond: Int = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_MAX_BYTES_PER_SECOND",
+        defaultValue: 131_072
     )
     // Rung-3 busy-tile threshold. After LZFSE-compressing a new cache-miss cell,
     // divide the compressed byte count by the cell's pixel count (width * height).

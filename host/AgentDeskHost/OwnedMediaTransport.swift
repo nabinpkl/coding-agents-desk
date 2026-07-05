@@ -42,6 +42,9 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var surfaceInitialized = false
         var lastCrispNs: UInt64 = 0
         var lastConvertWarnNs: UInt64 = 0
+        // Paces crisp sends so they yield to video and never exceed the per-second byte
+        // budget (see CrispPacingGate). Crisp shares the QUIC link with video datagrams.
+        var pacing = CrispPacingGate(maxBytesPerSecond: Config.ownedMediaCrispMaxBytesPerSecond)
     }
     private let crispGate = OSAllocatedUnfairLock<CrispState>(initialState: CrispState())
 
@@ -224,6 +227,17 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             return true
         }
         guard shouldRun else { return }
+        // Crisp yields to motion: skip this window unless the video link is idle (no frames
+        // in flight) and the per-second crisp byte budget has room. On a constrained link a
+        // crisp chunk serializes ahead of the video datagrams and spikes their latency, so
+        // crisp only fills genuinely idle moments (which is when content has settled and is
+        // worth sharpening). Skipping before extractBGRA also avoids the full-surface hash
+        // cost while motion owns the link. Eager reverts (processCrispDamage) are unaffected.
+        let inFlightVideoFrames = encodeGate.withLock { $0.mediaState.inFlightFrames }
+        let mayEmit = crispGate.withLock { state in
+            state.pacing.mayEmit(inFlightVideoFrames: inFlightVideoFrames, nowNs: nowNs)
+        }
+        guard mayEmit else { return }
         guard let surface = Self.extractBGRA(frame.pixelBuffer) else {
             // The capture buffer could not be turned into BGRA (unsupported pixel format or
             // a failed conversion). Crisp cannot run this frame; the video floor still
@@ -313,6 +327,9 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     commands: emission.commands,
                     payload: emission.payload
                 ))
+                // Charge the fresh crisp payload against this second's pacing budget so a
+                // large settle keeps trickling out at the capped rate, not all at once.
+                state.pacing.recordSent(payloadBytes: emission.payload.count)
             }
             // The emission was handed to the (reliable, ordered) lane: commit the staged
             // slot assignments so the host's cache matches what the client now holds.

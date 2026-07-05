@@ -34,6 +34,43 @@ struct RegionCrispConfig: Equatable {
     }
 }
 
+// Paces crisp sends so they never steal the link from motion. The crisp tiles ride the
+// reliable graphics lane, which shares a QUIC connection with the video datagrams; an
+// unpaced crisp stream serializes ahead of video and spikes its latency. Two rules:
+//   - Yield while video has frames in flight (motion owns the link); crisp waits for an
+//     idle moment, which is exactly when content has settled and is worth sharpening.
+//   - Cap the cumulative crisp bytes per rolling second, so a large settle trickles out
+//     instead of flooding the link the instant it goes idle.
+// A pure value type so the policy is unit-testable without the transport, lanes, or locks.
+struct CrispPacingGate {
+    let maxBytesPerSecond: Int
+    private(set) var windowStartNs: UInt64 = 0
+    private(set) var bytesInWindow: Int = 0
+
+    init(maxBytesPerSecond: Int) {
+        self.maxBytesPerSecond = max(1, maxBytesPerSecond)
+    }
+
+    // May a crisp window emit now? Rolls the 1s rate window over by wall time first, then
+    // gates on video idleness and the remaining byte budget. Returning true does not spend
+    // budget; the caller spends it via recordSent once the payload size is known.
+    mutating func mayEmit(inFlightVideoFrames: Int, nowNs: UInt64) -> Bool {
+        let windowNs: UInt64 = 1_000_000_000
+        if nowNs &- windowStartNs >= windowNs {
+            windowStartNs = nowNs
+            bytesInWindow = 0
+        }
+        if inFlightVideoFrames > 0 { return false }
+        return bytesInWindow < maxBytesPerSecond
+    }
+
+    // Charge an emitted crisp payload against the current second's budget. Only fresh
+    // cacheTile bytes count; reverts and cache hits are payload-free and pass 0 here.
+    mutating func recordSent(payloadBytes: Int) {
+        bytesInWindow += max(0, payloadBytes)
+    }
+}
+
 struct RegionCrispEmission: Equatable {
     var commands: [OwnedGraphicsCommand]
     var payload: Data

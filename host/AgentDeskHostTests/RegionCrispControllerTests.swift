@@ -329,4 +329,37 @@ final class RegionCrispControllerTests: XCTestCase {
         let w2 = observe(&c, s, at: 300, width: 128, height: 128)
         XCTAssertEqual(cacheTileCount(w2), 1, "the next window emits the next throttled tile")
     }
+
+    // MARK: - CrispPacingGate (crisp yields to video, capped per second)
+
+    func testPacingGateYieldsWhileVideoFramesInFlight() {
+        var gate = CrispPacingGate(maxBytesPerSecond: 100_000)
+        XCTAssertFalse(gate.mayEmit(inFlightVideoFrames: 1, nowNs: 0), "crisp must stand down while video is in flight")
+        XCTAssertFalse(gate.mayEmit(inFlightVideoFrames: 3, nowNs: 0))
+        XCTAssertTrue(gate.mayEmit(inFlightVideoFrames: 0, nowNs: 0), "an idle video link admits crisp")
+    }
+
+    func testPacingGateStopsOncePerSecondBudgetSpent() {
+        var gate = CrispPacingGate(maxBytesPerSecond: 100_000)
+        XCTAssertTrue(gate.mayEmit(inFlightVideoFrames: 0, nowNs: 0))
+        gate.recordSent(payloadBytes: 60_000)
+        XCTAssertTrue(gate.mayEmit(inFlightVideoFrames: 0, nowNs: 10_000_000), "still under the 100KB/s budget")
+        gate.recordSent(payloadBytes: 60_000)
+        XCTAssertFalse(gate.mayEmit(inFlightVideoFrames: 0, nowNs: 20_000_000), "120KB spent in this second exhausts the budget")
+    }
+
+    func testPacingGateBudgetResetsAfterOneSecond() {
+        var gate = CrispPacingGate(maxBytesPerSecond: 100_000)
+        _ = gate.mayEmit(inFlightVideoFrames: 0, nowNs: 0)
+        gate.recordSent(payloadBytes: 100_000)
+        XCTAssertFalse(gate.mayEmit(inFlightVideoFrames: 0, nowNs: 500_000_000), "still inside the same second")
+        XCTAssertTrue(gate.mayEmit(inFlightVideoFrames: 0, nowNs: 1_000_000_000), "the rolling second rolled over; budget refreshed")
+    }
+
+    func testPacingGatePayloadFreeRevertsDoNotSpendBudget() {
+        var gate = CrispPacingGate(maxBytesPerSecond: 100_000)
+        _ = gate.mayEmit(inFlightVideoFrames: 0, nowNs: 0)
+        gate.recordSent(payloadBytes: 0) // a revert / cache-hit window carries no payload
+        XCTAssertTrue(gate.mayEmit(inFlightVideoFrames: 0, nowNs: 10_000_000), "payload-free emissions never charge the budget")
+    }
 }
