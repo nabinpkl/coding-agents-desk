@@ -111,8 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private let spaceThumbnailProvider = SpaceThumbnailProvider()
     private let cursorMonitor = CursorMonitor()
-    private let textInputFocusResolver = HostTextInputFocusResolver()
-    private var textInputFocusProbeTasks: [DeviceFingerprint: Task<Void, Never>] = [:]
+    private let textInputFocusProbeCoordinator = HostTextInputFocusProbeCoordinator()
     private var spaceAgentController: SpaceAgentController?
     private var dictationBarController: DictationBarController?
     private var terminalLauncherController: TerminalLauncherController?
@@ -248,6 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        textInputFocusProbeCoordinator.cancelAll()
         spaceAgentController?.stop()
         dictationBarController?.stop()
         terminalLauncherController?.stop()
@@ -279,36 +279,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         agentSayServer = server
         server.start()
-    }
-
-    private func scheduleTextInputFocusProbe(
-        for fingerprint: DeviceFingerprint,
-        server: InputChannelServing
-    ) {
-        textInputFocusProbeTasks[fingerprint]?.cancel()
-        let resolver = textInputFocusResolver
-        let logger = signalingLogger
-        textInputFocusProbeTasks[fingerprint] = Task { @MainActor [weak self, weak server] in
-            try? await Task.sleep(nanoseconds: 80_000_000)
-            guard !Task.isCancelled, let self, let server else { return }
-            guard let cursorKind = CursorMonitor.systemSampler()?.cursorKind, cursorKind == .ibeam else {
-                self.textInputFocusProbeTasks[fingerprint] = nil
-                return
-            }
-
-            logger.notice("textFocusProbeStarted cursorKind=\(cursorKind.rawValue, privacy: .public)")
-            var focus = resolver.sampleCurrentFocus(cursorKind: cursorKind)
-            if focus.editability == .nonEditable {
-                try? await Task.sleep(nanoseconds: 160_000_000)
-                guard !Task.isCancelled else { return }
-                let settledCursorKind = CursorMonitor.systemSampler()?.cursorKind ?? cursorKind
-                focus = resolver.sampleCurrentFocus(cursorKind: settledCursorKind)
-            }
-
-            logger.notice("textFocusProbeResolved editability=\(focus.editability.rawValue, privacy: .public) source=\(focus.source.rawValue, privacy: .public) role=\(focus.role ?? "nil", privacy: .public) subrole=\(focus.subrole ?? "nil", privacy: .public) cursorKind=\(focus.cursorKind?.rawValue ?? "nil", privacy: .public)")
-            server.pushTextInputFocus(focus)
-            self.textInputFocusProbeTasks[fingerprint] = nil
-        }
     }
 
     private func applyIcon(_ icon: HostStatusIcon) {
@@ -827,7 +797,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let scheduleTextFocusProbe: @Sendable () -> Void = { [weak self, weak server] in
             Task { @MainActor in
                 guard let self, let server else { return }
-                self.scheduleTextInputFocusProbe(for: fingerprint, server: server)
+                self.textInputFocusProbeCoordinator.schedule(for: fingerprint, server: server)
             }
         }
         sessions.attachInputTask(
@@ -841,8 +811,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 logger.notice("input event stream finished")
                 Task { @MainActor [weak self] in
-                    self?.textInputFocusProbeTasks[fingerprint]?.cancel()
-                    self?.textInputFocusProbeTasks[fingerprint] = nil
+                    self?.textInputFocusProbeCoordinator.cancel(for: fingerprint)
                 }
             },
             for: fingerprint

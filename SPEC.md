@@ -13,13 +13,13 @@
 | Transport | One authenticated `NetworkConnection<QUIC>` per live session, ALPN `agentdesk-session-quic-v2` | ADR-0030 is the current live-session architecture. Control and input use ordered QUIC streams. HEVC media uses the same connection's datagram lane. Session liveness belongs to the QUIC connection, not to media, so media loss or decode failure must not end input. |
 | Network | Tailscale only | No public rendezvous, relay, or internet routing. Both peers are on the tailnet. |
 | Pairing | Mac-initiated tailnet device picker (ADR-0019), QR fallback | The Mac enumerates online iOS tailnet peers, probes each on the plain-TCP offer port (`AGENTDESK_OFFER_PORT`, default 41890) for a self-reported display name, and pushes a pre-approved signed offer to the picked device. The pick is the authorization. The iPhone runs the unchanged signed handshake. Signed token stored in Keychain on both sides. |
-| Wire compatibility | Protocol version 3 only (ADR-0020, ADR-0030) | Host and client version independently; the wire protocol, not the app version, is the compatibility contract. `SessionInit`/`SessionChallenge` advertise `protocolVersion` and `minCompatibleProtocolVersion`; v0 rejects any peer below `3` with `incompatible-protocol`. There is no legacy WebSocket fallback. |
+| Wire compatibility | Protocol version 4 only (ADR-0020, ADR-0030) | Host and client version independently; the wire protocol, not the app version, is the compatibility contract. `SessionInit`/`SessionChallenge` advertise `protocolVersion` and `minCompatibleProtocolVersion`; v0 rejects any peer below `4` with `incompatible-protocol`. There is no legacy WebSocket fallback. |
 | Spaces enumeration | Private SkyLight/CoreGraphics symbols bound with `dlopen` and `dlsym` | No public API exists. Risk is acceptable because App Store distribution is not the v0 target. |
 | Spaces switch | Synthesize Dock swipe `CGEvent`s via `SpacesProvider.postDockSwipeFrame` and `commitStep(delta:)` | Stock macOS path that preserves live Space transition animation. |
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
 
-ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with control, input, and media lanes, protocol version `3`, and no WebSocket or separate media/graphics fallback. ADR-0031 records client-visible selected-display projection, keeping display choice separate from Spaces sliding. ADR-0032 records bounded durable client diagnostics with on-demand host retrieval over the input lane and a foreground tailnet control fallback. ADR-0033 records the adaptive media quality ladder that chooses bitrate, FPS, and capture resolution together from host-owned heuristics. ADR-0035 records the read-only phone agent-feed observability surface: an embedded loopback-only Bun engine sidecar normalizes Claude and Codex transcripts, the host bridges its output onto the session input lane as `agent-*` message types, and the client renders it by reusing ATC's React components in a local `WKWebView`.
+ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with control, input, and media lanes, protocol version `4`, and no WebSocket or separate media/graphics fallback. ADR-0031 records client-visible selected-display projection, keeping display choice separate from Spaces sliding. ADR-0032 records bounded durable client diagnostics with on-demand host retrieval over the input lane and a foreground tailnet control fallback. ADR-0033 records the adaptive media quality ladder that chooses bitrate, FPS, and capture resolution together from host-owned heuristics. ADR-0035 records the read-only phone agent-feed observability surface: an embedded loopback-only Bun engine sidecar normalizes Claude and Codex transcripts, the host bridges its output onto the session input lane as `agent-*` message types, and the client renders it by reusing ATC's React components in a local `WKWebView`.
 
 ## Module Boundaries
 
@@ -138,7 +138,7 @@ QuicStreamFrame   = UInt8 role || UInt32BE length || body
 role              = 1 control | 2 input
 
 SessionInit       { deviceFingerprint, sessionToken, clientNonce,
-                    protocolVersion, minCompatibleProtocolVersion }   // pv must be >= 3
+                    protocolVersion, minCompatibleProtocolVersion }   // pv must be >= 4
 SessionChallenge  { hostNonce, hostSignature, protocolVersion }
 SessionProof      { clientSignature }
 SessionReady      { sessionId, resumeId, resumeSecret, resumeExpiresAt, mediaKeySalt,
@@ -162,7 +162,7 @@ and rotates resume id, resume secret, and media key salt in the next signed
 `SessionReady`; the client verifies the ready signature before accepting the new
 material.
 
-Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. v0 now sets both to `3`; older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
+Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. v0 now sets both to `4`; older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
 
 Owned media travels over the unified QUIC session's datagram lane after `SessionReady`.
 
@@ -180,7 +180,7 @@ and device monotonic clocks are not comparable.
 
 The media packet HMAC key is derived per session from the authenticated handshake
 material, session id, and `SessionReady.mediaKeySalt`. Static datagram keys are
-not valid in protocol version 3.
+not valid in protocol version 4.
 
 ADMD packet =
   "ADMD" || version=2 || kind=3 || flags: UInt8 ||

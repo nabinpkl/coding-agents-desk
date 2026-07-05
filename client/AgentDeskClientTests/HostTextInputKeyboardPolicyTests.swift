@@ -67,9 +67,7 @@ struct HostTextInputKeyboardPolicyTests {
     @Test func iBeamClickWaitsForHostFocusResult() {
         #expect(KeyboardPresentationStateMachine.transition(
             from: .hidden,
-            intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
-                lastCursorKind: .ibeam
-            )
+            intent: HostTextInputKeyboardPolicy.intentForRemoteTap()
         ).next == .pendingTextFocus)
     }
 
@@ -108,49 +106,59 @@ struct HostTextInputKeyboardPolicyTests {
         ).next == .hidden)
     }
 
-    @Test func arrowTapDoesNotArmKeyboard() {
+    @Test func arrowTapArmsPendingUntilHostRejects() {
         #expect(KeyboardPresentationStateMachine.transition(
             from: .hidden,
-            intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
-                lastCursorKind: .arrow
-            )
-        ).next == .hidden)
+            intent: HostTextInputKeyboardPolicy.intentForRemoteTap()
+        ).next == .pendingTextFocus)
     }
 
     @Test func presentedKeyboardTapHidesEvenWhenCursorIsIBeam() {
         #expect(KeyboardPresentationStateMachine.transition(
             from: .shown,
-            intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
-                lastCursorKind: .ibeam
-            )
+            intent: HostTextInputKeyboardPolicy.intentForRemoteTap()
         ).next == .hidden)
     }
 
-    @Test func hiddenNonIBeamTapStaysHidden() {
+    @Test func hiddenNonIBeamTapArmsPendingUntilHostRejects() {
         #expect(KeyboardPresentationStateMachine.transition(
             from: .hidden,
-            intent: HostTextInputKeyboardPolicy.intentForRemoteTap(
-                lastCursorKind: .pointingHand
-            )
+            intent: HostTextInputKeyboardPolicy.intentForRemoteTap()
+        ).next == .pendingTextFocus)
+    }
+
+    @Test func hostPostClickArrowResultReturnsPendingToHidden() {
+        #expect(KeyboardPresentationStateMachine.transition(
+            from: .pendingTextFocus,
+            intent: .hostFocus(editability: .nonEditable, cursorKind: .arrow)
+        ).next == .hidden)
+    }
+
+    @Test func shownKeyboardClickHidesAndLaterFocusDoesNotReopen() {
+        let hidden = KeyboardPresentationStateMachine.transition(
+            from: .shown,
+            intent: HostTextInputKeyboardPolicy.intentForRemoteTap()
+        )
+        #expect(hidden.next == .hidden)
+        #expect(KeyboardPresentationStateMachine.transition(
+            from: hidden.next,
+            intent: .hostFocus(editability: .editable, cursorKind: .ibeam)
         ).next == .hidden)
     }
 
     @Test func leftClickInputUsesRemoteTapPolicy() {
         let intent = HostTextInputKeyboardPolicy.intentForRemoteInput(
-            .click(button: .left),
-            lastCursorKind: .ibeam
+            .click(button: .left)
         )
-        #expect(intent == .remoteTap(cursorKind: .ibeam))
+        #expect(intent == .remoteTap)
     }
 
     @Test func nonLeftClickInputDoesNotAffectKeyboardPolicy() {
         #expect(HostTextInputKeyboardPolicy.intentForRemoteInput(
-            .click(button: .right),
-            lastCursorKind: .ibeam
+            .click(button: .right)
         ) == nil)
         #expect(HostTextInputKeyboardPolicy.intentForRemoteInput(
-            .cursorMove(dx: 1, dy: 2),
-            lastCursorKind: .ibeam
+            .cursorMove(dx: 1, dy: 2)
         ) == nil)
     }
 }

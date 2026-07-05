@@ -12,7 +12,7 @@ enum KeyboardPresentationIntent: Equatable {
     case toggle
     case timeoutPendingTextFocus
     case hostFocus(editability: HostTextInputEditability, cursorKind: CursorKind?)
-    case remoteTap(cursorKind: CursorKind)
+    case remoteTap
 }
 
 struct KeyboardPresentationTransition: Equatable {
@@ -60,12 +60,12 @@ enum KeyboardPresentationStateMachine {
             } else {
                 next = state
             }
-        case let .remoteTap(cursorKind):
+        case .remoteTap:
             switch state {
             case .shown:
                 next = .hidden
             case .hidden, .pendingTextFocus:
-                next = cursorKind == .ibeam ? .pendingTextFocus : .hidden
+                next = .pendingTextFocus
             }
         }
         return KeyboardPresentationTransition(previous: state, next: next)
@@ -77,15 +77,12 @@ enum HostTextInputKeyboardPolicy {
         .hostFocus(editability: push.editability, cursorKind: push.cursorKind)
     }
 
-    static func intentForRemoteTap(lastCursorKind: CursorKind) -> KeyboardPresentationIntent {
-        .remoteTap(cursorKind: lastCursorKind)
+    static func intentForRemoteTap() -> KeyboardPresentationIntent {
+        .remoteTap
     }
 
-    static func intentForRemoteInput(
-        _ input: NormalizedInput,
-        lastCursorKind: CursorKind
-    ) -> KeyboardPresentationIntent? {
+    static func intentForRemoteInput(_ input: NormalizedInput) -> KeyboardPresentationIntent? {
         guard case .click(.left) = input else { return nil }
-        return intentForRemoteTap(lastCursorKind: lastCursorKind)
+        return intentForRemoteTap()
     }
 }

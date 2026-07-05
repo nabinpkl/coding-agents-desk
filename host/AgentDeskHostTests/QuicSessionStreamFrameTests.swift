@@ -212,9 +212,9 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded.event == event)
     }
 
-    @Test func protocolVersionIsThreeForCursorSetWireBreak() {
-        #expect(Config.protocolVersion == 3)
-        #expect(Config.minCompatibleProtocolVersion == 3)
+    @Test func protocolVersionIsFourForTextInputFocusWireBreak() {
+        #expect(Config.protocolVersion == 4)
+        #expect(Config.minCompatibleProtocolVersion == 4)
     }
 
     @available(macOS 26.0, *)

@@ -74,10 +74,7 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
 
     @discardableResult
     func applyKeyboardPresentationIntentForRemoteInput(_ input: NormalizedInput) -> KeyboardPresentationTransition? {
-        guard let intent = HostTextInputKeyboardPolicy.intentForRemoteInput(
-            input,
-            lastCursorKind: lastCursorKind
-        ) else { return nil }
+        guard let intent = HostTextInputKeyboardPolicy.intentForRemoteInput(input) else { return nil }
         return applyKeyboardPresentationIntent(intent)
     }
 
@@ -96,16 +93,18 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
             keyboardPendingTimeoutTask = nil
         }
         renderKeyboardPresentationState()
-        ClientDiagnostics.shared.record(
-            type: "keyboardStateChanged",
-            fields: [
-                "previous": String(describing: transition.previous),
-                "next": String(describing: transition.next),
-                "lastCursorKind": lastCursorKind.rawValue,
-                "lastHostEditability": lastHostTextInputFocus.editability.rawValue
-            ],
-            level: .default
-        )
+        if transition.previous == .shown || transition.next == .shown {
+            ClientDiagnostics.shared.record(
+                type: "keyboardStateChanged",
+                fields: [
+                    "previous": String(describing: transition.previous),
+                    "next": String(describing: transition.next),
+                    "lastCursorKind": lastCursorKind.rawValue,
+                    "lastHostEditability": lastHostTextInputFocus.editability.rawValue
+                ],
+                level: .default
+            )
+        }
         return transition
     }
 
@@ -187,32 +186,5 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
 
     func keyboardSurface(_ surface: KeyboardSurface, didProduce input: NormalizedInput) {
         sendInput(input)
-    }
-}
-
-private extension NormalizedInput {
-    var keyboardDiagnosticsName: String {
-        switch self {
-        case .click(let button):
-            return "click.\(button.rawValue)"
-        case .cursorSet:
-            return "cursorSet"
-        case .cursorMove:
-            return "cursorMove"
-        case .scroll:
-            return "scroll"
-        case .dragStart:
-            return "dragStart"
-        case .dragEnd:
-            return "dragEnd"
-        case .switchSpaceGesture:
-            return "switchSpaceGesture"
-        case .switchSpaceStep:
-            return "switchSpaceStep"
-        case .key:
-            return "key"
-        case .modifierArm:
-            return "modifierArm"
-        }
     }
 }
