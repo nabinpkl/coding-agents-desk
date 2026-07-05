@@ -27,6 +27,10 @@ final class AgentFeedSurface: UIView {
 
     private var webView: WKWebView?
     private var isLoaded = false
+    // Set once teardown() runs. Guards deliver(), markLoaded(), and the didFinish
+    // handler so a lagging onAgentPush task or a late navigation callback cannot
+    // evaluateJavaScript on (or re-flush into) a torn-down page.
+    private var torn = false
     private var pendingJSON: [String] = []
     // evaluateJavaScript abstraction for testability.
     var evaluateScript: ((String) -> Void)?
@@ -49,7 +53,7 @@ final class AgentFeedSurface: UIView {
         let config = WKWebViewConfiguration()
         config.userContentController = contentController
         // Allow file:// access to assets/ siblings of index.html.
-        config.preferences.javaScriptEnabled = true
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
 
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.navigationDelegate = self
@@ -85,6 +89,7 @@ final class AgentFeedSurface: UIView {
     // Deliver raw push JSON from the host to the webview. If the page has not
     // finished loading yet the payload is queued and flushed on didFinish.
     func deliver(rawJSON: String) {
+        guard !torn else { return }
         if isLoaded {
             callDeliverJS(rawJSON)
         } else {
@@ -112,6 +117,11 @@ final class AgentFeedSurface: UIView {
     // MARK: - Lifecycle
 
     func teardown() {
+        torn = true
+        // Stop the navigation delegate so a didFinish firing after teardown cannot
+        // re-set isLoaded and re-flush (navigationDelegate is weak, so this is not a
+        // leak fix, just an ordering guard).
+        webView?.navigationDelegate = nil
         // Remove the message handler so the content controller no longer holds the proxy.
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "agentFeed")
         // Ask the JS side to clean up if it exposes a destroy hook.
@@ -145,6 +155,7 @@ extension AgentFeedSurface: WKNavigationDelegate {
     // Exposed for testing: mark the surface as loaded and flush pending payloads.
     // In production this is called from the nonisolated WKNavigationDelegate callback.
     func markLoaded() {
+        guard !torn else { return }
         isLoaded = true
         flushPending()
     }

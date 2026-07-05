@@ -164,6 +164,40 @@ struct AgentFeedSurfaceTests {
         #expect(capturedScripts[0].contains(payload))
     }
 
+    // MARK: - Teardown: post-teardown callbacks are no-ops
+
+    @Test func deliverAfterTeardownDoesNotEvaluate() {
+        let surface = AgentFeedSurface()
+        var capturedScripts: [String] = []
+        surface.evaluateScript = { js in capturedScripts.append(js) }
+
+        surface.markLoaded()
+        surface.teardown()
+        capturedScripts.removeAll()
+
+        // A lagging onAgentPush task could still call deliver after teardown.
+        surface.deliver(rawJSON: #"{"t":"agent-projects","p":[]}"#)
+
+        #expect(capturedScripts.isEmpty)
+    }
+
+    @Test func markLoadedAfterTeardownDoesNotFlush() {
+        let surface = AgentFeedSurface()
+        var capturedScripts: [String] = []
+        surface.evaluateScript = { js in capturedScripts.append(js) }
+
+        // Queue a payload before load completes.
+        surface.deliver(rawJSON: #"{"t":"agent-projects","p":[]}"#)
+        // Tear down before the page finishes loading.
+        surface.teardown()
+        capturedScripts.removeAll()
+
+        // A didFinish firing after teardown must not flush the queued payload.
+        surface.markLoaded()
+
+        #expect(capturedScripts.isEmpty)
+    }
+
     // MARK: - Inbound: request closure is called with correct type
 
     @Test func inboundProjectsSubscribeCallsOnAgentRequest() async {
