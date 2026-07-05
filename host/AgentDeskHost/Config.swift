@@ -299,9 +299,18 @@ enum Config {
     // ADR-0030: the media lane now shares one QUIC session with input/control, so
     // video admission must keep in-flight media bounded instead of filling the
     // connection behind input.
+    //
+    // This is the frame-count half of the in-flight window; the byte ceiling below is
+    // the real bufferbloat guard. On a high-latency link (acks 400-900ms) the count is
+    // the binding limit: with only 2 frames allowed in flight, motion delivers ~2 frames
+    // per round-trip (~2.5fps) no matter how much bandwidth is free, so a slow scroll
+    // stalls. A larger window fills the bandwidth-delay product so each rung can actually
+    // hit its fps target during motion. It does not deepen bufferbloat: small frames
+    // transit the RTT in parallel, and the byte ceiling still caps total in-flight bytes,
+    // so a heavy scroll binds on bytes long before 6 large frames queue up.
     static let ownedMediaBackpressureMaxInflightFrames = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_MAX_INFLIGHT_FRAMES",
-        defaultValue: 2
+        defaultValue: 6
     )
     static let ownedMediaBackpressureMaxInflightBytes = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_MAX_INFLIGHT_BYTES",
