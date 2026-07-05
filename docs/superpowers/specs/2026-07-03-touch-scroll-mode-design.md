@@ -25,9 +25,11 @@ target, primed to act where the finger lands.
      `GestureTranslator.processScrollPan` unchanged — same acceleration curve,
      `.began/.changed/.ended` phases, and momentum/inertia tail.
 
-Scope is scroll only: no tap-to-click, no pinch-zoom changes beyond disabling
-the scroll view's own pan while the mode is active. Vertical only; direction
-follows the existing `scrollInverted` tuning.
+Scope is scroll only: no tap-to-click. Vertical only; direction follows the
+existing `scrollInverted` tuning. (Correction: the original claim that pinch-zoom
+was preserved was false — `isScrollEnabled = false` also disabled zoom. Pinch is
+restored via a finger-count state machine; see
+`2026-07-03-touch-scroll-pinch-zoom-design.md`.)
 
 ## Why no wire or host change
 

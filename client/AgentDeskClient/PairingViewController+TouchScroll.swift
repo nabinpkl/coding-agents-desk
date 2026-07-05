@@ -16,9 +16,14 @@ extension PairingViewController {
         if let existing = touchScrollRecognizer {
             existing.view?.removeGestureRecognizer(existing)
         }
-        // Same recognizer the strip uses: promotes to .began on touch-down so
-        // the prime fires immediately and the first move maps 1:1.
-        let pan = InstantPanGestureRecognizer(
+        // Standard pan (NOT InstantPanGestureRecognizer): it waits for a few px
+        // of one-finger slop before .began. That wait is what distinguishes a
+        // one-finger scroll from a pinch — a two-finger pinch lands its second
+        // finger before the first crosses the slop, so maximumNumberOfTouches=1
+        // fails this recognizer before it primes (no spurious .cursorSet, no
+        // phantom scroll). A finger added mid-scroll cancels it, and the
+        // existing .cancelled path emits scroll(phase:.ended).
+        let pan = UIPanGestureRecognizer(
             target: self,
             action: #selector(handleVideoTouchScroll(_:))
         )
@@ -85,8 +90,17 @@ extension PairingViewController {
     // attach, on entering the session, and on every settings change.
     func applyTouchScrollMode() {
         let on = SettingsStore.shared.touchScrollMode
-        touchScrollRecognizer?.isEnabled = on
-        sinkScrollView?.isScrollEnabled = !on
+        let config = touchScrollGestureConfig(touchScrollMode: on)
+        touchScrollRecognizer?.isEnabled = config.touchScrollRecognizerEnabled
+        if let scroll = sinkScrollView {
+            // Keep the scroll view zoom-capable at all times (isScrollEnabled =
+            // false would also kill pinch). Route by finger count instead:
+            // minimumNumberOfTouches = 2 means one finger never pans the local
+            // view, so the touch-scroll recognizer owns single-finger drags and
+            // two fingers drive native pinch + pan-while-pinched.
+            scroll.isScrollEnabled = config.scrollViewScrollEnabled
+            scroll.panGestureRecognizer.minimumNumberOfTouches = config.scrollViewPanMinimumTouches
+        }
         for control in [trackpadView, scrollStripView] {
             control.alpha = on ? 0.4 : 1.0
             control.isUserInteractionEnabled = !on
