@@ -82,6 +82,9 @@
 		A000000000000000000009A1 /* CursorMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009A0 /* CursorMonitor.swift */; };
 		A000000000000000000009A2 /* CursorMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009A0 /* CursorMonitor.swift */; };
 		A000000000000000000009B1 /* CursorMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009B0 /* CursorMonitorTests.swift */; };
+		A0000000000000000000CA01 /* CursorChangeSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CA00 /* CursorChangeSignal.swift */; };
+		A0000000000000000000CA02 /* CursorChangeSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CA00 /* CursorChangeSignal.swift */; };
+		A0000000000000000000CB01 /* CursorChangeSignalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000CB00 /* CursorChangeSignalTests.swift */; };
 		A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000000000000000009D0 /* ScrollQualityTests.swift */; };
 		A00000000000000000000DA4 /* FrameComposerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DA3 /* FrameComposerTests.swift */; };
 		A00000000000000000000DB4 /* ScrollDeltaEngineDamageRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */; };
@@ -218,6 +221,8 @@
 		A00000000000000000000126 /* SpacesProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpacesProviderTests.swift; sourceTree = "<group>"; };
 		A000000000000000000009A0 /* CursorMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorMonitor.swift; sourceTree = "<group>"; };
 		A000000000000000000009B0 /* CursorMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorMonitorTests.swift; sourceTree = "<group>"; };
+		A0000000000000000000CA00 /* CursorChangeSignal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorChangeSignal.swift; sourceTree = "<group>"; };
+		A0000000000000000000CB00 /* CursorChangeSignalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorChangeSignalTests.swift; sourceTree = "<group>"; };
 		A000000000000000000009D0 /* ScrollQualityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollQualityTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DA3 /* FrameComposerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameComposerTests.swift; sourceTree = "<group>"; };
 		A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollDeltaEngineDamageRoutingTests.swift; sourceTree = "<group>"; };
@@ -380,6 +385,7 @@
 				A00000000000000000000156 /* VoiceChildController.swift */,
 				A00000000000000000000120 /* SpacesProvider.swift */,
 				A000000000000000000009A0 /* CursorMonitor.swift */,
+				A0000000000000000000CA00 /* CursorChangeSignal.swift */,
 				A00000000000000000000127 /* SpaceThumbnailProvider.swift */,
 				A00000000000000000000DF0 /* TileContentCache.swift */,
 				A00000000000000000001010 /* MediaQualityController.swift */,
@@ -442,6 +448,7 @@
 				A0000000000000000000015A /* AgentSayLocalServerTests.swift */,
 				A00000000000000000000126 /* SpacesProviderTests.swift */,
 				A000000000000000000009B0 /* CursorMonitorTests.swift */,
+				A0000000000000000000CB00 /* CursorChangeSignalTests.swift */,
 				A000000000000000000009D0 /* ScrollQualityTests.swift */,
 				A00000000000000000000DA3 /* FrameComposerTests.swift */,
 				A00000000000000000000DB3 /* ScrollDeltaEngineDamageRoutingTests.swift */,
@@ -615,6 +622,7 @@
 				A00000000000000000000234 /* InputChannelServer.swift in Sources */,
 				A00000000000000000000235 /* SpacesProvider.swift in Sources */,
 				A000000000000000000009A1 /* CursorMonitor.swift in Sources */,
+				A0000000000000000000CA01 /* CursorChangeSignal.swift in Sources */,
 				A00000000000000000000238 /* SpaceThumbnailProvider.swift in Sources */,
 				A00000000000000000000239 /* SpaceAgentModel.swift in Sources */,
 				A0000000000000000000023A /* SpaceAgentViewController.swift in Sources */,
@@ -697,7 +705,9 @@
 				A00000000000000000000236 /* SpacesProvider.swift in Sources */,
 				A00000000000000000000237 /* SpacesProviderTests.swift in Sources */,
 				A000000000000000000009A2 /* CursorMonitor.swift in Sources */,
+				A0000000000000000000CA02 /* CursorChangeSignal.swift in Sources */,
 				A000000000000000000009B1 /* CursorMonitorTests.swift in Sources */,
+				A0000000000000000000CB01 /* CursorChangeSignalTests.swift in Sources */,
 				A000000000000000000009D1 /* ScrollQualityTests.swift in Sources */,
 				A00000000000000000000DA4 /* FrameComposerTests.swift in Sources */,
 				A00000000000000000000DB4 /* ScrollDeltaEngineDamageRoutingTests.swift in Sources */,
