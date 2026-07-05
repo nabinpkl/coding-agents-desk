@@ -505,6 +505,16 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_MIN_INTERVAL_MS",
         defaultValue: 100
     )
+    // Cap on NEW crisp tile bytes emitted per crisp window. A full-surface settle (e.g.
+    // a desktop switch) would otherwise re-cache the whole native screen as one multi-MB
+    // burst that saturates the reliable graphics lane and stalls video. With a budget the
+    // excess settled tiles retry on later windows, spreading a big re-cache over ~seconds
+    // at a steady trickle instead of one spike. Reverts and cache hits carry no payload, so
+    // only fresh cacheTile payload counts against this.
+    static let ownedMediaCrispMaxBytesPerWindow: Int = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_MAX_BYTES_PER_WINDOW",
+        defaultValue: 262_144
+    )
     // Rung-3 busy-tile threshold. After LZFSE-compressing a new cache-miss cell,
     // divide the compressed byte count by the cell's pixel count (width * height).
     // If the result exceeds this value, the cell is "busy": photo or gradient

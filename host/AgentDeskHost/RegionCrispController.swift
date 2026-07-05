@@ -12,12 +12,24 @@ struct RegionCrispConfig: Equatable {
     let tileGridPx: Int
     let settleWindowMs: Int
     let cacheSlots: Int
+    // Cap on new cacheTile payload bytes per observe(). Excess settled tiles throttle and
+    // retry next window, so a full-surface re-cache trickles out instead of one MB-scale
+    // burst that would saturate the lane and stall video.
+    let maxBytesPerWindow: Int
+
+    init(tileGridPx: Int, settleWindowMs: Int, cacheSlots: Int, maxBytesPerWindow: Int = .max) {
+        self.tileGridPx = tileGridPx
+        self.settleWindowMs = settleWindowMs
+        self.cacheSlots = cacheSlots
+        self.maxBytesPerWindow = max(1, maxBytesPerWindow)
+    }
 
     static func fromConfig() -> RegionCrispConfig {
         RegionCrispConfig(
             tileGridPx: Config.hybridTileGridPx,
             settleWindowMs: Config.ownedMediaCrispSettleWindowMs,
-            cacheSlots: Config.ownedMediaCrispCacheSlots
+            cacheSlots: Config.ownedMediaCrispCacheSlots,
+            maxBytesPerWindow: Config.ownedMediaCrispMaxBytesPerWindow
         )
     }
 }
@@ -155,8 +167,13 @@ struct RegionCrispController {
                     commands.append(.drawCachedTile(slot: slot, x: x, y: y, width: w, height: h))
                     state.crispHash = hash
                     cells[key] = state
-                } else if assignsThisFrame >= config.cacheSlots {
-                    // Out of fresh slots this frame; leave on video and retry next frame.
+                } else if assignsThisFrame >= config.cacheSlots || payload.count >= config.maxBytesPerWindow {
+                    // Out of fresh slots, or this window's byte budget is spent: leave on the
+                    // video floor and retry next window (dedups once committed). The budget
+                    // check reads the bytes already emitted this window, so the first
+                    // over-budget tile is the last one sent and the rest throttle without
+                    // paying for compression. This spreads a full-surface re-cache over many
+                    // windows instead of one MB-scale burst.
                     throttledCrispTileCount += 1
                 } else if let compressed = OwnedTileCodec.compressLZFSE(tile) {
                     let slot = cache.assign(hash: hash, bytes: tile)
@@ -185,6 +202,42 @@ struct RegionCrispController {
         // getting ahead of what the client received, which is what made the host emit a
         // drawCachedTile for a slot the client never got. See TileContentCache's contract.
         return RegionCrispEmission(commands: commands, payload: payload, surfaceDidReset: surfaceDidReset)
+    }
+
+    // Eager revert (input latency): when the OS reports per-frame damage, immediately revert
+    // any crisp tile the damage overlaps to the live video floor, on the video-frame cadence,
+    // instead of waiting for the next (~100ms) hash pass. An opaque crisp tile otherwise masks
+    // the live video update for up to one crisp interval, which reads as sluggish response to
+    // input. Reverting to video is always coherent (video is the live floor), so an over-broad
+    // damage rect costs only a momentary un-crispen, never staleness. Carries no payload.
+    mutating func reactToDamage(_ damageRects: [PixelRect], nowMs: Int) -> [OwnedGraphicsCommand] {
+        let grid = config.tileGridPx
+        guard hasObserved, grid > 0, lastWidth > 0, lastHeight > 0, !damageRects.isEmpty else { return [] }
+        var commands: [OwnedGraphicsCommand] = []
+        for rect in damageRects {
+            let clamped = rect.clamped(toWidth: lastWidth, height: lastHeight)
+            guard clamped.area > 0 else { continue }
+            var ty = (clamped.y / grid) * grid
+            while ty < clamped.maxY {
+                var tx = (clamped.x / grid) * grid
+                while tx < clamped.maxX {
+                    let key = CellKey(x: tx, y: ty)
+                    if var state = cells[key], state.crispHash != nil {
+                        let w = min(grid, lastWidth - tx)
+                        let h = min(grid, lastHeight - ty)
+                        commands.append(.revertTileToVideo(x: tx, y: ty, width: w, height: h))
+                        state.crispHash = nil
+                        // Restart the settle timer so re-promotion waits for the region to
+                        // truly settle again rather than re-caching on the next pass.
+                        state.stableSinceMs = nowMs
+                        cells[key] = state
+                    }
+                    tx += grid
+                }
+                ty += grid
+            }
+        }
+        return commands
     }
 
     // Commit / discard the slot assignments staged by the most recent observe(), so the

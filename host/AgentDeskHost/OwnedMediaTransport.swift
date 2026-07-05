@@ -159,6 +159,10 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     continue
                 }
                 await send(envelope)
+                // Eager-revert any crisp tile over a region that changed this frame, on the
+                // video cadence, so a live update is never masked by a stale crisp tile while
+                // it waits for the next time-gated crisp pass.
+                processCrispDamage(job.frame)
                 // Crisp runs on the native capture, never the downscaled video frame.
                 processCrisp(job.frame)
             }
@@ -177,6 +181,33 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         } catch {
             logger.error("video downscale failed scale=\(scale, privacy: .public) error=\(String(describing: error), privacy: .public)")
             return native
+        }
+    }
+
+    // ADR-0034 eager revert: on the video cadence (not the time-gated crisp pass), clear any
+    // crisp tile that overlaps this frame's OS damage, so the live video update is shown at
+    // once instead of being masked by a stale crisp tile for up to a crisp interval. Cheap:
+    // rect overlap only, no hashing, no payload. Runs only once a lane is attached and the
+    // surface baseline (resetSurface) has been sent.
+    private func processCrispDamage(_ frame: CapturedVideoFrame) {
+        guard !frame.damageRects.isEmpty else { return }
+        let nowMs = Int(frame.capturedAtUptimeNs / 1_000_000)
+        crispGate.withLock { state in
+            guard let lane = state.lane, state.surfaceInitialized else { return }
+            let reverts = state.controller.reactToDamage(frame.damageRects, nowMs: nowMs)
+            guard !reverts.isEmpty else { return }
+            state.crispFrameId &+= 1
+            lane.send(OwnedGraphicsFrameEnvelope(
+                header: OwnedGraphicsFrameHeader(
+                    surfaceGeneration: state.surfaceGeneration,
+                    frameId: state.crispFrameId,
+                    capturedAtUptimeNs: frame.capturedAtUptimeNs,
+                    commandCount: reverts.count,
+                    payloadLength: 0
+                ),
+                commands: reverts,
+                payload: Data()
+            ))
         }
     }
 

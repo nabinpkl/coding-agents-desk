@@ -254,4 +254,79 @@ final class RegionCrispControllerTests: XCTestCase {
         XCTAssertEqual(c.droppedCrispTileCount, 0)
         XCTAssertEqual(c.throttledCrispTileCount, 0)
     }
+
+    // A surface whose every 64-px tile holds a distinct byte, so each needs its own fresh
+    // cacheTile (no dedup across tiles). Used to exercise the per-window byte budget.
+    private func distinctTilesSurface(width: Int, height: Int) -> Data {
+        var d = Data(count: width * height * 4)
+        d.withUnsafeMutableBytes { raw in
+            let p = raw.bindMemory(to: UInt8.self)
+            let cols = max(1, width / grid)
+            for ty in stride(from: 0, to: height, by: grid) {
+                for tx in stride(from: 0, to: width, by: grid) {
+                    let tileByte = UInt8((tx / grid + (ty / grid) * cols) % 250 + 1)
+                    for yy in ty..<min(ty + grid, height) {
+                        for xx in tx..<min(tx + grid, width) {
+                            let i = (yy * width + xx) * 4
+                            p[i] = tileByte; p[i + 1] = tileByte; p[i + 2] = tileByte; p[i + 3] = 0xFF
+                        }
+                    }
+                }
+            }
+        }
+        return d
+    }
+
+    // Eager revert (input latency): OS damage over a crisp tile reverts it to the video floor
+    // immediately, on the video cadence, instead of waiting for the next hash pass. The tile
+    // stops being crisp and must re-settle before it sharpens again.
+    func testDamageEagerlyRevertsCrispTileToVideo() {
+        var c = RegionCrispController(config: config())
+        _ = observe(&c, surface(0xAB), at: 0)
+        guard case .cacheTile = observe(&c, surface(0xAB), at: 200).commands.first else {
+            return XCTFail("expected the tile to promote to crisp")
+        }
+        let reverts = c.reactToDamage([PixelRect(x: 10, y: 10, width: 5, height: 5)], nowMs: 250)
+        guard case let .revertTileToVideo(x, y, w, h) = reverts.first, reverts.count == 1 else {
+            return XCTFail("damage over a crisp tile must revert exactly it, got \(reverts)")
+        }
+        XCTAssertEqual([x, y, w, h], [0, 0, 64, 64])
+        // No longer crisp: the unchanged content must re-settle (not dedup as still-crisp),
+        // then re-promote from the still-cached slot once the settle window passes again.
+        XCTAssertTrue(observe(&c, surface(0xAB), at: 300).isEmpty, "a freshly reverted tile is not immediately crisp")
+        guard case .drawCachedTile = observe(&c, surface(0xAB), at: 600).commands.first else {
+            return XCTFail("after an eager revert the unchanged tile re-promotes from cache")
+        }
+    }
+
+    // Eager revert only touches crisp tiles the damage overlaps; an already-reverted or
+    // non-crisp tile is a no-op (no redundant reverts).
+    func testDamageRevertsOnlyOverlappedCrispTiles() {
+        var c = RegionCrispController(config: config())
+        let s = surface(0xCD, width: 128, height: 128)
+        _ = observe(&c, s, at: 0, width: 128, height: 128)
+        _ = observe(&c, s, at: 200, width: 128, height: 128) // all four tiles crisp
+        let reverts = c.reactToDamage([PixelRect(x: 0, y: 0, width: 10, height: 10)], nowMs: 250)
+        XCTAssertEqual(reverts.count, 1, "only the crisp tile the damage overlaps reverts")
+        XCTAssertTrue(c.reactToDamage([PixelRect(x: 0, y: 0, width: 10, height: 10)], nowMs: 260).isEmpty,
+                      "an already-reverted tile must not revert again")
+        XCTAssertTrue(c.reactToDamage([], nowMs: 270).isEmpty, "no damage means no reverts")
+    }
+
+    // Per-window byte budget: a full-surface settle does not emit every cacheTile at once;
+    // the excess throttles and the next window emits more, spreading the re-cache over time.
+    func testByteBudgetSpreadsFullSurfaceCacheOverWindows() {
+        let cfg = RegionCrispConfig(tileGridPx: grid, settleWindowMs: settle, cacheSlots: 16, maxBytesPerWindow: 1)
+        var c = RegionCrispController(config: cfg)
+        let s = distinctTilesSurface(width: 128, height: 128) // four distinct tiles
+        _ = observe(&c, s, at: 0, width: 128, height: 128)
+        func cacheTileCount(_ e: RegionCrispEmission) -> Int {
+            e.commands.filter { if case .cacheTile = $0 { return true }; return false }.count
+        }
+        let w1 = observe(&c, s, at: 200, width: 128, height: 128)
+        XCTAssertEqual(cacheTileCount(w1), 1, "a 1-byte budget admits one fresh cacheTile per window")
+        XCTAssertGreaterThan(c.throttledCrispTileCount, 0, "the over-budget settled tiles throttle")
+        let w2 = observe(&c, s, at: 300, width: 128, height: 128)
+        XCTAssertEqual(cacheTileCount(w2), 1, "the next window emits the next throttled tile")
+    }
 }
