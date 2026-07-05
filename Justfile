@@ -575,6 +575,32 @@ sim-fresh-install:
     just client-sim-reinstall
     just sim-console-run
 
+# Full agent-feed end-to-end simulator bring-up, blocking (attached console).
+# Unlike sim-fresh-install, this first builds the REAL agent-feed artifacts the
+# app bundles -- the compiled Bun engine sidecar (host resource) and the Vite
+# webview bundle (client resource) -- so the agent surface serves real data
+# instead of the build-placeholder. Then it kills+rebuilds+relaunches the host,
+# uninstalls+rebuilds+installs the client, pairs, and tails the client console
+# to {{sim_console_log}}. Blocks. Use agent-feed-sim-pair for the non-blocking
+# variant when driving with Maestro (just ui-flow agent-feed-smoke).
+agent-feed-sim:
+    just build-agent-sidecar
+    just build-agent-webview
+    just host-run
+    just client-sim-reinstall
+    just sim-console-run
+
+# Non-blocking twin of agent-feed-sim: builds the real artifacts, rebuilds and
+# reinstalls host + client, then does a non-blocking paired launch (pair-sim)
+# so the app stays open for `just ui-flow <flow>` (e.g. agent-feed-smoke) to
+# drive it and capture screenshots.
+agent-feed-sim-pair:
+    just build-agent-sidecar
+    just build-agent-webview
+    just host-run
+    just client-sim-reinstall
+    just pair-sim
+
 # Drive the iPhone simulator with a Maestro flow. Maestro is the standard
 # tool for declarative iOS UI automation (Playwright-equivalent for mobile);
 # prefer adding a flow under client/maestro/ over hacking the app with

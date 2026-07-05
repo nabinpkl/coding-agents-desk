@@ -1,0 +1,21 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+# Wait for the paired session UI (the Control/Agent surface toggle appears once connected).
+- extendedWaitUntil:
+    visible: "Agent"
+    timeout: 30000
+# Toggle to the agent feed surface.
+- tapOn: "Agent"
+# Give the host sidecar a moment to serve the project digest over the lane.
+- extendedWaitUntil:
+    notVisible: "Trackpad"
+    timeout: 5000
+- takeScreenshot: agent-feed-projects
+# Drill into the first project row (coordinate tap, robust to dynamic project names).
+- tapOn:
+    point: 50%, 30%
+- takeScreenshot: agent-feed-sessions
+# Drill into the first session row to open its thread.
+- tapOn:
+    point: 50%, 30%
+- takeScreenshot: agent-feed-thread
