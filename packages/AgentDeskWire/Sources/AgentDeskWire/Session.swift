@@ -463,6 +463,7 @@ public enum SessionRejectionReason: String, Codable, Equatable, Error, Sendable 
     case malformed
     case unauthorized
     case expiredResume = "expired-resume"
+    case signingKeyUnavailable = "signing-key-unavailable"
     // ADR-0020: peer's wire protocol version is incompatible; the user must
     // update the older app. Not recoverable by retrying.
     case incompatibleProtocol = "incompatible-protocol"

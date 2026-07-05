@@ -140,7 +140,8 @@ struct PairingClientTests {
         for reason in [
             SessionRejectionReason.replay,
             .malformed,
-            .expiredResume
+            .expiredResume,
+            .signingKeyUnavailable
         ] {
             let store = InMemorySessionTokenStore()
             try store.store(StoredPairingRecord(

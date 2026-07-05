@@ -114,6 +114,20 @@ struct QuicSessionStreamFrameTests {
         ) == true)
     }
 
+    @Test func autoApprovePairingRequiresDevIterationRun() {
+        #expect(Config.autoApprovePairingEnabled(environment: [:]) == false)
+        #expect(Config.autoApprovePairingEnabled(environment: [
+            "AGENTDESK_AUTO_APPROVE": "1"
+        ]) == false)
+        #expect(Config.autoApprovePairingEnabled(environment: [
+            "AGENTDESK_DEV_ITERATION_RUN": "1"
+        ]) == false)
+        #expect(Config.autoApprovePairingEnabled(environment: [
+            "AGENTDESK_AUTO_APPROVE": "1",
+            "AGENTDESK_DEV_ITERATION_RUN": "1"
+        ]) == true)
+    }
+
     @Test func sessionReadyCarriesResumeAndMediaKeySalt() throws {
         let ready = SessionReady(
             sessionId: "session-123",

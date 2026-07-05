@@ -328,7 +328,7 @@ dom-mirror-e2e: ext-stamp
       kill "${SIMTEE_PID:-0}" 2>/dev/null || true
       xcrun simctl terminate "$UDID" com.example.agentdesk.AgentDeskClient 2>/dev/null || true
       kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
-      for v in AGENTDESK_AUTO_APPROVE AGENTDESK_DEV_PERMISSIVE_KEYSTORE AGENTDESK_DOM_MIRROR_ENABLED; do launchctl unsetenv "$v" 2>/dev/null || true; done
+      for v in AGENTDESK_AUTO_APPROVE AGENTDESK_DEV_ITERATION_RUN AGENTDESK_DOM_MIRROR_ENABLED; do launchctl unsetenv "$v" 2>/dev/null || true; done
     }
     trap cleanup EXIT
 
@@ -336,7 +336,7 @@ dom-mirror-e2e: ext-stamp
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     kill $(pgrep -f AgentDeskHost) 2>/dev/null || true; sleep 1
     launchctl setenv AGENTDESK_AUTO_APPROVE 1
-    launchctl setenv AGENTDESK_DEV_PERMISSIVE_KEYSTORE 1
+    launchctl setenv AGENTDESK_DEV_ITERATION_RUN 1
     launchctl setenv AGENTDESK_DOM_MIRROR_ENABLED 1
     open "{{host_app}}"; sleep 3
     pgrep -lf AgentDeskHost >/dev/null || { echo "host did not start"; exit 1; }
@@ -489,10 +489,10 @@ host-run variant="stable":
     PORT_PIDS=$(lsof -ti tcp:"$SIGPORT" 2>/dev/null || true)
     [ -n "$PORT_PIDS" ] && kill $PORT_PIDS 2>/dev/null || true
     sleep 1
-    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
+    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     open "$APP"
     sleep 2
-    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh unset
+    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh unset
     pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true
     # DOM bridge is first-class: wire this variant's native-messaging manifest on every
     # launch so the Chrome extension can reach the running host. Non-fatal so a host run
@@ -526,10 +526,10 @@ host-run-release variant="stable":
     PORT_PIDS=$(lsof -ti tcp:"$SIGPORT" 2>/dev/null || true)
     [ -n "$PORT_PIDS" ] && kill $PORT_PIDS 2>/dev/null || true
     sleep 1
-    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh set
+    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     open "$APP"
     sleep 2
-    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1 tools/launch-env.sh unset
+    env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh unset
     pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true
     # DOM bridge first-class: wire this variant's native-messaging manifest on every launch.
     just dom-bridge-reinstall {{variant}} || echo "WARN: dom-bridge wiring failed; browser mode will not mirror until 'just dom-bridge-reinstall {{variant}}' succeeds"
@@ -696,7 +696,7 @@ dom-bridge-reinstall variant="dev" channel="chrome":
 # Clean DOM-mirror simulator run for the LATEST code (dev stack, non-blocking). One command to get
 # the whole Chrome-mirror chain up on the sim:
 #   1. host-run dev        -- kill + rebuild + relaunch the DEV host with the DOM mirror +
-#                             auto-approve + permissive-keystore envs baked into the launched
+#                             auto-approve + dev-iteration envs baked into the launched
 #                             process (launch-env.sh set -> open -> unset; nothing lingers in launchd)
 #   2. dom-bridge-reinstall dev -- (re)point the extension native-messaging manifest at the DEV
 #                             host's socket, from clean, so a stale manifest never lingers
@@ -869,7 +869,7 @@ motion-verify variant="dev" video="1" seconds="60":
     # (.env via dotenv-load, plus the three defaults below), so the host sees the same
     # config the current code expects, not a hand-picked subset.
     export AGENTDESK_AUTO_APPROVE=1
-    export AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1
+    export AGENTDESK_DEV_ITERATION_RUN=1
     export AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED={{video}}
     HOST_ENV_ARGS=()
     while IFS= read -r kv; do HOST_ENV_ARGS+=( --env "$kv" ); done < <(env | grep '^AGENTDESK_')

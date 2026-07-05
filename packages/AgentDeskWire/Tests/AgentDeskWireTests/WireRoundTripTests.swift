@@ -94,6 +94,10 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(object?["a"] as? String == "active")
 }
 
+@Test func sessionRejectedRoundTripsSigningKeyUnavailableReason() throws {
+    try roundTrip(SessionRejected(reason: .signingKeyUnavailable))
+}
+
 @Test func ownedGraphicsFrameAckUsesCanonicalInitOrder() throws {
     // Drift: the two copies declared the memberwise init in different orders. The
     // canonical order is (surfaceGeneration, frameId, compositorMs, ...); the wire

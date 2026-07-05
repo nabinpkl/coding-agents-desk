@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Security
+import os
 import AgentDeskWire
 
 // ADR-0003 session-establishment, host side. Pure logic; the network plumbing
@@ -18,6 +19,7 @@ final class SessionAuthenticator {
     private let pairing: Pairing
     private let randomBytes: (Int) throws -> Data
     private let now: () -> Date
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "session-auth")
     private var seenClientNonces: Set<Data> = []
     private(set) var pending: PendingSessionHandshake?
 
@@ -48,7 +50,7 @@ final class SessionAuthenticator {
             throw SessionRejected(reason: .unknownDevice)
         }
 
-        let key = try pairing.signingKey()
+        let key = try loadSigningKey(context: "session-init")
         let hostFingerprint = key.publicKey.agentDeskFingerprint
         let hostNonce = try randomBytes(32)
 
@@ -74,7 +76,7 @@ final class SessionAuthenticator {
         guard let pending else {
             throw SessionRejected(reason: .malformed)
         }
-        let key = try pairing.signingKey()
+        let key = try loadSigningKey(context: "session-proof")
         let hostFingerprint = key.publicKey.agentDeskFingerprint
         let input = SessionSigning.canonicalInput(
             clientNonce: pending.clientNonce,
@@ -147,5 +149,16 @@ final class SessionAuthenticator {
             throw SessionRejected(reason: .malformed)
         }
         return Data(bytes)
+    }
+
+    private func loadSigningKey(context: String) throws -> HostSigningKey {
+        do {
+            let key = try pairing.signingKey()
+            logger.notice("host signing key ready context=\(context, privacy: .public) signingKeyStorage=\(key.storage.rawValue, privacy: .public)")
+            return key
+        } catch {
+            logger.error("host signing key unavailable context=\(context, privacy: .public) reason=\(String(describing: error), privacy: .public)")
+            throw SessionRejected(reason: .signingKeyUnavailable)
+        }
     }
 }

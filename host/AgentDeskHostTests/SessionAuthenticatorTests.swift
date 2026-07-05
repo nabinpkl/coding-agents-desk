@@ -128,6 +128,14 @@ struct SessionAuthenticatorTests {
         #expect(challenge.protocolVersion == Config.protocolVersion)
     }
 
+    @Test func signingKeyLoadFailureDuringInitReturnsSpecificRejection() throws {
+        let fixture = try Fixture(keyProvider: FailingHostSigningKeyProvider())
+
+        #expect(throws: SessionRejected(reason: .signingKeyUnavailable)) {
+            try fixture.authenticator.processInit(fixture.makeSessionInit(clientNonce: fixture.clientNonce))
+        }
+    }
+
     @Test func garbageClientSignatureReturnsBadSignatureRejection() throws {
         let fixture = try Fixture()
         _ = try fixture.authenticator.processInit(fixture.makeSessionInit(clientNonce: fixture.clientNonce))
@@ -469,7 +477,10 @@ private final class Fixture {
     let clientNonce: Data
     let clock: Date
 
-    init(approveOnSetup: Bool = true) throws {
+    init(
+        approveOnSetup: Bool = true,
+        keyProvider: HostSigningKeyProviding? = nil
+    ) throws {
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
@@ -491,7 +502,7 @@ private final class Fixture {
         self.clock = clock
 
         let pairing = Pairing(
-            keyProvider: InMemoryHostSigningKeyProvider(key: hostKey),
+            keyProvider: keyProvider ?? InMemoryHostSigningKeyProvider(key: hostKey),
             tailnetDiscovery: StaticTailnetDiscovery(),
             pairedDevices: PairedDeviceStore(url: allowlistURL),
             now: { clock }
@@ -502,7 +513,23 @@ private final class Fixture {
             try pairing.approve(devicePublicKey: deviceKey.publicKey.x963Representation)
         }
 
-        self.sessionToken = try pairing.sessionToken(for: deviceFingerprint)
+        if keyProvider == nil {
+            self.sessionToken = try pairing.sessionToken(for: deviceFingerprint)
+        } else {
+            let issuedAt = Int(clock.timeIntervalSince1970)
+            let hostFingerprint = hostKey.publicKey.agentDeskFingerprint
+            let signature = try hostKey.signature(for: Pairing.signingData(
+                hostFingerprint: hostFingerprint,
+                deviceFingerprint: deviceFingerprint,
+                issuedAt: issuedAt
+            ))
+            self.sessionToken = SessionToken(
+                hostFingerprint: hostFingerprint,
+                deviceFingerprint: deviceFingerprint,
+                issuedAt: issuedAt,
+                signature: signature.rawRepresentation
+            )
+        }
         self.clientNonce = Data(repeating: 0xa1, count: 32)
         self.authenticator = SessionAuthenticator(
             pairing: pairing,
@@ -548,6 +575,12 @@ private struct InMemoryHostSigningKeyProvider: HostSigningKeyProviding {
 
     func loadOrCreate() throws -> HostSigningKey {
         .plain(key)
+    }
+}
+
+private struct FailingHostSigningKeyProvider: HostSigningKeyProviding {
+    func loadOrCreate() throws -> HostSigningKey {
+        throw KeychainError.unexpectedStatus(errSecInteractionNotAllowed)
     }
 }
 

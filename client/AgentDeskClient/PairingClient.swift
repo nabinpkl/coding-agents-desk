@@ -391,7 +391,7 @@ final class PairingClient {
         case .revoked, .unknownDevice, .badSignature, .unauthorized:
             try? tokenStore.clear()
             state = .revoked
-        case .replay, .malformed, .expiredResume:
+        case .replay, .malformed, .expiredResume, .signingKeyUnavailable:
             state = .pairedDisconnected
         case .incompatibleProtocol:
             // Not recoverable by retrying; keep the token but surface that an app

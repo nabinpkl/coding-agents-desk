@@ -162,12 +162,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        // A dev iteration run (`just host-run`) is a transient, env-carrying launch,
-        // not a production login install. Registering the LaunchAgent here would make
-        // launchd RunAtLoad a second, env-less copy whose signing-key store differs,
-        // flipping the host identity and breaking the paired client. Skip it for dev
-        // runs; the daily-driver launch (no permissive env) still installs it.
-        if !Config.devPermissiveKeystore {
+        // A dev iteration run (`just host-run`) is a transient, env-carrying
+        // launch, not a production login install. Registering the LaunchAgent here
+        // could make launchd RunAtLoad a second, env-less copy. Skip it for dev
+        // runs; the daily-driver launch still installs it.
+        if !Config.devIterationRun {
             installLaunchAgent()
         }
         configureStatusItem()
@@ -520,7 +519,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func signedResumeChallenge(_ challenge: SessionResumeChallenge, request: SessionResumeInit) throws -> SessionResumeChallenge {
-        let key = try pairing.signingKey()
+        let key = try loadHostSigningKey(context: "session-resume-challenge")
         let hostFingerprint = key.publicKey.agentDeskFingerprint
         let signature = try key.signature(for: SessionResumeSigning.challengeInput(
             sessionId: request.sessionId,
@@ -546,7 +545,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hostNonce: Data,
         protocolVersion: Int
     ) throws -> SessionReady {
-        let key = try pairing.signingKey()
+        let key = try loadHostSigningKey(context: "session-resume-ready")
         let hostFingerprint = key.publicKey.agentDeskFingerprint
         let signature = try key.signature(for: SessionResumeSigning.readyInput(
             ready: ready,
@@ -564,6 +563,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             mediaKeySalt: ready.mediaKeySalt,
             hostSignature: signature
         )
+    }
+
+    private func loadHostSigningKey(context: String) throws -> HostSigningKey {
+        do {
+            return try pairing.signingKey()
+        } catch {
+            signalingLogger.error("host signing key unavailable context=\(context, privacy: .public) reason=\(String(describing: error), privacy: .public)")
+            throw SessionRejected(reason: .signingKeyUnavailable)
+        }
     }
 
     private func handleSessionSuspended(_ fingerprint: DeviceFingerprint, sessionId: String?) {

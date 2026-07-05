@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Security
+import os
 import AgentDeskWire
 
 enum PairingError: Error {
@@ -60,6 +61,7 @@ final class Pairing {
     private let pairedDevices: PairedDeviceStore
     private let nonceTTL: TimeInterval
     private let now: () -> Date
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "pairing")
     private var nonceIssuedAt: [String: Date] = [:]
     // ADR-0019: nonces minted for a Mac-pushed pairing offer, mapped to the
     // picked device's display name. The host-side pick is the authorization, so a
@@ -83,16 +85,16 @@ final class Pairing {
 
     var signingKeyStorage: SigningKeyStorage? {
         get throws {
-            try keyProvider.loadOrCreate().storage
+            try loadSigningKey(context: "storage-check").storage
         }
     }
 
     func signingKey() throws -> HostSigningKey {
-        try keyProvider.loadOrCreate()
+        try loadSigningKey(context: "session-auth")
     }
 
     func mintPairingPayload() throws -> PairingPayload {
-        let key = try keyProvider.loadOrCreate()
+        let key = try loadSigningKey(context: "pairing-payload")
         let tailnet = try tailnetDiscovery.currentIdentity()
         let nonce = try randomBytes(count: 32)
         let issuedAt = now()
@@ -107,6 +109,17 @@ final class Pairing {
             expiresAt: Int(issuedAt.addingTimeInterval(nonceTTL).timeIntervalSince1970),
             signalingPort: Config.signalingPort
         )
+    }
+
+    private func loadSigningKey(context: String) throws -> HostSigningKey {
+        do {
+            let key = try keyProvider.loadOrCreate()
+            logger.notice("host signing key loaded context=\(context, privacy: .public) signingKeyStorage=\(key.storage.rawValue, privacy: .public)")
+            return key
+        } catch {
+            logger.error("host signing key load failed context=\(context, privacy: .public) reason=\(String(describing: error), privacy: .public)")
+            throw error
+        }
     }
 
     func approve(devicePublicKey: Data) throws {

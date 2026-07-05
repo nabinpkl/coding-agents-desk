@@ -915,30 +915,33 @@ enum Config {
     static let keychainService = bundleIdentifier
     static let hostSigningKeyAccount = "host-signing-key"
     static let keychainAccessGroup: String? = nil
-    static let devHostSigningKeyFile = applicationSupportDirectory
-        .appendingPathComponent("host-signing-key.dev", isDirectory: false)
     // True when the host was launched by the dev iteration flow (`just host-run`),
-    // which sets AGENTDESK_DEV_PERMISSIVE_KEYSTORE=1. Such a run is a transient,
-    // env-carrying launch, not a production login install: it uses the flat-file
-    // signing key (HostSigningKeyStore) and must NOT register a login LaunchAgent.
-    // A LaunchAgent has RunAtLoad, so bootstrapping it makes launchd spawn a second,
-    // env-less copy whose signing-key store differs (Secure Enclave vs flat file),
-    // flipping the host identity and breaking the already-paired client. Single
-    // source of truth for the flag; keep it out of durable storage so a stale dev
-    // flag can never weaken a later production launch.
-    static let devPermissiveKeystore: Bool = enabledFlag(
-        environmentKey: "AGENTDESK_DEV_PERMISSIVE_KEYSTORE",
+    // which sets AGENTDESK_DEV_ITERATION_RUN=1. Such a run is a transient,
+    // env-carrying launch, not a production login install, so it must not register
+    // a login LaunchAgent. Key storage does not branch on this flag.
+    static let devIterationRun: Bool = enabledFlag(
+        environmentKey: "AGENTDESK_DEV_ITERATION_RUN",
         defaultValue: false,
         environment: ProcessInfo.processInfo.environment
     )
     // Dev-automation flag: bypass the pairing-approval modal so headless recipes
     // (pair-sim, pair-iphone, motion-verify) pair unattended. Gated on a dev
-    // iteration run (devPermissiveKeystore) so a stray AGENTDESK_AUTO_APPROVE in a
+    // iteration run so a stray AGENTDESK_AUTO_APPROVE in a
     // production launch's environment can never silently auto-approve pairings; the
     // human device pick/approve stays the authorization gate (ADR-0019).
-    static let autoApprovePairing: Bool = devPermissiveKeystore && enabledFlag(
-        environmentKey: "AGENTDESK_AUTO_APPROVE",
-        defaultValue: false,
+    static let autoApprovePairing: Bool = autoApprovePairingEnabled(
         environment: ProcessInfo.processInfo.environment
     )
+
+    static func autoApprovePairingEnabled(environment: [String: String]) -> Bool {
+        enabledFlag(
+            environmentKey: "AGENTDESK_DEV_ITERATION_RUN",
+            defaultValue: false,
+            environment: environment
+        ) && enabledFlag(
+            environmentKey: "AGENTDESK_AUTO_APPROVE",
+            defaultValue: false,
+            environment: environment
+        )
+    }
 }
