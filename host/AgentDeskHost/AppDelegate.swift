@@ -121,6 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var agentSayServer: AgentSayLocalServer?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
+    private var textInputFocusProbeGate = HostTextInputFocusProbeGate()
     private lazy var frameSource: VideoFrameSource = MediaStack.makeFrameSource(
         selectedDisplayIdProvider: { [displaySelection] in
             displaySelection.selectedDisplayId
@@ -755,14 +756,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let showHostCursor = config.showHostCursorInVideo ?? false
             // nil = no opinion -> adaptive media quality remains on, matching ADR-0033.
             let mediaQuality = config.mediaQuality ?? ClientMediaQualityConfig(adaptiveEnabled: true)
+            let autoKeyboardEnabled = config.autoKeyboardEnabled
             Task { @MainActor [weak self, provider, thumbnailOwner, server] in
                 guard let self else { return }
                 let transport = self.sessions.transport(for: clientFingerprint)
                 transport?.setClientCrispEnabled(crispEnabled)
                 transport?.setClientMediaQuality(mediaQuality)
                 (self.frameSource as? DisplaySelectableVideoFrameSource)?.setShowsCursorInVideo(showHostCursor)
+                if self.textInputFocusProbeGate.apply(autoKeyboardEnabled: autoKeyboardEnabled, for: clientFingerprint) {
+                    self.textInputFocusProbeCoordinator.cancel(for: clientFingerprint)
+                }
                 let fixedTarget = mediaQuality.fixedTarget
-                self.thumbnailsLogger.notice("client thumbnail config fp=\(clientFingerprint.rawValue, privacy: .public) enabled=\(enabled, privacy: .public) refresh=\(String(describing: refresh), privacy: .public) selectedDisplay=\(selectedDisplayId ?? "nil", privacy: .public) crisp=\(crispEnabled, privacy: .public) adaptiveQuality=\(mediaQuality.adaptiveEnabled, privacy: .public) fixedBitrateKbps=\(fixedTarget?.bitrateKbps ?? 0, privacy: .public) fixedFps=\(fixedTarget?.fps ?? 0, privacy: .public) fixedResolutionScale=\(fixedTarget?.resolutionScale ?? 0, privacy: .public)")
+                self.thumbnailsLogger.notice("client thumbnail config fp=\(clientFingerprint.rawValue, privacy: .public) enabled=\(enabled, privacy: .public) refresh=\(String(describing: refresh), privacy: .public) selectedDisplay=\(selectedDisplayId ?? "nil", privacy: .public) crisp=\(crispEnabled, privacy: .public) autoKeyboard=\(autoKeyboardEnabled, privacy: .public) adaptiveQuality=\(mediaQuality.adaptiveEnabled, privacy: .public) fixedBitrateKbps=\(fixedTarget?.bitrateKbps ?? 0, privacy: .public) fixedFps=\(fixedTarget?.fps ?? 0, privacy: .public) fixedResolutionScale=\(fixedTarget?.resolutionScale ?? 0, privacy: .public)")
                 if enabled {
                     self.thumbnailEnabledClients.insert(clientFingerprint)
                 } else {
@@ -797,6 +802,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let scheduleTextFocusProbe: @Sendable () -> Void = { [weak self, weak server] in
             Task { @MainActor in
                 guard let self, let server else { return }
+                guard self.textInputFocusProbeGate.canScheduleProbe(for: fingerprint) else { return }
                 self.textInputFocusProbeCoordinator.schedule(for: fingerprint, server: server)
             }
         }
@@ -812,6 +818,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 logger.notice("input event stream finished")
                 Task { @MainActor [weak self] in
                     self?.textInputFocusProbeCoordinator.cancel(for: fingerprint)
+                    self?.textInputFocusProbeGate.remove(fingerprint)
                 }
             },
             for: fingerprint

@@ -68,25 +68,54 @@ struct VideoTouchGestureConfigTests {
     }
 
     @Test func layoutStateChangesDoNotChangeTouchModeEnabled() {
-        let state = VideoTouchControlState(layoutMode: .asIs, videoTouchEnabled: true)
+        let state = RemoteInputModeControlState(
+            layoutMode: .asIs,
+            videoTouchEnabled: true,
+            autoKeyboardEnabled: false
+        )
         let full = state.with(layoutMode: .full)
         #expect(full.layoutMode == .full)
         #expect(full.videoTouchEnabled == true)
+        #expect(full.autoKeyboardEnabled == false)
 
         let asIs = full.with(layoutMode: .asIs)
         #expect(asIs.layoutMode == .asIs)
         #expect(asIs.videoTouchEnabled == true)
+        #expect(asIs.autoKeyboardEnabled == false)
     }
 
-    @Test func touchModeStateChangesDoNotChangeLayout() {
-        let state = VideoTouchControlState(layoutMode: .full, videoTouchEnabled: false)
+    @Test func touchModeStateChangesDoNotChangeLayoutOrAutoKeyboard() {
+        let state = RemoteInputModeControlState(
+            layoutMode: .full,
+            videoTouchEnabled: false,
+            autoKeyboardEnabled: true
+        )
         let enabled = state.with(videoTouchEnabled: true)
         #expect(enabled.layoutMode == .full)
         #expect(enabled.videoTouchEnabled == true)
+        #expect(enabled.autoKeyboardEnabled)
 
         let disabled = enabled.with(videoTouchEnabled: false)
         #expect(disabled.layoutMode == .full)
         #expect(disabled.videoTouchEnabled == false)
+        #expect(disabled.autoKeyboardEnabled)
+    }
+
+    @Test func autoKeyboardStateChangesDoNotChangeLayoutOrTouchMode() {
+        let state = RemoteInputModeControlState(
+            layoutMode: .full,
+            videoTouchEnabled: true,
+            autoKeyboardEnabled: true
+        )
+        let disabled = state.with(autoKeyboardEnabled: false)
+        #expect(disabled.layoutMode == .full)
+        #expect(disabled.videoTouchEnabled)
+        #expect(disabled.autoKeyboardEnabled == false)
+
+        let enabled = disabled.with(autoKeyboardEnabled: true)
+        #expect(enabled.layoutMode == .full)
+        #expect(enabled.videoTouchEnabled)
+        #expect(enabled.autoKeyboardEnabled)
     }
 
     @Test func validVideoTapEmitsCursorSetThenLeftClick() {

@@ -6,16 +6,33 @@ enum VideoLayoutMode: String, CaseIterable, Equatable {
     case full
 }
 
-struct VideoTouchControlState: Equatable {
+struct RemoteInputModeControlState: Equatable {
     var layoutMode: VideoLayoutMode
     var videoTouchEnabled: Bool
+    var autoKeyboardEnabled: Bool
 
-    func with(layoutMode newLayoutMode: VideoLayoutMode) -> VideoTouchControlState {
-        VideoTouchControlState(layoutMode: newLayoutMode, videoTouchEnabled: videoTouchEnabled)
+    func with(layoutMode newLayoutMode: VideoLayoutMode) -> RemoteInputModeControlState {
+        RemoteInputModeControlState(
+            layoutMode: newLayoutMode,
+            videoTouchEnabled: videoTouchEnabled,
+            autoKeyboardEnabled: autoKeyboardEnabled
+        )
     }
 
-    func with(videoTouchEnabled newVideoTouchEnabled: Bool) -> VideoTouchControlState {
-        VideoTouchControlState(layoutMode: layoutMode, videoTouchEnabled: newVideoTouchEnabled)
+    func with(videoTouchEnabled newVideoTouchEnabled: Bool) -> RemoteInputModeControlState {
+        RemoteInputModeControlState(
+            layoutMode: layoutMode,
+            videoTouchEnabled: newVideoTouchEnabled,
+            autoKeyboardEnabled: autoKeyboardEnabled
+        )
+    }
+
+    func with(autoKeyboardEnabled newAutoKeyboardEnabled: Bool) -> RemoteInputModeControlState {
+        RemoteInputModeControlState(
+            layoutMode: layoutMode,
+            videoTouchEnabled: videoTouchEnabled,
+            autoKeyboardEnabled: newAutoKeyboardEnabled
+        )
     }
 }
 

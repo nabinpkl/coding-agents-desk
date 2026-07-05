@@ -24,7 +24,7 @@ final class SettingsViewController: UIViewController {
     private let manualMediaFpsControl = UISegmentedControl(items: ["6", "10", "15", "24", "30"])
     private let manualMediaResolutionControl = UISegmentedControl(items: ["33%", "50%", "75%", "100%"])
     private let manualMediaRows = UIStackView()
-    private let videoTouchControl = VideoTouchControl()
+    private let remoteInputModeControl = RemoteInputModeControl()
     private let accessoryContainerSlider = UISlider()
     private let accessoryContainerLabel = UILabel()
     private let accessoryKeySlider = UISlider()
@@ -79,10 +79,10 @@ final class SettingsViewController: UIViewController {
         )
 
         let videoTouchSection = makeSection(
-            title: "Touch mode",
+            title: "Remote input",
             rows: [],
-            customRows: [videoTouchControl],
-            footnote: "Full expands the video and hides the trackpad strip. Touch mode makes video taps click the Mac and video drags scroll it."
+            customRows: [remoteInputModeControl],
+            footnote: "Full expands the video and hides the trackpad strip. Touch controls video taps and drags. Auto Key opens the iPhone keyboard after text-field clicks."
         )
 
         // ADR-0006: opt-in for the thumbnail preview strip.
@@ -226,7 +226,7 @@ final class SettingsViewController: UIViewController {
         manualMediaFpsControl.addTarget(self, action: #selector(manualMediaFpsChanged), for: .valueChanged)
         manualMediaResolutionControl.addTarget(self, action: #selector(manualMediaResolutionChanged), for: .valueChanged)
         configureManualMediaRows()
-        videoTouchControl.addTarget(self, action: #selector(videoTouchChanged), for: .valueChanged)
+        remoteInputModeControl.addTarget(self, action: #selector(remoteInputModeChanged), for: .valueChanged)
 
         // Accessory bar tunings live in points so the slider value maps
         // directly to layout. Ranges chosen to cover "tiny chiclet" to
@@ -262,8 +262,9 @@ final class SettingsViewController: UIViewController {
         manualMediaBitrateSlider.value = Float(store.manualMediaBitrateKbps)
         manualMediaFpsControl.selectedSegmentIndex = index(for: store.manualMediaFps, in: manualFpsValues())
         manualMediaResolutionControl.selectedSegmentIndex = index(for: store.manualMediaResolutionScale, in: manualResolutionValues())
-        videoTouchControl.layoutMode = store.videoLayoutMode
-        videoTouchControl.videoTouchEnabled = store.videoTouchEnabled
+        remoteInputModeControl.layoutMode = store.videoLayoutMode
+        remoteInputModeControl.videoTouchEnabled = store.videoTouchEnabled
+        remoteInputModeControl.autoKeyboardEnabled = store.autoKeyboardEnabled
         accessoryContainerSlider.value = Float(store.accessoryContainerHeight)
         accessoryKeySlider.value = Float(store.accessoryKeyHeight)
         accessoryGapSlider.value = Float(store.accessoryKeySpacing)
@@ -352,12 +353,13 @@ final class SettingsViewController: UIViewController {
         store.manualMediaResolutionScale = values[index]
     }
 
-    @objc private func videoTouchChanged() {
+    @objc private func remoteInputModeChanged() {
         // Writing the store posts changedNotification, which PairingViewController
         // observes and applies via applyVideoTouchState.
-        store.setVideoTouch(
-            layoutMode: videoTouchControl.layoutMode,
-            enabled: videoTouchControl.videoTouchEnabled
+        store.setRemoteInputModes(
+            layoutMode: remoteInputModeControl.layoutMode,
+            videoTouchEnabled: remoteInputModeControl.videoTouchEnabled,
+            autoKeyboardEnabled: remoteInputModeControl.autoKeyboardEnabled
         )
     }
 

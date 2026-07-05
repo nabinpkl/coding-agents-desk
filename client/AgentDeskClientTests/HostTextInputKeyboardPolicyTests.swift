@@ -153,6 +153,28 @@ struct HostTextInputKeyboardPolicyTests {
         #expect(intent == .remoteTap)
     }
 
+    @Test func autoKeyboardOffSuppressesHiddenRemoteTapIntent() {
+        let intent = HostTextInputKeyboardPolicy.intentForRemoteInput(
+            .click(button: .left),
+            autoKeyboardEnabled: false,
+            keyboardIsShown: false
+        )
+        #expect(intent == nil)
+    }
+
+    @Test func autoKeyboardOffStillAllowsShownKeyboardDismissal() {
+        let intent = HostTextInputKeyboardPolicy.intentForRemoteInput(
+            .click(button: .left),
+            autoKeyboardEnabled: false,
+            keyboardIsShown: true
+        )
+        #expect(intent == .remoteTap)
+        #expect(KeyboardPresentationStateMachine.transition(
+            from: .shown,
+            intent: intent!
+        ).next == .hidden)
+    }
+
     @Test func nonLeftClickInputDoesNotAffectKeyboardPolicy() {
         #expect(HostTextInputKeyboardPolicy.intentForRemoteInput(
             .click(button: .right)

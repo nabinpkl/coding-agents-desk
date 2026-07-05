@@ -145,7 +145,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // Touch mode control (bottom row) and the recognizers installed
     // on the video surface while video touch input is active. See
     // PairingViewController+VideoTouch.swift.
-    let videoTouchControl = VideoTouchControl()
+    let remoteInputModeControl = RemoteInputModeControl()
     var videoTouchScrollRecognizer: UIPanGestureRecognizer?
     var videoTouchTapRecognizer: UITapGestureRecognizer?
     var videoDoubleTapZoomRecognizer: UITapGestureRecognizer?

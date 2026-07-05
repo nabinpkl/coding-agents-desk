@@ -1,7 +1,7 @@
 import UIKit
 import AgentDeskWire
 
-final class VideoTouchControl: UIControl {
+final class RemoteInputModeControl: UIControl {
     var layoutMode: VideoLayoutMode = .asIs {
         didSet { updateAppearance() }
     }
@@ -10,10 +10,14 @@ final class VideoTouchControl: UIControl {
         didSet { updateAppearance() }
     }
 
+    var autoKeyboardEnabled: Bool = true {
+        didSet { updateAppearance() }
+    }
+
     private let fullButton = UIButton(type: .system)
     private let asIsButton = UIButton(type: .system)
-    private let label = UILabel()
-    private let enabledSwitch = UISwitch()
+    private let touchButton = UIButton(type: .system)
+    private let autoKeyButton = UIButton(type: .system)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -36,45 +40,27 @@ final class VideoTouchControl: UIControl {
         layer.borderWidth = 0.5
         clipsToBounds = true
 
-        let divider = UIView()
-        divider.backgroundColor = .separator
-        divider.translatesAutoresizingMaskIntoConstraints = false
-
-        for button in [fullButton, asIsButton] {
+        for button in [fullButton, asIsButton, touchButton, autoKeyButton] {
             button.titleLabel?.font = .preferredFont(forTextStyle: .caption1)
             button.tintColor = .label
             button.translatesAutoresizingMaskIntoConstraints = false
         }
         fullButton.setTitle("Full", for: .normal)
         asIsButton.setTitle("As Is", for: .normal)
+        touchButton.setTitle("Touch", for: .normal)
+        autoKeyButton.setTitle("Auto Key", for: .normal)
         fullButton.addTarget(self, action: #selector(fullTapped), for: .touchUpInside)
         asIsButton.addTarget(self, action: #selector(asIsTapped), for: .touchUpInside)
+        touchButton.addTarget(self, action: #selector(touchTapped), for: .touchUpInside)
+        autoKeyButton.addTarget(self, action: #selector(autoKeyTapped), for: .touchUpInside)
 
-        let choiceRow = UIStackView(arrangedSubviews: [fullButton, divider, asIsButton])
-        choiceRow.axis = .horizontal
-        choiceRow.alignment = .fill
-        choiceRow.distribution = .fill
-        choiceRow.spacing = 0
-        choiceRow.translatesAutoresizingMaskIntoConstraints = false
+        let topDivider = makeDivider()
+        let bottomDivider = makeDivider()
+        let rowDivider = makeDivider()
+        let topRow = makeRow([fullButton, topDivider, asIsButton])
+        let bottomRow = makeRow([touchButton, bottomDivider, autoKeyButton])
 
-        label.text = "Touch mode"
-        label.font = .preferredFont(forTextStyle: .caption2)
-        label.textColor = .secondaryLabel
-        label.textAlignment = .left
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        enabledSwitch.transform = CGAffineTransform(scaleX: 0.68, y: 0.68)
-        enabledSwitch.addTarget(self, action: #selector(enabledChanged), for: .valueChanged)
-        enabledSwitch.translatesAutoresizingMaskIntoConstraints = false
-
-        let switchRow = UIStackView(arrangedSubviews: [label, enabledSwitch])
-        switchRow.axis = .horizontal
-        switchRow.alignment = .center
-        switchRow.distribution = .fill
-        switchRow.spacing = 4
-        switchRow.translatesAutoresizingMaskIntoConstraints = false
-
-        let stack = UIStackView(arrangedSubviews: [choiceRow, switchRow])
+        let stack = UIStackView(arrangedSubviews: [topRow, rowDivider, bottomRow])
         stack.axis = .vertical
         stack.alignment = .fill
         stack.spacing = 0
@@ -86,35 +72,61 @@ final class VideoTouchControl: UIControl {
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
-            divider.widthAnchor.constraint(equalToConstant: 1),
+            topDivider.widthAnchor.constraint(equalToConstant: 1),
+            bottomDivider.widthAnchor.constraint(equalToConstant: 1),
+            rowDivider.heightAnchor.constraint(equalToConstant: 1),
             fullButton.widthAnchor.constraint(equalTo: asIsButton.widthAnchor),
-            choiceRow.heightAnchor.constraint(equalToConstant: 24),
-            switchRow.heightAnchor.constraint(equalToConstant: 24)
+            touchButton.widthAnchor.constraint(equalTo: autoKeyButton.widthAnchor),
+            topRow.heightAnchor.constraint(equalToConstant: 24),
+            bottomRow.heightAnchor.constraint(equalToConstant: 24)
         ])
         updateAppearance()
     }
 
+    private func makeRow(_ views: [UIView]) -> UIStackView {
+        let row = UIStackView(arrangedSubviews: views)
+        row.axis = .horizontal
+        row.alignment = .fill
+        row.distribution = .fill
+        row.spacing = 0
+        row.translatesAutoresizingMaskIntoConstraints = false
+        return row
+    }
+
+    private func makeDivider() -> UIView {
+        let divider = UIView()
+        divider.backgroundColor = .separator
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        return divider
+    }
+
     @objc private func fullTapped() {
+        guard layoutMode != .full else { return }
         layoutMode = .full
         sendActions(for: .valueChanged)
     }
 
     @objc private func asIsTapped() {
+        guard layoutMode != .asIs else { return }
         layoutMode = .asIs
         sendActions(for: .valueChanged)
     }
 
-    @objc private func enabledChanged() {
-        videoTouchEnabled = enabledSwitch.isOn
+    @objc private func touchTapped() {
+        videoTouchEnabled.toggle()
+        sendActions(for: .valueChanged)
+    }
+
+    @objc private func autoKeyTapped() {
+        autoKeyboardEnabled.toggle()
         sendActions(for: .valueChanged)
     }
 
     private func updateAppearance() {
         style(fullButton, selected: layoutMode == .full)
         style(asIsButton, selected: layoutMode == .asIs)
-        if enabledSwitch.isOn != videoTouchEnabled {
-            enabledSwitch.setOn(videoTouchEnabled, animated: false)
-        }
+        style(touchButton, selected: videoTouchEnabled)
+        style(autoKeyButton, selected: autoKeyboardEnabled)
     }
 
     private func style(_ button: UIButton, selected: Bool) {
@@ -266,8 +278,9 @@ extension PairingViewController {
             scroll.isScrollEnabled = config.scrollViewScrollEnabled
             scroll.panGestureRecognizer.minimumNumberOfTouches = config.scrollViewPanMinimumTouches
         }
-        videoTouchControl.layoutMode = layoutMode
-        videoTouchControl.videoTouchEnabled = enabled
+        remoteInputModeControl.layoutMode = layoutMode
+        remoteInputModeControl.videoTouchEnabled = enabled
+        remoteInputModeControl.autoKeyboardEnabled = SettingsStore.shared.autoKeyboardEnabled
         let controlSurfaceActive = isControlSurfaceActive()
         let relativeControlsHidden = !controlSurfaceActive || config.relativeControlsHidden
         for control in [trackpadView, scrollStripView] {
@@ -286,13 +299,11 @@ extension PairingViewController {
         return seg.titleForSegment(at: seg.selectedSegmentIndex) == "Control"
     }
 
-    @objc func videoTouchControlChanged(_ control: VideoTouchControl) {
-        SettingsStore.shared.setVideoTouch(
+    @objc func remoteInputModeControlChanged(_ control: RemoteInputModeControl) {
+        SettingsStore.shared.setRemoteInputModes(
             layoutMode: control.layoutMode,
-            enabled: control.videoTouchEnabled
+            videoTouchEnabled: control.videoTouchEnabled,
+            autoKeyboardEnabled: control.autoKeyboardEnabled
         )
-        // postChange() also drives settingsChanged -> applyVideoTouchState, but
-        // apply immediately too so the control feels instant.
-        applyVideoTouchState()
     }
 }

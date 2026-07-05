@@ -69,7 +69,8 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
                 fps: 15,
                 resolutionScale: 0.5
             )
-        )
+        ),
+        autoKeyboardEnabled: false
     )
     try roundTrip(config)
 
@@ -82,6 +83,13 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(fixedTarget?["bk"] as? Int == 1_200)
     #expect(fixedTarget?["fps"] as? Int == 15)
     #expect(fixedTarget?["rs"] as? Double == 0.5)
+    #expect(object?["ak"] as? Bool == false)
+}
+
+@Test func clientConfigDefaultsAutoKeyboardEnabledWhenMissing() throws {
+    let data = Data(#"{"t":"client-config","te":false}"#.utf8)
+    let decoded = try JSONDecoder().decode(ClientConfig.self, from: data)
+    #expect(decoded.autoKeyboardEnabled)
 }
 
 @Test func hostAvailabilityPushRoundTripsLockedAndCaptureUnavailable() throws {

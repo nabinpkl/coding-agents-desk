@@ -283,6 +283,10 @@ public struct ClientConfig: Codable, Equatable, Sendable {
     // other client preferences: nil = no opinion, so the host keeps adaptive quality on at
     // the native target. When adaptive is off, fixedTarget pins bitrate/FPS/resolution.
     public let mediaQuality: ClientMediaQualityConfig?
+    // Client's preference for host-side text focus probing after remote clicks. Default
+    // true preserves the automatic keyboard-open behavior for peers that predate this
+    // setting; false lets the host skip cursor/AX probes for this client.
+    public let autoKeyboardEnabled: Bool
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case type = "t"
@@ -292,6 +296,7 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         case crispTextOverlayEnabled = "ce"
         case showHostCursorInVideo = "hc"
         case mediaQuality = "mq"
+        case autoKeyboardEnabled = "ak"
     }
 
     public init(
@@ -300,7 +305,8 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         selectedDisplayId: String? = nil,
         crispTextOverlayEnabled: Bool? = nil,
         showHostCursorInVideo: Bool? = nil,
-        mediaQuality: ClientMediaQualityConfig? = nil
+        mediaQuality: ClientMediaQualityConfig? = nil,
+        autoKeyboardEnabled: Bool = true
     ) {
         self.type = "client-config"
         self.thumbnailsEnabled = thumbnailsEnabled
@@ -309,5 +315,30 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         self.crispTextOverlayEnabled = crispTextOverlayEnabled
         self.showHostCursorInVideo = showHostCursorInVideo
         self.mediaQuality = mediaQuality
+        self.autoKeyboardEnabled = autoKeyboardEnabled
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decodeIfPresent(String.self, forKey: .type) ?? "client-config"
+        thumbnailsEnabled = try container.decode(Bool.self, forKey: .thumbnailsEnabled)
+        thumbnailRefresh = try container.decodeIfPresent(UInt64.self, forKey: .thumbnailRefresh)
+        selectedDisplayId = try container.decodeIfPresent(String.self, forKey: .selectedDisplayId)
+        crispTextOverlayEnabled = try container.decodeIfPresent(Bool.self, forKey: .crispTextOverlayEnabled)
+        showHostCursorInVideo = try container.decodeIfPresent(Bool.self, forKey: .showHostCursorInVideo)
+        mediaQuality = try container.decodeIfPresent(ClientMediaQualityConfig.self, forKey: .mediaQuality)
+        autoKeyboardEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoKeyboardEnabled) ?? true
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(thumbnailsEnabled, forKey: .thumbnailsEnabled)
+        try container.encodeIfPresent(thumbnailRefresh, forKey: .thumbnailRefresh)
+        try container.encodeIfPresent(selectedDisplayId, forKey: .selectedDisplayId)
+        try container.encodeIfPresent(crispTextOverlayEnabled, forKey: .crispTextOverlayEnabled)
+        try container.encodeIfPresent(showHostCursorInVideo, forKey: .showHostCursorInVideo)
+        try container.encodeIfPresent(mediaQuality, forKey: .mediaQuality)
+        try container.encode(autoKeyboardEnabled, forKey: .autoKeyboardEnabled)
     }
 }

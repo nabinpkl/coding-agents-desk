@@ -170,10 +170,9 @@ extension PairingViewController {
         rightClickButton.addTarget(self, action: #selector(rightClickTapped), for: .touchUpInside)
         buttonRow.addArrangedSubview(rightClickButton)
 
-        // Layout and video touch input are independent: Full expands the
-        // video; the switch controls whether video taps/drags hit the Mac.
-        videoTouchControl.addTarget(self, action: #selector(videoTouchControlChanged(_:)), for: .valueChanged)
-        buttonRow.addArrangedSubview(videoTouchControl)
+        // Layout, video touch input, and automatic keyboard opening are independent.
+        remoteInputModeControl.addTarget(self, action: #selector(remoteInputModeControlChanged(_:)), for: .valueChanged)
+        buttonRow.addArrangedSubview(remoteInputModeControl)
 
         styleActionButton(showKeyboardButton, title: "Show keyboard")
         showKeyboardButton.addTarget(self, action: #selector(toggleKeyboard), for: .touchUpInside)
@@ -397,7 +396,7 @@ extension PairingViewController {
         scrollStripView.removeFromSuperview()
         buttonRow.removeFromSuperview()
         rightClickButton.removeFromSuperview()
-        videoTouchControl.removeFromSuperview()
+        remoteInputModeControl.removeFromSuperview()
         showKeyboardButton.removeFromSuperview()
         displayRailView.removeFromSuperview()
         displayRailView.renderEmpty()

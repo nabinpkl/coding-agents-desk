@@ -81,8 +81,13 @@ enum HostTextInputKeyboardPolicy {
         .remoteTap
     }
 
-    static func intentForRemoteInput(_ input: NormalizedInput) -> KeyboardPresentationIntent? {
+    static func intentForRemoteInput(
+        _ input: NormalizedInput,
+        autoKeyboardEnabled: Bool = true,
+        keyboardIsShown: Bool = false
+    ) -> KeyboardPresentationIntent? {
         guard case .click(.left) = input else { return nil }
+        guard autoKeyboardEnabled || keyboardIsShown else { return nil }
         return intentForRemoteTap()
     }
 }

@@ -74,7 +74,11 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
 
     @discardableResult
     func applyKeyboardPresentationIntentForRemoteInput(_ input: NormalizedInput) -> KeyboardPresentationTransition? {
-        guard let intent = HostTextInputKeyboardPolicy.intentForRemoteInput(input) else { return nil }
+        guard let intent = HostTextInputKeyboardPolicy.intentForRemoteInput(
+            input,
+            autoKeyboardEnabled: SettingsStore.shared.autoKeyboardEnabled,
+            keyboardIsShown: keyboardPresentationState == .shown
+        ) else { return nil }
         return applyKeyboardPresentationIntent(intent)
     }
 

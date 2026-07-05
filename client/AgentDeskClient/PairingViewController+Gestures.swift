@@ -12,6 +12,10 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     @objc func settingsChanged() {
         applySettingsToTranslator()
         applyVideoTouchState()
+        if !SettingsStore.shared.autoKeyboardEnabled,
+           keyboardPresentationState == .pendingTextFocus {
+            applyKeyboardPresentationIntent(.hide)
+        }
         // R20: settings toggle is the only source of truth for whether
         // thumbnails capture should run host-side. On every change we
         // resend the current ClientConfig and refresh strip visibility.
@@ -153,6 +157,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
 
     func applyHostTextInputFocus(_ push: HostTextInputFocusPush) {
         lastHostTextInputFocus = push
+        guard SettingsStore.shared.autoKeyboardEnabled else { return }
         applyKeyboardPresentationIntent(HostTextInputKeyboardPolicy.intent(for: push))
     }
 
@@ -350,7 +355,8 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             type: "clientConfigSendStarted",
             fields: [
                 "thumbnailsEnabled": String(config.thumbnailsEnabled),
-                "selectedDisplayId": config.selectedDisplayId ?? "nil"
+                "selectedDisplayId": config.selectedDisplayId ?? "nil",
+                "autoKeyboardEnabled": String(config.autoKeyboardEnabled)
             ],
             level: .info
         )
@@ -361,7 +367,8 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
                     type: "clientConfigSendSucceeded",
                     fields: [
                         "thumbnailsEnabled": String(config.thumbnailsEnabled),
-                        "selectedDisplayId": config.selectedDisplayId ?? "nil"
+                        "selectedDisplayId": config.selectedDisplayId ?? "nil",
+                        "autoKeyboardEnabled": String(config.autoKeyboardEnabled)
                     ],
                     level: .info
                 )
@@ -450,7 +457,8 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             selectedDisplayId: explicitSelectedDisplayId ?? selectedDisplayIdForConfig(),
             crispTextOverlayEnabled: SettingsStore.shared.crispTextOverlayEnabled,
             showHostCursorInVideo: SettingsStore.shared.showHostCursorInVideo,
-            mediaQuality: SettingsStore.shared.mediaQualityConfig
+            mediaQuality: SettingsStore.shared.mediaQualityConfig,
+            autoKeyboardEnabled: SettingsStore.shared.autoKeyboardEnabled
         )
     }
 

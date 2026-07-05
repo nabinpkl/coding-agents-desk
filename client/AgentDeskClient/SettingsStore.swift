@@ -15,7 +15,11 @@ final class SettingsStore: @unchecked Sendable {
 
     static let changedNotification = Notification.Name("com.example.agentdesk.AgentDeskClient.settingsChanged")
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     private enum Key {
         static let cursorSpeed = "agentDesk.cursorSpeed"
@@ -29,6 +33,7 @@ final class SettingsStore: @unchecked Sendable {
         static let showSpacePreviews = "agentDesk.showSpacePreviews"
         static let videoTouchEnabled = "agentDesk.videoTouchEnabled"
         static let videoLayoutMode = "agentDesk.videoLayoutMode"
+        static let autoKeyboardEnabled = "agentDesk.autoKeyboardEnabled"
         static let crispTextOverlayEnabled = "agentDesk.crispTextOverlayEnabled"
         static let showHostCursorInVideo = "agentDesk.showHostCursorInVideo"
         static let adaptiveMediaQualityEnabled = "agentDesk.adaptiveMediaQualityEnabled"
@@ -227,8 +232,8 @@ final class SettingsStore: @unchecked Sendable {
         )
     }
 
-    // Video touch input routing is independent from the layout density.
-    // Defaults are As Is layout with video-surface touch mode off.
+    // Video touch input routing, layout density, and automatic keyboard opening are
+    // independent. Defaults: As Is layout, video-surface touch mode off, auto-key on.
     var videoTouchEnabled: Bool {
         get { defaults.object(forKey: Key.videoTouchEnabled) as? Bool ?? false }
         set {
@@ -250,9 +255,22 @@ final class SettingsStore: @unchecked Sendable {
         }
     }
 
-    func setVideoTouch(layoutMode: VideoLayoutMode, enabled: Bool) {
+    var autoKeyboardEnabled: Bool {
+        get { defaults.object(forKey: Key.autoKeyboardEnabled) as? Bool ?? true }
+        set {
+            defaults.set(newValue, forKey: Key.autoKeyboardEnabled)
+            postChange()
+        }
+    }
+
+    func setRemoteInputModes(
+        layoutMode: VideoLayoutMode,
+        videoTouchEnabled: Bool,
+        autoKeyboardEnabled: Bool
+    ) {
         defaults.set(layoutMode.rawValue, forKey: Key.videoLayoutMode)
-        defaults.set(enabled, forKey: Key.videoTouchEnabled)
+        defaults.set(videoTouchEnabled, forKey: Key.videoTouchEnabled)
+        defaults.set(autoKeyboardEnabled, forKey: Key.autoKeyboardEnabled)
         postChange()
     }
 
