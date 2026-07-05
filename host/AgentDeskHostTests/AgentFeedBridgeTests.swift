@@ -128,7 +128,7 @@ private func makeDigest(
         projectName: projectName,
         source: "claude",
         sources: sources,
-        observed: 1_700_000_000_000.0,
+        observed: false,
         lastEventAt: 1_700_000_001_000.0,
         bin: bin,
         primary: resolvedPrimary,
@@ -441,5 +441,34 @@ struct AgentFeedBridgeTests {
         bridge.reset()
         try await Task.sleep(nanoseconds: 200_000_000)
         #expect(fake.streamCancelledCount >= 1)
+    }
+
+    // MARK: EngineProjectDigest decodes the real sidecar wire shape
+
+    // Regression: the engine emits `observed` as a JSON bool (from a Set.has())
+    // and `lastEventAt` as a fractional epoch-ms Double. The DTO must decode that
+    // exact shape. A prior fixture used a Double for `observed`, so the decoder
+    // was never exercised against the engine's real payload and a type mismatch
+    // (Double vs Bool) shipped, breaking every projects fetch in the bridge.
+    @Test func engineProjectDigestDecodesRealSidecarPayload() throws {
+        let json = """
+        [
+          {
+            "projectName": "agent-desk",
+            "project": "/Users/dev/projects/agent-desk",
+            "source": "claude",
+            "sources": ["claude", "codex"],
+            "observed": false,
+            "lastEventAt": 1782851101572.0078
+          }
+        ]
+        """.data(using: .utf8)!
+
+        let digests = try JSONDecoder().decode([EngineProjectDigest].self, from: json)
+
+        #expect(digests.count == 1)
+        #expect(digests[0].observed == false)
+        #expect(digests[0].project == "/Users/dev/projects/agent-desk")
+        #expect(digests[0].lastEventAt == 1782851101572.0078)
     }
 }

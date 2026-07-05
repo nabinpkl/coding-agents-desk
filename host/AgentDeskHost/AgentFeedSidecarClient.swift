@@ -52,7 +52,7 @@ struct EngineProjectDigest: Codable {
     let projectName: String
     let source: String
     let sources: [String]
-    let observed: Double?
+    let observed: Bool?
     let lastEventAt: Double?
     let bin: String?
     let primary: EngineSessionDigest?
