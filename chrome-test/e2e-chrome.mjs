@@ -29,6 +29,11 @@ const chromium = pw.chromium || (pw.default && pw.default.chromium);
 const extId = extensionId();
 const work = mkdtempSync(join(tmpdir(), 'dom-e2e-chrome-'));
 const userDataDir = join(work, 'chrome-profile');
+// Wrapper goes inside the throwaway work dir, not the repo default (`dom-bridge/dom-bridge`). This
+// gate installs without --socket/--token so the shim falls back to its default (real host) socket;
+// the only thing that must differ from a live install is the wrapper's location, so a run here never
+// overwrites or removes the live install's wrapper.
+const wrapperPath = join(work, 'dom-bridge');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const fixtureServer = http.createServer((req, res) => {
@@ -45,7 +50,7 @@ async function main() {
   // socket (no --socket/--token: the shim's default Application Support paths are the host's).
   mkdirSync(userDataDir, { recursive: true });
   const nmDir = join(userDataDir, 'NativeMessagingHosts');
-  const install = spawnSync('node', [INSTALLER, '--ext-id', extId, '--nmdir', nmDir], { encoding: 'utf8' });
+  const install = spawnSync('node', [INSTALLER, '--ext-id', extId, '--nmdir', nmDir, '--wrapper', wrapperPath], { encoding: 'utf8' });
   if (install.status !== 0) { console.error(install.stdout, install.stderr); throw new Error('install failed'); }
   console.log(`e2e-chrome: installed NM manifest (ext ${extId}) -> real host socket`);
 
@@ -73,7 +78,7 @@ async function main() {
 async function teardown() {
   try { if (ctx) await ctx.close(); } catch {}
   try { fixtureServer.close(); } catch {}
-  spawnSync('node', [INSTALLER, '--remove', '--nmdir', join(userDataDir, 'NativeMessagingHosts')], { encoding: 'utf8' });
+  spawnSync('node', [INSTALLER, '--remove', '--nmdir', join(userDataDir, 'NativeMessagingHosts'), '--wrapper', wrapperPath], { encoding: 'utf8' });
   try { rmSync(work, { recursive: true, force: true }); } catch {}
 }
 

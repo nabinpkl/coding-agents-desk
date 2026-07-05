@@ -36,6 +36,9 @@ const work = mkdtempSync(join(tmpdir(), 'dom-input-verify-'));
 const socketPath = join(work, 'bridge.sock');
 const tokenPath = join(work, 'token');
 const userDataDir = join(work, 'chrome-profile');
+// Wrapper goes inside the throwaway work dir, not the repo default (`dom-bridge/dom-bridge`), so a
+// run here never writes over or deletes a live install's wrapper (the launcher real Chrome spawns).
+const wrapperPath = join(work, 'dom-bridge');
 writeFileSync(tokenPath, TOKEN + '\n');
 
 const failures = [];
@@ -73,7 +76,7 @@ async function main() {
 
   mkdirSync(userDataDir, { recursive: true });
   const nmDir = join(userDataDir, 'NativeMessagingHosts');
-  const install = spawnSync('node', [INSTALLER, '--ext-id', extId, '--nmdir', nmDir, '--socket', socketPath, '--token', tokenPath], { encoding: 'utf8' });
+  const install = spawnSync('node', [INSTALLER, '--ext-id', extId, '--nmdir', nmDir, '--socket', socketPath, '--token', tokenPath, '--wrapper', wrapperPath], { encoding: 'utf8' });
   if (install.status !== 0) { console.error(install.stdout, install.stderr); throw new Error('install failed'); }
 
   ctx = await chromium.launchPersistentContext(userDataDir, {
@@ -122,7 +125,8 @@ async function teardown() {
   try { if (ctx) await ctx.close(); } catch {}
   try { hostServer.close(); } catch {}
   try { fixtureServer.close(); } catch {}
-  try { rmSync(join(REPO, 'dom-bridge', 'dom-bridge'), { force: true }); } catch {}
+  // Everything this run generated (manifest, wrapper, socket, token, profile) lives inside `work`,
+  // so a single recursive removal cleans up and no repo path is ever touched.
   try { rmSync(work, { recursive: true, force: true }); } catch {}
 }
 
