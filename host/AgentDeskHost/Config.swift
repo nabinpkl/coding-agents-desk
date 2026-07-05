@@ -743,6 +743,12 @@ enum Config {
         environmentKey: "AGENTDESK_CURSOR_IMAGE_HEARTBEAT_MS",
         defaultValue: 2_000
     )
+    // CursorMonitor poll cadence. The per-tick seed read is cheap, so 20Hz keeps the cursor
+    // shape/position responsive without cost. Kept as a knob rather than a magic constant.
+    static let cursorPollIntervalMs = positiveInt(
+        environmentKey: "AGENTDESK_CURSOR_POLL_INTERVAL_MS",
+        defaultValue: 50
+    )
     // Experimental local-only switch backend. Default stays on the
     // stock Dock-swipe path; direct-set is for HITL diagnostics around
     // private SkyLight behavior.

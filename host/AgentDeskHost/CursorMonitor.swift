@@ -50,7 +50,7 @@ final class CursorMonitor {
     var shouldEmitPosition: () -> Bool = { true }
 
     init(
-        interval: TimeInterval = 0.05,
+        interval: TimeInterval = Double(Config.cursorPollIntervalMs) / 1000.0,
         sampler: @escaping () -> CursorSample? = CursorMonitor.systemSampler,
         positionSampler: @escaping () -> CGPoint? = CursorMonitor.systemPositionSampler,
         changeSignal: CursorChangeSignal = SystemCursorChangeSignal(),
