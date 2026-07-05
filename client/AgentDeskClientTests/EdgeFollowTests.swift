@@ -221,7 +221,12 @@ struct EdgeFollowTests {
         #expect(retarget?.hostPoint == CGPoint(x: 600, y: 200))
     }
 
-    // MARK: - hostPoint(forSinkLocation:) — touch-scroll inverse map
+    // MARK: - hostPoint(forContentViewLocation:) — touch-scroll inverse map
+    //
+    // `loc` is the touch in the content view's own (pre-transform) coordinate
+    // space, so the map needs no zoom/offset — those are already inverted by
+    // UIKit hit-testing. Geometry: display 2000x1000 origin (100,200), content
+    // view 500x500 -> fitScale 0.25, padX 0, padY 125.
 
     private static func touchScrollState() -> DesktopState {
         DesktopState(
@@ -243,34 +248,27 @@ struct EdgeFollowTests {
         )
     }
 
-    @Test func hostPointCenterTouchAtRestMapsToDisplayCenter() {
-        // zoom == 1 (video at rest, the case viewportCenterRetarget rejects):
-        // a touch at the sink centre lands at the display centre, accounting
-        // for letterbox padding on the short axis (padY = 125 here).
+    @Test func hostPointCenterTouchMapsToDisplayCenter() {
         let retarget = PointerRetargeting.hostPoint(
-            forSinkLocation: CGPoint(x: 250, y: 250),
+            forContentViewLocation: CGPoint(x: 250, y: 250),
             state: Self.touchScrollState(),
             displayId: "display-a",
             displayBounds: CGRect(x: 0, y: 0, width: 2000, height: 1000),
-            sinkViewSize: CGSize(width: 500, height: 500),
-            zoomScale: 1,
-            contentOffset: .zero
+            contentViewSize: CGSize(width: 500, height: 500)
         )
         #expect(retarget?.sourcePoint == CGPoint(x: 1000, y: 500))
         #expect(retarget?.hostPoint == CGPoint(x: 1100, y: 700))
     }
 
     @Test func hostPointTopLeftOfVideoMapsToDisplayOrigin() {
-        // padX = 0, padY = 125 for this geometry; the video's top-left corner
-        // sits at sink (0, 125) and must map to the display origin.
+        // The video's top-left corner sits at content (0, padY=125) and must
+        // map to the display origin.
         let retarget = PointerRetargeting.hostPoint(
-            forSinkLocation: CGPoint(x: 0, y: 125),
+            forContentViewLocation: CGPoint(x: 0, y: 125),
             state: Self.touchScrollState(),
             displayId: "display-a",
             displayBounds: CGRect(x: 0, y: 0, width: 2000, height: 1000),
-            sinkViewSize: CGSize(width: 500, height: 500),
-            zoomScale: 1,
-            contentOffset: .zero
+            contentViewSize: CGSize(width: 500, height: 500)
         )
         #expect(retarget?.sourcePoint == .zero)
         #expect(retarget?.hostPoint == CGPoint(x: 100, y: 200))
@@ -278,59 +276,34 @@ struct EdgeFollowTests {
 
     @Test func hostPointBeyondVideoClampsToDisplayBounds() {
         // A touch past the bottom-right of the video content clamps to the
-        // display's far edge (width-1, height-1).
+        // display's far edge (width-1, height-1). This is the exact class of
+        // input that, mis-transformed, produced the "jumps to the bottom" bug.
         let retarget = PointerRetargeting.hostPoint(
-            forSinkLocation: CGPoint(x: 500, y: 375),
+            forContentViewLocation: CGPoint(x: 500, y: 375),
             state: Self.touchScrollState(),
             displayId: "display-a",
             displayBounds: CGRect(x: 0, y: 0, width: 2000, height: 1000),
-            sinkViewSize: CGSize(width: 500, height: 500),
-            zoomScale: 1,
-            contentOffset: .zero
+            contentViewSize: CGSize(width: 500, height: 500)
         )
         #expect(retarget?.sourcePoint == CGPoint(x: 1999, y: 999))
         #expect(retarget?.hostPoint == CGPoint(x: 2099, y: 1199))
     }
 
-    @Test func hostPointViewportCenterMatchesViewportCenterRetargetWhenZoomed() {
-        // At zoom > 1 the touch-point map at the viewport centre must agree
-        // with the existing edge-follow viewportCenterRetarget.
-        let state = Self.touchScrollState()
-        let bounds = CGRect(x: 0, y: 0, width: 2000, height: 1000)
-        let sink = CGSize(width: 500, height: 500)
-        let offset = CGPoint(x: 250, y: 250)
-        let viaCenter = PointerRetargeting.viewportCenterRetarget(
-            state: state, displayId: "display-a", displayBounds: bounds,
-            sinkViewSize: sink, zoomScale: 2, contentOffset: offset
-        )
-        let viaTouch = PointerRetargeting.hostPoint(
-            forSinkLocation: CGPoint(x: sink.width / 2, y: sink.height / 2),
-            state: state, displayId: "display-a", displayBounds: bounds,
-            sinkViewSize: sink, zoomScale: 2, contentOffset: offset
-        )
-        #expect(viaTouch?.hostPoint == viaCenter?.hostPoint)
-        #expect(viaTouch?.sourcePoint == viaCenter?.sourcePoint)
-    }
-
     @Test func hostPointReturnsNilWithoutStateOrBounds() {
         #expect(PointerRetargeting.hostPoint(
-            forSinkLocation: CGPoint(x: 10, y: 10),
+            forContentViewLocation: CGPoint(x: 10, y: 10),
             state: nil,
             displayId: "display-a",
             displayBounds: CGRect(x: 0, y: 0, width: 2000, height: 1000),
-            sinkViewSize: CGSize(width: 500, height: 500),
-            zoomScale: 1,
-            contentOffset: .zero
+            contentViewSize: CGSize(width: 500, height: 500)
         ) == nil)
 
         #expect(PointerRetargeting.hostPoint(
-            forSinkLocation: CGPoint(x: 10, y: 10),
+            forContentViewLocation: CGPoint(x: 10, y: 10),
             state: Self.touchScrollState(),
             displayId: "display-a",
             displayBounds: .zero,
-            sinkViewSize: CGSize(width: 500, height: 500),
-            zoomScale: 1,
-            contentOffset: .zero
+            contentViewSize: CGSize(width: 500, height: 500)
         ) == nil)
     }
 

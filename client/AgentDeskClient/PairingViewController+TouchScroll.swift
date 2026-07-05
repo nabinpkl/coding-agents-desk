@@ -32,8 +32,13 @@ extension PairingViewController {
 
     @objc func handleVideoTouchScroll(_ gesture: UIPanGestureRecognizer) {
         guard let scroll = sinkScrollView else { return }
-        if gesture.state == .began {
-            primeTouchScrollCursor(at: gesture.location(in: scroll))
+        if gesture.state == .began, let sinkView = videoSink?.view {
+            // Prime from the content view's own coordinate space, which is
+            // already zoom/scroll-independent.
+            primeTouchScrollCursor(
+                at: gesture.location(in: sinkView),
+                contentViewSize: sinkView.bounds.size
+            )
             // Drop any leftover viewport retarget so the scroll events that
             // follow (routed through sendPointerAwareInput) do not consume a
             // stale cursorSet and override the prime we just sent.
@@ -49,21 +54,19 @@ extension PairingViewController {
     }
 
     // Map the touch point to a host coordinate and move the host cursor there
-    // so the scroll lands on the window under the finger. Swallows the touch
-    // when geometry is unavailable (no DesktopState / zero display bounds).
-    private func primeTouchScrollCursor(at loc: CGPoint) {
-        guard let scroll = sinkScrollView else { return }
+    // so the scroll lands on the window under the finger. `loc` is in the
+    // content view's own coordinate space; swallows the touch when geometry is
+    // unavailable (no DesktopState / zero display bounds).
+    private func primeTouchScrollCursor(at loc: CGPoint, contentViewSize: CGSize) {
         let displayId = activeDisplayIdMirror
             ?? lastDesktopState?.selectedDisplayId
             ?? lastDesktopState?.activeDisplayId
         guard let retarget = PointerRetargeting.hostPoint(
-            forSinkLocation: loc,
+            forContentViewLocation: loc,
             state: lastDesktopState,
             displayId: displayId,
             displayBounds: activeDisplayRect,
-            sinkViewSize: scroll.bounds.size,
-            zoomScale: scroll.zoomScale,
-            contentOffset: scroll.contentOffset
+            contentViewSize: contentViewSize
         ) else { return }
         // Move the local cursor model + overlay dot to the touched point so the
         // priming is visible, matching the pointer-retarget branch's behavior.

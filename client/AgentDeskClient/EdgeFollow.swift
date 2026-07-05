@@ -164,50 +164,49 @@ enum PointerRetargeting {
         )
     }
 
-    // Touch-point inverse of viewportCenterRetarget: map a touch location in
-    // sinkScrollView viewport coordinates to a host point (global CG points),
-    // used by touch-scroll mode to prime the host cursor at the touched spot.
-    // Unlike viewportCenterRetarget this is NOT gated on zoomScale > 1.0 — it
-    // must work with the video at rest (zoom == 1). Returns nil when geometry
-    // is unavailable so the caller can swallow the touch.
+    // Map a touch on the video sink to a host point (global CG points), used by
+    // touch-scroll mode to prime the host cursor at the touched spot.
+    //
+    // `loc` is the touch location in the *content view's own* coordinate system
+    // (`location(in: videoSink.view)`), which UIKit reports pre-transform: it is
+    // already independent of the scroll view's zoomScale and contentOffset,
+    // because hit-testing inverts the zoom transform and scroll offset. So this
+    // needs only the content-view bounds (the aspect-fit letterbox reference)
+    // and the display metadata; passing the scroll-space location plus
+    // zoom/offset instead double-counts the offset and lands at the far edge.
+    // Returns nil when geometry is unavailable so the caller can swallow the
+    // touch.
     static func hostPoint(
-        forSinkLocation loc: CGPoint,
+        forContentViewLocation loc: CGPoint,
         state: DesktopState?,
         displayId: String?,
         displayBounds: CGRect,
-        sinkViewSize: CGSize,
-        zoomScale: CGFloat,
-        contentOffset: CGPoint
+        contentViewSize: CGSize
     ) -> CursorViewportRetarget? {
         guard let state,
               let displayId,
               let display = state.displays.first(where: { $0.id == displayId }),
               displayBounds.width > 0,
               displayBounds.height > 0,
-              sinkViewSize.width > 0,
-              sinkViewSize.height > 0,
-              zoomScale > 0 else {
+              contentViewSize.width > 0,
+              contentViewSize.height > 0 else {
             return nil
         }
 
         let fitScale = min(
-            sinkViewSize.width / displayBounds.width,
-            sinkViewSize.height / displayBounds.height
+            contentViewSize.width / displayBounds.width,
+            contentViewSize.height / displayBounds.height
         )
         guard fitScale > 0 else { return nil }
 
         let videoWidth = displayBounds.width * fitScale
         let videoHeight = displayBounds.height * fitScale
-        let padX = (sinkViewSize.width - videoWidth) / 2
-        let padY = (sinkViewSize.height - videoHeight) / 2
+        let padX = (contentViewSize.width - videoWidth) / 2
+        let padY = (contentViewSize.height - videoHeight) / 2
 
-        let contentX = contentOffset.x + loc.x
-        let contentY = contentOffset.y + loc.y
-        let sinkX = contentX / zoomScale
-        let sinkY = contentY / zoomScale
         let source = CGPoint(
-            x: (sinkX - padX) / fitScale,
-            y: (sinkY - padY) / fitScale
+            x: (loc.x - padX) / fitScale,
+            y: (loc.y - padY) / fitScale
         )
         let clamped = EdgeFollow.advanceCursor(
             from: source,

@@ -56,15 +56,26 @@ updates, so the copyRect scroll path tracks the touched point for free.
 
 ## Coordinate map
 
-Touch location in `sinkScrollView` viewport coords → host global point:
+The touch is read in the **content view's own coordinate space**
+(`gesture.location(in: videoSink.view)`), which UIKit reports pre-transform —
+already independent of the scroll view's `zoomScale` and `contentOffset`,
+because hit-testing inverts the zoom transform and scroll offset. So the map
+needs only the content-view bounds (the aspect-fit letterbox reference) and the
+display metadata:
 
 ```
-contentX = contentOffset.x + loc.x ;  contentY = contentOffset.y + loc.y
-sinkX = contentX / zoomScale       ;  sinkY = contentY / zoomScale
-source = ((sinkX - padX)/fitScale, (sinkY - padY)/fitScale)
+fitScale = min(contentViewW/displayW, contentViewH/displayH)
+padX = (contentViewW - displayW*fitScale)/2 ; padY = (contentViewH - displayH*fitScale)/2
+source = ((loc.x - padX)/fitScale, (loc.y - padY)/fitScale)
 clamped = EdgeFollow.advanceCursor(from: source, delta: .zero, displayBounds:)
 hostPoint = (display.originX + clamped.x, display.originY + clamped.y)
 ```
+
+Reading the touch in *scroll-view* space instead and re-applying
+`contentOffset`/`zoomScale` double-counts the offset (`location(in: scroll)`
+already returns absolute zoomed-content coords), which drove the cursor to the
+display's far edge when zoomed — the "jumps to the bottom" bug. Confirmed by
+on-device instrumentation and covered by `hostPointBeyondVideoClampsToDisplayBounds`.
 
 ## Edge cases
 
