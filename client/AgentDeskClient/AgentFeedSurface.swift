@@ -293,9 +293,14 @@ enum AgentFeedRequest {
             return .projectsSubscribe
 
         case "agent-thread-sub":
-            guard let projectPath = body["pp"] as? String else { return nil }
+            // The phone subscribes by sessionId alone; projectPath is optional
+            // (the host falls back to it only when sessionId is absent). Requiring
+            // `pp` here would drop every phone thread-sub. Require at least one
+            // identifier so an empty request is still rejected.
+            let projectPath = body["pp"] as? String
             let source = body["src"] as? String
             let sessionId = body["sid"] as? String
+            guard projectPath != nil || sessionId != nil else { return nil }
             return .threadSubscribe(AgentThreadSubscribe(
                 projectPath: projectPath,
                 source: source,

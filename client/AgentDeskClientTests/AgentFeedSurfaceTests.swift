@@ -51,8 +51,22 @@ struct AgentFeedSurfaceTests {
         #expect(sub.sessionId == nil)
     }
 
-    @Test func threadSubscribeMissingProjectPathReturnsNil() {
-        // pp is required; missing it must return nil (bridge ignores the message).
+    @Test func threadSubscribeWithOnlySessionIdDecodes() {
+        // The phone subscribes by sessionId alone (no projectPath). Requiring pp
+        // here previously dropped every phone thread-sub, leaving the thread view
+        // stuck on "loading session events..." forever.
+        let body: [String: Any] = ["t": "agent-thread-sub", "sid": "session-only"]
+        let result = AgentFeedRequest.decode(tag: "agent-thread-sub", body: body)
+        guard case .threadSubscribe(let sub) = result else {
+            Issue.record("expected .threadSubscribe, got \(String(describing: result))")
+            return
+        }
+        #expect(sub.projectPath == nil)
+        #expect(sub.sessionId == "session-only")
+    }
+
+    @Test func threadSubscribeWithNoIdentifierReturnsNil() {
+        // Neither pp nor sid: nothing to subscribe to, so the request is dropped.
         let body: [String: Any] = ["t": "agent-thread-sub", "src": "claude"]
         let result = AgentFeedRequest.decode(tag: "agent-thread-sub", body: body)
         #expect(result == nil)

@@ -6,16 +6,27 @@ appId: com.example.agentdesk.AgentDeskClient
     timeout: 30000
 # Toggle to the agent feed surface.
 - tapOn: "Agent"
-# Give the host sidecar a moment to serve the project digest over the lane.
+# The host must spin up the sidecar, fetch the digest, and push it over the
+# lane before the webview can render. This round-trip takes several seconds on
+# a cold launch, so wait for the empty-state copy to disappear (projects
+# arrived) rather than screenshotting on a fixed delay and racing the push.
 - extendedWaitUntil:
-    notVisible: "Trackpad"
-    timeout: 5000
+    notVisible: "No projects yet"
+    timeout: 30000
 - takeScreenshot: agent-feed-projects
 # Drill into the first project row (coordinate tap, robust to dynamic project names).
 - tapOn:
     point: 50%, 30%
+# Let the session list render before drilling further.
+- extendedWaitUntil:
+    notVisible: "No projects yet"
+    timeout: 5000
 - takeScreenshot: agent-feed-sessions
 # Drill into the first session row to open its thread.
 - tapOn:
     point: 50%, 30%
+# Wait for the seed chunk to arrive and the thread to render its events.
+- extendedWaitUntil:
+    notVisible: "loading session events"
+    timeout: 30000
 - takeScreenshot: agent-feed-thread
