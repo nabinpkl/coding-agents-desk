@@ -107,34 +107,33 @@ struct SpacesProviderTests {
         #expect(velocity < 0)
     }
 
-    @Test func postDockMissionControlFrameEmitsVerticalDockGestureFields() {
+    @Test func openMissionControlUsesApplicationOpener() {
         let recorder = EventRecorder()
-        let provider = SpacesProvider(eventPoster: { recorder.record($0) })
-
-        _ = provider.postDockMissionControlFrame(phase: .ended, progress: 1.0, velocityY: 2000)
-
-        #expect(recorder.events.count == 1)
-        guard let event = recorder.events.first else { return }
-        #expect(event.getIntegerValueField(CGEventField(rawValue: 55)!) == 30)
-        #expect(event.getIntegerValueField(CGEventField(rawValue: 110)!) == 23)
-        #expect(event.getIntegerValueField(CGEventField(rawValue: 123)!) == 2)
-        #expect(event.getIntegerValueField(CGEventField(rawValue: 132)!) == 4)
-        #expect(event.getDoubleValueField(CGEventField(rawValue: 124)!) == 1.0)
-        #expect(event.getDoubleValueField(CGEventField(rawValue: 129)!) == 0)
-        #expect(event.getDoubleValueField(CGEventField(rawValue: 130)!) == 2000)
-    }
-
-    @Test func openMissionControlEmitsBeganChangedEndedVerticalGesture() {
-        let recorder = EventRecorder()
-        let provider = SpacesProvider(eventPoster: { recorder.record($0) })
+        var openCalls = 0
+        let provider = SpacesProvider(
+            eventPoster: { recorder.record($0) },
+            missionControlOpener: {
+                openCalls += 1
+                return true
+            }
+        )
 
         provider.openMissionControl()
 
-        #expect(recorder.events.count == 3)
-        let motionField = CGEventField(rawValue: 123)!
-        let phaseField = CGEventField(rawValue: 132)!
-        #expect(recorder.events.map { $0.getIntegerValueField(motionField) } == [2, 2, 2])
-        #expect(recorder.events.map { $0.getIntegerValueField(phaseField) } == [1, 2, 4])
+        #expect(openCalls == 1)
+        #expect(recorder.events.isEmpty)
+    }
+
+    @Test func openMissionControlDoesNotFallBackToDockSwipeWhenApplicationOpenFails() {
+        let recorder = EventRecorder()
+        let provider = SpacesProvider(
+            eventPoster: { recorder.record($0) },
+            missionControlOpener: { false }
+        )
+
+        provider.openMissionControl()
+
+        #expect(recorder.events.isEmpty)
     }
 
     // commitStep expands one .switchSpaceStep wire frame into |delta|

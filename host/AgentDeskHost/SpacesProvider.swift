@@ -87,7 +87,6 @@ private enum DockSwipeConstant {
     static let dockControl: Int64 = 30
     static let dockSwipeHIDType: Int64 = 23
     static let motionHorizontal: Int64 = 1
-    static let motionVertical: Int64 = 2
 }
 
 // CGSGesturePhase mapping for the wire-level SwipePhase. Began=1,
@@ -105,12 +104,14 @@ private func cgsPhase(_ phase: NormalizedInput.SwipePhase) -> Int64 {
 final class SpacesProvider {
     typealias EventPoster = (CGEvent) -> Void
     typealias DirectSpaceSetter = (_ displayId: String, _ spaceId: UInt64) -> Bool
+    typealias MissionControlOpener = () -> Bool
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "spaces")
     private let eventPoster: EventPoster
     private let spaceSwitchMode: Config.SpaceSwitchMode
     private let currentStateOverride: (() -> DesktopState?)?
     private let directSpaceSetter: DirectSpaceSetter
+    private let missionControlOpener: MissionControlOpener
     private let selectedDisplayIdProvider: () -> String?
     // Dedicated serial queue for tap-to-jump chains. We can't run the
     // chain on InputDispatcher's queue because multi-step switching can
@@ -134,13 +135,15 @@ final class SpacesProvider {
         spaceSwitchMode: Config.SpaceSwitchMode = Config.spaceSwitchMode,
         selectedDisplayIdProvider: @escaping () -> String? = { nil },
         currentStateProvider: (() -> DesktopState?)? = nil,
-        directSpaceSetter: DirectSpaceSetter? = nil
+        directSpaceSetter: DirectSpaceSetter? = nil,
+        missionControlOpener: MissionControlOpener? = nil
     ) {
         self.eventPoster = eventPoster
         self.spaceSwitchMode = spaceSwitchMode
         self.selectedDisplayIdProvider = selectedDisplayIdProvider
         self.currentStateOverride = currentStateProvider
         self.directSpaceSetter = directSpaceSetter ?? SpacesProvider.setCurrentSpaceDirectly
+        self.missionControlOpener = missionControlOpener ?? SpacesProvider.openMissionControlApplication
     }
 
     func current() -> DesktopState? {
@@ -366,34 +369,16 @@ final class SpacesProvider {
     }
 
     func openMissionControl() {
-        logger.notice("missionControlDockGesture posting frames=3")
-        let began = postDockMissionControlFrame(phase: .began, progress: 0, velocityY: 0)
-        let changed = postDockMissionControlFrame(phase: .changed, progress: 0.5, velocityY: 1500)
-        let ended = postDockMissionControlFrame(phase: .ended, progress: 1.0, velocityY: 2000)
-        logger.notice(
-            "missionControlDockGesture posted began=\(began, privacy: .public) changed=\(changed, privacy: .public) ended=\(ended, privacy: .public)"
-        )
+        if missionControlOpener() {
+            logger.notice("missionControlOpen requested source=application")
+        } else {
+            logger.error("missionControlOpen failed source=application")
+        }
     }
 
-    @discardableResult
-    func postDockMissionControlFrame(
-        phase: NormalizedInput.SwipePhase,
-        progress: Float,
-        velocityY: Float
-    ) -> Bool {
-        guard let event = CGEvent(source: nil) else {
-            logger.error("CGEvent(source:nil) returned nil")
-            return false
-        }
-        event.setIntegerValueField(DockSwipeField.cgsEventType, value: DockSwipeConstant.dockControl)
-        event.setIntegerValueField(DockSwipeField.gestureHIDType, value: DockSwipeConstant.dockSwipeHIDType)
-        event.setIntegerValueField(DockSwipeField.gesturePhase, value: cgsPhase(phase))
-        event.setIntegerValueField(DockSwipeField.gestureSwipeMotion, value: DockSwipeConstant.motionVertical)
-        event.setDoubleValueField(DockSwipeField.gestureSwipeProgress, value: Double(progress))
-        event.setDoubleValueField(DockSwipeField.gestureSwipeVelocityX, value: 0)
-        event.setDoubleValueField(DockSwipeField.gestureSwipeVelocityY, value: Double(velocityY))
-        eventPoster(event)
-        return true
+    private static func openMissionControlApplication() -> Bool {
+        let url = URL(fileURLWithPath: "/System/Applications/Mission Control.app", isDirectory: true)
+        return NSWorkspace.shared.open(url)
     }
 }
 
