@@ -60,23 +60,51 @@ struct GestureTranslatorTests {
         #expect(recorder.events[0] == .click(button: .left))
     }
 
-    @Test func scrollStripEmitsScrollWithDyDeltasOnly() {
+    @Test func scrollStripLocksVerticalAndEmitsDyDeltasOnly() {
         let recorder = InputRecorder()
         let translator = GestureTranslator()
         translator.delegate = recorder
 
         translator.processScrollPan(state: .began, translation: CGPoint(x: 0, y: 0))
-        translator.processScrollPan(state: .changed, translation: CGPoint(x: 3, y: 10))
-        translator.processScrollPan(state: .changed, translation: CGPoint(x: 5, y: 25))
+        translator.processScrollPan(state: .changed, translation: CGPoint(x: 3, y: 13), velocity: CGPoint(x: 20, y: 200))
+        translator.processScrollPan(state: .changed, translation: CGPoint(x: 5, y: 25), velocity: CGPoint(x: 30, y: 220))
         translator.processScrollPan(state: .ended, translation: CGPoint(x: 5, y: 25))
 
         // First .changed emits .began phase (drag start), second is .changed,
         // .ended emits a zero-delta .ended delimiter so macOS knows the touch
         // drag is over.
         #expect(recorder.events.count == 3)
-        #expect(recorder.events[0] == .scroll(dx: 0, dy: 10, phase: .began))
-        #expect(recorder.events[1] == .scroll(dx: 0, dy: 15, phase: .changed))
+        #expect(recorder.events[0] == .scroll(dx: 0, dy: 13, phase: .began))
+        #expect(recorder.events[1] == .scroll(dx: 0, dy: 12, phase: .changed))
         #expect(recorder.events[2] == .scroll(dx: 0, dy: 0, phase: .ended))
+    }
+
+    @Test func scrollStripLocksHorizontalAndEmitsDxDeltasOnly() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        translator.processScrollPan(state: .began, translation: .zero)
+        translator.processScrollPan(state: .changed, translation: CGPoint(x: 13, y: 3), velocity: CGPoint(x: 240, y: 10))
+        translator.processScrollPan(state: .changed, translation: CGPoint(x: 31, y: 8), velocity: CGPoint(x: 260, y: 20))
+        translator.processScrollPan(state: .ended, translation: CGPoint(x: 31, y: 8))
+
+        #expect(recorder.events.count == 3)
+        #expect(recorder.events[0] == .scroll(dx: 13, dy: 0, phase: .began))
+        #expect(recorder.events[1] == .scroll(dx: 18, dy: 0, phase: .changed))
+        #expect(recorder.events[2] == .scroll(dx: 0, dy: 0, phase: .ended))
+    }
+
+    @Test func scrollStripWaitsForDominantAxisBeforeEmitting() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        translator.processScrollPan(state: .began, translation: .zero)
+        translator.processScrollPan(state: .changed, translation: CGPoint(x: 10, y: 10), velocity: CGPoint(x: 200, y: 200))
+        translator.processScrollPan(state: .changed, translation: CGPoint(x: 20, y: 12), velocity: CGPoint(x: 240, y: 80))
+
+        #expect(recorder.events == [.scroll(dx: 20, dy: 0, phase: .began)])
     }
 
     @Test func scrollEndedWithoutAnyChangedEmitsNothing() {
@@ -223,13 +251,32 @@ struct GestureTranslatorTests {
         let translator = GestureTranslator()
         translator.delegate = recorder
 
-        translator.processScrollPan(state: .changed, translation: CGPoint(x: 0, y: 10))
-        translator.processScrollPan(state: .ended, translation: CGPoint(x: 0, y: 10))
+        translator.processScrollPan(state: .changed, translation: CGPoint(x: 0, y: 13))
+        translator.processScrollPan(state: .ended, translation: CGPoint(x: 0, y: 13))
 
         #expect(recorder.events == [
-            .scroll(dx: 0, dy: 10, phase: .began),
+            .scroll(dx: 0, dy: 13, phase: .began),
             .scroll(dx: 0, dy: 0, phase: .ended)
         ])
+    }
+
+    @Test func horizontalScrollMomentumStaysHorizontal() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        translator.processScrollPan(state: .began, translation: .zero)
+        translator.processScrollPan(state: .changed, translation: CGPoint(x: 18, y: 2), velocity: CGPoint(x: 500, y: 40))
+        translator.processScrollPan(state: .ended, translation: CGPoint(x: 18, y: 2), velocity: CGPoint(x: 500, y: 40))
+        translator.processScrollMomentumTick(now: CACurrentMediaTime() + 0.05)
+
+        guard case let .scroll(dx, dy, phase) = recorder.events.last else {
+            Issue.record("expected momentum scroll")
+            return
+        }
+        #expect(phase == .momentumBegan)
+        #expect(dx > 0)
+        #expect(dy == 0)
     }
 
     @Test func scrollTapWithoutMotionEmitsNothing() {

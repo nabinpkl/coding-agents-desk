@@ -56,9 +56,11 @@ final class InputDispatcher: @unchecked Sendable {
     private let cursorEventSource: CGEventSource?
     // Sub-pixel scroll deltas (precision drags after lowering the iPhone
     // scroll gain floor to 1.0) round to zero individually and would never
-    // emit. Accumulate the fractional remainder across calls so they
-    // eventually trip the threshold and emit a single-pixel event.
-    private var scrollRemainder: CGFloat = 0
+    // emit. Accumulate independent fractional remainders across calls so
+    // vertical and horizontal precision drags eventually trip the threshold
+    // without leaking into each other.
+    private var scrollRemainderX: CGFloat = 0
+    private var scrollRemainderY: CGFloat = 0
     // R10.2: while the iPhone-side double-tap-drag is held, cursorMove
     // events promote to leftMouseDragged on the host so apps see one
     // continuous click-drag rather than a click followed by free cursor
@@ -473,37 +475,44 @@ final class InputDispatcher: @unchecked Sendable {
     }
 
     private func postScroll(dx: Float, dy: Float, phase: NormalizedInput.ScrollPhase) {
-        // Vertical only for now (wheelCount=1). Accumulate fractional dy so
-        // a stream of sub-pixel deltas (slow precision drag) still emits
-        // events at the integer threshold rather than rounding each call
-        // independently to zero. Truncate toward zero so emitted pixels
-        // never exceed the accumulated input.
+        // Accumulate fractional deltas so a stream of sub-pixel precision
+        // drags still emits events at the integer threshold rather than
+        // rounding each call independently to zero. Truncate toward zero so
+        // emitted pixels never exceed the accumulated input.
         //
         // iPhone reports -dy when finger flicks UP; macOS treats positive
         // wheel1 as "scroll up the document" (you see content above the
         // current view). So a finger flick UP -> negative dy -> negative
         // wheel1 -> document scrolls forward -> content visibly moves UP
         // out of view, matching iOS Safari behavior.
+        //
+        // Horizontal scroll uses wheel2. The client sends positive dx when
+        // the finger moves right; pass it through to keep the same natural
+        // direct-manipulation sign model as vertical scroll.
         // A fresh gesture (or the end of one) must not inherit a stale
         // fractional remainder from the previous gesture; reset at the gesture
         // delimiters so the first delta of a new stroke is not skewed.
         if phase == .began || phase == .ended || phase == .momentumEnded {
-            scrollRemainder = 0
+            scrollRemainderX = 0
+            scrollRemainderY = 0
         }
-        scrollRemainder += CGFloat(dy)
-        let dyInt = Int32(scrollRemainder.rounded(.towardZero))
-        scrollRemainder -= CGFloat(dyInt)
+        scrollRemainderX += CGFloat(dx)
+        scrollRemainderY += CGFloat(dy)
+        let dxInt = Int32(scrollRemainderX.rounded(.towardZero))
+        let dyInt = Int32(scrollRemainderY.rounded(.towardZero))
+        scrollRemainderX -= CGFloat(dxInt)
+        scrollRemainderY -= CGFloat(dyInt)
         // Skip zero-delta posts only for continuous "changed" phases. The
         // delimiter phases (began / ended / momentumBegan / momentumEnded)
         // carry phase info macOS needs even when their delta is zero.
         let isDelimiter = phase != .changed && phase != .momentumChanged
-        if dyInt == 0 && !isDelimiter { return }
+        if dxInt == 0 && dyInt == 0 && !isDelimiter { return }
         guard let event = CGEvent(
             scrollWheelEvent2Source: nil,
             units: .pixel,
-            wheelCount: 1,
+            wheelCount: 2,
             wheel1: dyInt,
-            wheel2: 0,
+            wheel2: dxInt,
             wheel3: 0
         ) else { return }
         event.flags = []
@@ -520,7 +529,7 @@ final class InputDispatcher: @unchecked Sendable {
         // reverse out of the boundary fine, so this is target-side, not a defect
         // in this pipeline. Verified via host postScroll traces (2026-07-03).
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-        logger.debug("postScroll wheel1=\(dyInt, privacy: .public) scrollPhase=\(scrollPhase, privacy: .public) momentumPhase=\(momentumPhase, privacy: .public)")
+        logger.debug("postScroll wheel1=\(dyInt, privacy: .public) wheel2=\(dxInt, privacy: .public) scrollPhase=\(scrollPhase, privacy: .public) momentumPhase=\(momentumPhase, privacy: .public)")
         eventPoster(event)
     }
 

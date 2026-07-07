@@ -283,6 +283,22 @@ struct InputDispatcherTests {
         #expect(pixelDelta == 30)
     }
 
+    @Test func scrollPostsHorizontalDxOnWheel2() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        dispatcher.performDispatch(.scroll(dx: 24, dy: 0, phase: .changed))
+
+        #expect(recorder.events.count == 1)
+        #expect(recorder.events[0].type == .scrollWheel)
+        #expect(recorder.events[0].getIntegerValueField(.scrollWheelEventPointDeltaAxis1) == 0)
+        #expect(recorder.events[0].getIntegerValueField(.scrollWheelEventPointDeltaAxis2) == 24)
+    }
+
     @Test func subPixelScrollsAccumulateUntilEmitting() {
         let recorder = EventRecorder()
         let dispatcher = InputDispatcher(
@@ -299,6 +315,26 @@ struct InputDispatcherTests {
         #expect(recorder.events.count == 1)
         let delta = recorder.events[0].getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
         #expect(delta == 1)
+    }
+
+    @Test func horizontalAndVerticalSubPixelScrollsAccumulateIndependently() {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { .zero }
+        )
+
+        dispatcher.performDispatch(.scroll(dx: 0.4, dy: 0.3, phase: .changed))
+        dispatcher.performDispatch(.scroll(dx: 0.4, dy: 0.3, phase: .changed))
+        dispatcher.performDispatch(.scroll(dx: 0.4, dy: 0.3, phase: .changed))
+        dispatcher.performDispatch(.scroll(dx: 0, dy: 0.3, phase: .changed))
+
+        #expect(recorder.events.count == 2)
+        #expect(recorder.events[0].getIntegerValueField(.scrollWheelEventPointDeltaAxis1) == 0)
+        #expect(recorder.events[0].getIntegerValueField(.scrollWheelEventPointDeltaAxis2) == 1)
+        #expect(recorder.events[1].getIntegerValueField(.scrollWheelEventPointDeltaAxis1) == 1)
+        #expect(recorder.events[1].getIntegerValueField(.scrollWheelEventPointDeltaAxis2) == 0)
     }
 
     @Test func scrollPhaseFieldsAreSetOnCGEvent() {
