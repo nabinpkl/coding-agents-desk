@@ -30,6 +30,8 @@ host_support_dir := env_var_or_default("HOME", "") + "/Library/Application Suppo
 host_dev_support_dir := env_var_or_default("HOME", "") + "/Library/Application Support/" + host_dev_bundle_id
 last_pair_url_path := host_support_dir + "/.last-pair-url"
 host_dev_last_pair_url_path := host_dev_support_dir + "/.last-pair-url"
+host_pty_manager_socket_path := host_support_dir + "/pty-manager.sock"
+host_dev_pty_manager_socket_path := host_dev_support_dir + "/pty-manager.sock"
 client_diagnostics_request_path := host_support_dir + "/.client-diagnostics-request.json"
 client_diagnostics_result_path := host_support_dir + "/.client-diagnostics-result.json"
 derived_data := env_var_or_default("AGENTDESK_DERIVED_DATA_PATH", justfile_directory() + "/.build/DerivedData")
@@ -55,6 +57,10 @@ host_dev_bundle_id := env_var_or_default("AGENTDESK_HOST_DEV_BUNDLE_ID", "com.ex
 host_dev_derived_data := derived_data + "-host-dev"
 host_dev_app := host_dev_derived_data + "/Build/Products/Debug/AgentDeskHost.app"
 host_dev_app_release := host_dev_derived_data + "/Build/Products/Release/AgentDeskHost.app"
+# Match only the host app executable when sending host-control signals. Recipes
+# further scope this with the selected variant's derived-data root, because the
+# stable and dev hosts can run concurrently.
+host_process_suffix := "AgentDeskHost.app/Contents/MacOS/AgentDeskHost"
 # Two coexisting client installs: the stable daily-driver and an experimental
 # "dev" build under test. They differ only by bundle id, so iOS keeps both on
 # the phone. The dev build outputs to a SEPARATE derived-data dir because both
@@ -99,10 +105,16 @@ atc_engine_dir := env_var_or_default("AGENTDESK_ATC_ENGINE_DIR", justfile_direct
 # Source directory for the ATC dashboard (webview build). Override via env when
 # the dashboard lives somewhere other than the default sibling path.
 atc_dashboard_dir := env_var_or_default("AGENTDESK_ATC_DASHBOARD_DIR", justfile_directory() + "/../atc/dashboard")
+# Source directory for the Agent Workspace IDE Rust PTY manager. Override when
+# the sibling checkout lives somewhere else.
+pty_manager_dir := env_var_or_default("AGENTDESK_PTY_MANAGER_DIR", justfile_directory() + "/../agent-workspace-ide/terminal/pty-manager")
 # The sidecar binary is placed alongside the Swift sources in AgentDeskHost/
 # so Xcode picks it up as a bundled resource (it is wired into the project's
 # Resources build phase). It is loaded at runtime via Config.agentSidecarURL.
 sidecar_out := justfile_directory() + "/host/AgentDeskHost/atc-sidecar"
+# The PTY manager binary is also placed alongside the host Swift sources so
+# Xcode bundles it as a resource. It is loaded via Config.ptyManagerURL.
+pty_manager_out := justfile_directory() + "/host/AgentDeskHost/pty-manager"
 # The webview bundle directory is placed alongside the Swift sources in
 # AgentDeskClient/ so Xcode picks it up as a bundled folder resource (wired
 # into the project's Resources build phase as a folder reference). It is loaded
@@ -124,6 +136,17 @@ ensure-sidecar-placeholder:
         chmod +x '{{sidecar_out}}'
     fi
 
+# Ensure a minimal placeholder exists at the PTY manager output path. The real
+# Rust binary is gitignored, so a fresh checkout has nothing there; without a
+# placeholder, Xcode cannot discover the bundled resource path.
+ensure-pty-manager-placeholder:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -e '{{pty_manager_out}}' ]; then
+        printf '#!/bin/sh\necho "pty-manager placeholder - run: just build-pty-manager" >&2\nexit 1\n' > '{{pty_manager_out}}'
+        chmod +x '{{pty_manager_out}}'
+    fi
+
 # Build the ATC engine sidecar into the host app bundle source dir. The result
 # is a self-contained executable (~64 MB) that the host spawns at runtime via
 # AgentEngineSidecar. It requires bun to be on PATH and OVERWRITES the
@@ -134,6 +157,19 @@ ensure-sidecar-placeholder:
 # local Developer ID applied during the normal Xcode codesign step.
 build-agent-sidecar:
     bun build --compile '{{atc_engine_dir}}/src/server.ts' --outfile '{{sidecar_out}}'
+
+# Build Agent Workspace IDE's Rust PTY manager into the host app bundle source
+# dir. The host launches this binary and bridges iOS SwiftTerm clients into its
+# Unix-socket multiplexer.
+build-pty-manager:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PTY='{{pty_manager_dir}}'
+    OUT='{{pty_manager_out}}'
+    cd "$PTY"
+    cargo build --release --bin pty-manager
+    cp "$PTY/target/release/pty-manager" "$OUT"
+    chmod +x "$OUT"
 
 # Build the real engine binary and run AgentEngineSidecar against it, curling
 # /api/projects/digest on loopback to confirm the binary integrates end-to-end.
@@ -327,19 +363,19 @@ dom-mirror-e2e: ext-stamp
     cleanup() {
       kill "${SIMTEE_PID:-0}" 2>/dev/null || true
       xcrun simctl terminate "$UDID" com.example.agentdesk.AgentDeskClient 2>/dev/null || true
-      kill $(pgrep -f AgentDeskHost) 2>/dev/null || true
+      kill $(pgrep -f '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}') 2>/dev/null || true
       for v in AGENTDESK_AUTO_APPROVE AGENTDESK_DEV_ITERATION_RUN AGENTDESK_DOM_MIRROR_ENABLED; do launchctl unsetenv "$v" 2>/dev/null || true; done
     }
     trap cleanup EXIT
 
     echo "== build + launch host with DOM mirror enabled =="
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
-    kill $(pgrep -f AgentDeskHost) 2>/dev/null || true; sleep 1
+    kill $(pgrep -f '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}') 2>/dev/null || true; sleep 1
     launchctl setenv AGENTDESK_AUTO_APPROVE 1
     launchctl setenv AGENTDESK_DEV_ITERATION_RUN 1
     launchctl setenv AGENTDESK_DOM_MIRROR_ENABLED 1
     open "{{host_app}}"; sleep 3
-    pgrep -lf AgentDeskHost >/dev/null || { echo "host did not start"; exit 1; }
+    pgrep -lf '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}' >/dev/null || { echo "host did not start"; exit 1; }
 
     echo "== build + install sim client =="
     just client-sim-reinstall >/dev/null
@@ -347,7 +383,9 @@ dom-mirror-e2e: ext-stamp
     echo "== pair + launch sim client with DOM mirror on (console tee) =="
     xcrun simctl bootstatus "$UDID" -b >/dev/null
     rm -f "$PAIRURL" "$CONSOLE"
-    kill -USR1 $(pgrep -f AgentDeskHost)
+    HOST_PID="$(pgrep -f '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}' | head -1 || true)"
+    test -n "$HOST_PID" || { echo "host not running"; exit 1; }
+    kill -USR1 "$HOST_PID"
     i=0; while [ ! -s "$PAIRURL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "$PAIRURL" || { echo "host did not write pairing URL"; exit 1; }
     ( SIMCTL_CHILD_AGENTDESK_LAUNCH_URL="$(cat "$PAIRURL")" SIMCTL_CHILD_AGENTDESK_DEV_HOST_OVERRIDE=localhost \
@@ -377,7 +415,7 @@ dom-mirror-e2e: ext-stamp
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
 # everything with `just check-all`.
-check variant="stable": ensure-sidecar-placeholder
+check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholder
     #!/usr/bin/env bash
     set -euo pipefail
     sh tools/media-architecture-guard.sh
@@ -462,7 +500,7 @@ iphone-log-collect variant="stable":
 # variant: "stable" (default) or "dev" (the experimental side-by-side host:
 # bundle id {{host_dev_bundle_id}}, DEV-badged icon, separate derived-data dir,
 # tier-derived ports). The dev host runs concurrently with the stable one.
-host-run variant="stable":
+host-run variant="stable": build-pty-manager
     #!/usr/bin/env bash
     set -euo pipefail
     # DOM mirror (Chrome page mirroring, ADR-0038) is baked on by default for every
@@ -471,23 +509,44 @@ host-run variant="stable":
     # bridge is wired at the end of this recipe so browser mode works out of the box.
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; APP='{{host_dev_app}}'; SIGPORT=41988
+        PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
         DD='{{derived_data}}'; APP='{{host_app}}'; SIGPORT=41888
+        PTY_SOCKET='{{host_pty_manager_socket_path}}'
         EXTRA=()
     fi
+    kill_pty_managers_for_socket() {
+        SOCKET_PIDS=$(ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { print $1 }')
+        [ -n "$SOCKET_PIDS" ] && kill $SOCKET_PIDS 2>/dev/null || true
+    }
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     # Kill only THIS variant's running host, matched by its derived-data path, so
     # relaunching one variant never kills the other (concurrent stacks).
     pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
+    pkill -f "$APP/Contents/Resources/pty-manager" 2>/dev/null || true
+    kill_pty_managers_for_socket
     # Backstop: a host from a DIFFERENT checkout has the same bundle id but a
     # different derived-data path, so the pkill above misses it and the two stacks
     # collide on the signaling port. Also kill whoever holds THIS variant's port.
     # Scoped to the tier-derived port (env override honored, matching Config), so
     # the sibling variant on its own port is never touched.
     SIGPORT="${AGENTDESK_SIGNALING_PORT:-$SIGPORT}"
-    PORT_PIDS=$(lsof -ti tcp:"$SIGPORT" 2>/dev/null || true)
-    [ -n "$PORT_PIDS" ] && kill $PORT_PIDS 2>/dev/null || true
+    PORT_PIDS=$(lsof -nP -iTCP:"$SIGPORT" -sTCP:LISTEN -t 2>/dev/null || true)
+    if [ -n "$PORT_PIDS" ]; then
+        SAFE_PIDS=()
+        for PID in $PORT_PIDS; do
+            CMD="$(ps -p "$PID" -o command= 2>/dev/null || true)"
+            if [[ "$CMD" == *"/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"* ]]; then
+                SAFE_PIDS+=("$PID")
+            else
+                echo "ERROR: port $SIGPORT is held by a non-AgentDesk process: pid=$PID cmd=$CMD" >&2
+                exit 1
+            fi
+        done
+        [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill "${SAFE_PIDS[@]}" 2>/dev/null || true
+    fi
+    kill_pty_managers_for_socket
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     open "$APP"
@@ -505,26 +564,47 @@ host-run variant="stable":
 # per-byte Range loops); Release optimizes that away (~100% -> ~30% CPU). Used by the
 # fresh-install / sim-fresh-install feel-test composites. Every other host launch
 # (plain host-run, motion-verify, agent-feed-sim) stays Debug for fast iteration.
-host-run-release variant="stable":
+host-run-release variant="stable": build-pty-manager
     #!/usr/bin/env bash
     set -euo pipefail
     # DOM mirror is baked on by default (see host-run); no enable override injected here.
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; APP='{{host_dev_app_release}}'; SIGPORT=41988
+        PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
         DD='{{derived_data}}'; APP='{{host_app_release}}'; SIGPORT=41888
+        PTY_SOCKET='{{host_pty_manager_socket_path}}'
         EXTRA=()
     fi
+    kill_pty_managers_for_socket() {
+        SOCKET_PIDS=$(ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { print $1 }')
+        [ -n "$SOCKET_PIDS" ] && kill $SOCKET_PIDS 2>/dev/null || true
+    }
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     # Path-scoped kill: only THIS variant's host from THIS checkout (see host-run).
     pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
+    pkill -f "$APP/Contents/Resources/pty-manager" 2>/dev/null || true
+    kill_pty_managers_for_socket
     # Backstop: kill a same-bundle-id host from a different checkout that holds this
     # variant's signaling port (the path-scoped pkill misses it). Port-scoped, so the
     # sibling variant on its own tier-derived port is untouched.
     SIGPORT="${AGENTDESK_SIGNALING_PORT:-$SIGPORT}"
-    PORT_PIDS=$(lsof -ti tcp:"$SIGPORT" 2>/dev/null || true)
-    [ -n "$PORT_PIDS" ] && kill $PORT_PIDS 2>/dev/null || true
+    PORT_PIDS=$(lsof -nP -iTCP:"$SIGPORT" -sTCP:LISTEN -t 2>/dev/null || true)
+    if [ -n "$PORT_PIDS" ]; then
+        SAFE_PIDS=()
+        for PID in $PORT_PIDS; do
+            CMD="$(ps -p "$PID" -o command= 2>/dev/null || true)"
+            if [[ "$CMD" == *"/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"* ]]; then
+                SAFE_PIDS+=("$PID")
+            else
+                echo "ERROR: port $SIGPORT is held by a non-AgentDesk process: pid=$PID cmd=$CMD" >&2
+                exit 1
+            fi
+        done
+        [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill "${SAFE_PIDS[@]}" 2>/dev/null || true
+    fi
+    kill_pty_managers_for_socket
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     open "$APP"
@@ -582,16 +662,17 @@ client-reinstall-release:
 pair-iphone variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
-    test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
     # dev client pairs with the dev host, which writes its pair URL under its own
     # bundle-id Application Support tree; read that variant's path.
     # dev pairs with the dev host; it also enables the Chrome DOM mirror on the client
     # (ADR-0038), matching the dev host default set by host-run. devicectl apps get env
     # not argv, so the client reads AGENTDESK_DOM_MIRROR_ENABLED via the CHILD prefix.
-    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    if [ "{{variant}}" = "dev" ]; then HOST_DD='{{host_dev_derived_data}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_DD='{{derived_data}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
+    test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "$PAIR_URL"
     trap 'rm -f "$PAIR_URL"' EXIT
-    kill -USR1 $(pgrep -f AgentDeskHost)
+    kill -USR1 "$HOST_PID"
     i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
@@ -605,7 +686,7 @@ pair-iphone variant="stable":
 client-diagnostics variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
-    HOST_PID="$(pgrep -f AgentDeskHost | head -1 || true)"
+    HOST_PID="$(pgrep -f '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}' | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     TS="$(date +%Y%m%d-%H%M%S)"
     OUT_DIR="${AGENTDESK_CLIENT_DIAGNOSTICS_OUTPUT:-/tmp/agentdesk-client-diagnostics-$TS}"
@@ -627,13 +708,14 @@ client-diagnostics variant="stable":
 iphone-console-run variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
-    test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
     # dev also enables the Chrome DOM mirror on the client (ADR-0038), matching the dev
     # host default; devicectl apps get env not argv, so it rides the CHILD prefix.
-    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    if [ "{{variant}}" = "dev" ]; then HOST_DD='{{host_dev_derived_data}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_DD='{{derived_data}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
+    test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "$PAIR_URL" "{{iphone_console_log}}"
     trap 'rm -f "$PAIR_URL"' EXIT
-    kill -USR1 $(pgrep -f AgentDeskHost)
+    kill -USR1 "$HOST_PID"
     i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
@@ -729,10 +811,11 @@ dom-mirror-device-run:
     trap 'launchctl unsetenv AGENTDESK_DOM_MIRROR_ENABLED 2>/dev/null || true' EXIT
     just host-run-release
     just client-reinstall-release
-    test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running"; exit 1; }
+    HOST_PID="$(pgrep -f '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}' | head -1 || true)"
+    test -n "$HOST_PID" || { echo "host not running"; exit 1; }
     BID='{{client_bundle_id}}'
     rm -f "{{last_pair_url_path}}" "{{iphone_console_log}}"
-    kill -USR1 $(pgrep -f AgentDeskHost)
+    kill -USR1 "$HOST_PID"
     i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     URL="$(cat "{{last_pair_url_path}}")"
@@ -755,10 +838,11 @@ dom-mirror-device-run-dev:
     trap 'launchctl unsetenv AGENTDESK_DOM_MIRROR_ENABLED 2>/dev/null || true' EXIT
     just host-run dev
     just client-reinstall dev
-    test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running"; exit 1; }
+    HOST_PID="$(pgrep -f '{{host_dev_derived_data}}/Build/Products/.*/{{host_process_suffix}}' | head -1 || true)"
+    test -n "$HOST_PID" || { echo "host not running"; exit 1; }
     BID='{{client_dev_bundle_id}}'
     rm -f "{{host_dev_last_pair_url_path}}" "{{iphone_console_log}}"
-    kill -USR1 $(pgrep -f AgentDeskHost)
+    kill -USR1 "$HOST_PID"
     i=0; while [ ! -s "{{host_dev_last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "{{host_dev_last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
     URL="$(cat "{{host_dev_last_pair_url_path}}")"
@@ -982,15 +1066,16 @@ client-sim-reinstall-release:
 pair-sim variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
-    test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
     # dev sim pairs with the dev host, which mints its pair URL under its own
     # bundle-id Application Support tree; read that variant's path and sim.
     # dev sim pairs with the dev host and enables the Chrome DOM mirror on the client
     # (ADR-0038), matching the dev host default; simctl forwards it via the CHILD prefix.
-    if [ "{{variant}}" = "dev" ]; then SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(SIMCTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    if [ "{{variant}}" = "dev" ]; then HOST_DD='{{host_dev_derived_data}}'; SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(SIMCTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_DD='{{derived_data}}'; SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
+    test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "$PAIR_URL"
     trap 'rm -f "$PAIR_URL"' EXIT
-    kill -USR1 $(pgrep -f AgentDeskHost)
+    kill -USR1 "$HOST_PID"
     i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to simulator>"
@@ -1011,11 +1096,12 @@ pair-sim variant="stable":
 sim-console-run variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
-    test -n "$(pgrep -f AgentDeskHost)" || { echo "host not running; just host-run first"; exit 1; }
-    if [ "{{variant}}" = "dev" ]; then SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(SIMCTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    if [ "{{variant}}" = "dev" ]; then HOST_DD='{{host_dev_derived_data}}'; SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(SIMCTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_DD='{{derived_data}}'; SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
+    test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "$PAIR_URL" "{{sim_console_log}}"
     trap 'rm -f "$PAIR_URL"' EXIT
-    kill -USR1 $(pgrep -f AgentDeskHost)
+    kill -USR1 "$HOST_PID"
     i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to simulator>"
@@ -1121,6 +1207,13 @@ ui-flow flow:
     cd client/maestro/screenshots && \
         JAVA_HOME="$(brew --prefix openjdk)/libexec/openjdk.jdk/Contents/Home" \
         maestro --udid {{ios_sim_udid}} test ../{{flow}}.yaml
+
+# Stronger terminal simulator smoke: drives the SwiftTerm surface, types a host
+# command, screenshots the rendered PTY output, then OCR-checks the pixel buffer.
+terminal-smoke:
+    just agent-feed-sim-pair
+    just ui-flow terminal-smoke
+    swift tools/terminal-smoke-assert.swift client/maestro/screenshots/terminal-smoke.png AGDOK42
 
 # Print the client build number used by TestFlight recipes. Defaults to a UTC
 # timestamp so repeated uploads do not collide in App Store Connect.

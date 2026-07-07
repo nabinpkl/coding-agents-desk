@@ -2,7 +2,7 @@ import OSLog
 import UIKit
 import WebKit
 
-// Extension: surface switcher (Control | Agent | Browser) and lifecycle.
+// Extension: surface switcher (Control | Agent | Terminal | Browser) and lifecycle.
 // The ControlSurface enum + visibility(for:) mapping live in ControlSurface.swift.
 //
 // Each non-control surface sits full-bleed alongside the existing control
@@ -29,6 +29,7 @@ extension PairingViewController {
 
     private enum Keys {
         nonisolated(unsafe) static var agentSurface: UInt8 = 0
+        nonisolated(unsafe) static var terminalSurface: UInt8 = 0
         nonisolated(unsafe) static var surfaceSegmentedControl: UInt8 = 0
         nonisolated(unsafe) static var agentSurfaceConstraints: UInt8 = 0
     }
@@ -38,6 +39,12 @@ extension PairingViewController {
         set { objc_setAssociatedObject(self, &Keys.agentSurface, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
+    @available(iOS 26.0, *)
+    var terminalSurface: TerminalSurface? {
+        get { objc_getAssociatedObject(self, &Keys.terminalSurface) as? TerminalSurface }
+        set { objc_setAssociatedObject(self, &Keys.terminalSurface, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
     var surfaceSegmentedControl: UISegmentedControl? {
         get { objc_getAssociatedObject(self, &Keys.surfaceSegmentedControl) as? UISegmentedControl }
         set { objc_setAssociatedObject(self, &Keys.surfaceSegmentedControl, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
@@ -45,7 +52,7 @@ extension PairingViewController {
 
     // MARK: - Toggle UI (state-driven from render())
 
-    // Idempotent: adds the Control/Agent segmented toggle once, with the
+    // Idempotent: adds the Control/Agent/Terminal segmented toggle once, with the
     // safe-area-top constraints. Called from render()'s .connected case, which
     // runs on every state change, so the toggle cannot be skipped by a channel
     // timing race. The webview itself is created lazily on first Agent select.
@@ -62,7 +69,7 @@ extension PairingViewController {
         // Availability is fixed for the session's lifetime (decided at the
         // handshake) and the toggle is torn down + rebuilt on every
         // non-connected state, so reading it once here is race-free.
-        var items = ["Control", "Agent"]
+        var items = ["Control", "Agent", "Terminal"]
         if pairingClient.activeDomMirror != nil {
             items.append("Browser")
         }
@@ -87,6 +94,12 @@ extension PairingViewController {
         agentSurface?.teardown()
         agentSurface?.removeFromSuperview()
         agentSurface = nil
+
+        if #available(iOS 26.0, *) {
+            terminalSurface?.detach()
+            terminalSurface?.removeFromSuperview()
+            terminalSurface = nil
+        }
 
         // The switcher owns all non-control surfaces; tear the browser down too
         // so a reconnect rebuilds all three cleanly from the fresh session.
@@ -168,6 +181,10 @@ extension PairingViewController {
         case .agent:
             // Create the webview and wire the bridge on first switch to Agent.
             ensureAgentSurface()
+        case .terminal:
+            if #available(iOS 26.0, *) {
+                ensureTerminalSurface()
+            }
         case .browser:
             // Create the replay surface and start the .dom lane on first switch
             // to Browser (lazy, so the mirror does not run unless viewed).
@@ -188,6 +205,7 @@ extension PairingViewController {
     private func selectedSurface(on seg: UISegmentedControl) -> ControlSurface {
         switch seg.titleForSegment(at: seg.selectedSegmentIndex) {
         case "Agent": return .agent
+        case "Terminal": return .terminal
         case "Browser": return .browser
         default: return .control
         }
@@ -199,6 +217,9 @@ extension PairingViewController {
         let v = visibility(for: surface)
         agentSurface?.isHidden = v.agentHidden
         domMirrorSurface?.isHidden = v.browserHidden
+        if #available(iOS 26.0, *) {
+            terminalSurface?.isHidden = v.terminalHidden
+        }
 
         // Suppress the interactive control surfaces when a non-control surface
         // is active so gesture recognizers do not fight the webview scroll.
@@ -213,6 +234,34 @@ extension PairingViewController {
         applyVideoTouchState()
 
         Self.logger.debug("active surface: \(String(describing: surface))")
+    }
+
+    @available(iOS 26.0, *)
+    @discardableResult
+    private func ensureTerminalSurface() -> TerminalSurface {
+        if let existing = terminalSurface {
+            return existing
+        }
+
+        let surface = TerminalSurface()
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        surface.isHidden = true
+        view.addSubview(surface)
+        let surfaceTop = surfaceSegmentedControl.map {
+            surface.topAnchor.constraint(equalTo: $0.bottomAnchor, constant: 8)
+        } ?? surface.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
+        NSLayoutConstraint.activate([
+            surfaceTop,
+            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        terminalSurface = surface
+        surface.connect(using: pairingClient.activeSessionTransport)
+        if let seg = surfaceSegmentedControl {
+            view.bringSubviewToFront(seg)
+        }
+        return surface
     }
 
     // MARK: - Request forwarding

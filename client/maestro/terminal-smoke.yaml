@@ -1,0 +1,18 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+# `just terminal-smoke` rebuilds, reinstalls, pairs, then runs this flow.
+- extendedWaitUntil:
+    visible: "Terminal"
+    timeout: 30000
+- tapOn: "Terminal"
+- tapOn:
+    point: 20%, 22%
+- extendedWaitUntil:
+    visible: "Hide keyboard"
+    timeout: 5000
+- waitForAnimationToEnd:
+    timeout: 5000
+- inputText: "printf '\\101\\107\\104\\117\\113\\064\\062\\012'\n"
+- waitForAnimationToEnd:
+    timeout: 1500
+- takeScreenshot: terminal-smoke

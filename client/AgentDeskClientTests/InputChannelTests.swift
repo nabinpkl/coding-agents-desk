@@ -277,15 +277,16 @@ struct InputChannelTests {
         #expect(observed == ["media connected"])
     }
 
-    // R8: the host reads this raw stream-role byte to route the reliable graphics lane;
-    // it must stay pinned so the host and client cannot disagree on which stream is which.
-    // ADR-0038 added the .dom lane at 4, so 4 is now valid and 5 is the first unused byte.
+    // R8+: the host reads this raw stream-role byte to route reliable QUIC streams;
+    // these values must stay pinned so the host and client cannot disagree.
     @Test func streamRoleGraphicsByteIsPinned() {
         #expect(QuicSessionStreamRole.graphics.rawValue == 3)
         #expect(QuicSessionStreamRole(rawValue: 3) == .graphics)
         #expect(QuicSessionStreamRole.dom.rawValue == 4)
         #expect(QuicSessionStreamRole(rawValue: 4) == .dom)
-        #expect(QuicSessionStreamRole(rawValue: 5) == nil)
+        #expect(QuicSessionStreamRole.terminal.rawValue == 5)
+        #expect(QuicSessionStreamRole(rawValue: 5) == .terminal)
+        #expect(QuicSessionStreamRole(rawValue: 6) == nil)
     }
 
     // ADR-0045: the DOM capture pause/resume frame the client sends UP the .dom lane. The host guard
@@ -1003,9 +1004,9 @@ struct InputChannelTests {
         #expect(decoded.event == event)
     }
 
-    @Test func protocolVersionIsFourForTextInputFocusWireBreak() {
-        #expect(Config.protocolVersion == 4)
-        #expect(Config.minCompatibleProtocolVersion == 4)
+    @Test func protocolVersionIsFiveForTerminalLaneWireBreak() {
+        #expect(Config.protocolVersion == 5)
+        #expect(Config.minCompatibleProtocolVersion == 5)
     }
 
     @Test func eventFrameRoundTripPreservesKeyWithModifiers() throws {

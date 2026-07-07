@@ -4,6 +4,7 @@ import Network
 import OSLog
 import Security
 import AgentDeskWire
+import PtyClientSwift
 
 @available(iOS 26.0, *)
 final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTransport, @unchecked Sendable {
@@ -186,6 +187,13 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
 
     func sendAgentThreadUnsubscribe(_ request: AgentThreadUnsubscribe) async throws {
         try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
+    func openTerminalPtyClient() async throws -> PtyClient {
+        let stream = try await connection.openStream()
+        let transport = TerminalQuicPtyTransport(stream: stream)
+        try await transport.announce()
+        return PtyClient(transport: transport)
     }
 
     func close() {

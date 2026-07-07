@@ -44,11 +44,13 @@ struct QuicSessionStreamFrameTests {
         #expect(QuicSessionStreamRole.input.rawValue == 2)
         #expect(QuicSessionStreamRole.graphics.rawValue == 3)
         #expect(QuicSessionStreamRole.dom.rawValue == 4)
+        #expect(QuicSessionStreamRole.terminal.rawValue == 5)
         #expect(QuicSessionStreamRole(rawValue: 1) == .control)
         #expect(QuicSessionStreamRole(rawValue: 2) == .input)
         #expect(QuicSessionStreamRole(rawValue: 3) == .graphics)
         #expect(QuicSessionStreamRole(rawValue: 4) == .dom)
-        #expect(QuicSessionStreamRole(rawValue: 5) == nil)
+        #expect(QuicSessionStreamRole(rawValue: 5) == .terminal)
+        #expect(QuicSessionStreamRole(rawValue: 6) == nil)
     }
 
     @Test func quicSessionFrameRoundTripsDomRole() throws {
@@ -59,6 +61,16 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded.role == .dom)
         #expect(decoded.payload == payload)
         #expect(encoded[encoded.startIndex] == QuicSessionStreamRole.dom.rawValue)
+    }
+
+    @Test func quicSessionFrameRoundTripsTerminalRole() throws {
+        let payload = Data([0x08, 0x01, 0x12, 0x04, 0x68, 0x6f, 0x6d, 0x65])
+        let encoded = try QuicSessionStreamFrame.encode(role: .terminal, payload: payload)
+        let decoded = try QuicSessionStreamFrame.decode(encoded)
+
+        #expect(decoded.role == .terminal)
+        #expect(decoded.payload == payload)
+        #expect(encoded[encoded.startIndex] == QuicSessionStreamRole.terminal.rawValue)
     }
 
     @Test func domBatchEnvelopeRoundTripsWithCompactKeys() throws {
@@ -212,9 +224,9 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded.event == event)
     }
 
-    @Test func protocolVersionIsFourForTextInputFocusWireBreak() {
-        #expect(Config.protocolVersion == 4)
-        #expect(Config.minCompatibleProtocolVersion == 4)
+    @Test func protocolVersionIsFiveForTerminalLaneWireBreak() {
+        #expect(Config.protocolVersion == 5)
+        #expect(Config.minCompatibleProtocolVersion == 5)
     }
 
     @available(macOS 26.0, *)

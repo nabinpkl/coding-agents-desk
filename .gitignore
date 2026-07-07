@@ -32,6 +32,11 @@ client/maestro/screenshots/
 # the built binary.
 host/AgentDeskHost/atc-sidecar
 
+# Agent Workspace IDE PTY manager binary. Never tracked: the real Rust binary is
+# produced by `just build-pty-manager`, and a placeholder is regenerated on demand
+# by `just ensure-pty-manager-placeholder` for host builds.
+host/AgentDeskHost/pty-manager
+
 # Agent feed webview bundle. Never tracked: the real bundle (~5 MB) is produced
 # by `just build-agent-webview` and the placeholder is regenerated on demand by
 # `just ensure-webview-placeholder` (a dependency of `just sim-test`). A fresh

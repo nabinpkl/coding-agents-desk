@@ -115,6 +115,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var spaceAgentController: SpaceAgentController?
     private var dictationBarController: DictationBarController?
     private var terminalLauncherController: TerminalLauncherController?
+    private var ptyManagerProcess: HostPtyManagerProcess?
+    private var terminalClientBridges: [ObjectIdentifier: TerminalClientBridge] = [:]
     private var gesturePortalController: GesturePortalController?
     private var gestureChildController: GestureChildController?
     private var voiceChildController: VoiceChildController?
@@ -190,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startVoiceChildIfConfigured()
         startDictationBar()
         startTerminalLauncher()
+        startPtyManager()
         startGesturePortalIfConfigured()
         startGestureChildIfConfigured()
         startAgentEngineSidecar()
@@ -252,6 +255,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         spaceAgentController?.stop()
         dictationBarController?.stop()
         terminalLauncherController?.stop()
+        for bridge in terminalClientBridges.values {
+            bridge.stop()
+        }
+        terminalClientBridges.removeAll()
+        ptyManagerProcess?.stopAndWait()
         voiceChildController?.stop()
         agentSayServer?.stop()
         signalingServer?.stop()
@@ -400,6 +408,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor in
                     self?.handleDomLaneReady(fingerprint, lane: lane)
                 }
+            },
+            terminalLaneReadyHandler: { [weak self] fingerprint, bridge in
+                Task { @MainActor in
+                    self?.handleTerminalLaneReady(fingerprint, bridge: bridge)
+                }
             }
         )
         do {
@@ -463,6 +476,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         lane.startReceiving()
         domMirrorRelay.attach(lane, for: fingerprint)
+    }
+
+    private func handleTerminalLaneReady(_ fingerprint: DeviceFingerprint, bridge: TerminalClientBridge) {
+        signalingLogger.notice("terminal lane ready fp=\(fingerprint.rawValue, privacy: .public)")
+        let id = ObjectIdentifier(bridge)
+        terminalClientBridges[id] = bridge
+        bridge.onClose = { [weak self] in
+            Task { @MainActor in
+                self?.terminalClientBridges.removeValue(forKey: id)
+            }
+        }
+        bridge.start()
+    }
+
+    private func startPtyManager() {
+        guard let binaryURL = Config.ptyManagerURL else {
+            signalingLogger.error("pty-manager binary not found in bundle")
+            return
+        }
+        let process = HostPtyManagerProcess(binaryURL: binaryURL)
+        ptyManagerProcess = process
+        process.start()
     }
 
     // Start the Chrome-fed native-messaging bridge and pipe its batches into the relay, but only

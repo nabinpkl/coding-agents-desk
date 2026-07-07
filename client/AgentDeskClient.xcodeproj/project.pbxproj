@@ -9,6 +9,10 @@
 /* Begin PBXBuildFile section */
 		A0000000000000000000EE03 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE02 /* AgentDeskWire */; };
 		A0000000000000000000EE05 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE04 /* AgentDeskWire */; };
+		C0000000000000000000EE07 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE03 /* PtyClientSwift */; };
+		C0000000000000000000EE08 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE04 /* SwiftTerm */; };
+		C0000000000000000000EE09 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE05 /* PtyClientSwift */; };
+		C0000000000000000000EE0A /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE06 /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -61,6 +65,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A0000000000000000000EE03 /* AgentDeskWire in Frameworks */,
+				C0000000000000000000EE07 /* PtyClientSwift in Frameworks */,
+				C0000000000000000000EE08 /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -69,6 +75,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A0000000000000000000EE05 /* AgentDeskWire in Frameworks */,
+				C0000000000000000000EE09 /* PtyClientSwift in Frameworks */,
+				C0000000000000000000EE0A /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -114,6 +122,8 @@
 			name = AgentDeskClient;
 			packageProductDependencies = (
 				A0000000000000000000EE02 /* AgentDeskWire */,
+				C0000000000000000000EE03 /* PtyClientSwift */,
+				C0000000000000000000EE04 /* SwiftTerm */,
 			);
 			productName = AgentDeskClient;
 			productReference = B00000000000000000000141 /* AgentDeskClient.app */;
@@ -138,6 +148,8 @@
 			name = AgentDeskClientTests;
 			packageProductDependencies = (
 				A0000000000000000000EE04 /* AgentDeskWire */,
+				C0000000000000000000EE05 /* PtyClientSwift */,
+				C0000000000000000000EE06 /* SwiftTerm */,
 			);
 			productName = AgentDeskClientTests;
 			productReference = B00000000000000000000142 /* AgentDeskClientTests.xctest */;
@@ -173,6 +185,8 @@
 			mainGroup = B00000000000000000000002;
 			packageReferences = (
 				A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */,
+				C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */,
+				C0000000000000000000EE02 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			productRefGroup = B00000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -460,7 +474,22 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/AgentDeskWire;
 		};
+		C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../agent-workspace-ide/terminal/pty-client-swift;
+		};
 /* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C0000000000000000000EE02 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.13.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		A0000000000000000000EE02 /* AgentDeskWire */ = {
@@ -472,6 +501,26 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */;
 			productName = AgentDeskWire;
+		};
+		C0000000000000000000EE03 /* PtyClientSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */;
+			productName = PtyClientSwift;
+		};
+		C0000000000000000000EE04 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0000000000000000000EE02 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
+		};
+		C0000000000000000000EE05 /* PtyClientSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */;
+			productName = PtyClientSwift;
+		};
+		C0000000000000000000EE06 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0000000000000000000EE02 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

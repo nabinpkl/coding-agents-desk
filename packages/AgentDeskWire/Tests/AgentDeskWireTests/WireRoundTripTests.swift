@@ -25,6 +25,18 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded.emulated == false)
 }
 
+@Test func quicSessionTerminalRoleIsPinnedAndRoundTrips() throws {
+    #expect(QuicSessionStreamRole.terminal.rawValue == 5)
+    #expect(QuicSessionStreamRole(rawValue: 5) == .terminal)
+
+    let payload = Data([0x08, 0x01, 0x12, 0x04, 0x68, 0x6f, 0x6d, 0x65])
+    let encoded = try QuicSessionStreamFrame.encode(role: .terminal, payload: payload)
+    let decoded = try QuicSessionStreamFrame.decode(encoded)
+
+    #expect(decoded.role == .terminal)
+    #expect(decoded.payload == payload)
+}
+
 @Test func ownedSurfaceUpdateIdIsHashableAndComparable() throws {
     // Drift: the host conformed Hashable, the client did not. The unified type is
     // usable as a dictionary key on both sides.

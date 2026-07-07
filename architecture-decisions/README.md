@@ -87,3 +87,5 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0042 | Run the DOM recorder in the extension's isolated world, triggered from the chrome layer | proposed | 2026-07-01 |
 | ADR-0043 | Compress DOM-mirror batches end-to-end, snapshot as a rare keyframe, chunk as a backstop | proposed | 2026-07-01 |
 | ADR-0044 | Tiered DOM-mirror fidelity: isolated adopted-stylesheet enrichment + opt-in CDP keyframe (no MAIN world) | proposed | 2026-07-01 |
+| ADR-0050 | Shared wire types as a local Swift package, and modern synchronized Xcode project format | accepted | 2026-07-03 |
+| ADR-0051 | Remote SwiftTerm terminal over the Agent Workspace IDE PTY multiplexer | accepted | 2026-07-06 |

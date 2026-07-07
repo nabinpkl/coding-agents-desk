@@ -50,6 +50,7 @@
 				OwnedMediaTransport.swift,
 				PairingSignalingServer.swift,
 				PopoverViewController.swift,
+				"pty-manager",
 				QRCodeRenderer.swift,
 				ScreenCaptureKitFrameSource.swift,
 				TerminalLauncher/TerminalLauncherController.swift,

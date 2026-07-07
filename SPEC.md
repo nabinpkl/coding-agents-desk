@@ -10,16 +10,16 @@
 | iOS client | Swift, UIKit, current `AVSampleBufferDisplayLayer` baseline with a retained BGRA compositor target in this worktree | Native required for text crispness and gesture fidelity. Browser path rejected in `PRD.md`. The branch target decodes HEVC through `VTDecompressionSession` into one retained compositor surface. |
 | Capture | `ScreenCaptureKit` on macOS 26+ | First-party selected-display capture without composition tricks. |
 | Encode / decode | Hardware-required VideoToolbox, HEVC by default and H.264 as an explicit owned-media codec setting | Rest-state text crispness depends on hardware screen-content quality. In this worktree HEVC remains the full-frame refresh path while retained graphics commands target scroll motion. |
-| Transport | One authenticated `NetworkConnection<QUIC>` per live session, ALPN `agentdesk-session-quic-v2` | ADR-0030 is the current live-session architecture. Control and input use ordered QUIC streams. HEVC media uses the same connection's datagram lane. Session liveness belongs to the QUIC connection, not to media, so media loss or decode failure must not end input. |
+| Transport | One authenticated `NetworkConnection<QUIC>` per live session, ALPN `agentdesk-session-quic-v2` | ADR-0030 is the current live-session architecture. Control, input, DOM, and terminal use ordered QUIC streams. HEVC media uses the same connection's datagram lane. Session liveness belongs to the QUIC connection, not to media, so media loss or decode failure must not end input. |
 | Network | Tailscale only | No public rendezvous, relay, or internet routing. Both peers are on the tailnet. |
 | Pairing | Mac-initiated tailnet device picker (ADR-0019), QR fallback | The Mac enumerates online iOS tailnet peers, probes each on the plain-TCP offer port (`AGENTDESK_OFFER_PORT`, default 41890) for a self-reported display name, and pushes a pre-approved signed offer to the picked device. The pick is the authorization. The iPhone runs the unchanged signed handshake. Signed token stored in Keychain on both sides. |
-| Wire compatibility | Protocol version 4 only (ADR-0020, ADR-0030) | Host and client version independently; the wire protocol, not the app version, is the compatibility contract. `SessionInit`/`SessionChallenge` advertise `protocolVersion` and `minCompatibleProtocolVersion`; v0 rejects any peer below `4` with `incompatible-protocol`. There is no legacy WebSocket fallback. |
+| Wire compatibility | Protocol version 5 only (ADR-0020, ADR-0051) | Host and client version independently; the wire protocol, not the app version, is the compatibility contract. `SessionInit`/`SessionChallenge` advertise `protocolVersion` and `minCompatibleProtocolVersion`; v0 rejects any peer below `5` with `incompatible-protocol`. There is no legacy WebSocket fallback. |
 | Spaces enumeration | Private SkyLight/CoreGraphics symbols bound with `dlopen` and `dlsym` | No public API exists. Risk is acceptable because App Store distribution is not the v0 target. |
 | Spaces switch | Synthesize Dock swipe `CGEvent`s via `SpacesProvider.postDockSwipeFrame` and `commitStep(delta:)` | Stock macOS path that preserves live Space transition animation. |
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
 
-ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with control, input, and media lanes, protocol version `4`, and no WebSocket or separate media/graphics fallback. ADR-0031 records client-visible selected-display projection, keeping display choice separate from Spaces sliding. ADR-0032 records bounded durable client diagnostics with on-demand host retrieval over the input lane and a foreground tailnet control fallback. ADR-0033 records the adaptive media quality ladder that chooses bitrate, FPS, and capture resolution together from host-owned heuristics. ADR-0035 records the read-only phone agent-feed observability surface: an embedded loopback-only Bun engine sidecar normalizes Claude and Codex transcripts, the host bridges its output onto the session input lane as `agent-*` message types, and the client renders it by reusing ATC's React components in a local `WKWebView`.
+ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with control, input, media, DOM, and terminal lanes, protocol version `5`, and no WebSocket or separate media/graphics fallback. ADR-0031 records client-visible selected-display projection, keeping display choice separate from Spaces sliding. ADR-0032 records bounded durable client diagnostics with on-demand host retrieval over the input lane and a foreground tailnet control fallback. ADR-0033 records the adaptive media quality ladder that chooses bitrate, FPS, and capture resolution together from host-owned heuristics. ADR-0035 records the read-only phone agent-feed observability surface: an embedded loopback-only Bun engine sidecar normalizes Claude and Codex transcripts, the host bridges its output onto the session input lane as `agent-*` message types, and the client renders it by reusing ATC's React components in a local `WKWebView`. ADR-0051 records the terminal lane: iOS SwiftTerm is a PTY multiplexer client, while host execution remains inside the Rust `pty-manager`.
 
 ## Module Boundaries
 
@@ -44,10 +44,12 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 13. **ScrollDeltaEngine.** Rest-state retained-graphics producer (ADR-0025), retained as local crisp-repair/compositor machinery. Damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`), omitting cells that already match the retained baseline. It does not own a separate network connection.
 14. **InputChannelServer.** Owns the host side of the session input stream. Drains `InputChannelEvent` frames into `NormalizedInput`, and pushes desktop state, thumbnails, cursor image updates, cursor-position corrections, text-input focus metadata, agent speech events, and diagnostics responses on the same ordered lane.
 15. **SignalingChannel.** Supplies length-prefixed QUIC stream framing and role routing for the session control and input streams. It is not a WebSocket wrapper.
-16. **VideoFrameSource.** Concrete implementation `ScreenCaptureKitFrameSource` captures one stream for the selected display and exposes a display-selection hook. `TestPatternFrameSource` exists as a diagnostic source.
-17. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces, enabled by owner-scoped demand.
-18. **SpaceAgent.** Host-local overlay under `host/AgentDeskHost/SpaceAgent/`, showing the draggable spaceship and active-display Spaces strip.
-19. **DictationBar.** Host-local push-to-talk overlay under `host/AgentDeskHost/DictationBar/`, independent of the iPhone media and input channels.
+16. **HostPtyManagerProcess.** Launches the bundled Rust `pty-manager` from Agent Workspace IDE and owns its Unix socket under the host variant's Application Support directory. The manager, not the iOS app, spawns shells and owns host PTYs.
+17. **TerminalClientBridge.** Bridges a dedicated `.terminal` QUIC stream to the `pty-manager` Unix socket as opaque length-prefixed PTY protobuf frames. It does not decode terminal protocol payloads; it only enforces stream role and frame bounds. A paired terminal client is currently trusted to use the full PTY manager protocol.
+18. **VideoFrameSource.** Concrete implementation `ScreenCaptureKitFrameSource` captures one stream for the selected display and exposes a display-selection hook. `TestPatternFrameSource` exists as a diagnostic source.
+19. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces, enabled by owner-scoped demand.
+20. **SpaceAgent.** Host-local overlay under `host/AgentDeskHost/SpaceAgent/`, showing the draggable spaceship and active-display Spaces strip.
+21. **DictationBar.** Host-local push-to-talk overlay under `host/AgentDeskHost/DictationBar/`, independent of the iPhone media and input channels.
 
 ### Client
 
@@ -65,6 +67,7 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 12. **OwnedSurfaceCompositor.** Planned `@MainActor` single writer for the retained BGRA surface. It applies HEVC full-surface refreshes and retained graphics commands in strict `(surfaceGeneration, frameId)` order, then commits the visible layer.
 13. **InputChannel.** Reliable input lane inside the authenticated session QUIC connection. It stays logically independent from media even though both lanes share the same connection. It sends `ClientConfig.selectedDisplayId` when the user picks a display and sends client-owned media preferences (`crispTextOverlayEnabled`, `showHostCursorInVideo`, `mediaQuality`) on input-channel open and settings changes. `mediaQuality` carries adaptive on/off plus an optional fixed target. When adaptive is on, the host still owns rung selection; when adaptive is off, the host pins the video bitrate/FPS/resolution to the fixed target while packet repair and backpressure stay active. The lane receives cursor-position corrections, host text-input focus metadata, and `DiagnosticsRequest` from the host, and returns diagnostics summaries and chunks.
 14. **ClientDiagnosticsStore.** Bounded durable client diagnostics store in `Application Support/Diagnostics`. It persists structured NDJSON essentials for the current run plus two prior runs, rotates unclean exits on bootstrap, mirrors essentials to OSLog, summarizes delayed MetricKit payloads, and serves prior-run tails on demand over the input lane or the foreground tailnet control listener.
+15. **TerminalSurface.** Full-bleed SwiftTerm renderer selected from the Control | Agent | Terminal | Browser switcher. It opens a `.terminal` QUIC stream, wraps it in `PtyClientSwift`, attaches to the shared `agentdesk-home` PTY session with empty cwd/shell so the host manager defaults to host home/default shell, and detaches on close without killing the session.
 
 Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView.** Additional owned-media contract tests pin wire shapes, packet repair, and decoder recovery behavior where regressions are expensive.
 
@@ -136,10 +139,10 @@ Session establishment is locked by ADR-0003, ADR-0011, ADR-0020, and ADR-0030. F
 
 ```
 QuicStreamFrame   = UInt8 role || UInt32BE length || body
-role              = 1 control | 2 input
+role              = 1 control | 2 input | 3 graphics | 4 dom | 5 terminal
 
 SessionInit       { deviceFingerprint, sessionToken, clientNonce,
-                    protocolVersion, minCompatibleProtocolVersion }   // pv must be >= 4
+                    protocolVersion, minCompatibleProtocolVersion }   // pv must be >= 5
 SessionChallenge  { hostNonce, hostSignature, protocolVersion }
 SessionProof      { clientSignature }
 SessionReady      { sessionId, resumeId, resumeSecret, resumeExpiresAt, mediaKeySalt,
@@ -163,7 +166,15 @@ and rotates resume id, resume secret, and media key salt in the next signed
 `SessionReady`; the client verifies the ready signature before accepting the new
 material.
 
-Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. v0 now sets both to `4`; older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
+Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. v0 now sets both to `5`; older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
+
+Terminal PTY frames travel over the reliable ordered `.terminal` stream as opaque `pty.v1` protobuf envelopes from Agent Workspace IDE's `pty-client-swift`/`pty-manager` pair:
+
+```
+Terminal stream body = UInt32BE ptyFrameLength || pty.v1.Envelope
+```
+
+The outer `QuicStreamFrame` identifies the stream role. The inner PTY frame is owned by the Rust manager and Swift PTY client; AgentDesk's host bridge does not reinterpret create/attach, input, output, resize, detach, kill, close-client, or session-list messages. For v0 the trust boundary is the authenticated paired device, so the iOS terminal has the same PTY manager authority as any other trusted multiplexer client. Closing the iOS terminal detaches that client from the multiplexer session; user-facing kill/session controls remain a later product decision.
 
 Owned media travels over the unified QUIC session's datagram lane after `SessionReady`.
 
@@ -181,7 +192,7 @@ and device monotonic clocks are not comparable.
 
 The media packet HMAC key is derived per session from the authenticated handshake
 material, session id, and `SessionReady.mediaKeySalt`. Static datagram keys are
-not valid in protocol version 4.
+not valid in protocol version 5.
 
 ADMD packet =
   "ADMD" || version=2 || kind=3 || flags: UInt8 ||

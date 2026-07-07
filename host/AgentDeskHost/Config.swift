@@ -832,6 +832,10 @@ enum Config {
     static var agentSidecarURL: URL? {
         Bundle.main.url(forResource: agentSidecarResourceName, withExtension: nil)
     }
+    static let ptyManagerResourceName = "pty-manager"
+    static var ptyManagerURL: URL? {
+        Bundle.main.url(forResource: ptyManagerResourceName, withExtension: nil)
+    }
 
     // Identity root. Every per-install anchor (log subsystem, launchd label,
     // dispatch-queue prefix, keychain service, Application Support directory)
@@ -858,6 +862,8 @@ enum Config {
         .appendingPathComponent("pre-armed-targets.json", isDirectory: false)
     static let adSocketURL = applicationSupportDirectory
         .appendingPathComponent("ad.sock", isDirectory: false)
+    static let ptyManagerSocketURL = applicationSupportDirectory
+        .appendingPathComponent("pty-manager.sock", isDirectory: false)
     static let adTokenURL = applicationSupportDirectory
         .appendingPathComponent("ad-token", isDirectory: false)
     // ADR-0038/0039 DOM mirror (Chrome page mirroring). Baked on by default for every variant:

@@ -42,6 +42,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     typealias InputLaneReadyHandler = (DeviceFingerprint, InputChannelServer) -> Void
     typealias GraphicsLaneReadyHandler = (DeviceFingerprint, GraphicsLaneServer) -> Void
     typealias DomLaneReadyHandler = (DeviceFingerprint, DomEventLaneServer) -> Void
+    typealias TerminalLaneReadyHandler = (DeviceFingerprint, TerminalClientBridge) -> Void
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "session-quic")
     private let pairing: Pairing
@@ -56,6 +57,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     private let inputLaneReadyHandler: InputLaneReadyHandler
     private let graphicsLaneReadyHandler: GraphicsLaneReadyHandler
     private let domLaneReadyHandler: DomLaneReadyHandler
+    private let terminalLaneReadyHandler: TerminalLaneReadyHandler
     private var listener: NetworkListener<QUIC>?
     private var listenerTask: Task<Void, Never>?
     private let contexts = OSAllocatedUnfairLock<[ObjectIdentifier: ConnectionContext]>(initialState: [:])
@@ -72,7 +74,8 @@ final class PairingSignalingServer: @unchecked Sendable {
         sessionEndedHandler: @escaping SessionEndedHandler = { _, _ in },
         inputLaneReadyHandler: @escaping InputLaneReadyHandler = { _, _ in },
         graphicsLaneReadyHandler: @escaping GraphicsLaneReadyHandler = { _, _ in },
-        domLaneReadyHandler: @escaping DomLaneReadyHandler = { _, _ in }
+        domLaneReadyHandler: @escaping DomLaneReadyHandler = { _, _ in },
+        terminalLaneReadyHandler: @escaping TerminalLaneReadyHandler = { _, _ in }
     ) {
         self.pairing = pairing
         self.approvalHandler = approvalHandler
@@ -86,6 +89,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         self.inputLaneReadyHandler = inputLaneReadyHandler
         self.graphicsLaneReadyHandler = graphicsLaneReadyHandler
         self.domLaneReadyHandler = domLaneReadyHandler
+        self.terminalLaneReadyHandler = terminalLaneReadyHandler
     }
 
     func start(port: UInt16 = Config.signalingPort) throws {
@@ -216,6 +220,17 @@ final class PairingSignalingServer: @unchecked Sendable {
             }
             let lane = DomEventLaneServer(stream: stream, fingerprint: active.deviceFingerprint)
             domLaneReadyHandler(active.deviceFingerprint, lane)
+        case .terminal:
+            guard let active = context.activeSession else {
+                try await QuicSessionStreamIO.send(
+                    SessionRejected(reason: .unauthorized),
+                    role: .terminal,
+                    on: stream
+                )
+                return
+            }
+            let bridge = TerminalClientBridge(stream: stream, fingerprint: active.deviceFingerprint)
+            terminalLaneReadyHandler(active.deviceFingerprint, bridge)
         }
     }
 
