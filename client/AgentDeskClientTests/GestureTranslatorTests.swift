@@ -156,6 +156,29 @@ struct GestureTranslatorTests {
         #expect(recorder.events[2] == .cursorMove(dx: 15, dy: 0))
     }
 
+    @Test func dragEdgePanContinuesMotionAfterFingerStopsAtScreenEdge() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        let bounds = CGRect(x: 0, y: 0, width: 200, height: 200)
+
+        translator.processDrag(state: .began, point: CGPoint(x: 100, y: 100), in: bounds, timestamp: 0.0)
+        translator.processDrag(state: .changed, point: CGPoint(x: 148, y: 100), in: bounds, timestamp: 0.2)
+        translator.processDrag(state: .changed, point: CGPoint(x: 198, y: 100), in: bounds, timestamp: 0.3)
+        translator.processDragEdgePanTick(now: 0.4)
+        translator.processDragEdgePanTick(now: 0.5)
+        translator.processDrag(state: .ended, point: CGPoint(x: 198, y: 100), in: bounds, timestamp: 0.6)
+
+        #expect(recorder.events.count == 6)
+        #expect(recorder.events[0] == .dragStart)
+        #expect(recorder.events[1] == .cursorMove(dx: 48, dy: 0))
+        #expect(recorder.events[2] == .cursorMove(dx: 50, dy: 0))
+        #expect(recorder.events[3] == .cursorMove(dx: 50, dy: 0))
+        #expect(recorder.events[4] == .cursorMove(dx: 50, dy: 0))
+        #expect(recorder.events[5] == .dragEnd)
+    }
+
     @Test func dragEndedEmitsDragEndAndAllowsPanAgain() {
         let recorder = InputRecorder()
         let translator = GestureTranslator()

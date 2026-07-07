@@ -283,6 +283,12 @@ final class GestureTranslator: NSObject {
     // those cursorMoves to leftMouseDragged based on its own inDrag flag.
     private var isDragging = false
     private var dragLastPoint: CGPoint = .zero
+    private var dragLastTime: CFTimeInterval = 0
+    private var dragEdgeDirection: CGPoint = .zero
+    private var dragEdgeSpeed: CGFloat = 0
+    private var dragEdgeActive = false
+    private var dragEdgeDisplayLink: CADisplayLink?
+    private var dragEdgeLastTime: CFTimeInterval = 0
     // Momentum: after the finger lifts with non-trivial velocity, emit
     // decaying scroll events on a display link until velocity falls below
     // the cutoff. Approximates the Mac trackpad's inertia tail.
@@ -309,6 +315,12 @@ final class GestureTranslator: NSObject {
     // spent by ~1.1s. Slower than Mac trackpad so a single flick coasts a
     // long page, cutting the repeated-swipe fatigue that read as "slow".
     private static let momentumDecayK: CGFloat = 2.8
+    // Drag auto-pan: once a drag reaches the edge of the screen, keep moving
+    // in the last outward direction so a short phone drag can finish a much
+    // longer Mac selection or window drag.
+    private static let dragEdgeThreshold: CGFloat = 44
+    private static let dragEdgeMinimumSpeed: CGFloat = 180
+    private static let dragEdgeMaximumSpeed: CGFloat = 1400
 
     init(
         acceleration: GestureAcceleration = .identity,
@@ -531,7 +543,12 @@ final class GestureTranslator: NSObject {
 
     @objc private func handleDragGesture(_ gesture: UILongPressGestureRecognizer) {
         guard let view = gesture.view else { return }
-        processDrag(state: gesture.state, point: gesture.location(in: view))
+        processDrag(
+            state: gesture.state,
+            point: gesture.location(in: view),
+            in: view.bounds,
+            timestamp: CACurrentMediaTime()
+        )
     }
 
     @objc private func handleMissionControlSwipe(_ gesture: UISwipeGestureRecognizer) {
@@ -544,31 +561,152 @@ final class GestureTranslator: NSObject {
     // emits cursorMove deltas with no velocity-driven acceleration: drag
     // is typically used for precise text selection, where small finger
     // motions should map close to 1:1 to cursor motion so the selection
-    // tracks the finger rather than overshooting. .ended emits dragEnd.
-    func processDrag(state: UIGestureRecognizer.State, point: CGPoint) {
+    // tracks the finger rather than overshooting. If the finger reaches the
+    // edge of the view, edge-pan keeps the cursor moving in the last outward
+    // direction so a small phone screen can still drive a long drag.
+    func processDrag(
+        state: UIGestureRecognizer.State,
+        point: CGPoint,
+        in bounds: CGRect = .zero,
+        timestamp: CFTimeInterval = CACurrentMediaTime()
+    ) {
         switch state {
         case .began:
             isDragging = true
             dragLastPoint = point
+            dragLastTime = timestamp
+            dragEdgeDirection = .zero
+            dragEdgeSpeed = 0
+            stopDragEdgePan()
             delegate?.gestureTranslator(self, didProduce: .dragStart)
         case .changed:
             guard isDragging else { return }
             let dx = point.x - dragLastPoint.x
             let dy = point.y - dragLastPoint.y
+            let dt = max(timestamp - dragLastTime, 0.001)
             dragLastPoint = point
+            dragLastTime = timestamp
             if dx == 0 && dy == 0 { return }
             let gain = tuning.cursorAcceleration * tuning.cursorSpeed
             let outDx = Float(dx * gain)
             let outDy = Float(dy * gain)
             delegate?.gestureTranslator(self, didProduce: .cursorMove(dx: outDx, dy: outDy))
+            updateDragEdgePan(point: point, delta: CGPoint(x: dx, y: dy), dt: dt, bounds: bounds, timestamp: timestamp)
+            return
         case .ended, .cancelled, .failed:
             if isDragging {
                 isDragging = false
+                stopDragEdgePan()
                 delegate?.gestureTranslator(self, didProduce: .dragEnd)
             }
             dragLastPoint = .zero
+            dragLastTime = 0
+            dragEdgeDirection = .zero
+            dragEdgeSpeed = 0
         default:
             break
         }
+    }
+
+    func processDragEdgePanTick(now: CFTimeInterval) {
+        guard isDragging, dragEdgeActive, dragEdgeDirection != .zero else { return }
+        let dt = max(now - dragEdgeLastTime, 0.001)
+        dragEdgeLastTime = now
+        let gain = tuning.cursorAcceleration * tuning.cursorSpeed
+        let dx = Float(dragEdgeDirection.x * dragEdgeSpeed * dt * gain)
+        let dy = Float(dragEdgeDirection.y * dragEdgeSpeed * dt * gain)
+        delegate?.gestureTranslator(self, didProduce: .cursorMove(dx: dx, dy: dy))
+    }
+
+    private func updateDragEdgePan(
+        point: CGPoint,
+        delta: CGPoint,
+        dt: CFTimeInterval,
+        bounds: CGRect,
+        timestamp: CFTimeInterval
+    ) {
+        guard isDragging, bounds.width > 0, bounds.height > 0 else {
+            stopDragEdgePan()
+            return
+        }
+
+        guard let edge = nearestDragEdge(for: point, in: bounds) else {
+            stopDragEdgePan()
+            return
+        }
+
+        if delta.x == 0 && delta.y == 0 {
+            if dragEdgeActive { return }
+            stopDragEdgePan()
+            return
+        }
+
+        guard isMovingOutward(from: edge, delta: delta) else {
+            if dragEdgeActive {
+                stopDragEdgePan()
+            }
+            return
+        }
+
+        let magnitude = hypot(delta.x, delta.y)
+        let speed = min(max(magnitude / CGFloat(dt), Self.dragEdgeMinimumSpeed), Self.dragEdgeMaximumSpeed)
+        dragEdgeDirection = CGPoint(x: delta.x / magnitude, y: delta.y / magnitude)
+        dragEdgeSpeed = speed
+        startDragEdgePan(timestamp: timestamp)
+    }
+
+    private func nearestDragEdge(for point: CGPoint, in bounds: CGRect) -> DragEdge? {
+        let left = point.x
+        let right = bounds.maxX - point.x
+        let top = point.y
+        let bottom = bounds.maxY - point.y
+        let nearest = min(left, right, top, bottom)
+        guard nearest <= Self.dragEdgeThreshold else { return nil }
+        switch nearest {
+        case left: return .left
+        case right: return .right
+        case top: return .top
+        default: return .bottom
+        }
+    }
+
+    private func isMovingOutward(from edge: DragEdge, delta: CGPoint) -> Bool {
+        switch edge {
+        case .left: return delta.x < 0
+        case .right: return delta.x > 0
+        case .top: return delta.y < 0
+        case .bottom: return delta.y > 0
+        }
+    }
+
+    private func startDragEdgePan(timestamp: CFTimeInterval) {
+        if !dragEdgeActive {
+            dragEdgeActive = true
+            dragEdgeLastTime = timestamp
+            stopDragEdgeDisplayLink()
+            let link = CADisplayLink(target: self, selector: #selector(tickDragEdgePan(_:)))
+            link.add(to: .main, forMode: .common)
+            dragEdgeDisplayLink = link
+        }
+    }
+
+    private func stopDragEdgePan() {
+        dragEdgeActive = false
+        dragEdgeDirection = .zero
+        dragEdgeSpeed = 0
+        stopDragEdgeDisplayLink()
+    }
+
+    private func stopDragEdgeDisplayLink() {
+        dragEdgeDisplayLink?.invalidate()
+        dragEdgeDisplayLink = nil
+    }
+
+    @objc private func tickDragEdgePan(_ link: CADisplayLink) {
+        processDragEdgePanTick(now: CACurrentMediaTime())
+    }
+
+    private enum DragEdge: CaseIterable {
+        case left, right, top, bottom
     }
 }
