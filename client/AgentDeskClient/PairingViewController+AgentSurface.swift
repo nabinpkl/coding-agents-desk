@@ -258,7 +258,7 @@ extension PairingViewController {
             surfaceTop,
             surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            surface.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
         ])
         terminalSurface = surface
         surface.connect(using: pairingClient.activeSessionTransport)

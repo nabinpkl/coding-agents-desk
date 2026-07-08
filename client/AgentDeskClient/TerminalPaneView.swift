@@ -39,15 +39,25 @@ enum TerminalPaneUserCloseResult: Equatable {
 }
 
 @available(iOS 26.0, *)
+final class AgentDeskTerminalView: TerminalView {
+    override func mouseModeChanged(source: Terminal) {
+        // AgentDesk's iPhone terminal uses direct touch for local scrollback.
+        // SwiftTerm's mouse pan recognizer steals that gesture and can turn
+        // drags into cursor-key input, which makes the terminal feel stuck.
+    }
+}
+
+@available(iOS 26.0, *)
 final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGestureRecognizerDelegate {
     let leaf: TerminalPaneLeaf
 
     weak var delegate: TerminalPaneViewDelegate?
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal-pane")
-    private let terminalView = TerminalView(frame: .zero)
+    private let terminalView = AgentDeskTerminalView(frame: .zero)
     private let statusLabel = UILabel()
     private let titleLabel = UILabel()
+    private let dismissKeyboardButton = UIButton(type: .system)
     private let closeButton = UIButton(type: .system)
     private var sessionConnection: TerminalPaneSessionConnection?
     private weak var transport: QuicSessionClientTransport?
@@ -274,12 +284,17 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
 
         let splitRightButton = makeButton(systemName: "rectangle.split.2x1", action: #selector(handleSplitRight))
         let splitDownButton = makeButton(systemName: "rectangle.split.1x2", action: #selector(handleSplitDown))
+        dismissKeyboardButton.translatesAutoresizingMaskIntoConstraints = false
+        dismissKeyboardButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down"), for: .normal)
+        dismissKeyboardButton.tintColor = .secondaryLabel
+        dismissKeyboardButton.addTarget(self, action: #selector(handleDismissKeyboard), for: .touchUpInside)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
         closeButton.tintColor = .secondaryLabel
         closeButton.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
         header.addSubview(splitRightButton)
         header.addSubview(splitDownButton)
+        header.addSubview(dismissKeyboardButton)
         header.addSubview(closeButton)
 
         terminalView.translatesAutoresizingMaskIntoConstraints = false
@@ -287,6 +302,8 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
         terminalView.nativeBackgroundColor = .black
         terminalView.nativeForegroundColor = .white
         terminalView.contentInsetAdjustmentBehavior = .never
+        terminalView.keyboardDismissMode = .interactive
+        terminalView.alwaysBounceVertical = true
         terminalView.terminalDelegate = self
         addSubview(terminalView)
 
@@ -305,10 +322,13 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
 
             titleLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 10),
             titleLabel.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: splitRightButton.leadingAnchor, constant: -8),
 
             closeButton.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -8),
             closeButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
-            splitDownButton.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -8),
+            dismissKeyboardButton.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -8),
+            dismissKeyboardButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            splitDownButton.trailingAnchor.constraint(equalTo: dismissKeyboardButton.leadingAnchor, constant: -8),
             splitDownButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
             splitRightButton.trailingAnchor.constraint(equalTo: splitDownButton.leadingAnchor, constant: -8),
             splitRightButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
@@ -409,6 +429,10 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
 
     @objc private func handleSplitDown() {
         delegate?.terminalPaneView(self, requestedSplit: .vertical)
+    }
+
+    @objc private func handleDismissKeyboard() {
+        _ = terminalView.resignFirstResponder()
     }
 
     @objc private func handleClose() {
