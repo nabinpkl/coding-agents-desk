@@ -12,7 +12,7 @@ protocol TerminalPaneViewDelegate: AnyObject {
 }
 
 @available(iOS 26.0, *)
-final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate {
+final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGestureRecognizerDelegate {
     let leaf: TerminalPaneLeaf
 
     weak var delegate: TerminalPaneViewDelegate?
@@ -25,6 +25,7 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate {
     private var sessionConnection: PtySessionConnection?
     private var eventsTask: Task<Void, Never>?
     private var connectTask: Task<Void, Never>?
+    private var connectGeneration = 0
     private(set) var isFocusedPane = false
 
     init(leaf: TerminalPaneLeaf) {
@@ -38,7 +39,13 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate {
     }
 
     deinit {
-        detach()
+        connectTask?.cancel()
+        eventsTask?.cancel()
+        if let sessionConnection {
+            Task {
+                try? await sessionConnection.detach()
+            }
+        }
     }
 
     func connect(using transport: QuicSessionClientTransport?) {
@@ -49,14 +56,18 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate {
         }
 
         setStatus("Connecting terminal...")
+        connectGeneration += 1
+        let generation = connectGeneration
+        let sessionName = leaf.sessionName
         let columns = UInt32(max(terminalView.getTerminal().cols, 80))
         let rows = UInt32(max(terminalView.getTerminal().rows, 24))
         connectTask = Task { [weak self, weak transport] in
             do {
                 guard let transport else { throw PtyClientError.closed }
                 let client = try await transport.openTerminalPtyClient()
+                try Task.checkCancellation()
                 let connection = try await client.openSession(
-                    name: self?.leaf.sessionName ?? "",
+                    name: sessionName,
                     cwd: "",
                     shell: "",
                     columns: columns,
@@ -65,21 +76,32 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate {
                     clientTitle: "AgentDesk iPhone"
                 )
                 await MainActor.run {
-                    self?.attach(connection)
+                    guard let self, self.connectGeneration == generation else {
+                        Task {
+                            try? await connection.detach()
+                        }
+                        return
+                    }
+                    self.attach(connection)
                 }
+            } catch is CancellationError {
             } catch {
                 await MainActor.run {
-                    self?.setStatus("Terminal unavailable: \(error)")
-                    self?.logger.error("terminal attach failed: \(String(describing: error), privacy: .public)")
+                    guard let self, self.connectGeneration == generation else { return }
+                    self.setStatus("Terminal unavailable: \(error)")
+                    self.logger.error("terminal attach failed: \(String(describing: error), privacy: .public)")
                 }
             }
             await MainActor.run {
-                self?.connectTask = nil
+                if self?.connectGeneration == generation {
+                    self?.connectTask = nil
+                }
             }
         }
     }
 
     func detach() {
+        connectGeneration += 1
         connectTask?.cancel()
         connectTask = nil
         eventsTask?.cancel()
@@ -135,6 +157,11 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate {
 
     func bell(source: TerminalView) {}
 
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard let touchedView = touch.view else { return true }
+        return !isControlTouch(touchedView)
+    }
+
     func clipboardCopy(source: TerminalView, content: Data) {
         guard let text = String(data: content, encoding: .utf8) else { return }
         UIPasteboard.general.string = text
@@ -158,6 +185,7 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate {
 
         let focusTap = UITapGestureRecognizer(target: self, action: #selector(handleFocusTap))
         focusTap.cancelsTouchesInView = false
+        focusTap.delegate = self
         addGestureRecognizer(focusTap)
 
         let header = UIView()
@@ -267,6 +295,16 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate {
         case .error(let message):
             setStatus("Terminal error: \(message)")
         }
+    }
+
+    private func isControlTouch(_ view: UIView) -> Bool {
+        var currentView: UIView? = view
+        while let candidate = currentView {
+            if candidate is UIControl { return true }
+            if candidate === self { return false }
+            currentView = candidate.superview
+        }
+        return false
     }
 
     private func setStatus(_ text: String) {

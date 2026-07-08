@@ -59,6 +59,19 @@ struct TerminalWorkspaceStateTests {
         }
     }
 
+    @Test func closeUnfocusedLeafPreservesCurrentFocus() {
+        var state = TerminalWorkspaceState()
+        let second = state.splitPane(TerminalPaneID(rawValue: 1), axis: .horizontal)!
+        let third = state.splitPane(second.paneID, axis: .vertical)!
+        let didFocusFirstPane = state.focusPane(TerminalPaneID(rawValue: 1))
+        #expect(didFocusFirstPane)
+
+        let removed = state.closePane(third.paneID)
+
+        #expect(removed == third)
+        #expect(state.focusedPaneID == TerminalPaneID(rawValue: 1))
+    }
+
     @Test func focusPaneRejectsUnknownPane() {
         var state = TerminalWorkspaceState()
 

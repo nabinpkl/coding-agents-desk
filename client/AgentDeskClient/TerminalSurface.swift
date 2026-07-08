@@ -24,7 +24,11 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate {
     }
 
     deinit {
-        detach()
+        Task { @MainActor [paneViews] in
+            for paneView in paneViews.values {
+                paneView.detach()
+            }
+        }
     }
 
     func connect(using transport: QuicSessionClientTransport?) {

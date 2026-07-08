@@ -113,9 +113,10 @@ struct TerminalWorkspaceState: Equatable {
 
     mutating func closePane(_ paneID: TerminalPaneID) -> TerminalPaneLeaf? {
         guard leafCount > 1, let removedLeaf = root.leaf(for: paneID) else { return nil }
+        let previousFocus = focusedPaneID
         guard let result = remove(node: root, target: paneID) else { return nil }
         root = result.node
-        focusedPaneID = result.focusPaneID
+        focusedPaneID = root.contains(previousFocus) ? previousFocus : result.focusPaneID
         return removedLeaf
     }
 
