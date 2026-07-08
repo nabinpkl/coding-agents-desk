@@ -215,6 +215,10 @@ extension PairingViewController {
 
     func applySurface(_ surface: ControlSurface) {
         let v = visibility(for: surface)
+        if !v.keyboardInteractive {
+            applyKeyboardPresentationIntent(.hide)
+        }
+
         agentSurface?.isHidden = v.agentHidden
         domMirrorSurface?.isHidden = v.browserHidden
         if #available(iOS 26.0, *) {

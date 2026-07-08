@@ -130,7 +130,7 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
             keyboardSurface.setVisible(false)
             keyboardSurface.isHidden = true
             keyboardSurface.text = ""
-            setTrackpadHidden(false)
+            setTrackpadHidden(!isControlSurfaceActive())
             showKeyboardButton.setTitle("Show keyboard", for: .normal)
         case .shown:
             keyboardSurface.isHidden = false
