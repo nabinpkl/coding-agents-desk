@@ -1,4 +1,7 @@
+import Foundation
+import PtyClientSwift
 import Testing
+import UIKit
 
 struct TerminalWorkspaceStateTests {
     @Test func splitRightReplacesTargetLeafWithHorizontalSplit() {
@@ -45,9 +48,9 @@ struct TerminalWorkspaceStateTests {
         let rightLeaf = state.splitPane(TerminalPaneID(rawValue: 1), axis: .horizontal)!
         let lowerLeaf = state.splitPane(rightLeaf.paneID, axis: .vertical)!
 
-        let removed = state.closePane(lowerLeaf.paneID)
+        let closeResult = state.closePane(lowerLeaf.paneID)
 
-        #expect(removed == lowerLeaf)
+        #expect(closeResult == .removed(lowerLeaf))
         #expect(state.focusedPaneID == rightLeaf.paneID)
         switch state.root {
         case .split(let split):
@@ -66,9 +69,9 @@ struct TerminalWorkspaceStateTests {
         let didFocusFirstPane = state.focusPane(TerminalPaneID(rawValue: 1))
         #expect(didFocusFirstPane)
 
-        let removed = state.closePane(third.paneID)
+        let closeResult = state.closePane(third.paneID)
 
-        #expect(removed == third)
+        #expect(closeResult == .removed(third))
         #expect(state.focusedPaneID == TerminalPaneID(rawValue: 1))
     }
 
@@ -81,14 +84,18 @@ struct TerminalWorkspaceStateTests {
         #expect(state.focusedPaneID == TerminalPaneID(rawValue: 1))
     }
 
-    @Test func closeLastPaneIsRejected() {
+    @Test func closeLastPaneResetsToFreshPane() {
         var state = TerminalWorkspaceState()
 
-        let removed = state.closePane(TerminalPaneID(rawValue: 1))
+        let closeResult = state.closePane(TerminalPaneID(rawValue: 1))
 
-        #expect(removed == nil)
+        #expect(closeResult == .reset(
+            removed: TerminalPaneLeaf(paneID: TerminalPaneID(rawValue: 1), sessionName: "agentdesk-1"),
+            replacement: TerminalPaneLeaf(paneID: TerminalPaneID(rawValue: 2), sessionName: "agentdesk-2")
+        ))
         #expect(state.leafCount == 1)
-        #expect(state.focusedPaneID == TerminalPaneID(rawValue: 1))
+        #expect(state.focusedPaneID == TerminalPaneID(rawValue: 2))
+        #expect(state.leaf(for: TerminalPaneID(rawValue: 2))?.sessionName == "agentdesk-2")
     }
 
     @Test func sessionNamesStayUniqueAndMonotonic() {
@@ -101,5 +108,67 @@ struct TerminalWorkspaceStateTests {
 
         #expect(sessions == ["agentdesk-1", "agentdesk-2", "agentdesk-3", "agentdesk-4"])
         #expect(fourth.sessionName == "agentdesk-4")
+    }
+}
+
+@MainActor
+struct TerminalPaneViewCloseTests {
+    @Test func closeSingleClientKillsSession() async {
+        let pane = TerminalPaneView(leaf: TerminalPaneLeaf(
+            paneID: TerminalPaneID(rawValue: 1),
+            sessionName: "agentdesk-1"
+        ))
+        let connection = FakeTerminalPaneSessionConnection(clientCount: 1)
+        pane.attach(connection)
+
+        let result = await pane.closeForUser()
+
+        #expect(result == .killed)
+        #expect(connection.killCallCount == 1)
+        #expect(connection.detachCallCount == 0)
+    }
+
+    @Test func closeMultipleClientSessionDetachesOnlyThisClient() async {
+        let pane = TerminalPaneView(leaf: TerminalPaneLeaf(
+            paneID: TerminalPaneID(rawValue: 1),
+            sessionName: "agentdesk-1"
+        ))
+        let connection = FakeTerminalPaneSessionConnection(clientCount: 2)
+        pane.attach(connection)
+
+        let result = await pane.closeForUser()
+
+        #expect(result == .detached)
+        #expect(connection.killCallCount == 0)
+        #expect(connection.detachCallCount == 1)
+    }
+}
+
+private final class FakeTerminalPaneSessionConnection: TerminalPaneSessionConnection, @unchecked Sendable {
+    let sessionName = "agentdesk-1"
+    let attachedClientCount: UInt32
+    private(set) var detachCallCount = 0
+    private(set) var killCallCount = 0
+
+    init(clientCount: UInt32) {
+        attachedClientCount = clientCount
+    }
+
+    func events() -> AsyncThrowingStream<PtySessionEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish()
+        }
+    }
+
+    func sendInput(_ data: Data) async throws {}
+
+    func resize(columns: UInt32, rows: UInt32) async throws {}
+
+    func detach() async throws {
+        detachCallCount += 1
+    }
+
+    func kill() async throws {
+        killCallCount += 1
     }
 }

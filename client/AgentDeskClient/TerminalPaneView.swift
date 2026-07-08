@@ -12,6 +12,33 @@ protocol TerminalPaneViewDelegate: AnyObject {
 }
 
 @available(iOS 26.0, *)
+protocol TerminalPaneSessionConnection: AnyObject, Sendable {
+    var sessionName: String { get }
+    var attachedClientCount: UInt32 { get }
+
+    func events() -> AsyncThrowingStream<PtySessionEvent, Error>
+    func sendInput(_ data: Data) async throws
+    func resize(columns: UInt32, rows: UInt32) async throws
+    func detach() async throws
+    func kill() async throws
+}
+
+@available(iOS 26.0, *)
+extension PtySessionConnection: TerminalPaneSessionConnection {
+    var attachedClientCount: UInt32 {
+        attachment.clientCount
+    }
+}
+
+@available(iOS 26.0, *)
+enum TerminalPaneUserCloseResult: Equatable {
+    case detached
+    case killed
+    case closedBeforeAttach
+    case failed(String)
+}
+
+@available(iOS 26.0, *)
 final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGestureRecognizerDelegate {
     let leaf: TerminalPaneLeaf
 
@@ -22,7 +49,9 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
     private let statusLabel = UILabel()
     private let titleLabel = UILabel()
     private let closeButton = UIButton(type: .system)
-    private var sessionConnection: PtySessionConnection?
+    private var sessionConnection: TerminalPaneSessionConnection?
+    private weak var transport: QuicSessionClientTransport?
+    private var latestClientCount: UInt32?
     private var eventsTask: Task<Void, Never>?
     private var connectTask: Task<Void, Never>?
     private var connectGeneration = 0
@@ -50,6 +79,7 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
 
     func connect(using transport: QuicSessionClientTransport?) {
         guard connectTask == nil, sessionConnection == nil else { return }
+        self.transport = transport
         guard let transport else {
             setStatus("No active session transport.")
             return
@@ -106,10 +136,53 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
         connectTask = nil
         eventsTask?.cancel()
         eventsTask = nil
+        latestClientCount = nil
+        transport = nil
         guard let sessionConnection else { return }
         self.sessionConnection = nil
         Task {
             try? await sessionConnection.detach()
+        }
+    }
+
+    func closeForUser() async -> TerminalPaneUserCloseResult {
+        connectGeneration += 1
+        connectTask?.cancel()
+        connectTask = nil
+
+        guard let sessionConnection else {
+            eventsTask?.cancel()
+            eventsTask = nil
+            latestClientCount = nil
+            setStatus("")
+            return .closedBeforeAttach
+        }
+
+        self.sessionConnection = nil
+        do {
+            let currentClientCount = try await currentClientCount(for: sessionConnection)
+            let shouldKillSession = currentClientCount <= 1
+            if shouldKillSession {
+                try await sessionConnection.kill()
+                eventsTask?.cancel()
+                eventsTask = nil
+                latestClientCount = nil
+                setStatus("")
+                return .killed
+            }
+            try await sessionConnection.detach()
+            eventsTask?.cancel()
+            eventsTask = nil
+            latestClientCount = nil
+            setStatus("")
+            return .detached
+        } catch {
+            self.sessionConnection = sessionConnection
+            latestClientCount = sessionConnection.attachedClientCount
+            let message = "Terminal close failed: \(error)"
+            setStatus(message)
+            logger.error("terminal user close failed: \(String(describing: error), privacy: .public)")
+            return .failed(message)
         }
     }
 
@@ -261,8 +334,9 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
         return button
     }
 
-    private func attach(_ connection: PtySessionConnection) {
+    func attach(_ connection: TerminalPaneSessionConnection) {
         sessionConnection = connection
+        latestClientCount = connection.attachedClientCount
         setStatus("")
         eventsTask = Task { [weak self, connection] in
             do {
@@ -284,7 +358,8 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
 
     private func handle(_ event: PtySessionEvent) {
         switch event {
-        case .attached:
+        case .attached(let attachment):
+            latestClientCount = attachment.clientCount
             setStatus("")
         case .output(let data):
             terminalView.feed(byteArray: [UInt8](data)[...])
@@ -295,6 +370,18 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
         case .error(let message):
             setStatus("Terminal error: \(message)")
         }
+    }
+
+    private func currentClientCount(for connection: TerminalPaneSessionConnection) async throws -> UInt32 {
+        guard let transport else {
+            return latestClientCount ?? connection.attachedClientCount
+        }
+        let client = try await transport.openTerminalPtyClient()
+        let sessions = try await client.listSessions()
+        guard let session = sessions.first(where: { $0.name == connection.sessionName }) else {
+            return 1
+        }
+        return session.clientCount
     }
 
     private func isControlTouch(_ view: UIView) -> Bool {

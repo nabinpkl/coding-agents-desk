@@ -63,6 +63,11 @@ struct TerminalPaneSplit: Equatable {
     let second: TerminalPaneNode
 }
 
+enum TerminalPaneCloseResult: Equatable {
+    case removed(TerminalPaneLeaf)
+    case reset(removed: TerminalPaneLeaf, replacement: TerminalPaneLeaf)
+}
+
 struct TerminalWorkspaceState: Equatable {
     private(set) var root: TerminalPaneNode
     private(set) var focusedPaneID: TerminalPaneID
@@ -97,12 +102,7 @@ struct TerminalWorkspaceState: Equatable {
 
     mutating func splitPane(_ paneID: TerminalPaneID, axis: TerminalSplitAxis) -> TerminalPaneLeaf? {
         guard root.contains(paneID) else { return nil }
-        let newLeaf = TerminalPaneLeaf(
-            paneID: TerminalPaneID(rawValue: nextPaneOrdinal),
-            sessionName: "agentdesk-\(nextSessionOrdinal)"
-        )
-        nextPaneOrdinal += 1
-        nextSessionOrdinal += 1
+        let newLeaf = makeNextLeaf()
         guard let updatedRoot = split(node: root, target: paneID, axis: axis, newLeaf: newLeaf) else {
             return nil
         }
@@ -111,13 +111,20 @@ struct TerminalWorkspaceState: Equatable {
         return newLeaf
     }
 
-    mutating func closePane(_ paneID: TerminalPaneID) -> TerminalPaneLeaf? {
-        guard leafCount > 1, let removedLeaf = root.leaf(for: paneID) else { return nil }
+    mutating func closePane(_ paneID: TerminalPaneID) -> TerminalPaneCloseResult? {
+        guard let removedLeaf = root.leaf(for: paneID) else { return nil }
+        if leafCount == 1 {
+            let replacementLeaf = makeNextLeaf()
+            root = .leaf(replacementLeaf)
+            focusedPaneID = replacementLeaf.paneID
+            return .reset(removed: removedLeaf, replacement: replacementLeaf)
+        }
+
         let previousFocus = focusedPaneID
         guard let result = remove(node: root, target: paneID) else { return nil }
         root = result.node
         focusedPaneID = root.contains(previousFocus) ? previousFocus : result.focusPaneID
-        return removedLeaf
+        return .removed(removedLeaf)
     }
 
     private func collectLeaves(in node: TerminalPaneNode) -> [TerminalPaneLeaf] {
@@ -210,6 +217,16 @@ struct TerminalWorkspaceState: Equatable {
             }
             return nil
         }
+    }
+
+    private mutating func makeNextLeaf() -> TerminalPaneLeaf {
+        let leaf = TerminalPaneLeaf(
+            paneID: TerminalPaneID(rawValue: nextPaneOrdinal),
+            sessionName: "agentdesk-\(nextSessionOrdinal)"
+        )
+        nextPaneOrdinal += 1
+        nextSessionOrdinal += 1
+        return leaf
     }
 }
 

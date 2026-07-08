@@ -9,6 +9,7 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate {
     private var transport: QuicSessionClientTransport?
     private var workspaceState = TerminalWorkspaceState()
     private var paneViews: [TerminalPaneID: TerminalPaneView] = [:]
+    private var closingPaneIDs = Set<TerminalPaneID>()
     private var renderedRootView: UIView?
 
     override init(frame: CGRect) {
@@ -60,11 +61,22 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate {
     }
 
     func terminalPaneViewRequestedClose(_ paneView: TerminalPaneView) {
-        guard let removedLeaf = workspaceState.closePane(paneView.leaf.paneID) else { return }
-        paneViews[removedLeaf.paneID]?.detach()
-        paneViews[removedLeaf.paneID] = nil
-        renderWorkspace()
-        applyFocus()
+        let paneID = paneView.leaf.paneID
+        guard closingPaneIDs.insert(paneID).inserted else { return }
+        paneView.setCloseEnabled(false)
+
+        Task { @MainActor [weak self, weak paneView] in
+            guard let self, let paneView else { return }
+            let closeResult = await paneView.closeForUser()
+            guard self.closingPaneIDs.contains(paneID) else { return }
+            switch closeResult {
+            case .detached, .killed, .closedBeforeAttach:
+                self.removeClosedPane(paneID)
+            case .failed:
+                self.closingPaneIDs.remove(paneID)
+                self.applyFocus()
+            }
+        }
     }
 
     private func configureView() {
@@ -133,7 +145,30 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate {
         for leaf in workspaceState.allLeaves() {
             let paneView = paneViews[leaf.paneID]
             paneView?.setFocused(leaf.paneID == workspaceState.focusedPaneID)
-            paneView?.setCloseEnabled(workspaceState.leafCount > 1)
+            paneView?.setCloseEnabled(!closingPaneIDs.contains(leaf.paneID))
         }
+    }
+
+    private func removeClosedPane(_ paneID: TerminalPaneID) {
+        guard let closeResult = workspaceState.closePane(paneID) else {
+            closingPaneIDs.remove(paneID)
+            applyFocus()
+            return
+        }
+
+        switch closeResult {
+        case .removed(let removedLeaf):
+            paneViews[removedLeaf.paneID] = nil
+            closingPaneIDs.remove(removedLeaf.paneID)
+        case .reset(let removedLeaf, let replacementLeaf):
+            paneViews[removedLeaf.paneID] = nil
+            closingPaneIDs.remove(removedLeaf.paneID)
+            let replacementPaneView = makePaneView(for: replacementLeaf)
+            paneViews[replacementLeaf.paneID] = replacementPaneView
+            replacementPaneView.connect(using: transport)
+        }
+
+        renderWorkspace()
+        applyFocus()
     }
 }
