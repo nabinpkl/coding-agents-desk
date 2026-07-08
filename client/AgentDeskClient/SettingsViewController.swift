@@ -82,7 +82,7 @@ final class SettingsViewController: UIViewController {
             title: "Remote input",
             rows: [],
             customRows: [remoteInputModeControl],
-            footnote: "Full expands the video and hides the trackpad strip. Touch controls video taps and drags. Auto Key opens the iPhone keyboard after text-field clicks."
+            footnote: "Full expands the video and hides the trackpad strip. Touch turns the video surface into remote input for taps and drags; off keeps the video local-only. Auto Key opens the iPhone keyboard after text-field clicks."
         )
 
         // ADR-0006: opt-in for the thumbnail preview strip.

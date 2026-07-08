@@ -42,10 +42,10 @@ struct RemoteInputModeControlState: Equatable {
 // ControlSurface.visibility(for:) pattern. Design:
 // docs/superpowers/specs/2026-07-03-touch-scroll-pinch-zoom-design.md
 //
-// A single tap is always routed so text fields can be focused and the iOS
-// keyboard can be shown from host AX confirmation. Touch mode only controls
-// one-finger drag/scroll routing; when it is off, local UIScrollView gestures
-// keep their normal one-finger behavior.
+// Touch mode gates all remote input from the video surface. When it is off,
+// the video remains local-only: one-finger taps do nothing remote, one-finger
+// drags stay with the local UIScrollView, and double-tap zoom remains
+// available. When it is on, one-finger taps and drags route to the host.
 struct VideoTouchGestureConfig: Equatable {
     let videoTouchTapRecognizerEnabled: Bool
     let videoTouchScrollRecognizerEnabled: Bool
@@ -64,7 +64,7 @@ func videoTouchGestureConfig(
 ) -> VideoTouchGestureConfig {
     let full = layoutMode == .full
     return VideoTouchGestureConfig(
-        videoTouchTapRecognizerEnabled: true,
+        videoTouchTapRecognizerEnabled: videoTouchEnabled,
         videoTouchScrollRecognizerEnabled: videoTouchEnabled,
         doubleTapZoomRecognizerEnabled: !videoTouchEnabled,
         scrollViewScrollEnabled: true,

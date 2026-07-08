@@ -135,9 +135,9 @@ final class RemoteInputModeControl: UIControl {
     }
 }
 
-// Touch mode. A tap on the desktop image retargets the host cursor and clicks;
-// a one-finger drag reuses the right-edge scroll strip's exact scroll behavior
-// after priming the host cursor at the touched point.
+// Touch mode. When enabled, a tap on the desktop image retargets the host
+// cursor and clicks; a one-finger drag reuses the right-edge scroll strip's
+// exact scroll behavior after priming the host cursor at the touched point.
 extension PairingViewController {
 
     // Installs Touch mode recognizers on the video sink content view. Called
