@@ -1,0 +1,292 @@
+import Foundation
+import os
+import PtyClientSwift
+import SwiftTerm
+import UIKit
+
+@available(iOS 26.0, *)
+protocol TerminalPaneViewDelegate: AnyObject {
+    func terminalPaneViewRequestedFocus(_ paneView: TerminalPaneView)
+    func terminalPaneView(_ paneView: TerminalPaneView, requestedSplit axis: TerminalSplitAxis)
+    func terminalPaneViewRequestedClose(_ paneView: TerminalPaneView)
+}
+
+@available(iOS 26.0, *)
+final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate {
+    let leaf: TerminalPaneLeaf
+
+    weak var delegate: TerminalPaneViewDelegate?
+
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal-pane")
+    private let terminalView = TerminalView(frame: .zero)
+    private let statusLabel = UILabel()
+    private let titleLabel = UILabel()
+    private let closeButton = UIButton(type: .system)
+    private var sessionConnection: PtySessionConnection?
+    private var eventsTask: Task<Void, Never>?
+    private var connectTask: Task<Void, Never>?
+    private(set) var isFocusedPane = false
+
+    init(leaf: TerminalPaneLeaf) {
+        self.leaf = leaf
+        super.init(frame: .zero)
+        configureView()
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    deinit {
+        detach()
+    }
+
+    func connect(using transport: QuicSessionClientTransport?) {
+        guard connectTask == nil, sessionConnection == nil else { return }
+        guard let transport else {
+            setStatus("No active session transport.")
+            return
+        }
+
+        setStatus("Connecting terminal...")
+        let columns = UInt32(max(terminalView.getTerminal().cols, 80))
+        let rows = UInt32(max(terminalView.getTerminal().rows, 24))
+        connectTask = Task { [weak self, weak transport] in
+            do {
+                guard let transport else { throw PtyClientError.closed }
+                let client = try await transport.openTerminalPtyClient()
+                let connection = try await client.openSession(
+                    name: self?.leaf.sessionName ?? "",
+                    cwd: "",
+                    shell: "",
+                    columns: columns,
+                    rows: rows,
+                    createIfMissing: true,
+                    clientTitle: "AgentDesk iPhone"
+                )
+                await MainActor.run {
+                    self?.attach(connection)
+                }
+            } catch {
+                await MainActor.run {
+                    self?.setStatus("Terminal unavailable: \(error)")
+                    self?.logger.error("terminal attach failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+            await MainActor.run {
+                self?.connectTask = nil
+            }
+        }
+    }
+
+    func detach() {
+        connectTask?.cancel()
+        connectTask = nil
+        eventsTask?.cancel()
+        eventsTask = nil
+        guard let sessionConnection else { return }
+        self.sessionConnection = nil
+        Task {
+            try? await sessionConnection.detach()
+        }
+    }
+
+    func setFocused(_ focused: Bool) {
+        isFocusedPane = focused
+        layer.borderWidth = focused ? 2 : 1
+        layer.borderColor = focused ? UIColor.systemBlue.cgColor : UIColor.separator.cgColor
+        if focused {
+            _ = terminalView.becomeFirstResponder()
+        } else if terminalView.isFirstResponder {
+            _ = terminalView.resignFirstResponder()
+        }
+    }
+
+    func setCloseEnabled(_ enabled: Bool) {
+        closeButton.isHidden = !enabled
+        closeButton.isEnabled = enabled
+    }
+
+    func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+        guard let sessionConnection else { return }
+        Task {
+            try? await sessionConnection.resize(columns: UInt32(newCols), rows: UInt32(newRows))
+        }
+    }
+
+    func setTerminalTitle(source: TerminalView, title: String) {}
+
+    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
+
+    func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        guard isFocusedPane, let sessionConnection else { return }
+        let payload = Data(data)
+        Task {
+            try? await sessionConnection.sendInput(payload)
+        }
+    }
+
+    func scrolled(source: TerminalView, position: Double) {}
+
+    func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
+        guard let url = URL(string: link) else { return }
+        UIApplication.shared.open(url)
+    }
+
+    func bell(source: TerminalView) {}
+
+    func clipboardCopy(source: TerminalView, content: Data) {
+        guard let text = String(data: content, encoding: .utf8) else { return }
+        UIPasteboard.general.string = text
+    }
+
+    func clipboardRead(source: TerminalView) -> Data? {
+        guard let text = UIPasteboard.general.string else { return nil }
+        return Data(text.utf8)
+    }
+
+    func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
+
+    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
+
+    private func configureView() {
+        backgroundColor = .black
+        layer.cornerRadius = 8
+        layer.masksToBounds = true
+        layer.borderWidth = 1
+        layer.borderColor = UIColor.separator.cgColor
+
+        let focusTap = UITapGestureRecognizer(target: self, action: #selector(handleFocusTap))
+        focusTap.cancelsTouchesInView = false
+        addGestureRecognizer(focusTap)
+
+        let header = UIView()
+        header.translatesAutoresizingMaskIntoConstraints = false
+        header.backgroundColor = UIColor(white: 0.12, alpha: 1)
+        addSubview(header)
+
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+        titleLabel.textColor = .secondaryLabel
+        titleLabel.text = leaf.sessionName
+        header.addSubview(titleLabel)
+
+        let splitRightButton = makeButton(systemName: "rectangle.split.2x1", action: #selector(handleSplitRight))
+        let splitDownButton = makeButton(systemName: "rectangle.split.1x2", action: #selector(handleSplitDown))
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeButton.tintColor = .secondaryLabel
+        closeButton.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
+        header.addSubview(splitRightButton)
+        header.addSubview(splitDownButton)
+        header.addSubview(closeButton)
+
+        terminalView.translatesAutoresizingMaskIntoConstraints = false
+        terminalView.backgroundColor = .black
+        terminalView.nativeBackgroundColor = .black
+        terminalView.nativeForegroundColor = .white
+        terminalView.contentInsetAdjustmentBehavior = .never
+        terminalView.terminalDelegate = self
+        addSubview(terminalView)
+
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.textColor = .secondaryLabel
+        statusLabel.font = .preferredFont(forTextStyle: .footnote)
+        statusLabel.textAlignment = .center
+        statusLabel.numberOfLines = 2
+        addSubview(statusLabel)
+
+        NSLayoutConstraint.activate([
+            header.leadingAnchor.constraint(equalTo: leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: trailingAnchor),
+            header.topAnchor.constraint(equalTo: topAnchor),
+            header.heightAnchor.constraint(equalToConstant: 32),
+
+            titleLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 10),
+            titleLabel.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+
+            closeButton.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -8),
+            closeButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            splitDownButton.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -8),
+            splitDownButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            splitRightButton.trailingAnchor.constraint(equalTo: splitDownButton.leadingAnchor, constant: -8),
+            splitRightButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+
+            terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            terminalView.topAnchor.constraint(equalTo: header.bottomAnchor),
+            terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            statusLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            statusLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            statusLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    private func makeButton(systemName: String, action: Selector) -> UIButton {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setImage(UIImage(systemName: systemName), for: .normal)
+        button.tintColor = .secondaryLabel
+        button.addTarget(self, action: action, for: .touchUpInside)
+        return button
+    }
+
+    private func attach(_ connection: PtySessionConnection) {
+        sessionConnection = connection
+        setStatus("")
+        eventsTask = Task { [weak self, connection] in
+            do {
+                for try await event in connection.events() {
+                    await MainActor.run {
+                        self?.handle(event)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self?.setStatus("Terminal closed: \(error)")
+                }
+            }
+        }
+        if isFocusedPane {
+            _ = terminalView.becomeFirstResponder()
+        }
+    }
+
+    private func handle(_ event: PtySessionEvent) {
+        switch event {
+        case .attached:
+            setStatus("")
+        case .output(let data):
+            terminalView.feed(byteArray: [UInt8](data)[...])
+        case .detachedByManager(let clientID):
+            setStatus("Terminal client detached: \(clientID)")
+        case .exited(let status):
+            setStatus("Terminal exited: \(status)")
+        case .error(let message):
+            setStatus("Terminal error: \(message)")
+        }
+    }
+
+    private func setStatus(_ text: String) {
+        statusLabel.text = text
+        statusLabel.isHidden = text.isEmpty
+    }
+
+    @objc private func handleFocusTap() {
+        delegate?.terminalPaneViewRequestedFocus(self)
+    }
+
+    @objc private func handleSplitRight() {
+        delegate?.terminalPaneView(self, requestedSplit: .horizontal)
+    }
+
+    @objc private func handleSplitDown() {
+        delegate?.terminalPaneView(self, requestedSplit: .vertical)
+    }
+
+    @objc private func handleClose() {
+        delegate?.terminalPaneViewRequestedClose(self)
+    }
+}
