@@ -517,8 +517,31 @@ host-run variant="stable":
         EXTRA=()
     fi
     kill_pty_managers_for_socket() {
-        SOCKET_PIDS=$(ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { print $1 }')
+        SOCKET_PIDS=$(find_pty_manager_pids)
         [ -n "$SOCKET_PIDS" ] && kill $SOCKET_PIDS 2>/dev/null || true
+    }
+    find_pty_manager_pids() {
+        ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { print $1 }'
+    }
+    # If the manager binary is unchanged, do not let an older running host execute
+    # its old applicationWillTerminate hook, because that hook killed pty-manager.
+    kill_host_pids() {
+        local pid child children preserve
+        preserve="$(find_pty_manager_pids | tr '\n' ' ')"
+        for pid in "$@"; do
+            if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
+                kill "$pid" 2>/dev/null || true
+                continue
+            fi
+            children="$(pgrep -P "$pid" 2>/dev/null || true)"
+            kill -9 "$pid" 2>/dev/null || true
+            for child in $children; do
+                case " $preserve " in
+                    *" $child "*) ;;
+                    *) kill "$child" 2>/dev/null || true ;;
+                esac
+            done
+        done
     }
     build_pty_manager_if_changed() {
         local before after running_hashes
@@ -560,7 +583,8 @@ host-run variant="stable":
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     # Kill only THIS variant's running host, matched by its derived-data path, so
     # relaunching one variant never kills the other (concurrent stacks).
-    pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
+    HOST_PIDS=$(pgrep -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true)
+    [ -n "$HOST_PIDS" ] && kill_host_pids $HOST_PIDS
     if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
         pkill -f "$APP/Contents/Resources/pty-manager" 2>/dev/null || true
         kill_pty_managers_for_socket
@@ -583,7 +607,7 @@ host-run variant="stable":
                 exit 1
             fi
         done
-        [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill "${SAFE_PIDS[@]}" 2>/dev/null || true
+        [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill_host_pids "${SAFE_PIDS[@]}"
     fi
     if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
         kill_pty_managers_for_socket
@@ -619,8 +643,31 @@ host-run-release variant="stable":
         EXTRA=()
     fi
     kill_pty_managers_for_socket() {
-        SOCKET_PIDS=$(ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { print $1 }')
+        SOCKET_PIDS=$(find_pty_manager_pids)
         [ -n "$SOCKET_PIDS" ] && kill $SOCKET_PIDS 2>/dev/null || true
+    }
+    find_pty_manager_pids() {
+        ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { print $1 }'
+    }
+    # If the manager binary is unchanged, do not let an older running host execute
+    # its old applicationWillTerminate hook, because that hook killed pty-manager.
+    kill_host_pids() {
+        local pid child children preserve
+        preserve="$(find_pty_manager_pids | tr '\n' ' ')"
+        for pid in "$@"; do
+            if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
+                kill "$pid" 2>/dev/null || true
+                continue
+            fi
+            children="$(pgrep -P "$pid" 2>/dev/null || true)"
+            kill -9 "$pid" 2>/dev/null || true
+            for child in $children; do
+                case " $preserve " in
+                    *" $child "*) ;;
+                    *) kill "$child" 2>/dev/null || true ;;
+                esac
+            done
+        done
     }
     build_pty_manager_if_changed() {
         local before after running_hashes
@@ -661,7 +708,8 @@ host-run-release variant="stable":
     build_pty_manager_if_changed
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     # Path-scoped kill: only THIS variant's host from THIS checkout (see host-run).
-    pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
+    HOST_PIDS=$(pgrep -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true)
+    [ -n "$HOST_PIDS" ] && kill_host_pids $HOST_PIDS
     if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
         pkill -f "$APP/Contents/Resources/pty-manager" 2>/dev/null || true
         kill_pty_managers_for_socket
@@ -682,7 +730,7 @@ host-run-release variant="stable":
                 exit 1
             fi
         done
-        [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill "${SAFE_PIDS[@]}" 2>/dev/null || true
+        [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill_host_pids "${SAFE_PIDS[@]}"
     fi
     if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
         kill_pty_managers_for_socket
