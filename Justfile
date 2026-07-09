@@ -500,7 +500,7 @@ iphone-log-collect variant="stable":
 # variant: "stable" (default) or "dev" (the experimental side-by-side host:
 # bundle id {{host_dev_bundle_id}}, DEV-badged icon, separate derived-data dir,
 # tier-derived ports). The dev host runs concurrently with the stable one.
-host-run variant="stable": build-pty-manager
+host-run variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
     # DOM mirror (Chrome page mirroring, ADR-0038) is baked on by default for every
@@ -520,12 +520,51 @@ host-run variant="stable": build-pty-manager
         SOCKET_PIDS=$(ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { print $1 }')
         [ -n "$SOCKET_PIDS" ] && kill $SOCKET_PIDS 2>/dev/null || true
     }
+    build_pty_manager_if_changed() {
+        local before after running_hashes
+        PTY='{{pty_manager_dir}}'
+        OUT='{{pty_manager_out}}'
+        before=""
+        if [ -f "$OUT" ]; then
+            before="$(shasum -a 256 "$OUT" | awk '{ print $1 }')"
+        fi
+        (cd "$PTY" && cargo build --release --bin pty-manager)
+        after="$(shasum -a 256 "$PTY/target/release/pty-manager" | awk '{ print $1 }')"
+        running_hashes="$(
+            ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { sub(/^[[:space:]]*[0-9]+[[:space:]]+/, ""); sub(/[[:space:]]+--socket.*/, ""); print }' |
+                while IFS= read -r bin; do
+                    if [ -f "$bin" ]; then
+                        shasum -a 256 "$bin" | awk '{ print $1 }'
+                    else
+                        printf 'unreadable:%s\n' "$bin"
+                    fi
+                done |
+                sort -u
+        )"
+        if [ "$before" != "$after" ]; then
+            cp "$PTY/target/release/pty-manager" "$OUT"
+            chmod +x "$OUT"
+        fi
+        if [ -z "$running_hashes" ]; then
+            PTY_MANAGER_CHANGED=0
+            echo "no running pty-manager for {{variant}}; no manager restart needed"
+        elif [ "$running_hashes" != "$after" ]; then
+            PTY_MANAGER_CHANGED=1
+            echo "running pty-manager binary differs; restarting manager for {{variant}}"
+        else
+            PTY_MANAGER_CHANGED=0
+            echo "running pty-manager binary unchanged; preserving manager for {{variant}}"
+        fi
+    }
+    build_pty_manager_if_changed
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     # Kill only THIS variant's running host, matched by its derived-data path, so
     # relaunching one variant never kills the other (concurrent stacks).
     pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
-    pkill -f "$APP/Contents/Resources/pty-manager" 2>/dev/null || true
-    kill_pty_managers_for_socket
+    if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
+        pkill -f "$APP/Contents/Resources/pty-manager" 2>/dev/null || true
+        kill_pty_managers_for_socket
+    fi
     # Backstop: a host from a DIFFERENT checkout has the same bundle id but a
     # different derived-data path, so the pkill above misses it and the two stacks
     # collide on the signaling port. Also kill whoever holds THIS variant's port.
@@ -546,7 +585,9 @@ host-run variant="stable": build-pty-manager
         done
         [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill "${SAFE_PIDS[@]}" 2>/dev/null || true
     fi
-    kill_pty_managers_for_socket
+    if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
+        kill_pty_managers_for_socket
+    fi
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     open "$APP"
@@ -564,7 +605,7 @@ host-run variant="stable": build-pty-manager
 # per-byte Range loops); Release optimizes that away (~100% -> ~30% CPU). Used by the
 # fresh-install / sim-fresh-install feel-test composites. Every other host launch
 # (plain host-run, motion-verify, agent-feed-sim) stays Debug for fast iteration.
-host-run-release variant="stable": build-pty-manager
+host-run-release variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
     # DOM mirror is baked on by default (see host-run); no enable override injected here.
@@ -581,11 +622,50 @@ host-run-release variant="stable": build-pty-manager
         SOCKET_PIDS=$(ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { print $1 }')
         [ -n "$SOCKET_PIDS" ] && kill $SOCKET_PIDS 2>/dev/null || true
     }
+    build_pty_manager_if_changed() {
+        local before after running_hashes
+        PTY='{{pty_manager_dir}}'
+        OUT='{{pty_manager_out}}'
+        before=""
+        if [ -f "$OUT" ]; then
+            before="$(shasum -a 256 "$OUT" | awk '{ print $1 }')"
+        fi
+        (cd "$PTY" && cargo build --release --bin pty-manager)
+        after="$(shasum -a 256 "$PTY/target/release/pty-manager" | awk '{ print $1 }')"
+        running_hashes="$(
+            ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { sub(/^[[:space:]]*[0-9]+[[:space:]]+/, ""); sub(/[[:space:]]+--socket.*/, ""); print }' |
+                while IFS= read -r bin; do
+                    if [ -f "$bin" ]; then
+                        shasum -a 256 "$bin" | awk '{ print $1 }'
+                    else
+                        printf 'unreadable:%s\n' "$bin"
+                    fi
+                done |
+                sort -u
+        )"
+        if [ "$before" != "$after" ]; then
+            cp "$PTY/target/release/pty-manager" "$OUT"
+            chmod +x "$OUT"
+        fi
+        if [ -z "$running_hashes" ]; then
+            PTY_MANAGER_CHANGED=0
+            echo "no running pty-manager for {{variant}}; no manager restart needed"
+        elif [ "$running_hashes" != "$after" ]; then
+            PTY_MANAGER_CHANGED=1
+            echo "running pty-manager binary differs; restarting manager for {{variant}}"
+        else
+            PTY_MANAGER_CHANGED=0
+            echo "running pty-manager binary unchanged; preserving manager for {{variant}}"
+        fi
+    }
+    build_pty_manager_if_changed
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     # Path-scoped kill: only THIS variant's host from THIS checkout (see host-run).
     pkill -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true
-    pkill -f "$APP/Contents/Resources/pty-manager" 2>/dev/null || true
-    kill_pty_managers_for_socket
+    if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
+        pkill -f "$APP/Contents/Resources/pty-manager" 2>/dev/null || true
+        kill_pty_managers_for_socket
+    fi
     # Backstop: kill a same-bundle-id host from a different checkout that holds this
     # variant's signaling port (the path-scoped pkill misses it). Port-scoped, so the
     # sibling variant on its own tier-derived port is untouched.
@@ -604,7 +684,9 @@ host-run-release variant="stable": build-pty-manager
         done
         [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill "${SAFE_PIDS[@]}" 2>/dev/null || true
     fi
-    kill_pty_managers_for_socket
+    if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
+        kill_pty_managers_for_socket
+    fi
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     open "$APP"
@@ -613,6 +695,37 @@ host-run-release variant="stable": build-pty-manager
     pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true
     # DOM bridge first-class: wire this variant's native-messaging manifest on every launch.
     just dom-bridge-reinstall {{variant}} || echo "WARN: dom-bridge wiring failed; browser mode will not mirror until 'just dom-bridge-reinstall {{variant}}' succeeds"
+
+restart-pty-manager variant="stable": build-pty-manager
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{variant}}" = "dev" ]; then
+        PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
+    else
+        PTY_SOCKET='{{host_pty_manager_socket_path}}'
+    fi
+    PTY_BIN='{{pty_manager_out}}'
+    find_pty_manager_pids() {
+        ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { print $1 }'
+    }
+    PIDS="$(find_pty_manager_pids)"
+    if [ -n "$PIDS" ]; then
+        kill $PIDS 2>/dev/null || true
+        for _ in $(seq 1 40); do
+            PIDS="$(find_pty_manager_pids)"
+            [ -z "$PIDS" ] && break
+            sleep 0.05
+        done
+        PIDS="$(find_pty_manager_pids)"
+        [ -n "$PIDS" ] && kill -9 $PIDS 2>/dev/null || true
+    fi
+    if [ -S "$PTY_SOCKET" ]; then
+        rm -f "$PTY_SOCKET"
+    fi
+    mkdir -p "$(dirname "$PTY_SOCKET")"
+    nohup "$PTY_BIN" --socket "$PTY_SOCKET" >/dev/null 2>&1 &
+    sleep 0.2
+    pgrep -lf "pty-manager --socket $PTY_SOCKET" || true
 
 # Build client Debug for the iPhone and install (does not launch).
 # variant: "stable" (default) or "dev" (the experimental side-by-side install:

@@ -259,7 +259,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             bridge.stop()
         }
         terminalClientBridges.removeAll()
-        ptyManagerProcess?.stopAndWait()
         voiceChildController?.stop()
         agentSayServer?.stop()
         signalingServer?.stop()

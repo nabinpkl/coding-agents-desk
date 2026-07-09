@@ -8,7 +8,6 @@ final class HostPtyManagerProcess: @unchecked Sendable {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal")
     private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).pty-manager-process")
     private var process: Process?
-    private var stopped = false
 
     init(binaryURL: URL, socketURL: URL = Config.ptyManagerSocketURL) {
         self.binaryURL = binaryURL
@@ -21,28 +20,17 @@ final class HostPtyManagerProcess: @unchecked Sendable {
         }
     }
 
-    func stop() {
-        queue.async { [weak self] in
-            guard let self else { return }
-            self.stopped = true
-            self.terminateProcess(waitUntilExit: false)
-        }
-    }
-
-    func stopAndWait() {
-        queue.sync {
-            self.stopped = true
-            self.terminateProcess(waitUntilExit: true)
-        }
-    }
-
     private func startOnQueue() {
-        guard !stopped, process == nil else { return }
+        guard process == nil else { return }
         do {
             try FileManager.default.createDirectory(
                 at: socketURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
+            if socketAcceptsConnection() {
+                logger.notice("pty-manager already listening socket=\(self.socketURL.path, privacy: .public)")
+                return
+            }
             let proc = Process()
             proc.executableURL = binaryURL
             proc.arguments = ["--socket", socketURL.path]
@@ -65,29 +53,28 @@ final class HostPtyManagerProcess: @unchecked Sendable {
         }
     }
 
-    private func terminateProcess(waitUntilExit: Bool) {
-        guard let process else { return }
-        self.process = nil
-        guard process.isRunning else {
-            cleanupSocket()
-            return
-        }
-        process.terminate()
-        guard waitUntilExit else { return }
+    private func socketAcceptsConnection() -> Bool {
+        let descriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { return false }
+        defer { Darwin.close(descriptor) }
 
-        let deadline = Date().addingTimeInterval(2)
-        while process.isRunning, Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
-        }
-        if process.isRunning {
-            logger.error("pty-manager did not exit after SIGTERM; sending SIGKILL pid=\(process.processIdentifier, privacy: .public)")
-            Darwin.kill(process.processIdentifier, SIGKILL)
-        }
-        process.waitUntilExit()
-        cleanupSocket()
-    }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(socketURL.path.utf8)
+        let maxPathLength = MemoryLayout.size(ofValue: address.sun_path)
+        guard pathBytes.count < maxPathLength else { return false }
 
-    private func cleanupSocket() {
-        try? FileManager.default.removeItem(at: socketURL)
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.copyBytes(from: pathBytes)
+            buffer[pathBytes.count] = 0
+        }
+
+        let length = socklen_t(MemoryLayout<sa_family_t>.size + pathBytes.count + 1)
+        let result = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.connect(descriptor, sockaddrPointer, length)
+            }
+        }
+        return result == 0
     }
 }
