@@ -132,10 +132,13 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate, Termin
         requestedCloseClient client: PtySessionClientSummary,
         in sessionName: String
     ) {
+        let localPaneID = localPaneID(sessionName: sessionName, clientID: client.id)
         runSessionCommand(status: "Closing client \(client.id)...") { ptyClient in
             try await ptyClient.closeClient(sessionName: sessionName, clientID: client.id)
         } onSuccess: { [weak self] in
-            self?.removeLocalPane(sessionName: sessionName, clientID: client.id)
+            if let localPaneID {
+                self?.removeLocalPane(localPaneID)
+            }
             drawerView.setStatus("Closed client \(client.id).")
         }
     }
@@ -335,12 +338,13 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate, Termin
         }
     }
 
-    private func removeLocalPane(sessionName: String, clientID: UInt64) {
-        guard let paneID = paneViews.first(where: { _, paneView in
+    private func localPaneID(sessionName: String, clientID: UInt64) -> TerminalPaneID? {
+        paneViews.first(where: { _, paneView in
             paneView.leaf.sessionName == sessionName && paneView.attachedClientID == clientID
-        })?.key else {
-            return
-        }
+        })?.key
+    }
+
+    private func removeLocalPane(_ paneID: TerminalPaneID) {
         paneViews[paneID]?.closeAfterManagerDetach()
         removeClosedPane(paneID)
     }
