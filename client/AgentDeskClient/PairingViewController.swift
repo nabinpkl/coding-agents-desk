@@ -32,6 +32,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var sessionAttemptGeneration: UInt64 = 0
     var mediaTransport: MediaTransport?
     var videoSink: VideoFrameSink?
+    var preservesSuspendedSessionSurfaces = false
+    var activeControlSurface: ControlSurface = .control
     // R21: pinch-zoom container around the owned media sink. Local-only zoom
     // via UIScrollView transform; ADR-0008 dropped the host-side
     // sourceRect crop path in favour of native-pixel encoder density.
@@ -241,15 +243,18 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         triggerSessionIfPaired()
     }
 
-    // R13.1: on background, tear down both transports explicitly. iOS
-    // suspends the app and the media / input connections quietly die in
-    // some network conditions; if we don't flip state here, foreground
-    // sees state=.connected and triggerSessionIfPaired short-circuits,
-    // leaving the user with a zombie session that produces no input
-    // and no video. Closing here forces state to .pairedDisconnected
-    // so the next foreground reliably re-attempts.
+    // R13.1: on background, suspend transport explicitly while retaining the
+    // mounted surfaces. iOS suspends the app and the media / input connections
+    // quietly die in some network conditions; if we don't flip state here,
+    // foreground sees state=.connected and triggerSessionIfPaired
+    // short-circuits, leaving the user with a zombie session that produces no
+    // input and no video. Closing here forces state to .pairedDisconnected so
+    // the next foreground reliably re-attempts.
     @objc func applicationDidEnterBackground() {
         ClientDiagnostics.shared.record(type: "applicationDidEnterBackground", fields: [:], level: .info)
+        if case .connected = pairingClient.state {
+            preservesSuspendedSessionSurfaces = true
+        }
         cancelSessionAttempt()
         handshakeTask?.cancel()
         handshakeTask = nil
@@ -259,18 +264,26 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         mediaStateTask = nil
         desktopStateTask?.cancel()
         desktopStateTask = nil
+        thumbnailsTask?.cancel()
+        thumbnailsTask = nil
+        topWindowsTask?.cancel()
+        topWindowsTask = nil
         cursorTask?.cancel()
         cursorTask = nil
         cursorPositionTask?.cancel()
         cursorPositionTask = nil
+        hostAvailabilityTask?.cancel()
+        hostAvailabilityTask = nil
         textInputFocusTask?.cancel()
         textInputFocusTask = nil
         keyboardPendingTimeoutTask?.cancel()
         keyboardPendingTimeoutTask = nil
         diagnosticsTask?.cancel()
         diagnosticsTask = nil
+        agentSayTask?.cancel()
+        agentSayTask = nil
         stopAgentSayForegroundPresentation()
-        teardownMediaTransport()
+        suspendMediaTransportForBackground()
         // The offer listener only makes sense in the foreground; iOS would tear
         // the NWListener down on suspend anyway, so stop it explicitly.
         stopOfferListener()
@@ -359,14 +372,22 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     func startMediaTransportIfNeeded() {
         guard mediaTransport == nil,
               let transport = pairingClient.activeSessionTransport else { return }
-        let sink = MediaStack.makeVideoSink()
+        preservesSuspendedSessionSurfaces = false
+        let sink: VideoFrameSink
+        if let existing = videoSink {
+            sink = existing
+        } else {
+            sink = MediaStack.makeVideoSink()
+            videoSink = sink
+            mountSinkView(sink.view)
+        }
         videoSink = sink
         mediaTransport = transport
-        mountSinkView(sink.view)
         if let owned = sink as? any OwnedMediaFrameSink {
             owned.onOwnedMediaStatusChange = { [weak self] status in
                 self?.mediaDiagnosticsLabel?.text = status.labelText
             }
+            owned.setOwnedMediaStatus(.connecting)
         }
         showTrackpad()
 
@@ -438,12 +459,23 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     func failMediaSession(rejection: SessionRejected? = nil) {
+        preservesSuspendedSessionSurfaces = false
         teardownMediaTransport()
         pairingClient.handleMediaSessionFailed(rejection: rejection)
         render()
     }
 
+    func suspendMediaTransportForBackground() {
+        mediaTransport?.stop()
+        mediaTransport = nil
+        mediaDiagnosticsLabel?.text = "media suspended"
+        if #available(iOS 26.0, *) {
+            terminalSurface?.detach()
+        }
+    }
+
     func teardownMediaTransport() {
+        preservesSuspendedSessionSurfaces = false
         teardownAgentSurface()
         mediaTransport?.stop()
         mediaTransport = nil
@@ -590,6 +622,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // touching stored credentials.
     func disconnectFromHost() {
         userRequestedDisconnect = true
+        preservesSuspendedSessionSurfaces = false
         cancelSessionAttempt()
         handshakeTask?.cancel()
         teardownMediaTransport()
@@ -661,8 +694,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
         // The agent-surface toggle is state-driven, not gated on a one-shot
         // channel check: render() runs on every state change so it cannot race
-        // the session/channel timing. Shown only while connected; torn down on
-        // every other state so a reconnect re-shows it cleanly.
+        // the session/channel timing. Background suspend keeps the mounted
+        // surfaces visible; explicit non-connected states tear them down.
         if case .connected = pairingClient.state {
             // The switcher exposes Browser as a third segment only when this
             // session opened a .dom lane; the DOM-mirror surface is created and
@@ -670,9 +703,16 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             // surfaceSegmentChanged), not eagerly here. Default surface is
             // Control.
             showSurfaceToggleIfNeeded()
+            applySurface(activeControlSurface)
             if #available(iOS 26.0, *) {
                 terminalSurface?.connect(using: pairingClient.activeSessionTransport)
             }
+        } else if preservesSuspendedSessionSurfaces {
+            statusLabel.isHidden = true
+            actionButton.isHidden = true
+            forgetButton.isHidden = true
+            showSurfaceToggleIfNeeded()
+            applySurface(activeControlSurface)
         } else {
             // teardownAgentSurface owns the switcher and tears down all
             // non-control surfaces (agent + browser).

@@ -177,6 +177,23 @@ struct TerminalPaneViewCloseTests {
     }
 }
 
+#if DEBUG
+@available(iOS 26.0, *)
+@MainActor
+struct TerminalSurfaceLifecycleTests {
+    @Test func detachPreservesWorkspaceAndPaneViewsForReconnect() {
+        let surface = TerminalSurface()
+        surface.debugSplitFocusedPaneForTesting(axis: .horizontal)
+        let paneIDsBeforeDetach = surface.debugPaneViewIDsForTesting()
+
+        surface.detach()
+
+        #expect(surface.debugWorkspaceLeafCountForTesting() == 2)
+        #expect(surface.debugPaneViewIDsForTesting() == paneIDsBeforeDetach)
+    }
+}
+#endif
+
 private final class FakeTerminalPaneSessionConnection: TerminalPaneSessionConnection, @unchecked Sendable {
     let sessionName = "agentdesk-1"
     let attachedClientCount: UInt32

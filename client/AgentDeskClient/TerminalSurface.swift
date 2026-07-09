@@ -64,6 +64,25 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate, Termin
         sessionDrawerView.setSessions([], status: "Terminal transport is disconnected.")
     }
 
+    #if DEBUG
+    func debugSplitFocusedPaneForTesting(axis: TerminalSplitAxis) {
+        guard let newLeaf = workspaceState.splitPane(workspaceState.focusedPaneID, axis: axis) else {
+            return
+        }
+        paneViews[newLeaf.paneID] = makePaneView(for: newLeaf)
+        renderWorkspace()
+        applyFocus()
+    }
+
+    func debugWorkspaceLeafCountForTesting() -> Int {
+        workspaceState.leafCount
+    }
+
+    func debugPaneViewIDsForTesting() -> Set<TerminalPaneID> {
+        Set(paneViews.keys)
+    }
+    #endif
+
     func terminalPaneViewRequestedFocus(_ paneView: TerminalPaneView) {
         guard workspaceState.focusPane(paneView.leaf.paneID) else { return }
         applyFocus()

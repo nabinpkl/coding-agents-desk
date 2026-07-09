@@ -19,8 +19,9 @@ import WebKit
 //     (ensureAgentSurface), pulling the channel and transport at that moment
 //     (both reliably non-nil once connected). This removes any need for a valid
 //     channel at toggle-creation time.
-//   - teardownAgentSurface() (toggle + surface) runs on every non-connected
-//     state, so a reconnect re-shows the toggle cleanly.
+//   - teardownAgentSurface() destroys the switcher and surfaces only for
+//     explicit teardown. Background suspend keeps them mounted and rebinds
+//     their transports on foreground resume.
 
 extension PairingViewController {
     private static let logger = Logger(subsystem: Config.logSubsystem, category: "agent-surface")
@@ -74,7 +75,7 @@ extension PairingViewController {
             items.append("Browser")
         }
         let seg = UISegmentedControl(items: items)
-        seg.selectedSegmentIndex = 0
+        seg.selectedSegmentIndex = segmentIndex(for: activeControlSurface, in: seg)
         seg.translatesAutoresizingMaskIntoConstraints = false
         seg.addTarget(self, action: #selector(surfaceSegmentChanged(_:)), for: .valueChanged)
         view.addSubview(seg)
@@ -85,9 +86,11 @@ extension PairingViewController {
         // Cheap z-order safety: keep the toggle above the media sink / surfaces.
         view.bringSubviewToFront(seg)
         surfaceSegmentedControl = seg
+        applySurface(activeControlSurface)
     }
 
     func teardownAgentSurface() {
+        activeControlSurface = .control
         // Detach the push sink so no transport delivers to a dead surface.
         pairingClient.onAgentPush = nil
 
@@ -175,6 +178,7 @@ extension PairingViewController {
 
     @objc private func surfaceSegmentChanged(_ sender: UISegmentedControl) {
         let surface = selectedSurface(on: sender)
+        activeControlSurface = surface
         switch surface {
         case .control:
             break
@@ -209,6 +213,21 @@ extension PairingViewController {
         case "Browser": return .browser
         default: return .control
         }
+    }
+
+    private func segmentIndex(for surface: ControlSurface, in seg: UISegmentedControl) -> Int {
+        let title: String
+        switch surface {
+        case .control: title = "Control"
+        case .agent: title = "Agent"
+        case .terminal: title = "Terminal"
+        case .browser: title = "Browser"
+        }
+        for index in 0..<seg.numberOfSegments where seg.titleForSegment(at: index) == title {
+            return index
+        }
+        activeControlSurface = .control
+        return 0
     }
 
     // MARK: - Visibility
