@@ -33,6 +33,11 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate {
     }
 
     func connect(using transport: QuicSessionClientTransport?) {
+        if self.transport !== transport {
+            for paneView in paneViews.values {
+                paneView.detach()
+            }
+        }
         self.transport = transport
         for leaf in workspaceState.allLeaves() {
             paneViews[leaf.paneID]?.connect(using: transport)

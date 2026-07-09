@@ -13,6 +13,10 @@
 		C0000000000000000000EE08 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE04 /* SwiftTerm */; };
 		C0000000000000000000EE09 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE05 /* PtyClientSwift */; };
 		C0000000000000000000EE0A /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE06 /* SwiftTerm */; };
+		C0000000000000000000EE0B /* PtyTerminalSession in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE0F /* PtyTerminalSession */; };
+		C0000000000000000000EE0C /* PtyTerminalSwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE10 /* PtyTerminalSwiftTerm */; };
+		C0000000000000000000EE0D /* PtyTerminalSession in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE11 /* PtyTerminalSession */; };
+		C0000000000000000000EE0E /* PtyTerminalSwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE12 /* PtyTerminalSwiftTerm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -66,6 +70,8 @@
 			files = (
 				A0000000000000000000EE03 /* AgentDeskWire in Frameworks */,
 				C0000000000000000000EE07 /* PtyClientSwift in Frameworks */,
+				C0000000000000000000EE0B /* PtyTerminalSession in Frameworks */,
+				C0000000000000000000EE0C /* PtyTerminalSwiftTerm in Frameworks */,
 				C0000000000000000000EE08 /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -76,6 +82,8 @@
 			files = (
 				A0000000000000000000EE05 /* AgentDeskWire in Frameworks */,
 				C0000000000000000000EE09 /* PtyClientSwift in Frameworks */,
+				C0000000000000000000EE0D /* PtyTerminalSession in Frameworks */,
+				C0000000000000000000EE0E /* PtyTerminalSwiftTerm in Frameworks */,
 				C0000000000000000000EE0A /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -123,6 +131,8 @@
 			packageProductDependencies = (
 				A0000000000000000000EE02 /* AgentDeskWire */,
 				C0000000000000000000EE03 /* PtyClientSwift */,
+				C0000000000000000000EE0F /* PtyTerminalSession */,
+				C0000000000000000000EE10 /* PtyTerminalSwiftTerm */,
 				C0000000000000000000EE04 /* SwiftTerm */,
 			);
 			productName = AgentDeskClient;
@@ -149,6 +159,8 @@
 			packageProductDependencies = (
 				A0000000000000000000EE04 /* AgentDeskWire */,
 				C0000000000000000000EE05 /* PtyClientSwift */,
+				C0000000000000000000EE11 /* PtyTerminalSession */,
+				C0000000000000000000EE12 /* PtyTerminalSwiftTerm */,
 				C0000000000000000000EE06 /* SwiftTerm */,
 			);
 			productName = AgentDeskClientTests;
@@ -521,6 +533,26 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C0000000000000000000EE02 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
 			productName = SwiftTerm;
+		};
+		C0000000000000000000EE0F /* PtyTerminalSession */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */;
+			productName = PtyTerminalSession;
+		};
+		C0000000000000000000EE10 /* PtyTerminalSwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */;
+			productName = PtyTerminalSwiftTerm;
+		};
+		C0000000000000000000EE11 /* PtyTerminalSession */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */;
+			productName = PtyTerminalSession;
+		};
+		C0000000000000000000EE12 /* PtyTerminalSwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */;
+			productName = PtyTerminalSwiftTerm;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -1,6 +1,8 @@
 import Foundation
 import os
 import PtyClientSwift
+import PtyTerminalSession
+import PtyTerminalSwiftTerm
 import SwiftTerm
 import UIKit
 
@@ -12,14 +14,10 @@ protocol TerminalPaneViewDelegate: AnyObject {
 }
 
 @available(iOS 26.0, *)
-protocol TerminalPaneSessionConnection: AnyObject, Sendable {
+protocol TerminalPaneSessionConnection: PtyTerminalConnection, Sendable {
     var sessionName: String { get }
     var attachedClientCount: UInt32 { get }
 
-    func events() -> AsyncThrowingStream<PtySessionEvent, Error>
-    func sendInput(_ data: Data) async throws
-    func resize(columns: UInt32, rows: UInt32) async throws
-    func detach() async throws
     func kill() async throws
 }
 
@@ -141,21 +139,24 @@ final class AgentDeskTerminalView: TerminalView {
 }
 
 @available(iOS 26.0, *)
-final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGestureRecognizerDelegate {
+final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTerminalRenderer, UIGestureRecognizerDelegate {
     let leaf: TerminalPaneLeaf
 
     weak var delegate: TerminalPaneViewDelegate?
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal-pane")
-    private let terminalView = AgentDeskTerminalView(frame: .zero)
+    private let terminalView = AgentDeskTerminalView(
+        frame: .zero,
+        font: PtyTerminalViewStyle.terminalFont(pointSize: 14)
+    )
     private let statusLabel = UILabel()
     private let titleLabel = UILabel()
     private let dismissKeyboardButton = UIButton(type: .system)
     private let closeButton = UIButton(type: .system)
     private var sessionConnection: TerminalPaneSessionConnection?
+    private var sessionDriver: PtyTerminalSessionDriver?
     private weak var transport: QuicSessionClientTransport?
     private var latestClientCount: UInt32?
-    private var eventsTask: Task<Void, Never>?
     private var connectTask: Task<Void, Never>?
     private var connectGeneration = 0
     private(set) var isFocusedPane = false
@@ -172,10 +173,9 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
 
     deinit {
         connectTask?.cancel()
-        eventsTask?.cancel()
-        if let sessionConnection {
-            Task {
-                try? await sessionConnection.detach()
+        if let sessionDriver {
+            Task { @MainActor in
+                sessionDriver.detach()
             }
         }
     }
@@ -237,15 +237,11 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
         connectGeneration += 1
         connectTask?.cancel()
         connectTask = nil
-        eventsTask?.cancel()
-        eventsTask = nil
+        sessionDriver?.detach()
+        sessionDriver = nil
         latestClientCount = nil
         transport = nil
-        guard let sessionConnection else { return }
         self.sessionConnection = nil
-        Task {
-            try? await sessionConnection.detach()
-        }
     }
 
     func closeForUser() async -> TerminalPaneUserCloseResult {
@@ -254,28 +250,26 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
         connectTask = nil
 
         guard let sessionConnection else {
-            eventsTask?.cancel()
-            eventsTask = nil
+            sessionDriver?.stop()
+            sessionDriver = nil
             latestClientCount = nil
             setStatus("")
             return .closedBeforeAttach
         }
 
         self.sessionConnection = nil
+        sessionDriver?.stop()
+        sessionDriver = nil
         do {
             let currentClientCount = try await currentClientCount(for: sessionConnection)
             let shouldKillSession = currentClientCount <= 1
             if shouldKillSession {
                 try await sessionConnection.kill()
-                eventsTask?.cancel()
-                eventsTask = nil
                 latestClientCount = nil
                 setStatus("")
                 return .killed
             }
             try await sessionConnection.detach()
-            eventsTask?.cancel()
-            eventsTask = nil
             latestClientCount = nil
             setStatus("")
             return .detached
@@ -306,22 +300,33 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
     }
 
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-        guard let sessionConnection else { return }
-        Task {
-            try? await sessionConnection.resize(columns: UInt32(newCols), rows: UInt32(newRows))
-        }
+        sessionDriver?.resize(columns: newCols, rows: newRows)
     }
 
     func setTerminalTitle(source: TerminalView, title: String) {}
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 
+    func feedOutput(_ data: Data) {
+        terminalView.feed(byteArray: [UInt8](data)[...])
+    }
+
+    func feedStatus(_ text: String) {
+        let status = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        setStatus(status)
+    }
+
+    func closeAfterManagerDetach() {
+        sessionDriver?.stop()
+        sessionDriver = nil
+        sessionConnection = nil
+        latestClientCount = nil
+        setStatus("Terminal detached by manager.")
+    }
+
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
-        guard isFocusedPane, let sessionConnection else { return }
-        let payload = Data(data)
-        Task {
-            try? await sessionConnection.sendInput(payload)
-        }
+        guard isFocusedPane else { return }
+        sessionDriver?.sendInput(Data(data))
     }
 
     func scrolled(source: TerminalView, position: Double) {}
@@ -391,9 +396,14 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
         header.addSubview(closeButton)
 
         terminalView.translatesAutoresizingMaskIntoConstraints = false
-        terminalView.backgroundColor = .black
-        terminalView.nativeBackgroundColor = .black
-        terminalView.nativeForegroundColor = .white
+        do {
+            try PtyTerminalViewStyle(
+                metalRendering: PtyTerminalMetalRendering.from()
+            ).apply(to: terminalView)
+        } catch {
+            logger.error("terminal renderer setup failed: \(String(describing: error), privacy: .public)")
+        }
+        terminalView.backgroundColor = PtyTerminalViewStyle.defaultBackgroundColor
         terminalView.contentInsetAdjustmentBehavior = .never
         terminalView.keyboardDismissMode = .interactive
         terminalView.alwaysBounceVertical = true
@@ -451,37 +461,13 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, UIGesture
         sessionConnection = connection
         latestClientCount = connection.attachedClientCount
         setStatus("")
-        eventsTask = Task { [weak self, connection] in
-            do {
-                for try await event in connection.events() {
-                    await MainActor.run {
-                        self?.handle(event)
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    self?.setStatus("Terminal closed: \(error)")
-                }
-            }
+        let driver = PtyTerminalSessionDriver(connection: connection, renderer: self) { [weak self] error in
+            self?.logger.error("terminal session driver failed: \(String(describing: error), privacy: .public)")
         }
+        sessionDriver = driver
+        driver.start()
         if isFocusedPane {
             _ = terminalView.becomeFirstResponder()
-        }
-    }
-
-    private func handle(_ event: PtySessionEvent) {
-        switch event {
-        case .attached(let attachment):
-            latestClientCount = attachment.clientCount
-            setStatus("")
-        case .output(let data):
-            terminalView.feed(byteArray: [UInt8](data)[...])
-        case .detachedByManager(let clientID):
-            setStatus("Terminal client detached: \(clientID)")
-        case .exited(let status):
-            setStatus("Terminal exited: \(status)")
-        case .error(let message):
-            setStatus("Terminal error: \(message)")
         }
     }
 

@@ -670,6 +670,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             // surfaceSegmentChanged), not eagerly here. Default surface is
             // Control.
             showSurfaceToggleIfNeeded()
+            if #available(iOS 26.0, *) {
+                terminalSurface?.connect(using: pairingClient.activeSessionTransport)
+            }
         } else {
             // teardownAgentSurface owns the switcher and tears down all
             // non-control surfaces (agent + browser).
