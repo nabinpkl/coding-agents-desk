@@ -13,6 +13,13 @@ struct TerminalPaneID: Hashable, Equatable {
 struct TerminalPaneLeaf: Equatable {
     let paneID: TerminalPaneID
     let sessionName: String
+    let createIfMissing: Bool
+
+    init(paneID: TerminalPaneID, sessionName: String, createIfMissing: Bool = true) {
+        self.paneID = paneID
+        self.sessionName = sessionName
+        self.createIfMissing = createIfMissing
+    }
 }
 
 indirect enum TerminalPaneNode: Equatable {
@@ -102,8 +109,20 @@ struct TerminalWorkspaceState: Equatable {
 
     mutating func splitPane(_ paneID: TerminalPaneID, axis: TerminalSplitAxis) -> TerminalPaneLeaf? {
         guard root.contains(paneID) else { return nil }
-        let newLeaf = makeNextLeaf()
+        let newLeaf = makeFreshSessionLeaf()
         guard let updatedRoot = split(node: root, target: paneID, axis: axis, newLeaf: newLeaf) else {
+            return nil
+        }
+        root = updatedRoot
+        focusedPaneID = newLeaf.paneID
+        return newLeaf
+    }
+
+    mutating func openExistingSession(_ sessionName: String, axis: TerminalSplitAxis = .horizontal) -> TerminalPaneLeaf? {
+        let normalizedName = sessionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedName.isEmpty, root.contains(focusedPaneID) else { return nil }
+        let newLeaf = makeExistingSessionLeaf(sessionName: normalizedName)
+        guard let updatedRoot = split(node: root, target: focusedPaneID, axis: axis, newLeaf: newLeaf) else {
             return nil
         }
         root = updatedRoot
@@ -114,7 +133,7 @@ struct TerminalWorkspaceState: Equatable {
     mutating func closePane(_ paneID: TerminalPaneID) -> TerminalPaneCloseResult? {
         guard let removedLeaf = root.leaf(for: paneID) else { return nil }
         if leafCount == 1 {
-            let replacementLeaf = makeNextLeaf()
+            let replacementLeaf = makeFreshSessionLeaf()
             root = .leaf(replacementLeaf)
             focusedPaneID = replacementLeaf.paneID
             return .reset(removed: removedLeaf, replacement: replacementLeaf)
@@ -219,13 +238,24 @@ struct TerminalWorkspaceState: Equatable {
         }
     }
 
-    private mutating func makeNextLeaf() -> TerminalPaneLeaf {
+    private mutating func makeFreshSessionLeaf() -> TerminalPaneLeaf {
         let leaf = TerminalPaneLeaf(
             paneID: TerminalPaneID(rawValue: nextPaneOrdinal),
-            sessionName: "agentdesk-\(nextSessionOrdinal)"
+            sessionName: "agentdesk-\(nextSessionOrdinal)",
+            createIfMissing: true
         )
         nextPaneOrdinal += 1
         nextSessionOrdinal += 1
+        return leaf
+    }
+
+    private mutating func makeExistingSessionLeaf(sessionName: String) -> TerminalPaneLeaf {
+        let leaf = TerminalPaneLeaf(
+            paneID: TerminalPaneID(rawValue: nextPaneOrdinal),
+            sessionName: sessionName,
+            createIfMissing: false
+        )
+        nextPaneOrdinal += 1
         return leaf
     }
 }

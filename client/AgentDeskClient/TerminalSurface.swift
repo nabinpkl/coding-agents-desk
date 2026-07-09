@@ -1,16 +1,20 @@
 import Foundation
 import os
+import PtyClientSwift
 import UIKit
 
 @available(iOS 26.0, *)
-final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate {
+final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate, TerminalSessionDrawerViewDelegate {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal-surface")
     private let workspaceContainer = UIView()
+    private let sessionDrawerButton = UIButton(type: .system)
+    private let sessionDrawerView = TerminalSessionDrawerView()
     private var transport: QuicSessionClientTransport?
     private var workspaceState = TerminalWorkspaceState()
     private var paneViews: [TerminalPaneID: TerminalPaneView] = [:]
     private var closingPaneIDs = Set<TerminalPaneID>()
     private var renderedRootView: UIView?
+    private var sessionSnapshotTask: Task<Void, Never>?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -25,6 +29,7 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate {
     }
 
     deinit {
+        sessionSnapshotTask?.cancel()
         Task { @MainActor [paneViews] in
             for paneView in paneViews.values {
                 paneView.detach()
@@ -37,8 +42,14 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate {
             for paneView in paneViews.values {
                 paneView.detach()
             }
+            stopSessionSnapshotMonitoring()
         }
         self.transport = transport
+        if let transport, sessionSnapshotTask == nil {
+            startSessionSnapshotMonitoring(using: transport)
+        } else if transport == nil {
+            sessionDrawerView.setSessions([], status: "Terminal transport is disconnected.")
+        }
         for leaf in workspaceState.allLeaves() {
             paneViews[leaf.paneID]?.connect(using: transport)
         }
@@ -49,6 +60,8 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate {
             paneView.detach()
         }
         transport = nil
+        stopSessionSnapshotMonitoring()
+        sessionDrawerView.setSessions([], status: "Terminal transport is disconnected.")
     }
 
     func terminalPaneViewRequestedFocus(_ paneView: TerminalPaneView) {
@@ -84,15 +97,82 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate {
         }
     }
 
+    func terminalSessionDrawerViewRequestedDismiss(_ drawerView: TerminalSessionDrawerView) {
+        drawerView.setVisible(false)
+    }
+
+    func terminalSessionDrawerView(_ drawerView: TerminalSessionDrawerView, requestedJoin session: PtySessionSummary) {
+        guard session.state == .running else {
+            drawerView.setStatus("Session \(session.name) is not running.")
+            return
+        }
+        guard let newLeaf = workspaceState.openExistingSession(session.name) else {
+            drawerView.setStatus("Could not open \(session.name).")
+            return
+        }
+        let newPaneView = makePaneView(for: newLeaf)
+        paneViews[newLeaf.paneID] = newPaneView
+        newPaneView.connect(using: transport)
+        renderWorkspace()
+        applyFocus()
+        drawerView.setVisible(false)
+    }
+
+    func terminalSessionDrawerView(_ drawerView: TerminalSessionDrawerView, requestedCloseSession session: PtySessionSummary) {
+        runSessionCommand(status: "Closing \(session.name)...") { client in
+            try await client.killSession(name: session.name)
+        } onSuccess: { [weak self] in
+            self?.removeLocalPanes(sessionName: session.name)
+            drawerView.setStatus("Closed \(session.name).")
+        }
+    }
+
+    func terminalSessionDrawerView(
+        _ drawerView: TerminalSessionDrawerView,
+        requestedCloseClient client: PtySessionClientSummary,
+        in sessionName: String
+    ) {
+        runSessionCommand(status: "Closing client \(client.id)...") { ptyClient in
+            try await ptyClient.closeClient(sessionName: sessionName, clientID: client.id)
+        } onSuccess: { [weak self] in
+            self?.removeLocalPane(sessionName: sessionName, clientID: client.id)
+            drawerView.setStatus("Closed client \(client.id).")
+        }
+    }
+
     private func configureView() {
         backgroundColor = .black
         workspaceContainer.translatesAutoresizingMaskIntoConstraints = false
         addSubview(workspaceContainer)
+
+        sessionDrawerButton.translatesAutoresizingMaskIntoConstraints = false
+        sessionDrawerButton.setImage(UIImage(systemName: "list.bullet.rectangle"), for: .normal)
+        sessionDrawerButton.tintColor = .white
+        sessionDrawerButton.backgroundColor = UIColor.black.withAlphaComponent(0.58)
+        sessionDrawerButton.layer.cornerRadius = 8
+        sessionDrawerButton.accessibilityLabel = "Show PTY sessions"
+        sessionDrawerButton.addTarget(self, action: #selector(handleSessionDrawerButton), for: .touchUpInside)
+        addSubview(sessionDrawerButton)
+
+        sessionDrawerView.translatesAutoresizingMaskIntoConstraints = false
+        sessionDrawerView.delegate = self
+        addSubview(sessionDrawerView)
+
         NSLayoutConstraint.activate([
             workspaceContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
             workspaceContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             workspaceContainer.topAnchor.constraint(equalTo: topAnchor),
-            workspaceContainer.bottomAnchor.constraint(equalTo: bottomAnchor)
+            workspaceContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            sessionDrawerButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            sessionDrawerButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 12),
+            sessionDrawerButton.widthAnchor.constraint(equalToConstant: 44),
+            sessionDrawerButton.heightAnchor.constraint(equalToConstant: 36),
+
+            sessionDrawerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            sessionDrawerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            sessionDrawerView.topAnchor.constraint(equalTo: topAnchor),
+            sessionDrawerView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
     }
 
@@ -175,5 +255,97 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate {
 
         renderWorkspace()
         applyFocus()
+    }
+
+    private func startSessionSnapshotMonitoring(using transport: QuicSessionClientTransport) {
+        sessionSnapshotTask?.cancel()
+        sessionDrawerView.setStatus("Loading PTY sessions...")
+        sessionSnapshotTask = Task { [weak self, weak transport] in
+            while !Task.isCancelled {
+                do {
+                    guard let transport else { throw PtyClientError.closed }
+                    let client = try await transport.openTerminalPtyClient()
+                    for try await sessions in client.sessionSnapshots() {
+                        try Task.checkCancellation()
+                        await MainActor.run {
+                            guard let self, self.transport === transport else { return }
+                            self.sessionDrawerView.setSessions(sessions)
+                        }
+                    }
+                    await MainActor.run {
+                        guard let self, self.transport === transport else { return }
+                        self.sessionDrawerView.setStatus("PTY session stream ended. Reconnecting...")
+                    }
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    await MainActor.run {
+                        guard let self, self.transport === transport else { return }
+                        self.sessionDrawerView.setStatus("PTY sessions unavailable: \(error)")
+                        self.logger.error("terminal session snapshot failed: \(String(describing: error), privacy: .public)")
+                    }
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                }
+            }
+        }
+    }
+
+    private func stopSessionSnapshotMonitoring() {
+        sessionSnapshotTask?.cancel()
+        sessionSnapshotTask = nil
+    }
+
+    private func runSessionCommand(
+        status: String,
+        operation: @escaping @Sendable (PtyClient) async throws -> Void,
+        onSuccess: @escaping @MainActor () -> Void
+    ) {
+        guard let transport else {
+            sessionDrawerView.setStatus("Terminal transport is disconnected.")
+            return
+        }
+        sessionDrawerView.setStatus(status)
+        Task { [weak self, weak transport] in
+            do {
+                guard let transport else { throw PtyClientError.closed }
+                let client = try await transport.openTerminalPtyClient()
+                try await operation(client)
+                await MainActor.run {
+                    guard let self, self.transport === transport else { return }
+                    onSuccess()
+                }
+            } catch {
+                await MainActor.run {
+                    guard let self else { return }
+                    self.sessionDrawerView.setStatus("PTY command failed: \(error)")
+                    self.logger.error("terminal session command failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+    }
+
+    private func removeLocalPanes(sessionName: String) {
+        let paneIDs = workspaceState.allLeaves()
+            .filter { $0.sessionName == sessionName }
+            .map(\.paneID)
+        for paneID in paneIDs {
+            paneViews[paneID]?.closeAfterManagerDetach()
+            removeClosedPane(paneID)
+        }
+    }
+
+    private func removeLocalPane(sessionName: String, clientID: UInt64) {
+        guard let paneID = paneViews.first(where: { _, paneView in
+            paneView.leaf.sessionName == sessionName && paneView.attachedClientID == clientID
+        })?.key else {
+            return
+        }
+        paneViews[paneID]?.closeAfterManagerDetach()
+        removeClosedPane(paneID)
+    }
+
+    @objc private func handleSessionDrawerButton() {
+        sessionDrawerView.setVisible(true)
     }
 }

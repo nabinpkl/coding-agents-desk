@@ -17,6 +17,7 @@ protocol TerminalPaneViewDelegate: AnyObject {
 protocol TerminalPaneSessionConnection: PtyTerminalConnection, Sendable {
     var sessionName: String { get }
     var attachedClientCount: UInt32 { get }
+    var attachedClientID: UInt64 { get }
 
     func kill() async throws
 }
@@ -25,6 +26,10 @@ protocol TerminalPaneSessionConnection: PtyTerminalConnection, Sendable {
 extension PtySessionConnection: TerminalPaneSessionConnection {
     var attachedClientCount: UInt32 {
         attachment.clientCount
+    }
+
+    var attachedClientID: UInt64 {
+        attachment.clientID
     }
 }
 
@@ -160,6 +165,9 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
     private var connectTask: Task<Void, Never>?
     private var connectGeneration = 0
     private(set) var isFocusedPane = false
+    var attachedClientID: UInt64? {
+        sessionConnection?.attachedClientID
+    }
 
     init(leaf: TerminalPaneLeaf) {
         self.leaf = leaf
@@ -192,6 +200,8 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
         connectGeneration += 1
         let generation = connectGeneration
         let sessionName = leaf.sessionName
+        let createIfMissing = leaf.createIfMissing
+        let clientTitle = "AgentDesk iPhone pane \(leaf.paneID.rawValue)"
         let columns = UInt32(max(terminalView.getTerminal().cols, 80))
         let rows = UInt32(max(terminalView.getTerminal().rows, 24))
         connectTask = Task { [weak self, weak transport] in
@@ -205,8 +215,8 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
                     shell: "",
                     columns: columns,
                     rows: rows,
-                    createIfMissing: true,
-                    clientTitle: "AgentDesk iPhone"
+                    createIfMissing: createIfMissing,
+                    clientTitle: clientTitle
                 )
                 await MainActor.run {
                     guard let self, self.connectGeneration == generation else {
@@ -371,7 +381,7 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
         titleLabel.textColor = .secondaryLabel
-        titleLabel.text = leaf.sessionName
+        titleLabel.text = leaf.createIfMissing ? leaf.sessionName : "\(leaf.sessionName) joined"
         header.addSubview(titleLabel)
 
         let splitRightButton = makeButton(systemName: "rectangle.split.2x1", action: #selector(handleSplitRight))

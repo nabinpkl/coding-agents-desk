@@ -98,6 +98,39 @@ struct TerminalWorkspaceStateTests {
         #expect(state.leaf(for: TerminalPaneID(rawValue: 2))?.sessionName == "agentdesk-2")
     }
 
+    @Test func openExistingSessionSplitsFocusedPaneWithoutCreatingNewSessionName() {
+        var state = TerminalWorkspaceState()
+        let second = state.splitPane(TerminalPaneID(rawValue: 1), axis: .horizontal)!
+
+        let joined = state.openExistingSession("tmux-work")
+
+        #expect(joined?.sessionName == "tmux-work")
+        #expect(joined?.createIfMissing == false)
+        #expect(state.focusedPaneID == joined?.paneID)
+        switch state.root {
+        case .split(let outer):
+            switch outer.second {
+            case .split(let inner):
+                #expect(inner.first.leaf(for: second.paneID)?.sessionName == "agentdesk-2")
+                #expect(inner.second.leaf(for: joined?.paneID ?? TerminalPaneID(rawValue: -1))?.sessionName == "tmux-work")
+            default:
+                Issue.record("expected existing session to split the focused pane")
+            }
+        default:
+            Issue.record("expected split root after opening existing session")
+        }
+    }
+
+    @Test func openExistingSessionDoesNotAdvanceFreshSessionOrdinal() {
+        var state = TerminalWorkspaceState()
+        let joined = state.openExistingSession("host-owned")!
+
+        let fresh = state.splitPane(joined.paneID, axis: .vertical)
+
+        #expect(fresh?.sessionName == "agentdesk-2")
+        #expect(fresh?.createIfMissing == true)
+    }
+
     @Test func sessionNamesStayUniqueAndMonotonic() {
         var state = TerminalWorkspaceState()
         let second = state.splitPane(TerminalPaneID(rawValue: 1), axis: .horizontal)!
@@ -147,6 +180,7 @@ struct TerminalPaneViewCloseTests {
 private final class FakeTerminalPaneSessionConnection: TerminalPaneSessionConnection, @unchecked Sendable {
     let sessionName = "agentdesk-1"
     let attachedClientCount: UInt32
+    let attachedClientID: UInt64 = 42
     private(set) var detachCallCount = 0
     private(set) var killCallCount = 0
 
