@@ -59,8 +59,12 @@ extension PairingViewController {
     // timing race. The webview itself is created lazily on first Agent select.
     func showSurfaceToggleIfNeeded() {
         guard surfaceSegmentedControl == nil else {
-            // Already present; keep it on top of any later-added media chrome.
             if let seg = surfaceSegmentedControl {
+                if case .connected = pairingClient.state {
+                    refreshSurfaceToggleSegments(seg)
+                }
+                seg.selectedSegmentIndex = segmentIndex(for: activeControlSurface, in: seg)
+                // Already present; keep it on top of any later-added media chrome.
                 view.bringSubviewToFront(seg)
             }
             return
@@ -70,10 +74,7 @@ extension PairingViewController {
         // Availability is fixed for the session's lifetime (decided at the
         // handshake) and the toggle is torn down + rebuilt on every
         // non-connected state, so reading it once here is race-free.
-        var items = ["Control", "Agent", "Terminal"]
-        if pairingClient.activeDomMirror != nil {
-            items.append("Browser")
-        }
+        let items = surfaceToggleItems()
         let seg = UISegmentedControl(items: items)
         seg.selectedSegmentIndex = segmentIndex(for: activeControlSurface, in: seg)
         seg.translatesAutoresizingMaskIntoConstraints = false
@@ -204,6 +205,28 @@ extension PairingViewController {
         domMirrorSurface?.setPaused(surface != .browser)
     }
 
+    func rebindActiveSurfaceAfterReconnect() {
+        switch activeControlSurface {
+        case .control:
+            break
+        case .agent:
+            ensureAgentSurface()
+        case .terminal:
+            if #available(iOS 26.0, *) {
+                ensureTerminalSurface()
+            }
+        case .browser:
+            if ensureDomMirrorSurface() == nil {
+                activeControlSurface = .control
+                if let seg = surfaceSegmentedControl {
+                    seg.selectedSegmentIndex = segmentIndex(for: .control, in: seg)
+                }
+            }
+        }
+        pairingClient.activeDomMirror?.setCapture(activeControlSurface == .browser)
+        domMirrorSurface?.setPaused(activeControlSurface != .browser)
+    }
+
     // Maps the selected segment to a ControlSurface by title, robust to the
     // 2-vs-3 segment layout (Browser present only with a .dom lane).
     private func selectedSurface(on seg: UISegmentedControl) -> ControlSurface {
@@ -228,6 +251,32 @@ extension PairingViewController {
         }
         activeControlSurface = .control
         return 0
+    }
+
+    private func surfaceToggleItems() -> [String] {
+        var items = ["Control", "Agent", "Terminal"]
+        if pairingClient.activeDomMirror != nil {
+            items.append("Browser")
+        }
+        return items
+    }
+
+    private func refreshSurfaceToggleSegments(_ seg: UISegmentedControl) {
+        let items = surfaceToggleItems()
+        let current = (0..<seg.numberOfSegments).compactMap { seg.titleForSegment(at: $0) }
+        guard current != items else { return }
+
+        if !items.contains("Browser") {
+            if activeControlSurface == .browser {
+                activeControlSurface = .control
+            }
+            teardownDomMirrorSurface()
+        }
+
+        seg.removeAllSegments()
+        for (index, title) in items.enumerated() {
+            seg.insertSegment(withTitle: title, at: index, animated: false)
+        }
     }
 
     // MARK: - Visibility

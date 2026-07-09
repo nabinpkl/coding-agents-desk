@@ -699,10 +699,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         if case .connected = pairingClient.state {
             // The switcher exposes Browser as a third segment only when this
             // session opened a .dom lane; the DOM-mirror surface is created and
-            // its lane started lazily on first Browser select (see
-            // surfaceSegmentChanged), not eagerly here. Default surface is
-            // Control.
+            // its lane started lazily on first Browser select. If Browser was
+            // already active before a background suspend, reconnect rebinds it
+            // here to the fresh .dom lane.
             showSurfaceToggleIfNeeded()
+            rebindActiveSurfaceAfterReconnect()
             applySurface(activeControlSurface)
             if #available(iOS 26.0, *) {
                 terminalSurface?.connect(using: pairingClient.activeSessionTransport)
