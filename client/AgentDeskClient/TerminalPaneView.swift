@@ -257,24 +257,18 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
             return .closedBeforeAttach
         }
 
-        self.sessionConnection = nil
-        sessionDriver?.stop()
-        sessionDriver = nil
         do {
             let currentClientCount = try await currentClientCount(for: sessionConnection)
             let shouldKillSession = currentClientCount <= 1
             if shouldKillSession {
-                try await sessionConnection.kill()
-                latestClientCount = nil
-                setStatus("")
+                try await killSession(sessionConnection)
+                finishClosedSession()
                 return .killed
             }
             try await sessionConnection.detach()
-            latestClientCount = nil
-            setStatus("")
+            finishClosedSession()
             return .detached
         } catch {
-            self.sessionConnection = sessionConnection
             latestClientCount = sessionConnection.attachedClientCount
             let message = "Terminal close failed: \(error)"
             setStatus(message)
@@ -481,6 +475,23 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
             return 1
         }
         return session.clientCount
+    }
+
+    private func killSession(_ connection: TerminalPaneSessionConnection) async throws {
+        guard let transport else {
+            try await connection.kill()
+            return
+        }
+        let client = try await transport.openTerminalPtyClient()
+        try await client.killSession(name: connection.sessionName)
+    }
+
+    private func finishClosedSession() {
+        sessionConnection = nil
+        sessionDriver?.stop()
+        sessionDriver = nil
+        latestClientCount = nil
+        setStatus("")
     }
 
     private func isControlTouch(_ view: UIView) -> Bool {
