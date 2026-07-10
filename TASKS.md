@@ -21,14 +21,14 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 
 ## v2 Phase 1: authoritative workspace and panel seams
 
-- [ ] R16. Introduce a host-local `Workspace` domain with pure workspace identity, ordered roots, persistence, and active selection; keep shared transport DTOs in `AgentDeskWire` and test round-trip persistence and ordering without exporting host filesystem authority as a package.
-- [ ] R17. Add one-time import from `~/Library/Application Support/agent-workspace-ide/workspace.json` into AgentDesk's bundle-scoped Application Support store; tests assert absence is a clean first run, corrupt source fails loud, successful import writes one authoritative store, and the importer never replays after completion.
-- [ ] R18. Introduce `packages/AgentPanel` with bundled web assets, platform-neutral WebKit lifecycle, Agent request/push types, and an injected transport boundary; tests pin JS message decoding, pending delivery, teardown, and resource resolution.
+- [x] D16. Introduce a host-local `Workspace` domain with pure workspace identity, ordered roots, persistence, and active selection; keep shared transport DTOs in `AgentDeskWire` and test round-trip persistence and ordering without exporting host filesystem authority as a package.
+- [x] D17. Add one-time import from `~/Library/Application Support/agent-workspace-ide/workspace.json` into AgentDesk's bundle-scoped Application Support store; tests assert absence is a clean first run, corrupt source fails loud, successful import writes one authoritative store, and the importer never replays after completion. (`WorkspaceRepository` + `WorkspaceStore.loadOrImport`; the concrete host donor/destination URLs are supplied when the repository is constructed in AppDelegate under R21.)
+- [x] D18. Introduce `packages/AgentPanel` with bundled web assets, platform-neutral WebKit lifecycle, Agent request/push types, and an injected transport boundary; tests pin JS message decoding, pending delivery, teardown, and resource resolution.
 - [ ] R19. Replace AgentDesk iOS's app-local `AgentFeedSurface` implementation with `AgentPanel` plus a QUIC input-lane adapter while preserving projects, sessions, history paging, reconnect, and live updates.
 
 ## v2 Phase 2: macOS workspace shell and local files
 
-- [ ] R20. Port the AppKit shell primitives into AgentDeskHost: sidebar/top-bar panels, edge reveal, layout, workspace switcher, activity controls, and accessibility identifiers, excluding donor Desktop switching, Debug Browser, Jupyter, and Dock enrichment.
+- [ ] R20. Port the AppKit shell primitives into AgentDeskHost: sidebar/top-bar panels, edge reveal, layout, workspace switcher, activity controls, and accessibility identifiers, excluding donor Desktop switching, Debug Browser, Jupyter, and Dock enrichment. (Landed and tested: root-scoped file tree, edge-reveal state machine, layout geometry, and accessibility identifiers. Remaining: the actual AppKit NSView sidebar/top-bar panels, workspace switcher, and activity controls.)
 - [ ] R21. Wire the shell to AgentDesk `SpacesProvider`, `HostPtyManagerProcess`, terminal launcher, and ATC ownership through focused controllers rather than adding feature state to `AppDelegate.swift`.
 - [ ] R22. Port the reusable WKWebView file viewer/editor, open-tab model, file watching, UTF-8/binary probe, conflict state, and atomic autosave; tests assert one reusable surface per type, explicit save failure, external-change conflict, and tab-state behavior.
 - [ ] R23. Start the workspace shell with AgentDeskHost while preserving `LSUIElement`, menu-bar status behavior, variant identity, TCC grants, and normal key-window editing.
@@ -36,8 +36,8 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 
 ## v2 Phase 3: authenticated iOS Files
 
-- [ ] R25. Extend `AgentDeskWire` to protocol version 6 with reliable `.files = 6` stream framing and workspace list, directory list, read, write, conflict, and error messages using workspace-relative paths.
-- [ ] R26. Add a host files stream endpoint that walks from registered-root descriptors with `openat`/`O_NOFOLLOW`, bounds payloads through central config, rejects traversal and symlinks, reads UTF-8 text, and performs content-digest revision-checked atomic writes through the verified parent descriptor.
+- [x] D25. Extend `AgentDeskWire` to protocol version 6 with reliable `.files = 6` stream framing and workspace list, directory list, read, write, conflict, and error messages using workspace-relative paths.
+- [ ] R26. Add a host files stream endpoint that walks from registered-root descriptors with `openat`/`O_NOFOLLOW`, bounds payloads through central config, rejects traversal and symlinks, reads UTF-8 text, and performs content-digest revision-checked atomic writes through the verified parent descriptor. (Landed and tested: `WorkspaceFilePOSIX` + `WorkspaceFileService` implement all root-scoped read/list/write file semantics. Remaining: the stream endpoint that decodes `.files` frames into `WorkspaceFileService` calls and the payload byte cap through central config; `PairingSignalingServer` still rejects the `.files` lane.)
 - [ ] R27. Add a client files transport that reconnects with the session, correlates responses, cancels pending requests on teardown, and cannot block input or media lanes.
 - [ ] R28. Add an iOS Files surface for workspace and directory navigation plus read-only preview, with focused model and lifecycle tests.
 - [ ] R29. Reuse the shared file editor surface on iOS and enable save through revision-checked writes, surfacing conflicts without overwriting host changes.
@@ -66,9 +66,13 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 
 ```
 R14-R15  2026-07-10  verified   AgentDesk workspace ownership accepted and prior terminal ledger archived
-R16-R19  pending     pending     workspace and AgentPanel seams
-R20-R24  pending     pending     macOS shell, editable files, and Agents window
-R25-R30  pending     pending     authenticated iOS Files
+R16-R18  2026-07-10  green      workspace domain, one-time donor import, AgentPanel package (just check green)
+R19      pending     pending     iOS AgentFeedSurface -> AgentPanel swap
+R20      partial     green      shell primitives (tree, edge reveal, layout, a11y); AppKit panels remain
+R21-R24  pending     pending     shell host wiring, file viewer/editor, shell startup, Agents window
+R25      2026-07-10  green      protocol 6 + .files framing and file messages (just check green)
+R26      partial     green      file service core (POSIX + service) landed; stream endpoint remains
+R27-R30  pending     pending     client files transport and iOS Files surfaces
 R31-R33  pending     pending     integration and real-surface proof
 R34-R35  captured    pending     donor retirement
 ```
