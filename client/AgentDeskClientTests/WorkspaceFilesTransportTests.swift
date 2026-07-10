@@ -36,6 +36,10 @@ private final class MockFilesChannel: WorkspaceFilesFrameChannel, @unchecked Sen
         continuation.yield((try? JSONEncoder().encode(response)) ?? Data())
     }
 
+    func deliverRaw(_ data: Data) {
+        continuation.yield(data)
+    }
+
     var recordedSendCount: Int { lock.withLock { sends.count } }
 }
 
@@ -91,6 +95,38 @@ struct WorkspaceFilesTransportTests {
         await transport.close()
 
         await #expect(throws: WorkspaceFilesTransportError.closed) {
+            _ = try await inflight.value
+        }
+    }
+
+    @Test func duplicateRequestIDFailsLoudInsteadOfLeaking() async throws {
+        let channel = MockFilesChannel()
+        let transport = WorkspaceFilesTransport(channel: channel)
+        try await transport.open()
+
+        async let first = transport.request(readRequest("A"))
+        await waitForSends(channel, count: 2) // announce + first request registered
+
+        await #expect(throws: WorkspaceFilesTransportError.duplicateRequestID("A")) {
+            _ = try await transport.request(readRequest("A"))
+        }
+
+        // The first request still resolves normally.
+        channel.deliver(readResponse("A", text: "alpha"))
+        let resolved = try await first
+        #expect(resolved.requestID.value == "A")
+    }
+
+    @Test func undecodableResponseClosesTransportAndFailsPending() async throws {
+        let channel = MockFilesChannel()
+        let transport = WorkspaceFilesTransport(channel: channel)
+        try await transport.open()
+
+        let inflight = Task { try await transport.request(readRequest("A")) }
+        await waitForSends(channel, count: 2)
+        channel.deliverRaw(Data("not a response".utf8))
+
+        await #expect(throws: WorkspaceFilesTransportError.malformedResponse) {
             _ = try await inflight.value
         }
     }

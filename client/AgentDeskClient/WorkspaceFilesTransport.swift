@@ -7,6 +7,7 @@ enum WorkspaceFilesTransportError: Error, Equatable {
     case closed
     case unexpectedRole(QuicSessionStreamRole)
     case malformedResponse
+    case duplicateRequestID(String)
 }
 
 /// The frame plumbing the transport rides on, abstracted so the request/response correlation can be
@@ -21,6 +22,12 @@ protocol WorkspaceFilesFrameChannel: Sendable {
 /// `WorkspaceFileRequest` with its `WorkspaceFileResponse` by request id, so responses may arrive in
 /// any order. On teardown every in-flight request is failed rather than left hanging. It rides its
 /// own `.files` stream, so it can never block the input or media lanes.
+///
+/// Single-use per connection attempt: construct a fresh transport for each session/stream and
+/// discard it after `open()` fails or after `close()`. It is deliberately not designed to be
+/// reopened on the same instance — `open()`'s cooperative cancel does not guarantee a stale receive
+/// loop has stopped before a retry, and teardown is not generation-scoped, so a reused instance
+/// could let an abandoned loop tear down a fresh session.
 actor WorkspaceFilesTransport {
     private let channel: WorkspaceFilesFrameChannel
     private var pending: [String: CheckedContinuation<WorkspaceFileResponse, Error>] = [:]
@@ -35,11 +42,20 @@ actor WorkspaceFilesTransport {
     /// reading responses. Idempotent.
     func open() async throws {
         guard !closed, receiveTask == nil else { return }
-        // A non-empty announce frame: the host consumes this first frame purely to route the
-        // `.files` lane, and a zero-length frame would stall its stream read.
-        try await channel.send(Data([0]))
+        // Claim the started state synchronously, before the first await, so a concurrent open()
+        // bails at the guard above rather than sending a second announce frame down the same
+        // stream (which the host would decode as a request and tear the lane down over).
         receiveTask = Task { [weak self] in
             await self?.receiveLoop()
+        }
+        do {
+            // A non-empty announce frame: the host consumes this first frame purely to route the
+            // `.files` lane, and a zero-length frame would stall its stream read.
+            try await channel.send(Data([0]))
+        } catch {
+            receiveTask?.cancel()
+            receiveTask = nil
+            throw error
         }
     }
 
@@ -49,6 +65,12 @@ actor WorkspaceFilesTransport {
         let payload = try JSONEncoder().encode(request)
         let key = request.requestID.value
         return try await withCheckedThrowingContinuation { continuation in
+            // Fail loud on an id collision rather than overwriting the earlier waiter, which would
+            // orphan its continuation and hang that caller forever.
+            guard pending[key] == nil else {
+                continuation.resume(throwing: WorkspaceFilesTransportError.duplicateRequestID(key))
+                return
+            }
             // Register before sending so a fast response can never race ahead of the waiter.
             pending[key] = continuation
             Task { [weak self] in
@@ -58,6 +80,12 @@ actor WorkspaceFilesTransport {
     }
 
     func close() {
+        teardown(with: .closed)
+    }
+
+    /// Closes the lane and fails every in-flight request with `error`. Synchronous and idempotent,
+    /// so it runs to completion atomically on the actor and can't double-resume a continuation.
+    private func teardown(with error: WorkspaceFilesTransportError) {
         guard !closed else { return }
         closed = true
         receiveTask?.cancel()
@@ -66,7 +94,7 @@ actor WorkspaceFilesTransport {
         pending.removeAll()
         channel.close()
         for (_, continuation) in waiting {
-            continuation.resume(throwing: WorkspaceFilesTransportError.closed)
+            continuation.resume(throwing: error)
         }
     }
 
@@ -87,26 +115,20 @@ actor WorkspaceFilesTransport {
             do {
                 payload = try await channel.receive()
             } catch {
-                break
+                // The stream closed or errored; fail every waiter rather than strand it.
+                teardown(with: .closed)
+                return
             }
             guard let response = try? JSONDecoder().decode(WorkspaceFileResponse.self, from: payload) else {
-                // A response we cannot decode is a protocol break, not a per-request error we can
-                // route (there is no id to correlate). Drop the frame and keep serving the lane.
-                continue
+                // A response we cannot decode is a protocol break with no id to correlate. Mirror
+                // the host's fail-loud handling of a bad frame: close the lane so the request this
+                // frame was answering fails instead of hanging forever with no timeout.
+                teardown(with: .malformedResponse)
+                return
             }
             if let continuation = pending.removeValue(forKey: response.requestID.value) {
                 continuation.resume(returning: response)
             }
-        }
-        failAllPending()
-    }
-
-    private func failAllPending() {
-        guard !closed else { return }
-        let waiting = pending
-        pending.removeAll()
-        for (_, continuation) in waiting {
-            continuation.resume(throwing: WorkspaceFilesTransportError.closed)
         }
     }
 }
