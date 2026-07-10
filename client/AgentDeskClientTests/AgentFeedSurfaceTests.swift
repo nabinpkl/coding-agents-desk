@@ -195,6 +195,31 @@ struct AgentFeedSurfaceTests {
         #expect(capturedPayloads.isEmpty)
     }
 
+    @Test func resumeAfterReconnectRunsOnlyAfterLoad() {
+        let surface = AgentFeedSurface()
+        var resumeCount = 0
+        surface.resumeAfterReconnectForTesting = { resumeCount += 1 }
+
+        surface.resumeAfterSessionReconnect()
+        #expect(resumeCount == 0)
+
+        surface.markLoaded()
+        surface.resumeAfterSessionReconnect()
+        #expect(resumeCount == 1)
+    }
+
+    @Test func resumeAfterReconnectDoesNotRunAfterTeardown() {
+        let surface = AgentFeedSurface()
+        var resumeCount = 0
+        surface.resumeAfterReconnectForTesting = { resumeCount += 1 }
+
+        surface.markLoaded()
+        surface.teardown()
+        surface.resumeAfterSessionReconnect()
+
+        #expect(resumeCount == 0)
+    }
+
     @Test func markLoadedAfterTeardownDoesNotFlush() {
         let surface = AgentFeedSurface()
         var capturedPayloads: [String] = []

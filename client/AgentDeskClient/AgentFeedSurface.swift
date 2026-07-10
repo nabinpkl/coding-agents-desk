@@ -36,6 +36,7 @@ final class AgentFeedSurface: UIView {
     // Test seam: when set, receives the delivered payload instead of evaluating
     // it in the real web view.
     var deliverForTesting: ((String) -> Void)?
+    var resumeAfterReconnectForTesting: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -175,6 +176,37 @@ final class AgentFeedSurface: UIView {
             callDeliverJS(json)
         }
     }
+
+    func resumeAfterSessionReconnect() {
+        guard !torn else {
+            logger.notice("agent-feed: reconnect resume skipped, surface torn")
+            return
+        }
+        guard isLoaded else {
+            logger.notice("agent-feed: reconnect resume skipped, page not loaded")
+            return
+        }
+        if let resumeAfterReconnectForTesting {
+            resumeAfterReconnectForTesting()
+            return
+        }
+        webView?.evaluateJavaScript(Self.resumeAfterReconnectScript) { [logger] _, error in
+            if let error {
+                logger.error("agent-feed: reconnect resume failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    private static let resumeAfterReconnectScript = """
+    (function () {
+      if (window.__agentFeedBridge &&
+          typeof window.__agentFeedBridge.resumeAfterSessionReconnect === 'function') {
+        window.__agentFeedBridge.resumeAfterSessionReconnect();
+        return;
+      }
+      window.location.reload();
+    })();
+    """
 
     // MARK: - Lifecycle
 

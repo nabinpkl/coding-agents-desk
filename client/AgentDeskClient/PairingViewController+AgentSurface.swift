@@ -33,6 +33,15 @@ extension PairingViewController {
         nonisolated(unsafe) static var terminalSurface: UInt8 = 0
         nonisolated(unsafe) static var surfaceSegmentedControl: UInt8 = 0
         nonisolated(unsafe) static var agentSurfaceConstraints: UInt8 = 0
+        nonisolated(unsafe) static var agentSurfaceBoundTransport: UInt8 = 0
+    }
+
+    private final class AgentSurfaceTransportBinding {
+        weak var transport: QuicSessionClientTransport?
+
+        init(_ transport: QuicSessionClientTransport?) {
+            self.transport = transport
+        }
     }
 
     var agentSurface: AgentFeedSurface? {
@@ -49,6 +58,18 @@ extension PairingViewController {
     var surfaceSegmentedControl: UISegmentedControl? {
         get { objc_getAssociatedObject(self, &Keys.surfaceSegmentedControl) as? UISegmentedControl }
         set { objc_setAssociatedObject(self, &Keys.surfaceSegmentedControl, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    private var agentSurfaceBoundTransport: QuicSessionClientTransport? {
+        get { (objc_getAssociatedObject(self, &Keys.agentSurfaceBoundTransport) as? AgentSurfaceTransportBinding)?.transport }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &Keys.agentSurfaceBoundTransport,
+                AgentSurfaceTransportBinding(newValue),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
     }
 
     // MARK: - Toggle UI (state-driven from render())
@@ -98,6 +119,7 @@ extension PairingViewController {
         agentSurface?.teardown()
         agentSurface?.removeFromSuperview()
         agentSurface = nil
+        agentSurfaceBoundTransport = nil
 
         if #available(iOS 26.0, *) {
             terminalSurface?.detach()
@@ -145,6 +167,7 @@ extension PairingViewController {
             surface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
         agentSurface = surface
+        agentSurfaceBoundTransport = pairingClient.activeSessionTransport
 
         // Wire inbound: JS requests -> InputChannel sends. The channel is pulled
         // live on each request so a reconnect's fresh channel is used.
@@ -177,6 +200,22 @@ extension PairingViewController {
         return surface
     }
 
+    func rebindAgentSurfaceAfterReconnectIfNeeded() {
+        guard let surface = agentSurface,
+              let transport = pairingClient.activeSessionTransport
+        else {
+            return
+        }
+        guard agentSurfaceBoundTransport !== transport else {
+            return
+        }
+        agentSurfaceBoundTransport = transport
+        pairingClient.onAgentPush = { [weak surface] json in
+            surface?.deliver(rawJSON: json)
+        }
+        surface.resumeAfterSessionReconnect()
+    }
+
     @objc private func surfaceSegmentChanged(_ sender: UISegmentedControl) {
         let surface = selectedSurface(on: sender)
         activeControlSurface = surface
@@ -206,6 +245,8 @@ extension PairingViewController {
     }
 
     func rebindActiveSurfaceAfterReconnect() {
+        rebindAgentSurfaceAfterReconnectIfNeeded()
+
         switch activeControlSurface {
         case .control:
             break
