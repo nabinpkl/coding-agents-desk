@@ -45,6 +45,8 @@ host/AgentDeskHost/pty-manager
 # the folder reference, so a .gitkeep is committed; the contents are ignored.
 client/AgentDeskClient/AgentFeedWebview/*
 !client/AgentDeskClient/AgentFeedWebview/.gitkeep
+packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelWebview/*
+!packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelWebview/.gitkeep
 
 # Bun --compile temp artifacts
 *.bun-build

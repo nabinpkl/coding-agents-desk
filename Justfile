@@ -115,13 +115,10 @@ sidecar_out := justfile_directory() + "/host/AgentDeskHost/atc-sidecar"
 # The PTY manager binary is also placed alongside the host Swift sources so
 # Xcode bundles it as a resource. It is loaded via Config.ptyManagerURL.
 pty_manager_out := justfile_directory() + "/host/AgentDeskHost/pty-manager"
-# The webview bundle directory is placed alongside the Swift sources in
-# AgentDeskClient/ so Xcode picks it up as a bundled folder resource (wired
-# into the project's Resources build phase as a folder reference). It is loaded
-# at runtime by the WKWebView (next task) via:
-#   Bundle.main.url(forResource: "index", withExtension: "html",
-#                   subdirectory: "AgentFeedWebview")
-webview_out := justfile_directory() + "/client/AgentDeskClient/AgentFeedWebview"
+# The reusable AgentPanel package owns the generated webview resource for both
+# AppKit and UIKit consumers. The ATC dashboard remains the authored renderer;
+# its Vite output is copied here before the consuming app build.
+webview_out := justfile_directory() + "/packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelWebview"
 
 # Ensure a minimal placeholder exists at the sidecar output path. The real
 # ~64 MB binary is gitignored (never tracked), so a fresh checkout has nothing
@@ -205,30 +202,18 @@ sidecar-smoke: build-agent-sidecar
     echo ""
     echo "sidecar-smoke: PASS"
 
-# Ensure a minimal placeholder index.html exists in the webview bundle dir. The
-# real bundle (~5 MB) is gitignored; a fresh checkout has only the .gitkeep that
-# keeps the directory tracked by git. Without an index.html, Xcode's Copy-Resources
-# phase (folder reference) copies an empty directory and the WKWebView (next task)
-# would have nothing to load. This writes a tiny stub if and only if the file is
-# missing, so it never clobbers a real built bundle.
+# Keep the legacy recipe name while builds migrate to AgentPanel resources. A
+# clean checkout uses AgentPanelFixture; this recipe only verifies that fallback
+# and prepares the ignored Vite output directory without shadowing the fixture.
 ensure-webview-placeholder:
     #!/usr/bin/env bash
     set -euo pipefail
-    WEBVIEW_INDEX='{{webview_out}}/index.html'
-    if [ ! -e "$WEBVIEW_INDEX" ]; then
-        mkdir -p '{{webview_out}}'
-        printf '<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"><title>Agent Feed Placeholder</title></head>\n<body>\n<p>agent feed placeholder - run: just build-agent-webview</p>\n</body>\n</html>\n' > "$WEBVIEW_INDEX"
-    fi
+    test -f '{{justfile_directory()}}/packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelFixture/index.html'
+    mkdir -p '{{webview_out}}'
 
-# Build the ATC dashboard webview bundle into the client app bundle source dir.
-# The result is a static file:// loadable directory (index.html + assets/) that
-# the WKWebView (next task) loads via Bundle.main. Requires bun to be on PATH.
-# OVERWRITES the gitignored placeholder and any prior build in place.
-#
-# The bundle is loaded by the WKWebView via:
-#   Bundle.main.url(forResource: "index", withExtension: "html",
-#                   subdirectory: Config.agentFeedWebviewSubdirectory)
-# which resolves to AgentFeedWebview/index.html inside the app bundle.
+# Build the ATC dashboard webview bundle into AgentPanel's package resources.
+# The package resource bundle then embeds the same renderer in macOS and iOS.
+# Requires bun on PATH and replaces any prior ignored Vite output in place.
 build-agent-webview:
     #!/usr/bin/env bash
     set -euo pipefail
