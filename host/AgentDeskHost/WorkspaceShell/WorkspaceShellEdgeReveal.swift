@@ -1,0 +1,200 @@
+import CoreGraphics
+
+enum WorkspaceShellRevealEdge: Equatable {
+    case left
+    case top
+
+    func contains(_ point: CGPoint, in screen: CGRect, band: CGFloat) -> Bool {
+        switch self {
+        case .left:
+            point.x <= screen.minX + band
+        case .top:
+            point.y >= screen.maxY - band
+        }
+    }
+}
+
+struct WorkspaceShellRevealDescriptor: Equatable {
+    let surface: WorkspaceShellSurface
+    let edge: WorkspaceShellRevealEdge
+    let frame: CGRect
+    let triggerBand: CGFloat?
+
+    init(
+        surface: WorkspaceShellSurface,
+        edge: WorkspaceShellRevealEdge,
+        frame: CGRect,
+        triggerBand: CGFloat? = nil
+    ) {
+        self.surface = surface
+        self.edge = edge
+        self.frame = frame
+        self.triggerBand = triggerBand
+    }
+}
+
+struct WorkspaceShellRevealPointerFacts: Equatable {
+    let isNearTriggerEdge: Bool
+    let isInsideSurface: Bool
+}
+
+struct WorkspaceShellRevealPointer: Equatable {
+    let isOnScreen: Bool
+    let factsBySurface: [WorkspaceShellSurface: WorkspaceShellRevealPointerFacts]
+
+    init(
+        point: CGPoint,
+        screen: CGRect,
+        descriptors: [WorkspaceShellRevealDescriptor],
+        insideSurfaces: Set<WorkspaceShellSurface>,
+        defaultTriggerBand: CGFloat,
+        surfaceTolerance: CGFloat = 0
+    ) {
+        let isOnScreen = screen.contains(point)
+        self.isOnScreen = isOnScreen
+        factsBySurface = Dictionary(uniqueKeysWithValues: descriptors.map { descriptor in
+            let triggerBand = max(0, descriptor.triggerBand ?? defaultTriggerBand)
+            let retainedFrame = descriptor.frame.insetBy(dx: -surfaceTolerance, dy: -surfaceTolerance)
+            return (
+                descriptor.surface,
+                WorkspaceShellRevealPointerFacts(
+                    isNearTriggerEdge: isOnScreen
+                        && descriptor.edge.contains(point, in: screen, band: triggerBand),
+                    isInsideSurface: insideSurfaces.contains(descriptor.surface) || retainedFrame.contains(point)
+                )
+            )
+        })
+    }
+}
+
+struct WorkspaceShellRevealState: Equatable {
+    let revealed: Set<WorkspaceShellSurface>
+
+    init(revealed: Set<WorkspaceShellSurface> = []) {
+        self.revealed = revealed
+    }
+
+    func contains(_ surface: WorkspaceShellSurface) -> Bool {
+        revealed.contains(surface)
+    }
+}
+
+struct WorkspaceShellRevealConfiguration: Equatable {
+    let pinned: Set<WorkspaceShellSurface>
+    let held: Set<WorkspaceShellSurface>
+
+    init(pinned: Set<WorkspaceShellSurface> = [], held: Set<WorkspaceShellSurface> = []) {
+        self.pinned = pinned
+        self.held = held
+    }
+}
+
+enum WorkspaceShellRevealEvent: Equatable {
+    case pointerMoved(WorkspaceShellRevealPointer)
+    case configurationChanged
+}
+
+struct WorkspaceShellRevealStateMachine: Equatable {
+    private(set) var state: WorkspaceShellRevealState
+    private var lastPointer: WorkspaceShellRevealPointer?
+
+    init(state: WorkspaceShellRevealState = WorkspaceShellRevealState()) {
+        self.state = state
+    }
+
+    @discardableResult
+    mutating func send(
+        _ event: WorkspaceShellRevealEvent,
+        configuration: WorkspaceShellRevealConfiguration
+    ) -> WorkspaceShellRevealState {
+        switch event {
+        case .pointerMoved(let pointer):
+            lastPointer = pointer
+            state = Self.transition(from: state, pointer: pointer, configuration: configuration)
+        case .configurationChanged:
+            guard let lastPointer else {
+                state = WorkspaceShellRevealState(
+                    revealed: state.revealed.union(configuration.pinned).union(configuration.held)
+                )
+                return state
+            }
+            state = Self.transition(from: state, pointer: lastPointer, configuration: configuration)
+        }
+        return state
+    }
+
+    private static func transition(
+        from current: WorkspaceShellRevealState,
+        pointer: WorkspaceShellRevealPointer,
+        configuration: WorkspaceShellRevealConfiguration
+    ) -> WorkspaceShellRevealState {
+        let candidates = current.revealed
+            .union(configuration.pinned)
+            .union(configuration.held)
+            .union(pointer.factsBySurface.keys)
+        let revealed = Set(candidates.filter { surface in
+            if configuration.pinned.contains(surface) || configuration.held.contains(surface) {
+                return true
+            }
+            let facts = pointer.factsBySurface[surface]
+            if current.revealed.contains(surface) {
+                return facts?.isNearTriggerEdge == true || facts?.isInsideSurface == true
+            }
+            return facts?.isNearTriggerEdge == true
+        })
+        return WorkspaceShellRevealState(revealed: revealed)
+    }
+}
+
+struct WorkspaceShellEdgeRevealController {
+    private let apply: (WorkspaceShellRevealState) -> Void
+    private var screen: CGRect = .zero
+    private var descriptors: [WorkspaceShellRevealDescriptor] = []
+    private var configuration = WorkspaceShellRevealConfiguration()
+    private var machine = WorkspaceShellRevealStateMachine()
+
+    init(apply: @escaping (WorkspaceShellRevealState) -> Void) {
+        self.apply = apply
+    }
+
+    mutating func update(
+        screen: CGRect,
+        descriptors: [WorkspaceShellRevealDescriptor],
+        configuration: WorkspaceShellRevealConfiguration
+    ) {
+        self.screen = screen
+        self.descriptors = descriptors
+        self.configuration = configuration
+        publish(.configurationChanged)
+    }
+
+    mutating func pointerMoved(
+        to point: CGPoint,
+        insideSurfaces: Set<WorkspaceShellSurface> = [],
+        defaultTriggerBand: CGFloat = 4,
+        surfaceTolerance: CGFloat = 0
+    ) {
+        let pointer = WorkspaceShellRevealPointer(
+            point: point,
+            screen: screen,
+            descriptors: descriptors,
+            insideSurfaces: insideSurfaces,
+            defaultTriggerBand: defaultTriggerBand,
+            surfaceTolerance: surfaceTolerance
+        )
+        publish(.pointerMoved(pointer))
+    }
+
+    mutating func setConfiguration(_ configuration: WorkspaceShellRevealConfiguration) {
+        self.configuration = configuration
+        publish(.configurationChanged)
+    }
+
+    private mutating func publish(_ event: WorkspaceShellRevealEvent) {
+        let previous = machine.state
+        let next = machine.send(event, configuration: configuration)
+        if next != previous {
+            apply(next)
+        }
+    }
+}
