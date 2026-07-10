@@ -311,6 +311,20 @@ public enum WorkspaceFileResponse: Codable, Equatable, Sendable {
     case conflict(requestID: WorkspaceFileRequestID, conflict: WorkspaceFileConflict)
     case error(requestID: WorkspaceFileRequestID, error: WorkspaceFileError)
 
+    /// The correlation id echoed on every response, so a client can match a response back to the
+    /// request it is waiting on regardless of the arrival order.
+    public var requestID: WorkspaceFileRequestID {
+        switch self {
+        case .workspaces(let requestID, _),
+             .directory(let requestID, _),
+             .read(let requestID, _),
+             .write(let requestID, _),
+             .conflict(let requestID, _),
+             .error(let requestID, _):
+            requestID
+        }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case type = "t"
         case workspaces = "ws"
