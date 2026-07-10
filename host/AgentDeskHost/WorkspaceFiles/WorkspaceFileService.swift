@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import AgentDeskWire
 
-enum WorkspaceFileServiceFailure: Error {
+enum WorkspaceFileServiceFailure: Error, Sendable {
     case workspaceUnavailable
     case invalidPath
     case notFound
@@ -225,7 +225,10 @@ final class WorkspaceFileService {
         guard !path.hasPrefix("/") else { throw WorkspaceFileServiceFailure.invalidPath }
 
         let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        guard parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+        // Reject `.`/`..`/empty and any embedded NUL: a NUL would be silently truncated by the
+        // C-string conversion at the openat boundary, so the validated string and the string
+        // actually opened would diverge.
+        guard parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\0") }) else {
             throw WorkspaceFileServiceFailure.invalidPath
         }
         return parts

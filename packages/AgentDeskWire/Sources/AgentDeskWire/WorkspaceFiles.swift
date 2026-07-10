@@ -209,6 +209,18 @@ public enum WorkspaceFileRequest: Codable, Equatable, Sendable {
         text: String
     )
 
+    /// The correlation id carried by every request, so a caller can build a matching error
+    /// response even when it cannot otherwise interpret the request (e.g. the store is unavailable).
+    public var requestID: WorkspaceFileRequestID {
+        switch self {
+        case .listWorkspaces(let requestID),
+             .listDirectory(let requestID, _, _),
+             .read(let requestID, _, _),
+             .write(let requestID, _, _, _, _):
+            requestID
+        }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case type = "t"
         case workspaceID = "w"

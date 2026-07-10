@@ -117,6 +117,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminalLauncherController: TerminalLauncherController?
     private var ptyManagerProcess: HostPtyManagerProcess?
     private var terminalClientBridges: [ObjectIdentifier: TerminalClientBridge] = [:]
+    // R26 authenticated Files lane. One responder (serializing writes against the workspace store)
+    // is shared by every attached `.files` lane. The repository imports the agent-workspace-ide
+    // donor store once on first load.
+    private var workspaceFilesLanes: [ObjectIdentifier: WorkspaceFilesLaneServer] = [:]
+    private let workspaceFilesResponder = WorkspaceFilesResponder(
+        repository: WorkspaceRepository(
+            donorURL: Config.donorWorkspaceStoreURL,
+            destinationURL: Config.workspaceStoreURL
+        ),
+        maxBytes: Config.workspaceFileMaxBytes
+    )
     private var gesturePortalController: GesturePortalController?
     private var gestureChildController: GestureChildController?
     private var voiceChildController: VoiceChildController?
@@ -259,6 +270,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             bridge.stop()
         }
         terminalClientBridges.removeAll()
+        for lane in workspaceFilesLanes.values {
+            lane.stop()
+        }
+        workspaceFilesLanes.removeAll()
         voiceChildController?.stop()
         agentSayServer?.stop()
         signalingServer?.stop()
@@ -412,6 +427,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor in
                     self?.handleTerminalLaneReady(fingerprint, bridge: bridge)
                 }
+            },
+            filesLaneReadyHandler: { [weak self] fingerprint, lane in
+                Task { @MainActor in
+                    self?.handleFilesLaneReady(fingerprint, lane: lane)
+                }
             }
         )
         do {
@@ -487,6 +507,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         bridge.start()
+    }
+    private func handleFilesLaneReady(_ fingerprint: DeviceFingerprint, lane: WorkspaceFilesLaneServer) {
+        signalingLogger.notice("files lane ready fp=\(fingerprint.rawValue, privacy: .public)")
+        let id = ObjectIdentifier(lane)
+        workspaceFilesLanes[id] = lane
+        let responder = workspaceFilesResponder
+        lane.handleRequest = { request in await responder.handle(request) }
+        lane.onClose = { [weak self] in
+            Task { @MainActor in
+                self?.workspaceFilesLanes.removeValue(forKey: id)
+            }
+        }
+        lane.start()
     }
 
     private func startPtyManager() {

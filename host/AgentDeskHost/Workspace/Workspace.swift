@@ -1,6 +1,6 @@
 import Foundation
 
-struct Workspace: Codable, Equatable, Identifiable {
+struct Workspace: Codable, Equatable, Identifiable, Sendable {
     let id: UUID
     let root: URL
     let name: String

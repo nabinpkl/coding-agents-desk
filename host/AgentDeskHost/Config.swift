@@ -866,6 +866,21 @@ enum Config {
         .appendingPathComponent("pty-manager.sock", isDirectory: false)
     static let adTokenURL = applicationSupportDirectory
         .appendingPathComponent("ad-token", isDirectory: false)
+    // R16/R17 workspace consolidation. `workspaceStoreURL` is AgentDesk's authoritative,
+    // bundle-scoped workspace store. `donorWorkspaceStoreURL` is the retiring
+    // agent-workspace-ide store read once at first launch to seed it (the importer treats an
+    // absent donor as a clean empty first run, so a wrong or missing path fails safe).
+    static let workspaceStoreURL = applicationSupportDirectory
+        .appendingPathComponent("workspaces.json", isDirectory: false)
+    static let donorWorkspaceStoreURL = FileManager.default
+        .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("agent-workspace-ide/workspace.json", isDirectory: false)
+    // R26 authenticated Files lane: the maximum UTF-8 text payload the host will read from or
+    // accept for a single file, bounding host memory and wire size. Env-overridable.
+    static let workspaceFileMaxBytes = positiveInt(
+        environmentKey: "AGENTDESK_WORKSPACE_FILE_MAX_BYTES",
+        defaultValue: 4 * 1024 * 1024
+    )
     // ADR-0038/0039 DOM mirror (Chrome page mirroring). Baked on by default for every variant:
     // the bridge socket, the .dom QUIC lane, and the client replay surface are live unless
     // explicitly disabled via the env override (AGENTDESK_DOM_MIRROR_ENABLED=0). A prior revert

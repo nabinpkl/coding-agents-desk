@@ -1,6 +1,6 @@
 import Foundation
 
-enum WorkspaceStoreError: Error, Equatable {
+enum WorkspaceStoreError: Error, Equatable, Sendable {
     case duplicateWorkspaceIdentifier(UUID)
     case duplicateWorkspaceRoot(URL)
     case invalidWorkspaceRoot(URL)
@@ -12,7 +12,7 @@ enum WorkspaceStoreError: Error, Equatable {
 
 /// Ordered, host-local workspace roots plus the currently selected workspace.
 /// Runtime session and presentation state intentionally live outside this store.
-struct WorkspaceStore: Codable, Equatable {
+struct WorkspaceStore: Codable, Equatable, Sendable {
     private(set) var workspaces: [Workspace]
     private(set) var activeID: UUID?
 

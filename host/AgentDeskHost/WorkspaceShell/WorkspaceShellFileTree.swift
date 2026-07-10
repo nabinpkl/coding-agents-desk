@@ -80,6 +80,8 @@ final class WorkspaceShellFileTree {
     private let onRejectedEntry: (WorkspaceShellFileTreeEntryRejection) -> Void
     lazy var rootNode: WorkspaceShellFileNode = WorkspaceShellFileNode(
         tree: self,
+        // safe: the empty string is the root's relative path and can never trip the
+        // absolute-prefix or `..` checks in WorkspaceShellRelativePath.
         relativePath: try! WorkspaceShellRelativePath(""),
         name: rootURL.lastPathComponent,
         isDirectory: true,
@@ -212,6 +214,8 @@ final class WorkspaceShellFileNode {
 private extension WorkspaceShellRelativePath {
     var parent: WorkspaceShellRelativePath {
         let components = value.split(separator: "/", omittingEmptySubsequences: true)
+        // safe: dropping a trailing component from an already-validated relative path yields a
+        // shorter relative path, which cannot introduce an absolute prefix or a `..` segment.
         return try! WorkspaceShellRelativePath(components.dropLast().joined(separator: "/"))
     }
 }
