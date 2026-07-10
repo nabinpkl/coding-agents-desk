@@ -178,7 +178,6 @@ struct TerminalPaneViewCloseTests {
 }
 
 #if DEBUG
-@available(iOS 26.0, *)
 @MainActor
 struct TerminalSurfaceLifecycleTests {
     @Test func detachPreservesWorkspaceAndPaneViewsForReconnect() {
