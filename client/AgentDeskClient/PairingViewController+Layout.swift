@@ -126,7 +126,10 @@ extension PairingViewController {
     }
 
     func showTrackpad() {
-        if trackpadView.superview != nil { return }
+        if trackpadView.superview != nil {
+            restartSessionSurfaceObservations()
+            return
+        }
         trackpadView.translatesAutoresizingMaskIntoConstraints = false
         // Soft grey card in light, slightly-elevated dark grey in dark.
         // .separator gives a hairline edge that defines the surface; in
@@ -382,6 +385,10 @@ extension PairingViewController {
         // Touch mode: recognizers on the video surface + apply current mode.
         attachVideoTouchRecognizers()
 
+        restartSessionSurfaceObservations()
+    }
+
+    func restartSessionSurfaceObservations() {
         startDesktopStateObservation()
         startThumbnailsObservation()
         startAgentSayObservation()
