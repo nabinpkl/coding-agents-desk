@@ -37,7 +37,7 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 ## v2 Phase 3: authenticated iOS Files
 
 - [x] D25. Extend `AgentDeskWire` to protocol version 6 with reliable `.files = 6` stream framing and workspace list, directory list, read, write, conflict, and error messages using workspace-relative paths.
-- [ ] R26. Add a host files stream endpoint that walks from registered-root descriptors with `openat`/`O_NOFOLLOW`, bounds payloads through central config, rejects traversal and symlinks, reads UTF-8 text, and performs content-digest revision-checked atomic writes through the verified parent descriptor. (Landed and tested: `WorkspaceFilePOSIX` + `WorkspaceFileService` implement all root-scoped read/list/write file semantics. Remaining: the stream endpoint that decodes `.files` frames into `WorkspaceFileService` calls and the payload byte cap through central config; `PairingSignalingServer` still rejects the `.files` lane.)
+- [x] D26. Add a host files stream endpoint that walks from registered-root descriptors with `openat`/`O_NOFOLLOW`, bounds payloads through central config, rejects traversal and symlinks, reads UTF-8 text, and performs content-digest revision-checked atomic writes through the verified parent descriptor. (`WorkspaceFilesLaneServer` decodes `.files` frames; `WorkspaceFilesResponder` serializes them against the store and closes the lost-update write race; `PairingSignalingServer` hands off the lane; `AppDelegate` owns the repository + responder; byte cap and store paths in `Config`. Host-unit green; live client-to-host serving is proven at the R33 device/sim checkpoint.)
 - [ ] R27. Add a client files transport that reconnects with the session, correlates responses, cancels pending requests on teardown, and cannot block input or media lanes.
 - [ ] R28. Add an iOS Files surface for workspace and directory navigation plus read-only preview, with focused model and lifecycle tests.
 - [ ] R29. Reuse the shared file editor surface on iOS and enable save through revision-checked writes, surfacing conflicts without overwriting host changes.
@@ -71,7 +71,7 @@ R19      pending     pending     iOS AgentFeedSurface -> AgentPanel swap
 R20      partial     green      shell primitives (tree, edge reveal, layout, a11y); AppKit panels remain
 R21-R24  pending     pending     shell host wiring, file viewer/editor, shell startup, Agents window
 R25      2026-07-10  green      protocol 6 + .files framing and file messages (just check green)
-R26      partial     green      file service core (POSIX + service) landed; stream endpoint remains
+R26      2026-07-10  green      files lane endpoint + serialized writes (just check green; live serving at R33)
 R27-R30  pending     pending     client files transport and iOS Files surfaces
 R31-R33  pending     pending     integration and real-surface proof
 R34-R35  captured    pending     donor retirement
