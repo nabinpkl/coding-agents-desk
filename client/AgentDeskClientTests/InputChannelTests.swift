@@ -286,7 +286,9 @@ struct InputChannelTests {
         #expect(QuicSessionStreamRole(rawValue: 4) == .dom)
         #expect(QuicSessionStreamRole.terminal.rawValue == 5)
         #expect(QuicSessionStreamRole(rawValue: 5) == .terminal)
-        #expect(QuicSessionStreamRole(rawValue: 6) == nil)
+        #expect(QuicSessionStreamRole.files.rawValue == 6)
+        #expect(QuicSessionStreamRole(rawValue: 6) == .files)
+        #expect(QuicSessionStreamRole(rawValue: 7) == nil)
     }
 
     // ADR-0045: the DOM capture pause/resume frame the client sends UP the .dom lane. The host guard
@@ -1005,8 +1007,8 @@ struct InputChannelTests {
     }
 
     @Test func protocolVersionIsFiveForTerminalLaneWireBreak() {
-        #expect(Config.protocolVersion == 5)
-        #expect(Config.minCompatibleProtocolVersion == 5)
+        #expect(Config.protocolVersion == 6)
+        #expect(Config.minCompatibleProtocolVersion == 6)
     }
 
     @Test func eventFrameRoundTripPreservesKeyWithModifiers() throws {

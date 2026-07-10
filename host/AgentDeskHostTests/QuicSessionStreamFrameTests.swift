@@ -45,12 +45,14 @@ struct QuicSessionStreamFrameTests {
         #expect(QuicSessionStreamRole.graphics.rawValue == 3)
         #expect(QuicSessionStreamRole.dom.rawValue == 4)
         #expect(QuicSessionStreamRole.terminal.rawValue == 5)
+        #expect(QuicSessionStreamRole.files.rawValue == 6)
         #expect(QuicSessionStreamRole(rawValue: 1) == .control)
         #expect(QuicSessionStreamRole(rawValue: 2) == .input)
         #expect(QuicSessionStreamRole(rawValue: 3) == .graphics)
         #expect(QuicSessionStreamRole(rawValue: 4) == .dom)
         #expect(QuicSessionStreamRole(rawValue: 5) == .terminal)
-        #expect(QuicSessionStreamRole(rawValue: 6) == nil)
+        #expect(QuicSessionStreamRole(rawValue: 6) == .files)
+        #expect(QuicSessionStreamRole(rawValue: 7) == nil)
     }
 
     @Test func quicSessionFrameRoundTripsDomRole() throws {
@@ -225,8 +227,8 @@ struct QuicSessionStreamFrameTests {
     }
 
     @Test func protocolVersionIsFiveForTerminalLaneWireBreak() {
-        #expect(Config.protocolVersion == 5)
-        #expect(Config.minCompatibleProtocolVersion == 5)
+        #expect(Config.protocolVersion == 6)
+        #expect(Config.minCompatibleProtocolVersion == 6)
     }
 
     @available(macOS 26.0, *)

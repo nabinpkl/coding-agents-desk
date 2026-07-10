@@ -37,6 +37,163 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded.payload == payload)
 }
 
+@Test func quicSessionFilesRoleIsPinnedAndRoundTrips() throws {
+    #expect(QuicSessionStreamRole.files.rawValue == 6)
+    #expect(QuicSessionStreamRole(rawValue: 6) == .files)
+
+    let payload = Data(#"{"t":"files-workspaces"}"#.utf8)
+    let encoded = try QuicSessionStreamFrame.encode(role: .files, payload: payload)
+    let decoded = try QuicSessionStreamFrame.decode(encoded)
+
+    #expect(decoded.role == .files)
+    #expect(decoded.payload == payload)
+}
+
+@Test func wireProtocolFilesVersionIsPinned() {
+    #expect(WireProtocol.version == 6)
+    #expect(WireProtocol.minCompatibleVersion == 6)
+}
+
+@Test func workspaceFileRequestsRoundTripWithCompactKeys() throws {
+    let revision = WorkspaceFileRevision(digest: "sha256:before")
+    let requestIDs = [
+        WorkspaceFileRequestID(value: "request-workspaces"),
+        WorkspaceFileRequestID(value: "request-directory"),
+        WorkspaceFileRequestID(value: "request-read"),
+        WorkspaceFileRequestID(value: "request-write"),
+    ]
+    let values: [WorkspaceFileRequest] = [
+        .listWorkspaces(requestID: requestIDs[0]),
+        .listDirectory(requestID: requestIDs[1], workspaceID: "workspace-a", path: "Sources"),
+        .read(requestID: requestIDs[2], workspaceID: "workspace-a", path: "Sources/App.swift"),
+        .write(
+            requestID: requestIDs[3],
+            workspaceID: "workspace-a",
+            path: "Sources/App.swift",
+            expectedRevision: revision,
+            text: "print(\"hello\")\n"
+        ),
+    ]
+
+    for value in values {
+        try roundTrip(value)
+    }
+
+    let object = try JSONSerialization.jsonObject(
+        with: JSONEncoder().encode(values[3])
+    ) as? [String: Any]
+    #expect(object?["t"] as? String == "files-write")
+    #expect(object?["rid"] as? String == "request-write")
+    #expect(object?["w"] as? String == "workspace-a")
+    #expect(object?["p"] as? String == "Sources/App.swift")
+    #expect((object?["r"] as? [String: Any])?["d"] as? String == "sha256:before")
+    #expect(object?["x"] as? String == "print(\"hello\")\n")
+}
+
+@Test func workspaceFileRequestsKeepDistinctIDsForConcurrentOperations() throws {
+    let first = WorkspaceFileRequest.read(
+        requestID: WorkspaceFileRequestID(value: "read-1"),
+        workspaceID: "workspace-a",
+        path: "Sources/App.swift"
+    )
+    let second = WorkspaceFileRequest.read(
+        requestID: WorkspaceFileRequestID(value: "read-2"),
+        workspaceID: "workspace-a",
+        path: "Sources/App.swift"
+    )
+
+    #expect(first != second)
+    let firstObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(first)) as? [String: Any]
+    let secondObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(second)) as? [String: Any]
+    #expect(firstObject?["rid"] as? String == "read-1")
+    #expect(secondObject?["rid"] as? String == "read-2")
+}
+
+@Test func workspaceFileResponsesRoundTripWithCompactKeys() throws {
+    let revision = WorkspaceFileRevision(digest: "sha256:current")
+    let workspace = WorkspaceSummary(id: "workspace-a", name: "AgentDesk")
+    let requestIDs = [
+        WorkspaceFileRequestID(value: "request-workspaces"),
+        WorkspaceFileRequestID(value: "request-directory"),
+        WorkspaceFileRequestID(value: "request-read"),
+        WorkspaceFileRequestID(value: "request-write"),
+        WorkspaceFileRequestID(value: "request-conflict"),
+        WorkspaceFileRequestID(value: "request-error"),
+    ]
+    let entry = WorkspaceDirectoryEntry(
+        name: "Sources",
+        path: "Sources",
+        isDirectory: true
+    )
+    let values: [WorkspaceFileResponse] = [
+        .workspaces(requestID: requestIDs[0], result: WorkspaceListResult(workspaces: [workspace])),
+        .directory(requestID: requestIDs[1], result: WorkspaceDirectoryListResult(
+            workspaceID: "workspace-a", path: "", entries: [entry]
+        )),
+        .read(requestID: requestIDs[2], result: WorkspaceFileReadResult(
+            workspaceID: "workspace-a", path: "Sources/App.swift", text: "print(\"hello\")\n", revision: revision
+        )),
+        .write(requestID: requestIDs[3], result: WorkspaceFileWriteResult(
+            workspaceID: "workspace-a", path: "Sources/App.swift", revision: revision
+        )),
+        .conflict(requestID: requestIDs[4], conflict: WorkspaceFileConflict(
+            workspaceID: "workspace-a", path: "Sources/App.swift", currentRevision: revision
+        )),
+        .error(requestID: requestIDs[5], error: WorkspaceFileError(
+            code: .tooLarge,
+            workspaceID: "workspace-a",
+            path: "Sources/App.swift",
+            message: "File exceeds the supported size."
+        )),
+    ]
+
+    for value in values {
+        try roundTrip(value)
+    }
+
+    let object = try JSONSerialization.jsonObject(
+        with: JSONEncoder().encode(values[4])
+    ) as? [String: Any]
+    #expect(object?["t"] as? String == "files-conflict")
+    #expect(object?["rid"] as? String == "request-conflict")
+    #expect(object?["w"] as? String == "workspace-a")
+    #expect(object?["p"] as? String == "Sources/App.swift")
+    #expect((object?["r"] as? [String: Any])?["d"] as? String == "sha256:current")
+}
+
+@Test func workspaceFileErrorCodesRoundTrip() throws {
+    for code in WorkspaceFileErrorCode.allCases {
+        try roundTrip(WorkspaceFileResponse.error(
+            requestID: WorkspaceFileRequestID(value: "error-\(code.rawValue)"),
+            error: WorkspaceFileError(
+                code: code,
+                workspaceID: "workspace-a",
+                path: "Sources/App.swift"
+            )
+        ))
+    }
+}
+
+@Test func workspaceFileErrorMessageRoundTripsWhenPresentAndAbsent() throws {
+    let requestID = WorkspaceFileRequestID(value: "error-message")
+    let present = WorkspaceFileResponse.error(
+        requestID: requestID,
+        error: WorkspaceFileError(code: .forbidden, message: "This workspace is unavailable.")
+    )
+    let absent = WorkspaceFileResponse.error(
+        requestID: requestID,
+        error: WorkspaceFileError(code: .notFound)
+    )
+
+    try roundTrip(present)
+    try roundTrip(absent)
+
+    let presentObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(present)) as? [String: Any]
+    let absentObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(absent)) as? [String: Any]
+    #expect(presentObject?["m"] as? String == "This workspace is unavailable.")
+    #expect(absentObject?["m"] == nil)
+}
+
 @Test func ownedSurfaceUpdateIdIsHashableAndComparable() throws {
     // Drift: the host conformed Hashable, the client did not. The unified type is
     // usable as a dictionary key on both sides.

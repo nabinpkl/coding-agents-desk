@@ -231,6 +231,17 @@ final class PairingSignalingServer: @unchecked Sendable {
             }
             let bridge = TerminalClientBridge(stream: stream, fingerprint: active.deviceFingerprint)
             terminalLaneReadyHandler(active.deviceFingerprint, bridge)
+        case .files:
+            // R25-R27 authenticated Files lane. The wire types and host `WorkspaceFileService`
+            // exist, but the lane server and its ready handler are not wired yet (they land in
+            // R26). Until then reject cleanly rather than let a client hang on an open .files
+            // stream, mirroring the gated-off `.dom` path above.
+            try await QuicSessionStreamIO.send(
+                SessionRejected(reason: .malformed),
+                role: .files,
+                on: stream
+            )
+            return
         }
     }
 

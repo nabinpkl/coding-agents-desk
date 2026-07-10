@@ -6,6 +6,7 @@ public enum QuicSessionStreamRole: UInt8, Codable, Equatable, Sendable {
     case graphics = 3
     case dom = 4
     case terminal = 5
+    case files = 6
 }
 
 public enum QuicSessionFrameError: Error, Equatable {
