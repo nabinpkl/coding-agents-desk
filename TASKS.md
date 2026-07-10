@@ -1,63 +1,74 @@
-# TASKS: v1 remote SwiftTerm terminal over host PTY multiplexer (with v2 terminal UX captured)
+# TASKS: v2 AgentDesk workspace consolidation (with v3 donor retirement captured)
 
 `R<N>` = remaining. Flip to `D<N>` once landed and tests are green.
 
 ## Position
 
-v1 implements the terminal as a new client surface over the existing session transport, not as a separate app, side channel, or new PTY engine. Ordering:
+AgentDesk becomes the authoritative agent workspace before `agent-workspace-ide` is retired. Ordering:
 
-- Wire role and ADR first, because host/client routing must agree before UI or process supervision can be meaningful.
-- Host PTY manager bridge second, because the iOS terminal must execute on the Mac and attach to the multiplexer.
-- iOS SwiftTerm surface third, because rendering depends on the dedicated QUIC terminal stream and `PtyClientSwift`.
-- Build and docs last, because the Rust binary and Swift packages are generated/runtime dependencies that need explicit recipes and lockfiles.
+- ADR-0052 and the product contract land first because the current PRD excludes file transfer and does not authorize a workspace shell.
+- Shared workspace and file contracts land before UI because AppKit, UIKit, persistence, and transport need one vocabulary.
+- macOS shell and local editing land before iOS Files because the host must own workspace roots and file semantics before exposing them remotely.
+- AgentPanel extraction runs beside workspace work because it has independent source ownership and transport adapters.
+- Donor retirement happens only after AgentDesk no longer imports required production code from the sibling repository.
 
-## v1 Phase 0: readiness and decision record
+The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files, `AppDelegate.swift`, and final cross-lane integration. Four persistent Implementor/Reviewer lanes use `gpt-5.6-terra` with high reasoning: workspace ownership, AgentPanel, macOS shell/editor, and file transport/iOS Files.
 
-- [x] D1. Define ADR `architecture-decisions/0051-remote-swiftterm-terminal-over-pty-multiplexer.md` selecting Agent Workspace IDE `pty-manager` as the host execution and multiplexer engine.
-- [x] D2. Update `SPEC.md` to protocol version 5, stream role `.terminal = 5`, and host/client module boundaries for terminal process supervision, byte bridging, and SwiftTerm rendering.
+## v2 Phase 0: consolidation decision (gate)
 
-## v1 Phase 1: shared wire seam
+- [x] D14. Accept `architecture-decisions/0052-agentdesk-owns-the-agent-workspace.md`, updating `PRD.md` and `SPEC.md` so AgentDesk owns workspace roots, macOS shell, local editing, AgentPanel, and authenticated iOS files.
+- [x] D15. Archive the completed terminal ledger under `tasks/archive/remote-swiftterm-terminal.md` and open this append-only consolidation ledger.
 
-- [x] D3. Move `QuicSessionStreamRole`, `QuicSessionStreamFrame`, and frame helpers into `packages/AgentDeskWire/Sources/AgentDeskWire/QuicStreamFrame.swift` so host and client use one stream-role contract.
-- [x] D4. Pin terminal role and protocol version 5 in `packages/AgentDeskWire/Tests/AgentDeskWireTests/WireRoundTripTests.swift`, `host/AgentDeskHostTests/QuicSessionStreamFrameTests.swift`, and `client/AgentDeskClientTests/InputChannelTests.swift`.
+## v2 Phase 1: authoritative workspace and panel seams
 
-## v1 Phase 2: host PTY bridge
+- [ ] R16. Introduce a host-local `Workspace` domain with pure workspace identity, ordered roots, persistence, and active selection; keep shared transport DTOs in `AgentDeskWire` and test round-trip persistence and ordering without exporting host filesystem authority as a package.
+- [ ] R17. Add one-time import from `~/Library/Application Support/agent-workspace-ide/workspace.json` into AgentDesk's bundle-scoped Application Support store; tests assert absence is a clean first run, corrupt source fails loud, successful import writes one authoritative store, and the importer never replays after completion.
+- [ ] R18. Introduce `packages/AgentPanel` with bundled web assets, platform-neutral WebKit lifecycle, Agent request/push types, and an injected transport boundary; tests pin JS message decoding, pending delivery, teardown, and resource resolution.
+- [ ] R19. Replace AgentDesk iOS's app-local `AgentFeedSurface` implementation with `AgentPanel` plus a QUIC input-lane adapter while preserving projects, sessions, history paging, reconnect, and live updates.
 
-- [x] D5. Add `host/AgentDeskHost/HostPtyManagerProcess.swift` to launch the bundled Rust `pty-manager` against `Config.ptyManagerSocketURL`.
-- [x] D6. Add `host/AgentDeskHost/TerminalClientBridge.swift` to bridge opaque length-prefixed PTY frames between `.terminal` QUIC streams and the manager Unix socket.
-- [x] D7. Wire `host/AgentDeskHost/PairingSignalingServer.swift` and `host/AgentDeskHost/AppDelegate.swift` so authenticated terminal streams create retained bridges and unauthenticated streams receive `SessionRejected`.
+## v2 Phase 2: macOS workspace shell and local files
 
-## v1 Phase 3: iOS SwiftTerm client
+- [ ] R20. Port the AppKit shell primitives into AgentDeskHost: sidebar/top-bar panels, edge reveal, layout, workspace switcher, activity controls, and accessibility identifiers, excluding donor Desktop switching, Debug Browser, Jupyter, and Dock enrichment.
+- [ ] R21. Wire the shell to AgentDesk `SpacesProvider`, `HostPtyManagerProcess`, terminal launcher, and ATC ownership through focused controllers rather than adding feature state to `AppDelegate.swift`.
+- [ ] R22. Port the reusable WKWebView file viewer/editor, open-tab model, file watching, UTF-8/binary probe, conflict state, and atomic autosave; tests assert one reusable surface per type, explicit save failure, external-change conflict, and tab-state behavior.
+- [ ] R23. Start the workspace shell with AgentDeskHost while preserving `LSUIElement`, menu-bar status behavior, variant identity, TCC grants, and normal key-window editing.
+- [ ] R24. Add the macOS `Agents` top-bar command and one reusable Agent window backed directly by the host-owned ATC sidecar through `AgentPanel`.
 
-- [x] D8. Add `client/AgentDeskClient/TerminalQuicPtyTransport.swift` and `client/AgentDeskClient/TerminalSurface.swift` so the iOS client opens a `.terminal` stream, wraps it in `PtyClientSwift`, and renders through SwiftTerm.
-- [x] D9. Extend `client/AgentDeskClient/ControlSurface.swift` and `client/AgentDeskClient/PairingViewController+AgentSurface.swift` so Terminal is a lazy full-bleed surface beside Control, Agent, and Browser.
+## v2 Phase 3: authenticated iOS Files
 
-## v1 Phase 4: build and dependency wiring
+- [ ] R25. Extend `AgentDeskWire` to protocol version 6 with reliable `.files = 6` stream framing and workspace list, directory list, read, write, conflict, and error messages using workspace-relative paths.
+- [ ] R26. Add a host files stream endpoint that walks from registered-root descriptors with `openat`/`O_NOFOLLOW`, bounds payloads through central config, rejects traversal and symlinks, reads UTF-8 text, and performs content-digest revision-checked atomic writes through the verified parent descriptor.
+- [ ] R27. Add a client files transport that reconnects with the session, correlates responses, cancels pending requests on teardown, and cannot block input or media lanes.
+- [ ] R28. Add an iOS Files surface for workspace and directory navigation plus read-only preview, with focused model and lifecycle tests.
+- [ ] R29. Reuse the shared file editor surface on iOS and enable save through revision-checked writes, surfacing conflicts without overwriting host changes.
+- [ ] R30. Replace the crowded text-only surface switcher with an accessible control that fits Control, Agents, Files, Terminal, and Browser across supported iPhone widths.
 
-- [x] D10. Extend `client/AgentDeskClient.xcodeproj` with local `PtyClientSwift` and remote SwiftTerm `1.13.0` package products and commit the project `Package.resolved`.
-- [x] D11. Extend `Justfile` and `.gitignore` with `build-pty-manager`, `ensure-pty-manager-placeholder`, and the ignored `host/AgentDeskHost/pty-manager` bundle resource.
-- [x] D12. Update Agent Workspace IDE `terminal/pty-client-swift/Package.swift` to allow iOS and `terminal/pty-manager/src/pty_manager_client_sessions.rs` to default empty cwd/shell to the host home/default shell.
-- [x] D13. Harden review findings by making PTY manager shutdown bounded, making bridge cancellation close its Unix socket, synchronizing terminal transport close with QUIC FIN, scoping host-run port cleanup, and making `terminal-smoke` rebuild/reinstall before driving.
+## v2 Phase 4: integration and proof
+
+- [ ] R31. Run package, host, client, wire, webview, and full `just check` gates; fix cross-lane naming, lifecycle, actor, resource, and protocol inconsistencies found by self-review and the persistent Integration Reviewer.
+- [ ] R32. Verify build artifacts contain the workspace and AgentPanel resources without importing build products or source paths from `agent-workspace-ide`.
+- [ ] R33. Prepare the exact host and simulator/device validation commands, then stop for the required explicit launch approval before exercising and capturing the real macOS shell and iOS Files surfaces.
 
 ---
 
-## v2 scope (captured, not started until v1 is exercised on device)
+## v3 scope (captured, not started until v2 is verified)
 
-| Option | Source | What it catches | Failure shape |
-| ------ | ------ | --------------- | ------------- |
-| Host-local terminal client attach | Agent Workspace IDE multiplexer | Confirms the same `agentdesk-home` session can be rendered by Mac and iPhone clients concurrently | Requires a host UI attachment surface and session picker |
-| Terminal session picker | `PtyClientSwift.listSessions()` | Lets the iOS client attach to multiple named host sessions instead of hardcoding `agentdesk-home` | Adds navigation/state before v1 proves the transport |
-| Explicit kill/session controls | `pty-manager` kill and detach messages | Lets the user intentionally terminate a host PTY rather than only detach the iOS client | Dangerous if exposed before session ownership UX is clear |
+- [ ] R34. Move the remaining PTY packages required by AgentDesk from `agent-workspace-ide` into AgentDesk-owned package paths, preserving the Rust manager as process owner and SwiftTerm as renderer.
+- [ ] R35. Remove the final AgentDesk source/build dependency on `agent-workspace-ide`, archive the donor repository with a tombstone, and update ADR-0051 to point at the superseding package home through a new ADR if its ownership decision changes.
 
 ### Alternative arc (rejected for now, captured)
 
-- AgentDesk-native Swift PTY manager. Useful because all terminal code would live in one repo. Rejected because it duplicates an existing Rust multiplexer and weakens the model where SwiftTerm is just one client of a host-owned session. Revisit only if the sibling `pty-manager` becomes impossible to package or sign.
+- Keep `agent-workspace-ide` running as a companion process and expose workspace/file IPC. Rejected because it preserves two lifecycle owners and makes iOS file authority depend on a retiring app. Revisit only if AgentDesk's `LSUIElement` lifecycle cannot support reliable key-window editing after real-surface verification.
 
 ---
 
 ## Promotion log
 
 ```
-D1-D12   2026-07-06  verified   remote SwiftTerm terminal lane implemented, host/client builds verified, no device launch performed
-D13      2026-07-07  verified   terminal security/lifecycle review followups implemented; simulator smoke rebuild path required before OCR assertion
+R14-R15  2026-07-10  verified   AgentDesk workspace ownership accepted and prior terminal ledger archived
+R16-R19  pending     pending     workspace and AgentPanel seams
+R20-R24  pending     pending     macOS shell, editable files, and Agents window
+R25-R30  pending     pending     authenticated iOS Files
+R31-R33  pending     pending     integration and real-surface proof
+R34-R35  captured    pending     donor retirement
 ```

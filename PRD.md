@@ -4,7 +4,7 @@
 
 ## One-line thesis
 
-AgentDesk is an AnyDesk replacement for one solo developer controlling one macOS host from an iPhone, with **macOS Spaces as a first-class primitive** on both the iPhone client and the Mac host.
+AgentDesk is the single-user agent workspace spanning one macOS host and one iPhone: workspace files, terminals, agent activity, browser context, remote control, and macOS Spaces have one owner and one authenticated client.
 
 ## Who it is for
 
@@ -12,13 +12,13 @@ One user (the author). One macOS host. One iPhone client. Tailscale already on b
 
 ## Problem
 
-AnyDesk works as a remote viewer but is space-agnostic. The author runs AI coding agents pinned to separate macOS Spaces and wants to thumb between them from the phone the same way a 3-finger swipe moves between Spaces locally. Today that requires hunting for the `Ctrl+Arrow` shortcut on a soft keyboard, which breaks the flow that makes Spaces useful in the first place.
+The author's coding work is split across project folders, terminals, agents, browser windows, and macOS Spaces. AgentDesk already owns remote control, Spaces, PTYs, and ATC activity, while the sibling `agent-workspace-ide` owns the workspace sidebar and file editor. Two applications leave workspace state and control fragmented, and the iPhone cannot browse or edit the same authoritative workspace files.
 
 Secondary pain: AnyDesk on phone often degrades to a black canvas with a moving cursor, no native trackpad gestures (two-finger scroll, right-click, drag), and text crispness on Retina-scale content is mushy.
 
 ## Solution
 
-Native iOS app plus native macOS menu-bar host, paired over Tailscale, streaming hardware-encoded desktop video over owned authenticated QUIC datagrams. The iPhone shows the active Space at native DPR with an AnyDesk-style trackpad and a compact keyboard, plus a one-handed Spaces control that drives the host's native Spaces transition.
+Native iOS app plus native macOS menu-bar workspace host, paired over Tailscale. The host owns registered workspace roots, an auto-hiding AppKit sidebar and top bar, editable local file windows, PTY sessions, ATC activity, browser integration, Spaces, and hardware-encoded remote desktop. The iPhone projects the same system through purpose-built Control, Agents, Files, Terminal, and Browser surfaces.
 
 The macOS host also owns a local **Space Agent** overlay: a small draggable spaceship that stays visible while the host app runs. Clicking the spaceship expands an attached Spaces panel showing live thumbnails for the active display's user Spaces; clicking a non-active Space switches the Mac to it. This is a host-side desktop navigator, not the iPhone remote-control surface.
 
@@ -37,6 +37,11 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 7. When the iPhone app backgrounds, the session drops within one second. Foregrounding reconnects in under five seconds.
 8. macOS host runs as a menu-bar app that auto-starts when the user actively opens it (not on every boot).
 9. macOS host shows a persistent draggable Space Agent. The small spaceship toggles an attached active-display Spaces panel with live thumbnails; selecting a non-active tile switches Spaces and leaves the panel open.
+10. macOS host starts an auto-hiding workspace sidebar and top bar while remaining a menu-bar application with no Dock icon.
+11. Add project folders as persistent workspaces, browse their files, and open text, Markdown, HTML, and notebooks in the host-owned viewer/editor.
+12. Edit workspace files locally with atomic autosave and visible external-change conflicts.
+13. Open a macOS Agents window from the top bar and browse all ATC projects, sessions, history, and live activity.
+14. On iPhone, browse the same registered workspace roots, preview files, edit UTF-8 text, and save only when the host revision still matches.
 
 ## What v0 is not
 
@@ -45,7 +50,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 - **Not multi-user.** Single bearer token in Keychain. No accounts, no sharing.
 - **Not internet-routable.** Tailscale-only. No STUN, no TURN, no VPS, no relay.
 - **Not cross-platform.** macOS host and iOS client only. No Android, no web, no Windows host.
-- **No file transfer, no clipboard sync, no audio on the remote pipeline.** The iPhone-to-Mac path ships pixels and input only. One host-local exception: a push-to-talk dictation bar on the Mac records a short mic clip in memory and transcribes it through a localhost service (ADR-0010). It does not add audio to the remote media channel or any iPhone wire contract.
+- **No arbitrary filesystem or bulk file-transfer surface.** Files are exposed only through registered workspace roots. The iPhone file lane supports bounded UTF-8 browse, read, and revision-checked write operations, not downloads from unrelated host paths. Clipboard sync and remote audio remain out of scope. One host-local exception remains the push-to-talk dictation bar (ADR-0010).
 
 ## Explicitly deferred
 
@@ -53,6 +58,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 - iPad client (later iteration, same codebase).
 - Browser client. AnyDesk and TeamViewer do not ship a mobile browser client either; chasing crisp text in a browser is not the v0 fight.
 - Marketplace / TestFlight wider distribution. v0 is signed Developer ID DMG for Mac and TestFlight to one device for iOS.
+- Debug Browser, Jupyter execution, Dock enrichment, and duplicate Desktop orchestration from the retiring `agent-workspace-ide` donor. They move only through later product decisions, not as incidental porting.
 
 ## Source of truth for detail
 
