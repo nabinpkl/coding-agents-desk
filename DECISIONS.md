@@ -274,3 +274,29 @@ Preview/Edit toggle that flips the file's mode and re-renders through the same S
 notebooks open rendered; everything else — including HTML — opens as editable source, never a dead end;
 the toggle carries in-progress edits across the flip. iOS HTML *page* rendering (macOS's separate
 surface) is explicitly out of scope: on iOS, HTML is editable source, not a rendered page.
+
+### D17. The shell top bar owns the terminal, on our own pty socket (Phase H)
+
+The donor top bar had two terminal controls the port skipped: "＋ Terminal" (an in-app SwiftTerm window
+attached to a pty-manager session) and "PTY Manager" (a session list). AgentDesk already ran the Rust
+`pty-manager` daemon on its own bundle-scoped socket and shipped `terminal/pty-client-swift`, but the
+host never spoke the protocol in-process (only the iPhone did, relayed over QUIC), and the only terminal
+UX was a floating pill toggling *external Ghostty*. Phase H makes the shell top bar the single terminal
+entry point, all on our socket (`Config.ptyManagerSocketURL`, via `PtyManagerSocketClient` — never the
+donor's `/tmp` default).
+
+Three judgment calls (HITL):
+- **In-app SwiftTerm, not external.** The donor's `terminal/emulator` window layer was brought in-tree as
+  a **library package kept at swift-tools 5.9**, so it builds in Swift 5 language mode — the proven donor
+  code ports without a strict-concurrency rewrite. `WorkspaceShellSession.openTerminal()` spawns a titled
+  terminal window rooted at the active workspace. The windows are ordinary Space-bound windows, so with
+  workspace=desktop macOS Spaces shows/hides them per workspace — no donor-style park/unpark machinery.
+- **Embedded PTY Manager, not a sidecar process.** The donor launched a separate `pty-manager-ui` app;
+  a menubar app should not ship a second binary, so `PtyManagerWindowController` re-hosts the session list
+  as an in-host `NSOutlineView` driven by our own `PtyClient.sessionSnapshots()` stream.
+- **Ghostty pill retired.** The external-terminal pill was a redundant, inconsistent second entry point;
+  removed, with its space-negotiation avoid wiring reconciled.
+
+Linking cost: `pty-client-swift` (and thus SwiftTerm + swift-protobuf) is now compiled into the host.
+Buildable folders mean any host source importing `TerminalEmulator` forces the *test* target to link it
+too, so both host targets link the terminal products.
