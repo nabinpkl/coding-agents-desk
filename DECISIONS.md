@@ -223,3 +223,33 @@ edge (clear of the revealed top bar) when the shell is enabled, and its persiste
 v2 -> v3 so the stale top-center origin is dropped on first launch after the change rather than pinning
 the panel to its old spot. No migration of the old value (consistent with the project's no-migration
 convention); a user who had dragged SpaceAgent re-drags once.
+
+## Faithful donor shell port (ADR-0054 Phase F)
+
+### D13. A leaner WorkspaceShellSession, not a verbatim WorkspaceSession port
+
+The donor's `WorkspaceSession` is ~500 lines mostly about terminals, borrowed-Chrome/debug browsers,
+tenant state machines, and AX window placement — all explicitly out of scope for AgentDesk. Rather than
+port it verbatim and stub a dozen subsystems, `WorkspaceShellSession` reproduces only the in-scope
+mechanics: file-opens-in-a-centered-window, per-workspace tabs + editor frame, and workspace=desktop.
+It reuses the donor's actual views (`FilePane`, `FileTree`, `FileViewer`) unchanged. Chosen because the
+user's ask was "move the UIs, share the data model, mechanisms may differ by your judgement": the views
+are moved faithfully; the orchestration is AgentDesk's, sized to what it actually needs.
+
+### D14. workspace=desktop drives SpacesProvider (delta + direct-set), not the donor's SkyLight code
+
+The donor switched Spaces by synthesizing Dock-swipe CGEvents and polling SkyLight because it had no
+Spaces provider. AgentDesk already owns `SpacesProvider` with a verified direct space-set, so
+`WorkspaceDesktopSwitcher` computes the ordinal delta from the active Desktop to the workspace's
+assigned one and reuses `SpacesProvider.commitStep`. The editor window carries `.moveToActiveSpace` so
+it follows to the workspace's Desktop on reveal, avoiding the donor's private `SLSMoveWindowsToManagedSpace`
+window-move entirely. Less private-API surface, and it reuses the host's already-tested Space control.
+
+### D15. The web editor viewer ships as a macOS-only package resource, not a host buildable-folder file
+
+The host's Xcode buildable folder flattens resource subdirectories, so the vendored `viewer/` SPA
+landed as 206 loose files in `Resources/` and `FileViewer` could not find `viewer/index.html`. The SPA
+moved into a `WorkspaceEditorViewer` package that bundles it with a `.copy` resource (preserving the
+`viewer/` tree, like AgentPanel's webview) and is linked host-only, so the 5MB bundle never ships in the
+iOS client. `FileViewer` resolves `Bundle.module`. Notebook cell execution was excised (out of scope);
+`.ipynb` still renders read-only through the SPA.

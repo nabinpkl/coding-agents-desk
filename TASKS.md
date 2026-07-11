@@ -87,6 +87,35 @@ plus a new workspace picker. Ordering and reasons:
   QUIC session idles out at ~30s; flows are kept short enough to finish inside that window. Not a code
   issue: the shell/picker code is unchanged by media.)
 
+## v4 Phase F: faithful donor shell port (the reveal chrome's real views + workspace=desktop)
+
+The Phase D reveal chrome was a lean rewrite (thin inline tree + inline editor, no workspace=desktop).
+The user asked for a faithful **move** of the agent-workspace-ide views instead: same mechanics, only
+the data model shared. This phase replaces the lean content with the donor's real view layer.
+
+- [x] R45. Reconcile Workspace/WorkspaceStore to the donor's richer shape (lastMode, editorFrame,
+  per-workspace pins, desktopAssignment, recentOrder, sidebarWidth, textZoom) + the donor's mutating
+  ops, keeping AgentDesk's validated registration, WorkspaceStoreError, and one-time donor import so
+  the iOS `.files` lane is unaffected. Existing WorkspaceStore tests stay green.
+- [x] R46. Move the donor file tree/pane views (`FileTree`/`FileTreeLive`/`FolderWatch`/`FilePane` with
+  real folder expansion, `FileIcon`/`GitStatus`, support views) into `WorkspaceShell/Editor/`. Swift 6
+  concurrency adaptations only. Locked in by the donor's pure-logic tests (`FileTreeTests`, etc.).
+- [x] R47. Move the donor `FileViewer` editor window + surfaces (opens a file in a centered NSWindow,
+  per-workspace `editorFrame`); vendor the web viewer SPA in a macOS-only `WorkspaceEditorViewer`
+  package (`.copy` resource preserves the `viewer/` dir; host-only so it never ships in iOS). Notebook
+  runtime excised (`.ipynb` still renders read-only).
+- [x] R48. `WorkspaceDesktopSwitcher`: switch the macOS Desktop to a workspace's assigned Space via
+  AgentDesk's `SpacesProvider` (ordinal delta + verified direct-set), not the donor's private
+  SkyLight/dock-swipe code. The editor window uses `.moveToActiveSpace` to follow the switch.
+- [x] R49. `WorkspaceShellSession` (AgentDesk's leaner analogue of the donor WorkspaceSession): owns
+  the tree/viewer/tabs + workspace=desktop, minus the donor's terminal/browser/chrome-borrow tenants.
+  Wired into the reveal presenter: FilePane in the sidebar, file opens in the center window, switcher
+  switches Desktops, assign-desktop control, manual-Space-switch reconciliation.
+- [x] R50. Retire the stopgap `WorkspaceShellController`/`WorkspaceShellFileTree`/`WorkspaceShellAccessibility`
+  (+ tests). `just check` (408 host + wire + WorkspaceKit) and `just sim-test` (295 client) green; live
+  AX self-report on the running host shows the FilePane tree reachable, 9 workspaces, no FileViewer
+  crash (viewer bundle resolves), reveal working.
+
 ## Promotion log
 
 ```
@@ -98,4 +127,6 @@ R39-R43  2026-07-11  verified    donor reveal shell ported into the host; live A
 R43rev   2026-07-11  green       pointer-tap restartability + coalescing; review NOT GREEN items fixed
 R44a-b   2026-07-11  verified    shell default-on; host AX self-report confirms the reveal chrome
 R44c     2026-07-11  verified    iOS Maestro picker flow passes on the sim (files-browse.yaml)
+R45-R50  2026-07-11  verified    faithful donor shell port: real FilePane tree + FileViewer center
+                                 window + workspace=desktop; lean rewrite replaced. check+sim-test green
 ```
