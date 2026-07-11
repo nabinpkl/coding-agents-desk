@@ -114,7 +114,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let textInputFocusProbeCoordinator = HostTextInputFocusProbeCoordinator()
     private var spaceAgentController: SpaceAgentController?
     private var dictationBarController: DictationBarController?
-    private var terminalLauncherController: TerminalLauncherController?
     private var ptyManagerProcess: HostPtyManagerProcess?
     private var terminalClientBridges: [ObjectIdentifier: TerminalClientBridge] = [:]
     // R26 authenticated Files lane. One responder (serializing writes against the workspace store)
@@ -209,7 +208,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startSpaceAgent()
         startVoiceChildIfConfigured()
         startDictationBar()
-        startTerminalLauncher()
         startPtyManager()
         startGesturePortalIfConfigured()
         startGestureChildIfConfigured()
@@ -272,7 +270,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textInputFocusProbeCoordinator.cancelAll()
         spaceAgentController?.stop()
         dictationBarController?.stop()
-        terminalLauncherController?.stop()
         for bridge in terminalClientBridges.values {
             bridge.stop()
         }
@@ -1012,12 +1009,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // handle move re-dodges both sibling overlays.
         spaceAgentController?.onHandleFrameDidChange = { [weak self] in
             self?.dictationBarController?.keepClearOfSpaceAgentHandle()
-            self?.terminalLauncherController?.keepClearOfNeighbors()
             self?.gesturePortalController?.keepClearOfNeighbors()
         }
-        // A dictation-bar move re-dodges the terminal pill (its other neighbor).
+        // A dictation-bar move re-dodges the gesture portal (its other neighbor).
         controller.onFrameDidChange = { [weak self] in
-            self?.terminalLauncherController?.keepClearOfNeighbors()
             self?.gesturePortalController?.keepClearOfNeighbors()
         }
     }
@@ -1033,18 +1028,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.start()
     }
 
-    private func startTerminalLauncher() {
-        let controller = TerminalLauncherController()
-        controller.spaceAgentHandleFrame = { [weak self] in
-            self?.spaceAgentController?.currentHandleScreenFrame()
-        }
-        controller.dictationBarFrame = { [weak self] in
-            self?.dictationBarController?.currentScreenFrame()
-        }
-        terminalLauncherController = controller
-        controller.start()
-    }
-
     private func startGesturePortalIfConfigured() {
         // The portal is the gesture child's on-screen surface; with no child
         // configured there is nothing to drive it, so do not show the panel.
@@ -1055,9 +1038,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         controller.dictationBarFrame = { [weak self] in
             self?.dictationBarController?.currentScreenFrame()
-        }
-        controller.terminalLauncherFrame = { [weak self] in
-            self?.terminalLauncherController?.currentScreenFrame()
         }
         gesturePortalController = controller
         controller.start()

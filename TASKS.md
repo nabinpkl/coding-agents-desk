@@ -164,8 +164,10 @@ process), and the Ghostty pill is retired.
   Open Client (attach a terminal to an existing session), Close Session, Close Client, and Reconnect + a
   status footer. Replaces the donor's separate `pty-manager-ui` sidecar process — no second binary. Wired
   to the top-bar chip via the presenter. `just check` green; live list needs the daemon + a host relaunch.
-- [ ] R57. Retire the Ghostty pill: remove `TerminalLauncher` + `Config.terminalAppURL`/`terminalBundleID`
-  + `startTerminalLauncher()` and reconcile its space-negotiation (SpaceAgent/dictation avoid) wiring.
+- [x] R57. Retired the Ghostty pill: deleted `TerminalLauncher/`, `Config.terminalAppURL`/`terminalBundleID`,
+  `startTerminalLauncher()` + the property/stop call, and reconciled the space-negotiation fan-out (dropped
+  the pill from the SpaceAgent/dictation `keepClearOfNeighbors` fan-out and from `GesturePortalController`'s
+  avoid list). The shell top-bar terminal is now the single terminal entry point. `just check` green.
 
 ## Promotion log
 
@@ -189,4 +191,6 @@ R55      2026-07-11  green       in-app SwiftTerm terminal: emulator package in-
                                  openTerminal() spawns on our socket, cwd = workspace root, cascaded
 R56      2026-07-11  green       embedded PTY Manager NSOutlineView window on our socket stream;
                                  open-client/close-session/close-client/reconnect; no sidecar process
+R57      2026-07-11  green       retired the Ghostty-launcher pill; shell top bar is the single terminal
+                                 entry point. Phase H code-complete; live terminal/manager need a relaunch
 ```

@@ -7,7 +7,6 @@ final class GesturePortalController: NSObject {
 
     var spaceAgentHandleFrame: (() -> CGRect?)?
     var dictationBarFrame: (() -> CGRect?)?
-    var terminalLauncherFrame: (() -> CGRect?)?
     var onFrameDidChange: (() -> Void)?
 
     func start() {
@@ -77,8 +76,7 @@ final class GesturePortalController: NSObject {
         )
         for avoid in [
             spaceAgentHandleFrame?(),
-            dictationBarFrame?(),
-            terminalLauncherFrame?()
+            dictationBarFrame?()
         ].compactMap({ $0 }) {
             result = SpaceAgentPanelPlacement.nonOverlappingOrigin(
                 proposed: result,
