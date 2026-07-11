@@ -38,6 +38,9 @@ extension PairingViewController {
         nonisolated(unsafe) static var filesBrowser: UInt8 = 0
         nonisolated(unsafe) static var filesTransport: UInt8 = 0
         nonisolated(unsafe) static var filesSurfaceLoading: UInt8 = 0
+        nonisolated(unsafe) static var filesSurfaceTask: UInt8 = 0
+        nonisolated(unsafe) static var filesSurfaceGeneration: UInt8 = 0
+        nonisolated(unsafe) static var filesSurfaceBoundSession: UInt8 = 0
     }
 
     private final class AgentSurfaceTransportBinding {
@@ -77,6 +80,32 @@ extension PairingViewController {
     private var filesTransport: WorkspaceFilesTransport? {
         get { objc_getAssociatedObject(self, &Keys.filesTransport) as? WorkspaceFilesTransport }
         set { objc_setAssociatedObject(self, &Keys.filesTransport, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    private var filesSurfaceTask: Task<Void, Never>? {
+        get { objc_getAssociatedObject(self, &Keys.filesSurfaceTask) as? Task<Void, Never> }
+        set { objc_setAssociatedObject(self, &Keys.filesSurfaceTask, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    // Bumped by every teardown/rebuild so an in-flight open Task can tell it has been superseded and
+    // must not touch surface state or reset the loading flag.
+    private var filesSurfaceGeneration: Int {
+        get { (objc_getAssociatedObject(self, &Keys.filesSurfaceGeneration) as? Int) ?? 0 }
+        set { objc_setAssociatedObject(self, &Keys.filesSurfaceGeneration, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    // The session transport the mounted Files surface was opened from, so a reconnect can detect the
+    // transport swap and rebuild (mirrors agentSurfaceBoundTransport).
+    private var filesSurfaceBoundSession: QuicSessionClientTransport? {
+        get { (objc_getAssociatedObject(self, &Keys.filesSurfaceBoundSession) as? AgentSurfaceTransportBinding)?.transport }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &Keys.filesSurfaceBoundSession,
+                AgentSurfaceTransportBinding(newValue),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
     }
 
     private var filesSurfaceLoading: Bool {
@@ -165,15 +194,33 @@ extension PairingViewController {
     // every associated handle so a reconnect rebuilds a fresh surface bound to the new session
     // rather than a dead one.
     private func teardownFilesSurface() {
+        // Supersede any in-flight open Task so it cannot install a surface bound to the dead session
+        // after we tear down, and cancel it for promptness.
+        filesSurfaceGeneration += 1
+        filesSurfaceTask?.cancel()
+        filesSurfaceTask = nil
         filesSurface?.teardown()
         filesSurface?.removeFromSuperview()
         filesSurface = nil
         filesBrowser = nil
+        filesSurfaceBoundSession = nil
         if let transport = filesTransport {
             Task { await transport.close() }
         }
         filesTransport = nil
         filesSurfaceLoading = false
+    }
+
+    // Rebuilds the Files surface when it is mounted but bound to a superseded session transport
+    // (e.g. a background/foreground app switch closed the old session and opened a new one). Mirrors
+    // rebindAgentSurfaceAfterReconnectIfNeeded; without it the Files tab stays bound to a closed
+    // transport because the ensureFilesSurface guard sees a non-nil surface and bails.
+    func rebindFilesSurfaceAfterReconnectIfNeeded() {
+        guard filesSurface != nil else { return }
+        guard filesSurfaceBoundSession !== pairingClient.activeSessionTransport else { return }
+        let wasActive = activeControlSurface == .files
+        teardownFilesSurface()
+        if wasActive { ensureFilesSurface() }
     }
 
     // MARK: - Lazy webview creation
@@ -290,6 +337,7 @@ extension PairingViewController {
 
     func rebindActiveSurfaceAfterReconnect() {
         rebindAgentSurfaceAfterReconnectIfNeeded()
+        rebindFilesSurfaceAfterReconnectIfNeeded()
 
         switch activeControlSurface {
         case .control:
@@ -408,10 +456,17 @@ extension PairingViewController {
         guard filesSurface == nil, !filesSurfaceLoading else { return }
         guard let session = pairingClient.activeSessionTransport else { return }
         filesSurfaceLoading = true
-        Task { [weak self] in
+        // Capture the generation so this Task can detect if a teardown/rebuild superseded it while
+        // it was suspended on the async open (the reconnect/app-switch race).
+        let generation = filesSurfaceGeneration
+        filesSurfaceTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let transport = try await session.openWorkspaceFilesTransport()
+                guard self.filesSurfaceGeneration == generation else {
+                    await transport.close()
+                    return
+                }
                 let browser = WorkspaceFilesBrowser(transport: transport)
                 let surface = WorkspaceFilesSurface(browser: browser)
                 surface.translatesAutoresizingMaskIntoConstraints = false
@@ -430,12 +485,19 @@ extension PairingViewController {
                 self.filesTransport = transport
                 self.filesBrowser = browser
                 self.filesSurface = surface
+                self.filesSurfaceBoundSession = session
+                self.filesSurfaceLoading = false
+                self.filesSurfaceTask = nil
                 await browser.loadWorkspaces()
+                guard self.filesSurfaceGeneration == generation else { return }
                 if let first = browser.model.workspaces.first {
                     await browser.selectWorkspace(first.id)
                 }
             } catch {
                 Self.logger.error("files surface open failed: \(String(describing: error), privacy: .public)")
+                guard self.filesSurfaceGeneration == generation else { return }
+                self.filesSurfaceLoading = false
+                self.filesSurfaceTask = nil
                 // The lane never opened; fall back to Control so the user isn't stranded on a blank
                 // Files screen with every other surface hidden.
                 if self.activeControlSurface == .files {
@@ -446,7 +508,6 @@ extension PairingViewController {
                     self.applySurface(.control)
                 }
             }
-            self.filesSurfaceLoading = false
         }
     }
 
