@@ -1,80 +1,28 @@
-# Handover: host-side dictation bar
+# Handover — 2026-07-11
 
-For the next agent picking up the AgentDesk macOS host dictation feature. Read `AGENTS.md` first (it loads the universal worker rules, `PRD.md`, and `SPEC.md`). This doc only covers what those artifacts do not. The previous handover (post-R19 input transport split) is preserved in this file's git history; its still-open v0 items are summarised at the bottom.
+Branch `main`, HEAD `d7e7c66`. Gate green: `just check` (host + wire + WorkspaceKit + WorkspaceEditorViewer, 414 tests), `just sim-test` (client). (Previous handovers are preserved in this file's git history.)
 
-## What the feature is
+## What shipped this session: the ADR-0054 v4 delivery (shared data model + ported macOS shell + one file viewer)
 
-A host-local push-to-talk dictation bar on the Mac. Hold the mic button or the Fn/Globe key, speak, release; the clip is captured in memory, POSTed to a localhost OpenAI-compatible transcription server, and the returned text is typed at the focused cursor and shown briefly in the bar.
+The v2/v3 consolidation stopped at a stopgap macOS shell (a single titled panel) with two bespoke copies of the workspace/files logic. This session finished the merge per **ADR-0054**: the reusable shape shared between iOS and macOS is the **workspace data + files model only**; on top of it, macOS behaves as the `agent-workspace-ide` donor, and iOS keeps its own drill-down surface plus a new picker. Full ledger in `TASKS.md` (v4 Phases 0/A–G, R36–R52); rationale in `DECISIONS.md` (D11–D16).
 
-Authoritative detail lives in:
-- `architecture-decisions/0010-host-mic-dictation.md` (design, rejected options, constraints).
-- `SPEC.md` Host module boundary 13 (DictationBar) and the stack notes.
-- `PRD.md` "What v0 is not" (the audio non-goal was reopened for this host-local utility only).
+- **Shared model** (`packages/WorkspaceKit`, macOS + iOS): the workspace/files domain types, reconciled with `AgentDeskWire`. Linked into both apps; `just check` runs its test leg.
+- **Ported macOS reveal shell** (`host/AgentDeskHost/WorkspaceShell/`): the donor's real views were **moved**, not rewritten — recursive `FileTree`/`FilePane` with live folder expansion, the `FileViewer` editor window (opens a file in a centered NSWindow), the reveal-on-hover sidebar + top bar (`FocusableOverlayPanel` + a CGEvent session tap, gated behind Input Monitoring), and **workspace = desktop** (`WorkspaceDesktopSwitcher` drives AgentDesk's `SpacesProvider`, not the donor's private SkyLight/dock-swipe code). The stopgap panel is retired. Shell is default-on (`Config.workspaceShellEnabled`), env-overridable.
+- **iOS workspace picker** (`WorkspaceFilesSurface`): the header is a picker (`workspace-files-picker`) over all workspaces; the auto-select-first bug is gone. This is what "existing workspaces didn't carry over" actually was — the store held all 9, the phone just auto-picked one with no way to see the rest.
+- **One cross-platform file viewer** (`packages/WorkspaceEditorViewer`, Phase G): the WKWebView SPA (CodeMirror + markdown-it + mermaid) and its host `WorkspaceFileWebSurface` are now cross-platform. iOS Files renders through the **same** SPA as the macOS shell instead of a raw `UITextView`, so markdown/mermaid/code render identically on both. A Preview/Edit toggle (`workspace-files-preview-mode`, ported from the macOS `FileViewer` modeButton) keeps the phone editable: markdown/notebooks open rendered, everything else opens as editable source. Reverses D15's host-only linking (the 5MB bundle now ships in iOS too — one viewer, not two).
 
-## Current state
+Verified on the sim (`client/maestro/files-md-render.yaml`): open a `.md` file → renders; tap the toggle → flips to an editable CodeMirror source view. Live host AX self-report (from Phase F) confirms the FilePane tree is reachable, 9 workspaces, reveal working, no FileViewer crash.
 
-Shipped and on `main`. All work is committed and pushed; `just check` is green (host + client targets). Commits, newest first.
+## Not yet done / next actions
 
-Host overlay appearance and overlap (latest session): `2bb5134` the dictation bar is now a white pill, `3c0100a` keep the dictation bar clear of the SpaceAgent handle, `c72d3f8` pin the SpaceAgent overlay to dark appearance. Two of these supersede dead ends: `215e2cd` first pinned the dictation bar to dark for the old dark pill, then `2bb5134` switched it to the white look; and a misdirected client-side strip restyle `c2df795` was reverted whole in `252369e` (the wash-out it chased was actually the SpaceAgent overlay, not the iPhone client).
+1. **TestFlight the ADR-0054 client.** The picker + shared viewer + mode toggle have **not** been uploaded; the last TestFlight (`1.9.1` build 888) predates this work. Before uploading, bump `client_marketing_version` in the `Justfile` — this is a **feature**, so `1.9.1 → 1.10.0` (per AGENTS.md versioning). Then `just fresh-testflight`. Device install/launch is a checkpoint: prepare + state the command, wait for "run it".
+2. **iOS has no HTML *page* preview (by design, recorded).** On iOS, `.html` opens as editable source, not a rendered page — the shared SPA renders HTML only as source, and iOS does not port macOS's separate `htmlPreviewSurface`. Documented in DECISIONS D16 / TASKS R52 so it isn't rediscovered as a bug. Building a real iOS HTML page surface is the follow-up if wanted.
+3. **One-time donor import is still gated on an absent destination store** (`WorkspaceStore.loadOrImport`, host/AgentDeskHost/Workspace/WorkspaceStore.swift:263). A stale/partial destination store permanently blocks the real import. Latent, not currently biting (the store holds the 9 real workspaces), but the absent-file gate is brittle — decide a smarter first-run (merge donor workspaces not present) without breaking ADR-0052's "one authoritative store, no replay".
 
-Dictation feature: `35878fe` compact-bar-widens-for-content, `b9567da` Fn-key push-to-talk, `b346280` trailing space after transcript, `140ce80` type transcript at cursor, `08610d9` OpenAI-compatible endpoint, `681ef7f` level meter, `a00341f` draggable/persistent, `b1d2b80` initial feature. Use `git show <hash>` for any one.
+## Gotchas
 
-The dictation bar follows the system appearance: a near-white pill in light mode, a dark pill in dark mode (matching the SpaceAgent handle). The `.aqua` pin was removed; its foreground is semantic (`labelColor`/`secondaryLabelColor`, system tints on the mic and messages) so it adapts on its own. Three non-semantic pieces branch on `effectiveAppearance` where they draw: `DictationPillView.draw` paints the surface (light `calibratedWhite 1.0` alpha `0.95`, dark `calibratedWhite 0.06` alpha `0.72`, deliberately the same translucent surface as the SpaceAgent handle so the two overlays read as siblings; hairline `separatorColor` / white-`0.16`), `LevelMeterView` paints the unlit meter bars (black-alpha / white-alpha), and `PushToTalkButton.draw` in light mode fills a gray disc (`systemGray` alpha `0.25`, the same disc the SpaceAgent handle draws) under an illustrated mic bitmap so the two overlays read as siblings; in dark mode the pill is already dark and the mic draws on it directly. The mic art is `DictationMic.imageset` with the rocket's light/dark variant structure (charcoal art in the Light/Any slot, white art in the Dark slot). The charcoal silhouette (a studio mic: capsule head, snug cradle, straight base bar) was generated by Codex's imagegen, then softened: a PIL recolor pass lifts the near-black body (`rgb(26,26,26)`) to `#4a4a4a` while sparing the saturated and bright pixels (the glossy blue eye, the orange accents), so re-tuning the charcoal tone is a one-number change in that pass. The white variant is a deterministic recolor of the original; the glossy blue eye plus the widened base bar were added in PIL. So re-tuning the mic art (eye size/colour/position, base width, or regenerating the silhouette) is an asset-only PIL/imagegen pass, not a Swift change. Only the charcoal silhouette comes from imagegen; if you regenerate it, re-derive the white variant and re-composite the eye/base. Recording tints the whole mic red by compositing `systemRed` over the art's alpha (`NSImage(size:flipped:)` handler); pressed-idle dims to `0.6` alpha. The variant is resolved explicitly by wrapping the draw in `effectiveAppearance.performAsCurrentDrawingAppearance`, because a plain `NSImage.draw` in a custom view does not reliably pick the appearance variant (the same drawing-appearance gotcha that made an earlier template glyph render black). The surface is drawn in `draw(_:)` rather than a layer `cgColor` so it re-resolves on a live mode switch.
-
-The SpaceAgent now splits its appearance by surface. The expanded tile strip stays dark glass in both system modes, but the pin moved off `rootView` and down onto just the `.hudWindow` backdrop (`tileBackdrop.appearance = .darkAqua` in `SpaceAgentViewController.configure`); that material is the only appearance-sensitive piece (it goes light under the system light appearance and strands the white captions). `rootView` is now left unpinned so the collapsed handle follows the system appearance: `SpaceAgentHandleView.draw` reads `effectiveAppearance.bestMatch` and paints a white pill in light mode (rocket seated in a gray disc, mirroring the dictation mic's white-pill-plus-gray-circle look) or the old near-black pill in dark mode, and `viewDidChangeEffectiveAppearance` triggers the redraw on a system mode switch. The rocket art itself carries light/dark appearance variants in `SpaceAgentSpaceship.imageset`: the Light/Any slot is a charcoal recolor (`space_agent_spaceship_dark_*.png`, lifted to `#4a4a4a` by the same PIL pass as the mic so it reads softly on the light gray disc without losing the blue eye or orange flame) and the Dark slot is the original white-bodied ship (`space_agent_spaceship_*.png`, reads on the dark pill). `NSImage(named:)` resolves the slot at draw time against the handle's effectiveAppearance, so no Swift wiring is needed.
-
-Files (all under `host/AgentDeskHost/`): `MicRecorder.swift`, `WAVEncoder.swift`, `TranscriptionClient.swift`, `DictationBar/DictationBarController.swift`, `DictationBar/DictationBarViewController.swift`, plus wiring in `AppDelegate.swift`, knobs in `Config.swift`, `Info.plist` (mic usage + `NSAllowsLocalNetworking`), and `AgentDeskHost.entitlements` (mic under Hardened Runtime). Test: `host/AgentDeskHostTests/WAVEncoderTests.swift`. Project file `host/AgentDeskHost.xcodeproj/project.pbxproj` registers each new source manually; this project uses explicit file references, not synced folders, so any new file must be added there too. To avoid that step for one new test, the SpaceAgent-handle placement tests were appended to the already-registered `host/AgentDeskHostTests/SpaceAgentModelTests.swift` (struct `SpaceAgentPanelPlacementTests`).
-
-Overlap avoidance spans both overlays: `SpaceAgentPanelPlacement.nonOverlappingOrigin` (in `SpaceAgent/SpaceAgentController.swift`, next to `clampedOrigin`) does the math; `SpaceAgentController` exposes `currentHandleScreenFrame()` and fires `onHandleFrameDidChange` on every handle move (drag, expand, collapse); `DictationBarController` holds a `spaceAgentHandleFrame` provider and a `keepClearOfSpaceAgentHandle()` entry point, and `AppDelegate.startDictationBar` wires the two (provider set before `start()` so even first placement dodges).
-
-## Verified vs not
-
-- Verified: builds, unit tests pass (`just check`), including the WAV header test and the two `SpaceAgentPanelPlacementTests` (the dodge math: returns the proposed origin when clear, slides clear and stays on-screen when overlapping).
-- NOT verified end to end: live mic capture, the transcription round-trip, and cursor typing. These need a physical mic, the one-time TCC mic prompt, and the transcription server running. They cannot be driven headless. The next agent or the user must confirm in the real app. This is the most important open item for the feature.
-- NOT visually verified: the appearance work this session. The white dictation pill, the dark SpaceAgent strip, and the bar dodging out from under the spaceship all pass build and the placement unit tests, but rendered appearance and the live dodge cannot be checked headless. Confirm on a real Mac in both light and dark mode.
-
-## How to run and test
-
-1. Start the OpenAI-compatible transcription server (endpoint `/v1/audio/transcriptions`, multipart fields `file` + `model`, response `{ "text": ... }`).
-2. Put its URL in `.env` as `AGENTDESK_TRANSCRIBE_URL` (gitignored; copy from `.env.example`). The URL is required and has no baked-in default, so without it dictation shows "Set AGENTDESK_TRANSCRIBE_URL" instead of POSTing at a host that may not be running.
-3. `just host-run` (builds Debug, relaunches via LaunchServices so TCC attributes permissions to the app, not the terminal). `host-run` loads `.env` via `set dotenv-load` and forwards `AGENTDESK_TRANSCRIBE_URL`/`_MODEL` through `launchctl setenv` so the launched app inherits them; it only unsets what it set, so a value pinned into launchd out-of-band survives.
-4. Grant Microphone and Accessibility if prompted. Accessibility is what lets the global Fn monitor fire and what gates cursor typing.
-5. Trigger: hold the mic button in the bottom-centre bar, or hold Fn/Globe. Release to transcribe. Text types into whatever app is frontmost (the bar is a non-activating panel, so focus stays put).
-6. Logs: `just host-logs`, categories `dictation`, `mic`, `input`.
-
-Config knobs (documented in `.env.example`): `AGENTDESK_TRANSCRIBE_URL` (required, no default; `Config.transcriptionEndpoint` is `URL?` and `TranscriptionClient` throws `.notConfigured` when it is nil) and `AGENTDESK_TRANSCRIBE_MODEL` (default `mlx-community/whisper-large-v3-turbo`). Both flow from `.env` through `host-run`'s `launchctl setenv` forwarding.
-
-## Gotchas specific to this feature
-
-- Mic under Hardened Runtime requires the `com.apple.security.device.audio-input` entitlement; that is why the entitlements file exists. Removing it silently breaks mic access.
-- `http://localhost` works only because of the `NSAllowsLocalNetworking` ATS exception in `Info.plist`.
-- Fn/Globe behaviour can collide with System Settings > Keyboard > "Press Globe key to". If a single Fn press pops the emoji/input UI, that setting is the cause, not our code.
-- Capture is in-memory by hard requirement (ADR-0010). Do not introduce `AVAudioRecorder` or any temp-file path.
-- Transcript is typed with a trailing space; the bar auto-collapses about 4s after showing text (`transcriptDismissDelay` constant in the controller).
-- The bar anchors to `NSScreen.main` only; multi-display is not handled.
-- The dictation bar and the SpaceAgent handle are sibling borderless non-activating floating panels. Where they overlap the front panel swallows the press, and the mic button uses `acceptsFirstMouse` and records on `mouseDown`, so a press meant for the spaceship that lands on the mic starts a recording. The dodge wiring above prevents this. Removing it (or the provider) makes "dragging the space agent triggers dictation" come back.
-- Only one appearance pin remains: the SpaceAgent expanded backdrop is pinned `.darkAqua` because its `.hudWindow` material would otherwise go light under the system light appearance and strand the white captions. Do not remove that pin to "support light/dark mode" unless you also recolour the strip captions/tiles to semantic colours in the same change. Everything else (the SpaceAgent collapsed handle, the whole dictation bar) is unpinned and follows the system by drawing per `effectiveAppearance`; those surfaces branch their non-semantic colours in `draw(_:)` and leave the rest semantic. If you change a surface colour, recolour its foreground in the same change.
-
-## Open follow-ups for the dictation feature (not started)
-
-- Fixed-duration auto-stop for recording was offered and declined for now; revisit if push-to-talk hold is awkward.
-- Programmatic resize does not persist the compact resting origin (only user drags are saved via `windowDidMove`). Minor; revisit if the bar drifts after collapse.
-- The dodge re-runs on every `onHandleFrameDidChange`, which fires per move event while the spaceship is dragged. If it looks jumpy, debounce it or only dodge on drag-end.
-- The mic still has no tap-vs-drag tolerance: `acceptsFirstMouse` plus record-on-`mouseDown` means any stray press on the mic records. The dodge removes the panel-overlap cause; a press-becomes-drag cancel in `PushToTalkButton` would be the belt-and-suspenders fix.
-- End-to-end live verification (above).
-
-## Other v0 work still open (carried from the prior handover)
-
-These are unrelated to dictation but were open before this session. Detail is in the previous version of this file (git history) and in `TASKS.md`.
-
-- R11.1-R11.4: Spaces enumeration + 3-finger swipe. AFK, not started.
-- R13.3: HITL hardware timing measurement on the physical iPhone. Only the human can close.
-- R14.1-R14.4: distribution + 7-day self-test. Blocked on the Apple Developer Program cert and R11.
-
-General repo gotchas from the prior handover that still apply: wipe `~/Library/Application Support/AgentDesk/` if a resigned host build hits "Operation not permitted" on pairing (stale `com.apple.provenance` xattrs); SourceKit reports spurious missing-type errors for same-module symbols, `xcodebuild` builds clean; Maestro needs `JAVA_HOME` (the `ui-flow` recipe sets it).
-
-## Suggested skills
-
-- `run` or `verify` to launch the host and confirm the live dictation flow (the unverified part above).
-- `code-review` on the dictation diff if you change the capture or typing path.
-- `diagnose` if mic capture or the transcription round-trip misbehaves.
+- `just check` has an intermittent 1-test WebKit/RBS flake (WKWebView host tests). Retry — it's environmental; filter with `grep -ivE 'WebContent|ProcessSuspension|pboard|RBS'`. (Also in agent memory.)
+- A freshly built Release host is a differently-signed binary; it needs its own Screen Recording + Accessibility grants and can't read a Debug-created Secure-Enclave key. If pairing fails with `unexpectedStatus(100002)`, check the host's on-disk bundle exists and is the identity that owns the keychain key.
+- The reveal pointer source is a CGEvent **session tap** (Input Monitoring), not `NSEvent` monitors, which miss edge movement on non-owning Desktops. A fresh Release host needs the Input Monitoring grant; the shell degrades to a pinned sidebar/top bar if denied (R41).
+- `pair-sim` / `pair-iphone` only relaunch the already-installed client — they do **not** pick up code changes. Rebuild+reinstall (`client-sim-reinstall`) and verify `AgentDeskGitSHA` vs HEAD before trusting a feel run. (Also in agent memory.)
+- Device/host launches are a checkpoint (AGENTS.md): prepare + state the command, then wait for "run it".
