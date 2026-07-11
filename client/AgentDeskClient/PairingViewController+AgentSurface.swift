@@ -449,10 +449,10 @@ extension PairingViewController {
         Self.logger.debug("active surface: \(String(describing: surface))")
     }
 
-    // Idempotent: opens the .files lane, builds the browser + surface, and auto-selects the first
-    // workspace so the surface shows content on open. The lane is available on any active session,
-    // so unlike Browser this needs no capability gate. Runs its async open in a Task; the loading
-    // flag guards against a double open from rapid segment taps.
+    // Idempotent: opens the .files lane, builds the browser + surface, and loads the workspace list.
+    // The surface opens on its workspace picker (no auto-select) so all workspaces are reachable. The
+    // lane is available on any active session, so unlike Browser this needs no capability gate. Runs
+    // its async open in a Task; the loading flag guards against a double open from rapid segment taps.
     func ensureFilesSurface() {
         guard filesSurface == nil, !filesSurfaceLoading else { return }
         guard let session = pairingClient.activeSessionTransport else { return }
@@ -490,10 +490,8 @@ extension PairingViewController {
                 self.filesSurfaceLoading = false
                 self.filesSurfaceTask = nil
                 await browser.loadWorkspaces()
-                guard self.filesSurfaceGeneration == generation else { return }
-                if let first = browser.model.workspaces.first {
-                    await browser.selectWorkspace(first.id)
-                }
+                // No auto-select: the surface opens on the workspace picker so the user sees and
+                // chooses among all workspaces (R38). Auto-selecting the first hid the other eight.
             } catch {
                 Self.logger.error("files surface open failed: \(String(describing: error), privacy: .public)")
                 guard self.filesSurfaceGeneration == generation else { return }

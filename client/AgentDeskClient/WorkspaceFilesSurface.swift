@@ -9,7 +9,10 @@ import AgentDeskWire
 @MainActor
 final class WorkspaceFilesSurface: UIView {
     private let browser: WorkspaceFilesBrowser
-    private let titleLabel = UILabel()
+    /// The workspace picker: shows the selected workspace's name and presents the full list as a menu
+    /// so the user can switch among all workspaces (R38). Replaces the old static title, which showed
+    /// only the auto-selected first workspace and gave no way to see or reach the others.
+    private let workspacePickerButton = UIButton(type: .system)
     private let upButton = UIButton(type: .system)
     private let pathLabel = UILabel()
     private let statusLabel = UILabel()
@@ -40,8 +43,17 @@ final class WorkspaceFilesSurface: UIView {
     private func setUp() {
         backgroundColor = .systemBackground
 
-        titleLabel.font = .preferredFont(forTextStyle: .headline)
-        titleLabel.adjustsFontForContentSizeCategory = true
+        var pickerConfig = UIButton.Configuration.plain()
+        pickerConfig.image = UIImage(systemName: "chevron.down")
+        pickerConfig.imagePlacement = .trailing
+        pickerConfig.imagePadding = 4
+        pickerConfig.contentInsets = .zero
+        workspacePickerButton.configuration = pickerConfig
+        workspacePickerButton.contentHorizontalAlignment = .leading
+        workspacePickerButton.accessibilityIdentifier = "workspace-files-picker"
+        // The menu is rebuilt on every render() from the current workspace list; a primary-action
+        // menu means one tap opens the picker.
+        workspacePickerButton.showsMenuAsPrimaryAction = true
 
         upButton.setImage(UIImage(systemName: "chevron.up"), for: .normal)
         upButton.accessibilityIdentifier = "workspace-files-up"
@@ -56,7 +68,7 @@ final class WorkspaceFilesSurface: UIView {
         statusLabel.textAlignment = .center
         statusLabel.numberOfLines = 0
 
-        let header = UIStackView(arrangedSubviews: [upButton, titleLabel])
+        let header = UIStackView(arrangedSubviews: [upButton, workspacePickerButton])
         header.axis = .horizontal
         header.spacing = 8
         header.alignment = .center
@@ -134,7 +146,7 @@ final class WorkspaceFilesSurface: UIView {
 
     private func render() {
         let model = browser.model
-        titleLabel.text = model.workspaces.first { $0.id == model.selectedWorkspaceID }?.name ?? "Files"
+        updateWorkspacePicker(model)
         upButton.isEnabled = model.canNavigateUp
         pathLabel.text = model.path.isEmpty ? "/" : "/" + model.path
         switch model.status {
@@ -153,6 +165,26 @@ final class WorkspaceFilesSurface: UIView {
         }
         tableView.reloadData()
         renderPreview(model.preview, saveStatus: model.saveStatus)
+    }
+
+    /// Rebuilds the workspace picker from the current model: the button title is the selected
+    /// workspace (or a prompt when none is chosen yet), and the menu lists every workspace with the
+    /// selected one checked. Selecting one drives the browser, which resets navigation to that
+    /// workspace's root. Disabled until the workspace list has loaded.
+    private func updateWorkspacePicker(_ model: WorkspaceFilesBrowserModel) {
+        let selectedName = model.workspaces.first { $0.id == model.selectedWorkspaceID }?.name
+        workspacePickerButton.configuration?.title =
+            selectedName ?? (model.workspaces.isEmpty ? "Files" : "Select workspace")
+        workspacePickerButton.isEnabled = !model.workspaces.isEmpty
+        let actions = model.workspaces.map { workspace in
+            UIAction(
+                title: workspace.name,
+                state: workspace.id == model.selectedWorkspaceID ? .on : .off
+            ) { [weak self] _ in
+                Task { await self?.browser.selectWorkspace(workspace.id) }
+            }
+        }
+        workspacePickerButton.menu = UIMenu(title: "Workspaces", children: actions)
     }
 
     private func renderPreview(

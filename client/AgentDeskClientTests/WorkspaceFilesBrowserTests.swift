@@ -8,6 +8,7 @@ import AgentDeskWire
 /// the test releases it), so both the happy path and the mid-flight supersede are deterministic.
 private actor MockFilesRequester: WorkspaceFilesRequesting {
     private var scripted: [String: [WorkspaceDirectoryEntry]] = [:]
+    private var scriptedWorkspaces: [WorkspaceSummary] = []
     private var scriptedFiles: [String: String] = [:]
     private var gated: Set<String> = []
     private var gates: [String: CheckedContinuation<WorkspaceFileResponse, Error>] = [:]
@@ -19,6 +20,7 @@ private actor MockFilesRequester: WorkspaceFilesRequesting {
     private(set) var writeCount = 0
 
     func script(path: String, entries: [WorkspaceDirectoryEntry]) { scripted[path] = entries }
+    func scriptWorkspaces(_ workspaces: [WorkspaceSummary]) { scriptedWorkspaces = workspaces }
     func scriptFile(path: String, text: String) { scriptedFiles[path] = text }
     func setWriteConflicts(_ value: Bool) { writeConflicts = value }
     func gate(path: String) { gated.insert(path) }
@@ -40,6 +42,12 @@ private actor MockFilesRequester: WorkspaceFilesRequesting {
     }
 
     func request(_ request: WorkspaceFileRequest) async throws -> WorkspaceFileResponse {
+        if case .listWorkspaces(let requestID) = request {
+            return .workspaces(
+                requestID: requestID,
+                result: WorkspaceListResult(workspaces: scriptedWorkspaces)
+            )
+        }
         if case .read(let requestID, let workspaceID, let path) = request {
             return .read(
                 requestID: requestID,
@@ -215,6 +223,28 @@ struct WorkspaceFilesBrowserTests {
         let browser = WorkspaceFilesBrowser(transport: stub)
         await browser.loadWorkspaces()
         #expect(browser.model.workspaces.map(\.name) == ["Alpha"])
+    }
+
+    /// The picker contract (R38): loading the workspace list must NOT auto-select or list any
+    /// directory. The surface opens on the picker; only an explicit selection issues a listing. This
+    /// guards the removal of the old auto-select-first, which hid every workspace but the first.
+    @Test func loadWorkspacesDoesNotSelectOrListUntilAWorkspaceIsPicked() async {
+        let mock = MockFilesRequester()
+        await mock.scriptWorkspaces([
+            WorkspaceSummary(id: "w1", name: "Alpha"),
+            WorkspaceSummary(id: "w2", name: "Beta"),
+        ])
+        await mock.script(path: "", entries: [file("b.txt", "b.txt")])
+        let browser = WorkspaceFilesBrowser(transport: mock)
+
+        await browser.loadWorkspaces()
+        #expect(browser.model.workspaces.map(\.name) == ["Alpha", "Beta"])
+        #expect(browser.model.selectedWorkspaceID == nil)
+        #expect(await mock.requestedPaths == [])   // nothing listed until the user picks
+
+        await browser.selectWorkspace("w2")
+        #expect(browser.model.selectedWorkspaceID == "w2")
+        #expect(await mock.requestedPaths == [""])  // exactly the picked workspace's root
     }
 
     @Test func loadWorkspacesErrorSurfacesAsFailedInsteadOfBeingSwallowed() async {
