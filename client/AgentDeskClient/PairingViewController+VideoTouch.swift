@@ -295,8 +295,11 @@ extension PairingViewController {
     }
 
     func isControlSurfaceActive() -> Bool {
-        guard let seg = surfaceSegmentedControl else { return true }
-        return seg.titleForSegment(at: seg.selectedSegmentIndex) == "Control"
+        // Use the authoritative selected surface, kept in sync by surfaceSegmentChanged. Reading the
+        // segment's title breaks under R30's icon segments (they carry an image, not a title, so
+        // titleForSegment returns nil and this always read false — permanently hiding the trackpad
+        // and scroll strip even on the Control surface).
+        activeControlSurface == .control
     }
 
     @objc func remoteInputModeControlChanged(_ control: RemoteInputModeControl) {
