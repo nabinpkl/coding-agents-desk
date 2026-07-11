@@ -36,6 +36,7 @@ extension PairingViewController {
         nonisolated(unsafe) static var agentSurfaceBoundTransport: UInt8 = 0
         nonisolated(unsafe) static var filesSurface: UInt8 = 0
         nonisolated(unsafe) static var filesBrowser: UInt8 = 0
+        nonisolated(unsafe) static var filesTransport: UInt8 = 0
         nonisolated(unsafe) static var filesSurfaceLoading: UInt8 = 0
     }
 
@@ -71,6 +72,11 @@ extension PairingViewController {
     private var filesBrowser: WorkspaceFilesBrowser? {
         get { objc_getAssociatedObject(self, &Keys.filesBrowser) as? WorkspaceFilesBrowser }
         set { objc_setAssociatedObject(self, &Keys.filesBrowser, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    private var filesTransport: WorkspaceFilesTransport? {
+        get { objc_getAssociatedObject(self, &Keys.filesTransport) as? WorkspaceFilesTransport }
+        set { objc_setAssociatedObject(self, &Keys.filesTransport, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
     private var filesSurfaceLoading: Bool {
@@ -148,9 +154,26 @@ extension PairingViewController {
         // The switcher owns all non-control surfaces; tear the browser down too
         // so a reconnect rebuilds all three cleanly from the fresh session.
         teardownDomMirrorSurface()
+        teardownFilesSurface()
 
         surfaceSegmentedControl?.removeFromSuperview()
         surfaceSegmentedControl = nil
+    }
+
+    // Files surface teardown mirrors the other non-control surfaces: sever the model binding, close
+    // the .files lane transport (so the old QUIC stream is not leaked), remove the view, and clear
+    // every associated handle so a reconnect rebuilds a fresh surface bound to the new session
+    // rather than a dead one.
+    private func teardownFilesSurface() {
+        filesSurface?.teardown()
+        filesSurface?.removeFromSuperview()
+        filesSurface = nil
+        filesBrowser = nil
+        if let transport = filesTransport {
+            Task { await transport.close() }
+        }
+        filesTransport = nil
+        filesSurfaceLoading = false
     }
 
     // MARK: - Lazy webview creation
@@ -404,6 +427,7 @@ extension PairingViewController {
                     surface.bottomAnchor.constraint(equalTo: self.view.bottomAnchor),
                 ])
                 if let seg = self.surfaceSegmentedControl { self.view.bringSubviewToFront(seg) }
+                self.filesTransport = transport
                 self.filesBrowser = browser
                 self.filesSurface = surface
                 await browser.loadWorkspaces()
@@ -412,6 +436,15 @@ extension PairingViewController {
                 }
             } catch {
                 Self.logger.error("files surface open failed: \(String(describing: error), privacy: .public)")
+                // The lane never opened; fall back to Control so the user isn't stranded on a blank
+                // Files screen with every other surface hidden.
+                if self.activeControlSurface == .files {
+                    self.activeControlSurface = .control
+                    if let seg = self.surfaceSegmentedControl {
+                        seg.selectedSegmentIndex = self.segmentIndex(for: .control, in: seg)
+                    }
+                    self.applySurface(.control)
+                }
             }
             self.filesSurfaceLoading = false
         }

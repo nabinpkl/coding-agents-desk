@@ -95,6 +95,12 @@ final class WorkspaceFilesSurface: UIView {
     @objc private func navigateUpTapped() {
         Task { await browser.navigateUp() }
     }
+
+    /// Drops the model binding so a torn-down surface stops rendering. The owning controller closes
+    /// the transport and removes the view; this just severs the callback.
+    func teardown() {
+        browser.onChange = nil
+    }
 }
 
 extension WorkspaceFilesSurface: UITableViewDataSource, UITableViewDelegate {
