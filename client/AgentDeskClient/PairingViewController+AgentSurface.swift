@@ -148,8 +148,8 @@ extension PairingViewController {
         // Availability is fixed for the session's lifetime (decided at the
         // handshake) and the toggle is torn down + rebuilt on every
         // non-connected state, so reading it once here is race-free.
-        let items = surfaceToggleItems()
-        let seg = UISegmentedControl(items: items)
+        let seg = UISegmentedControl()
+        configureSurfaceSegments(seg)
         seg.selectedSegmentIndex = segmentIndex(for: activeControlSurface, in: seg)
         seg.translatesAutoresizingMaskIntoConstraints = false
         seg.addTarget(self, action: #selector(surfaceSegmentChanged(_:)), for: .valueChanged)
@@ -362,60 +362,61 @@ extension PairingViewController {
         domMirrorSurface?.setPaused(activeControlSurface != .browser)
     }
 
-    // Maps the selected segment to a ControlSurface by title, robust to the
-    // 2-vs-3 segment layout (Browser present only with a .dom lane).
-    private func selectedSurface(on seg: UISegmentedControl) -> ControlSurface {
-        switch seg.titleForSegment(at: seg.selectedSegmentIndex) {
-        case "Agent": return .agent
-        case "Terminal": return .terminal
-        case "Browser": return .browser
-        case "Files": return .files
-        default: return .control
+    // The ordered surfaces the current toggle offers. Browser is present only with a `.dom` lane;
+    // availability is fixed for the session, so the index<->surface mapping is stable between rebuilds.
+    private func currentSurfaces() -> [ControlSurface] {
+        availableControlSurfaces(browserAvailable: pairingClient.activeDomMirror != nil)
+    }
+
+    // Populates the toggle with one icon segment per available surface. Icons (SF Symbols) keep all
+    // five segments legible on the narrowest supported iPhone where five text labels would truncate;
+    // each segment carries the surface's accessibility label so VoiceOver and the a11y-driven Maestro
+    // flows still target it by name.
+    private func configureSurfaceSegments(_ seg: UISegmentedControl) {
+        seg.removeAllSegments()
+        for (index, surface) in currentSurfaces().enumerated() {
+            let image = UIImage(systemName: surface.switcherSymbolName)
+            image?.accessibilityLabel = surface.switcherAccessibilityLabel
+            seg.insertSegment(with: image, at: index, animated: false)
         }
+        seg.accessibilityIdentifier = "surface-switcher"
+    }
+
+    // Maps the selected segment to a ControlSurface by reading the segment's own image accessibility
+    // label — the source of truth for what was actually built — rather than re-deriving the surface
+    // list. An unknown/absent label falls back safely to .control instead of silently resolving to a
+    // wrong surface if build-time and tap-time availability ever diverged.
+    private func selectedSurface(on seg: UISegmentedControl) -> ControlSurface {
+        let index = seg.selectedSegmentIndex
+        guard index >= 0, index < seg.numberOfSegments,
+              let label = seg.imageForSegment(at: index)?.accessibilityLabel,
+              let surface = ControlSurface(switcherAccessibilityLabel: label) else {
+            return .control
+        }
+        return surface
     }
 
     private func segmentIndex(for surface: ControlSurface, in seg: UISegmentedControl) -> Int {
-        let title: String
-        switch surface {
-        case .control: title = "Control"
-        case .agent: title = "Agent"
-        case .terminal: title = "Terminal"
-        case .browser: title = "Browser"
-        case .files: title = "Files"
-        }
-        for index in 0..<seg.numberOfSegments where seg.titleForSegment(at: index) == title {
+        for index in 0..<seg.numberOfSegments
+            where seg.imageForSegment(at: index)?.accessibilityLabel == surface.switcherAccessibilityLabel {
             return index
         }
         activeControlSurface = .control
         return 0
     }
 
-    private func surfaceToggleItems() -> [String] {
-        var items = ["Control", "Agent", "Terminal"]
-        if pairingClient.activeDomMirror != nil {
-            items.append("Browser")
-        }
-        // The .files lane is available on any active session, so Files is always offered.
-        items.append("Files")
-        return items
-    }
-
     private func refreshSurfaceToggleSegments(_ seg: UISegmentedControl) {
-        let items = surfaceToggleItems()
-        let current = (0..<seg.numberOfSegments).compactMap { seg.titleForSegment(at: $0) }
-        guard current != items else { return }
+        let surfaces = currentSurfaces()
+        guard surfaces.count != seg.numberOfSegments else { return }
 
-        if !items.contains("Browser") {
+        if !surfaces.contains(.browser) {
             if activeControlSurface == .browser {
                 activeControlSurface = .control
             }
             teardownDomMirrorSurface()
         }
 
-        seg.removeAllSegments()
-        for (index, title) in items.enumerated() {
-            seg.insertSegment(withTitle: title, at: index, animated: false)
-        }
+        configureSurfaceSegments(seg)
     }
 
     // MARK: - Visibility

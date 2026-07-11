@@ -26,6 +26,57 @@ struct SurfaceVisibility: Equatable {
     let keyboardInteractive: Bool
 }
 
+extension ControlSurface {
+    /// SF Symbol name for the switcher segment. Icons keep all five segments (Control, Agent,
+    /// Terminal, Browser, Files) legible across supported iPhone widths where five text labels would
+    /// crowd or truncate. Pure (a name string) so it stays in this UIKit-free, test-compiled file;
+    /// the UIKit layer resolves it via `UIImage(systemName:)`.
+    var switcherSymbolName: String {
+        switch self {
+        case .control: return "display"
+        case .agent: return "sparkles"
+        case .terminal: return "terminal"
+        case .browser: return "globe"
+        case .files: return "folder"
+        }
+    }
+
+    /// VoiceOver / Maestro accessibility label for the segment. Kept as the historical words so
+    /// existing a11y-driven flows keep tapping the same targets after the icons replace the titles.
+    /// This label is also the switcher's read-back key: the UIKit layer resolves a tapped segment
+    /// back to its surface via `ControlSurface(switcherAccessibilityLabel:)` on the segment's own
+    /// image label, so the mapping reads what was actually built rather than re-deriving availability.
+    var switcherAccessibilityLabel: String {
+        switch self {
+        case .control: return "Control"
+        case .agent: return "Agent"
+        case .terminal: return "Terminal"
+        case .browser: return "Browser"
+        case .files: return "Files"
+        }
+    }
+
+    /// Resolves a surface from its switcher accessibility label (the inverse of the property above),
+    /// or nil for an unknown label so callers fall back to `.control` safely.
+    init?(switcherAccessibilityLabel label: String) {
+        guard let match = [ControlSurface.control, .agent, .terminal, .browser, .files]
+            .first(where: { $0.switcherAccessibilityLabel == label }) else { return nil }
+        self = match
+    }
+}
+
+/// The ordered surfaces the switcher offers. Browser is present only when the session opened a `.dom`
+/// lane; the rest are always available. Pure so the ordering + availability is unit-tested without
+/// UIKit, and so selection can map by index into this list rather than by matching segment titles.
+func availableControlSurfaces(browserAvailable: Bool) -> [ControlSurface] {
+    var surfaces: [ControlSurface] = [.control, .agent, .terminal]
+    if browserAvailable {
+        surfaces.append(.browser)
+    }
+    surfaces.append(.files)
+    return surfaces
+}
+
 func visibility(for surface: ControlSurface) -> SurfaceVisibility {
     switch surface {
     case .control:

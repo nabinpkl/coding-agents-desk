@@ -64,3 +64,39 @@ struct ControlSurfaceVisibilityTests {
         }
     }
 }
+
+// R30: the switcher offers icon segments for every surface, fitting narrow iPhone widths where five
+// text labels crowd. These pin the pure ordering/availability and per-surface metadata the UIKit
+// switcher builds from (and that a11y-driven flows target by label).
+struct SurfaceSwitcherTests {
+    @Test func withoutBrowserOffersFourSurfacesInOrder() {
+        #expect(availableControlSurfaces(browserAvailable: false) == [.control, .agent, .terminal, .files])
+    }
+
+    @Test func withBrowserOffersFiveSurfacesInOrder() {
+        #expect(availableControlSurfaces(browserAvailable: true) == [.control, .agent, .terminal, .browser, .files])
+    }
+
+    @Test func everySurfaceHasADistinctSymbolAndStableAccessibilityLabel() {
+        let all: [ControlSurface] = [.control, .agent, .terminal, .browser, .files]
+        // Distinct SF Symbols so the five segments are visually distinguishable.
+        let symbols = all.map(\.switcherSymbolName)
+        #expect(Set(symbols).count == all.count)
+        symbols.forEach { #expect(!$0.isEmpty) }
+        // Labels are the historical words the a11y-driven Maestro flows tap.
+        #expect(ControlSurface.control.switcherAccessibilityLabel == "Control")
+        #expect(ControlSurface.agent.switcherAccessibilityLabel == "Agent")
+        #expect(ControlSurface.terminal.switcherAccessibilityLabel == "Terminal")
+        #expect(ControlSurface.browser.switcherAccessibilityLabel == "Browser")
+        #expect(ControlSurface.files.switcherAccessibilityLabel == "Files")
+    }
+
+    // The switcher resolves a tapped segment back to its surface via the label round-trip, so this
+    // inverse must hold for every surface and reject unknown labels (-> safe .control fallback).
+    @Test func accessibilityLabelRoundTripsToSurface() {
+        for surface in [ControlSurface.control, .agent, .terminal, .browser, .files] {
+            #expect(ControlSurface(switcherAccessibilityLabel: surface.switcherAccessibilityLabel) == surface)
+        }
+        #expect(ControlSurface(switcherAccessibilityLabel: "Nonexistent") == nil)
+    }
+}
