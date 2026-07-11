@@ -159,8 +159,11 @@ process), and the Ghostty pill is retired.
   cascaded per workspace, labeled. Terminals are normal titled windows on the workspace's Desktop, so
   macOS Spaces shows/hides them per workspace (= Desktop) — no explicit park/unpark needed. `just check`
   green; live spawn needs the daemon + a host relaunch (checkpoint).
-- [ ] R56. Embedded PTY Manager: a host-owned `NSOutlineView` window driven by `subscribeSessions`
-  (sessions→clients, Open Client / Close Session / Close Client / Reconnect), replacing the donor sidecar.
+- [x] R56. Embedded PTY Manager: `PtyManagerWindowController`, a host-owned `NSOutlineView` window driven
+  by our `PtyClient.sessionSnapshots()` stream (sessions→clients: Name/PID/Clients/CWD/Shell/State), with
+  Open Client (attach a terminal to an existing session), Close Session, Close Client, and Reconnect + a
+  status footer. Replaces the donor's separate `pty-manager-ui` sidecar process — no second binary. Wired
+  to the top-bar chip via the presenter. `just check` green; live list needs the daemon + a host relaunch.
 - [ ] R57. Retire the Ghostty pill: remove `TerminalLauncher` + `Config.terminalAppURL`/`terminalBundleID`
   + `startTerminalLauncher()` and reconcile its space-negotiation (SpaceAgent/dictation avoid) wiring.
 
@@ -184,4 +187,6 @@ R53      2026-07-11  green       pty-client-swift linked into the host; PtyManag
 R54      2026-07-11  green       ＋ Terminal + PTY Manager chips in the shell top bar; presenter callbacks
 R55      2026-07-11  green       in-app SwiftTerm terminal: emulator package in-tree + linked;
                                  openTerminal() spawns on our socket, cwd = workspace root, cascaded
+R56      2026-07-11  green       embedded PTY Manager NSOutlineView window on our socket stream;
+                                 open-client/close-session/close-client/reconnect; no sidecar process
 ```

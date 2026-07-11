@@ -30,6 +30,8 @@ final class WorkspaceShellPresenter: NSObject {
     private let filePane = FilePane()
     private let viewer = FileViewer()
     private var session: WorkspaceShellSession?
+    /// The embedded PTY Manager window (R56), created lazily on first open from the top-bar chip.
+    private var ptyManagerWindow: PtyManagerWindowController?
     private var switcherWorkspaceIDs: [UUID] = []
 
     private let pinButton = NSButton(title: "Pin", target: nil, action: nil)
@@ -84,9 +86,10 @@ final class WorkspaceShellPresenter: NSObject {
             )
             session.onActiveChanged = { [weak self] in self?.refreshSwitcher() }
             self.session = session
-            // The top-bar "＋ Terminal" chip spawns a terminal for the active workspace (R55). PTY
-            // Manager (onOpenPtyManager) is wired in R56.
+            // The top-bar "＋ Terminal" chip spawns a terminal for the active workspace (R55); the
+            // "PTY Manager" chip opens the embedded session-list window (R56).
             self.onOpenTerminal = { [weak session] in session?.openTerminal() }
+            self.onOpenPtyManager = { [weak self] in self?.showPtyManager() }
             session.start()
             self.refreshSwitcher()
             self.logAXSelfReport()
@@ -113,6 +116,8 @@ final class WorkspaceShellPresenter: NSObject {
         pointerTap = nil
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver); self.screenObserver = nil }
         if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver); self.spaceObserver = nil }
+        ptyManagerWindow?.stop()
+        ptyManagerWindow = nil
         overlay.stop()
     }
 
@@ -262,6 +267,12 @@ final class WorkspaceShellPresenter: NSObject {
     @objc private func openTerminalTapped() { onOpenTerminal?() }
 
     @objc private func openPtyManagerTapped() { onOpenPtyManager?() }
+
+    private func showPtyManager() {
+        let controller = ptyManagerWindow ?? PtyManagerWindowController()
+        ptyManagerWindow = controller
+        controller.show()
+    }
 
     @objc private func assignDesktopTapped() { session?.assignActiveToCurrentDesktop() }
 
