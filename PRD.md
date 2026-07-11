@@ -12,7 +12,7 @@ One user (the author). One macOS host. One iPhone client. Tailscale already on b
 
 ## Problem
 
-The author's coding work is split across project folders, terminals, agents, browser windows, and macOS Spaces. AgentDesk already owns remote control, Spaces, PTYs, and ATC activity, while the sibling `agent-workspace-ide` owns the workspace sidebar and file editor. Two applications leave workspace state and control fragmented, and the iPhone cannot browse or edit the same authoritative workspace files.
+The author's coding work is split across project folders, terminals, agents, browser windows, and macOS Spaces. AgentDesk already owned remote control, Spaces, PTYs, and ATC activity, while the sibling `agent-workspace-ide` owned the workspace sidebar and file editor — two applications that left workspace state and control fragmented, with the iPhone unable to browse or edit the same authoritative workspace files. AgentDesk has since absorbed the workspace shell, local editing, and terminal packages and retired that donor (ADR-0052, ADR-0053), so one application now owns the authoritative workspace.
 
 Secondary pain: AnyDesk on phone often degrades to a black canvas with a moving cursor, no native trackpad gestures (two-finger scroll, right-click, drag), and text crispness on Retina-scale content is mushy.
 
@@ -58,7 +58,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 - iPad client (later iteration, same codebase).
 - Browser client. AnyDesk and TeamViewer do not ship a mobile browser client either; chasing crisp text in a browser is not the v0 fight.
 - Marketplace / TestFlight wider distribution. v0 is signed Developer ID DMG for Mac and TestFlight to one device for iOS.
-- Debug Browser, Jupyter execution, Dock enrichment, and duplicate Desktop orchestration from the retiring `agent-workspace-ide` donor. They move only through later product decisions, not as incidental porting.
+- Debug Browser, Jupyter execution, Dock enrichment, and duplicate Desktop orchestration from the retired `agent-workspace-ide` donor. They did not move with the consolidation and would return only through later product decisions, not as incidental porting.
 
 ## Source of truth for detail
 

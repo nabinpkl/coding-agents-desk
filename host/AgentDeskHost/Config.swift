@@ -867,9 +867,10 @@ enum Config {
     static let adTokenURL = applicationSupportDirectory
         .appendingPathComponent("ad-token", isDirectory: false)
     // R16/R17 workspace consolidation. `workspaceStoreURL` is AgentDesk's authoritative,
-    // bundle-scoped workspace store. `donorWorkspaceStoreURL` is the retiring
-    // agent-workspace-ide store read once at first launch to seed it (the importer treats an
-    // absent donor as a clean empty first run, so a wrong or missing path fails safe).
+    // bundle-scoped workspace store. `donorWorkspaceStoreURL` is the retired agent-workspace-ide
+    // store (the repo is tombstoned, ADR-0053) read once at first launch to seed AgentDesk's store
+    // — a one-time runtime data migration, not a build dependency. The importer treats an absent
+    // donor as a clean empty first run, so a wrong or missing path fails safe.
     static let workspaceStoreURL = applicationSupportDirectory
         .appendingPathComponent("workspaces.json", isDirectory: false)
     static let donorWorkspaceStoreURL = FileManager.default

@@ -1,9 +1,15 @@
 ---
-status: accepted
+status: superseded by ADR-0053
 date: 2026-07-06
+superseded-by: ADR-0053
 ---
 
 # Remote SwiftTerm terminal over the Agent Workspace IDE PTY multiplexer
+
+> Superseded by [ADR-0053](0053-agentdesk-owns-the-terminal-pty-packages.md): the terminal
+> architecture below is retained unchanged, but the `pty-manager` and `pty-client-swift` packages
+> moved from the `agent-workspace-ide` sibling checkout into AgentDesk-owned paths under `terminal/`,
+> completing the ADR-0052 donor retirement.
 
 ## Context and Problem Statement
 

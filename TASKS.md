@@ -54,7 +54,7 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 ## v3 scope (captured, not started until v2 is verified)
 
 - [x] R34. Move the remaining PTY packages required by AgentDesk from `agent-workspace-ide` into AgentDesk-owned package paths, preserving the Rust manager as process owner and SwiftTerm as renderer. (Both self-contained packages copied into `terminal/`: the Rust `pty-manager` crate (own `proto/pty.proto`, vendored protoc) and the `pty-client-swift` SPM package (pre-generated protobuf, upstream SwiftTerm/SwiftProtobuf). `pty_manager_dir` in the Justfile and the client xcodeproj's `XCLocalSwiftPackageReference` relativePath now point at `terminal/…`; zero `agent-workspace-ide` references remain in the client project. Verified: `just build-pty-manager` compiles from the new path, `just sim-test` builds the client against the relocated PtyClientSwift/PtyTerminalSession/PtyTerminalSwiftTerm + SwiftTerm (294 tests), `just check` green (419 host). Source parity with the donor confirmed; no build artifacts committed.)
-- [ ] R35. Remove the final AgentDesk source/build dependency on `agent-workspace-ide`, archive the donor repository with a tombstone, and update ADR-0051 to point at the superseding package home through a new ADR if its ownership decision changes.
+- [x] R35. Remove the final AgentDesk source/build dependency on `agent-workspace-ide`, archive the donor repository with a tombstone, and update ADR-0051 to point at the superseding package home through a new ADR if its ownership decision changes. (R34 removed the last source/build dependency; a repo-wide grep confirms no `agent-workspace-ide` reference remains in any build file, package reference, or Swift import — the only remaining mention is the intended one-time runtime import of the donor's `workspace.json` at first launch, a data migration not a build dependency. ADR-0053 records the package move and supersedes ADR-0051 (0051 marked superseded, both cross-linked, index updated); SPEC.md and PRD.md updated to name AgentDesk as the owner and the donor as retired. The donor repository is tombstoned with a `TOMBSTONE.md` committed on its `main` branch pointing back to AgentDesk and ADR-0052/0053.)
 
 ### Alternative arc (rejected for now, captured)
 
@@ -83,5 +83,5 @@ R31      2026-07-10  green      full check-all gate green at HEAD (411 host + 18
 R32      2026-07-10  green      no agent-workspace-ide build/source dependency; AgentPanel self-contained
 R33      2026-07-10  verified   iOS Files proven on sim (R28/R29); macOS shell live-verified via in-host AX self-report (treeEntries=18, all controls reachable); fixed workspace auto-select + a file-tree retention bug that left the tree silently empty
 R34      2026-07-10  green      PTY packages moved into terminal/ (pty-manager Rust + pty-client-swift SPM); build-pty-manager + sim-test + check green; 0 donor refs in pbxproj
-R35      pending     pending     remove final donor dependency + tombstone + ADR
+R35      2026-07-10  verified   final donor source/build dependency removed (grep-confirmed); ADR-0053 supersedes ADR-0051; SPEC/PRD updated; donor tombstoned on main
 ```
