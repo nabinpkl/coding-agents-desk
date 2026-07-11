@@ -58,6 +58,41 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
         // orderFrontRegardless (not makeKeyAndOrderFront) so the LSUIElement app never activates; the
         // nonactivating panel can still become key for webview interaction.
         window?.orderFrontRegardless()
+        logAXSelfReport()
+    }
+
+    /// Logs the window's accessibility-tree state after a show, so the AX wiring is observable from
+    /// the host's own os_log (category agent-window) without an out-of-process AX client or screen
+    /// capture. Reports the window identifier, visibility, and whether the live webview or the
+    /// unavailable fallback is the reachable content surface.
+    private func logAXSelfReport() {
+        guard let window else {
+            logger.notice("agents-window AX: no window")
+            return
+        }
+        let ids = axIdentifiers(in: window.contentView)
+        let surface: String
+        if ids.contains(Self.webViewAccessibilityIdentifier) {
+            surface = "webview:\(Self.webViewAccessibilityIdentifier)"
+        } else if ids.contains(Self.unavailableAccessibilityIdentifier) {
+            surface = "fallback:\(Self.unavailableAccessibilityIdentifier)"
+        } else {
+            surface = "MISSING"
+        }
+        logger.notice(
+            "agents-window AX: window=\(window.identifier?.rawValue ?? "nil", privacy: .public) title=\(window.title, privacy: .public) visible=\(window.isVisible, privacy: .public) surface=\(surface, privacy: .public)"
+        )
+    }
+
+    private func axIdentifiers(in view: NSView?) -> Set<String> {
+        guard let view else { return [] }
+        var result: Set<String> = []
+        let identifier = view.accessibilityIdentifier()
+        if !identifier.isEmpty { result.insert(identifier) }
+        for subview in view.subviews {
+            result.formUnion(axIdentifiers(in: subview))
+        }
+        return result
     }
 
     /// Tears down the bridge streams and webview. Call on app termination so the sidecar SSE Tasks

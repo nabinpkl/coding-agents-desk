@@ -67,12 +67,12 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 ```
 R14-R15  2026-07-10  verified   AgentDesk workspace ownership accepted and prior terminal ledger archived
 R16-R18  2026-07-10  green      workspace domain, one-time donor import, AgentPanel package (just check green)
-R19      2026-07-10  green      iOS AgentFeedSurface -> AgentPanel wrapper (reviewer-green; sim-test green); diagnostics shim ported to package; AX-observation pending
+R19      2026-07-10  verified   iOS AgentFeedSurface -> AgentPanel wrapper (reviewer-green; sim-test green); diagnostics shim ported to package; live-verified on the sim via the agent-feed-smoke Maestro a11y flow (projects -> sessions -> thread)
 R20      2026-07-10  green      shell sidebar panel: file tree + workspace switcher + add (reviewer-green); top-bar/activity follow-ups
 R21      2026-07-10  green      shell controller owning the store lifecycle (reviewer-green)
 R22      2026-07-10  green      macOS file editor: double-click open + revision-checked save (reviewer-green); tabs/watch/autosave follow-ups
 R23      2026-07-10  green      shell started with the host, LSUIElement-preserving (reviewer-green; launches clean)
-R24      2026-07-10  green      macOS Agents top-bar command + Agent window via AgentPanel (reviewer-green; just check 418); live AX-observation pending
+R24      2026-07-10  verified   macOS Agents top-bar command + Agent window via AgentPanel (reviewer-green; just check 418); live-verified on the running host via in-host AX self-report (window=agentdesk-agents-window surface=agents-webview visible=true) + end-to-end feed (projects push count=20)
 R25      2026-07-10  green      protocol 6 + .files framing and file messages (just check green)
 R26      2026-07-10  green      files lane endpoint + serialized writes (just check green; live serving at R33)
 R27      2026-07-10  green      client Files transport (reviewer-green; just sim-test green)

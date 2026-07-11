@@ -394,6 +394,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onAgentsCommand = { [weak agentWindow] in agentWindow?.toggle() }
 
         panel.show()
+
+        // Dev affordance (R24): auto-open the Agents window so it can be observed without a manual
+        // tap, and its accessibility self-report lands in os_log on launch.
+        if Config.agentsWindowAutoShow {
+            agentWindow.show()
+        }
     }
 
     private func bootstrapDefaultWorkspaceIfConfigured() {

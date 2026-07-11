@@ -888,6 +888,14 @@ enum Config {
         defaultValue: false,
         environment: ProcessInfo.processInfo.environment
     )
+    // R24 dev affordance: auto-show the macOS Agents window on launch (and log its accessibility
+    // self-report) so the surface can be observed without a manual top-bar tap. Off by default;
+    // requires the workspace shell to be enabled since the window is composed alongside it.
+    static let agentsWindowAutoShow: Bool = enabledFlag(
+        environmentKey: "AGENTDESK_AGENTS_WINDOW_AUTOSHOW",
+        defaultValue: false,
+        environment: ProcessInfo.processInfo.environment
+    )
     // Optional workspace root registered on first launch when the store is empty, so the Files
     // surface has something to browse before the macOS workspace shell (R20/R21) exists to let the
     // user add roots. No default: unset means nothing is auto-registered.
