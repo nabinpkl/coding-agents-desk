@@ -1,5 +1,6 @@
 import UIKit
 import AgentDeskWire
+import WorkspaceEditorViewer
 
 /// The iOS Files surface (R28): renders a `WorkspaceFilesBrowser`'s navigation state — a breadcrumb
 /// with an up control and a table of directory entries — and forwards taps back to the browser.
@@ -18,16 +19,19 @@ final class WorkspaceFilesSurface: UIView {
     private let statusLabel = UILabel()
     private let tableView = UITableView(frame: .zero, style: .plain)
 
-    // File editor overlay (read plus revision-checked save), shown over the list when a file opens.
+    // File viewer overlay, shown over the list when a file opens. Renders through the SHARED web
+    // surface (Phase G) — the same CodeMirror + markdown-it + mermaid SPA the macOS shell uses — so
+    // markdown/mermaid/code render identically on both platforms instead of raw text.
     private let previewContainer = UIView()
     private let previewTitleLabel = UILabel()
     private let previewCloseButton = UIButton(type: .system)
     private let previewSaveButton = UIButton(type: .system)
-    private let previewTextView = UITextView()
+    private let webSurface = WorkspaceFileWebSurface()
     private let previewStatusLabel = UILabel()
-    /// The path whose baseline text is currently loaded into the editor, so re-renders don't clobber
-    /// in-progress edits.
+    /// The path whose baseline text is currently rendered, so re-renders don't reload while editing.
     private var previewedPath: String?
+    /// The latest text the SPA reported via onDirty, written back on Save.
+    private var latestEditedText: String?
 
     init(browser: WorkspaceFilesBrowser) {
         self.browser = browser
@@ -115,17 +119,17 @@ final class WorkspaceFilesSurface: UIView {
         previewStatusLabel.textAlignment = .center
         previewStatusLabel.numberOfLines = 0
 
-        // Editable: R29 turns the preview into an editor. Text is written back revision-checked.
-        previewTextView.isEditable = true
-        previewTextView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        previewTextView.accessibilityIdentifier = "workspace-files-preview-text"
+        // The shared web surface renders the file (markdown/mermaid/code) and reports edits via
+        // onDirty so Save can write them back revision-checked over the .files lane.
+        webSurface.view.accessibilityIdentifier = "workspace-files-preview-text"
+        webSurface.onDirty = { [weak self] _, text in self?.latestEditedText = text }
 
         let header = UIStackView(arrangedSubviews: [previewCloseButton, previewTitleLabel, previewSaveButton])
         header.axis = .horizontal
         header.spacing = 8
         header.alignment = .center
 
-        let stack = UIStackView(arrangedSubviews: [header, previewStatusLabel, previewTextView])
+        let stack = UIStackView(arrangedSubviews: [header, previewStatusLabel, webSurface.view])
         stack.axis = .vertical
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -193,8 +197,8 @@ final class WorkspaceFilesSurface: UIView {
     ) {
         guard let preview else {
             previewContainer.isHidden = true
-            previewTextView.text = nil
             previewedPath = nil
+            latestEditedText = nil
             return
         }
         previewContainer.isHidden = false
@@ -202,28 +206,44 @@ final class WorkspaceFilesSurface: UIView {
         switch preview {
         case .loading:
             previewSaveButton.isHidden = true
-            previewTextView.isEditable = false
             previewStatusLabel.text = "Loading…"
             previewStatusLabel.isHidden = false
-            previewTextView.text = nil
             previewedPath = nil
         case .loaded(let path, let text, _):
             previewSaveButton.isHidden = false
-            previewTextView.isEditable = true
-            // Only load the baseline text into the editor when the file changes, so re-renders while
-            // the user types (or a save/conflict result) never clobber in-progress edits.
+            // Render the baseline into the web surface only when the file changes, so re-renders
+            // while the user edits (or a save/conflict result) never reload and clobber edits.
             if previewedPath != path {
-                previewTextView.text = text
                 previewedPath = path
+                latestEditedText = nil
+                webSurface.render(payload(path: path, text: text))
             }
             renderSaveStatus(saveStatus)
         case .failed(_, let message):
             previewSaveButton.isHidden = true
-            previewTextView.isEditable = false
             previewStatusLabel.text = message
             previewStatusLabel.isHidden = false
-            previewTextView.text = nil
             previewedPath = nil
+        }
+    }
+
+    private func payload(path: String, text: String) -> WorkspaceFilePayload {
+        let kind = Self.webKind(forPath: path)
+        let workspace = browser.model.workspaces.first { $0.id == browser.model.selectedWorkspaceID }?.name ?? ""
+        return WorkspaceFilePayload(
+            id: path, name: (path as NSString).lastPathComponent, path: path,
+            workspace: workspace, root: "", text: text, kind: kind,
+            // Markdown/HTML open rendered; code/text open in the editor.
+            mode: (kind == "markdown" || kind == "html") ? "preview" : "edit"
+        )
+    }
+
+    private static func webKind(forPath path: String) -> String {
+        switch (path as NSString).pathExtension.lowercased() {
+        case "md", "markdown": "markdown"
+        case "html", "htm": "html"
+        case "ipynb": "notebook"
+        default: "text"
         }
     }
 
@@ -256,7 +276,15 @@ final class WorkspaceFilesSurface: UIView {
     }
 
     @objc private func saveTapped() {
-        let text = previewTextView.text ?? ""
+        // Prefer the SPA's latest edited text; fall back to the loaded baseline if untouched.
+        let text: String
+        if let latestEditedText {
+            text = latestEditedText
+        } else if case .loaded(_, let loaded, _)? = browser.model.preview {
+            text = loaded
+        } else {
+            return
+        }
         Task { await browser.saveFile(text) }
     }
 

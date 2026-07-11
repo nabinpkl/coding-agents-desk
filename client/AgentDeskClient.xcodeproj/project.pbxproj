@@ -21,6 +21,8 @@
 		D0000000000000000000AF05 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000AF03 /* AgentPanel */; };
 		D0000000000000000000C504 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000C502 /* WorkspaceKit */; };
 		D0000000000000000000C505 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000C503 /* WorkspaceKit */; };
+		D0000000000000000000E504 /* WorkspaceEditorViewer in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E502 /* WorkspaceEditorViewer */; };
+		D0000000000000000000E505 /* WorkspaceEditorViewer in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E503 /* WorkspaceEditorViewer */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -74,6 +76,7 @@
 			files = (
 				D0000000000000000000AF04 /* AgentPanel in Frameworks */,
 				D0000000000000000000C504 /* WorkspaceKit in Frameworks */,
+				D0000000000000000000E504 /* WorkspaceEditorViewer in Frameworks */,
 				A0000000000000000000EE03 /* AgentDeskWire in Frameworks */,
 				C0000000000000000000EE07 /* PtyClientSwift in Frameworks */,
 				C0000000000000000000EE0B /* PtyTerminalSession in Frameworks */,
@@ -88,6 +91,7 @@
 			files = (
 				D0000000000000000000AF05 /* AgentPanel in Frameworks */,
 				D0000000000000000000C505 /* WorkspaceKit in Frameworks */,
+				D0000000000000000000E505 /* WorkspaceEditorViewer in Frameworks */,
 				A0000000000000000000EE05 /* AgentDeskWire in Frameworks */,
 				C0000000000000000000EE09 /* PtyClientSwift in Frameworks */,
 				C0000000000000000000EE0D /* PtyTerminalSession in Frameworks */,
@@ -139,6 +143,7 @@
 			packageProductDependencies = (
 				D0000000000000000000AF02 /* AgentPanel */,
 				D0000000000000000000C502 /* WorkspaceKit */,
+				D0000000000000000000E502 /* WorkspaceEditorViewer */,
 				A0000000000000000000EE02 /* AgentDeskWire */,
 				C0000000000000000000EE03 /* PtyClientSwift */,
 				C0000000000000000000EE0F /* PtyTerminalSession */,
@@ -169,6 +174,7 @@
 			packageProductDependencies = (
 				D0000000000000000000AF03 /* AgentPanel */,
 				D0000000000000000000C503 /* WorkspaceKit */,
+				D0000000000000000000E503 /* WorkspaceEditorViewer */,
 				A0000000000000000000EE04 /* AgentDeskWire */,
 				C0000000000000000000EE05 /* PtyClientSwift */,
 				C0000000000000000000EE11 /* PtyTerminalSession */,
@@ -210,6 +216,7 @@
 			packageReferences = (
 				D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */,
 				D0000000000000000000C501 /* XCLocalSwiftPackageReference "../packages/WorkspaceKit" */,
+				D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceEditorViewer" */,
 				A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */,
 				C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */,
 				C0000000000000000000EE02 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
@@ -500,6 +507,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/WorkspaceKit;
 		};
+		D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceEditorViewer" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/WorkspaceEditorViewer;
+		};
 		D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/AgentPanel;
@@ -545,6 +556,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D0000000000000000000C501 /* XCLocalSwiftPackageReference "../packages/WorkspaceKit" */;
 			productName = WorkspaceKit;
+		};
+		D0000000000000000000E502 /* WorkspaceEditorViewer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceEditorViewer" */;
+			productName = WorkspaceEditorViewer;
+		};
+		D0000000000000000000E503 /* WorkspaceEditorViewer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceEditorViewer" */;
+			productName = WorkspaceEditorViewer;
 		};
 		A0000000000000000000EE02 /* AgentDeskWire */ = {
 			isa = XCSwiftPackageProductDependency;
