@@ -40,7 +40,7 @@ public final class FileViewer: NSObject, FileViewing {
     // Notebook cell execution (FileViewerNotebookRuns + the Jupyter runtime) is out of scope for the
     // AgentDesk port; `.ipynb` files still render read-only through the SPA. `notebookRunner` stays as
     // the inert injection seam (always nil here).
-    var reusableEditorSurface: FileEditorSurface?
+    var reusableEditorSurface: WorkspaceFileWebSurface?
     var reusableHTMLSurface: HTMLPreviewSurface?
 
     public var assignedDesktopWindowID: UInt32? {
@@ -171,7 +171,7 @@ public final class FileViewer: NSObject, FileViewing {
 
     public func setTextZoom(_ zoom: WorkspaceTextZoom) {
         textZoom = zoom
-        reusableEditorSurface?.setTextZoom(zoom)
+        reusableEditorSurface?.setTextZoom(zoom.webTextZoom)
     }
 
     public func focusForAccessibility() -> Bool {

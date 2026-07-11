@@ -1,14 +1,15 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
-// WorkspaceEditorViewer: the macOS workspace editor's WKWebView SPA (CodeMirror + markdown-it +
-// mermaid), vendored from the agent-workspace-ide donor and served offline over the app:// scheme
-// (ADR-0054). macOS-only so the 5MB viewer bundle never ships in the iOS client. A `.copy` resource
-// preserves the viewer/ directory structure (the host's buildable folder flattens subdirectories);
-// FileViewer resolves `WorkspaceEditorViewer.viewerRootURL` from Bundle.module.
+// WorkspaceEditorViewer: the shared file web viewer (ADR-0054, Phase G). The WKWebView SPA
+// (CodeMirror + markdown-it + mermaid, vendored from the agent-workspace-ide donor, served offline
+// over the app:// scheme) PLUS the cross-platform `WorkspaceFileWebSurface` that hosts it and speaks
+// its `window.fileSurface` JS contract. Both the macOS shell (FileViewer window) and the iOS Files
+// surface render files through this one viewer, so markdown/mermaid/code render identically on both;
+// only the surrounding chrome differs. Cross-platform: the 5MB SPA now ships in the iOS client too.
 let package = Package(
     name: "WorkspaceEditorViewer",
-    platforms: [.macOS("26.0")],
+    platforms: [.macOS("26.0"), .iOS("26.0")],
     products: [
         .library(name: "WorkspaceEditorViewer", targets: ["WorkspaceEditorViewer"]),
     ],
