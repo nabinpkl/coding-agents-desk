@@ -882,11 +882,12 @@ enum Config {
         environmentKey: "AGENTDESK_WORKSPACE_FILE_MAX_BYTES",
         defaultValue: 4 * 1024 * 1024
     )
-    // R20/R23 macOS workspace shell. Off by default so the daily driver is unchanged; enable to
-    // show the sidebar shell panel (workspace switcher + file tree) on host launch.
+    // macOS workspace shell (R20/R23; reveal chrome ADR-0054). On by default: starting the host
+    // starts the whole shell (the floating, all-Spaces, reveal-on-hover sidebar + top bar). Set the
+    // env override to 0 to disable (CI and any host run that must not show the shell).
     static let workspaceShellEnabled: Bool = enabledFlag(
         environmentKey: "AGENTDESK_WORKSPACE_SHELL_ENABLED",
-        defaultValue: false,
+        defaultValue: true,
         environment: ProcessInfo.processInfo.environment
     )
     // R24 dev affordance: auto-show the macOS Agents window on launch (and log its accessibility
