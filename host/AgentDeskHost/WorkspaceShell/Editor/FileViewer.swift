@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import WorkspaceEditorViewer
 import os
 
 @MainActor
@@ -53,12 +54,9 @@ public final class FileViewer: NSObject, FileViewing {
 
     init(notebookRunner: NotebookRunning?) {
         self.notebookRunner = notebookRunner
-        guard let resources = Bundle.main.resourceURL else {
-            fatalError("agent-workspace-ide: no bundle resourceURL for the viewer")
-        }
-        viewerRoot = resources.appendingPathComponent("viewer", isDirectory: true)
+        viewerRoot = WorkspaceEditorViewer.viewerRootURL
         guard FileManager.default.fileExists(atPath: viewerRoot.appendingPathComponent("index.html").path) else {
-            fatalError("agent-workspace-ide: bundled viewer/index.html missing at \(viewerRoot.path)")
+            fatalError("AgentDesk: bundled viewer/index.html missing at \(viewerRoot.path)")
         }
 
         window = NSWindow(
