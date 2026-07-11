@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 /// Owns the workspace file experience for the macOS shell (ADR-0054): the active workspace's file
 /// tree (FileTreeLive over the sidebar FilePane), its open-file tabs, and the free-floating editor
@@ -20,8 +21,11 @@ final class WorkspaceShellSession {
     private let persist: (WorkspaceStore) -> Void
     private let slotFrame: () -> CGRect
     private let fileWriter = FileWriter()
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-shell")
     /// Open file tabs per workspace (in-memory; the viewer mirrors the active workspace's set).
     private var tabs: [UUID: OpenTabs] = [:]
+    /// Debounces editor-frame persistence: a live drag-resize fires onFrameChanged per frame.
+    private var editorFramePersistTask: Task<Void, Never>?
 
     /// Fired after the active workspace changes so the presenter refreshes the switcher selection.
     var onActiveChanged: (() -> Void)?
@@ -99,14 +103,20 @@ final class WorkspaceShellSession {
         store.setActive(id)
         persist(store)
         if let assignment = store.workspace(id: id)?.desktopAssignment, !desktopSwitcher.isActive(assignment) {
-            desktopSwitcher.switchToDesktop(assignment)
+            if !desktopSwitcher.switchToDesktop(assignment) {
+                // The workspace's Desktop couldn't be reached (e.g. it's on another monitor). The
+                // content still switches, so log the divergence rather than swallowing it silently.
+                logger.error("workspace-shell: desktop switch failed for workspace \(id, privacy: .public); content switched but the macOS Desktop did not")
+            }
         }
         renderActive()
         onActiveChanged?()
     }
 
-    func addWorkspace(_ workspace: Workspace) {
-        store.add(workspace)
+    /// Adds a workspace through the validated store op so a duplicate root is rejected (the raw donor
+    /// `add` does not validate). Throws `WorkspaceStoreError` for the presenter to surface.
+    func addWorkspace(_ workspace: Workspace) throws {
+        store = try store.adding(workspace)
         persist(store)
         renderActive()
         onActiveChanged?()
@@ -162,7 +172,14 @@ final class WorkspaceShellSession {
     private func recordEditorFrame(_ frame: CGRect) {
         guard let id = store.activeID, EditorWindowFrame.isUsable(frame) else { return }
         store.setEditorFrame(frame.integral, for: id)
-        persist(store)
+        // Update in memory immediately, but debounce the disk write: a drag-resize fires this per
+        // frame, and each persist is a full atomic JSON write (matches FileViewer's save debounce).
+        editorFramePersistTask?.cancel()
+        editorFramePersistTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled, let self else { return }
+            self.persist(self.store)
+        }
     }
 
     private func persistEditorFrameIfUnset(_ frame: CGRect, for id: UUID) {

@@ -64,8 +64,13 @@ final class WorkspaceShellPresenter: NSObject {
                 filePane: self.filePane,
                 viewer: self.viewer,
                 desktopSwitcher: desktopSwitcher,
-                persist: { [repository = self.repository] next in
-                    Task { try? await repository.save(next) }
+                persist: { [repository = self.repository, logger = self.logger] next in
+                    Task {
+                        do { try await repository.save(next) }
+                        catch {
+                            logger.error("workspace-shell store persist failed: \(String(describing: error), privacy: .public)")
+                        }
+                    }
                 },
                 slotFrame: { computeSlotLayout(screen: NSScreen.main?.visibleFrame ?? .zero).slot }
             )
@@ -255,7 +260,7 @@ final class WorkspaceShellPresenter: NSObject {
         guard open.runModal() == .OK, let url = open.url else { return }
         do {
             let workspace = try Workspace.registering(root: url, name: url.lastPathComponent)
-            session?.addWorkspace(workspace)
+            try session?.addWorkspace(workspace)
         } catch {
             presentFailure("Could not add workspace", error)
         }

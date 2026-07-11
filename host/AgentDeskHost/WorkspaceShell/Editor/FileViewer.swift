@@ -55,6 +55,11 @@ public final class FileViewer: NSObject, FileViewing {
     init(notebookRunner: NotebookRunning?) {
         self.notebookRunner = notebookRunner
         viewerRoot = WorkspaceEditorViewer.viewerRootURL
+        // Deliberate packaging invariant: the viewer SPA is a .copy resource in the host-linked
+        // WorkspaceEditorViewer package, so a missing index.html means a broken build/signing, not a
+        // recoverable runtime state. Crashing loud here (only when the flag-gated shell constructs the
+        // viewer) beats a silently blank editor. If the shell ever ships to end users, revisit this to
+        // degrade the editor feature rather than the whole host.
         guard FileManager.default.fileExists(atPath: viewerRoot.appendingPathComponent("index.html").path) else {
             fatalError("AgentDesk: bundled viewer/index.html missing at \(viewerRoot.path)")
         }
