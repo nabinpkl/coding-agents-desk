@@ -1,0 +1,27 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+# Wait for the paired session UI (the surface toggle appears once connected).
+- extendedWaitUntil:
+    visible: "Files"
+    timeout: 30000
+# Switch to the Files surface: opens the .files lane, lists the default workspace root.
+- tapOn: "Files"
+# The host opens the lane and lists the root; wait for the loading copy to clear.
+- extendedWaitUntil:
+    notVisible: "Loading…"
+    timeout: 30000
+- takeScreenshot: files-root
+# Drill into the "src" directory by its accessibility id (precise, not a coordinate guess).
+- tapOn:
+    id: "workspace-files-entry-src"
+- extendedWaitUntil:
+    notVisible: "Loading…"
+    timeout: 15000
+- takeScreenshot: files-entered
+# Navigate back up to the workspace root via the up control.
+- tapOn:
+    id: "workspace-files-up"
+- extendedWaitUntil:
+    notVisible: "Loading…"
+    timeout: 15000
+- takeScreenshot: files-after-up
