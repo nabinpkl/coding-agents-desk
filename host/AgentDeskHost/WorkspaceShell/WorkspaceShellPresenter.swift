@@ -26,13 +26,14 @@ final class WorkspaceShellPresenter: NSObject {
     private var spaceObserver: NSObjectProtocol?
     private var loadTask: Task<Void, Never>?
 
-    private let workspaceSwitcher = NSPopUpButton(frame: .zero, pullsDown: false)
+    /// The donor sidebar workspace switcher (ported verbatim): one row per workspace with its
+    /// desktop badge, hover assign-desktop, auto-assign toggle, hover close, and drag reorder.
+    private let switcher = WorkspaceSwitcher()
     private let filePane = FilePane()
     private let viewer = FileViewer()
     private var session: WorkspaceShellSession?
     /// The embedded PTY Manager window (R56), created lazily on first open from the top-bar chip.
     private var ptyManagerWindow: PtyManagerWindowController?
-    private var switcherWorkspaceIDs: [UUID] = []
 
     private let pinButton = NSButton(title: "Pin", target: nil, action: nil)
 
@@ -202,21 +203,29 @@ final class WorkspaceShellPresenter: NSObject {
     // MARK: - Content
 
     private func buildContent() {
-        let addButton = NSButton(title: "Add Workspace…", target: self, action: #selector(addWorkspaceTapped))
-        addButton.setAccessibilityIdentifier("workspace-shell-add")
-
-        workspaceSwitcher.target = self
-        workspaceSwitcher.action = #selector(workspaceSwitched)
-        workspaceSwitcher.setAccessibilityIdentifier("workspace-shell-switcher")
+        // The donor switcher owns add / select / remove / assign-desktop / auto-assign / reorder,
+        // per-row (its rows carry the desktop badge, hover assign ⌖, auto-assign A, hover close ×).
+        switcher.onSelect = { [weak self] id in self?.session?.switchTo(id) }
+        switcher.onAdd = { [weak self] in self?.addWorkspace() }
+        switcher.onRemove = { [weak self] id in self?.session?.removeWorkspace(id) }
+        switcher.onAssignDesktop = { [weak self] id in self?.session?.assignToCurrentDesktop(id) }
+        switcher.onSetDesktopAutoAssign = { [weak self] id, enabled in self?.session?.setDesktopAutoAssign(id, enabled: enabled) }
+        switcher.onReorder = { [weak self] ids in self?.session?.reorder(ids) }
+        switcher.view.translatesAutoresizingMaskIntoConstraints = false
 
         filePane.view.setAccessibilityIdentifier("workspace-shell-file-tree")
         filePane.view.translatesAutoresizingMaskIntoConstraints = false
+        // The file tree takes the space the switcher (intrinsic height) leaves.
+        switcher.view.setContentHuggingPriority(.required, for: .vertical)
+        filePane.view.setContentHuggingPriority(.defaultLow, for: .vertical)
 
-        let sidebarStack = NSStackView(views: [workspaceSwitcher, addButton, filePane.view])
+        let sidebarStack = NSStackView(views: [switcher.view, filePane.view])
         sidebarStack.orientation = .vertical
         sidebarStack.alignment = .leading
-        sidebarStack.spacing = 8
-        sidebarStack.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        sidebarStack.spacing = 6
+        // No horizontal inset: the switcher rows bleed the full sidebar width like the donor's
+        // (their own cell pads the label), so the active-row highlight fills edge to edge.
+        sidebarStack.edgeInsets = NSEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
         sidebarStack.translatesAutoresizingMaskIntoConstraints = false
         overlay.sidebarContentView.addSubview(sidebarStack)
         NSLayoutConstraint.activate([
@@ -224,23 +233,30 @@ final class WorkspaceShellPresenter: NSObject {
             sidebarStack.trailingAnchor.constraint(equalTo: overlay.sidebarContentView.trailingAnchor),
             sidebarStack.topAnchor.constraint(equalTo: overlay.sidebarContentView.topAnchor),
             sidebarStack.bottomAnchor.constraint(equalTo: overlay.sidebarContentView.bottomAnchor),
-            filePane.view.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor, constant: -24),
+            switcher.view.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor),
+            filePane.view.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor),
         ])
 
+        // Top bar: Agents on the left; the terminal chips + pin ride the right edge, matching the
+        // donor's trailing cluster [PTY Manager] [＋ Terminal] [pin]. A low-hugging spacer between
+        // pushes the chips to the right so they sit rightmost, next to the pin.
         let agentsButton = NSButton(title: "Agents", target: self, action: #selector(agentsTapped))
         agentsButton.setAccessibilityIdentifier("workspace-shell-agents")
-        let terminalButton = NSButton(title: "＋ Terminal", target: self, action: #selector(openTerminalTapped))
-        terminalButton.setAccessibilityIdentifier("open-terminal")
         let ptyManagerButton = NSButton(title: "PTY Manager", target: self, action: #selector(openPtyManagerTapped))
         ptyManagerButton.setAccessibilityIdentifier("open-pty-manager")
-        let assignButton = NSButton(title: "Assign Desktop", target: self, action: #selector(assignDesktopTapped))
-        assignButton.setAccessibilityIdentifier("workspace-shell-assign-desktop")
+        let terminalButton = NSButton(title: "＋ Terminal", target: self, action: #selector(openTerminalTapped))
+        terminalButton.setAccessibilityIdentifier("open-terminal")
         pinButton.target = self
         pinButton.action = #selector(pinTapped)
         pinButton.setButtonType(.pushOnPushOff)
         pinButton.setAccessibilityIdentifier("toggle-sidebar-pin")
 
-        let topBarStack = NSStackView(views: [agentsButton, terminalButton, ptyManagerButton, assignButton, pinButton])
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let topBarStack = NSStackView(views: [agentsButton, spacer, ptyManagerButton, terminalButton, pinButton])
         topBarStack.orientation = .horizontal
         topBarStack.alignment = .centerY
         topBarStack.spacing = 8
@@ -249,18 +265,12 @@ final class WorkspaceShellPresenter: NSObject {
         overlay.topBarContentView.addSubview(topBarStack)
         NSLayoutConstraint.activate([
             topBarStack.leadingAnchor.constraint(equalTo: overlay.topBarContentView.leadingAnchor),
-            topBarStack.trailingAnchor.constraint(lessThanOrEqualTo: overlay.topBarContentView.trailingAnchor),
+            topBarStack.trailingAnchor.constraint(equalTo: overlay.topBarContentView.trailingAnchor),
             topBarStack.centerYAnchor.constraint(equalTo: overlay.topBarContentView.centerYAnchor),
         ])
     }
 
     // MARK: - Actions
-
-    @objc private func workspaceSwitched() {
-        let index = workspaceSwitcher.indexOfSelectedItem
-        guard index >= 0, index < switcherWorkspaceIDs.count else { return }
-        session?.switchTo(switcherWorkspaceIDs[index])
-    }
 
     @objc private func agentsTapped() { onAgentsCommand?() }
 
@@ -274,14 +284,12 @@ final class WorkspaceShellPresenter: NSObject {
         controller.show()
     }
 
-    @objc private func assignDesktopTapped() { session?.assignActiveToCurrentDesktop() }
-
     @objc private func pinTapped() {
         userPinned = (pinButton.state == .on)
         updateConfiguration()
     }
 
-    @objc private func addWorkspaceTapped() {
+    private func addWorkspace() {
         let open = NSOpenPanel()
         open.canChooseDirectories = true
         open.canChooseFiles = false
@@ -307,19 +315,7 @@ final class WorkspaceShellPresenter: NSObject {
     // MARK: - Switcher render
 
     private func refreshSwitcher() {
-        let workspaces = session?.store.workspaces ?? []
-        switcherWorkspaceIDs = workspaces.map(\.id)
-        workspaceSwitcher.removeAllItems()
-        if workspaces.isEmpty {
-            workspaceSwitcher.addItem(withTitle: "No workspace")
-            workspaceSwitcher.isEnabled = false
-        } else {
-            workspaceSwitcher.isEnabled = true
-            for workspace in workspaces { workspaceSwitcher.addItem(withTitle: workspace.name) }
-            if let activeID = session?.store.activeID, let index = switcherWorkspaceIDs.firstIndex(of: activeID) {
-                workspaceSwitcher.selectItem(at: index)
-            }
-        }
+        switcher.render(workspaces: session?.store.workspaces ?? [], activeID: session?.store.activeID)
     }
 
     // MARK: - AX self-report
@@ -328,8 +324,8 @@ final class WorkspaceShellPresenter: NSObject {
         let ids = axIdentifiers(in: overlay.sidebarContentView).union(axIdentifiers(in: overlay.topBarContentView))
         let expected = [
             "workspace-shell-agents", "open-terminal", "open-pty-manager",
-            "workspace-shell-switcher", "workspace-shell-add",
-            "workspace-shell-file-tree", "workspace-shell-assign-desktop", "toggle-sidebar-pin",
+            "workspace-switcher", "add-workspace",
+            "workspace-shell-file-tree", "toggle-sidebar-pin",
         ]
         let present = expected.filter { ids.contains($0) }
         logger.notice(

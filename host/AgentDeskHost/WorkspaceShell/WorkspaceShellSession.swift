@@ -175,11 +175,40 @@ final class WorkspaceShellSession {
         return CGRect(origin: origin, size: size)
     }
 
-    /// Bind the active workspace to the Desktop the user is on now (the sidebar's assign action).
-    func assignActiveToCurrentDesktop() {
-        guard let id = store.activeID, let assignment = desktopSwitcher.currentAssignment() else { return }
+    // MARK: - Sidebar switcher mutations (per-workspace, from WorkspaceSwitcher rows)
+
+    /// Remove a workspace (the row's hover × ). The store repoints `active` to the next recent
+    /// workspace, so re-render and refresh the switcher selection.
+    func removeWorkspace(_ id: UUID) {
+        guard store.workspace(id: id) != nil else { return }
+        store.remove(id: id)
+        persist(store)
+        renderActive()
+        onActiveChanged?()
+    }
+
+    /// Bind a workspace to the Desktop the user is on now (a row's assign ⌖). Assigns the row's
+    /// workspace, which need not be the active one, then refreshes so its desktop badge updates.
+    func assignToCurrentDesktop(_ id: UUID) {
+        guard store.workspace(id: id) != nil, let assignment = desktopSwitcher.currentAssignment() else { return }
         store.setDesktopAssignment(assignment, for: id)
         persist(store)
+        onActiveChanged?()
+    }
+
+    /// Toggle a workspace's desktop auto-assign (a row's A toggle).
+    func setDesktopAutoAssign(_ id: UUID, enabled: Bool) {
+        guard store.workspace(id: id) != nil else { return }
+        store.setDesktopAutoAssign(enabled, for: id)
+        persist(store)
+        onActiveChanged?()
+    }
+
+    /// Persist a drag-reorder of the workspace rows (top-to-bottom order).
+    func reorder(_ ids: [UUID]) {
+        store.setOrder(ids)
+        persist(store)
+        onActiveChanged?()
     }
 
     /// The user switched Spaces manually: select the workspace that owns the now-active Desktop
