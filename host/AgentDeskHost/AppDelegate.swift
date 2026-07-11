@@ -376,11 +376,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startWorkspaceShellIfEnabled() {
         guard Config.workspaceShellEnabled else { return }
-        let controller = WorkspaceShellController(
+        let presenter = WorkspaceShellPresenter(
             repository: workspaceRepository,
-            filesResponder: workspaceFilesResponder
+            spacesProvider: spacesProvider
         )
-        let presenter = WorkspaceShellPresenter(controller: controller)
         workspaceShellPresenter = presenter
 
         // R24: the Agents window shares the sidecar-backed AgentFeedBridge path with the phone feed;

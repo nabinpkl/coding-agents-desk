@@ -70,6 +70,9 @@ public final class FileViewer: NSObject, FileViewing {
         window.isReleasedWhenClosed = false
         window.hidesOnDeactivate = false
         window.level = .normal
+        // The editor follows to the active Desktop when revealed, so after a workspace/Desktop switch
+        // it lands on the workspace's Space without the donor's private window-move API (ADR-0054).
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         window.minSize = EditorWindowFrame.minimumSize
         window.contentView = rootView
 
