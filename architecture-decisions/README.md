@@ -91,3 +91,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0051 | Remote SwiftTerm terminal over the Agent Workspace IDE PTY multiplexer | superseded by ADR-0053 | 2026-07-06 |
 | ADR-0052 | AgentDesk owns the agent workspace | accepted | 2026-07-10 |
 | ADR-0053 | AgentDesk owns the terminal PTY packages | accepted | 2026-07-10 |
+| ADR-0054 | Share the workspace+files data model; port the agent-workspace-ide shell | accepted | 2026-07-11 |

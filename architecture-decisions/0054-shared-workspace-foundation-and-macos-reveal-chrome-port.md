@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-07-10
 ---
 
@@ -79,5 +79,5 @@ Left behind: ShellBook, dock enrichment (the third overlay), tenants/slot-tenant
 - ADR-0050 shared wire package (`AgentDeskWire`), the existing both-platforms seam this builds on
 - ADR-0052 AgentDesk owns the agent workspace
 - ADR-0053 AgentDesk owns the terminal PTY packages; donor tombstoned
-- TASKS.md v2/v3 promotion log (R14-R35); this iteration continues at R36
+- `tasks/archive/v2-v3-workspace-consolidation.md` promotion log (R14-R35); this iteration (TASKS.md v4) continues at R36
 - Donor reference: `agent-workspace-ide/ide/Sources/WorkspaceShell/{FileTree,FileTreeLive,FileRevision,FilePreviewKind,ShellOverlay,FocusableOverlayPanel,EdgeRevealController,EdgeReveal,SlotLayout}.swift`

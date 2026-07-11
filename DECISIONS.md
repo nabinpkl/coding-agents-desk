@@ -188,3 +188,38 @@ the prior), mirroring the host's own `DomEventLaneServer` send chain. The lesson
 validate the worker/host/JS logic in isolation but do not exercise the client's real QUIC transport, so
 a physical (or full sim) run remains necessary to catch client-transport concurrency bugs. A device pass
 should be part of accepting any client reverse-channel feature, not optional.
+
+## Workspace shell: share only the data model, port the donor shell faithfully (ADR-0054)
+
+### D10. The reusable shape shared between iOS and macOS is the data+files model, not navigation
+
+Exploring both repos showed the iOS `WorkspaceFilesBrowserModel` already builds entirely on
+`AgentDeskWire`'s workspace/file DTOs, and the host's file navigation is a separate tree. Rather than
+unify the two navigation models (an earlier draft's plan), the shared surface is scoped to the
+workspace + files *data* model: one home per data type. macOS keeps the donor's recursive `NSOutlineView`
+tree and iOS keeps its drill-down list, each rendering the same data. This preserves each platform's
+expected UX and avoids collapsing macOS down to the iOS single-directory list. The `WorkspaceKit`
+package is the home for shared file-domain types that are not wire DTOs (added as consumers need them,
+to avoid dead code); today the wire package already carries the shared data, so `WorkspaceKit` is a
+skeleton pending its first non-wire tenant. Chosen because it is the minimum single-source that removes
+real duplication without forcing a navigation rewrite the user explicitly did not want.
+
+### D11. The reveal pointer source is a CGEvent session tap, not NSEvent monitors
+
+The shell's sidebar and top bar are floating, all-Spaces panels that auto-hide and reveal on an edge
+hover. Hidden all-Spaces panels still have an owning Space, and AppKit `NSEvent` global monitors miss
+pointer movement on Desktops the app does not own, so an `NSEvent`-driven reveal would not fire after a
+Space switch. The port therefore uses the donor's listen-only `.cgSessionEventTap` on a dedicated
+thread, which sees pointer motion across every Space. This needs Input Monitoring; when the grant is
+absent the shell degrades to pinned, visible bars (and prompts) rather than the donor's silent no-op,
+so the shell is never a dead, unreachable surface. An earlier plan to reuse SpaceAgent's `NSEvent`
+monitor pattern was rejected once the donor's own comment documented this exact failure mode.
+
+### D12. SpaceAgent re-parks below the workspace top bar via a versioned-origin bump
+
+SpaceAgent parks top-center; the new full-width top bar occupies the same band, and where two floating
+all-Spaces panels overlap the front one swallows the press. The default park moves ~52pt below the top
+edge (clear of the revealed top bar) when the shell is enabled, and its persisted-origin key is bumped
+v2 -> v3 so the stale top-center origin is dropped on first launch after the change rather than pinning
+the panel to its old spot. No migration of the old value (consistent with the project's no-migration
+convention); a user who had dragged SpaceAgent re-drags once.
