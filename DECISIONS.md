@@ -252,4 +252,25 @@ landed as 206 loose files in `Resources/` and `FileViewer` could not find `viewe
 moved into a `WorkspaceEditorViewer` package that bundles it with a `.copy` resource (preserving the
 `viewer/` tree, like AgentPanel's webview) and is linked host-only, so the 5MB bundle never ships in the
 iOS client. `FileViewer` resolves `Bundle.module`. Notebook cell execution was excised (out of scope);
-`.ipynb` still renders read-only through the SPA.
+`.ipynb` still renders read-only through the SPA. (The host-only linking was reversed in D16.)
+
+### D16. The file viewer is one cross-platform surface; iOS renders files through the same SPA (Phase G)
+
+iOS Files rendered file text in a raw `UITextView`, so markdown/mermaid/code showed as plain source on
+the phone while the macOS shell rendered them through the vendored SPA. The fix is one viewer, not two:
+`WorkspaceEditorViewer` became cross-platform (macOS 26 + iOS 26, one target), the WKWebView host was
+extracted into a shared `WorkspaceFileWebSurface` (a `window.fileSurface` `render(payload)` contract
+plus a ready-queue state machine, iOS/macOS split only on background/opacity and `openExternal`), and
+the iOS surface drives it with a stringly-typed `WorkspaceFilePayload` (kind/mode as strings, avoiding
+host-enum coupling). Both platforms now render identically; only the surrounding chrome differs. This
+reverses D15's host-only linking — the 5MB bundle now ships in the iOS client too, the deliberate cost
+of one viewer instead of a diverging second one.
+
+Editability had to survive the switch: the `UITextView` was editable for every kind, so rendering
+through the SPA would have made markdown/HTML view-only and left HTML a read-only source dump (the SPA
+renders HTML only as source, not a live page — on macOS a live page is a *separate* `htmlPreviewSurface`
+that iOS does not port). So the iOS preview header carries the macOS `FileViewer` modeButton mechanic: a
+Preview/Edit toggle that flips the file's mode and re-renders through the same SPA. Markdown and
+notebooks open rendered; everything else — including HTML — opens as editable source, never a dead end;
+the toggle carries in-progress edits across the flip. iOS HTML *page* rendering (macOS's separate
+surface) is explicitly out of scope: on iOS, HTML is editable source, not a rendered page.

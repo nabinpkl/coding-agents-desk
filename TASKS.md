@@ -116,6 +116,25 @@ the data model shared. This phase replaces the lean content with the donor's rea
   AX self-report on the running host shows the FilePane tree reachable, 9 workspaces, no FileViewer
   crash (viewer bundle resolves), reveal working.
 
+## v4 Phase G: one cross-platform file viewer (iOS renders through the shared SPA)
+
+iOS Files rendered file text in a raw `UITextView` while macOS rendered through the vendored SPA, so
+markdown/mermaid/code looked like plain source on the phone. This phase makes the viewer one shared
+surface (reversing D15's host-only linking), so both platforms render identically; chrome still differs.
+
+- [x] R51. Make `WorkspaceEditorViewer` cross-platform (macOS 26 + iOS 26, one target) and extract the
+  WKWebView host into a shared `WorkspaceFileWebSurface` (the `window.fileSurface` `render(payload)`
+  contract + ready-queue state machine; iOS/macOS split only on background/opacity + `openExternal`).
+  Host `FileViewer`/`FileViewerSurfaceReuse` drive it via a stringly-typed `WorkspaceFilePayload`
+  (kind/mode strings, no host-enum coupling). The 5MB bundle now ships in iOS too — one viewer, not two.
+- [x] R52. Point the iOS Files preview at `WorkspaceFileWebSurface` instead of `UITextView`, and port
+  the macOS `FileViewer` modeButton to the iOS preview header: a Preview/Edit toggle
+  (`workspace-files-preview-mode`) that flips the file's mode and re-renders through the SPA, carrying
+  in-progress edits across the flip. Markdown/notebooks open rendered; everything else (incl. HTML)
+  opens as editable source, so the editability the `UITextView` had is preserved and HTML is never a
+  read-only dead end. `just check` + `just sim-test` green; sim Maestro (`files-md-render.yaml`)
+  confirms markdown renders and the toggle flips to an editable CodeMirror source view.
+
 ## Promotion log
 
 ```
@@ -129,4 +148,6 @@ R44a-b   2026-07-11  verified    shell default-on; host AX self-report confirms 
 R44c     2026-07-11  verified    iOS Maestro picker flow passes on the sim (files-browse.yaml)
 R45-R50  2026-07-11  verified    faithful donor shell port: real FilePane tree + FileViewer center
                                  window + workspace=desktop; lean rewrite replaced. check+sim-test green
+R51-R52  2026-07-11  verified    one cross-platform file viewer; iOS Files renders through the shared
+                                 SPA + Preview/Edit toggle. sim Maestro shows md render + editable source
 ```

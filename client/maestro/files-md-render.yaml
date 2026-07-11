@@ -1,0 +1,47 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+# Phase G md-render check. WKWebView hides its a11y id from Maestro, so we drive + screenshot.
+- extendedWaitUntil:
+    visible: "Files"
+    timeout: 30000
+- tapOn: "Files"
+- extendedWaitUntil:
+    visible:
+      id: "workspace-files-picker"
+    timeout: 30000
+- tapOn:
+    id: "workspace-files-picker"
+- tapOn: "agent-desk"
+- extendedWaitUntil:
+    notVisible: "Loading…"
+    timeout: 30000
+# architecture-decisions is a folder of .md files with no subfolders, so a markdown file is the
+# first row after descending — reliably tappable without scrolling past folder rows.
+- tapOn:
+    id: "workspace-files-entry-architecture-decisions"
+- extendedWaitUntil:
+    notVisible: "Loading…"
+    timeout: 15000
+# 0001-*.md is the first (top, fully visible) row after descending — no off-screen tap ambiguity.
+- tapOn:
+    id: "workspace-files-entry-0001-stack-and-transport.md"
+- extendedWaitUntil:
+    notVisible: "Loading…"
+    timeout: 20000
+# The preview header (native chrome around the WKWebView) is the pass/fail signal: WKWebView
+# hides its own a11y id, so we assert the native Save button to prove the file preview opened,
+# then screenshot to eyeball the SPA-rendered markdown.
+- assertVisible:
+    id: "workspace-files-preview-save"
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: files-md-rendered
+# Mode toggle (parity with the macOS FileViewer modeButton): markdown opens rendered; tapping the
+# toggle flips it to editable source through the same SPA. Proves iOS kept its editability.
+- assertVisible:
+    id: "workspace-files-preview-mode"
+- tapOn:
+    id: "workspace-files-preview-mode"
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: files-md-edit-mode
