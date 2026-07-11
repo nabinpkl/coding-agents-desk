@@ -135,6 +135,29 @@ surface (reversing D15's host-only linking), so both platforms render identicall
   read-only dead end. `just check` + `just sim-test` green; sim Maestro (`files-md-render.yaml`)
   confirms markdown renders and the toggle flips to an editable CodeMirror source view.
 
+## v4 Phase H: port the donor top-bar terminal UI (PTY Manager + "+ Terminal") onto our pty socket
+
+The donor top bar had two terminal controls the port skipped: "＋ Terminal" (spawns an in-app SwiftTerm
+terminal window attached to a `pty-manager` session) and "PTY Manager" (a session/client list). AgentDesk
+already runs the Rust `pty-manager` daemon on its own socket (`Config.ptyManagerSocketURL`, hash-verified)
+and ships `terminal/pty-client-swift` (incl. the `PtyTerminalSwiftTerm` SwiftTerm bridge, so SwiftTerm is
+already an in-tree dependency) — but that package is not linked into the host, and the only terminal UX is
+a floating pill that opens external Ghostty. This phase ports the donor controls onto our socket. Decisions
+(HITL): in-app SwiftTerm terminal (faithful), embedded in-host PTY Manager window (not the donor sidecar
+process), and the Ghostty pill is retired.
+
+- [x] R53. Link `terminal/pty-client-swift` into the host target; add a `PtyManagerSocketClient` seam bound
+  to `Config.ptyManagerSocketURL`. Wiring locked by tests (live round-trip is manual, needs the daemon).
+- [ ] R54. Add `＋ Terminal` (`open-terminal`) + `PTY Manager` (`open-pty-manager`) chips to the shell top
+  bar (`WorkspaceShellPresenter`/`Overlay`), wired to presenter callbacks (mirrors the donor `HoverButton.chip`).
+- [ ] R55. In-app terminal: bring the donor `terminal/emulator` window layer in-tree (4 files, on the
+  existing `PtyTerminalSwiftTerm`); `WorkspaceShellSession.openTerminal()` spawns a SwiftTerm terminal
+  `NSWindow` on our socket, cascaded per workspace, following workspace=desktop (park/unpark, text zoom).
+- [ ] R56. Embedded PTY Manager: a host-owned `NSOutlineView` window driven by `subscribeSessions`
+  (sessions→clients, Open Client / Close Session / Close Client / Reconnect), replacing the donor sidecar.
+- [ ] R57. Retire the Ghostty pill: remove `TerminalLauncher` + `Config.terminalAppURL`/`terminalBundleID`
+  + `startTerminalLauncher()` and reconcile its space-negotiation (SpaceAgent/dictation avoid) wiring.
+
 ## Promotion log
 
 ```
@@ -150,4 +173,6 @@ R45-R50  2026-07-11  verified    faithful donor shell port: real FilePane tree +
                                  window + workspace=desktop; lean rewrite replaced. check+sim-test green
 R51-R52  2026-07-11  verified    one cross-platform file viewer; iOS Files renders through the shared
                                  SPA + Preview/Edit toggle. sim Maestro shows md render + editable source
+R53      2026-07-11  green       pty-client-swift linked into the host; PtyManagerSocketClient dials our
+                                 daemon socket; wiring test green (SwiftTerm resolves, not yet compiled)
 ```
