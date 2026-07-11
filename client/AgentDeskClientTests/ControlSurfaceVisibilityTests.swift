@@ -40,15 +40,26 @@ struct ControlSurfaceVisibilityTests {
         #expect(!v.keyboardInteractive)
     }
 
-    // Exactly one full-bleed surface (agent, browser, or terminal) may be visible at a
+    @Test func filesShowsFilesHidesChromeAndOtherSurfaces() {
+        let v = visibility(for: .files)
+        #expect(v.agentHidden)
+        #expect(v.browserHidden)
+        #expect(v.terminalHidden)
+        #expect(!v.filesHidden)
+        #expect(v.controlChromeHidden)
+        #expect(!v.keyboardInteractive)
+    }
+
+    // Exactly one full-bleed surface (agent, browser, terminal, or files) may be visible at a
     // time; control shows neither. Guards against a future mapping edit that
     // reveals two overlapping surfaces.
     @Test func atMostOneFullBleedSurfaceVisible() {
-        for surface in [ControlSurface.control, .agent, .browser, .terminal] {
+        for surface in [ControlSurface.control, .agent, .browser, .terminal, .files] {
             let v = visibility(for: surface)
             let visibleCount = (v.agentHidden ? 0 : 1)
                 + (v.browserHidden ? 0 : 1)
                 + (v.terminalHidden ? 0 : 1)
+                + (v.filesHidden ? 0 : 1)
             #expect(visibleCount <= 1)
         }
     }

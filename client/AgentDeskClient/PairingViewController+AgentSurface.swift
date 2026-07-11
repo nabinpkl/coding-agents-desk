@@ -34,6 +34,9 @@ extension PairingViewController {
         nonisolated(unsafe) static var surfaceSegmentedControl: UInt8 = 0
         nonisolated(unsafe) static var agentSurfaceConstraints: UInt8 = 0
         nonisolated(unsafe) static var agentSurfaceBoundTransport: UInt8 = 0
+        nonisolated(unsafe) static var filesSurface: UInt8 = 0
+        nonisolated(unsafe) static var filesBrowser: UInt8 = 0
+        nonisolated(unsafe) static var filesSurfaceLoading: UInt8 = 0
     }
 
     private final class AgentSurfaceTransportBinding {
@@ -58,6 +61,21 @@ extension PairingViewController {
     var surfaceSegmentedControl: UISegmentedControl? {
         get { objc_getAssociatedObject(self, &Keys.surfaceSegmentedControl) as? UISegmentedControl }
         set { objc_setAssociatedObject(self, &Keys.surfaceSegmentedControl, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    var filesSurface: WorkspaceFilesSurface? {
+        get { objc_getAssociatedObject(self, &Keys.filesSurface) as? WorkspaceFilesSurface }
+        set { objc_setAssociatedObject(self, &Keys.filesSurface, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    private var filesBrowser: WorkspaceFilesBrowser? {
+        get { objc_getAssociatedObject(self, &Keys.filesBrowser) as? WorkspaceFilesBrowser }
+        set { objc_setAssociatedObject(self, &Keys.filesBrowser, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    private var filesSurfaceLoading: Bool {
+        get { (objc_getAssociatedObject(self, &Keys.filesSurfaceLoading) as? Bool) ?? false }
+        set { objc_setAssociatedObject(self, &Keys.filesSurfaceLoading, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
     private var agentSurfaceBoundTransport: QuicSessionClientTransport? {
@@ -233,6 +251,9 @@ extension PairingViewController {
             // Create the replay surface and start the .dom lane on first switch
             // to Browser (lazy, so the mirror does not run unless viewed).
             ensureDomMirrorSurface()
+        case .files:
+            // Open the .files lane and build the browser on first switch to Files.
+            ensureFilesSurface()
         }
         applySurface(surface)
 
@@ -263,6 +284,8 @@ extension PairingViewController {
                     seg.selectedSegmentIndex = segmentIndex(for: .control, in: seg)
                 }
             }
+        case .files:
+            ensureFilesSurface()
         }
         pairingClient.activeDomMirror?.setCapture(activeControlSurface == .browser)
         domMirrorSurface?.setPaused(activeControlSurface != .browser)
@@ -275,6 +298,7 @@ extension PairingViewController {
         case "Agent": return .agent
         case "Terminal": return .terminal
         case "Browser": return .browser
+        case "Files": return .files
         default: return .control
         }
     }
@@ -286,6 +310,7 @@ extension PairingViewController {
         case .agent: title = "Agent"
         case .terminal: title = "Terminal"
         case .browser: title = "Browser"
+        case .files: title = "Files"
         }
         for index in 0..<seg.numberOfSegments where seg.titleForSegment(at: index) == title {
             return index
@@ -299,6 +324,8 @@ extension PairingViewController {
         if pairingClient.activeDomMirror != nil {
             items.append("Browser")
         }
+        // The .files lane is available on any active session, so Files is always offered.
+        items.append("Files")
         return items
     }
 
@@ -345,8 +372,49 @@ extension PairingViewController {
         // The keyboard surface is a first-responder helper; just disable it.
         keyboardSurface.isUserInteractionEnabled = v.keyboardInteractive
         applyVideoTouchState()
+        filesSurface?.isHidden = v.filesHidden
 
         Self.logger.debug("active surface: \(String(describing: surface))")
+    }
+
+    // Idempotent: opens the .files lane, builds the browser + surface, and auto-selects the first
+    // workspace so the surface shows content on open. The lane is available on any active session,
+    // so unlike Browser this needs no capability gate. Runs its async open in a Task; the loading
+    // flag guards against a double open from rapid segment taps.
+    func ensureFilesSurface() {
+        guard filesSurface == nil, !filesSurfaceLoading else { return }
+        guard let session = pairingClient.activeSessionTransport else { return }
+        filesSurfaceLoading = true
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let transport = try await session.openWorkspaceFilesTransport()
+                let browser = WorkspaceFilesBrowser(transport: transport)
+                let surface = WorkspaceFilesSurface(browser: browser)
+                surface.translatesAutoresizingMaskIntoConstraints = false
+                surface.isHidden = self.activeControlSurface != .files
+                self.view.addSubview(surface)
+                let top = self.surfaceSegmentedControl.map {
+                    surface.topAnchor.constraint(equalTo: $0.bottomAnchor, constant: 8)
+                } ?? surface.topAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.topAnchor)
+                NSLayoutConstraint.activate([
+                    top,
+                    surface.leadingAnchor.constraint(equalTo: self.view.leadingAnchor),
+                    surface.trailingAnchor.constraint(equalTo: self.view.trailingAnchor),
+                    surface.bottomAnchor.constraint(equalTo: self.view.bottomAnchor),
+                ])
+                if let seg = self.surfaceSegmentedControl { self.view.bringSubviewToFront(seg) }
+                self.filesBrowser = browser
+                self.filesSurface = surface
+                await browser.loadWorkspaces()
+                if let first = browser.model.workspaces.first {
+                    await browser.selectWorkspace(first.id)
+                }
+            } catch {
+                Self.logger.error("files surface open failed: \(String(describing: error), privacy: .public)")
+            }
+            self.filesSurfaceLoading = false
+        }
     }
 
     @available(iOS 26.0, *)
