@@ -5,6 +5,14 @@ appId: com.example.agentdesk.AgentDeskClient
     visible: "Files"
     timeout: 30000
 - tapOn: "Files"
+# R38: pick a workspace from the picker first (no more auto-select-first).
+- extendedWaitUntil:
+    visible:
+      id: "workspace-files-picker"
+    timeout: 30000
+- tapOn:
+    id: "workspace-files-picker"
+- tapOn: "agent-desk"
 - extendedWaitUntil:
     notVisible: "Loading…"
     timeout: 30000

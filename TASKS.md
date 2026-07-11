@@ -80,8 +80,12 @@ plus a new workspace picker. Ordering and reasons:
 - [x] R44b. Live-verified via the host's `workspace-shell` AX self-report: sidebar + top bar built,
   all five controls reachable, pointer tap started (Input Monitoring granted), active workspace tree
   populated (18 entries).
-- [ ] R44c. iOS Maestro picker flow on the simulator: Files opens with no workspace auto-selected, tap
-  `workspace-files-picker`, select a workspace, assert its root entries list.
+- [x] R44c. iOS Maestro picker flow (`client/maestro/files-browse.yaml`) verified on the simulator:
+  Files opens on the picker with "Select workspace" (no auto-select), tapping the picker and choosing
+  `agent-desk` loads its root listing, and directory navigation works. `files-edit.yaml` also updated
+  to select a workspace first. (The Debug host has no Screen Recording, so media is unavailable and the
+  QUIC session idles out at ~30s; flows are kept short enough to finish inside that window. Not a code
+  issue: the shell/picker code is unchanged by media.)
 
 ## Promotion log
 
@@ -93,5 +97,5 @@ R38      2026-07-11  green       iOS workspace picker; auto-select-first removed
 R39-R43  2026-07-11  verified    donor reveal shell ported into the host; live AX self-report positive
 R43rev   2026-07-11  green       pointer-tap restartability + coalescing; review NOT GREEN items fixed
 R44a-b   2026-07-11  verified    shell default-on; host AX self-report confirms the reveal chrome
-R44c     pending     pending     iOS Maestro picker flow on the simulator
+R44c     2026-07-11  verified    iOS Maestro picker flow passes on the sim (files-browse.yaml)
 ```

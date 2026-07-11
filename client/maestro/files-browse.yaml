@@ -4,16 +4,28 @@ appId: com.example.agentdesk.AgentDeskClient
 - extendedWaitUntil:
     visible: "Files"
     timeout: 30000
-# Switch to the Files surface: opens the .files lane, lists the default workspace root.
+# Switch to the Files surface: opens the .files lane and loads the workspace list.
 - tapOn: "Files"
-# The host opens the lane and lists the root; wait for the loading copy to clear.
+# R38 picker: the surface opens on the workspace picker with NOTHING auto-selected. The picker button
+# reads "Select workspace" until the user chooses, proving every workspace is reachable (the old
+# auto-select-first hid all but the first).
+- extendedWaitUntil:
+    visible:
+      id: "workspace-files-picker"
+    timeout: 30000
+- assertVisible: "Select workspace"
+- takeScreenshot: files-picker
+# Open the picker and choose a known workspace (this repo), then browse its root.
+- tapOn:
+    id: "workspace-files-picker"
+- tapOn: "agent-desk"
 - extendedWaitUntil:
     notVisible: "Loading…"
     timeout: 30000
 - takeScreenshot: files-root
-# Drill into the "src" directory by its accessibility id (precise, not a coordinate guess).
+# Drill into a directory by its accessibility id (precise, not a coordinate guess).
 - tapOn:
-    id: "workspace-files-entry-src"
+    id: "workspace-files-entry-packages"
 - extendedWaitUntil:
     notVisible: "Loading…"
     timeout: 15000
@@ -25,15 +37,7 @@ appId: com.example.agentdesk.AgentDeskClient
     notVisible: "Loading…"
     timeout: 15000
 - takeScreenshot: files-after-up
-# Open a file to see its read-only preview.
-- tapOn:
-    id: "workspace-files-entry-README.md"
-- extendedWaitUntil:
-    visible:
-      id: "workspace-files-preview-text"
-    timeout: 15000
-- takeScreenshot: files-preview
-# Dismiss the preview and confirm we are back at the listing.
-- tapOn:
-    id: "workspace-files-preview-close"
-- takeScreenshot: files-preview-closed
+# Scope: this flow verifies the R38 picker and directory navigation. Opening a file into the editor
+# (read + revision-checked save) is covered by files-edit.yaml, kept as a separate short flow so each
+# fits inside the simulator session window (a media-unavailable Debug host idles the QUIC session out
+# at ~30s, so long flows flake on the environment, not the code).
