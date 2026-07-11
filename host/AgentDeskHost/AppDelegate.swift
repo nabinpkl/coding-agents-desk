@@ -121,11 +121,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // is shared by every attached `.files` lane. The repository imports the agent-workspace-ide
     // donor store once on first load.
     private var workspaceFilesLanes: [ObjectIdentifier: WorkspaceFilesLaneServer] = [:]
-    private let workspaceFilesResponder = WorkspaceFilesResponder(
-        repository: WorkspaceRepository(
-            donorURL: Config.donorWorkspaceStoreURL,
-            destinationURL: Config.workspaceStoreURL
-        ),
+    private let workspaceRepository = WorkspaceRepository(
+        donorURL: Config.donorWorkspaceStoreURL,
+        destinationURL: Config.workspaceStoreURL
+    )
+    private lazy var workspaceFilesResponder = WorkspaceFilesResponder(
+        repository: workspaceRepository,
         maxBytes: Config.workspaceFileMaxBytes
     )
     private var gesturePortalController: GesturePortalController?
@@ -188,6 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configurePopover()
         bootstrapTLSIdentity()
         startSignalingServer()
+        bootstrapDefaultWorkspaceIfConfigured()
         startDomMirrorIfEnabled()
         installAutomationSignalHandlers()
         refreshConnectedState()
@@ -360,6 +362,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.gesturePortalController?.stop()
             self.voiceChildController?.stop()
             NSApp.terminate(nil)
+        }
+    }
+
+    private func bootstrapDefaultWorkspaceIfConfigured() {
+        guard let root = Config.defaultWorkspaceRoot else { return }
+        Task { [workspaceRepository, signalingLogger] in
+            do {
+                let store = try await workspaceRepository.load()
+                guard store.workspaces.isEmpty else { return } // never override an existing store
+                _ = try await workspaceRepository.register(root: root, name: root.lastPathComponent)
+                signalingLogger.notice("registered default workspace at \(root.path, privacy: .public)")
+            } catch {
+                signalingLogger.error("default workspace bootstrap failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 

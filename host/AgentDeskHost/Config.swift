@@ -881,6 +881,15 @@ enum Config {
         environmentKey: "AGENTDESK_WORKSPACE_FILE_MAX_BYTES",
         defaultValue: 4 * 1024 * 1024
     )
+    // Optional workspace root registered on first launch when the store is empty, so the Files
+    // surface has something to browse before the macOS workspace shell (R20/R21) exists to let the
+    // user add roots. No default: unset means nothing is auto-registered.
+    static let defaultWorkspaceRoot: URL? = {
+        guard let path = ProcessInfo.processInfo.environment["AGENTDESK_DEFAULT_WORKSPACE_ROOT"],
+              !path.isEmpty
+        else { return nil }
+        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+    }()
     // ADR-0038/0039 DOM mirror (Chrome page mirroring). Baked on by default for every variant:
     // the bridge socket, the .dom QUIC lane, and the client replay surface are live unless
     // explicitly disabled via the env override (AGENTDESK_DOM_MIRROR_ENABLED=0). A prior revert
