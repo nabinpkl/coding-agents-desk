@@ -148,8 +148,10 @@ process), and the Ghostty pill is retired.
 
 - [x] R53. Link `terminal/pty-client-swift` into the host target; add a `PtyManagerSocketClient` seam bound
   to `Config.ptyManagerSocketURL`. Wiring locked by tests (live round-trip is manual, needs the daemon).
-- [ ] R54. Add `＋ Terminal` (`open-terminal`) + `PTY Manager` (`open-pty-manager`) chips to the shell top
-  bar (`WorkspaceShellPresenter`/`Overlay`), wired to presenter callbacks (mirrors the donor `HoverButton.chip`).
+- [x] R54. Add `＋ Terminal` (`open-terminal`) + `PTY Manager` (`open-pty-manager`) chips to the shell top
+  bar (`WorkspaceShellPresenter`), as NSButtons matching the existing Agents/pin style, with
+  `onOpenTerminal`/`onOpenPtyManager` presenter callbacks (AppDelegate wires them in R55/R56). Both ids added
+  to the AX self-report set.
 - [ ] R55. In-app terminal: bring the donor `terminal/emulator` window layer in-tree (4 files, on the
   existing `PtyTerminalSwiftTerm`); `WorkspaceShellSession.openTerminal()` spawns a SwiftTerm terminal
   `NSWindow` on our socket, cascaded per workspace, following workspace=desktop (park/unpark, text zoom).

@@ -38,6 +38,14 @@ final class WorkspaceShellPresenter: NSObject {
     /// Agents window, keeping the shell decoupled from the agent surface.
     var onAgentsCommand: (() -> Void)?
 
+    /// Invoked when the top-bar "＋ Terminal" command is tapped (R54). AppDelegate/session wires this
+    /// to spawn an in-app terminal on our pty socket (R55); the shell stays decoupled from the terminal.
+    var onOpenTerminal: (() -> Void)?
+
+    /// Invoked when the top-bar "PTY Manager" command is tapped (R54). AppDelegate wires this to the
+    /// embedded PTY Manager window (R56).
+    var onOpenPtyManager: (() -> Void)?
+
     init(repository: WorkspaceRepository, spacesProvider: SpacesProvider) {
         self.repository = repository
         self.spacesProvider = spacesProvider
@@ -213,6 +221,10 @@ final class WorkspaceShellPresenter: NSObject {
 
         let agentsButton = NSButton(title: "Agents", target: self, action: #selector(agentsTapped))
         agentsButton.setAccessibilityIdentifier("workspace-shell-agents")
+        let terminalButton = NSButton(title: "＋ Terminal", target: self, action: #selector(openTerminalTapped))
+        terminalButton.setAccessibilityIdentifier("open-terminal")
+        let ptyManagerButton = NSButton(title: "PTY Manager", target: self, action: #selector(openPtyManagerTapped))
+        ptyManagerButton.setAccessibilityIdentifier("open-pty-manager")
         let assignButton = NSButton(title: "Assign Desktop", target: self, action: #selector(assignDesktopTapped))
         assignButton.setAccessibilityIdentifier("workspace-shell-assign-desktop")
         pinButton.target = self
@@ -220,7 +232,7 @@ final class WorkspaceShellPresenter: NSObject {
         pinButton.setButtonType(.pushOnPushOff)
         pinButton.setAccessibilityIdentifier("toggle-sidebar-pin")
 
-        let topBarStack = NSStackView(views: [agentsButton, assignButton, pinButton])
+        let topBarStack = NSStackView(views: [agentsButton, terminalButton, ptyManagerButton, assignButton, pinButton])
         topBarStack.orientation = .horizontal
         topBarStack.alignment = .centerY
         topBarStack.spacing = 8
@@ -243,6 +255,10 @@ final class WorkspaceShellPresenter: NSObject {
     }
 
     @objc private func agentsTapped() { onAgentsCommand?() }
+
+    @objc private func openTerminalTapped() { onOpenTerminal?() }
+
+    @objc private func openPtyManagerTapped() { onOpenPtyManager?() }
 
     @objc private func assignDesktopTapped() { session?.assignActiveToCurrentDesktop() }
 
@@ -297,7 +313,8 @@ final class WorkspaceShellPresenter: NSObject {
     private func logAXSelfReport() {
         let ids = axIdentifiers(in: overlay.sidebarContentView).union(axIdentifiers(in: overlay.topBarContentView))
         let expected = [
-            "workspace-shell-agents", "workspace-shell-switcher", "workspace-shell-add",
+            "workspace-shell-agents", "open-terminal", "open-pty-manager",
+            "workspace-shell-switcher", "workspace-shell-add",
             "workspace-shell-file-tree", "workspace-shell-assign-desktop", "toggle-sidebar-pin",
         ]
         let present = expected.filter { ids.contains($0) }
