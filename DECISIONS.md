@@ -25,7 +25,7 @@ frame and prevents the absolute and relative cursor paths from fighting across t
 ### D1. Browser mode is default-on; the pairing failures were network, not DOM
 
 Both enable gates default-on (host `Config.domMirrorEnabled`, client `SettingsStore.domMirrorEnabled`);
-the dead per-recipe `AGENTDESK_DOM_MIRROR_ENABLED=1` injection in `host-run`/`host-run-release` was removed
+the dead per-recipe `AGENTDESK_DOM_MIRROR_ENABLED=1` injection in `host-run`/`host-run-dev` was removed
 (the code default is the single source now). This was briefly **reverted** mid-debug on the belief that the
 `.dom` lane broke device pairing (a fresh pair failed at the QUIC handshake with `-9858` / POSIX 50
 ENETDOWN). That conclusion was **wrong -- a confound**. The `-9858` is literally "network is down": it was
@@ -42,7 +42,7 @@ that is a transport-robustness matter, independent of DOM.
 
 ### D2. The native-messaging bridge is wired on every host launch, not by a separate manual step
 
-`just dom-bridge-reinstall {{variant}}` is now called at the end of `host-run` and `host-run-release`, so
+`just dom-bridge-reinstall {{variant}}` is now called at the end of `host-run` and `host-run-dev`, so
 every host bring-up (dev or stable, sim or physical, since every composite launches through these) wires
 the Chrome native-messaging manifest for that variant's host socket. Previously only the sim/verify
 composites did this and the mainline/physical composites did not, so a normal run left the Browser

@@ -77,7 +77,7 @@ client_archive_path := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_PATH", justf
 # Isolated derived-data path for TestFlight archiving. The archive runs `clean archive`, which wipes
 # its derived data's Build tree; pointing it at a dedicated dir (not `derived_data`) keeps that clean
 # from deleting the running host/client build products under `.build/DerivedData` — otherwise every
-# upload deletes a live `host-run-release` host's on-disk bundle and its keychain/TCC identity breaks.
+# upload deletes a live `host-run` host's on-disk bundle and its keychain/TCC identity breaks.
 client_archive_derived_data := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_DERIVED_DATA", justfile_directory() + "/.build/DerivedData-archive")
 client_dev_archive_derived_data := justfile_directory() + "/.build/DerivedData-archive-dev"
 client_export_path := env_var_or_default("AGENTDESK_CLIENT_EXPORT_PATH", justfile_directory() + "/.build/testflight/export")
@@ -489,10 +489,12 @@ iphone-log-collect variant="stable":
 # AGENTDESK_OWNED_MEDIA_* is forwarded for one-shot owned media feel runs
 # with `just fresh-install`. The retained-tile repair knobs are documented
 # as AGENTDESK_HYBRID_* in .env.example.
+# host-run-dev is the Debug (-Onone) twin of host-run, for fast, breakpoint-friendly iteration
+# (host-run is the Release primary). The `variant` arg is an independent axis: the .dev bundle.
 # variant: "stable" (default) or "dev" (the experimental side-by-side host:
 # bundle id {{host_dev_bundle_id}}, DEV-badged icon, separate derived-data dir,
 # tier-derived ports). The dev host runs concurrently with the stable one.
-host-run variant="stable":
+host-run-dev variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
     # DOM mirror (Chrome page mirroring, ADR-0038) is baked on by default for every
@@ -615,16 +617,14 @@ host-run variant="stable":
     # never blocks on Chrome/node config; it warns loudly instead of failing silently.
     just dom-bridge-reinstall {{variant}} || echo "WARN: dom-bridge wiring failed; browser mode will not mirror until 'just dom-bridge-reinstall {{variant}}' succeeds"
 
-# Release-configuration twin of host-run: same kill + rebuild + relaunch lifecycle,
-# but -configuration Release so the host runs at shipped-build performance. A Debug
-# (-Onone) host pegs a core in the crisp tile codec (OwnedTileCodec.extractTileWithHash
-# per-byte Range loops); Release optimizes that away (~100% -> ~30% CPU). Used by the
-# fresh-install / sim-fresh-install feel-test composites. Every other host launch
-# (plain host-run, motion-verify, agent-feed-sim) stays Debug for fast iteration.
-host-run-release variant="stable":
+# host-run is the PRIMARY host launch: -configuration Release, so the host runs at shipped-build
+# performance. A Debug (-Onone) host pegs a core in the crisp tile codec (OwnedTileCodec.extractTileWithHash
+# per-byte Range loops); Release optimizes that away (~100% -> ~30% CPU). For fast, breakpoint-friendly
+# iteration use the Debug twin host-run-dev; both share the same kill + rebuild + relaunch lifecycle.
+host-run variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
-    # DOM mirror is baked on by default (see host-run); no enable override injected here.
+    # DOM mirror is baked on by default (see host-run-dev); no enable override injected here.
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; APP='{{host_dev_app_release}}'; SIGPORT=41988
         PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
@@ -699,7 +699,7 @@ host-run-release variant="stable":
     }
     build_pty_manager_if_changed
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
-    # Path-scoped kill: only THIS variant's host from THIS checkout (see host-run).
+    # Path-scoped kill: only THIS variant's host from THIS checkout (see host-run-dev).
     HOST_PIDS=$(pgrep -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true)
     [ -n "$HOST_PIDS" ] && kill_host_pids $HOST_PIDS
     if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
@@ -930,7 +930,7 @@ dom-bridge-reinstall variant="dev" channel="chrome":
 
 # Clean DOM-mirror simulator run for the LATEST code (dev stack, non-blocking). One command to get
 # the whole Chrome-mirror chain up on the sim:
-#   1. host-run dev        -- kill + rebuild + relaunch the DEV host with the DOM mirror +
+#   1. host-run-dev dev        -- kill + rebuild + relaunch the DEV host with the DOM mirror +
 #                             auto-approve + dev-iteration envs baked into the launched
 #                             process (launch-env.sh set -> open -> unset; nothing lingers in launchd)
 #   2. dom-bridge-reinstall dev -- (re)point the extension native-messaging manifest at the DEV
@@ -944,7 +944,7 @@ dom-bridge-reinstall variant="dev" channel="chrome":
 # browser channel the bridge manifest targets (chrome default).
 # Clean DEV DOM-mirror sim bring-up for the latest code (non-blocking): dev host + bridge + sim client + pair.
 dom-mirror-sim channel="chrome":
-    just host-run dev
+    just host-run-dev dev
     just dom-bridge-reinstall dev {{channel}}
     just client-sim-reinstall dev
     just pair-sim dev
@@ -962,7 +962,7 @@ dom-mirror-device-run:
     just build-agent-webview
     launchctl setenv AGENTDESK_DOM_MIRROR_ENABLED 1
     trap 'launchctl unsetenv AGENTDESK_DOM_MIRROR_ENABLED 2>/dev/null || true' EXIT
-    just host-run-release
+    just host-run
     just client-reinstall-release
     HOST_PID="$(pgrep -f '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}' | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running"; exit 1; }
@@ -989,7 +989,7 @@ dom-mirror-device-run-dev:
     just build-agent-webview
     launchctl setenv AGENTDESK_DOM_MIRROR_ENABLED 1
     trap 'launchctl unsetenv AGENTDESK_DOM_MIRROR_ENABLED 2>/dev/null || true' EXIT
-    just host-run dev
+    just host-run-dev dev
     just client-reinstall dev
     HOST_PID="$(pgrep -f '{{host_dev_derived_data}}/Build/Products/.*/{{host_process_suffix}}' | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running"; exit 1; }
@@ -1027,7 +1027,7 @@ dom-mirror-device-run-dev:
 fresh-install:
     just build-agent-sidecar
     just build-agent-webview
-    just host-run-release
+    just host-run
     just client-reinstall-release
     just pair-iphone stable
 
@@ -1040,27 +1040,27 @@ fresh-install:
 fresh-testflight:
     just build-agent-sidecar
     just build-agent-webview
-    just host-run-release
+    just host-run
     just testflight-upload stable
 
 fresh-install-dev:
     just build-agent-sidecar
     just build-agent-webview
-    just host-run dev
+    just host-run-dev dev
     just client-reinstall dev
     just pair-iphone dev
 
 fresh-release-diagnostic-run:
     just build-agent-sidecar
     just build-agent-webview
-    just host-run-release
+    just host-run
     just client-reinstall-release
     just iphone-console-run stable
 
 fresh-diagnostic-run-dev:
     just build-agent-sidecar
     just build-agent-webview
-    just host-run dev
+    just host-run-dev dev
     just client-reinstall dev
     just iphone-console-run dev
 
@@ -1290,10 +1290,10 @@ sim-reinstall-pair:
 # feel-test path; Release so it reflects shipped performance (a Debug -Onone host pegs a
 # core in the crisp tile codec). The uninstall wipes UserDefaults so pairing is always
 # re-done. For a non-blocking paired launch (e.g. to drive a Maestro flow while the app
-# stays open), run the Release leaves host-run-release, client-sim-reinstall-release,
-# pair-sim (or the Debug leaves host-run, client-sim-reinstall, pair-sim for fast iteration).
+# stays open), run the Release leaves host-run, client-sim-reinstall-release,
+# pair-sim (or the Debug leaves host-run-dev, client-sim-reinstall, pair-sim for fast iteration).
 sim-fresh-install:
-    just host-run-release
+    just host-run
     just client-sim-reinstall-release
     just dom-bridge-reinstall stable
     just sim-console-run
@@ -1315,7 +1315,7 @@ sim-fresh-install:
 agent-feed-sim:
     just build-agent-sidecar
     just build-agent-webview
-    just host-run
+    just host-run-dev
     just client-sim-reinstall
     just dom-bridge-reinstall stable
     just sim-console-run
@@ -1327,7 +1327,7 @@ agent-feed-sim:
 agent-feed-sim-pair:
     just build-agent-sidecar
     just build-agent-webview
-    just host-run
+    just host-run-dev
     just client-sim-reinstall
     just dom-bridge-reinstall stable
     just pair-sim
@@ -1343,7 +1343,7 @@ agent-feed-sim-pair:
 agent-feed-sim-dev:
     just build-agent-sidecar
     just build-agent-webview
-    just host-run dev
+    just host-run-dev dev
     just client-sim-reinstall dev
     just dom-bridge-reinstall dev
     just sim-console-run dev
@@ -1351,7 +1351,7 @@ agent-feed-sim-dev:
 agent-feed-sim-pair-dev:
     just build-agent-sidecar
     just build-agent-webview
-    just host-run dev
+    just host-run-dev dev
     just client-sim-reinstall dev
     just dom-bridge-reinstall dev
     just pair-sim dev
@@ -1395,7 +1395,7 @@ client-archive-release variant="stable":
     BUILD_NUMBER="$(tools/testflight-upload.sh build-number)"
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
     # Archive into an isolated derived-data dir (NOT `derived_data`): the `clean archive` below wipes
-    # its Build tree, so sharing it with a live host-run-release host would delete that host's on-disk
+    # its Build tree, so sharing it with a live host-run host would delete that host's on-disk
     # bundle mid-run and break its keychain/TCC identity (pairing then fails to sign the offer).
     if [ "{{variant}}" = "dev" ]; then
         ARCHIVE='{{client_dev_archive_path}}'; DD='{{client_dev_archive_derived_data}}'
