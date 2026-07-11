@@ -9,8 +9,12 @@ import os
 /// fire after a Space switch. A session-level CGEvent tap sees pointer motion across every Space.
 ///
 /// The tap is listen-only (never modifies or blocks events) and non-consuming. It requires Input
-/// Monitoring; `CGPreflightListenEventAccess()` gates creation, and the presenter degrades to pinned
-/// bars when the grant is absent rather than silently doing nothing.
+/// Monitoring; `start()` returns false when the tap cannot be created (grant absent), and the
+/// presenter degrades to pinned bars rather than silently doing nothing.
+///
+/// Restartable: `start()` creates the tap and enables it on a dedicated CFRunLoop thread; `stop()`
+/// tears it down. A `start()` after a `stop()` builds a fresh tap, so the same instance can be
+/// cycled. All shared mutable state is guarded by `lock`.
 final class WorkspaceShellPointerTap {
     private let lock = NSLock()
     private let onPointer: (CGPoint) -> Void
@@ -18,7 +22,7 @@ final class WorkspaceShellPointerTap {
     private var source: CFRunLoopSource?
     private var runLoop: CFRunLoop?
     private var thread: Thread?
-    private var shouldStop = false
+    private var running = false
 
     /// The events the tap listens for: pointer movement in every button state. A drag is still a
     /// move, so all three drag types are included, matching the donor.
@@ -37,48 +41,57 @@ final class WorkspaceShellPointerTap {
 
     /// The pointer callback delivers Quartz coordinates (top-left origin, y-down). AppKit is
     /// bottom-left origin, y-up, so callers flip through the primary (menu-bar) display height.
-    init?(onPointer: @escaping (CGPoint) -> Void) {
+    init(onPointer: @escaping (CGPoint) -> Void) {
         self.onPointer = onPointer
-
-        let refcon = Unmanaged.passUnretained(self).toOpaque()
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .tailAppendEventTap,
-            options: .listenOnly,
-            eventsOfInterest: WorkspaceShellPointerTap.pointerEventMask,
-            callback: WorkspaceShellPointerTap.eventTapCallback,
-            userInfo: refcon
-        ) else {
-            return nil
-        }
-        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
-            CFMachPortInvalidate(tap)
-            return nil
-        }
-        self.tap = tap
-        self.source = source
     }
 
     deinit {
         stop()
     }
 
-    func start() {
+    /// Creates and enables the tap on a dedicated thread. Returns false when the tap cannot be created
+    /// (Input Monitoring absent). A no-op that returns true when already running.
+    @discardableResult
+    func start() -> Bool {
         lock.lock()
-        guard thread == nil, tap != nil else {
+        guard !running else {
             lock.unlock()
-            return
+            return true
         }
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .tailAppendEventTap,
+            options: .listenOnly,
+            eventsOfInterest: WorkspaceShellPointerTap.pointerEventMask,
+            callback: WorkspaceShellPointerTap.eventTapCallback,
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else {
+            lock.unlock()
+            return false
+        }
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            CFMachPortInvalidate(tap)
+            lock.unlock()
+            return false
+        }
+        self.tap = tap
+        self.source = source
+        running = true
         let nextThread = Thread { [weak self] in self?.run() }
         nextThread.name = "\(Config.dispatchQueuePrefix).workspace-shell-pointer-tap"
         thread = nextThread
         lock.unlock()
         nextThread.start()
+        return true
     }
 
     func stop() {
         lock.lock()
-        shouldStop = true
+        guard running else {
+            lock.unlock()
+            return
+        }
+        running = false
         let currentTap = tap
         let currentRunLoop = runLoop
         lock.unlock()
@@ -93,9 +106,15 @@ final class WorkspaceShellPointerTap {
     }
 
     private func run() {
+        // `self?.run()` from the spawning thread block holds a strong reference to self for the
+        // duration of this call, so the unretained refcon in `eventTapCallback` stays valid for the
+        // whole lifetime of the run loop even though the presenter may have already dropped its
+        // reference and called stop() on the main thread.
         autoreleasepool {
             lock.lock()
-            guard !shouldStop, let tap, let source else {
+            guard running, let tap, let source else {
+                // A stop() (or a second start()) raced ahead of this thread's first execution. Leave
+                // the shared state alone; whichever call owns `running` also owns tap/source/thread.
                 lock.unlock()
                 return
             }
@@ -111,8 +130,12 @@ final class WorkspaceShellPointerTap {
             CFRunLoopRemoveSource(currentRunLoop, source, .commonModes)
 
             lock.lock()
-            runLoop = nil
-            thread = nil
+            // Only clear the slots this run owns. If a newer start() already replaced them, do not
+            // stomp the new tap: compare identity.
+            if self.runLoop === currentRunLoop { self.runLoop = nil }
+            if self.tap === tap { self.tap = nil }
+            if self.source === source { self.source = nil }
+            if self.thread === Thread.current { self.thread = nil }
             lock.unlock()
         }
     }

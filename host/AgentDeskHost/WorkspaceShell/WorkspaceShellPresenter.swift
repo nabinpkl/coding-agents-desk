@@ -90,24 +90,49 @@ final class WorkspaceShellPresenter: NSObject {
 
     // MARK: - Reveal wiring
 
-    /// Starts the pointer tap when Input Monitoring is granted; otherwise degrades to pinned bars and
-    /// prompts for the grant so a later launch gets the hover reveal.
+    /// Starts the pointer tap when Input Monitoring is granted and the tap can be created; otherwise
+    /// degrades to pinned bars and prompts for the grant so a later launch gets the hover reveal.
     private func startPointerTapOrDegrade() {
-        inputMonitoringGranted = CGPreflightListenEventAccess()
-        if inputMonitoringGranted {
-            pointerTap = WorkspaceShellPointerTap(onPointer: { [weak self] quartz in
-                Task { @MainActor in self?.handlePointer(quartz) }
-            })
-            pointerTap?.start()
-            logger.notice("workspace-shell reveal: pointer tap started (Input Monitoring granted)")
-        } else {
-            logger.notice("workspace-shell reveal: Input Monitoring absent; degrading to pinned bars")
-            _ = CGRequestListenEventAccess() // prompt so a later launch gets hover reveal
+        if CGPreflightListenEventAccess() {
+            let tap = WorkspaceShellPointerTap(onPointer: { [weak self] quartz in self?.enqueuePointer(quartz) })
+            if tap.start() {
+                pointerTap = tap
+                inputMonitoringGranted = true
+                logger.notice("workspace-shell reveal: pointer tap started (Input Monitoring granted)")
+                updateConfiguration()
+                return
+            }
         }
+        inputMonitoringGranted = false
+        logger.notice("workspace-shell reveal: Input Monitoring absent; degrading to pinned bars")
+        _ = CGRequestListenEventAccess() // prompt so a later launch gets hover reveal
         updateConfiguration()
     }
 
-    private func handlePointer(_ quartz: CGPoint) {
+    /// The tap fires pointer movement at high frequency on its own thread. Coalesce it: keep only the
+    /// latest point and schedule at most one main-actor drain per burst, so a stream of motion is one
+    /// hop rather than one Task per event. `pointerLock` guards the two fields against the tap thread.
+    private let pointerLock = NSLock()
+    nonisolated(unsafe) private var pendingPointerQuartz: CGPoint?
+    nonisolated(unsafe) private var pointerDrainScheduled = false
+
+    nonisolated private func enqueuePointer(_ quartz: CGPoint) {
+        pointerLock.lock()
+        pendingPointerQuartz = quartz
+        let schedule = !pointerDrainScheduled
+        pointerDrainScheduled = true
+        pointerLock.unlock()
+        guard schedule else { return }
+        Task { @MainActor [weak self] in self?.drainPointer() }
+    }
+
+    private func drainPointer() {
+        pointerLock.lock()
+        let quartz = pendingPointerQuartz
+        pendingPointerQuartz = nil
+        pointerDrainScheduled = false
+        pointerLock.unlock()
+        guard let quartz else { return }
         let point = WorkspaceShellPointerTap.appKitPoint(quartz: quartz)
         let inside = Set(WorkspaceShellSurface.allCases.filter { overlay.containsSurface($0, point: point) })
         edgeReveal.pointerMoved(to: point, insideSurfaces: inside)

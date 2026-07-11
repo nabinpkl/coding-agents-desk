@@ -4,20 +4,8 @@ import AppKit
 /// so the `LSUIElement` host never activates on hover, but `canBecomeKey` so the file tree and editor
 /// inside the sidebar can take keyboard focus without stealing the menu bar from the frontmost app.
 final class FocusableOverlayPanel: NSPanel {
-    var onKeyStateChanged: ((Bool) -> Void)?
-
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
-
-    override func becomeKey() {
-        super.becomeKey()
-        onKeyStateChanged?(true)
-    }
-
-    override func resignKey() {
-        super.resignKey()
-        onKeyStateChanged?(false)
-    }
 }
 
 /// The macOS workspace-shell overlay (ADR-0054): a left-edge sidebar and a top-edge bar, ported from
@@ -42,10 +30,6 @@ final class WorkspaceShellOverlay {
     /// flicker it closed. Matches the donor's surface tolerance.
     private static let surfaceTolerance: CGFloat = 12
     private var revealed: Set<WorkspaceShellSurface> = []
-
-    var onSidebarKeyStateChanged: ((Bool) -> Void)? {
-        didSet { sidebarPanel.onKeyStateChanged = onSidebarKeyStateChanged }
-    }
 
     init() {
         sidebarPanel = WorkspaceShellOverlay.makePanel()
