@@ -71,6 +71,25 @@ struct SpaceAgentModelTests {
         #expect(high == CGPoint(x: 480, y: 370))
     }
 
+    /// R42 (ADR-0054): with the workspace shell on, SpaceAgent parks below a clearance that clears
+    /// the revealed top bar, so the two floating all-Spaces panels do not overlap. The legacy 24pt
+    /// default overlapped that strip, which is why the re-park (and the v3 key bump) exist.
+    @Test func defaultOriginParksClearOfTheWorkspaceTopBar() {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let size = CGSize(width: 320, height: 120)
+        let topBarStrip = CGRect(x: screen.minX, y: screen.maxY - 38, width: screen.width, height: 38)
+
+        let origin = SpaceAgentPanelPlacement.defaultOrigin(
+            size: size, visibleFrames: [screen], topBarClearance: 52
+        )
+        #expect(!CGRect(origin: origin, size: size).intersects(topBarStrip))
+        #expect(origin.x == screen.midX - size.width / 2) // still horizontally centered
+
+        // The legacy default (no shell) parks only 24 below the top edge and overlaps the strip.
+        let legacy = SpaceAgentPanelPlacement.defaultOrigin(size: size, visibleFrames: [screen])
+        #expect(CGRect(origin: legacy, size: size).intersects(topBarStrip))
+    }
+
     @Test func expandedPanelCapsWidthForScrollableTiles() {
         let controller = SpaceAgentViewController(layout: .horizontal)
         _ = controller.view

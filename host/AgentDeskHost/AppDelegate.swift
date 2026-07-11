@@ -129,7 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         repository: workspaceRepository,
         maxBytes: Config.workspaceFileMaxBytes
     )
-    private var workspaceShellPanelController: WorkspaceShellPanelController?
+    private var workspaceShellPresenter: WorkspaceShellPresenter?
     // R24: the macOS Agents window, toggled from the shell's top-bar "Agents" command. Backed by the
     // host-owned ATC sidecar through AgentPanel, independent of the QUIC-lane agent feed.
     private var agentWindowController: AgentWindowController?
@@ -281,8 +281,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             lane.stop()
         }
         workspaceFilesLanes.removeAll()
-        workspaceShellPanelController?.stop()
-        workspaceShellPanelController = nil
+        workspaceShellPresenter?.stop()
+        workspaceShellPresenter = nil
         agentWindowController?.stop()
         agentWindowController = nil
         voiceChildController?.stop()
@@ -380,8 +380,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             repository: workspaceRepository,
             filesResponder: workspaceFilesResponder
         )
-        let panel = WorkspaceShellPanelController(controller: controller)
-        workspaceShellPanelController = panel
+        let presenter = WorkspaceShellPresenter(controller: controller)
+        workspaceShellPresenter = presenter
 
         // R24: the Agents window shares the sidecar-backed AgentFeedBridge path with the phone feed;
         // it resolves the sidecar base URL lazily per request, same as the QUIC-lane wiring, so a
@@ -391,9 +391,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             sidecarClient: HttpSidecarClient(baseURLProvider: { [weak sidecar] in sidecar?.baseURL })
         )
         agentWindowController = agentWindow
-        panel.onAgentsCommand = { [weak agentWindow] in agentWindow?.toggle() }
+        presenter.onAgentsCommand = { [weak agentWindow] in agentWindow?.toggle() }
 
-        panel.show()
+        presenter.show()
 
         // Dev affordance (R24): auto-open the Agents window so it can be observed without a manual
         // tap, and its accessibility self-report lands in os_log on launch.

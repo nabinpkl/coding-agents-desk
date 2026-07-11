@@ -160,11 +160,12 @@ private final class HyperKeyCharTap {
 @MainActor
 final class SpaceAgentController: NSObject {
     private enum DefaultsKey {
-        // Keys are versioned so a default-placement change (right edge ->
-        // top center) drops the stale parked origin instead of pinning the
-        // panel to its old spot. Future drags persist under the new keys.
-        static let originX = "SpaceAgent.origin.v2.x"
-        static let originY = "SpaceAgent.origin.v2.y"
+        // Keys are versioned so a default-placement change drops the stale parked origin instead of
+        // pinning the panel to its old spot; future drags persist under the new keys. v2 moved the
+        // default from the right edge to top center; v3 (ADR-0054) drops it again so the panel parks
+        // clear of the workspace shell's revealed top bar instead of overlapping it.
+        static let originX = "SpaceAgent.origin.v3.x"
+        static let originY = "SpaceAgent.origin.v3.y"
     }
 
     private let spacesProvider: SpacesProvider
@@ -227,9 +228,14 @@ final class SpaceAgentController: NSObject {
     func start() {
         guard panel == nil else { return }
         let size = viewController.preferredPanelSize
+        // Park clear of the workspace shell's top bar when the shell is enabled, so a revealed top
+        // bar does not overlap the SpaceAgent handle (both are floating all-Spaces panels; the front
+        // one swallows the press where they overlap).
+        let topBarClearance: CGFloat = Config.workspaceShellEnabled ? 52 : 24
         let origin = restoredOrigin(size: size) ?? SpaceAgentPanelPlacement.defaultOrigin(
             size: size,
-            visibleFrames: visibleFrames()
+            visibleFrames: visibleFrames(),
+            topBarClearance: topBarClearance
         )
         let panel = SpaceAgentPanel(
             contentRect: CGRect(origin: origin, size: size),
@@ -609,14 +615,18 @@ extension SpaceAgentController: NSWindowDelegate {
 }
 
 enum SpaceAgentPanelPlacement {
-    static func defaultOrigin(size: CGSize, visibleFrames: [CGRect]) -> CGPoint {
+    static func defaultOrigin(
+        size: CGSize,
+        visibleFrames: [CGRect],
+        topBarClearance: CGFloat = 24
+    ) -> CGPoint {
         let frame = visibleFrames.first ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
-        // Top center of the primary screen. macOS coordinates are bottom-left
-        // origin, so the top edge is the high-y side: park the panel just below
-        // it and horizontally centered.
+        // Top center of the primary screen. macOS coordinates are bottom-left origin, so the top edge
+        // is the high-y side: park the panel `topBarClearance` below it, horizontally centered. The
+        // clearance is enough to clear the workspace shell's revealed top bar when the shell is on.
         return CGPoint(
             x: frame.midX - size.width / 2,
-            y: frame.maxY - size.height - 24
+            y: frame.maxY - size.height - topBarClearance
         )
     }
 
