@@ -39,7 +39,7 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 - [x] D25. Extend `AgentDeskWire` to protocol version 6 with reliable `.files = 6` stream framing and workspace list, directory list, read, write, conflict, and error messages using workspace-relative paths.
 - [x] D26. Add a host files stream endpoint that walks from registered-root descriptors with `openat`/`O_NOFOLLOW`, bounds payloads through central config, rejects traversal and symlinks, reads UTF-8 text, and performs content-digest revision-checked atomic writes through the verified parent descriptor. (`WorkspaceFilesLaneServer` decodes `.files` frames; `WorkspaceFilesResponder` serializes them against the store and closes the lost-update write race; `PairingSignalingServer` hands off the lane; `AppDelegate` owns the repository + responder; byte cap and store paths in `Config`. Host-unit green; live client-to-host serving is proven at the R33 device/sim checkpoint.)
 - [x] D27. Add a client files transport that reconnects with the session, correlates responses, cancels pending requests on teardown, and cannot block input or media lanes. (`WorkspaceFilesTransport` actor over a `WorkspaceFilesFrameChannel`; correlation by request id, fail-loud on duplicate id / undecodable response, teardown fails all in-flight. Reviewer-green; `just sim-test` green. Reconnect is per-session re-construction, not in-instance reopen.)
-- [ ] R28. Add an iOS Files surface for workspace and directory navigation plus read-only preview, with focused model and lifecycle tests.
+- [ ] R28. Add an iOS Files surface for workspace and directory navigation plus read-only preview, with focused model and lifecycle tests. (Landed and reviewer-green: `WorkspaceFilesBrowserModel`, the pure generation-correlated navigation/listing state, with `just sim-test` coverage. Remaining: the UIKit surface and the controller that drives it over `WorkspaceFilesTransport`, plus read-only preview — verified on the simulator via a Maestro flow, not unit tests.)
 - [ ] R29. Reuse the shared file editor surface on iOS and enable save through revision-checked writes, surfacing conflicts without overwriting host changes.
 - [ ] R30. Replace the crowded text-only surface switcher with an accessible control that fits Control, Agents, Files, Terminal, and Browser across supported iPhone widths.
 
@@ -73,7 +73,8 @@ R21-R24  pending     pending     shell host wiring, file viewer/editor, shell st
 R25      2026-07-10  green      protocol 6 + .files framing and file messages (just check green)
 R26      2026-07-10  green      files lane endpoint + serialized writes (just check green; live serving at R33)
 R27      2026-07-10  green      client Files transport (reviewer-green; just sim-test green)
-R28-R30  pending     pending     iOS Files surfaces and switcher
+R28      partial     green      Files navigation model landed (reviewer-green); UIKit surface remains
+R29-R30  pending     pending     iOS editor save and surface switcher
 R31-R33  pending     pending     integration and real-surface proof
 R34-R35  captured    pending     donor retirement
 ```
