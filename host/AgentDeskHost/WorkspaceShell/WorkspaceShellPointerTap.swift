@@ -77,7 +77,9 @@ final class WorkspaceShellPointerTap {
         self.tap = tap
         self.source = source
         running = true
-        let nextThread = Thread { [weak self] in self?.run() }
+        // Bind this run to the exact tap/source it was created for, so a rapid stop() + start() that
+        // replaces them cannot make this thread register a newer cycle's tap on its own run loop.
+        let nextThread = Thread { [weak self] in self?.run(tap: tap, source: source) }
         nextThread.name = "\(Config.dispatchQueuePrefix).workspace-shell-pointer-tap"
         thread = nextThread
         lock.unlock()
@@ -105,16 +107,17 @@ final class WorkspaceShellPointerTap {
         }
     }
 
-    private func run() {
-        // `self?.run()` from the spawning thread block holds a strong reference to self for the
+    private func run(tap: CFMachPort, source: CFRunLoopSource) {
+        // `self?.run(...)` from the spawning thread block holds a strong reference to self for the
         // duration of this call, so the unretained refcon in `eventTapCallback` stays valid for the
         // whole lifetime of the run loop even though the presenter may have already dropped its
         // reference and called stop() on the main thread.
         autoreleasepool {
             lock.lock()
-            guard running, let tap, let source else {
-                // A stop() (or a second start()) raced ahead of this thread's first execution. Leave
-                // the shared state alone; whichever call owns `running` also owns tap/source/thread.
+            // Only run if this thread's own tap/source are still the current ones. A stop() (or a
+            // newer start()) that raced ahead of this thread's first execution replaces them, and this
+            // thread must not adopt the newer cycle's tap.
+            guard running, self.tap === tap, self.source === source else {
                 lock.unlock()
                 return
             }
