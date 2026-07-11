@@ -63,8 +63,6 @@
 				"pty-manager",
 				QRCodeRenderer.swift,
 				ScreenCaptureKitFrameSource.swift,
-				TerminalLauncher/TerminalLauncherController.swift,
-				TerminalLauncher/TerminalLauncherViewController.swift,
 				TestPatternFrameSource.swift,
 				TLSIdentityLoader.swift,
 				TranscriptionClient.swift,

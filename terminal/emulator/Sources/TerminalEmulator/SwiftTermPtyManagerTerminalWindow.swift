@@ -14,8 +14,11 @@ public final class SwiftTermPtyManagerTerminalSpawn: TerminalEmulatorSpawn {
     private let client: PtyClient
     private let shell: String
 
+    // `client` is required (no default): a defaulted `PtyClient()` would silently dial the donor's
+    // `/tmp/pty-manager.sock`, defeating AgentDesk's bundle-scoped socket. Callers inject a client
+    // bound to their own socket (the host passes `PtyManagerSocketClient.makeClient()`).
     public init(
-        client: PtyClient = PtyClient(),
+        client: PtyClient,
         shell: String = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
     ) {
         self.client = client

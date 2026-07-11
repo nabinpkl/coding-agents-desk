@@ -10,7 +10,7 @@ import os
 /// Sessions are top-level rows (Name/PID/Clients/CWD/Shell/State); each client is a child row. Opened
 /// from the shell top-bar "PTY Manager" chip.
 @MainActor
-final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
+final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSWindowDelegate {
     /// One outline row: a session, or a client under it. Reference type because NSOutlineView needs
     /// stable item identity for view-based rows and expansion state.
     private final class Node {
@@ -75,6 +75,7 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
         window.isReleasedWhenClosed = false
         window.center()
         window.setAccessibilityIdentifier("pty-manager-window")
+        window.delegate = self
         buildChrome()
     }
 
@@ -160,6 +161,11 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
                     if Task.isCancelled { return }
                     self.render(snapshot, status: "Connected to \(self.socketPath)")
                 }
+                // A cancelled consumer ends the stream normally (not via the catch), so this
+                // fallback must also bail on cancellation — otherwise a Reconnect that supersedes
+                // this task would let the old task stomp the new subscription's status back to
+                // "Disconnected".
+                if Task.isCancelled { return }
                 self.render(self.currentSessions(), status: "Disconnected")
             } catch {
                 if Task.isCancelled { return }
@@ -185,6 +191,14 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
         subscription?.cancel()
         subscription = nil
         window.orderOut(nil)
+    }
+
+    /// Closing the window (the OS "×") only hides it (isReleasedWhenClosed=false), so tear the
+    /// session stream and its socket connection down here; a later show() re-subscribes because
+    /// `subscription` is nil again.
+    func windowWillClose(_ notification: Notification) {
+        subscription?.cancel()
+        subscription = nil
     }
 
     // MARK: - NSOutlineViewDataSource

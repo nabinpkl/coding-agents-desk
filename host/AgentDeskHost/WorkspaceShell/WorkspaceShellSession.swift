@@ -140,7 +140,12 @@ final class WorkspaceShellSession {
     /// explicit park/unpark. This is the top-bar "＋ Terminal" action (R55).
     func openTerminal() {
         guard let id = store.activeID, let workspace = store.workspace(id: id) else { return }
-        let index = terminals[id]?.count ?? 0
+        // Drop windows the user has already closed so the cascade counts only currently-open
+        // terminals (otherwise successive spawns drift ever further off the slot) and closed window
+        // objects aren't retained for the process lifetime.
+        let open = (terminals[id] ?? []).filter(\.isOpen)
+        terminals[id] = open
+        let index = open.count
         let frame = terminalFrame().offsetBy(
             dx: CGFloat(index) * terminalCascadeStep,
             dy: CGFloat(-index) * terminalCascadeStep
