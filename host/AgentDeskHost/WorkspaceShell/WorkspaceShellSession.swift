@@ -70,8 +70,12 @@ final class WorkspaceShellSession {
         viewer.onOpenFile = { [weak self] url in self?.openFile(url) }
     }
 
-    /// Root the tree + render the viewer for whatever workspace is active on launch.
-    func start() { renderActive() }
+    /// Root the tree + render the viewer for whatever workspace is active on launch, at the persisted
+    /// text zoom (so a saved non-default zoom applies from the first render).
+    func start() {
+        filePane.setTextZoom(store.textZoom)
+        renderActive()
+    }
 
     // MARK: - Files
 
@@ -210,6 +214,32 @@ final class WorkspaceShellSession {
         persist(store)
         onActiveChanged?()
     }
+
+    // MARK: - Sidebar chrome (text zoom, width)
+
+    /// Apply a text-zoom command (the sidebar +/− buttons), persist the new step, and re-render
+    /// the file tree at the new sizes. Returns the resolved zoom so the presenter can size the
+    /// switcher rows and title label to match. The web-viewer editor keeps its own sizing.
+    @discardableResult
+    func applyTextZoom(_ command: WorkspaceTextZoomCommand) -> WorkspaceTextZoom {
+        let zoom = command.apply(to: store.textZoom)
+        store.textZoom = zoom
+        persist(store)
+        filePane.setTextZoom(zoom)
+        return zoom
+    }
+
+    /// The persisted text-zoom, so the presenter can size the switcher + title on first render.
+    var textZoom: WorkspaceTextZoom { store.textZoom }
+
+    /// Persist a drag-resized sidebar width (the resize handle's release).
+    func setSidebarWidth(_ width: CGFloat, screenWidth: CGFloat?) {
+        store.setSidebarWidth(width, screenWidth: screenWidth)
+        persist(store)
+    }
+
+    /// The persisted sidebar width, so the presenter lays out the sidebar panel on first render.
+    var sidebarWidth: CGFloat { store.sidebarWidth }
 
     /// The user switched Spaces manually: select the workspace that owns the now-active Desktop
     /// (without re-switching the Space). Wired to NSWorkspace.activeSpaceDidChange by the presenter.

@@ -3,10 +3,12 @@ import CoreGraphics
 import os
 
 /// Presents the macOS workspace shell as the agent-workspace-ide reveal-on-hover chrome (ADR-0054): a
-/// left-edge sidebar (workspace switcher + the donor FilePane file tree) and a top bar (Agents +
-/// assign-desktop + pin), both floating all-Spaces overlays that auto-hide like the Dock and slide in
-/// on an edge hover. A file opens into the donor FileViewer window centered in the slot (not inline),
-/// and switching the workspace switches the macOS Desktop — both driven by WorkspaceShellSession.
+/// left-edge sidebar (the donor workspace switcher, a divider, the active-workspace title header with
+/// text-zoom −/+ and a pin, the donor FilePane file tree, and a drag-resize handle) and a top bar
+/// (Agents on the left; PTY Manager, ＋ Terminal, and a pin on the right). Both are floating all-Spaces
+/// overlays that auto-hide like the Dock and slide in on an edge hover. A file opens into the donor
+/// FileViewer window centered in the slot (not inline), and switching the workspace switches the macOS
+/// Desktop — both driven by WorkspaceShellSession.
 ///
 /// The pure `WorkspaceShellEdgeRevealController` is driven from a `WorkspaceShellPointerTap` (a
 /// CGEvent session tap; NSEvent monitors miss non-owning Spaces). Without Input Monitoring the tap
@@ -21,7 +23,11 @@ final class WorkspaceShellPresenter: NSObject {
     private var edgeReveal: WorkspaceShellEdgeRevealController!
     private var pointerTap: WorkspaceShellPointerTap?
     private var inputMonitoringGranted = false
-    private var userPinned = false
+    /// Surfaces the user has pinned open (per-surface, like the donor's two pins). When Input
+    /// Monitoring is absent both are treated pinned so the shell stays reachable (see effectivePinned).
+    private var pinnedSurfaces: Set<WorkspaceShellSurface> = []
+    /// The live sidebar width (seeded from the store, updated by the resize handle drag).
+    private var sidebarWidth: CGFloat = SidebarWidth.defaultValue
     private var screenObserver: NSObjectProtocol?
     private var spaceObserver: NSObjectProtocol?
     private var loadTask: Task<Void, Never>?
@@ -35,7 +41,14 @@ final class WorkspaceShellPresenter: NSObject {
     /// The embedded PTY Manager window (R56), created lazily on first open from the top-bar chip.
     private var ptyManagerWindow: PtyManagerWindowController?
 
-    private let pinButton = NSButton(title: "Pin", target: nil, action: nil)
+    // Donor sidebar chrome: the active-workspace name header, text-zoom −/+ buttons, the sidebar
+    // pin, and the right-edge drag-resize handle. The top bar carries its own pin.
+    private let sidebarTitleLabel = NSTextField(labelWithString: "WORKSPACE")
+    private let zoomOutButton = HoverButton(frame: .zero)
+    private let zoomInButton = HoverButton(frame: .zero)
+    private let sidebarPinButton = HoverButton(frame: .zero)
+    private let topBarPinButton = HoverButton(frame: .zero)
+    private let resizeHandle = SidebarResizeHandle()
 
     /// Invoked when the top-bar Agents command is tapped. AppDelegate wires this to toggle the macOS
     /// Agents window, keeping the shell decoupled from the agent surface.
@@ -83,16 +96,36 @@ final class WorkspaceShellPresenter: NSObject {
                         }
                     }
                 },
-                slotFrame: { computeSlotLayout(screen: NSScreen.main?.visibleFrame ?? .zero).slot }
+                slotFrame: { [weak self] in
+                    // Invoked on the main actor by the session; a pinned bar insets the slot by the
+                    // live sidebar width so an editor/terminal window sits beside it, not under it.
+                    MainActor.assumeIsolated {
+                        let screen = NSScreen.main?.visibleFrame ?? .zero
+                        guard let self else { return computeSlotLayout(screen: screen).slot }
+                        let pinned = self.effectivePinned()
+                        return computeSlotLayout(
+                            screen: screen,
+                            config: SlotLayoutConfig(sidebarWidth: self.sidebarWidth),
+                            sidebarPinned: pinned.contains(.sidebar),
+                            topBarPinned: pinned.contains(.topBar)
+                        ).slot
+                    }
+                }
             )
             session.onActiveChanged = { [weak self] in self?.refreshSwitcher() }
             self.session = session
+            // Seed the sidebar chrome from the persisted store: width for the panel, text zoom for
+            // the switcher/title, before the first render.
+            self.sidebarWidth = session.sidebarWidth
+            self.switcher.setTextZoom(session.textZoom)
+            self.applyTitleFont(session.textZoom)
             // The top-bar "＋ Terminal" chip spawns a terminal for the active workspace (R55); the
             // "PTY Manager" chip opens the embedded session-list window (R56).
             self.onOpenTerminal = { [weak session] in session?.openTerminal() }
             self.onOpenPtyManager = { [weak self] in self?.showPtyManager() }
             session.start()
             self.refreshSwitcher()
+            self.relayout()
             self.logAXSelfReport()
         }
     }
@@ -167,14 +200,28 @@ final class WorkspaceShellPresenter: NSObject {
         edgeReveal.pointerMoved(to: point, insideSurfaces: inside)
     }
 
+    /// The surfaces to hold revealed: the user's pins, or both when Input Monitoring is absent (the
+    /// reveal tap can't run, so the bars stay pinned-visible rather than becoming unreachable).
+    private func effectivePinned() -> Set<WorkspaceShellSurface> {
+        inputMonitoringGranted ? pinnedSurfaces : [.sidebar, .topBar]
+    }
+
+    private func currentScreen() -> CGRect {
+        NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? .zero
+    }
+
     private func updateConfiguration() {
-        let pinned: Set<WorkspaceShellSurface> = (userPinned || !inputMonitoringGranted) ? [.sidebar, .topBar] : []
-        edgeReveal.setConfiguration(WorkspaceShellRevealConfiguration(pinned: pinned, held: []))
+        edgeReveal.setConfiguration(WorkspaceShellRevealConfiguration(pinned: effectivePinned(), held: []))
     }
 
     private func relayout() {
-        let screen = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? .zero
-        let layout = WorkspaceShellLayoutCalculator.layout(in: screen)
+        let screen = currentScreen()
+        let pinned = effectivePinned()
+        let layout = WorkspaceShellLayoutCalculator.layout(
+            in: screen,
+            configuration: WorkspaceShellLayoutConfiguration(sidebarWidth: sidebarWidth),
+            pinned: pinned
+        )
         overlay.apply(layout: layout)
         edgeReveal.update(
             screen: screen,
@@ -182,9 +229,7 @@ final class WorkspaceShellPresenter: NSObject {
                 WorkspaceShellRevealDescriptor(surface: .sidebar, edge: .left, frame: layout.sidebar),
                 WorkspaceShellRevealDescriptor(surface: .topBar, edge: .top, frame: layout.topBar),
             ],
-            configuration: WorkspaceShellRevealConfiguration(
-                pinned: (userPinned || !inputMonitoringGranted) ? [.sidebar, .topBar] : [], held: []
-            )
+            configuration: WorkspaceShellRevealConfiguration(pinned: pinned, held: [])
         )
     }
 
@@ -203,6 +248,16 @@ final class WorkspaceShellPresenter: NSObject {
     // MARK: - Content
 
     private func buildContent() {
+        buildSidebar()
+        buildTopBar()
+    }
+
+    /// The donor sidebar (minus the left-behind activity/dock/mode areas): the workspace switcher on
+    /// top, a divider, the active-workspace title header with text-zoom −/+ and the sidebar pin, and
+    /// the file tree filling the rest — with a right-edge hairline and a drag-resize handle over it.
+    private func buildSidebar() {
+        let content = overlay.sidebarContentView
+
         // The donor switcher owns add / select / remove / assign-desktop / auto-assign / reorder,
         // per-row (its rows carry the desktop badge, hover assign ⌖, auto-assign A, hover close ×).
         switcher.onSelect = { [weak self] id in self?.session?.switchTo(id) }
@@ -212,51 +267,98 @@ final class WorkspaceShellPresenter: NSObject {
         switcher.onSetDesktopAutoAssign = { [weak self] id, enabled in self?.session?.setDesktopAutoAssign(id, enabled: enabled) }
         switcher.onReorder = { [weak self] ids in self?.session?.reorder(ids) }
         switcher.view.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(switcher.view)
+
+        let divider = makeSeparator()
+        content.addSubview(divider)
+
+        sidebarTitleLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        sidebarTitleLabel.textColor = .secondaryLabelColor
+        sidebarTitleLabel.lineBreakMode = .byTruncatingTail
+        sidebarTitleLabel.maximumNumberOfLines = 1
+        sidebarTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        sidebarTitleLabel.setAccessibilityIdentifier("workspace-shell-title")
+        sidebarTitleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        sidebarTitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        content.addSubview(sidebarTitleLabel)
+
+        configureIconButton(zoomOutButton, symbol: "minus", id: "sidebar-zoom-out", label: "Zoom Out", action: #selector(zoomOutTapped))
+        configureIconButton(zoomInButton, symbol: "plus", id: "sidebar-zoom-in", label: "Zoom In", action: #selector(zoomInTapped))
+        configureIconButton(sidebarPinButton, symbol: "pin", id: "toggle-sidebar-pin", label: "Pin sidebar", action: #selector(sidebarPinTapped))
+        applyPinGlyph(sidebarPinButton, pinned: false)
+        content.addSubview(zoomOutButton)
+        content.addSubview(zoomInButton)
+        content.addSubview(sidebarPinButton)
 
         filePane.view.setAccessibilityIdentifier("workspace-shell-file-tree")
         filePane.view.translatesAutoresizingMaskIntoConstraints = false
-        // The file tree takes the space the switcher (intrinsic height) leaves.
-        switcher.view.setContentHuggingPriority(.required, for: .vertical)
-        filePane.view.setContentHuggingPriority(.defaultLow, for: .vertical)
+        content.addSubview(filePane.view)
 
-        let sidebarStack = NSStackView(views: [switcher.view, filePane.view])
-        sidebarStack.orientation = .vertical
-        sidebarStack.alignment = .leading
-        sidebarStack.spacing = 6
-        // No horizontal inset: the switcher rows bleed the full sidebar width like the donor's
-        // (their own cell pads the label), so the active-row highlight fills edge to edge.
-        sidebarStack.edgeInsets = NSEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
-        sidebarStack.translatesAutoresizingMaskIntoConstraints = false
-        overlay.sidebarContentView.addSubview(sidebarStack)
+        let edge = makeSeparator()
+        content.addSubview(edge)
+
+        resizeHandle.onProposeWidth = { [weak self] width in self?.proposeSidebarWidth(width) }
+        resizeHandle.onEndResize = { [weak self] in self?.commitSidebarWidth() }
+        resizeHandle.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(resizeHandle)  // added last: sits over the content's right edge for hits
+
         NSLayoutConstraint.activate([
-            sidebarStack.leadingAnchor.constraint(equalTo: overlay.sidebarContentView.leadingAnchor),
-            sidebarStack.trailingAnchor.constraint(equalTo: overlay.sidebarContentView.trailingAnchor),
-            sidebarStack.topAnchor.constraint(equalTo: overlay.sidebarContentView.topAnchor),
-            sidebarStack.bottomAnchor.constraint(equalTo: overlay.sidebarContentView.bottomAnchor),
-            switcher.view.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor),
-            filePane.view.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor),
-        ])
+            switcher.view.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            switcher.view.trailingAnchor.constraint(equalTo: edge.leadingAnchor),
+            switcher.view.topAnchor.constraint(equalTo: content.topAnchor, constant: 6),
 
-        // Top bar: Agents on the left; the terminal chips + pin ride the right edge, matching the
-        // donor's trailing cluster [PTY Manager] [＋ Terminal] [pin]. A low-hugging spacer between
-        // pushes the chips to the right so they sit rightmost, next to the pin.
+            divider.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
+            divider.trailingAnchor.constraint(equalTo: edge.leadingAnchor, constant: -8),
+            divider.topAnchor.constraint(equalTo: switcher.view.bottomAnchor, constant: 6),
+            divider.heightAnchor.constraint(equalToConstant: 1),
+
+            sidebarTitleLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
+            sidebarTitleLabel.trailingAnchor.constraint(equalTo: zoomOutButton.leadingAnchor, constant: -6),
+            sidebarTitleLabel.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 8),
+
+            zoomOutButton.trailingAnchor.constraint(equalTo: zoomInButton.leadingAnchor, constant: -2),
+            zoomOutButton.centerYAnchor.constraint(equalTo: sidebarTitleLabel.centerYAnchor),
+            zoomInButton.trailingAnchor.constraint(equalTo: sidebarPinButton.leadingAnchor, constant: -2),
+            zoomInButton.centerYAnchor.constraint(equalTo: sidebarTitleLabel.centerYAnchor),
+            sidebarPinButton.trailingAnchor.constraint(equalTo: edge.leadingAnchor, constant: -6),
+            sidebarPinButton.centerYAnchor.constraint(equalTo: sidebarTitleLabel.centerYAnchor),
+
+            filePane.view.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            filePane.view.trailingAnchor.constraint(equalTo: edge.leadingAnchor),
+            filePane.view.topAnchor.constraint(equalTo: sidebarTitleLabel.bottomAnchor, constant: 8),
+            filePane.view.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+
+            edge.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            edge.topAnchor.constraint(equalTo: content.topAnchor),
+            edge.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            edge.widthAnchor.constraint(equalToConstant: 1),
+
+            resizeHandle.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            resizeHandle.topAnchor.constraint(equalTo: content.topAnchor),
+            resizeHandle.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            resizeHandle.widthAnchor.constraint(equalToConstant: 8),
+        ])
+    }
+
+    /// Top bar: Agents on the left; the terminal chips + top-bar pin ride the right edge, matching the
+    /// donor's trailing cluster [PTY Manager] [＋ Terminal] [pin]. A low-hugging spacer pushes the
+    /// chips to the right so they sit rightmost, next to the pin.
+    private func buildTopBar() {
         let agentsButton = NSButton(title: "Agents", target: self, action: #selector(agentsTapped))
         agentsButton.setAccessibilityIdentifier("workspace-shell-agents")
         let ptyManagerButton = NSButton(title: "PTY Manager", target: self, action: #selector(openPtyManagerTapped))
         ptyManagerButton.setAccessibilityIdentifier("open-pty-manager")
         let terminalButton = NSButton(title: "＋ Terminal", target: self, action: #selector(openTerminalTapped))
         terminalButton.setAccessibilityIdentifier("open-terminal")
-        pinButton.target = self
-        pinButton.action = #selector(pinTapped)
-        pinButton.setButtonType(.pushOnPushOff)
-        pinButton.setAccessibilityIdentifier("toggle-sidebar-pin")
+        configureIconButton(topBarPinButton, symbol: "pin", id: "toggle-topbar-pin", label: "Pin top bar", action: #selector(topBarPinTapped))
+        applyPinGlyph(topBarPinButton, pinned: false)
 
         let spacer = NSView()
         spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let topBarStack = NSStackView(views: [agentsButton, spacer, ptyManagerButton, terminalButton, pinButton])
+        let topBarStack = NSStackView(views: [agentsButton, spacer, ptyManagerButton, terminalButton, topBarPinButton])
         topBarStack.orientation = .horizontal
         topBarStack.alignment = .centerY
         topBarStack.spacing = 8
@@ -268,6 +370,47 @@ final class WorkspaceShellPresenter: NSObject {
             topBarStack.trailingAnchor.constraint(equalTo: overlay.topBarContentView.trailingAnchor),
             topBarStack.centerYAnchor.constraint(equalTo: overlay.topBarContentView.centerYAnchor),
         ])
+    }
+
+    /// A 1pt appearance-adaptive separator line (NSBox draws + flips with light/dark).
+    private func makeSeparator() -> NSBox {
+        let box = NSBox()
+        box.boxType = .separator
+        box.translatesAutoresizingMaskIntoConstraints = false
+        return box
+    }
+
+    /// Shared setup for a flat borderless icon button (zoom −/+, the two pins). The glyph is set here
+    /// for the zoom buttons; the pins override it via `applyPinGlyph` to swap pin/pin.fill on toggle.
+    private func configureIconButton(_ button: HoverButton, symbol: String, id: String, label: String, action: Selector) {
+        button.isBordered = false
+        button.bezelStyle = .regularSquare
+        button.imagePosition = .imageOnly
+        button.cornerRadius = 5
+        button.restingColor = .clear
+        button.hoverColor = HoverButton.subtleFill
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+        button.contentTintColor = .secondaryLabelColor
+        button.target = self
+        button.action = action
+        button.toolTip = label
+        button.setAccessibilityRole(.button)
+        button.setAccessibilityIdentifier(id)
+        button.setAccessibilityLabel(label)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 22).isActive = true
+    }
+
+    /// Reflect a pin's state: a filled accent-tinted pin when pinned, an outline dim pin when not.
+    private func applyPinGlyph(_ button: HoverButton, pinned: Bool) {
+        button.image = NSImage(systemSymbolName: pinned ? "pin.fill" : "pin", accessibilityDescription: pinned ? "Unpin" : "Pin")?
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .regular))
+        button.contentTintColor = pinned ? AppTheme.accent : .tertiaryLabelColor
+        button.toolTip = pinned ? "Unpin (auto-hide)" : "Pin open"
+        button.setAccessibilityValue(pinned ? "pinned" : "not pinned")
     }
 
     // MARK: - Actions
@@ -284,9 +427,45 @@ final class WorkspaceShellPresenter: NSObject {
         controller.show()
     }
 
-    @objc private func pinTapped() {
-        userPinned = (pinButton.state == .on)
+    @objc private func sidebarPinTapped() { togglePin(.sidebar, button: sidebarPinButton) }
+    @objc private func topBarPinTapped() { togglePin(.topBar, button: topBarPinButton) }
+
+    private func togglePin(_ surface: WorkspaceShellSurface, button: HoverButton) {
+        if pinnedSurfaces.contains(surface) { pinnedSurfaces.remove(surface) } else { pinnedSurfaces.insert(surface) }
+        applyPinGlyph(button, pinned: pinnedSurfaces.contains(surface))
         updateConfiguration()
+        relayout()
+    }
+
+    @objc private func zoomInTapped() { applyZoom(.zoomIn) }
+    @objc private func zoomOutTapped() { applyZoom(.zoomOut) }
+
+    /// Apply a text-zoom step to the sidebar surfaces (file tree, switcher rows, title header) and
+    /// persist it. The web-viewer editor keeps its own sizing and is not scaled by this control.
+    private func applyZoom(_ command: WorkspaceTextZoomCommand) {
+        guard let session else { return }
+        let zoom = session.applyTextZoom(command)
+        switcher.setTextZoom(zoom)
+        refreshSwitcher()
+        applyTitleFont(zoom)
+    }
+
+    private func applyTitleFont(_ zoom: WorkspaceTextZoom) {
+        sidebarTitleLabel.font = .systemFont(ofSize: zoom.sidebarLabelPointSize, weight: .semibold)
+    }
+
+    // MARK: - Sidebar resize (drag handle)
+
+    /// Live-resize during a drag: the handle reports the pointer x in the sidebar panel, which is the
+    /// proposed width (distance from the left edge). Clamp and relayout so the panel follows the drag.
+    private func proposeSidebarWidth(_ proposed: CGFloat) {
+        sidebarWidth = SidebarWidth.clamped(proposed, screenWidth: currentScreen().width)
+        relayout()
+    }
+
+    /// The drag released: persist the settled width through the store.
+    private func commitSidebarWidth() {
+        session?.setSidebarWidth(sidebarWidth, screenWidth: currentScreen().width)
     }
 
     private func addWorkspace() {
@@ -316,6 +495,7 @@ final class WorkspaceShellPresenter: NSObject {
 
     private func refreshSwitcher() {
         switcher.render(workspaces: session?.store.workspaces ?? [], activeID: session?.store.activeID)
+        sidebarTitleLabel.stringValue = (session?.store.active?.name).map { $0.uppercased() } ?? "WORKSPACE"
     }
 
     // MARK: - AX self-report
@@ -324,8 +504,9 @@ final class WorkspaceShellPresenter: NSObject {
         let ids = axIdentifiers(in: overlay.sidebarContentView).union(axIdentifiers(in: overlay.topBarContentView))
         let expected = [
             "workspace-shell-agents", "open-terminal", "open-pty-manager",
-            "workspace-switcher", "add-workspace",
-            "workspace-shell-file-tree", "toggle-sidebar-pin",
+            "workspace-switcher", "add-workspace", "workspace-shell-title",
+            "sidebar-zoom-out", "sidebar-zoom-in", "workspace-shell-file-tree",
+            "sidebar-resize-handle", "toggle-sidebar-pin", "toggle-topbar-pin",
         ]
         let present = expected.filter { ids.contains($0) }
         logger.notice(
