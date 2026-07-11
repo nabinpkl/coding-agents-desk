@@ -152,9 +152,13 @@ process), and the Ghostty pill is retired.
   bar (`WorkspaceShellPresenter`), as NSButtons matching the existing Agents/pin style, with
   `onOpenTerminal`/`onOpenPtyManager` presenter callbacks (AppDelegate wires them in R55/R56). Both ids added
   to the AX self-report set.
-- [ ] R55. In-app terminal: bring the donor `terminal/emulator` window layer in-tree (4 files, on the
-  existing `PtyTerminalSwiftTerm`); `WorkspaceShellSession.openTerminal()` spawns a SwiftTerm terminal
-  `NSWindow` on our socket, cascaded per workspace, following workspace=desktop (park/unpark, text zoom).
+- [x] R55. In-app terminal: brought the donor `terminal/emulator` window layer in-tree as a package
+  (library only, swift-tools 5.9 so it builds in Swift 5 mode — no strict-concurrency port), linked
+  `TerminalEmulator` into the host. `WorkspaceShellSession.openTerminal()` spawns a SwiftTerm terminal
+  `NSWindow` on our socket (injected `PtyManagerSocketClient` client), cwd = active workspace root,
+  cascaded per workspace, labeled. Terminals are normal titled windows on the workspace's Desktop, so
+  macOS Spaces shows/hides them per workspace (= Desktop) — no explicit park/unpark needed. `just check`
+  green; live spawn needs the daemon + a host relaunch (checkpoint).
 - [ ] R56. Embedded PTY Manager: a host-owned `NSOutlineView` window driven by `subscribeSessions`
   (sessions→clients, Open Client / Close Session / Close Client / Reconnect), replacing the donor sidecar.
 - [ ] R57. Retire the Ghostty pill: remove `TerminalLauncher` + `Config.terminalAppURL`/`terminalBundleID`
@@ -177,4 +181,7 @@ R51-R52  2026-07-11  verified    one cross-platform file viewer; iOS Files rende
                                  SPA + Preview/Edit toggle. sim Maestro shows md render + editable source
 R53      2026-07-11  green       pty-client-swift linked into the host; PtyManagerSocketClient dials our
                                  daemon socket; wiring test green (SwiftTerm resolves, not yet compiled)
+R54      2026-07-11  green       ＋ Terminal + PTY Manager chips in the shell top bar; presenter callbacks
+R55      2026-07-11  green       in-app SwiftTerm terminal: emulator package in-tree + linked;
+                                 openTerminal() spawns on our socket, cwd = workspace root, cascaded
 ```

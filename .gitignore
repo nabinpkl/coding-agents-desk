@@ -62,3 +62,6 @@ chrome-extension/build-info.json
 
 # CDP-verify throwaway Chrome profile (ADR-0044 Tier B test)
 .cdp-verify-profile/
+
+# Library-package resolve files (the host xcodeproj Package.resolved is authoritative)
+terminal/emulator/Package.resolved

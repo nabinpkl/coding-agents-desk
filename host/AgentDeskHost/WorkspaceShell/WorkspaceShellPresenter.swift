@@ -84,6 +84,9 @@ final class WorkspaceShellPresenter: NSObject {
             )
             session.onActiveChanged = { [weak self] in self?.refreshSwitcher() }
             self.session = session
+            // The top-bar "＋ Terminal" chip spawns a terminal for the active workspace (R55). PTY
+            // Manager (onOpenPtyManager) is wired in R56.
+            self.onOpenTerminal = { [weak session] in session?.openTerminal() }
             session.start()
             self.refreshSwitcher()
             self.logAXSelfReport()

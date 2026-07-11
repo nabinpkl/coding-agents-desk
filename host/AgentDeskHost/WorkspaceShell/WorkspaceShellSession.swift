@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import TerminalEmulator
 import os
 
 /// Owns the workspace file experience for the macOS shell (ADR-0054): the active workspace's file
@@ -20,10 +21,16 @@ final class WorkspaceShellSession {
     private let desktopSwitcher: WorkspaceDesktopSwitcher
     private let persist: (WorkspaceStore) -> Void
     private let slotFrame: () -> CGRect
+    private let terminalSpawn: TerminalEmulatorSpawn
     private let fileWriter = FileWriter()
     private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-shell")
     /// Open file tabs per workspace (in-memory; the viewer mirrors the active workspace's set).
     private var tabs: [UUID: OpenTabs] = [:]
+    /// Live terminal windows per workspace. They are normal titled windows on the workspace's Desktop,
+    /// so macOS Spaces shows/hides them as the user switches workspaces (= Desktops); we track them only
+    /// to cascade successive spawns and to label them. Successive terminals cascade down-right.
+    private var terminals: [UUID: [TerminalEmulatorWindow]] = [:]
+    private let terminalCascadeStep: CGFloat = 28
     /// Debounces editor-frame persistence: a live drag-resize fires onFrameChanged per frame.
     private var editorFramePersistTask: Task<Void, Never>?
 
@@ -36,7 +43,8 @@ final class WorkspaceShellSession {
         viewer: FileViewer,
         desktopSwitcher: WorkspaceDesktopSwitcher,
         persist: @escaping (WorkspaceStore) -> Void,
-        slotFrame: @escaping () -> CGRect
+        slotFrame: @escaping () -> CGRect,
+        terminalSpawn: TerminalEmulatorSpawn = SwiftTermPtyManagerTerminalSpawn(client: PtyManagerSocketClient.makeClient())
     ) {
         self.store = store
         self.filePane = filePane
@@ -44,6 +52,7 @@ final class WorkspaceShellSession {
         self.desktopSwitcher = desktopSwitcher
         self.persist = persist
         self.slotFrame = slotFrame
+        self.terminalSpawn = terminalSpawn
         self.fileTreeLive = FileTreeLive(filePane: filePane)
         wireCallbacks()
     }
@@ -120,6 +129,45 @@ final class WorkspaceShellSession {
         persist(store)
         renderActive()
         onActiveChanged?()
+    }
+
+    // MARK: - Terminals
+
+    /// Spawns a SwiftTerm terminal window for the active workspace, rooted at its folder and attached
+    /// to a fresh pty-manager session on our socket (`PtyManagerSocketClient`). Successive terminals in
+    /// a workspace cascade down-right. The window is a normal titled NSWindow created on the workspace's
+    /// Desktop, so macOS Spaces shows/hides it as the user switches workspaces (= Desktops) without any
+    /// explicit park/unpark. This is the top-bar "＋ Terminal" action (R55).
+    func openTerminal() {
+        guard let id = store.activeID, let workspace = store.workspace(id: id) else { return }
+        let index = terminals[id]?.count ?? 0
+        let frame = terminalFrame().offsetBy(
+            dx: CGFloat(index) * terminalCascadeStep,
+            dy: CGFloat(-index) * terminalCascadeStep
+        )
+        let workspaceName = workspace.name
+        terminalSpawn.spawn(cwd: workspace.root, into: frame) { [weak self] result in
+            // The emulator calls back on the main actor (it hops via MainActor.run before completing).
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                switch result {
+                case .success(let window):
+                    window.setWorkspaceLabel(workspaceName)
+                    self.terminals[id, default: []].append(window)
+                    window.raise()
+                case .failure(let error):
+                    self.logger.error("workspace-shell: terminal spawn failed for workspace \(id, privacy: .public): \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+    }
+
+    /// The base frame a workspace's first terminal opens at: terminal-sized, centered in the slot.
+    private func terminalFrame() -> CGRect {
+        let slot = slotFrame()
+        let size = CGSize(width: 720, height: 460)
+        let origin = CGPoint(x: slot.midX - size.width / 2, y: slot.midY - size.height / 2)
+        return CGRect(origin: origin, size: size)
     }
 
     /// Bind the active workspace to the Desktop the user is on now (the sidebar's assign action).
