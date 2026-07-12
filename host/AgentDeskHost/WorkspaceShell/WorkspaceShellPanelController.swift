@@ -15,9 +15,11 @@ private final class WorkspaceShellPanel: NSPanel {
 final class WorkspaceShellPanelController: NSObject {
     private let controller: WorkspaceShellController
     private var panel: NSPanel?
-    private let workspaceLabel = NSTextField(labelWithString: "No workspace")
+    private let workspaceSwitcher = NSPopUpButton(frame: .zero, pullsDown: false)
     private let outlineView = NSOutlineView()
     private var rootNode: WorkspaceShellFileNode?
+    /// The workspace ids in switcher-menu order, so a selection maps back to a workspace.
+    private var switcherWorkspaceIDs: [UUID] = []
     /// The active workspace the outline view was last built for, so a store change that doesn't
     /// change the active workspace doesn't collapse the tree's expansion state.
     private var renderedWorkspaceID: UUID?
@@ -63,8 +65,9 @@ final class WorkspaceShellPanelController: NSObject {
         let addButton = NSButton(title: "Add Workspace…", target: self, action: #selector(addWorkspaceTapped))
         addButton.setAccessibilityIdentifier("workspace-shell-add")
 
-        workspaceLabel.font = .boldSystemFont(ofSize: 13)
-        workspaceLabel.setAccessibilityIdentifier("workspace-shell-title")
+        workspaceSwitcher.target = self
+        workspaceSwitcher.action = #selector(workspaceSwitched)
+        workspaceSwitcher.setAccessibilityIdentifier("workspace-shell-switcher")
 
         outlineView.setAccessibilityIdentifier("workspace-shell-file-tree")
         outlineView.headerView = nil
@@ -79,7 +82,7 @@ final class WorkspaceShellPanelController: NSObject {
         scroll.documentView = outlineView
         scroll.hasVerticalScroller = true
 
-        let stack = NSStackView(views: [workspaceLabel, addButton, scroll])
+        let stack = NSStackView(views: [workspaceSwitcher, addButton, scroll])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -102,14 +105,44 @@ final class WorkspaceShellPanelController: NSObject {
     }
 
     private func refresh() {
-        workspaceLabel.stringValue = controller.store.active?.name ?? "No workspace"
+        let workspaces = controller.store.workspaces
+        switcherWorkspaceIDs = workspaces.map(\.id)
+        workspaceSwitcher.removeAllItems()
+        if workspaces.isEmpty {
+            workspaceSwitcher.addItem(withTitle: "No workspace")
+            workspaceSwitcher.isEnabled = false
+        } else {
+            workspaceSwitcher.isEnabled = true
+            for workspace in workspaces {
+                workspaceSwitcher.addItem(withTitle: workspace.name)
+            }
+            if let activeID = controller.store.active?.id,
+               let index = switcherWorkspaceIDs.firstIndex(of: activeID) {
+                workspaceSwitcher.selectItem(at: index)
+            }
+        }
+
         // Rebuild the tree (discarding expansion state) only when the active workspace actually
-        // changes; other store changes just refresh the label.
+        // changes; adding a sibling or re-selecting the same one leaves it intact.
         let activeID = controller.store.active?.id
         guard activeID != renderedWorkspaceID else { return }
         renderedWorkspaceID = activeID
         rootNode = controller.activeFileTree()?.rootNode
         outlineView.reloadData()
+    }
+
+    @objc private func workspaceSwitched() {
+        let index = workspaceSwitcher.indexOfSelectedItem
+        guard index >= 0, index < switcherWorkspaceIDs.count else { return }
+        let id = switcherWorkspaceIDs[index]
+        guard id != controller.store.active?.id else { return }
+        Task { [weak self] in
+            do {
+                try await self?.controller.selectWorkspace(id)
+            } catch {
+                self?.presentFailure("Could not switch workspace", error)
+            }
+        }
     }
 
     @objc private func addWorkspaceTapped() {
@@ -123,16 +156,16 @@ final class WorkspaceShellPanelController: NSObject {
             do {
                 try await self?.controller.addWorkspace(root: url)
             } catch {
-                self?.presentAddFailure(error)
+                self?.presentFailure("Could not add workspace", error)
             }
         }
     }
 
-    /// Surfaces a registration failure (e.g. the chosen path is a symlink or not a directory) rather
-    /// than silently dropping it.
-    private func presentAddFailure(_ error: Error) {
+    /// Surfaces a store error (e.g. the chosen path is a symlink or not a directory) rather than
+    /// silently dropping it.
+    private func presentFailure(_ title: String, _ error: Error) {
         let alert = NSAlert()
-        alert.messageText = "Could not add workspace"
+        alert.messageText = title
         alert.informativeText = String(describing: error)
         alert.alertStyle = .warning
         if let window = panel {
