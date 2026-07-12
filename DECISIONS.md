@@ -300,3 +300,20 @@ Three judgment calls (HITL):
 Linking cost: `pty-client-swift` (and thus SwiftTerm + swift-protobuf) is now compiled into the host.
 Buildable folders mean any host source importing `TerminalEmulator` forces the *test* target to link it
 too, so both host targets link the terminal products.
+
+## Dock enrichment ported over a single SkyLight source (ADR-0055)
+
+- **Reopened one ADR-0054 boundary.** ADR-0054 left dock enrichment and desktop auditing behind; ADR-0055
+  ports the bottom "desktop pills" strip and revises reveal surfaces back to `{ sidebar, topBar,
+  dockEnrichment }`. ADR-0054's other decisions stand.
+- **One SkyLight binding, extended by one symbol.** Rather than porting the donor's parallel
+  `SkyLightDesktopBinding`, the host's existing `SpacesProvider` binding gains
+  `SLSCopySpacesForWindows` (optional) and a `nonisolated skyLightDesktopAuditSnapshot()` (SkyLight +
+  `CGWindowList`, no `NSScreen`, off-main safe). One private-API surface, one canary; degrades to
+  ungrouped if the symbol ever disappears.
+- **Pills labelled by workspace, not Desktop ordinal.** The off-main reader stays workspace-agnostic
+  ("Desktop N" base); the panel overlays the assigned workspace name on the main thread via an injected
+  provider. Agent-desk is workspace=desktop, and the group model already carried a `label` field.
+- **Known overlaps, accepted for now:** the strip duplicates SpaceAgent's Desktop overview in a
+  different shape, and its full-width bottom placement can transiently overlap the bottom-center
+  dictation bar. Both surfaces auto-hide; revisit if they feel redundant in use.

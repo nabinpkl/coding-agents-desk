@@ -40,11 +40,16 @@ private struct SkyLight {
     typealias GetActiveSpaceFn = @convention(c) (Int32) -> UInt64
     typealias CopyManagedDisplaySpacesFn = @convention(c) (Int32) -> CFArray?
     typealias ManagedDisplaySetCurrentSpaceFn = @convention(c) (Int32, CFString, UInt64) -> Void
+    // Per-window Space membership. Same binding, one extra symbol — the dock-enrichment audit
+    // (ADR-0054) needs to know which Desktop each window lives on. Optional so a macOS build that
+    // drops it degrades the enrichment to ungrouped rather than failing the whole binding.
+    typealias CopySpacesForWindowsFn = @convention(c) (Int32, Int32, CFArray) -> CFArray?
 
     let mainConnectionID: MainConnectionIDFn
     let getActiveSpace: GetActiveSpaceFn
     let copyManagedDisplaySpaces: CopyManagedDisplaySpacesFn
     let managedDisplaySetCurrentSpace: ManagedDisplaySetCurrentSpaceFn?
+    let copySpacesForWindows: CopySpacesForWindowsFn?
 
     static let shared: SkyLight? = {
         guard let handle = dlopen(skylightPath, RTLD_NOW) else { return nil }
@@ -57,15 +62,97 @@ private struct SkyLight {
             let m3 = resolve("SLSCopyManagedDisplaySpaces", "CGSCopyManagedDisplaySpaces")
         else { return nil }
         let setter = resolve("SLSManagedDisplaySetCurrentSpace", "CGSManagedDisplaySetCurrentSpace")
+        let winSpaces = resolve("SLSCopySpacesForWindows", "CGSCopySpacesForWindows")
         return SkyLight(
             mainConnectionID: unsafeBitCast(m1, to: MainConnectionIDFn.self),
             getActiveSpace: unsafeBitCast(m2, to: GetActiveSpaceFn.self),
             copyManagedDisplaySpaces: unsafeBitCast(m3, to: CopyManagedDisplaySpacesFn.self),
             managedDisplaySetCurrentSpace: setter.map {
                 unsafeBitCast($0, to: ManagedDisplaySetCurrentSpaceFn.self)
+            },
+            copySpacesForWindows: winSpaces.map {
+                unsafeBitCast($0, to: CopySpacesForWindowsFn.self)
             }
         )
     }()
+}
+
+// MARK: - Dock-enrichment desktop/window audit (ADR-0054)
+
+/// SkyLight-only desktop + window audit for the dock-enrichment reader, over the SAME SkyLight binding
+/// as `SpacesProvider` (one private-API source, not a second one). Uses SkyLight + CGWindowList and no
+/// NSScreen, so it is safe to call off the main thread on the reader's utility queue. Returns
+/// `.unavailable` when the binding is missing.
+func skyLightDesktopAuditSnapshot() -> WorkspaceDesktopSnapshot {
+    guard let sl = SkyLight.shared else { return .unavailable("SkyLight symbols unavailable") }
+    let cid = sl.mainConnectionID()
+    let active = sl.getActiveSpace(cid)
+    guard let raw = sl.copyManagedDisplaySpaces(cid), let displays = raw as? [[String: Any]] else {
+        return .unavailable("CopyManagedDisplaySpaces returned no displays")
+    }
+    return WorkspaceDesktopSnapshot(
+        activeSpaceID: active,
+        desktops: skyLightAuditDesktops(from: displays, active: active),
+        windows: skyLightAuditWindows(sl: sl, cid: cid),
+        diagnostic: nil
+    )
+}
+
+/// User Desktops (Space type 0) per display, ordinal 0-based to match `WorkspaceDesktopAssignment`.
+private func skyLightAuditDesktops(from displays: [[String: Any]], active: UInt64) -> [WorkspaceDesktop] {
+    var desktops: [WorkspaceDesktop] = []
+    for display in displays {
+        let displayID = display["Display Identifier"] as? String ?? "unknown-display"
+        let spaces = display["Spaces"] as? [[String: Any]] ?? []
+        var ordinal = 0
+        for space in spaces {
+            guard let id = (space["id64"] as? NSNumber)?.uint64Value else { continue }
+            let type = (space["type"] as? NSNumber)?.intValue ?? (space["type"] as? Int ?? -1)
+            guard type == 0 else { continue }
+            desktops.append(WorkspaceDesktop(id: id, displayID: displayID, ordinal: ordinal, isActive: id == active))
+            ordinal += 1
+        }
+    }
+    return desktops
+}
+
+private func skyLightAuditWindows(sl: SkyLight, cid: Int32) -> [WorkspaceDesktopWindow] {
+    let raw = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    return raw.compactMap { info in
+        guard let id = (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+              let bounds = skyLightAuditBounds(from: info[kCGWindowBounds as String])
+        else { return nil }
+        let owner = info[kCGWindowOwnerName as String] as? String ?? ""
+        guard !owner.isEmpty else { return nil }
+        let title = info[kCGWindowName as String] as? String ?? ""
+        let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? Int.max
+        return WorkspaceDesktopWindow(
+            windowID: id,
+            ownerName: owner,
+            title: title,
+            spaceIDs: skyLightAuditSpaceIDs(sl: sl, cid: cid, windowID: id),
+            layer: layer,
+            bounds: bounds,
+            expectation: WorkspaceDesktopWindowExpectation.classify(owner: owner, title: title)
+        )
+    }
+}
+
+private func skyLightAuditSpaceIDs(sl: SkyLight, cid: Int32, windowID: UInt32) -> [UInt64] {
+    guard let copySpacesForWindows = sl.copySpacesForWindows else { return [] }
+    let windows = [NSNumber(value: windowID)] as CFArray
+    // Mask 7 = all Space selectors (visible + others), matching the donor's audit.
+    guard let raw = copySpacesForWindows(cid, 7, windows), let spaces = raw as? [NSNumber] else { return [] }
+    return spaces.map(\.uint64Value)
+}
+
+private func skyLightAuditBounds(from raw: Any?) -> CGRect? {
+    guard let dict = raw as? [String: Any] else { return nil }
+    let x = (dict["X"] as? NSNumber)?.doubleValue ?? 0
+    let y = (dict["Y"] as? NSNumber)?.doubleValue ?? 0
+    let width = (dict["Width"] as? NSNumber)?.doubleValue ?? 0
+    let height = (dict["Height"] as? NSNumber)?.doubleValue ?? 0
+    return CGRect(x: x, y: y, width: width, height: height)
 }
 
 // Reverse-engineered CGEventField indices for the dock-swipe synthesis

@@ -3,6 +3,7 @@ import CoreGraphics
 enum WorkspaceShellRevealEdge: Equatable {
     case left
     case top
+    case bottom
 
     func contains(_ point: CGPoint, in screen: CGRect, band: CGFloat) -> Bool {
         switch self {
@@ -10,6 +11,8 @@ enum WorkspaceShellRevealEdge: Equatable {
             point.x <= screen.minX + band
         case .top:
             point.y >= screen.maxY - band
+        case .bottom:
+            point.y <= screen.minY + band
         }
     }
 }

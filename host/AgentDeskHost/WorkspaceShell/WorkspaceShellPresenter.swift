@@ -37,6 +37,10 @@ final class WorkspaceShellPresenter: NSObject {
     private let switcher = WorkspaceSwitcher()
     private let filePane = FilePane()
     private let viewer = FileViewer()
+    /// The bottom dock-enrichment strip (ADR-0054): a per-desktop overview of running apps, revealed on
+    /// a bottom-edge hover. `dockPresenter` drives its off-main snapshot + coalesced render.
+    private let dockPanel = DockEnrichmentPanel()
+    private var dockPresenter: DockEnrichmentPresenter?
     private var session: WorkspaceShellSession?
     /// The embedded PTY Manager window (R56), created lazily on first open from the top-bar chip.
     private var ptyManagerWindow: PtyManagerWindowController?
@@ -70,8 +74,12 @@ final class WorkspaceShellPresenter: NSObject {
 
     func show() {
         buildContent()
+        buildDock()
         edgeReveal = WorkspaceShellEdgeRevealController(apply: { [weak self] state in
-            self?.overlay.setReveal(state.revealed)
+            guard let self else { return }
+            self.overlay.setReveal(state.revealed)
+            // Revealing the bottom strip triggers a fresh off-main snapshot; hiding it stops the work.
+            self.dockPresenter?.setVisible(state.revealed.contains(.dockEnrichment))
         })
         overlay.show()
         relayout()
@@ -152,6 +160,8 @@ final class WorkspaceShellPresenter: NSObject {
         if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver); self.spaceObserver = nil }
         ptyManagerWindow?.stop()
         ptyManagerWindow = nil
+        dockPresenter?.setVisible(false)
+        dockPresenter = nil
         overlay.stop()
     }
 
@@ -228,6 +238,7 @@ final class WorkspaceShellPresenter: NSObject {
             descriptors: [
                 WorkspaceShellRevealDescriptor(surface: .sidebar, edge: .left, frame: layout.sidebar),
                 WorkspaceShellRevealDescriptor(surface: .topBar, edge: .top, frame: layout.topBar),
+                WorkspaceShellRevealDescriptor(surface: .dockEnrichment, edge: .bottom, frame: layout.dockEnrichment),
             ],
             configuration: WorkspaceShellRevealConfiguration(pinned: pinned, held: [])
         )
@@ -236,13 +247,25 @@ final class WorkspaceShellPresenter: NSObject {
     private func observeScreenChanges() {
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
-        ) { [weak self] _ in MainActor.assumeIsolated { self?.relayout() } }
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                DockDisplayMonitorCache.shared.refreshFromScreens()
+                self?.relayout()
+            }
+        }
     }
 
     private func observeSpaceChanges() {
         spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in MainActor.assumeIsolated { self?.session?.reconcileFromObservedDesktop() } }
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.session?.reconcileFromObservedDesktop()
+                // The active Desktop changed; if the strip is showing, re-snapshot so the active-pill
+                // highlight and per-desktop grouping follow.
+                self?.dockPresenter?.refreshIfVisible()
+            }
+        }
     }
 
     // MARK: - Content
@@ -250,6 +273,32 @@ final class WorkspaceShellPresenter: NSObject {
     private func buildContent() {
         buildSidebar()
         buildTopBar()
+    }
+
+    /// Fill the bottom dock-enrichment surface with the strip view and stand up its snapshot presenter.
+    /// The label provider maps each desktop's Space id to its assigned workspace name (Q2), read on the
+    /// main thread. The monitor cache is primed here (NSScreen is main-thread only) and on screen change.
+    private func buildDock() {
+        dockPanel.translatesAutoresizingMaskIntoConstraints = false
+        let content = overlay.dockContentView
+        content.addSubview(dockPanel)
+        NSLayoutConstraint.activate([
+            dockPanel.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            dockPanel.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            dockPanel.topAnchor.constraint(equalTo: content.topAnchor),
+            dockPanel.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        dockPanel.workspaceLabelProvider = { [weak self] spaceID in self?.workspaceName(forSpaceID: spaceID) }
+        dockPresenter = DockEnrichmentPresenter(reader: DockAppSnapshotReader(), renderer: dockPanel)
+        DockDisplayMonitorCache.shared.refreshFromScreens()
+    }
+
+    /// The workspace assigned to a Desktop's Space id, for the dock pill label. Nil when unassigned.
+    private func workspaceName(forSpaceID spaceID: UInt64?) -> String? {
+        guard let spaceID,
+              let workspace = session?.store.workspaces.first(where: { $0.desktopAssignment?.spaceID == spaceID })
+        else { return nil }
+        return workspace.name
     }
 
     /// The donor sidebar (minus the left-behind activity/dock/mode areas): the workspace switcher on
@@ -502,12 +551,15 @@ final class WorkspaceShellPresenter: NSObject {
     // MARK: - AX self-report
 
     private func logAXSelfReport() {
-        let ids = axIdentifiers(in: overlay.sidebarContentView).union(axIdentifiers(in: overlay.topBarContentView))
+        let ids = axIdentifiers(in: overlay.sidebarContentView)
+            .union(axIdentifiers(in: overlay.topBarContentView))
+            .union(axIdentifiers(in: overlay.dockContentView))
         let expected = [
             "workspace-shell-agents", "open-terminal", "open-pty-manager",
             "workspace-switcher", "add-workspace", "workspace-shell-title",
             "sidebar-zoom-out", "sidebar-zoom-in", "workspace-shell-file-tree",
             "sidebar-resize-handle", "toggle-sidebar-pin", "toggle-topbar-pin",
+            "workspace-dock-enrichment",
         ]
         let present = expected.filter { ids.contains($0) }
         logger.notice(

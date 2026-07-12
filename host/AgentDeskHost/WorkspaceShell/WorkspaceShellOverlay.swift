@@ -22,9 +22,11 @@ final class WorkspaceShellOverlay {
     /// top-bar controls) into these once; `apply(layout:)` only moves the panels.
     let sidebarContentView = NSView()
     let topBarContentView = NSView()
+    let dockContentView = NSView()
 
     private let sidebarPanel: FocusableOverlayPanel
     private let topBarPanel: FocusableOverlayPanel
+    private let dockPanel: FocusableOverlayPanel
     /// Points inside a revealed panel keep it revealed even when the pointer leaves the trigger edge;
     /// this tolerance widens the hit test slightly so a pointer skimming the panel border does not
     /// flicker it closed. Matches the donor's surface tolerance.
@@ -32,8 +34,10 @@ final class WorkspaceShellOverlay {
     private var revealed: Set<WorkspaceShellSurface> = []
 
     init() {
-        sidebarPanel = WorkspaceShellOverlay.makePanel()
-        topBarPanel = WorkspaceShellOverlay.makePanel()
+        // Titles let the dock-enrichment reader recognize and hide the shell's own overlay windows.
+        sidebarPanel = WorkspaceShellOverlay.makePanel(title: WorkspaceShellControlWindow.sidebar)
+        topBarPanel = WorkspaceShellOverlay.makePanel(title: WorkspaceShellControlWindow.topBar)
+        dockPanel = WorkspaceShellOverlay.makePanel(title: WorkspaceShellControlWindow.dockEnrichment)
 
         let sidebarBackground = WorkspaceShellOverlay.makeBackground()
         sidebarBackground.addSubview(sidebarContentView)
@@ -44,15 +48,21 @@ final class WorkspaceShellOverlay {
         topBarBackground.addSubview(topBarContentView)
         WorkspaceShellOverlay.pin(topBarContentView, to: topBarBackground)
         topBarPanel.contentView = topBarBackground
+
+        let dockBackground = WorkspaceShellOverlay.makeBackground()
+        dockBackground.addSubview(dockContentView)
+        WorkspaceShellOverlay.pin(dockContentView, to: dockBackground)
+        dockPanel.contentView = dockBackground
     }
 
-    private static func makePanel() -> FocusableOverlayPanel {
+    private static func makePanel(title: String) -> FocusableOverlayPanel {
         let panel = FocusableOverlayPanel(
             contentRect: NSRect(x: 0, y: 0, width: 240, height: 480),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
+        panel.title = title
         panel.level = .floating
         // Appear on every Space (the reveal must work after a Desktop switch) and stay out of the
         // Cmd-` window cycle. Mirrors the host's other floating overlays (SpaceAgent, dictation).
@@ -92,11 +102,13 @@ final class WorkspaceShellOverlay {
     func show() {
         sidebarPanel.orderFrontRegardless()
         topBarPanel.orderFrontRegardless()
+        dockPanel.orderFrontRegardless()
     }
 
     func stop() {
         sidebarPanel.orderOut(nil)
         topBarPanel.orderOut(nil)
+        dockPanel.orderOut(nil)
     }
 
     /// Positions each panel from the layout. Frames are the full edge strip whether revealed or not,
@@ -104,6 +116,7 @@ final class WorkspaceShellOverlay {
     func apply(layout: WorkspaceShellLayout) {
         sidebarPanel.setFrame(layout.sidebar, display: true)
         topBarPanel.setFrame(layout.topBar, display: true)
+        dockPanel.setFrame(layout.dockEnrichment, display: true)
         applyReveal()
     }
 
@@ -118,6 +131,7 @@ final class WorkspaceShellOverlay {
     private func applyReveal() {
         applyPanelReveal(sidebarPanel, revealed: revealed.contains(.sidebar))
         applyPanelReveal(topBarPanel, revealed: revealed.contains(.topBar))
+        applyPanelReveal(dockPanel, revealed: revealed.contains(.dockEnrichment))
     }
 
     private func applyPanelReveal(_ panel: FocusableOverlayPanel, revealed: Bool) {
@@ -135,6 +149,7 @@ final class WorkspaceShellOverlay {
         switch surface {
         case .sidebar: frame = sidebarPanel.frame
         case .topBar: frame = topBarPanel.frame
+        case .dockEnrichment: frame = dockPanel.frame
         }
         return frame.insetBy(dx: -Self.surfaceTolerance, dy: -Self.surfaceTolerance).contains(point)
     }
@@ -149,5 +164,14 @@ final class WorkspaceShellOverlay {
     /// app. Called when the user clicks into the sidebar.
     func focusSidebar() {
         sidebarPanel.makeKeyAndOrderFront(nil)
+    }
+
+    /// A grey that resolves light in light mode and dark in dark mode (ported from the donor
+    /// ShellOverlay). Used by the dock-enrichment panel's surfaces.
+    nonisolated static func adaptiveWhite(light: CGFloat, dark: CGFloat) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(white: isDark ? dark : light, alpha: 1)
+        }
     }
 }
