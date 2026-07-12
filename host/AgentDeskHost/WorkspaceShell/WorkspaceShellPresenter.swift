@@ -237,18 +237,24 @@ final class WorkspaceShellPresenter: NSObject {
             dockBottomRevealInset: dockGeometry.current.bottomRevealInset
         )
         overlay.apply(layout: layout)
-        // The strip floats a few points above the bottom edge, so the trigger band reaches from the
-        // screen bottom up to just past the strip's lower edge — enough to reveal on a bottom hover and
-        // to bridge the gap below the strip (the strip's own frame holds the reveal once the pointer is
-        // inside it), without revealing from far up the screen.
-        let dockTriggerBand = max(4, layout.dockEnrichment.minY - screen.minY + 8)
+        // The dock uses the SAME reveal mechanism as the sidebar/top bar — the thin default edge band,
+        // so it triggers only when the pointer reaches the very bottom. Because the strip is floated off
+        // the bottom, its retention frame (donor `dockRetentionFrame`) spans from the screen bottom up to
+        // the strip's top edge, so once revealed the pointer bridging the gap or resting on the strip
+        // keeps it open.
+        let dockRetention = CGRect(
+            x: screen.minX,
+            y: screen.minY,
+            width: screen.width,
+            height: max(0, layout.dockEnrichment.maxY - screen.minY)
+        )
         edgeReveal.update(
             screen: screen,
             descriptors: [
                 WorkspaceShellRevealDescriptor(surface: .sidebar, edge: .left, frame: layout.sidebar),
                 WorkspaceShellRevealDescriptor(surface: .topBar, edge: .top, frame: layout.topBar),
                 WorkspaceShellRevealDescriptor(
-                    surface: .dockEnrichment, edge: .bottom, frame: layout.dockEnrichment, triggerBand: dockTriggerBand
+                    surface: .dockEnrichment, edge: .bottom, frame: layout.dockEnrichment, retentionFrame: dockRetention
                 ),
             ],
             configuration: WorkspaceShellRevealConfiguration(pinned: pinned, held: [])

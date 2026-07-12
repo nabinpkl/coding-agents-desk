@@ -21,18 +21,29 @@ struct WorkspaceShellRevealDescriptor: Equatable {
     let surface: WorkspaceShellSurface
     let edge: WorkspaceShellRevealEdge
     let frame: CGRect
+    /// The region that KEEPS a revealed surface open (donor `retentionFrame`), which can be larger than
+    /// the visible `frame`. For a surface floated off its edge (the dock strip), this spans from the
+    /// screen edge up to the strip's far edge so the pointer bridging the gap below it does not hide it,
+    /// while the reveal itself still triggers only in the thin edge band. Defaults to `frame`.
+    let retentionFrame: CGRect?
     let triggerBand: CGFloat?
 
     init(
         surface: WorkspaceShellSurface,
         edge: WorkspaceShellRevealEdge,
         frame: CGRect,
+        retentionFrame: CGRect? = nil,
         triggerBand: CGFloat? = nil
     ) {
         self.surface = surface
         self.edge = edge
         self.frame = frame
+        self.retentionFrame = retentionFrame
         self.triggerBand = triggerBand
+    }
+
+    func containsRetainedSurface(_ point: CGPoint, tolerance: CGFloat) -> Bool {
+        (retentionFrame ?? frame).insetBy(dx: -tolerance, dy: -tolerance).contains(point)
     }
 }
 
@@ -57,13 +68,13 @@ struct WorkspaceShellRevealPointer: Equatable {
         self.isOnScreen = isOnScreen
         factsBySurface = Dictionary(uniqueKeysWithValues: descriptors.map { descriptor in
             let triggerBand = max(0, descriptor.triggerBand ?? defaultTriggerBand)
-            let retainedFrame = descriptor.frame.insetBy(dx: -surfaceTolerance, dy: -surfaceTolerance)
             return (
                 descriptor.surface,
                 WorkspaceShellRevealPointerFacts(
                     isNearTriggerEdge: isOnScreen
                         && descriptor.edge.contains(point, in: screen, band: triggerBand),
-                    isInsideSurface: insideSurfaces.contains(descriptor.surface) || retainedFrame.contains(point)
+                    isInsideSurface: insideSurfaces.contains(descriptor.surface)
+                        || descriptor.containsRetainedSurface(point, tolerance: surfaceTolerance)
                 )
             )
         })
