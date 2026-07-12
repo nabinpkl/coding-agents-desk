@@ -130,6 +130,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         maxBytes: Config.workspaceFileMaxBytes
     )
     private var workspaceShellPanelController: WorkspaceShellPanelController?
+    // R24: the macOS Agents window, toggled from the shell's top-bar "Agents" command. Backed by the
+    // host-owned ATC sidecar through AgentPanel, independent of the QUIC-lane agent feed.
+    private var agentWindowController: AgentWindowController?
     private var gesturePortalController: GesturePortalController?
     private var gestureChildController: GestureChildController?
     private var voiceChildController: VoiceChildController?
@@ -280,6 +283,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspaceFilesLanes.removeAll()
         workspaceShellPanelController?.stop()
         workspaceShellPanelController = nil
+        agentWindowController?.stop()
+        agentWindowController = nil
         voiceChildController?.stop()
         agentSayServer?.stop()
         signalingServer?.stop()
@@ -377,6 +382,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let panel = WorkspaceShellPanelController(controller: controller)
         workspaceShellPanelController = panel
+
+        // R24: the Agents window shares the sidecar-backed AgentFeedBridge path with the phone feed;
+        // it resolves the sidecar base URL lazily per request, same as the QUIC-lane wiring, so a
+        // toggle that arrives while the sidecar is mid-restart fails transiently rather than for good.
+        let sidecar = agentEngineSidecar
+        let agentWindow = AgentWindowController(
+            sidecarClient: HttpSidecarClient(baseURLProvider: { [weak sidecar] in sidecar?.baseURL })
+        )
+        agentWindowController = agentWindow
+        panel.onAgentsCommand = { [weak agentWindow] in agentWindow?.toggle() }
+
         panel.show()
     }
 

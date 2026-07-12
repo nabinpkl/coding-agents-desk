@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		A0000000000000000000EE03 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE02 /* AgentDeskWire */; };
 		A0000000000000000000EE05 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE04 /* AgentDeskWire */; };
+		A0000000000000000000AF03 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000AF02 /* AgentPanel */; };
+		A0000000000000000000AF05 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000AF04 /* AgentPanel */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -74,6 +76,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A0000000000000000000EE03 /* AgentDeskWire in Frameworks */,
+				A0000000000000000000AF03 /* AgentPanel in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -82,6 +85,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A0000000000000000000EE05 /* AgentDeskWire in Frameworks */,
+				A0000000000000000000AF05 /* AgentPanel in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -127,6 +131,7 @@
 			name = AgentDeskHost;
 			packageProductDependencies = (
 				A0000000000000000000EE02 /* AgentDeskWire */,
+				A0000000000000000000AF02 /* AgentPanel */,
 			);
 			productName = AgentDeskHost;
 			productReference = A00000000000000000000141 /* AgentDeskHost.app */;
@@ -152,6 +157,7 @@
 			name = AgentDeskHostTests;
 			packageProductDependencies = (
 				A0000000000000000000EE04 /* AgentDeskWire */,
+				A0000000000000000000AF04 /* AgentPanel */,
 			);
 			productName = AgentDeskHostTests;
 			productReference = A00000000000000000000142 /* AgentDeskHostTests.xctest */;
@@ -187,6 +193,7 @@
 			mainGroup = A00000000000000000000002;
 			packageReferences = (
 				A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */,
+				A0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */,
 			);
 			productRefGroup = A00000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -469,6 +476,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/AgentDeskWire;
 		};
+		A0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/AgentPanel;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -481,6 +492,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */;
 			productName = AgentDeskWire;
+		};
+		A0000000000000000000AF02 /* AgentPanel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */;
+			productName = AgentPanel;
+		};
+		A0000000000000000000AF04 /* AgentPanel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */;
+			productName = AgentPanel;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

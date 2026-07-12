@@ -37,6 +37,10 @@ final class WorkspaceShellPanelController: NSObject {
     private var openFileRevision: WorkspaceFileRevision?
     private var isSaving = false
 
+    /// Invoked when the top-bar "Agents" command is tapped. AppDelegate wires this to toggle the
+    /// macOS Agents window (R24), keeping the shell panel decoupled from the agent surface.
+    var onAgentsCommand: (() -> Void)?
+
     init(controller: WorkspaceShellController) {
         self.controller = controller
         super.init()
@@ -77,6 +81,9 @@ final class WorkspaceShellPanelController: NSObject {
         let addButton = NSButton(title: "Add Workspace…", target: self, action: #selector(addWorkspaceTapped))
         addButton.setAccessibilityIdentifier("workspace-shell-add")
 
+        let agentsButton = NSButton(title: "Agents", target: self, action: #selector(agentsTapped))
+        agentsButton.setAccessibilityIdentifier("workspace-shell-agents")
+
         workspaceSwitcher.target = self
         workspaceSwitcher.action = #selector(workspaceSwitched)
         workspaceSwitcher.setAccessibilityIdentifier("workspace-shell-switcher")
@@ -96,7 +103,7 @@ final class WorkspaceShellPanelController: NSObject {
         scroll.documentView = outlineView
         scroll.hasVerticalScroller = true
 
-        let stack = NSStackView(views: [workspaceSwitcher, addButton, scroll, buildEditor()])
+        let stack = NSStackView(views: [agentsButton, workspaceSwitcher, addButton, scroll, buildEditor()])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -271,6 +278,10 @@ final class WorkspaceShellPanelController: NSObject {
                 self?.presentFailure("Could not switch workspace", error)
             }
         }
+    }
+
+    @objc private func agentsTapped() {
+        onAgentsCommand?()
     }
 
     @objc private func addWorkspaceTapped() {
