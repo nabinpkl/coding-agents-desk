@@ -10,6 +10,53 @@ protocol WorkspaceFilesRequesting: Sendable {
 
 extension WorkspaceFilesTransport: WorkspaceFilesRequesting {}
 
+struct WorkspaceFilesResumeState: Equatable, Sendable {
+    let workspaceID: String
+    let filePath: String?
+}
+
+protocol WorkspaceFilesResumeStoring: AnyObject {
+    var state: WorkspaceFilesResumeState? { get set }
+}
+
+final class WorkspaceFilesResumeStore: WorkspaceFilesResumeStoring, @unchecked Sendable {
+    static let shared = WorkspaceFilesResumeStore()
+
+    private enum Key {
+        static let workspaceID = "agentDesk.workspaceFiles.workspaceID"
+        static let filePath = "agentDesk.workspaceFiles.filePath"
+    }
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    var state: WorkspaceFilesResumeState? {
+        get {
+            guard let workspaceID = defaults.string(forKey: Key.workspaceID) else { return nil }
+            return WorkspaceFilesResumeState(
+                workspaceID: workspaceID,
+                filePath: defaults.string(forKey: Key.filePath)
+            )
+        }
+        set {
+            guard let newValue else {
+                defaults.removeObject(forKey: Key.workspaceID)
+                defaults.removeObject(forKey: Key.filePath)
+                return
+            }
+            defaults.set(newValue.workspaceID, forKey: Key.workspaceID)
+            if let filePath = newValue.filePath {
+                defaults.set(filePath, forKey: Key.filePath)
+            } else {
+                defaults.removeObject(forKey: Key.filePath)
+            }
+        }
+    }
+}
+
 /// Drives the iOS Files surface: it owns the `WorkspaceFilesBrowserModel`, issues the matching
 /// `WorkspaceFileRequest` for each navigation over the transport, and folds each response back into
 /// the model tagged with the generation captured when the request was issued. Because the model
@@ -23,14 +70,17 @@ final class WorkspaceFilesBrowser {
 
     private let transport: WorkspaceFilesRequesting
     private let makeRequestID: @Sendable () -> WorkspaceFileRequestID
+    private let resumeStore: WorkspaceFilesResumeStoring
     private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-files")
 
     init(
         transport: WorkspaceFilesRequesting,
-        makeRequestID: @escaping @Sendable () -> WorkspaceFileRequestID = { WorkspaceFileRequestID(value: UUID().uuidString) }
+        makeRequestID: @escaping @Sendable () -> WorkspaceFileRequestID = { WorkspaceFileRequestID(value: UUID().uuidString) },
+        resumeStore: WorkspaceFilesResumeStoring = WorkspaceFilesResumeStore.shared
     ) {
         self.transport = transport
         self.makeRequestID = makeRequestID
+        self.resumeStore = resumeStore
     }
 
     func loadWorkspaces() async {
@@ -39,6 +89,7 @@ final class WorkspaceFilesBrowser {
             if case .workspaces(_, let result) = response {
                 model = model.withWorkspaces(result.workspaces)
                 onChange?()
+                await restoreSelection(from: result.workspaces)
             } else {
                 // The host answers .listWorkspaces with .error when its store is unreadable; surface
                 // that rather than leaving the view silently stuck.
@@ -52,9 +103,29 @@ final class WorkspaceFilesBrowser {
     }
 
     func selectWorkspace(_ id: String) async {
+        resumeStore.state = WorkspaceFilesResumeState(workspaceID: id, filePath: nil)
         model = model.selectingWorkspace(id)
         onChange?()
         await loadCurrentDirectory()
+    }
+
+    private func restoreSelection(from workspaces: [WorkspaceSummary]) async {
+        guard let state = resumeStore.state else { return }
+        guard workspaces.contains(where: { $0.id == state.workspaceID }) else {
+            resumeStore.state = nil
+            return
+        }
+        model = model.selectingWorkspace(state.workspaceID)
+        onChange?()
+        await loadCurrentDirectory()
+        guard model.selectedWorkspaceID == state.workspaceID, resumeStore.state == state else { return }
+        if let filePath = state.filePath, !filePath.isEmpty {
+            await openFile(WorkspaceDirectoryEntry(
+                name: (filePath as NSString).lastPathComponent,
+                path: filePath,
+                isDirectory: false
+            ), workspaceID: state.workspaceID)
+        }
     }
 
     func enter(_ entry: WorkspaceDirectoryEntry) async {
@@ -75,6 +146,12 @@ final class WorkspaceFilesBrowser {
 
     func openFile(_ entry: WorkspaceDirectoryEntry) async {
         guard !entry.isDirectory, let workspaceID = model.selectedWorkspaceID else { return }
+        await openFile(entry, workspaceID: workspaceID)
+    }
+
+    private func openFile(_ entry: WorkspaceDirectoryEntry, workspaceID: String) async {
+        guard !entry.isDirectory, model.selectedWorkspaceID == workspaceID else { return }
+        resumeStore.state = WorkspaceFilesResumeState(workspaceID: workspaceID, filePath: entry.path)
         model = model.openingFile(entry)
         onChange?()
         let previewGeneration = model.previewGeneration
@@ -82,11 +159,21 @@ final class WorkspaceFilesBrowser {
             let response = try await transport.request(
                 .read(requestID: makeRequestID(), workspaceID: workspaceID, path: entry.path)
             )
+            if case .error = response {
+                clearRememberedFile(workspaceID: workspaceID, path: entry.path)
+            }
             applyPreview(response, previewGeneration: previewGeneration)
         } catch {
             model = model.previewFailed(previewGeneration: previewGeneration, message: message(for: error))
             onChange?()
         }
+    }
+
+    private func clearRememberedFile(workspaceID: String, path: String) {
+        guard resumeStore.state == WorkspaceFilesResumeState(workspaceID: workspaceID, filePath: path) else {
+            return
+        }
+        resumeStore.state = WorkspaceFilesResumeState(workspaceID: workspaceID, filePath: nil)
     }
 
     func closePreview() {

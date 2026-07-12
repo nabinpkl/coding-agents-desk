@@ -10,6 +10,7 @@ private actor MockFilesRequester: WorkspaceFilesRequesting {
     private var scripted: [String: [WorkspaceDirectoryEntry]] = [:]
     private var scriptedWorkspaces: [WorkspaceSummary] = []
     private var scriptedFiles: [String: String] = [:]
+    private var unreadableFiles: Set<String> = []
     private var gated: Set<String> = []
     private var gates: [String: CheckedContinuation<WorkspaceFileResponse, Error>] = [:]
     private var writeConflicts = false
@@ -22,6 +23,7 @@ private actor MockFilesRequester: WorkspaceFilesRequesting {
     func script(path: String, entries: [WorkspaceDirectoryEntry]) { scripted[path] = entries }
     func scriptWorkspaces(_ workspaces: [WorkspaceSummary]) { scriptedWorkspaces = workspaces }
     func scriptFile(path: String, text: String) { scriptedFiles[path] = text }
+    func scriptFileError(path: String) { unreadableFiles.insert(path) }
     func setWriteConflicts(_ value: Bool) { writeConflicts = value }
     func gate(path: String) { gated.insert(path) }
     func holdWrites() { gateWrites = true }
@@ -49,6 +51,17 @@ private actor MockFilesRequester: WorkspaceFilesRequesting {
             )
         }
         if case .read(let requestID, let workspaceID, let path) = request {
+            if unreadableFiles.contains(path) {
+                return .error(
+                    requestID: requestID,
+                    error: WorkspaceFileError(
+                        code: .notFound,
+                        workspaceID: workspaceID,
+                        path: path,
+                        message: "File not found."
+                    )
+                )
+            }
             return .read(
                 requestID: requestID,
                 result: WorkspaceFileReadResult(
@@ -89,6 +102,56 @@ private actor MockFilesRequester: WorkspaceFilesRequesting {
     }
 }
 
+private actor RestoreRaceRequester: WorkspaceFilesRequesting {
+    private var firstDirectoryContinuation: CheckedContinuation<Void, Never>?
+    private var hasRequestedFirstDirectory = false
+    private(set) var reads: [String] = []
+
+    func waitForFirstDirectoryRequest() async {
+        while !hasRequestedFirstDirectory { await Task.yield() }
+    }
+
+    func releaseFirstDirectoryRequest() {
+        firstDirectoryContinuation?.resume()
+        firstDirectoryContinuation = nil
+    }
+
+    func request(_ request: WorkspaceFileRequest) async throws -> WorkspaceFileResponse {
+        switch request {
+        case .listWorkspaces(let requestID):
+            return .workspaces(
+                requestID: requestID,
+                result: WorkspaceListResult(workspaces: [
+                    WorkspaceSummary(id: "w1", name: "Alpha"),
+                    WorkspaceSummary(id: "w2", name: "Beta"),
+                ])
+            )
+        case .listDirectory(let requestID, let workspaceID, let path):
+            if !hasRequestedFirstDirectory {
+                hasRequestedFirstDirectory = true
+                await withCheckedContinuation { firstDirectoryContinuation = $0 }
+            }
+            return .directory(
+                requestID: requestID,
+                result: WorkspaceDirectoryListResult(workspaceID: workspaceID, path: path, entries: [])
+            )
+        case .read(let requestID, let workspaceID, let path):
+            reads.append("\(workspaceID):\(path)")
+            return .read(
+                requestID: requestID,
+                result: WorkspaceFileReadResult(
+                    workspaceID: workspaceID,
+                    path: path,
+                    text: "stale",
+                    revision: WorkspaceFileRevision(digest: "d")
+                )
+            )
+        case .write(let requestID, _, _, _, _):
+            return .error(requestID: requestID, error: WorkspaceFileError(code: .notFound))
+        }
+    }
+}
+
 private func dir(_ name: String, _ path: String) -> WorkspaceDirectoryEntry {
     WorkspaceDirectoryEntry(name: name, path: path, isDirectory: true)
 }
@@ -97,12 +160,25 @@ private func file(_ name: String, _ path: String) -> WorkspaceDirectoryEntry {
     WorkspaceDirectoryEntry(name: name, path: path, isDirectory: false)
 }
 
+private final class InMemoryWorkspaceFilesResumeStore: WorkspaceFilesResumeStoring {
+    var state: WorkspaceFilesResumeState?
+
+    init(state: WorkspaceFilesResumeState? = nil) {
+        self.state = state
+    }
+}
+
+@MainActor
+private func makeBrowser(transport: WorkspaceFilesRequesting) -> WorkspaceFilesBrowser {
+    WorkspaceFilesBrowser(transport: transport, resumeStore: InMemoryWorkspaceFilesResumeStore())
+}
+
 @MainActor
 struct WorkspaceFilesBrowserTests {
     @Test func selectingWorkspaceListsTheRootAndLoads() async {
         let mock = MockFilesRequester()
         await mock.script(path: "", entries: [dir("src", "src"), file("README.md", "README.md")])
-        let browser = WorkspaceFilesBrowser(transport: mock)
+        let browser = makeBrowser(transport: mock)
 
         await browser.selectWorkspace("w1")
 
@@ -117,7 +193,7 @@ struct WorkspaceFilesBrowserTests {
         let mock = MockFilesRequester()
         await mock.script(path: "", entries: [dir("src", "src")])
         await mock.script(path: "src", entries: [file("main.swift", "src/main.swift")])
-        let browser = WorkspaceFilesBrowser(transport: mock)
+        let browser = makeBrowser(transport: mock)
 
         await browser.selectWorkspace("w1")
         await browser.enter(dir("src", "src"))
@@ -133,7 +209,7 @@ struct WorkspaceFilesBrowserTests {
         let mock = MockFilesRequester()
         await mock.script(path: "", entries: [file("README.md", "README.md")])
         await mock.scriptFile(path: "README.md", text: "# Demo\n")
-        let browser = WorkspaceFilesBrowser(transport: mock)
+        let browser = makeBrowser(transport: mock)
 
         await browser.selectWorkspace("w1")
         await browser.openFile(file("README.md", "README.md"))
@@ -149,7 +225,7 @@ struct WorkspaceFilesBrowserTests {
         let mock = MockFilesRequester()
         await mock.script(path: "", entries: [file("note.txt", "note.txt")])
         await mock.scriptFile(path: "note.txt", text: "old")
-        let browser = WorkspaceFilesBrowser(transport: mock)
+        let browser = makeBrowser(transport: mock)
         await browser.selectWorkspace("w1")
         await browser.openFile(file("note.txt", "note.txt"))
 
@@ -167,7 +243,7 @@ struct WorkspaceFilesBrowserTests {
         await mock.script(path: "", entries: [file("note.txt", "note.txt")])
         await mock.scriptFile(path: "note.txt", text: "old")
         await mock.holdWrites()
-        let browser = WorkspaceFilesBrowser(transport: mock)
+        let browser = makeBrowser(transport: mock)
         await browser.selectWorkspace("w1")
         await browser.openFile(file("note.txt", "note.txt"))
 
@@ -186,7 +262,7 @@ struct WorkspaceFilesBrowserTests {
         await mock.script(path: "", entries: [file("note.txt", "note.txt")])
         await mock.scriptFile(path: "note.txt", text: "old")
         await mock.setWriteConflicts(true)
-        let browser = WorkspaceFilesBrowser(transport: mock)
+        let browser = makeBrowser(transport: mock)
         await browser.selectWorkspace("w1")
         await browser.openFile(file("note.txt", "note.txt"))
 
@@ -200,14 +276,14 @@ struct WorkspaceFilesBrowserTests {
     @Test func openingADirectoryDoesNotOpenAPreview() async {
         let mock = MockFilesRequester()
         await mock.script(path: "", entries: [dir("src", "src")])
-        let browser = WorkspaceFilesBrowser(transport: mock)
+        let browser = makeBrowser(transport: mock)
         await browser.selectWorkspace("w1")
         await browser.openFile(dir("src", "src"))
         #expect(browser.model.preview == nil)
     }
 
     @Test func aTransportFailureSurfacesAsFailed() async {
-        let browser = WorkspaceFilesBrowser(transport: FailingRequester())
+        let browser = makeBrowser(transport: FailingRequester())
         await browser.selectWorkspace("w1")
         guard case .failed = browser.model.status else {
             Issue.record("expected failed status, got \(browser.model.status)")
@@ -220,7 +296,7 @@ struct WorkspaceFilesBrowserTests {
             requestID: WorkspaceFileRequestID(value: "x"),
             result: WorkspaceListResult(workspaces: [WorkspaceSummary(id: "w1", name: "Alpha")])
         ))
-        let browser = WorkspaceFilesBrowser(transport: stub)
+        let browser = makeBrowser(transport: stub)
         await browser.loadWorkspaces()
         #expect(browser.model.workspaces.map(\.name) == ["Alpha"])
     }
@@ -235,7 +311,7 @@ struct WorkspaceFilesBrowserTests {
             WorkspaceSummary(id: "w2", name: "Beta"),
         ])
         await mock.script(path: "", entries: [file("b.txt", "b.txt")])
-        let browser = WorkspaceFilesBrowser(transport: mock)
+        let browser = makeBrowser(transport: mock)
 
         await browser.loadWorkspaces()
         #expect(browser.model.workspaces.map(\.name) == ["Alpha", "Beta"])
@@ -247,12 +323,133 @@ struct WorkspaceFilesBrowserTests {
         #expect(await mock.requestedPaths == [""])  // exactly the picked workspace's root
     }
 
+    @Test func loadWorkspacesRestoresTheSelectedWorkspaceWhenItStillExists() async {
+        let mock = MockFilesRequester()
+        await mock.scriptWorkspaces([
+            WorkspaceSummary(id: "w1", name: "Alpha"),
+            WorkspaceSummary(id: "w2", name: "Beta"),
+        ])
+        await mock.script(path: "", entries: [file("b.txt", "b.txt")])
+        let resumeStore = InMemoryWorkspaceFilesResumeStore(
+            state: WorkspaceFilesResumeState(workspaceID: "w2", filePath: nil)
+        )
+        let browser = WorkspaceFilesBrowser(transport: mock, resumeStore: resumeStore)
+
+        await browser.loadWorkspaces()
+
+        #expect(browser.model.selectedWorkspaceID == "w2")
+        #expect(browser.model.entries.map(\.name) == ["b.txt"])
+        #expect(await mock.requestedPaths == [""])
+    }
+
+    @Test func loadWorkspacesRestoresTheLastOpenedFileForTheRememberedWorkspace() async {
+        let mock = MockFilesRequester()
+        await mock.scriptWorkspaces([WorkspaceSummary(id: "w2", name: "Beta")])
+        await mock.script(path: "", entries: [dir("src", "src")])
+        await mock.scriptFile(path: "src/main.swift", text: "print(\"restored\")")
+        let resumeStore = InMemoryWorkspaceFilesResumeStore(
+            state: WorkspaceFilesResumeState(workspaceID: "w2", filePath: "src/main.swift")
+        )
+        let browser = WorkspaceFilesBrowser(transport: mock, resumeStore: resumeStore)
+
+        await browser.loadWorkspaces()
+
+        #expect(browser.model.selectedWorkspaceID == "w2")
+        #expect(browser.model.preview == .loaded(
+            path: "src/main.swift",
+            text: "print(\"restored\")",
+            revision: WorkspaceFileRevision(digest: "d")
+        ))
+    }
+
+    @Test func selectingAWorkspaceAndOpeningAFileUpdatesResumeState() async {
+        let mock = MockFilesRequester()
+        await mock.script(path: "", entries: [file("README.md", "README.md")])
+        await mock.scriptFile(path: "README.md", text: "# Demo")
+        let resumeStore = InMemoryWorkspaceFilesResumeStore()
+        let browser = WorkspaceFilesBrowser(transport: mock, resumeStore: resumeStore)
+
+        await browser.selectWorkspace("w1")
+        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w1", filePath: nil))
+
+        await browser.openFile(file("README.md", "README.md"))
+        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w1", filePath: "README.md"))
+
+        browser.closePreview()
+        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w1", filePath: "README.md"))
+    }
+
+    @Test func userDefaultsResumeStateSurvivesStoreRecreation() {
+        let suiteName = "WorkspaceFilesBrowserTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        WorkspaceFilesResumeStore(defaults: defaults).state = WorkspaceFilesResumeState(
+            workspaceID: "w2",
+            filePath: "src/main.swift"
+        )
+
+        #expect(WorkspaceFilesResumeStore(defaults: defaults).state == WorkspaceFilesResumeState(
+            workspaceID: "w2",
+            filePath: "src/main.swift"
+        ))
+    }
+
+    @Test func aRememberedWorkspaceThatNoLongerExistsIsDiscarded() async {
+        let mock = MockFilesRequester()
+        await mock.scriptWorkspaces([WorkspaceSummary(id: "w1", name: "Alpha")])
+        let resumeStore = InMemoryWorkspaceFilesResumeStore(
+            state: WorkspaceFilesResumeState(workspaceID: "removed", filePath: "old.txt")
+        )
+        let browser = WorkspaceFilesBrowser(transport: mock, resumeStore: resumeStore)
+
+        await browser.loadWorkspaces()
+
+        #expect(browser.model.selectedWorkspaceID == nil)
+        #expect(await mock.requestedPaths == [])
+        #expect(resumeStore.state == nil)
+    }
+
+    @Test func aUserSelectionSupersedesFileRestorationInFlight() async {
+        let requester = RestoreRaceRequester()
+        let resumeStore = InMemoryWorkspaceFilesResumeStore(
+            state: WorkspaceFilesResumeState(workspaceID: "w2", filePath: "old.swift")
+        )
+        let browser = WorkspaceFilesBrowser(transport: requester, resumeStore: resumeStore)
+
+        let restoring = Task { await browser.loadWorkspaces() }
+        await requester.waitForFirstDirectoryRequest()
+        await browser.selectWorkspace("w1")
+        await requester.releaseFirstDirectoryRequest()
+        await restoring.value
+
+        #expect(browser.model.selectedWorkspaceID == "w1")
+        #expect(await requester.reads == [])
+        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w1", filePath: nil))
+    }
+
+    @Test func aDefinitivelyMissingRememberedFileIsNotRetriedOnTheNextRestore() async {
+        let mock = MockFilesRequester()
+        await mock.scriptWorkspaces([WorkspaceSummary(id: "w2", name: "Beta")])
+        await mock.script(path: "", entries: [])
+        await mock.scriptFileError(path: "removed.swift")
+        let resumeStore = InMemoryWorkspaceFilesResumeStore(
+            state: WorkspaceFilesResumeState(workspaceID: "w2", filePath: "removed.swift")
+        )
+        let browser = WorkspaceFilesBrowser(transport: mock, resumeStore: resumeStore)
+
+        await browser.loadWorkspaces()
+
+        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w2", filePath: nil))
+    }
+
     @Test func loadWorkspacesErrorSurfacesAsFailedInsteadOfBeingSwallowed() async {
         let stub = StubRequester(response: .error(
             requestID: WorkspaceFileRequestID(value: "x"),
             error: WorkspaceFileError(code: .notFound, message: "Workspace store is unavailable.")
         ))
-        let browser = WorkspaceFilesBrowser(transport: stub)
+        let browser = makeBrowser(transport: stub)
         await browser.loadWorkspaces()
         guard case .failed(let message) = browser.model.status else {
             Issue.record("expected failed status, got \(browser.model.status)")
@@ -267,7 +464,7 @@ struct WorkspaceFilesBrowserTests {
         let mock = MockFilesRequester()
         await mock.gate(path: "")                                   // hold the root listing
         await mock.script(path: "src", entries: [file("main.swift", "src/main.swift")])
-        let browser = WorkspaceFilesBrowser(transport: mock)
+        let browser = makeBrowser(transport: mock)
 
         let selecting = Task { await browser.selectWorkspace("w1") } // requests "", gated
         await mock.waitUntilRequested(path: "")
