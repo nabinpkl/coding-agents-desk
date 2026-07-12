@@ -49,10 +49,12 @@ final class WorkspaceShellOverlay {
         WorkspaceShellOverlay.pin(topBarContentView, to: topBarBackground)
         topBarPanel.contentView = topBarBackground
 
-        let dockBackground = WorkspaceShellOverlay.makeBackground()
-        dockBackground.addSubview(dockContentView)
-        WorkspaceShellOverlay.pin(dockContentView, to: dockBackground)
-        dockPanel.contentView = dockBackground
+        // The dock strip panel is transparent (donor `configureTransparentDockPanel`): NO frosted
+        // background and NO shadow, so only the DockEnrichmentPanel's own bottom strip is painted and
+        // the space above it (which holds tooltips/popovers) stays see-through instead of blocking the
+        // view. The panel is already clear from makePanel; just don't wrap the content in a background.
+        dockPanel.hasShadow = false
+        dockPanel.contentView = dockContentView
     }
 
     private static func makePanel(title: String) -> FocusableOverlayPanel {
