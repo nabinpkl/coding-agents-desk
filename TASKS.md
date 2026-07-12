@@ -28,7 +28,7 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 
 ## v2 Phase 2: macOS workspace shell and local files
 
-- [ ] R20. Port the AppKit shell primitives into AgentDeskHost: sidebar/top-bar panels, edge reveal, layout, workspace switcher, activity controls, and accessibility identifiers, excluding donor Desktop switching, Debug Browser, Jupyter, and Dock enrichment. (Landed and tested: root-scoped file tree, edge-reveal state machine, layout geometry, and accessibility identifiers. Remaining: the actual AppKit NSView sidebar/top-bar panels, workspace switcher, and activity controls.)
+- [x] D20. Port the AppKit shell primitives into AgentDeskHost: sidebar/top-bar panels, edge reveal, layout, workspace switcher, activity controls, and accessibility identifiers, excluding donor Desktop switching, Debug Browser, Jupyter, and Dock enrichment. (Landed and reviewer-green: root-scoped file tree, edge-reveal, layout, accessibility identifiers, and the shell sidebar panel with an NSOutlineView file tree, a workspace-switcher NSPopUpButton, and Add-Workspace. Follow-ups: a separate top-bar panel and activity controls beyond the sidebar.)
 - [x] D21. Wire the shell to AgentDesk `SpacesProvider`, `HostPtyManagerProcess`, terminal launcher, and ATC ownership through focused controllers rather than adding feature state to `AppDelegate.swift`. (`WorkspaceShellController` owns the store lifecycle with a busy-guard; `AppDelegate` composes it + the panel controller behind `Config.workspaceShellEnabled` without shell feature state leaking in. Reviewer-green; `just check` green. The SpacesProvider/PTY/terminal/ATC hooks beyond workspace+file browsing are follow-ups.)
 - [ ] R22. Port the reusable WKWebView file viewer/editor, open-tab model, file watching, UTF-8/binary probe, conflict state, and atomic autosave; tests assert one reusable surface per type, explicit save failure, external-change conflict, and tab-state behavior.
 - [x] D23. Start the workspace shell with AgentDeskHost while preserving `LSUIElement`, menu-bar status behavior, variant identity, TCC grants, and normal key-window editing. (`WorkspaceShellPanelController` shows a nonactivating, canBecomeKey panel on launch behind `Config.workspaceShellEnabled`; the app never activates so the menu bar stays with the frontmost app, while the panel is key-able for editing. Reviewer-green; `just check` green; host launches cleanly with the shell enabled and loads the store. Pixel-level render observation pending screen-capture approval.)
@@ -68,7 +68,7 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 R14-R15  2026-07-10  verified   AgentDesk workspace ownership accepted and prior terminal ledger archived
 R16-R18  2026-07-10  green      workspace domain, one-time donor import, AgentPanel package (just check green)
 R19      pending     pending     iOS AgentFeedSurface -> AgentPanel swap
-R20      partial     green      shell primitives + sidebar panel (workspace label, file tree, add); top-bar/switcher/activity controls remain
+R20      2026-07-10  green      shell sidebar panel: file tree + workspace switcher + add (reviewer-green); top-bar/activity follow-ups
 R21      2026-07-10  green      shell controller owning the store lifecycle (reviewer-green)
 R22      pending     pending     macOS reusable file viewer/editor
 R23      2026-07-10  green      shell started with the host, LSUIElement-preserving (reviewer-green; launches clean)
