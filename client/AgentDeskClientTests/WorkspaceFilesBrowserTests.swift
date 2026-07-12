@@ -8,11 +8,13 @@ import AgentDeskWire
 /// the test releases it), so both the happy path and the mid-flight supersede are deterministic.
 private actor MockFilesRequester: WorkspaceFilesRequesting {
     private var scripted: [String: [WorkspaceDirectoryEntry]] = [:]
+    private var scriptedFiles: [String: String] = [:]
     private var gated: Set<String> = []
     private var gates: [String: CheckedContinuation<WorkspaceFileResponse, Error>] = [:]
     private(set) var requestedPaths: [String] = []
 
     func script(path: String, entries: [WorkspaceDirectoryEntry]) { scripted[path] = entries }
+    func scriptFile(path: String, text: String) { scriptedFiles[path] = text }
     func gate(path: String) { gated.insert(path) }
 
     func release(path: String, entries: [WorkspaceDirectoryEntry]) {
@@ -29,6 +31,15 @@ private actor MockFilesRequester: WorkspaceFilesRequesting {
     }
 
     func request(_ request: WorkspaceFileRequest) async throws -> WorkspaceFileResponse {
+        if case .read(let requestID, let workspaceID, let path) = request {
+            return .read(
+                requestID: requestID,
+                result: WorkspaceFileReadResult(
+                    workspaceID: workspaceID, path: path,
+                    text: scriptedFiles[path] ?? "", revision: WorkspaceFileRevision(digest: "d")
+                )
+            )
+        }
         guard case .listDirectory(let requestID, let workspaceID, let path) = request else {
             return .error(requestID: request.requestID, error: WorkspaceFileError(code: .notFound))
         }
@@ -81,6 +92,29 @@ struct WorkspaceFilesBrowserTests {
         await browser.navigateUp()
         #expect(browser.model.path == "")
         #expect(await mock.requestedPaths == ["", "src", ""])
+    }
+
+    @Test func openingAFileLoadsAReadOnlyPreviewAndCloseDismissesIt() async {
+        let mock = MockFilesRequester()
+        await mock.script(path: "", entries: [file("README.md", "README.md")])
+        await mock.scriptFile(path: "README.md", text: "# Demo\n")
+        let browser = WorkspaceFilesBrowser(transport: mock)
+
+        await browser.selectWorkspace("w1")
+        await browser.openFile(file("README.md", "README.md"))
+        #expect(browser.model.preview == .loaded(path: "README.md", text: "# Demo\n"))
+
+        browser.closePreview()
+        #expect(browser.model.preview == nil)
+    }
+
+    @Test func openingADirectoryDoesNotOpenAPreview() async {
+        let mock = MockFilesRequester()
+        await mock.script(path: "", entries: [dir("src", "src")])
+        let browser = WorkspaceFilesBrowser(transport: mock)
+        await browser.selectWorkspace("w1")
+        await browser.openFile(dir("src", "src"))
+        #expect(browser.model.preview == nil)
     }
 
     @Test func aTransportFailureSurfacesAsFailed() async {

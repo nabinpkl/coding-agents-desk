@@ -14,6 +14,13 @@ final class WorkspaceFilesSurface: UIView {
     private let statusLabel = UILabel()
     private let tableView = UITableView(frame: .zero, style: .plain)
 
+    // Read-only file preview overlay, shown over the list when a file is opened.
+    private let previewContainer = UIView()
+    private let previewTitleLabel = UILabel()
+    private let previewCloseButton = UIButton(type: .system)
+    private let previewTextView = UITextView()
+    private let previewStatusLabel = UILabel()
+
     /// Called when the user taps a file entry (not a directory), so a preview can be presented.
     var onSelectFile: ((WorkspaceDirectoryEntry) -> Void)?
 
@@ -68,6 +75,54 @@ final class WorkspaceFilesSurface: UIView {
         tableView.delegate = self
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "entry")
         tableView.accessibilityIdentifier = "workspace-files-table"
+
+        setUpPreviewOverlay()
+    }
+
+    private func setUpPreviewOverlay() {
+        previewContainer.backgroundColor = .systemBackground
+        previewContainer.isHidden = true
+        previewContainer.accessibilityIdentifier = "workspace-files-preview"
+
+        previewCloseButton.setImage(UIImage(systemName: "chevron.backward"), for: .normal)
+        previewCloseButton.accessibilityIdentifier = "workspace-files-preview-close"
+        previewCloseButton.addTarget(self, action: #selector(closePreviewTapped), for: .touchUpInside)
+
+        previewTitleLabel.font = .preferredFont(forTextStyle: .headline)
+        previewTitleLabel.adjustsFontForContentSizeCategory = true
+        previewTitleLabel.lineBreakMode = .byTruncatingHead
+
+        previewStatusLabel.font = .preferredFont(forTextStyle: .footnote)
+        previewStatusLabel.textColor = .secondaryLabel
+        previewStatusLabel.textAlignment = .center
+        previewStatusLabel.numberOfLines = 0
+
+        previewTextView.isEditable = false
+        previewTextView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        previewTextView.accessibilityIdentifier = "workspace-files-preview-text"
+
+        let header = UIStackView(arrangedSubviews: [previewCloseButton, previewTitleLabel])
+        header.axis = .horizontal
+        header.spacing = 8
+        header.alignment = .center
+
+        let stack = UIStackView(arrangedSubviews: [header, previewStatusLabel, previewTextView])
+        stack.axis = .vertical
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        previewContainer.addSubview(stack)
+        previewContainer.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(previewContainer)
+        NSLayoutConstraint.activate([
+            previewContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            previewContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            previewContainer.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            previewContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: previewContainer.layoutMarginsGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: previewContainer.layoutMarginsGuide.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: previewContainer.topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(equalTo: previewContainer.safeAreaLayoutGuide.bottomAnchor),
+        ])
     }
 
     private func render() {
@@ -90,10 +145,38 @@ final class WorkspaceFilesSurface: UIView {
             statusLabel.isHidden = false
         }
         tableView.reloadData()
+        renderPreview(model.preview)
+    }
+
+    private func renderPreview(_ preview: WorkspaceFilesBrowserModel.Preview?) {
+        guard let preview else {
+            previewContainer.isHidden = true
+            previewTextView.text = nil
+            return
+        }
+        previewContainer.isHidden = false
+        previewTitleLabel.text = (preview.path as NSString).lastPathComponent
+        switch preview {
+        case .loading:
+            previewStatusLabel.text = "Loading…"
+            previewStatusLabel.isHidden = false
+            previewTextView.text = nil
+        case .loaded(_, let text):
+            previewStatusLabel.isHidden = true
+            previewTextView.text = text
+        case .failed(_, let message):
+            previewStatusLabel.text = message
+            previewStatusLabel.isHidden = false
+            previewTextView.text = nil
+        }
     }
 
     @objc private func navigateUpTapped() {
         Task { await browser.navigateUp() }
+    }
+
+    @objc private func closePreviewTapped() {
+        browser.closePreview()
     }
 
     /// Drops the model binding so a torn-down surface stops rendering. The owning controller closes
@@ -127,6 +210,7 @@ extension WorkspaceFilesSurface: UITableViewDataSource, UITableViewDelegate {
             Task { await browser.enter(entry) }
         } else {
             onSelectFile?(entry)
+            Task { await browser.openFile(entry) }
         }
     }
 }

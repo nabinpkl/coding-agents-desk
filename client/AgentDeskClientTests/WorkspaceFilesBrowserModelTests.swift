@@ -74,6 +74,28 @@ struct WorkspaceFilesBrowserModelTests {
         #expect(failed.status == .failed("Access to this path is not permitted."))
     }
 
+    @Test func openingFileStartsAPreviewAndDirectoryIsIgnored() {
+        let base = WorkspaceFilesBrowserModel(selectedWorkspaceID: "w1", path: "src", status: .loaded)
+        let opened = base.openingFile(file("main.swift", "src/main.swift"))
+        #expect(opened.preview == .loading(path: "src/main.swift"))
+        #expect(opened.previewGeneration == base.previewGeneration + 1)
+        // A directory is not previewable.
+        #expect(base.openingFile(dir("ui", "src/ui")) == base)
+    }
+
+    @Test func previewLoadedAndFailedRespectPreviewGeneration() {
+        let opened = WorkspaceFilesBrowserModel(selectedWorkspaceID: "w1", path: "src", status: .loaded)
+            .openingFile(file("main.swift", "src/main.swift"))
+        let loaded = opened.previewLoaded(previewGeneration: opened.previewGeneration, text: "hello")
+        #expect(loaded.preview == .loaded(path: "src/main.swift", text: "hello"))
+
+        // A stale read (superseded by closing/reopening) is ignored.
+        let closed = loaded.closingPreview()
+        #expect(closed.preview == nil)
+        let stale = closed.previewLoaded(previewGeneration: opened.previewGeneration, text: "late")
+        #expect(stale.preview == nil)
+    }
+
     /// The reviewer's scenario: a late failure from an abandoned navigation must not clobber a
     /// newer directory that has already loaded successfully.
     @Test func staleFailureDoesNotClobberANewerLoadedDirectory() {

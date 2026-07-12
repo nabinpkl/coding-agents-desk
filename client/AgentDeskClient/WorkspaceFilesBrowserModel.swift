@@ -20,6 +20,20 @@ struct WorkspaceFilesBrowserModel: Equatable {
         case failed(String)
     }
 
+    /// The read-only file preview overlay, correlated by `previewGeneration` just like navigation.
+    enum Preview: Equatable {
+        case loading(path: String)
+        case loaded(path: String, text: String)
+        case failed(path: String, message: String)
+
+        var path: String {
+            switch self {
+            case .loading(let path), .loaded(let path, _), .failed(let path, _):
+                path
+            }
+        }
+    }
+
     private(set) var workspaces: [WorkspaceSummary]
     private(set) var selectedWorkspaceID: String?
     /// The current directory, workspace-relative. Empty string is the workspace root.
@@ -29,6 +43,10 @@ struct WorkspaceFilesBrowserModel: Equatable {
     /// Monotonic counter identifying the current pending navigation. Responses echo the generation
     /// captured when their request was issued; a mismatch means the response is stale.
     private(set) var generation: Int
+    /// The active file preview, or nil when no file is open.
+    private(set) var preview: Preview?
+    /// Monotonic counter identifying the current pending file read, correlated like `generation`.
+    private(set) var previewGeneration: Int
 
     init(
         workspaces: [WorkspaceSummary] = [],
@@ -36,7 +54,9 @@ struct WorkspaceFilesBrowserModel: Equatable {
         path: String = "",
         entries: [WorkspaceDirectoryEntry] = [],
         status: Status = .idle,
-        generation: Int = 0
+        generation: Int = 0,
+        preview: Preview? = nil,
+        previewGeneration: Int = 0
     ) {
         self.workspaces = workspaces
         self.selectedWorkspaceID = selectedWorkspaceID
@@ -44,6 +64,8 @@ struct WorkspaceFilesBrowserModel: Equatable {
         self.entries = entries
         self.status = status
         self.generation = generation
+        self.preview = preview
+        self.previewGeneration = previewGeneration
     }
 
     var canNavigateUp: Bool { !path.isEmpty }
@@ -108,6 +130,37 @@ struct WorkspaceFilesBrowserModel: Equatable {
         guard generation == self.generation else { return self }
         var copy = self
         copy.status = .failed(message)
+        return copy
+    }
+
+    /// Opens a file preview, pending its content. A directory is not previewable and is ignored.
+    func openingFile(_ entry: WorkspaceDirectoryEntry) -> Self {
+        guard !entry.isDirectory else { return self }
+        var copy = self
+        copy.preview = .loading(path: entry.path)
+        copy.previewGeneration += 1
+        return copy
+    }
+
+    func previewLoaded(previewGeneration: Int, text: String) -> Self {
+        guard previewGeneration == self.previewGeneration, let path = preview?.path else { return self }
+        var copy = self
+        copy.preview = .loaded(path: path, text: text)
+        return copy
+    }
+
+    func previewFailed(previewGeneration: Int, message: String) -> Self {
+        guard previewGeneration == self.previewGeneration, let path = preview?.path else { return self }
+        var copy = self
+        copy.preview = .failed(path: path, message: message)
+        return copy
+    }
+
+    /// Dismisses the preview and supersedes any in-flight read so its late response is ignored.
+    func closingPreview() -> Self {
+        var copy = self
+        copy.preview = nil
+        copy.previewGeneration += 1
         return copy
     }
 }

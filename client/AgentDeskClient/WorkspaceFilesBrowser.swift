@@ -73,6 +73,38 @@ final class WorkspaceFilesBrowser {
         await loadCurrentDirectory()
     }
 
+    func openFile(_ entry: WorkspaceDirectoryEntry) async {
+        guard !entry.isDirectory, let workspaceID = model.selectedWorkspaceID else { return }
+        model = model.openingFile(entry)
+        onChange?()
+        let previewGeneration = model.previewGeneration
+        do {
+            let response = try await transport.request(
+                .read(requestID: makeRequestID(), workspaceID: workspaceID, path: entry.path)
+            )
+            applyPreview(response, previewGeneration: previewGeneration)
+        } catch {
+            model = model.previewFailed(previewGeneration: previewGeneration, message: message(for: error))
+            onChange?()
+        }
+    }
+
+    func closePreview() {
+        model = model.closingPreview()
+        onChange?()
+    }
+
+    private func applyPreview(_ response: WorkspaceFileResponse, previewGeneration: Int) {
+        let previous = model
+        switch response {
+        case .read(_, let result):
+            model = model.previewLoaded(previewGeneration: previewGeneration, text: result.text)
+        case .error, .workspaces, .directory, .write, .conflict:
+            model = model.previewFailed(previewGeneration: previewGeneration, message: failureMessage(response))
+        }
+        if model != previous { onChange?() }
+    }
+
     private func loadCurrentDirectory() async {
         guard let workspaceID = model.selectedWorkspaceID else { return }
         // Capture the generation this request belongs to, so a response that arrives after a newer
