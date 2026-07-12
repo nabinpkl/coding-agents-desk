@@ -89,6 +89,7 @@ struct WorkspaceFilesBrowserModel: Equatable {
         copy.entries = []
         copy.status = .loading
         copy.generation += 1
+        copy.dismissPreview()
         return copy
     }
 
@@ -100,6 +101,7 @@ struct WorkspaceFilesBrowserModel: Equatable {
         copy.entries = []
         copy.status = .loading
         copy.generation += 1
+        copy.dismissPreview()
         return copy
     }
 
@@ -111,7 +113,17 @@ struct WorkspaceFilesBrowserModel: Equatable {
         copy.entries = []
         copy.status = .loading
         copy.generation += 1
+        copy.dismissPreview()
         return copy
+    }
+
+    /// Closes any open preview and invalidates an in-flight read. Navigation always closes the
+    /// preview so the model — not the view's overlay z-order — is the single authority that a
+    /// preview and a directory listing are never shown for different locations at once.
+    private mutating func dismissPreview() {
+        guard preview != nil else { return }
+        preview = nil
+        previewGeneration += 1
     }
 
     /// Applies a directory listing to the request identified by `generation`. A response for a

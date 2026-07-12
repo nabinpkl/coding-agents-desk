@@ -83,6 +83,19 @@ struct WorkspaceFilesBrowserModelTests {
         #expect(base.openingFile(dir("ui", "src/ui")) == base)
     }
 
+    @Test func navigationClosesAnOpenPreview() {
+        let previewing = WorkspaceFilesBrowserModel(selectedWorkspaceID: "w1", path: "src", status: .loaded)
+            .openingFile(file("main.swift", "src/main.swift"))
+            .previewLoaded(previewGeneration: 1, text: "x")
+        #expect(previewing.preview != nil)
+
+        // Any navigation clears the preview and supersedes an in-flight read.
+        #expect(previewing.navigatingUp().preview == nil)
+        #expect(previewing.enteringDirectory(dir("ui", "src/ui")).preview == nil)
+        #expect(previewing.selectingWorkspace("w2").preview == nil)
+        #expect(previewing.enteringDirectory(dir("ui", "src/ui")).previewGeneration > previewing.previewGeneration)
+    }
+
     @Test func previewLoadedAndFailedRespectPreviewGeneration() {
         let opened = WorkspaceFilesBrowserModel(selectedWorkspaceID: "w1", path: "src", status: .loaded)
             .openingFile(file("main.swift", "src/main.swift"))
