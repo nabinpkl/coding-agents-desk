@@ -44,6 +44,30 @@ public struct SlotLayoutConfig: Equatable {
     }
 }
 
+extension SlotLayout {
+    /// The shell's edge-reveal descriptors, derived from this one layout (donor parity): the sidebar
+    /// and top bar sit flush at their edges; the dock strip is floated off the bottom, so its
+    /// retentionFrame spans from the screen bottom up to the strip's top edge — keeping it revealed once
+    /// the pointer has bridged the gap or is over the strip, while the reveal still triggers only in the
+    /// thin bottom band. Single source: the same layout that positions the panels defines the reveal.
+    var revealDescriptors: [WorkspaceShellRevealDescriptor] {
+        let shellBounds = sidebar.union(topBar).union(slot).union(dockEnrichment)
+        let dockRetention = CGRect(
+            x: shellBounds.minX,
+            y: shellBounds.minY,
+            width: shellBounds.width,
+            height: max(0, dockEnrichment.maxY - shellBounds.minY)
+        )
+        return [
+            WorkspaceShellRevealDescriptor(surface: .sidebar, edge: .left, frame: sidebar),
+            WorkspaceShellRevealDescriptor(surface: .topBar, edge: .top, frame: topBar),
+            WorkspaceShellRevealDescriptor(
+                surface: .dockEnrichment, edge: .bottom, frame: dockEnrichment, retentionFrame: dockRetention
+            ),
+        ]
+    }
+}
+
 /// A rect of fixed `size`, centered inside `outer`. Used to place a slot window at a
 /// specific size (e.g. a normal-terminal-sized window) rather than a fraction of the slot.
 public func centeredRect(in outer: CGRect, size: CGSize) -> CGRect {

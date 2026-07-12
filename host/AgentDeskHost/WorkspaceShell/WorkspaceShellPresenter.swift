@@ -230,33 +230,22 @@ final class WorkspaceShellPresenter: NSObject {
     private func relayout() {
         let screen = currentScreen()
         let pinned = effectivePinned()
-        let layout = WorkspaceShellLayoutCalculator.layout(
-            in: screen,
-            configuration: WorkspaceShellLayoutConfiguration(sidebarWidth: sidebarWidth),
-            pinned: pinned,
-            dockBottomRevealInset: dockGeometry.current.bottomRevealInset
+        // One layout source (donor parity): computeSlotLayout positions every panel AND derives the
+        // reveal descriptors (incl. the dock's retentionFrame). The Dock's revealed thickness lifts the
+        // strip's bottom offset so it floats above a bottom / auto-hidden Dock.
+        let layout = computeSlotLayout(
+            screen: screen,
+            config: SlotLayoutConfig(
+                sidebarWidth: sidebarWidth,
+                dockEnrichmentBottomOffset: dockGeometry.current.bottomRevealInset + 16
+            ),
+            sidebarPinned: pinned.contains(.sidebar),
+            topBarPinned: pinned.contains(.topBar)
         )
         overlay.apply(layout: layout)
-        // The dock uses the SAME reveal mechanism as the sidebar/top bar — the thin default edge band,
-        // so it triggers only when the pointer reaches the very bottom. Because the strip is floated off
-        // the bottom, its retention frame (donor `dockRetentionFrame`) spans from the screen bottom up to
-        // the strip's top edge, so once revealed the pointer bridging the gap or resting on the strip
-        // keeps it open.
-        let dockRetention = CGRect(
-            x: screen.minX,
-            y: screen.minY,
-            width: screen.width,
-            height: max(0, layout.dockEnrichment.maxY - screen.minY)
-        )
         edgeReveal.update(
             screen: screen,
-            descriptors: [
-                WorkspaceShellRevealDescriptor(surface: .sidebar, edge: .left, frame: layout.sidebar),
-                WorkspaceShellRevealDescriptor(surface: .topBar, edge: .top, frame: layout.topBar),
-                WorkspaceShellRevealDescriptor(
-                    surface: .dockEnrichment, edge: .bottom, frame: layout.dockEnrichment, retentionFrame: dockRetention
-                ),
-            ],
+            descriptors: layout.revealDescriptors,
             configuration: WorkspaceShellRevealConfiguration(pinned: pinned, held: [])
         )
     }

@@ -113,7 +113,7 @@ final class WorkspaceShellOverlay {
 
     /// Positions each panel from the layout. Frames are the full edge strip whether revealed or not,
     /// so an edge hover anywhere along the strip triggers a reveal.
-    func apply(layout: WorkspaceShellLayout) {
+    func apply(layout: SlotLayout) {
         sidebarPanel.setFrame(layout.sidebar, display: true)
         topBarPanel.setFrame(layout.topBar, display: true)
         dockPanel.setFrame(layout.dockEnrichment, display: true)

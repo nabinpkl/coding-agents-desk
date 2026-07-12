@@ -1,5 +1,11 @@
 import CoreGraphics
 
+enum WorkspaceShellSurface: Hashable, CaseIterable {
+    case sidebar
+    case topBar
+    case dockEnrichment
+}
+
 enum WorkspaceShellRevealEdge: Equatable {
     case left
     case top
