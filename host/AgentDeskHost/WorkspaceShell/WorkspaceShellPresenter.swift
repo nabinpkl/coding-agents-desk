@@ -41,6 +41,9 @@ final class WorkspaceShellPresenter: NSObject {
     /// a bottom-edge hover. `dockPresenter` drives its off-main snapshot + coalesced render.
     private let dockPanel = DockEnrichmentPanel()
     private var dockPresenter: DockEnrichmentPresenter?
+    /// Tracks the macOS Dock's auto-hide/orientation/thickness so the strip floats above it (and above
+    /// a revealed auto-hidden Dock) instead of overlapping it.
+    private let dockGeometry = DockGeometryMonitor()
     private var session: WorkspaceShellSession?
     /// The embedded PTY Manager window (R56), created lazily on first open from the top-bar chip.
     private var ptyManagerWindow: PtyManagerWindowController?
@@ -230,15 +233,23 @@ final class WorkspaceShellPresenter: NSObject {
         let layout = WorkspaceShellLayoutCalculator.layout(
             in: screen,
             configuration: WorkspaceShellLayoutConfiguration(sidebarWidth: sidebarWidth),
-            pinned: pinned
+            pinned: pinned,
+            dockBottomRevealInset: dockGeometry.current.bottomRevealInset
         )
         overlay.apply(layout: layout)
+        // The strip floats a few points above the bottom edge, so the trigger band reaches from the
+        // screen bottom up to just past the strip's lower edge — enough to reveal on a bottom hover and
+        // to bridge the gap below the strip (the strip's own frame holds the reveal once the pointer is
+        // inside it), without revealing from far up the screen.
+        let dockTriggerBand = max(4, layout.dockEnrichment.minY - screen.minY + 8)
         edgeReveal.update(
             screen: screen,
             descriptors: [
                 WorkspaceShellRevealDescriptor(surface: .sidebar, edge: .left, frame: layout.sidebar),
                 WorkspaceShellRevealDescriptor(surface: .topBar, edge: .top, frame: layout.topBar),
-                WorkspaceShellRevealDescriptor(surface: .dockEnrichment, edge: .bottom, frame: layout.dockEnrichment),
+                WorkspaceShellRevealDescriptor(
+                    surface: .dockEnrichment, edge: .bottom, frame: layout.dockEnrichment, triggerBand: dockTriggerBand
+                ),
             ],
             configuration: WorkspaceShellRevealConfiguration(pinned: pinned, held: [])
         )
@@ -250,6 +261,7 @@ final class WorkspaceShellPresenter: NSObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 DockDisplayMonitorCache.shared.refreshFromScreens()
+                self?.dockGeometry.refresh()
                 self?.relayout()
             }
         }
@@ -291,6 +303,10 @@ final class WorkspaceShellPresenter: NSObject {
         dockPanel.workspaceLabelProvider = { [weak self] spaceID in self?.workspaceName(forSpaceID: spaceID) }
         dockPresenter = DockEnrichmentPresenter(reader: DockAppSnapshotReader(), renderer: dockPanel)
         DockDisplayMonitorCache.shared.refreshFromScreens()
+        // Re-lay out the strip whenever the Dock's geometry changes (auto-hide toggled, moved, resized)
+        // so it keeps floating above the Dock.
+        dockGeometry.onChange = { [weak self] in self?.relayout() }
+        dockGeometry.refresh()
     }
 
     /// The workspace assigned to a Desktop's Space id, for the dock pill label. Nil when unassigned.
