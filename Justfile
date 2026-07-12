@@ -74,6 +74,12 @@ dev_derived_data := derived_data + "-dev"
 client_dev_app := dev_derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
 client_sim_dev_app := dev_derived_data + "/Build/Products/Debug-iphonesimulator/AgentDeskClient.app"
 client_archive_path := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_PATH", justfile_directory() + "/.build/testflight/AgentDeskClient.xcarchive")
+# Isolated derived-data path for TestFlight archiving. The archive runs `clean archive`, which wipes
+# its derived data's Build tree; pointing it at a dedicated dir (not `derived_data`) keeps that clean
+# from deleting the running host/client build products under `.build/DerivedData` — otherwise every
+# upload deletes a live `host-run-release` host's on-disk bundle and its keychain/TCC identity breaks.
+client_archive_derived_data := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_DERIVED_DATA", justfile_directory() + "/.build/DerivedData-archive")
+client_dev_archive_derived_data := justfile_directory() + "/.build/DerivedData-archive-dev"
 client_export_path := env_var_or_default("AGENTDESK_CLIENT_EXPORT_PATH", justfile_directory() + "/.build/testflight/export")
 client_ipa_path := env_var_or_default("AGENTDESK_CLIENT_IPA_PATH", client_export_path + "/AgentDeskClient.ipa")
 # Experimental-variant TestFlight artifact paths, kept separate from the stable
@@ -1024,6 +1030,18 @@ fresh-install:
     just client-reinstall-release
     just pair-iphone stable
 
+# Like fresh-install, but delivers the client over the air via TestFlight instead of a cabled USB
+# install (the "wifi path"): builds the real agent-feed artifacts, rebuilds + relaunches the Release
+# host so it is up and ready to pair, then uploads the client to TestFlight. Use when the iPhone is
+# not connected by cable — the app arrives over wifi through TestFlight while the freshly launched
+# host waits for menu-bar pairing. The upload archives into its own derived-data dir, so it does not
+# disturb the host launched just above. Bump client_marketing_version first if this ships a change.
+fresh-testflight:
+    just build-agent-sidecar
+    just build-agent-webview
+    just host-run-release
+    just testflight-upload stable
+
 fresh-install-dev:
     just build-agent-sidecar
     just build-agent-webview
@@ -1375,11 +1393,14 @@ client-archive-release variant="stable":
     set -euo pipefail
     BUILD_NUMBER="$(tools/testflight-upload.sh build-number)"
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
+    # Archive into an isolated derived-data dir (NOT `derived_data`): the `clean archive` below wipes
+    # its Build tree, so sharing it with a live host-run-release host would delete that host's on-disk
+    # bundle mid-run and break its keychain/TCC identity (pairing then fails to sign the offer).
     if [ "{{variant}}" = "dev" ]; then
-        ARCHIVE='{{client_dev_archive_path}}'; DD='{{dev_derived_data}}'
+        ARCHIVE='{{client_dev_archive_path}}'; DD='{{client_dev_archive_derived_data}}'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev')
     else
-        ARCHIVE='{{client_archive_path}}'; DD='{{derived_data}}'
+        ARCHIVE='{{client_archive_path}}'; DD='{{client_archive_derived_data}}'
         EXTRA=()
     fi
     mkdir -p "$(dirname "$ARCHIVE")"
