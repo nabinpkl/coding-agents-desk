@@ -18,6 +18,10 @@ final class WorkspaceShellPanelController: NSObject {
     private let workspaceLabel = NSTextField(labelWithString: "No workspace")
     private let outlineView = NSOutlineView()
     private var rootNode: WorkspaceShellFileNode?
+    /// The active workspace the outline view was last built for, so a store change that doesn't
+    /// change the active workspace doesn't collapse the tree's expansion state.
+    private var renderedWorkspaceID: UUID?
+    private var loadTask: Task<Void, Never>?
 
     init(controller: WorkspaceShellController) {
         self.controller = controller
@@ -28,10 +32,16 @@ final class WorkspaceShellPanelController: NSObject {
     func show() {
         if panel == nil { buildPanel() }
         panel?.orderFrontRegardless()
-        Task { try? await controller.load(); refresh() }
+        loadTask = Task { [weak self] in
+            try? await self?.controller.load()
+            self?.refresh()
+        }
     }
 
     func stop() {
+        loadTask?.cancel()
+        loadTask = nil
+        controller.onChange = nil
         panel?.orderOut(nil)
         panel = nil
     }
@@ -43,10 +53,11 @@ final class WorkspaceShellPanelController: NSObject {
             backing: .buffered,
             defer: false
         )
+        // A normal utility window, not an always-on-top HUD: the user focuses it to work in the
+        // workspace, and it may be covered when another app is frontmost. `.nonactivatingPanel` +
+        // canBecomeKey keep it key-able for editing without the LSUIElement app ever activating.
         panel.title = "Workspace"
-        panel.isFloatingPanel = true
         panel.level = .normal
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
 
         let addButton = NSButton(title: "Add Workspace…", target: self, action: #selector(addWorkspaceTapped))
@@ -92,7 +103,11 @@ final class WorkspaceShellPanelController: NSObject {
 
     private func refresh() {
         workspaceLabel.stringValue = controller.store.active?.name ?? "No workspace"
-        // Rebuild the tree only when the active workspace changes; the node caches its children.
+        // Rebuild the tree (discarding expansion state) only when the active workspace actually
+        // changes; other store changes just refresh the label.
+        let activeID = controller.store.active?.id
+        guard activeID != renderedWorkspaceID else { return }
+        renderedWorkspaceID = activeID
         rootNode = controller.activeFileTree()?.rootNode
         outlineView.reloadData()
     }
@@ -104,7 +119,27 @@ final class WorkspaceShellPanelController: NSObject {
         open.allowsMultipleSelection = false
         open.prompt = "Add"
         guard open.runModal() == .OK, let url = open.url else { return }
-        Task { try? await controller.addWorkspace(root: url) }
+        Task { [weak self] in
+            do {
+                try await self?.controller.addWorkspace(root: url)
+            } catch {
+                self?.presentAddFailure(error)
+            }
+        }
+    }
+
+    /// Surfaces a registration failure (e.g. the chosen path is a symlink or not a directory) rather
+    /// than silently dropping it.
+    private func presentAddFailure(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Could not add workspace"
+        alert.informativeText = String(describing: error)
+        alert.alertStyle = .warning
+        if let window = panel {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            alert.runModal()
+        }
     }
 }
 
