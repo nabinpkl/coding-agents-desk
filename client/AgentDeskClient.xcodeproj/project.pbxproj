@@ -204,7 +204,7 @@
 			packageReferences = (
 				D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */,
 				A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */,
-				C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */,
+				C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */,
 				C0000000000000000000EE02 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			productRefGroup = B00000000000000000000003 /* Products */;
@@ -497,9 +497,9 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/AgentDeskWire;
 		};
-		C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */ = {
+		C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../agent-workspace-ide/terminal/pty-client-swift;
+			relativePath = ../terminal/pty-client-swift;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -537,7 +537,7 @@
 		};
 		C0000000000000000000EE03 /* PtyClientSwift */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */;
+			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
 			productName = PtyClientSwift;
 		};
 		C0000000000000000000EE04 /* SwiftTerm */ = {
@@ -547,7 +547,7 @@
 		};
 		C0000000000000000000EE05 /* PtyClientSwift */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */;
+			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
 			productName = PtyClientSwift;
 		};
 		C0000000000000000000EE06 /* SwiftTerm */ = {
@@ -557,22 +557,22 @@
 		};
 		C0000000000000000000EE0F /* PtyTerminalSession */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */;
+			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
 			productName = PtyTerminalSession;
 		};
 		C0000000000000000000EE10 /* PtyTerminalSwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */;
+			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
 			productName = PtyTerminalSwiftTerm;
 		};
 		C0000000000000000000EE11 /* PtyTerminalSession */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */;
+			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
 			productName = PtyTerminalSession;
 		};
 		C0000000000000000000EE12 /* PtyTerminalSwiftTerm */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../../agent-workspace-ide/terminal/pty-client-swift" */;
+			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
 			productName = PtyTerminalSwiftTerm;
 		};
 /* End XCSwiftPackageProductDependency section */

@@ -1,0 +1,42 @@
+[package]
+name = "pty-manager"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "pty_manager"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pty-manager"
+path = "src/bin/pty-manager.rs"
+
+[[bin]]
+name = "pty-client"
+path = "src/bin/pty-client.rs"
+
+[[bin]]
+name = "pty-status"
+path = "src/bin/pty-status.rs"
+
+[dependencies]
+anyhow = "1.0"
+bytes = "1.11"
+clap = { version = "4.5", features = ["derive"] }
+crossterm = "0.29"
+futures-util = { version = "0.3", features = ["sink"] }
+prost = "0.14"
+portable-pty = "0.9"
+thiserror = "2.0"
+tokio = { version = "1.48", features = ["io-std", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[build-dependencies]
+prost-build = "0.14"
+protoc-bin-vendored = "3.2"
+
+[dev-dependencies]
+tempfile = "3.23"

@@ -105,9 +105,9 @@ atc_engine_dir := env_var_or_default("AGENTDESK_ATC_ENGINE_DIR", justfile_direct
 # Source directory for the ATC dashboard (webview build). Override via env when
 # the dashboard lives somewhere other than the default sibling path.
 atc_dashboard_dir := env_var_or_default("AGENTDESK_ATC_DASHBOARD_DIR", justfile_directory() + "/../atc/dashboard")
-# Source directory for the Agent Workspace IDE Rust PTY manager. Override when
-# the sibling checkout lives somewhere else.
-pty_manager_dir := env_var_or_default("AGENTDESK_PTY_MANAGER_DIR", justfile_directory() + "/../agent-workspace-ide/terminal/pty-manager")
+# Source directory for the AgentDesk-owned Rust PTY manager (moved in from the
+# agent-workspace-ide donor under R34). Override only for out-of-tree experiments.
+pty_manager_dir := env_var_or_default("AGENTDESK_PTY_MANAGER_DIR", justfile_directory() + "/terminal/pty-manager")
 # The sidecar binary is placed alongside the Swift sources in AgentDeskHost/
 # so Xcode picks it up as a bundled resource (it is wired into the project's
 # Resources build phase). It is loaded at runtime via Config.agentSidecarURL.
