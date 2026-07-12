@@ -371,7 +371,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startWorkspaceShellIfEnabled() {
         guard Config.workspaceShellEnabled else { return }
-        let controller = WorkspaceShellController(repository: workspaceRepository)
+        let controller = WorkspaceShellController(
+            repository: workspaceRepository,
+            filesResponder: workspaceFilesResponder
+        )
         let panel = WorkspaceShellPanelController(controller: controller)
         workspaceShellPanelController = panel
         panel.show()

@@ -1,12 +1,17 @@
 import Foundation
+import AgentDeskWire
 
 /// Owns the workspace store lifecycle for the macOS shell (R21): loads the authoritative store,
 /// registers new roots, selects the active workspace, and vends a root-scoped file tree for the
-/// active workspace. The AppKit shell panel renders from this and calls its mutators; the controller
-/// holds no view state, keeping shell feature state out of `AppDelegate`.
+/// active workspace. It also reads and writes files in the active workspace through the shared
+/// `WorkspaceFilesResponder`, so a macOS-shell edit and an iOS `.files` edit serialize against the
+/// same actor rather than racing two independent write paths. The AppKit shell panel renders from
+/// this and calls its mutators; the controller holds no view state, keeping shell feature state out
+/// of `AppDelegate`.
 @MainActor
 final class WorkspaceShellController {
     private let repository: WorkspaceRepository
+    private let filesResponder: WorkspaceFilesResponder
     private(set) var store: WorkspaceStore
     /// True while a mutator is in flight. Add/select/load are deliberate, low-frequency user actions,
     /// so a second overlapping call is rejected rather than allowed to clobber `store` with a stale
@@ -15,8 +20,13 @@ final class WorkspaceShellController {
     /// Called after the store changes so the panel can re-render.
     var onChange: (() -> Void)?
 
-    init(repository: WorkspaceRepository, store: WorkspaceStore = WorkspaceStore()) {
+    init(
+        repository: WorkspaceRepository,
+        filesResponder: WorkspaceFilesResponder,
+        store: WorkspaceStore = WorkspaceStore()
+    ) {
         self.repository = repository
+        self.filesResponder = filesResponder
         self.store = store
     }
 
@@ -54,5 +64,33 @@ final class WorkspaceShellController {
     ) -> WorkspaceShellFileTree? {
         guard let active = store.active else { return nil }
         return WorkspaceShellFileTree(workspaceID: active.id, root: active.root, reader: reader)
+    }
+
+    /// Reads a workspace-relative file in the active workspace through the shared responder.
+    func readFile(path: String) async -> WorkspaceFileResponse {
+        guard let workspaceID = store.active?.id.uuidString else { return noActiveWorkspace }
+        return await filesResponder.handle(
+            .read(requestID: makeRequestID(), workspaceID: workspaceID, path: path)
+        )
+    }
+
+    /// Writes a workspace-relative file in the active workspace, revision-checked against
+    /// `expectedRevision`, through the shared responder (serialized with iOS `.files` writes).
+    func writeFile(path: String, expectedRevision: WorkspaceFileRevision, text: String) async -> WorkspaceFileResponse {
+        guard let workspaceID = store.active?.id.uuidString else { return noActiveWorkspace }
+        return await filesResponder.handle(
+            .write(requestID: makeRequestID(), workspaceID: workspaceID, path: path, expectedRevision: expectedRevision, text: text)
+        )
+    }
+
+    private var noActiveWorkspace: WorkspaceFileResponse {
+        .error(
+            requestID: makeRequestID(),
+            error: WorkspaceFileError(code: .notFound, message: "No active workspace.")
+        )
+    }
+
+    private func makeRequestID() -> WorkspaceFileRequestID {
+        WorkspaceFileRequestID(value: UUID().uuidString)
     }
 }
