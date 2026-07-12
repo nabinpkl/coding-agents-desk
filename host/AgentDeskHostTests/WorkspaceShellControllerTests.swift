@@ -91,6 +91,36 @@ struct WorkspaceShellControllerTests {
         #expect(try String(contentsOf: file, encoding: .utf8) == "after\n")
     }
 
+    @Test func loadAutoSelectsTheFirstWorkspaceWhenNoneIsActive() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let root = directory.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        // A persisted store with a workspace but no active selection (activeID absent), the shape the
+        // donor importer writes and the shape older stores decode to.
+        let id = UUID()
+        let destination = directory.appendingPathComponent("workspaces.json")
+        let json = """
+        {"workspaces":[{"id":"\(id.uuidString)","root":"\(root.absoluteString)","name":"project"}]}
+        """
+        try Data(json.utf8).write(to: destination)
+
+        let repository = WorkspaceRepository(
+            donorURL: directory.appendingPathComponent("absent-donor.json"),
+            destinationURL: destination
+        )
+        let controller = WorkspaceShellController(
+            repository: repository,
+            filesResponder: WorkspaceFilesResponder(repository: repository, maxBytes: 1_024)
+        )
+        try await controller.load()
+
+        // The shell selects the first workspace so its file tree renders instead of an empty pane.
+        #expect(controller.store.active?.id == id)
+        #expect(controller.activeFileTree() != nil)
+    }
+
     @Test func activeFileTreeIsNilWithoutAnActiveWorkspace() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

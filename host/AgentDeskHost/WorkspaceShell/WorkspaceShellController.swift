@@ -33,7 +33,18 @@ final class WorkspaceShellController {
     /// Loads the authoritative store (importing the donor once on first run). Throws loud on a
     /// corrupt store rather than presenting an empty shell that looks like "no workspaces".
     func load() async throws {
-        try await mutate { try await $0.load() }
+        try await mutate { repository in
+            let loaded = try await repository.load()
+            // A persisted store can carry workspaces with no active selection: the donor import
+            // deliberately leaves `activeID` nil, and older stores predate the field. Select the
+            // first workspace so the shell renders its file tree instead of an empty pane, mirroring
+            // the iOS Files surface's single-workspace auto-select. The selection is persisted, so a
+            // later launch loads with an active workspace and this no-ops.
+            guard loaded.active == nil, let first = loaded.workspaces.first else {
+                return loaded
+            }
+            return try await repository.select(first.id)
+        }
     }
 
     /// Registers a workspace root and makes it active. The repository validates the root (exists, is

@@ -189,7 +189,15 @@ final class WorkspaceShellFileNode {
     }
 
     func children() -> [WorkspaceShellFileNode] {
-        guard isDirectory, let tree else { return [] }
+        guard isDirectory else { return [] }
+        guard let tree else {
+            // The owning WorkspaceShellFileTree was released while a node from it is still in use.
+            // `tree` is weak to avoid a tree<->node cycle, so a caller that keeps only the rootNode
+            // (not the tree) hits this and would otherwise see a silently-empty tree. Fail loud in
+            // debug so the retention mistake is caught, not shipped as a blank file pane.
+            assertionFailure("WorkspaceShellFileNode.children() after its owning WorkspaceShellFileTree was released; retain the tree, not just its rootNode")
+            return []
+        }
         if let cachedChildren { return cachedChildren }
         let children = tree.children(of: self)
         cachedChildren = children

@@ -47,7 +47,7 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 
 - [x] D31. Run package, host, client, wire, webview, and full `just check` gates; fix cross-lane naming, lifecycle, actor, resource, and protocol inconsistencies found by self-review and the persistent Integration Reviewer. (`just check-all` green at HEAD: 411 host + 18 wire + 302 client tests, 0 failures. Every workspace/files slice went through the same reviewer to green, which caught ~19 real cross-lane bugs. The webview/agent-feed gate is unchanged by this work.)
 - [x] D32. Verify build artifacts contain the workspace and AgentPanel resources without importing build products or source paths from `agent-workspace-ide`. (Grep of host/client/packages code: the only `agent-workspace-ide` reference is the runtime donor-store path the importer reads once at first launch — no code import, no source-path dependency, no AWI build product in the artifact. AgentPanel ships as its own package with bundled resources.)
-- [ ] R33. Prepare the exact host and simulator/device validation commands, then stop for the required explicit launch approval before exercising and capturing the real macOS shell and iOS Files surfaces.
+- [x] R33. Prepare the exact host and simulator/device validation commands, then stop for the required explicit launch approval before exercising and capturing the real macOS shell and iOS Files surfaces. (iOS Files browse/edit verified end-to-end on the sim at R28/R29. macOS shell now live-verified via in-host AX self-report on the running host: panel visible, all four controls (agents/switcher/add/file-tree) AX-reachable, active workspace auto-selected, file tree populated (treeEntries=18). Two real bugs found and fixed in the process: the shell never auto-selected the first workspace when the store had none active, and `refresh()` retained only the file-tree rootNode not the owning `WorkspaceShellFileTree`, so its weak back-ref deallocated and every `children()` call silently returned empty — the tree is now retained and the nil-tree case fails loud.)
 
 ---
 
@@ -81,6 +81,6 @@ R29      2026-07-10  verified   iOS editor save (revision-checked), observed wri
 R30      partial     green      Files segment in the switcher (reviewer-green, observed); fit-5-surfaces-across-widths redesign remains
 R31      2026-07-10  green      full check-all gate green at HEAD (411 host + 18 wire + 302 client)
 R32      2026-07-10  green      no agent-workspace-ide build/source dependency; AgentPanel self-contained
-R33      partial     -          iOS Files browse/edit proven on the simulator; macOS shell render pending screen-capture approval
+R33      2026-07-10  verified   iOS Files proven on sim (R28/R29); macOS shell live-verified via in-host AX self-report (treeEntries=18, all controls reachable); fixed workspace auto-select + a file-tree retention bug that left the tree silently empty
 R34-R35  captured    pending     donor retirement
 ```

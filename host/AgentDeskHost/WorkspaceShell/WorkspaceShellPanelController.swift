@@ -1,4 +1,5 @@
 import AppKit
+import os
 import AgentDeskWire
 
 /// A key-able panel that can host text editing without the app leaving `LSUIElement`: the app is
@@ -15,9 +16,14 @@ private final class WorkspaceShellPanel: NSPanel {
 @MainActor
 final class WorkspaceShellPanelController: NSObject {
     private let controller: WorkspaceShellController
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-shell")
     private var panel: NSPanel?
     private let workspaceSwitcher = NSPopUpButton(frame: .zero, pullsDown: false)
     private let outlineView = NSOutlineView()
+    /// The active workspace's file tree. Held strongly because `WorkspaceShellFileNode` keeps only a
+    /// weak back-reference to its owning tree (to avoid a tree<->node retain cycle); storing just the
+    /// rootNode would let the tree deallocate and every `children()` call would silently return empty.
+    private var fileTree: WorkspaceShellFileTree?
     private var rootNode: WorkspaceShellFileNode?
     /// The workspace ids in switcher-menu order, so a selection maps back to a workspace.
     private var switcherWorkspaceIDs: [UUID] = []
@@ -53,7 +59,44 @@ final class WorkspaceShellPanelController: NSObject {
         loadTask = Task { [weak self] in
             try? await self?.controller.load()
             self?.refresh()
+            self?.logAXSelfReport()
         }
+    }
+
+    /// Logs the shell panel's accessibility-tree state after load, so the macOS shell render is
+    /// observable from the host's own os_log (category workspace-shell) without an out-of-process AX
+    /// client or screen capture. Reports which of the panel's identified controls are AX-reachable
+    /// and the active workspace's file-tree row count.
+    private func logAXSelfReport() {
+        guard let panel else {
+            logger.notice("workspace-shell AX: no panel")
+            return
+        }
+        let ids = axIdentifiers(in: panel.contentView)
+        let expected = [
+            "workspace-shell-agents",
+            "workspace-shell-switcher",
+            "workspace-shell-add",
+            "workspace-shell-file-tree",
+        ]
+        let present = expected.filter { ids.contains($0) }
+        // Report the authoritative model count from the retained tree (the active workspace's
+        // top-level entries), not outlineView.numberOfRows, which reads displayed rows before layout.
+        let treeEntries = fileTree?.rootNode.children().count ?? 0
+        logger.notice(
+            "workspace-shell AX: visible=\(panel.isVisible, privacy: .public) controls=[\(present.joined(separator: ","), privacy: .public)] treeEntries=\(treeEntries, privacy: .public) activeWorkspace=\(self.controller.store.active?.name ?? "none", privacy: .public)"
+        )
+    }
+
+    private func axIdentifiers(in view: NSView?) -> Set<String> {
+        guard let view else { return [] }
+        var result: Set<String> = []
+        let identifier = view.accessibilityIdentifier()
+        if !identifier.isEmpty { result.insert(identifier) }
+        for subview in view.subviews {
+            result.formUnion(axIdentifiers(in: subview))
+        }
+        return result
     }
 
     func stop() {
@@ -262,7 +305,8 @@ final class WorkspaceShellPanelController: NSObject {
         guard activeID != renderedWorkspaceID else { return }
         renderedWorkspaceID = activeID
         closeEditor() // the open file belongs to the previous workspace
-        rootNode = controller.activeFileTree()?.rootNode
+        fileTree = controller.activeFileTree()
+        rootNode = fileTree?.rootNode
         outlineView.reloadData()
     }
 
