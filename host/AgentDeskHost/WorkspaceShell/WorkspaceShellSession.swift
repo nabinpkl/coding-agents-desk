@@ -71,9 +71,10 @@ final class WorkspaceShellSession {
     }
 
     /// Root the tree + render the viewer for whatever workspace is active on launch, at the persisted
-    /// text zoom (so a saved non-default zoom applies from the first render).
+    /// text zoom (so a saved non-default zoom applies to the tree and the editor from the first render).
     func start() {
         filePane.setTextZoom(store.textZoom)
+        viewer.setTextZoom(store.textZoom)
         renderActive()
     }
 
@@ -218,14 +219,15 @@ final class WorkspaceShellSession {
     // MARK: - Sidebar chrome (text zoom, width)
 
     /// Apply a text-zoom command (the sidebar +/− buttons), persist the new step, and re-render
-    /// the file tree at the new sizes. Returns the resolved zoom so the presenter can size the
-    /// switcher rows and title label to match. The web-viewer editor keeps its own sizing.
+    /// the file tree and the web-viewer editor at the new sizes. Returns the resolved zoom so the
+    /// presenter can size the switcher rows and title label to match.
     @discardableResult
     func applyTextZoom(_ command: WorkspaceTextZoomCommand) -> WorkspaceTextZoom {
         let zoom = command.apply(to: store.textZoom)
         store.textZoom = zoom
         persist(store)
         filePane.setTextZoom(zoom)
+        viewer.setTextZoom(zoom)
         return zoom
     }
 

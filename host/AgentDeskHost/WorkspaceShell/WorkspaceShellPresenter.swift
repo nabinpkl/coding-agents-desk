@@ -440,8 +440,9 @@ final class WorkspaceShellPresenter: NSObject {
     @objc private func zoomInTapped() { applyZoom(.zoomIn) }
     @objc private func zoomOutTapped() { applyZoom(.zoomOut) }
 
-    /// Apply a text-zoom step to the sidebar surfaces (file tree, switcher rows, title header) and
-    /// persist it. The web-viewer editor keeps its own sizing and is not scaled by this control.
+    /// Apply a text-zoom step across the shell: the file tree, switcher rows, title header (here) and
+    /// the web-viewer editor + rendered markdown (via the session), then persist it — matching the
+    /// donor, where the sidebar zoom scaled everything.
     private func applyZoom(_ command: WorkspaceTextZoomCommand) {
         guard let session else { return }
         let zoom = session.applyTextZoom(command)
