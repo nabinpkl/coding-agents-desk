@@ -24,7 +24,7 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 - [x] D16. Introduce a host-local `Workspace` domain with pure workspace identity, ordered roots, persistence, and active selection; keep shared transport DTOs in `AgentDeskWire` and test round-trip persistence and ordering without exporting host filesystem authority as a package.
 - [x] D17. Add one-time import from `~/Library/Application Support/agent-workspace-ide/workspace.json` into AgentDesk's bundle-scoped Application Support store; tests assert absence is a clean first run, corrupt source fails loud, successful import writes one authoritative store, and the importer never replays after completion. (`WorkspaceRepository` + `WorkspaceStore.loadOrImport`; the concrete host donor/destination URLs are supplied when the repository is constructed in AppDelegate under R21.)
 - [x] D18. Introduce `packages/AgentPanel` with bundled web assets, platform-neutral WebKit lifecycle, Agent request/push types, and an injected transport boundary; tests pin JS message decoding, pending delivery, teardown, and resource resolution.
-- [ ] R19. Replace AgentDesk iOS's app-local `AgentFeedSurface` implementation with `AgentPanel` plus a QUIC input-lane adapter while preserving projects, sessions, history paging, reconnect, and live updates.
+- [x] R19. Replace AgentDesk iOS's app-local `AgentFeedSurface` implementation with `AgentPanel` plus a QUIC input-lane adapter while preserving projects, sessions, history paging, reconnect, and live updates. (`AgentFeedSurface` is now a thin `AgentPanelTransport`-conforming UIView wrapping `AgentPanelWebViewController`; requests bridge `AgentPanelRequest` -> the wire-typed `AgentFeedRequest`; the old JS-error diagnostics shim was ported into the shared package so both platforms keep it; an AX-identified "Agent view unavailable" fallback replaces a silent blank pane on panel-init failure; dead `agentFeedWebview*` Config cluster removed. Reviewer-green; `just sim-test` green (290). AX/Maestro observation pending the combined bring-up.)
 
 ## v2 Phase 2: macOS workspace shell and local files
 
@@ -67,7 +67,7 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 ```
 R14-R15  2026-07-10  verified   AgentDesk workspace ownership accepted and prior terminal ledger archived
 R16-R18  2026-07-10  green      workspace domain, one-time donor import, AgentPanel package (just check green)
-R19      pending     pending     iOS AgentFeedSurface -> AgentPanel swap
+R19      2026-07-10  green      iOS AgentFeedSurface -> AgentPanel wrapper (reviewer-green; sim-test green); diagnostics shim ported to package; AX-observation pending
 R20      2026-07-10  green      shell sidebar panel: file tree + workspace switcher + add (reviewer-green); top-bar/activity follow-ups
 R21      2026-07-10  green      shell controller owning the store lifecycle (reviewer-green)
 R22      2026-07-10  green      macOS file editor: double-click open + revision-checked save (reviewer-green); tabs/watch/autosave follow-ups
