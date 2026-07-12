@@ -86,7 +86,7 @@ struct WorkspaceFilesBrowserModelTests {
     @Test func navigationClosesAnOpenPreview() {
         let previewing = WorkspaceFilesBrowserModel(selectedWorkspaceID: "w1", path: "src", status: .loaded)
             .openingFile(file("main.swift", "src/main.swift"))
-            .previewLoaded(previewGeneration: 1, text: "x")
+            .previewLoaded(previewGeneration: 1, text: "x", revision: WorkspaceFileRevision(digest: "r"))
         #expect(previewing.preview != nil)
 
         // Any navigation clears the preview and supersedes an in-flight read.
@@ -97,16 +97,36 @@ struct WorkspaceFilesBrowserModelTests {
     }
 
     @Test func previewLoadedAndFailedRespectPreviewGeneration() {
+        let revision = WorkspaceFileRevision(digest: "r1")
         let opened = WorkspaceFilesBrowserModel(selectedWorkspaceID: "w1", path: "src", status: .loaded)
             .openingFile(file("main.swift", "src/main.swift"))
-        let loaded = opened.previewLoaded(previewGeneration: opened.previewGeneration, text: "hello")
-        #expect(loaded.preview == .loaded(path: "src/main.swift", text: "hello"))
+        let loaded = opened.previewLoaded(previewGeneration: opened.previewGeneration, text: "hello", revision: revision)
+        #expect(loaded.preview == .loaded(path: "src/main.swift", text: "hello", revision: revision))
 
         // A stale read (superseded by closing/reopening) is ignored.
         let closed = loaded.closingPreview()
         #expect(closed.preview == nil)
-        let stale = closed.previewLoaded(previewGeneration: opened.previewGeneration, text: "late")
+        let stale = closed.previewLoaded(previewGeneration: opened.previewGeneration, text: "late", revision: revision)
         #expect(stale.preview == nil)
+    }
+
+    @Test func saveAdvancesTheBaselineRevisionAndConflictPreservesEdits() {
+        let readRevision = WorkspaceFileRevision(digest: "r1")
+        let opened = WorkspaceFilesBrowserModel(selectedWorkspaceID: "w1", path: "src", status: .loaded)
+            .openingFile(file("main.swift", "src/main.swift"))
+        let loaded = opened.previewLoaded(previewGeneration: opened.previewGeneration, text: "old", revision: readRevision)
+
+        // A successful save advances the baseline text + revision, so the next save is checked anew.
+        let newRevision = WorkspaceFileRevision(digest: "r2")
+        let saved = loaded.savingFile()
+            .saved(previewGeneration: loaded.previewGeneration, text: "edited", revision: newRevision)
+        #expect(saved.preview == .loaded(path: "src/main.swift", text: "edited", revision: newRevision))
+        #expect(saved.saveStatus == .idle)
+
+        // A conflict leaves the loaded baseline (and thus the editor's separate draft) untouched.
+        let conflicted = loaded.savingFile().saveConflicted(previewGeneration: loaded.previewGeneration)
+        #expect(conflicted.saveStatus == .conflict)
+        #expect(conflicted.preview == .loaded(path: "src/main.swift", text: "old", revision: readRevision))
     }
 
     /// The reviewer's scenario: a late failure from an abandoned navigation must not clobber a

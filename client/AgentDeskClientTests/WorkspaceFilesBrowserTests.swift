@@ -11,10 +11,13 @@ private actor MockFilesRequester: WorkspaceFilesRequesting {
     private var scriptedFiles: [String: String] = [:]
     private var gated: Set<String> = []
     private var gates: [String: CheckedContinuation<WorkspaceFileResponse, Error>] = [:]
+    private var writeConflicts = false
     private(set) var requestedPaths: [String] = []
+    private(set) var writtenText: [String: String] = [:]
 
     func script(path: String, entries: [WorkspaceDirectoryEntry]) { scripted[path] = entries }
     func scriptFile(path: String, text: String) { scriptedFiles[path] = text }
+    func setWriteConflicts(_ value: Bool) { writeConflicts = value }
     func gate(path: String) { gated.insert(path) }
 
     func release(path: String, entries: [WorkspaceDirectoryEntry]) {
@@ -39,6 +42,18 @@ private actor MockFilesRequester: WorkspaceFilesRequesting {
                     text: scriptedFiles[path] ?? "", revision: WorkspaceFileRevision(digest: "d")
                 )
             )
+        }
+        if case .write(let requestID, let workspaceID, let path, _, let text) = request {
+            if writeConflicts {
+                return .conflict(requestID: requestID, conflict: WorkspaceFileConflict(
+                    workspaceID: workspaceID, path: path, currentRevision: WorkspaceFileRevision(digest: "host-newer")
+                ))
+            }
+            writtenText[path] = text
+            scriptedFiles[path] = text
+            return .write(requestID: requestID, result: WorkspaceFileWriteResult(
+                workspaceID: workspaceID, path: path, revision: WorkspaceFileRevision(digest: "d-written")
+            ))
         }
         guard case .listDirectory(let requestID, let workspaceID, let path) = request else {
             return .error(requestID: request.requestID, error: WorkspaceFileError(code: .notFound))
@@ -102,10 +117,45 @@ struct WorkspaceFilesBrowserTests {
 
         await browser.selectWorkspace("w1")
         await browser.openFile(file("README.md", "README.md"))
-        #expect(browser.model.preview == .loaded(path: "README.md", text: "# Demo\n"))
+        #expect(browser.model.preview == .loaded(
+            path: "README.md", text: "# Demo\n", revision: WorkspaceFileRevision(digest: "d")
+        ))
 
         browser.closePreview()
         #expect(browser.model.preview == nil)
+    }
+
+    @Test func savingAFileWritesTheEditedTextAndAdvancesBaseline() async {
+        let mock = MockFilesRequester()
+        await mock.script(path: "", entries: [file("note.txt", "note.txt")])
+        await mock.scriptFile(path: "note.txt", text: "old")
+        let browser = WorkspaceFilesBrowser(transport: mock)
+        await browser.selectWorkspace("w1")
+        await browser.openFile(file("note.txt", "note.txt"))
+
+        await browser.saveFile("edited")
+
+        #expect(await mock.writtenText["note.txt"] == "edited")
+        #expect(browser.model.saveStatus == .idle)
+        #expect(browser.model.preview == .loaded(
+            path: "note.txt", text: "edited", revision: WorkspaceFileRevision(digest: "d-written")
+        ))
+    }
+
+    @Test func aStaleWriteReportsConflictWithoutOverwriting() async {
+        let mock = MockFilesRequester()
+        await mock.script(path: "", entries: [file("note.txt", "note.txt")])
+        await mock.scriptFile(path: "note.txt", text: "old")
+        await mock.setWriteConflicts(true)
+        let browser = WorkspaceFilesBrowser(transport: mock)
+        await browser.selectWorkspace("w1")
+        await browser.openFile(file("note.txt", "note.txt"))
+
+        await browser.saveFile("edited")
+
+        #expect(browser.model.saveStatus == .conflict)
+        // The baseline preview is untouched; the host copy was not overwritten.
+        #expect(await mock.writtenText["note.txt"] == nil)
     }
 
     @Test func openingADirectoryDoesNotOpenAPreview() async {

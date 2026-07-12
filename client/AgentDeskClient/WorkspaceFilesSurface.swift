@@ -18,8 +18,12 @@ final class WorkspaceFilesSurface: UIView {
     private let previewContainer = UIView()
     private let previewTitleLabel = UILabel()
     private let previewCloseButton = UIButton(type: .system)
+    private let previewSaveButton = UIButton(type: .system)
     private let previewTextView = UITextView()
     private let previewStatusLabel = UILabel()
+    /// The path whose baseline text is currently loaded into the editor, so re-renders don't clobber
+    /// in-progress edits.
+    private var previewedPath: String?
 
     init(browser: WorkspaceFilesBrowser) {
         self.browser = browser
@@ -85,6 +89,10 @@ final class WorkspaceFilesSurface: UIView {
         previewCloseButton.accessibilityIdentifier = "workspace-files-preview-close"
         previewCloseButton.addTarget(self, action: #selector(closePreviewTapped), for: .touchUpInside)
 
+        previewSaveButton.setTitle("Save", for: .normal)
+        previewSaveButton.accessibilityIdentifier = "workspace-files-preview-save"
+        previewSaveButton.addTarget(self, action: #selector(saveTapped), for: .touchUpInside)
+
         previewTitleLabel.font = .preferredFont(forTextStyle: .headline)
         previewTitleLabel.adjustsFontForContentSizeCategory = true
         previewTitleLabel.lineBreakMode = .byTruncatingHead
@@ -94,11 +102,12 @@ final class WorkspaceFilesSurface: UIView {
         previewStatusLabel.textAlignment = .center
         previewStatusLabel.numberOfLines = 0
 
-        previewTextView.isEditable = false
+        // Editable: R29 turns the preview into an editor. Text is written back revision-checked.
+        previewTextView.isEditable = true
         previewTextView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         previewTextView.accessibilityIdentifier = "workspace-files-preview-text"
 
-        let header = UIStackView(arrangedSubviews: [previewCloseButton, previewTitleLabel])
+        let header = UIStackView(arrangedSubviews: [previewCloseButton, previewTitleLabel, previewSaveButton])
         header.axis = .horizontal
         header.spacing = 8
         header.alignment = .center
@@ -142,29 +151,66 @@ final class WorkspaceFilesSurface: UIView {
             statusLabel.isHidden = false
         }
         tableView.reloadData()
-        renderPreview(model.preview)
+        renderPreview(model.preview, saveStatus: model.saveStatus)
     }
 
-    private func renderPreview(_ preview: WorkspaceFilesBrowserModel.Preview?) {
+    private func renderPreview(
+        _ preview: WorkspaceFilesBrowserModel.Preview?,
+        saveStatus: WorkspaceFilesBrowserModel.SaveStatus
+    ) {
         guard let preview else {
             previewContainer.isHidden = true
             previewTextView.text = nil
+            previewedPath = nil
             return
         }
         previewContainer.isHidden = false
         previewTitleLabel.text = (preview.path as NSString).lastPathComponent
         switch preview {
         case .loading:
+            previewSaveButton.isHidden = true
+            previewTextView.isEditable = false
             previewStatusLabel.text = "Loading…"
             previewStatusLabel.isHidden = false
             previewTextView.text = nil
-        case .loaded(_, let text):
-            previewStatusLabel.isHidden = true
-            previewTextView.text = text
+            previewedPath = nil
+        case .loaded(let path, let text, _):
+            previewSaveButton.isHidden = false
+            previewTextView.isEditable = true
+            // Only load the baseline text into the editor when the file changes, so re-renders while
+            // the user types (or a save/conflict result) never clobber in-progress edits.
+            if previewedPath != path {
+                previewTextView.text = text
+                previewedPath = path
+            }
+            renderSaveStatus(saveStatus)
         case .failed(_, let message):
+            previewSaveButton.isHidden = true
+            previewTextView.isEditable = false
             previewStatusLabel.text = message
             previewStatusLabel.isHidden = false
             previewTextView.text = nil
+            previewedPath = nil
+        }
+    }
+
+    private func renderSaveStatus(_ saveStatus: WorkspaceFilesBrowserModel.SaveStatus) {
+        switch saveStatus {
+        case .idle:
+            previewStatusLabel.isHidden = true
+            previewSaveButton.isEnabled = true
+        case .saving:
+            previewStatusLabel.text = "Saving…"
+            previewStatusLabel.isHidden = false
+            previewSaveButton.isEnabled = false
+        case .conflict:
+            previewStatusLabel.text = "This file changed on the host. Your edits were not saved."
+            previewStatusLabel.isHidden = false
+            previewSaveButton.isEnabled = true
+        case .failed(let message):
+            previewStatusLabel.text = message
+            previewStatusLabel.isHidden = false
+            previewSaveButton.isEnabled = true
         }
     }
 
@@ -174,6 +220,11 @@ final class WorkspaceFilesSurface: UIView {
 
     @objc private func closePreviewTapped() {
         browser.closePreview()
+    }
+
+    @objc private func saveTapped() {
+        let text = previewTextView.text ?? ""
+        Task { await browser.saveFile(text) }
     }
 
     /// Drops the model binding so a torn-down surface stops rendering. The owning controller closes

@@ -98,9 +98,45 @@ final class WorkspaceFilesBrowser {
         let previous = model
         switch response {
         case .read(_, let result):
-            model = model.previewLoaded(previewGeneration: previewGeneration, text: result.text)
+            model = model.previewLoaded(
+                previewGeneration: previewGeneration, text: result.text, revision: result.revision
+            )
         case .error, .workspaces, .directory, .write, .conflict:
             model = model.previewFailed(previewGeneration: previewGeneration, message: failureMessage(response))
+        }
+        if model != previous { onChange?() }
+    }
+
+    /// Writes the editor's text back to the open file, revision-checked against what was read. A
+    /// stale revision (the host changed the file since) comes back as a conflict without overwriting.
+    func saveFile(_ text: String) async {
+        guard let workspaceID = model.selectedWorkspaceID,
+              case .loaded(let path, _, let revision)? = model.preview
+        else { return }
+        model = model.savingFile()
+        onChange?()
+        let previewGeneration = model.previewGeneration
+        do {
+            let response = try await transport.request(.write(
+                requestID: makeRequestID(), workspaceID: workspaceID,
+                path: path, expectedRevision: revision, text: text
+            ))
+            applySave(response, previewGeneration: previewGeneration, text: text)
+        } catch {
+            model = model.saveFailed(previewGeneration: previewGeneration, message: message(for: error))
+            onChange?()
+        }
+    }
+
+    private func applySave(_ response: WorkspaceFileResponse, previewGeneration: Int, text: String) {
+        let previous = model
+        switch response {
+        case .write(_, let result):
+            model = model.saved(previewGeneration: previewGeneration, text: text, revision: result.revision)
+        case .conflict:
+            model = model.saveConflicted(previewGeneration: previewGeneration)
+        case .error, .workspaces, .directory, .read:
+            model = model.saveFailed(previewGeneration: previewGeneration, message: failureMessage(response))
         }
         if model != previous { onChange?() }
     }
