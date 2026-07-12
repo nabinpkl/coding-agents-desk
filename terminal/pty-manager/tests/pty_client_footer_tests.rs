@@ -8,7 +8,7 @@ fn footer_text_fits_terminal_width() {
             pid: 12345,
             client_count: 2,
             shell: "/bin/zsh".to_owned(),
-            cwd: "/Users/dev/projects/agent-workspace-ide".to_owned(),
+            cwd: "/Users/dev/projects/agent-desk".to_owned(),
         },
         40,
     );

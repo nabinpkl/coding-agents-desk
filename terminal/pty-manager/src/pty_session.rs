@@ -51,7 +51,7 @@ impl PtySession {
         command.env("SHELL", &shell);
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
-        command.env("TERM_PROGRAM", "agent-workspace-ide");
+        command.env("TERM_PROGRAM", "agentdesk");
         command.env("PTY_SESSION", &name);
 
         let child = pair

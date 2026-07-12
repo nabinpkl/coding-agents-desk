@@ -81,7 +81,7 @@ async fn spawned_session_reports_terminal_environment() {
     )
     .await
     .expect("send env probe");
-    read_until_output(&mut client, "xterm-256color|truecolor|agent-workspace-ide").await;
+    read_until_output(&mut client, "xterm-256color|truecolor|agentdesk").await;
 
     manager_task.abort();
 }
