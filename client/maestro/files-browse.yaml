@@ -25,3 +25,15 @@ appId: com.example.agentdesk.AgentDeskClient
     notVisible: "Loading…"
     timeout: 15000
 - takeScreenshot: files-after-up
+# Open a file to see its read-only preview.
+- tapOn:
+    id: "workspace-files-entry-README.md"
+- extendedWaitUntil:
+    visible:
+      id: "workspace-files-preview-text"
+    timeout: 15000
+- takeScreenshot: files-preview
+# Dismiss the preview and confirm we are back at the listing.
+- tapOn:
+    id: "workspace-files-preview-close"
+- takeScreenshot: files-preview-closed
