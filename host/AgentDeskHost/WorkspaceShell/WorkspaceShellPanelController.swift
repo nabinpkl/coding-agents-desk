@@ -1,4 +1,5 @@
 import AppKit
+import AgentDeskWire
 
 /// A key-able panel that can host text editing without the app leaving `LSUIElement`: the app is
 /// never activated (nonactivating), so the menu bar stays with the frontmost app, but the panel can
@@ -24,6 +25,17 @@ final class WorkspaceShellPanelController: NSObject {
     /// change the active workspace doesn't collapse the tree's expansion state.
     private var renderedWorkspaceID: UUID?
     private var loadTask: Task<Void, Never>?
+
+    // R22 editor: double-clicking a file opens it here for revision-checked editing.
+    private let editorContainer = NSView()
+    private let editorTitleLabel = NSTextField(labelWithString: "")
+    private let editorSaveButton = NSButton(title: "Save", target: nil, action: nil)
+    private let editorStatusLabel = NSTextField(labelWithString: "")
+    private let editorTextView = NSTextView()
+    private var openFilePath: String?
+    private var openFileWorkspaceID: String?
+    private var openFileRevision: WorkspaceFileRevision?
+    private var isSaving = false
 
     init(controller: WorkspaceShellController) {
         self.controller = controller
@@ -74,6 +86,8 @@ final class WorkspaceShellPanelController: NSObject {
         outlineView.rowSizeStyle = .default
         outlineView.dataSource = self
         outlineView.delegate = self
+        outlineView.target = self
+        outlineView.doubleAction = #selector(openSelectedFile)
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         column.title = "Name"
         outlineView.addTableColumn(column)
@@ -82,7 +96,7 @@ final class WorkspaceShellPanelController: NSObject {
         scroll.documentView = outlineView
         scroll.hasVerticalScroller = true
 
-        let stack = NSStackView(views: [workspaceSwitcher, addButton, scroll])
+        let stack = NSStackView(views: [workspaceSwitcher, addButton, scroll, buildEditor()])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -102,6 +116,119 @@ final class WorkspaceShellPanelController: NSObject {
         ])
         panel.contentView = content
         self.panel = panel
+    }
+
+    private func buildEditor() -> NSView {
+        editorContainer.isHidden = true
+        editorTitleLabel.font = .boldSystemFont(ofSize: 12)
+        editorTitleLabel.lineBreakMode = .byTruncatingHead
+        editorTitleLabel.setAccessibilityIdentifier("workspace-shell-editor-title")
+
+        editorSaveButton.target = self
+        editorSaveButton.action = #selector(saveTapped)
+        editorSaveButton.setAccessibilityIdentifier("workspace-shell-editor-save")
+
+        editorStatusLabel.font = .systemFont(ofSize: 10)
+        editorStatusLabel.textColor = .secondaryLabelColor
+
+        editorTextView.isEditable = true
+        editorTextView.isRichText = false
+        editorTextView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        editorTextView.setAccessibilityIdentifier("workspace-shell-editor-text")
+        let editorScroll = NSScrollView()
+        editorScroll.documentView = editorTextView
+        editorScroll.hasVerticalScroller = true
+        editorScroll.translatesAutoresizingMaskIntoConstraints = false
+
+        let header = NSStackView(views: [editorTitleLabel, editorSaveButton])
+        header.orientation = .horizontal
+        let stack = NSStackView(views: [header, editorStatusLabel, editorScroll])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        editorContainer.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: editorContainer.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: editorContainer.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: editorContainer.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: editorContainer.bottomAnchor),
+            editorScroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            editorScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 160),
+        ])
+        return editorContainer
+    }
+
+    private func closeEditor() {
+        openFilePath = nil
+        openFileWorkspaceID = nil
+        openFileRevision = nil
+        editorContainer.isHidden = true
+        editorTextView.string = ""
+    }
+
+    @objc private func openSelectedFile() {
+        let row = outlineView.clickedRow
+        guard row >= 0,
+              let node = outlineView.item(atRow: row) as? WorkspaceShellFileNode,
+              !node.isDirectory,
+              let workspaceID = controller.store.active?.id.uuidString
+        else { return }
+        let path = node.relativePath.value
+        openFilePath = path
+        openFileWorkspaceID = workspaceID
+        openFileRevision = nil
+        editorTitleLabel.stringValue = node.name
+        editorStatusLabel.stringValue = "Loading…"
+        editorTextView.string = ""
+        editorContainer.isHidden = false
+        Task { [weak self] in
+            guard let self else { return }
+            let response = await self.controller.readFile(workspaceID: workspaceID, path: path)
+            guard self.openFilePath == path else { return } // a newer open superseded this read
+            switch response {
+            case .read(_, let result):
+                self.editorTextView.string = result.text
+                self.openFileRevision = result.revision
+                self.editorStatusLabel.stringValue = ""
+            case .error(_, let error):
+                self.editorStatusLabel.stringValue = error.message ?? "Could not open the file."
+            case .workspaces, .directory, .write, .conflict:
+                self.editorStatusLabel.stringValue = "Unexpected response opening the file."
+            }
+        }
+    }
+
+    @objc private func saveTapped() {
+        guard !isSaving,
+              let path = openFilePath,
+              let workspaceID = openFileWorkspaceID,
+              let revision = openFileRevision
+        else { return }
+        isSaving = true
+        editorSaveButton.isEnabled = false
+        editorStatusLabel.stringValue = "Saving…"
+        let text = editorTextView.string
+        Task { [weak self] in
+            guard let self else { return }
+            let response = await self.controller.writeFile(
+                workspaceID: workspaceID, path: path, expectedRevision: revision, text: text
+            )
+            self.isSaving = false
+            self.editorSaveButton.isEnabled = true
+            guard self.openFilePath == path else { return } // the user moved on to another file
+            switch response {
+            case .write(_, let result):
+                self.openFileRevision = result.revision
+                self.editorStatusLabel.stringValue = "Saved."
+            case .conflict:
+                self.editorStatusLabel.stringValue = "This file changed on disk. Your edits were not saved."
+            case .error(_, let error):
+                self.editorStatusLabel.stringValue = error.message ?? "Save failed."
+            case .workspaces, .directory, .read:
+                self.editorStatusLabel.stringValue = "Unexpected response saving the file."
+            }
+        }
     }
 
     private func refresh() {
@@ -127,6 +254,7 @@ final class WorkspaceShellPanelController: NSObject {
         let activeID = controller.store.active?.id
         guard activeID != renderedWorkspaceID else { return }
         renderedWorkspaceID = activeID
+        closeEditor() // the open file belongs to the previous workspace
         rootNode = controller.activeFileTree()?.rootNode
         outlineView.reloadData()
     }

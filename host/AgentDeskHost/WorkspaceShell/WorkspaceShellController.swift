@@ -66,27 +66,26 @@ final class WorkspaceShellController {
         return WorkspaceShellFileTree(workspaceID: active.id, root: active.root, reader: reader)
     }
 
-    /// Reads a workspace-relative file in the active workspace through the shared responder.
-    func readFile(path: String) async -> WorkspaceFileResponse {
-        guard let workspaceID = store.active?.id.uuidString else { return noActiveWorkspace }
-        return await filesResponder.handle(
+    /// Reads a workspace-relative file through the shared responder. The workspace id is passed
+    /// explicitly (captured when an edit session opens) so a mid-session workspace switch can't
+    /// redirect the read to a different workspace.
+    func readFile(workspaceID: String, path: String) async -> WorkspaceFileResponse {
+        await filesResponder.handle(
             .read(requestID: makeRequestID(), workspaceID: workspaceID, path: path)
         )
     }
 
-    /// Writes a workspace-relative file in the active workspace, revision-checked against
-    /// `expectedRevision`, through the shared responder (serialized with iOS `.files` writes).
-    func writeFile(path: String, expectedRevision: WorkspaceFileRevision, text: String) async -> WorkspaceFileResponse {
-        guard let workspaceID = store.active?.id.uuidString else { return noActiveWorkspace }
-        return await filesResponder.handle(
+    /// Writes a workspace-relative file, revision-checked against `expectedRevision`, through the
+    /// shared responder (serialized with iOS `.files` writes). The workspace id is explicit for the
+    /// same reason as `readFile`.
+    func writeFile(
+        workspaceID: String,
+        path: String,
+        expectedRevision: WorkspaceFileRevision,
+        text: String
+    ) async -> WorkspaceFileResponse {
+        await filesResponder.handle(
             .write(requestID: makeRequestID(), workspaceID: workspaceID, path: path, expectedRevision: expectedRevision, text: text)
-        )
-    }
-
-    private var noActiveWorkspace: WorkspaceFileResponse {
-        .error(
-            requestID: makeRequestID(),
-            error: WorkspaceFileError(code: .notFound, message: "No active workspace.")
         )
     }
 
