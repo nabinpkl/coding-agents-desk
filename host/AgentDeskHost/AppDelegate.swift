@@ -129,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         repository: workspaceRepository,
         maxBytes: Config.workspaceFileMaxBytes
     )
+    private var workspaceShellPanelController: WorkspaceShellPanelController?
     private var gesturePortalController: GesturePortalController?
     private var gestureChildController: GestureChildController?
     private var voiceChildController: VoiceChildController?
@@ -190,6 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bootstrapTLSIdentity()
         startSignalingServer()
         bootstrapDefaultWorkspaceIfConfigured()
+        startWorkspaceShellIfEnabled()
         startDomMirrorIfEnabled()
         installAutomationSignalHandlers()
         refreshConnectedState()
@@ -276,6 +278,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             lane.stop()
         }
         workspaceFilesLanes.removeAll()
+        workspaceShellPanelController?.stop()
+        workspaceShellPanelController = nil
         voiceChildController?.stop()
         agentSayServer?.stop()
         signalingServer?.stop()
@@ -363,6 +367,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.voiceChildController?.stop()
             NSApp.terminate(nil)
         }
+    }
+
+    private func startWorkspaceShellIfEnabled() {
+        guard Config.workspaceShellEnabled else { return }
+        let controller = WorkspaceShellController(repository: workspaceRepository)
+        let panel = WorkspaceShellPanelController(controller: controller)
+        workspaceShellPanelController = panel
+        panel.show()
     }
 
     private func bootstrapDefaultWorkspaceIfConfigured() {

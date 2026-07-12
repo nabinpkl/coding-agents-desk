@@ -881,6 +881,13 @@ enum Config {
         environmentKey: "AGENTDESK_WORKSPACE_FILE_MAX_BYTES",
         defaultValue: 4 * 1024 * 1024
     )
+    // R20/R23 macOS workspace shell. Off by default so the daily driver is unchanged; enable to
+    // show the sidebar shell panel (workspace switcher + file tree) on host launch.
+    static let workspaceShellEnabled: Bool = enabledFlag(
+        environmentKey: "AGENTDESK_WORKSPACE_SHELL_ENABLED",
+        defaultValue: false,
+        environment: ProcessInfo.processInfo.environment
+    )
     // Optional workspace root registered on first launch when the store is empty, so the Files
     // surface has something to browse before the macOS workspace shell (R20/R21) exists to let the
     // user add roots. No default: unset means nothing is auto-registered.
