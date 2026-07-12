@@ -414,6 +414,7 @@ check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholde
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
     sh tools/testflight-upload-tests.sh
     (cd packages/AgentDeskWire && swift test)
+    (cd packages/WorkspaceKit && swift test)
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
