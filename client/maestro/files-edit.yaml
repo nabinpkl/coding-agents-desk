@@ -1,0 +1,26 @@
+appId: com.example.agentdesk.AgentDeskClient
+---
+# Switch to Files and open README.md into the editor.
+- extendedWaitUntil:
+    visible: "Files"
+    timeout: 30000
+- tapOn: "Files"
+- extendedWaitUntil:
+    notVisible: "Loading…"
+    timeout: 30000
+- tapOn:
+    id: "workspace-files-entry-README.md"
+- extendedWaitUntil:
+    visible:
+      id: "workspace-files-preview-text"
+    timeout: 15000
+# Edit the text and save it back through the revision-checked .files write.
+- tapOn:
+    id: "workspace-files-preview-text"
+- inputText: " [edited on device]"
+- tapOn:
+    id: "workspace-files-preview-save"
+- extendedWaitUntil:
+    notVisible: "Saving…"
+    timeout: 15000
+- takeScreenshot: files-saved
