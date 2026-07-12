@@ -102,7 +102,7 @@ client_dev_ipa_path := client_dev_export_path + "/AgentDeskClient.ipa"
 # 1.5.0 = input-lane liveness (popover no longer stuck on "Connected") +
 # client-initiated unpair (revoke frame).
 host_marketing_version := env_var_or_default("AGENTDESK_HOST_VERSION", "1.5.0")
-client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.9.0")
+client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.9.1")
 apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
 # Source directory for the ATC engine. Override via env when the engine repo
 # lives somewhere other than the default sibling path. This is the SSOT for
