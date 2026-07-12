@@ -12,13 +12,19 @@ private actor MockFilesRequester: WorkspaceFilesRequesting {
     private var gated: Set<String> = []
     private var gates: [String: CheckedContinuation<WorkspaceFileResponse, Error>] = [:]
     private var writeConflicts = false
+    private var gateWrites = false
+    private var writeGate: CheckedContinuation<Void, Never>?
     private(set) var requestedPaths: [String] = []
     private(set) var writtenText: [String: String] = [:]
+    private(set) var writeCount = 0
 
     func script(path: String, entries: [WorkspaceDirectoryEntry]) { scripted[path] = entries }
     func scriptFile(path: String, text: String) { scriptedFiles[path] = text }
     func setWriteConflicts(_ value: Bool) { writeConflicts = value }
     func gate(path: String) { gated.insert(path) }
+    func holdWrites() { gateWrites = true }
+    func releaseWrite() { let gate = writeGate; writeGate = nil; gate?.resume() }
+    func waitUntilWriteRequested() async { while writeCount == 0 { await Task.yield() } }
 
     func release(path: String, entries: [WorkspaceDirectoryEntry]) {
         gates.removeValue(forKey: path)?.resume(
@@ -44,6 +50,12 @@ private actor MockFilesRequester: WorkspaceFilesRequesting {
             )
         }
         if case .write(let requestID, let workspaceID, let path, _, let text) = request {
+            writeCount += 1
+            if gateWrites {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    writeGate = continuation
+                }
+            }
             if writeConflicts {
                 return .conflict(requestID: requestID, conflict: WorkspaceFileConflict(
                     workspaceID: workspaceID, path: path, currentRevision: WorkspaceFileRevision(digest: "host-newer")
@@ -140,6 +152,25 @@ struct WorkspaceFilesBrowserTests {
         #expect(browser.model.preview == .loaded(
             path: "note.txt", text: "edited", revision: WorkspaceFileRevision(digest: "d-written")
         ))
+    }
+
+    @Test func aSecondSaveWhileSavingIsIgnored() async {
+        let mock = MockFilesRequester()
+        await mock.script(path: "", entries: [file("note.txt", "note.txt")])
+        await mock.scriptFile(path: "note.txt", text: "old")
+        await mock.holdWrites()
+        let browser = WorkspaceFilesBrowser(transport: mock)
+        await browser.selectWorkspace("w1")
+        await browser.openFile(file("note.txt", "note.txt"))
+
+        let first = Task { await browser.saveFile("A") }
+        await mock.waitUntilWriteRequested()   // first write in flight; model is .saving
+        await browser.saveFile("B")            // must be ignored while a save is in flight
+
+        await mock.releaseWrite()
+        await first.value
+        #expect(await mock.writeCount == 1)
+        #expect(browser.model.saveStatus == .idle)
     }
 
     @Test func aStaleWriteReportsConflictWithoutOverwriting() async {

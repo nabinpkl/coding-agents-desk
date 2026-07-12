@@ -110,6 +110,10 @@ final class WorkspaceFilesBrowser {
     /// Writes the editor's text back to the open file, revision-checked against what was read. A
     /// stale revision (the host changed the file since) comes back as a conflict without overwriting.
     func saveFile(_ text: String) async {
+        // Don't overlap saves: a second in-flight write for the same file would carry the same
+        // stale expectedRevision and come back as a misleading self-inflicted conflict. Guard in the
+        // browser rather than trusting the view to disable its button.
+        guard model.saveStatus != .saving else { return }
         guard let workspaceID = model.selectedWorkspaceID,
               case .loaded(let path, _, let revision)? = model.preview
         else { return }

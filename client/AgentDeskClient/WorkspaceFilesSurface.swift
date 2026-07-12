@@ -3,8 +3,9 @@ import AgentDeskWire
 
 /// The iOS Files surface (R28): renders a `WorkspaceFilesBrowser`'s navigation state — a breadcrumb
 /// with an up control and a table of directory entries — and forwards taps back to the browser.
-/// Directory taps descend; file taps open the in-surface read-only preview overlay. The view is a
-/// thin renderer: all navigation state and transport orchestration live in the browser.
+/// Directory taps descend; file taps open the in-surface editor overlay (read plus revision-checked
+/// save). The view is a thin renderer: all navigation state and transport orchestration live in the
+/// browser.
 @MainActor
 final class WorkspaceFilesSurface: UIView {
     private let browser: WorkspaceFilesBrowser
@@ -14,7 +15,7 @@ final class WorkspaceFilesSurface: UIView {
     private let statusLabel = UILabel()
     private let tableView = UITableView(frame: .zero, style: .plain)
 
-    // Read-only file preview overlay, shown over the list when a file is opened.
+    // File editor overlay (read plus revision-checked save), shown over the list when a file opens.
     private let previewContainer = UIView()
     private let previewTitleLabel = UILabel()
     private let previewCloseButton = UIButton(type: .system)
