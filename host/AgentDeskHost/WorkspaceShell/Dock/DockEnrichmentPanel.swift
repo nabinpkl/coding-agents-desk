@@ -335,18 +335,35 @@ private final class DockDesktopPillView: NSView {
         badge.translatesAutoresizingMaskIntoConstraints = false
         addSubview(badge)
 
+        // The workspace name (already resolved into `group.desktopLabel` by the panel's label provider;
+        // falls back to "Desktop N"). The donor pill only exposed this via accessibility; AgentDesk shows
+        // it along the pill's bottom so the workspace each Desktop hosts is visible at a glance.
+        let name = label(
+            group.desktopLabel,
+            size: 11,
+            weight: group.isActive ? .semibold : .medium,
+            color: group.isActive ? .labelColor : .secondaryLabelColor
+        )
+        name.translatesAutoresizingMaskIntoConstraints = false
+        name.setAccessibilityIdentifier("dock-desktop-name")
+        addSubview(name)
+
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: DockEnrichmentMetrics.desktopPillWidth),
             heightAnchor.constraint(equalToConstant: DockEnrichmentMetrics.desktopPillHeight),
 
             icons.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             icons.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -DockEnrichmentMetrics.desktopPillRightBadgeInset),
-            icons.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icons.topAnchor.constraint(equalTo: topAnchor, constant: 3),
 
             badge.widthAnchor.constraint(equalToConstant: DockEnrichmentMetrics.badgeWidth),
             badge.heightAnchor.constraint(equalToConstant: DockEnrichmentMetrics.badgeHeight),
             badge.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             badge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+
+            name.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            name.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+            name.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
         ])
     }
 
