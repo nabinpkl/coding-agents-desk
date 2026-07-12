@@ -40,7 +40,7 @@ The Coordinator owns `PRD.md`, `SPEC.md`, ADRs, this ledger, Xcode project files
 - [x] D26. Add a host files stream endpoint that walks from registered-root descriptors with `openat`/`O_NOFOLLOW`, bounds payloads through central config, rejects traversal and symlinks, reads UTF-8 text, and performs content-digest revision-checked atomic writes through the verified parent descriptor. (`WorkspaceFilesLaneServer` decodes `.files` frames; `WorkspaceFilesResponder` serializes them against the store and closes the lost-update write race; `PairingSignalingServer` hands off the lane; `AppDelegate` owns the repository + responder; byte cap and store paths in `Config`. Host-unit green; live client-to-host serving is proven at the R33 device/sim checkpoint.)
 - [x] D27. Add a client files transport that reconnects with the session, correlates responses, cancels pending requests on teardown, and cannot block input or media lanes. (`WorkspaceFilesTransport` actor over a `WorkspaceFilesFrameChannel`; correlation by request id, fail-loud on duplicate id / undecodable response, teardown fails all in-flight. Reviewer-green; `just sim-test` green. Reconnect is per-session re-construction, not in-instance reopen.)
 - [x] D28. Add an iOS Files surface for workspace and directory navigation plus read-only preview, with focused model and lifecycle tests. (`WorkspaceFilesBrowserModel` + `WorkspaceFilesBrowser` + `WorkspaceFilesSurface` wired into the switcher, with generation-correlated navigation and preview, app-switch/reconnect teardown+rebind, open-race guards, and a read-only preview overlay. Reviewer-green; `just sim-test` green; observed end-to-end on the simulator via `files-browse` — root listing, drill into `src`, up, and a real file preview over the `.files` lane. Deferred follow-up: a multi-workspace picker (single-workspace case is auto-selected).)
-- [ ] R29. Reuse the shared file editor surface on iOS and enable save through revision-checked writes, surfacing conflicts without overwriting host changes.
+- [x] D29. Reuse the shared file editor surface on iOS and enable save through revision-checked writes, surfacing conflicts without overwriting host changes. (The Files preview is now an editor: `saveFile` writes the edited text with the read revision as `expectedRevision`; success advances the baseline, a conflict is reported without overwriting and preserves the user's edits, and overlapping saves are guarded. Reviewer-green; `just sim-test` green; observed end-to-end on the simulator via `files-edit` — a device edit to README.md wrote through to the demo workspace's file on disk.)
 - [ ] R30. Replace the crowded text-only surface switcher with an accessible control that fits Control, Agents, Files, Terminal, and Browser across supported iPhone widths.
 
 ## v2 Phase 4: integration and proof
@@ -74,8 +74,8 @@ R25      2026-07-10  green      protocol 6 + .files framing and file messages (j
 R26      2026-07-10  green      files lane endpoint + serialized writes (just check green; live serving at R33)
 R27      2026-07-10  green      client Files transport (reviewer-green; just sim-test green)
 R28      2026-07-10  verified   iOS Files surface: navigation + preview, observed end-to-end on the simulator
-R29      pending     pending     iOS editor save through revision-checked writes
-R30      partial     green      Files segment added to the switcher with visibility mapping (reviewer-green)
+R29      2026-07-10  verified   iOS editor save (revision-checked), observed writing through to disk
+R30      partial     green      Files segment in the switcher (reviewer-green, observed); fit-5-surfaces-across-widths redesign remains
 R31-R33  pending     pending     integration and real-surface proof
 R34-R35  captured    pending     donor retirement
 ```
