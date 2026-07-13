@@ -39,28 +39,52 @@ Ordering and reasons:
 
 ## Execution lanes
 
-The Co-ordinator opens one standing Implementor task and one standing Reviewer task per lane, then
-records their Codex task IDs in this table immediately. The same pair owns every R-task in that lane,
-including correction and re-review rounds. `not opened` is an execution state, not permission to spawn
-one task per R-task. After context compaction, this table is the source of truth for which tasks to
-resume.
+The Co-ordinator is the control lane. It owns dependency ordering, assignments, the ledger, integration,
+final verification, commits, and pushes. It does not create a fresh worker for each R-task. Every other
+lane is one coherent context boundary with one standing Implementor and one standing Reviewer. That pair
+stays open for the lane's full phase, including fixes and re-review, so the next R-task reuses the context
+earned by the previous one.
 
-| Lane | Owned surface | R-tasks | Starts after | Implementor task | Reviewer task | State |
-| --- | --- | --- | --- | --- | --- | --- |
-| L0 Decision | ADR/SPEC compatibility contract | D58 | none | `019f59b0-7e57-72c3-b81c-30f862200e61` | `019f59b0-823e-70f3-a4d2-50fb7bfb63aa` | complete |
-| L1 PTY core | PTY protocol, Rust manager, Swift bindings | D59-D61 | L0 | `019f59be-2304-7a73-bbe1-cef19e64338e` | `019f59be-1efa-7b41-98d2-420985d6eb0f` | complete |
-| L2 Host control | resume identity, coordinator, AgentDesk wire | R62-R64 | L1 | `019f59f0-7854-7f23-9dff-80f7adb409d7` | `019f59f0-7bf4-7c72-9ceb-5b63143d7b2a` | active |
-| L3 Panel intent | ATC webview and native bridge intent | R65 | L2 | not opened | not opened | queued |
-| L4 Terminal content | shared SwiftTerm content and existing consumers | R66 | L1 | `019f59f0-7f6a-7191-a273-59b2ee115db5` | `019f59f0-8367-7990-ba70-41dfe70f7fb0` | active |
-| L5 macOS | Agent window layout and macOS lifecycle | R67-R68 | L2, L3, L4 | not opened | not opened | queued |
-| L6 iOS | Agent surface layout, transport, and iOS lifecycle | R69-R70 | L2, L3, L4 | not opened | not opened | queued |
-| L7 Verification | integration smoke, simulator, macOS AX, orphan audit | R71-R73 | L5, L6 | not opened | not opened | queued |
+`not opened` means the dependency gate is closed. It is not permission to spawn one task per R-task.
+After compaction, resume the task IDs below and continue from the checkpoint. If a standing task must be
+replaced because it is unavailable, stale, or near its context limit, preserve the old ID in the cell,
+append the replacement ID, and write the exact handoff checkpoint before implementation continues.
+
+| Lane | Coherent ownership | Tasks | Starts after | Standing Implementor | Standing Reviewer | State | Compaction checkpoint / next owner |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| L0 Decision | ADR/SPEC compatibility contract | D58 | none | `019f59b0-7e57-72c3-b81c-30f862200e61` | `019f59b0-823e-70f3-a4d2-50fb7bfb63aa` | complete | Landed in `03b6d97`; no next action. |
+| L1 PTY core | PTY protocol, Rust manager, Swift bindings | D59-D61 | L0 | `019f59be-2304-7a73-bbe1-cef19e64338e` | `019f59be-1efa-7b41-98d2-420985d6eb0f` | complete | Landed through `4a4495a`; standing pair closed. |
+| L2 Host control | resume identity, coordinator, AgentDesk wire | R62-R64 | L1 | `019f59f0-7854-7f23-9dff-80f7adb409d7` | `019f59f0-7bf4-7c72-9ceb-5b63143d7b2a` | active | R62 implementation and tests are in the shared worktree; Reviewer baseline is complete. Implementor owns final self-review/test handoff, then Reviewer reviews the complete R62 diff. Reuse this pair for R63 and R64. |
+| L3 Panel intent | ATC webview and native bridge intent | R65 | L2 | not opened | not opened | queued | Co-ordinator opens one standing pair only after D64 lands. That pair owns R65 through approval and landing. |
+| L4 Terminal content | shared SwiftTerm content and existing consumers | R66 | L1 | `019f59f0-7f6a-7191-a273-59b2ee115db5` | `019f59f0-8367-7990-ba70-41dfe70f7fb0` | active | R66 implementation and tests are in the shared worktree; Reviewer baseline is complete. Implementor owns lifecycle teardown, self-review, and test handoff, then Reviewer reviews the complete R66 diff. |
+| L5 macOS | Agent window layout and macOS lifecycle | R67-R68 | L2, L3, L4 | not opened | not opened | queued | Co-ordinator opens one pair after D64-D66 land. The same pair owns R67 and R68; do not split layout from lifecycle. |
+| L6 iOS | Agent surface layout, transport, and iOS lifecycle | R69-R70 | L2, L3, L4 | not opened | not opened | queued | Co-ordinator opens one pair after D64-D66 land. The same pair owns R69 and R70; do not split layout from lifecycle. |
+| L7 Verification | integration smoke, simulator, macOS AX, orphan audit | R71-R73 | L5, L6 | not opened | not opened | queued | Co-ordinator opens one pair after D70 lands. The same pair owns automated integration and both preapproved live drives so evidence and process-lifecycle observations stay in one context. |
+
+### Lane SDLC loop
+
+For every active lane, repeat this loop with the same pair until all of its R-tasks are done:
+
+1. The Co-ordinator sends the next bounded R-task, its dependency baseline, owned files/surfaces, and
+   acceptance tests to the standing Implementor.
+2. The Implementor writes tests and implementation, runs focused verification, performs the required
+   final self-review, and hands back the exact files changed, commands run, results, and residual risks.
+   The Implementor task remains open.
+3. The Co-ordinator sends that complete diff and test evidence to the standing Reviewer. The Reviewer is
+   read-only and reports findings first, with file/line references and missing-test risks. The Reviewer
+   task remains open.
+4. Any finding returns to the same Implementor. The corrected diff returns to the same Reviewer. Repeat
+   this back-and-forth until the Reviewer records approval or only explicitly accepted residual risk.
+5. The Co-ordinator independently inspects the integrated diff, runs the required gate, updates this
+   checkpoint, flips `R` to `D` only after green landing, then commits and pushes that task cluster.
+6. The Co-ordinator gives the next R-task in the lane to the same pair. Close the pair only when the lane
+   is complete; record closure in the checkpoint before freeing the tasks.
 
 The Co-ordinator may run lanes in parallel only when the dependency column is satisfied and file
 ownership does not overlap. L3 and L4 may run in parallel; L5 and L6 may run in parallel. Contract
 changes discovered inside a consumer lane return to the producing lane and land there before dependent
-work resumes. A standing task is replaced only when unavailable, near its context limit, or stale; the
-replacement task ID and handoff state are written into this table before work continues.
+work resumes. The checkpoint column must be updated whenever ownership changes, a review round ends, a
+task lands, or the next action changes. It is the restart record after compaction, not transient chat.
 
 ## Lifecycle contract
 
