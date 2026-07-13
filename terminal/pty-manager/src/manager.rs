@@ -1,4 +1,5 @@
 use std::fs;
+use std::future::Future;
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::UnixStream as StdUnixStream;
 use std::path::{Path, PathBuf};
@@ -8,6 +9,7 @@ use std::sync::Arc;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{mpsc, Mutex};
+use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tracing::{error, info, warn};
 
@@ -17,14 +19,16 @@ use crate::protocol::{
     ListSessions, Output, Payload, Resize, SessionExited, SessionList, SubscribeSessions,
 };
 use crate::pty_manager_client_sessions::{
-    broadcast_session_snapshot, close_client, create_or_attach, detach_client, kill_session,
-    remove_observer, resize_session, send_input, subscribe_sessions, PtyManagerState,
+    broadcast_session_snapshot, close_client, create_or_attach, detach_client, handle_natural_exit,
+    kill_session, reap_session, remove_observer, resize_session, send_input,
+    shutdown_leased_sessions, subscribe_sessions, PtyManagerState, ReapRequest, ReapScheduler,
 };
 use crate::pty_session::PtyEvent;
 
 #[derive(Debug, Clone)]
 pub struct PtyManagerOptions {
     pub socket_path: PathBuf,
+    pub leased_session_grace: std::time::Duration,
 }
 
 pub struct PtyManager {
@@ -32,6 +36,9 @@ pub struct PtyManager {
     state: Arc<Mutex<PtyManagerState>>,
     events_tx: mpsc::UnboundedSender<PtyEvent>,
     events_rx: mpsc::UnboundedReceiver<PtyEvent>,
+    reaper: ReapScheduler,
+    reap_rx: mpsc::UnboundedReceiver<ReapRequest>,
+    client_tasks: JoinSet<()>,
 }
 
 static NEXT_CLIENT_ID: AtomicU64 = AtomicU64::new(1);
@@ -39,45 +46,77 @@ static NEXT_CLIENT_ID: AtomicU64 = AtomicU64::new(1);
 impl PtyManager {
     pub fn new(options: PtyManagerOptions) -> Self {
         let (events_tx, events_rx) = mpsc::unbounded_channel();
+        let (reap_tx, reap_rx) = mpsc::unbounded_channel();
+        let reaper = ReapScheduler::new(options.leased_session_grace, reap_tx);
         Self {
             options,
             state: Arc::new(Mutex::new(PtyManagerState::new())),
             events_tx,
             events_rx,
+            reaper,
+            reap_rx,
+            client_tasks: JoinSet::new(),
         }
     }
 
-    pub async fn run(mut self) -> Result<()> {
+    pub async fn run(self) -> Result<()> {
+        self.run_until_shutdown(wait_for_shutdown_signal()).await
+    }
+
+    pub async fn run_until_shutdown<F>(mut self, shutdown: F) -> Result<()>
+    where
+        F: Future<Output = ()>,
+    {
         prepare_socket(&self.options.socket_path)?;
         let listener = UnixListener::bind(&self.options.socket_path)?;
         info!(socket = %self.options.socket_path.display(), "pty manager listening");
+        tokio::pin!(shutdown);
 
-        loop {
+        let run_result = loop {
             tokio::select! {
                 accepted = listener.accept() => {
-                    let (stream, _) = accepted?;
-                    self.spawn_client(stream);
+                    match accepted {
+                        Ok((stream, _)) => self.spawn_client(stream),
+                        Err(error) => break Err(error.into()),
+                    }
                 }
                 Some(event) = self.events_rx.recv() => {
                     self.handle_pty_event(event).await;
                 }
-                signal = tokio::signal::ctrl_c() => {
-                    if let Err(error) = signal {
-                        warn!(%error, "ctrl-c signal handler failed");
+                Some(request) = self.reap_rx.recv() => {
+                    if reap_session(&self.state, request).await {
+                        broadcast_session_snapshot(&self.state).await;
                     }
-                    break;
+                }
+                Some(result) = self.client_tasks.join_next(), if !self.client_tasks.is_empty() => {
+                    if let Err(error) = result {
+                        warn!(%error, "pty client task failed");
+                    }
+                }
+                _ = &mut shutdown => break Ok(()),
+            }
+        };
+
+        self.client_tasks.abort_all();
+        while let Some(result) = self.client_tasks.join_next().await {
+            if let Err(error) = result {
+                if !error.is_cancelled() {
+                    warn!(%error, "pty client task failed during shutdown");
                 }
             }
         }
-
-        Ok(())
+        if shutdown_leased_sessions(&self.state).await {
+            broadcast_session_snapshot(&self.state).await;
+        }
+        run_result
     }
 
-    fn spawn_client(&self, stream: UnixStream) {
+    fn spawn_client(&mut self, stream: UnixStream) {
         let state = self.state.clone();
         let events = self.events_tx.clone();
-        tokio::spawn(async move {
-            if let Err(error) = handle_client(stream, state, events).await {
+        let reaper = self.reaper.clone();
+        self.client_tasks.spawn(async move {
+            if let Err(error) = handle_client(stream, state, events, reaper).await {
                 warn!(%error, "client connection ended with error");
             }
         });
@@ -85,12 +124,17 @@ impl PtyManager {
 
     async fn handle_pty_event(&self, event: PtyEvent) {
         match event {
-            PtyEvent::Output { session_name, data } => {
+            PtyEvent::Output {
+                session_name,
+                generation,
+                data,
+            } => {
                 let clients = {
                     let state = self.state.lock().await;
                     state
                         .sessions
                         .get(&session_name)
+                        .filter(|session| session.generation == generation)
                         .map(|session| {
                             session
                                 .clients
@@ -107,43 +151,12 @@ impl PtyManager {
             }
             PtyEvent::Exited {
                 session_name,
+                generation,
                 status,
             } => {
-                let (clients, wait_status) = {
-                    let mut state = self.state.lock().await;
-                    let wait_status = state
-                        .sessions
-                        .get_mut(&session_name)
-                        .map(|session| session.pty.wait_status())
-                        .unwrap_or(status);
-                    let clients = state
-                        .sessions
-                        .remove(&session_name)
-                        .map(|session| {
-                            session
-                                .clients
-                                .into_values()
-                                .map(|client| client.tx)
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default();
-                    let _ = state.registry.mark_exited(&session_name);
-                    for sessions in state.client_sessions.values_mut() {
-                        sessions.remove(&session_name);
-                    }
-                    (clients, wait_status)
-                };
-                let frame = protocol::envelope(
-                    0,
-                    session_name,
-                    Payload::SessionExited(SessionExited {
-                        status: wait_status,
-                    }),
-                );
-                for client in clients {
-                    let _ = client.send(frame.clone());
+                if handle_natural_exit(&self.state, &session_name, generation, status).await {
+                    broadcast_session_snapshot(&self.state).await;
                 }
-                broadcast_session_snapshot(&self.state).await;
             }
         }
     }
@@ -153,6 +166,7 @@ async fn handle_client(
     stream: UnixStream,
     state: Arc<Mutex<PtyManagerState>>,
     events: mpsc::UnboundedSender<PtyEvent>,
+    reaper: ReapScheduler,
 ) -> Result<()> {
     let client_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
     let framed = Framed::new(stream, LengthDelimitedCodec::new());
@@ -160,7 +174,7 @@ async fn handle_client(
     let (client_tx, mut client_rx) = mpsc::unbounded_channel::<Envelope>();
     let (close_tx, mut close_rx) = mpsc::unbounded_channel::<()>();
 
-    let writer = tokio::spawn(async move {
+    let writer = AbortOnDrop(tokio::spawn(async move {
         while let Some(envelope) = client_rx.recv().await {
             let bytes = match protocol::encode(&envelope) {
                 Ok(bytes) => bytes,
@@ -173,7 +187,7 @@ async fn handle_client(
                 break;
             }
         }
-    });
+    }));
 
     loop {
         let frame = tokio::select! {
@@ -223,7 +237,7 @@ async fn handle_client(
                 }
             }
             Payload::Detach(Detach {}) => {
-                if detach_client(&state, client_id).await {
+                if detach_client(&state, &reaper, client_id).await {
                     broadcast_session_snapshot(&state).await;
                 }
                 break;
@@ -259,7 +273,7 @@ async fn handle_client(
                 }
             }
             Payload::CloseClient(CloseClient { client_id }) => {
-                match close_client(&state, &session_name, client_id).await {
+                match close_client(&state, &reaper, &session_name, client_id).await {
                     Ok(()) => {
                         let _ = client_tx.send(protocol::envelope(
                             request_id,
@@ -297,13 +311,47 @@ async fn handle_client(
         }
     }
 
-    let detached = detach_client(&state, client_id).await;
+    let detached = detach_client(&state, &reaper, client_id).await;
     remove_observer(&state, client_id).await;
     if detached {
         broadcast_session_snapshot(&state).await;
     }
-    writer.abort();
+    writer.0.abort();
     Ok(())
+}
+
+struct AbortOnDrop<T>(JoinHandle<T>);
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut terminate) => {
+                tokio::select! {
+                    signal = tokio::signal::ctrl_c() => {
+                        if let Err(error) = signal {
+                            warn!(%error, "ctrl-c signal handler failed");
+                        }
+                    }
+                    _ = terminate.recv() => {}
+                }
+            }
+            Err(error) => {
+                warn!(%error, "SIGTERM signal handler failed");
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
 
 pub fn prepare_socket(path: &Path) -> Result<()> {

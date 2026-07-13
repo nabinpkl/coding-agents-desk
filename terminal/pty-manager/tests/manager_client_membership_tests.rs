@@ -11,11 +11,12 @@ use tempfile::tempdir;
 use tokio::net::UnixStream;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn detached_session_stays_running_until_killed() {
+async fn persistent_final_detach_survives_grace_until_killed() {
     let tempdir = tempdir().expect("tempdir");
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_millis(40),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -66,6 +67,8 @@ async fn detached_session_stays_running_until_killed() {
     .await
     .expect("detach first client");
     drop(first_client);
+
+    tokio::time::sleep(Duration::from_millis(80)).await;
 
     let sessions = pty_manager::client::list_sessions(&socket_path)
         .await
@@ -118,6 +121,7 @@ async fn session_subscriber_receives_snapshots_without_attaching() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -179,6 +183,7 @@ async fn dropped_session_subscriber_does_not_change_attached_clients() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -215,6 +220,7 @@ async fn close_client_detaches_only_target_and_keeps_session_running() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -297,6 +303,7 @@ async fn kill_session_detaches_attached_clients() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -340,6 +347,7 @@ async fn attach_without_create_fails_for_missing_session() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;

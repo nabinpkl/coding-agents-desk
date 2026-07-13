@@ -16,6 +16,7 @@ async fn resize_updates_child_pty_size() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -62,6 +63,7 @@ async fn spawned_session_reports_terminal_environment() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -95,6 +97,7 @@ async fn spawned_session_uses_login_interactive_shell() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -135,6 +138,7 @@ async fn spawned_session_uses_delete_as_erase_key() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -168,6 +172,7 @@ async fn command_launch_preserves_exact_arguments_and_terminal_environment() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -240,6 +245,7 @@ async fn command_launch_summary_identifies_direct_executable() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -317,6 +323,7 @@ async fn command_launch_rejects_empty_executable() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -365,6 +372,7 @@ async fn attach_ignores_launch_and_cannot_change_original_lifetime() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -467,6 +475,7 @@ async fn resize_missing_session_returns_error() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;

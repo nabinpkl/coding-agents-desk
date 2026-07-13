@@ -10,8 +10,16 @@ use crate::error::{Result, TerminalError};
 
 #[derive(Debug)]
 pub enum PtyEvent {
-    Output { session_name: String, data: Vec<u8> },
-    Exited { session_name: String, status: i32 },
+    Output {
+        session_name: String,
+        generation: u64,
+        data: Vec<u8>,
+    },
+    Exited {
+        session_name: String,
+        generation: u64,
+        status: i32,
+    },
 }
 
 pub enum PtyLaunch {
@@ -39,6 +47,7 @@ pub struct PtySession {
 impl PtySession {
     pub fn spawn(
         name: impl Into<String>,
+        generation: u64,
         launch: PtyLaunch,
         columns: u16,
         rows: u16,
@@ -93,7 +102,7 @@ impl PtySession {
             .map_err(|error| TerminalError::Pty(error.to_string()))?;
         let (input, input_rx) = mpsc::channel::<Vec<u8>>();
 
-        spawn_reader(name.clone(), &events, &mut reader);
+        spawn_reader(name.clone(), generation, &events, &mut reader);
         spawn_writer(input_rx, &mut writer);
 
         Ok(Self {
@@ -140,6 +149,7 @@ impl PtySession {
 
 fn spawn_reader(
     session_name: String,
+    generation: u64,
     events: &UnboundedSender<PtyEvent>,
     reader: &mut Box<dyn Read + Send>,
 ) {
@@ -152,6 +162,7 @@ fn spawn_reader(
                 Ok(0) => {
                     let _ = events.send(PtyEvent::Exited {
                         session_name: session_name.clone(),
+                        generation,
                         status: 0,
                     });
                     break;
@@ -159,12 +170,14 @@ fn spawn_reader(
                 Ok(count) => {
                     let _ = events.send(PtyEvent::Output {
                         session_name: session_name.clone(),
+                        generation,
                         data: buffer[..count].to_vec(),
                     });
                 }
                 Err(_) => {
                     let _ = events.send(PtyEvent::Exited {
                         session_name: session_name.clone(),
+                        generation,
                         status: -1,
                     });
                     break;

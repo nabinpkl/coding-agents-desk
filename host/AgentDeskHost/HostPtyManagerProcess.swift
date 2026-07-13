@@ -41,13 +41,29 @@ final class HostPtyManagerProcess: @unchecked Sendable {
 
     private let binaryURL: URL
     private let socketURL: URL
+    private let leasedSessionGraceSeconds: Int
     private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal")
     private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).pty-manager-process")
     private var process: Process?
 
-    init(binaryURL: URL, socketURL: URL = Config.ptyManagerSocketURL) {
+    init(
+        binaryURL: URL,
+        socketURL: URL = Config.ptyManagerSocketURL,
+        leasedSessionGraceSeconds: Int = Config.ptyLeasedSessionGraceSeconds
+    ) {
         self.binaryURL = binaryURL
         self.socketURL = socketURL
+        self.leasedSessionGraceSeconds = leasedSessionGraceSeconds
+    }
+
+    static func launchArguments(
+        socketURL: URL,
+        leasedSessionGraceSeconds: Int
+    ) -> [String] {
+        [
+            "--socket", socketURL.path,
+            "--leased-session-grace-seconds", String(leasedSessionGraceSeconds),
+        ]
     }
 
     func start() {
@@ -84,7 +100,10 @@ final class HostPtyManagerProcess: @unchecked Sendable {
             }
             let proc = Process()
             proc.executableURL = binaryURL
-            proc.arguments = ["--socket", socketURL.path]
+            proc.arguments = Self.launchArguments(
+                socketURL: socketURL,
+                leasedSessionGraceSeconds: leasedSessionGraceSeconds
+            )
             proc.environment = ProcessInfo.processInfo.environment
             proc.standardOutput = FileHandle.nullDevice
             proc.standardError = FileHandle.nullDevice

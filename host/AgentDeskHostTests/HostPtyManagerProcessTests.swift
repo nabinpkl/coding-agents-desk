@@ -1,8 +1,21 @@
+import Foundation
 import Testing
 
 @testable import AgentDeskHost
 
 struct HostPtyManagerProcessTests {
+    @Test func launchArgumentsIncludeConfiguredLeaseGrace() {
+        let arguments = HostPtyManagerProcess.launchArguments(
+            socketURL: URL(fileURLWithPath: "/tmp/agentdesk-pty.sock"),
+            leasedSessionGraceSeconds: 30
+        )
+
+        #expect(arguments == [
+            "--socket", "/tmp/agentdesk-pty.sock",
+            "--leased-session-grace-seconds", "30",
+        ])
+    }
+
     @Test func matchingPeerDigestPreservesLiveManager() {
         let peer = HostPtyManagerSocketPeer(pid: 42, executablePath: "/tmp/pty-manager")
 

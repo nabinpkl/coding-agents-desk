@@ -812,6 +812,10 @@ enum Config {
         Bundle.main.url(forResource: agentSidecarResourceName, withExtension: nil)
     }
     static let ptyManagerResourceName = "pty-manager"
+    static let ptyLeasedSessionGraceSeconds = positiveInt(
+        environmentKey: "AGENTDESK_PTY_LEASED_SESSION_GRACE_SECONDS",
+        defaultValue: 30
+    )
     static var ptyManagerURL: URL? {
         Bundle.main.url(forResource: ptyManagerResourceName, withExtension: nil)
     }
