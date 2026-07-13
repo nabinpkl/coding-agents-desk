@@ -14,13 +14,13 @@
 | Transport | One authenticated `NetworkConnection<QUIC>` per live session, ALPN `agentdesk-session-quic-v2` | Control, input, DOM, terminal, and files use ordered QUIC streams. HEVC media uses the same connection's datagram lane. File payloads cannot head-of-line block input. ADR-0030 and ADR-0052. |
 | Network | Tailscale only | No public rendezvous, relay, or internet routing. Both peers are on the tailnet. |
 | Pairing | Mac-initiated tailnet device picker (ADR-0019), QR fallback | The Mac enumerates online iOS tailnet peers, probes each on the plain-TCP offer port (`AGENTDESK_OFFER_PORT`, default 41890) for a self-reported display name, and pushes a pre-approved signed offer to the picked device. The pick is the authorization. The iPhone runs the unchanged signed handshake. Signed token stored in Keychain on both sides. |
-| Wire compatibility | Protocol version 6 only (ADR-0020, ADR-0051, ADR-0052) | The dedicated files stream is a breaking role addition. Host and client reject peers below `6` with `incompatible-protocol`; matching app versions remain irrelevant. |
+| Wire compatibility | Current-iteration target is protocol version 7 (ADR-0020, ADR-0052, ADR-0056) | The Agent Panel terminal coordination messages are a breaking contract addition. R64 performs the code bump from the currently implemented v6 to v7; the completed v5 host and client reject peers below `7` with `incompatible-protocol`. Matching app versions remain irrelevant. |
 | Spaces enumeration | Private SkyLight/CoreGraphics symbols bound with `dlopen` and `dlsym` | No public API exists. Risk is acceptable because App Store distribution is not the v0 target. |
 | Spaces switch | Synthesize Dock swipe `CGEvent`s via `SpacesProvider.postDockSwipeFrame` and `commitStep(delta:)` | Stock macOS path that preserves live Space transition animation. |
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
 
-ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with ordered role streams and media datagrams. ADR-0031 records client-visible selected-display projection. ADR-0032 records bounded client diagnostics. ADR-0033 records the adaptive media quality ladder. ADR-0035 records the phone Agent feed. ADR-0051 (superseded by ADR-0053) records the terminal lane. ADR-0052 makes AgentDesk the workspace owner and adds the authenticated files lane at protocol version `6`. ADR-0053 moves the terminal `pty-manager` and `pty-client-swift` packages in-tree, removing the last build dependency on the retired `agent-workspace-ide` donor.
+ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with ordered role streams and media datagrams. ADR-0031 records client-visible selected-display projection. ADR-0032 records bounded client diagnostics. ADR-0033 records the adaptive media quality ladder. ADR-0035 records the phone Agent feed. ADR-0051 (superseded by ADR-0053) records the terminal lane. ADR-0052 makes AgentDesk the workspace owner and adds the authenticated files lane at protocol version `6`. ADR-0053 moves the terminal `pty-manager` and `pty-client-swift` packages in-tree, removing the last build dependency on the retired `agent-workspace-ide` donor. ADR-0054 locks the shared workspace-data and platform-presentation boundary. ADR-0056 adds host-coordinated leased Agent Panel terminals, requires PTY inner protocol v4, and raises the current-iteration AgentDesk session target to protocol version `7`.
 
 ## Module Boundaries
 
@@ -45,8 +45,8 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 13. **ScrollDeltaEngine.** Rest-state retained-graphics producer (ADR-0025), retained as local crisp-repair/compositor machinery. Damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`), omitting cells that already match the retained baseline. It does not own a separate network connection.
 14. **InputChannelServer.** Owns the host side of the session input stream. Drains `InputChannelEvent` frames into `NormalizedInput`, and pushes desktop state, thumbnails, cursor image updates, cursor-position corrections, text-input focus metadata, agent speech events, and diagnostics responses on the same ordered lane.
 15. **SignalingChannel.** Supplies length-prefixed QUIC stream framing and role routing for the session control and input streams. It is not a WebSocket wrapper.
-16. **HostPtyManagerProcess.** Reuses a live Rust `pty-manager` on the host variant's Application Support socket or launches the bundled AgentDesk `pty-manager` (`terminal/pty-manager`, ADR-0053) when no process is listening. The manager, not the host lifecycle or iOS app, spawns shells and owns host PTYs; host relaunch preserves it unless the bundled manager binary hash changes or `just restart-pty-manager` is run.
-17. **TerminalClientBridge.** Bridges a dedicated `.terminal` QUIC stream to the `pty-manager` Unix socket as opaque length-prefixed PTY protobuf frames. It does not decode terminal protocol payloads; it only enforces stream role and frame bounds. A paired terminal client is currently trusted to use the full PTY manager protocol.
+16. **HostPtyManagerProcess.** Reuses a live Rust `pty-manager` on the host variant's Application Support socket or launches the bundled AgentDesk `pty-manager` (`terminal/pty-manager`, ADR-0053) when no process is listening. The manager, not the host lifecycle or iOS app, spawns commands and owns host PTYs. Persistent workspace PTYs survive detach and host relaunch. Under the ADR-0056 target, leased Agent Panel PTYs survive only while a client lease exists or the configured final-lease grace is pending; manager shutdown reaps leased children.
+17. **TerminalClientBridge.** Bridges a dedicated `.terminal` QUIC stream to the `pty-manager` Unix socket as opaque length-prefixed PTY protobuf frames. It does not decode terminal protocol payloads; it only enforces stream role and frame bounds. Persistent full-screen terminal clients remain trusted multiplexer clients with the existing session-management controls. Agent Panel creation and kill authority stays behind `AgentSessionTerminalCoordinator`; its iOS renderer attaches only to the deterministic PTY returned by that coordinator.
 18. **VideoFrameSource.** Concrete implementation `ScreenCaptureKitFrameSource` captures one stream for the selected display and exposes a display-selection hook. `TestPatternFrameSource` exists as a diagnostic source.
 19. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces, enabled by owner-scoped demand.
 20. **SpaceAgent.** Host-local overlay under `host/AgentDeskHost/SpaceAgent/`, showing the draggable spaceship and active-display Spaces strip.
@@ -55,7 +55,8 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 23. **WorkspaceShell.** AppKit sidebar and top bar composed at host launch. It uses AgentDesk Spaces, PTY, terminal launcher, and ATC ownership instead of donor implementations.
 24. **WorkspaceFiles.** Walks workspace-relative path components from an open registered-root descriptor with `openat` and no-follow semantics, rejects traversal and symlinks, reads bounded UTF-8 content, and performs atomic revision-checked writes.
 25. **WorkspaceFilesStream.** Owns the host `.files` stream endpoint and request correlation. It never runs file I/O on the input or media lanes.
-26. **AgentPanel.** Reusable WebKit surface. The macOS adapter reads the local ATC sidecar directly; the iOS adapter carries the same request/push contract over the authenticated session.
+26. **AgentPanel.** Reusable WebKit surface. The macOS adapter reads the local ATC sidecar directly; the iOS adapter carries the same request/push contract over the authenticated session. For the bottom terminal it emits session-scoped open, close, and context-ended intent only; it never renders a terminal or forwards terminal keystrokes.
+27. **AgentSessionTerminalCoordinator.** Host-only authority for Agent Panel resume terminals (ADR-0056). It validates project/source/session context, derives `agent-resume-<source>-<session-id>`, constructs the fixed Claude or Codex argv, serializes create-or-attach, holds a bootstrap client through native renderer handoff, rejects `activeElsewhere`, and owns immediate explicit kill. macOS calls it directly; iOS reaches the same coordinator through protocol-v7 messages.
 
 ### Client
 
@@ -73,11 +74,48 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 12. **OwnedSurfaceCompositor.** Planned `@MainActor` single writer for the retained BGRA surface. It applies HEVC full-surface refreshes and retained graphics commands in strict `(surfaceGeneration, frameId)` order, then commits the visible layer.
 13. **InputChannel.** Reliable input lane inside the authenticated session QUIC connection. It stays logically independent from media even though both lanes share the same connection. It sends `ClientConfig.selectedDisplayId` when the user picks a display and sends client-owned media preferences (`crispTextOverlayEnabled`, `showHostCursorInVideo`, `mediaQuality`) on input-channel open and settings changes. `mediaQuality` carries adaptive on/off plus an optional fixed target. When adaptive is on, the host still owns rung selection; when adaptive is off, the host pins the video bitrate/FPS/resolution to the fixed target while packet repair and backpressure stay active. The lane receives cursor-position corrections, host text-input focus metadata, and `DiagnosticsRequest` from the host, and returns diagnostics summaries and chunks.
 14. **ClientDiagnosticsStore.** Bounded durable client diagnostics store in `Application Support/Diagnostics`. It persists structured NDJSON essentials for the current run plus two prior runs, rotates unclean exits on bootstrap, mirrors essentials to OSLog, summarizes delayed MetricKit payloads, and serves prior-run tails on demand over the input lane or the foreground tailnet control listener.
-15. **TerminalSurface.** Full-bleed SwiftTerm renderer selected from the Control | Agent | Terminal | Browser switcher. It opens `.terminal` QUIC streams, wraps them in `PtyClientSwift`, and gives each app-owned split pane its own `agentdesk-N` PTY session with empty cwd/shell so the host manager defaults to host home/default shell. A drawer overlays the terminal and subscribes to the PTY manager session tree: sessions expand to client rows, Open joins an existing manager-owned session as a new iOS pane/client with `createIfMissing=false`, close-client asks the manager to detach that exact client id, and close-session asks the manager to kill the session. User close on a pane still detaches only when other PTY clients remain attached to that session; when the pane is the only client, user close kills the PTY session. Session teardown and view deallocation still detach only so reconnects do not accidentally kill shells.
+15. **TerminalSurface.** Full-bleed SwiftTerm renderer selected from the Control | Agent | Terminal | Browser switcher. It opens `.terminal` QUIC streams, wraps them in `PtyClientSwift`, and gives each app-owned split pane its own persistent `agentdesk-N` PTY session with the default host login shell. A drawer overlays the terminal and subscribes to the PTY manager session tree: sessions expand to client rows, Open joins an existing manager-owned session as a new iOS pane/client with `createIfMissing=false`, close-client asks the manager to detach that exact client id, and close-session asks the manager to kill the session. User close on a pane still detaches only when other PTY clients remain attached to that session; when the pane is the only client, user close kills the PTY session. Teardown and view deallocation detach only, which is correct for these persistent workspace PTYs and does not apply to leased Agent Panel PTYs.
 16. **FilesTransport.** Opens the authenticated `.files` stream, correlates workspace list/directory/read/write responses, and cancels pending operations when the session ends.
 17. **FilesSurface.** UIKit workspace and directory navigation plus the shared WebKit file viewer/editor. Saves carry the last observed file revision and surface conflicts instead of overwriting host changes.
+18. **AgentFeedSurface.** UIKit vertical container for the AgentPanel webview, native resize handle, and shared `PtyTerminalSwiftTerm` content. It requests a host-coordinated leased PTY over protocol v7, attaches over `.terminal` with `createIfMissing=false`, acknowledges handoff, and owns iOS layout and explicit/involuntary lifecycle mapping. It does not construct harness commands or own process lifetime.
 
 Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView.** Additional owned-media contract tests pin wire shapes, packet repair, and decoder recovery behavior where regressions are expensive.
+
+## Agent Panel Terminal Flow
+
+ADR-0056 locks the v5 target below. R59-R70 implement it; at the R58 decision gate the checked-in PTY
+pair still speaks protocol v3 and the checked-in AgentDesk session still speaks v6. There is no compatibility
+mode after each implementation bump lands.
+
+1. The thread-view AgentPanel webview emits open intent containing project path, source, and harness
+   session id. It cannot supply an executable, arguments, PTY name, or terminal input.
+2. The macOS AppKit adapter calls the host coordinator directly. The iOS UIKit adapter sends the same
+   normalized context over the authenticated input lane using the protocol-v7 contract.
+3. The host accepts only source `claude` or `codex`, a UUID harness session id, and an absolute project
+   directory beneath the user's home. It derives `agent-resume-<source>-<session-id>` and constructs
+   the fixed resume command. The session id remains a positional argument through the login-zsh
+   forwarding wrapper and PTY protocol; no joined command string or terminal-input injection exists.
+4. The coordinator serializes opens by deterministic PTY name. It attaches an existing panel-owned
+   PTY or creates one `leased + CommandLaunch` PTY and holds a bootstrap attachment until the native
+   renderer acknowledges attachment. A failed or timed-out handoff kills the new PTY. If ATC says the
+   harness is live and the deterministic PTY is absent, open fails with `activeElsewhere`.
+5. AppKit and UIKit each compose the AgentPanel webview above a native resize handle and shared
+   `PtyTerminalSwiftTerm` content. The feed shrinks as the terminal grows. Shared SwiftTerm content owns
+   input delegation, paste, selection, output feeding, focus, and PTY resize; React owns none of them.
+6. Explicit panel/context exit asks the coordinator to kill immediately. Unexpected renderer/socket
+   loss detaches. A leased PTY is reaped only after its final client lease is absent for the configured
+   grace, and a reattach during grace preserves its PID.
+
+Platform ownership remains explicit:
+
+| Owner | Responsibility |
+| --- | --- |
+| AgentPanel WebKit | Feed presentation and session-scoped terminal intent/status only. |
+| Shared `PtyTerminalSwiftTerm` | Native SwiftTerm rendering, input, output, paste, focus, and resize. |
+| macOS AppKit adapter | Vertical layout, local coordinator calls, window/back/hide/close lifecycle. |
+| iOS UIKit adapter | Vertical and keyboard-safe layout, v7 request routing, surface/background lifecycle. |
+| Host coordinator | Context validation, deterministic identity, command construction, handoff, explicit kill, and `activeElsewhere`. |
+| Rust `pty-manager` | Direct process launch, PTY state, client leases, final-lease grace, natural-exit cleanup, and reaping. |
 
 ## Wire Shapes
 
@@ -150,7 +188,7 @@ QuicStreamFrame   = UInt8 role || UInt32BE length || body
 role              = 1 control | 2 input | 3 graphics | 4 dom | 5 terminal | 6 files
 
 SessionInit       { deviceFingerprint, sessionToken, clientNonce,
-                    protocolVersion, minCompatibleProtocolVersion }   // pv must be >= 6
+                    protocolVersion, minCompatibleProtocolVersion }   // v5 target: pv must be >= 7
 SessionChallenge  { hostNonce, hostSignature, protocolVersion }
 SessionProof      { clientSignature }
 SessionReady      { sessionId, resumeId, resumeSecret, resumeExpiresAt, mediaKeySalt,
@@ -174,15 +212,48 @@ and rotates resume id, resume secret, and media key salt in the next signed
 `SessionReady`; the client verifies the ready signature before accepting the new
 material.
 
-Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. v0 now sets both to `6`; older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
+Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. The v5 contract requires both to be `7` for Agent Panel terminal coordination; R64 performs that code change from the currently implemented `6`. Once R64 lands, older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
 
-Terminal PTY frames travel over the reliable ordered `.terminal` stream as opaque `pty.v1` protobuf envelopes from AgentDesk's `terminal/pty-client-swift` and `terminal/pty-manager` pair (moved in-tree under ADR-0053):
+Terminal PTY frames travel over the reliable ordered `.terminal` stream as opaque PTY protobuf envelopes from AgentDesk's `terminal/pty-client-swift` and `terminal/pty-manager` pair (moved in-tree under ADR-0053). The checked-in Rust and Swift clients both enforce inner protocol v3. The v5 target is PTY inner protocol v4; R59 replaces the create/attach shape and bumps both implementations in lockstep, with no protocol-v3 compatibility path:
 
 ```
-Terminal stream body = UInt32BE ptyFrameLength || pty.v1.Envelope
+Terminal stream body = UInt32BE ptyFrameLength || Envelope {
+  protocol_version: 4,
+  session_name,
+  payload: CreateOrAttach {
+    createIfMissing,
+    launch: ShellLaunch | CommandLaunch { executable, arguments: [String] },
+    lifetime: persistent | leased
+  }
+}
+
+SessionSummary { sessionName, lifetime, clients, ... }
 ```
 
-The outer `QuicStreamFrame` identifies the stream role. The inner PTY frame is owned by the Rust manager and Swift PTY client; AgentDesk's host bridge does not reinterpret create/attach, input, output, resize, detach, kill, close-client, subscribe, or session-list messages. For v0 the trust boundary is the authenticated paired device, so the iOS terminal has the same PTY manager authority as any other trusted multiplexer client. The iOS terminal drawer exposes that authority directly for listing sessions, joining an existing session as a new client, closing one client by manager-assigned client id, or killing a whole session.
+The generated protobuf types currently retain the `pty.v1` package prefix; compatibility is governed
+by `Envelope.protocol_version`, which is `3` before R59 and must be `4` after it. The package/type name
+does not make the current inner protocol v1.
+
+The outer `QuicStreamFrame` identifies the stream role. The inner PTY frame is owned by the Rust manager and Swift PTY client; AgentDesk's host bridge does not reinterpret create/attach, input, output, resize, detach, kill, close-client, subscribe, or session-list messages. `ShellLaunch` preserves the existing login-interactive shell behavior. `CommandLaunch` executes the supplied executable with its argument array directly through Rust `CommandBuilder`; argument boundaries survive protobuf decoding and no shell command string is assembled by `pty-manager`. Every caller must choose a lifetime explicitly.
+
+Persistent full-screen/workspace terminals retain the authenticated paired client's existing multiplexer authority: they can list sessions, join with `createIfMissing=false`, detach a manager-assigned client id, or kill a session. Leased Agent Panel terminals use a narrower host-coordinated creation path. The iOS panel receives a deterministic PTY name from the host, may only attach to it with `createIfMissing=false`, and sends explicit close through the coordinator. This keeps executable construction, creation, and lifecycle policy out of the webview and iOS client even though terminal bytes still use the opaque `.terminal` bridge.
+
+Agent Panel terminal coordination rides the authenticated input/Agent push contract and therefore requires AgentDesk session protocol v7:
+
+```
+AgentResumeTerminalContext { projectPath, source: "claude" | "codex", harnessSessionId }
+
+AgentTerminalOpen        { t: "agent-terminal-open", requestId, context }
+AgentTerminalReady       { t: "agent-terminal-ready", requestId, context, ptySessionName }
+AgentTerminalAttachedAck { t: "agent-terminal-attached", requestId, context, ptySessionName }
+AgentTerminalClose       { t: "agent-terminal-close", requestId, context, ptySessionName?, reason }
+AgentTerminalEnded       { t: "agent-terminal-ended", requestId, context, ptySessionName, exitStatus? }
+AgentTerminalError       { t: "agent-terminal-error", requestId, context, ptySessionName?,
+                           code: "invalidContext" | "activeElsewhere" | "launchFailed" |
+                                 "handoffTimedOut" | "sessionEnded" }
+```
+
+The iOS client sends open, attached acknowledgement, and close on the existing authenticated input lane; ready, ended, and typed errors return through the owned Agent push path. Request ids and full normalized context fence stale responses after back navigation or session replacement. macOS uses the same message semantics against the coordinator in-process rather than routing its local panel through QUIC.
 
 Workspace files travel over the reliable ordered `.files` stream. Every request carries a correlation id and workspace id. Paths are normalized relative paths, never absolute host paths.
 
@@ -356,13 +427,24 @@ DiagnosticsError    { requestId, reason }                             // t: "dia
 
 ## Lifecycle
 
+### QUIC session lifecycle
+
 - Host runs only when the user opens it. No auto-launch on boot.
 - Space Agent appears while the host runs and captures thumbnails only through owner-scoped demand.
 - Session states are `connecting`, `connected`, `suspended`, `resuming`, and `ended`.
 - QUIC `.waiting` and short path loss map to `suspended`, not `ended`. The host keeps session state and frame/input plumbing suspended for a 20 second grace window.
 - A foreground client can resume inside the grace window by re-dialing QUIC with the public `SessionReady.resumeId`, answering a one-time resume challenge with an HMAC proof using the memory-only `SessionReady.resumeSecret`; the host reattaches lanes to the same session id and rotates resume material.
-- Grace expiry, background policy, revoke, auth failure, user forget, or terminal connection close ends the session.
+- QUIC resume-grace expiry, background policy, revoke, auth failure, or user forget ends the AgentDesk session. A `.terminal` lane or renderer closing does not by itself end the authenticated AgentDesk session.
 - Client suspends on background; the QUIC session closes within one second while Keychain token and host public key persist. Foreground starts a fresh connect or grace-window resume using stored pairing.
+
+### PTY session lifecycle
+
+- PTY lifetime is independent of the QUIC session state. Persistent workspace PTYs survive client detach and remain manager-owned until explicit kill, natural exit, or manager replacement.
+- Agent Panel resume PTYs are leased. The manager schedules the configured final-lease grace only when detach, close-client, or socket loss removes the final attached client. The production target is 30 seconds through host central config; tests inject shorter values.
+- Reattach during PTY grace cancels reaping and preserves the PTY/PID. With Mac and iPhone attached, the first detach cannot schedule a reap; only loss of the final lease can do so.
+- Explicit terminal close, panel back/context change, session replacement, iOS switch away from Agent or teardown, macOS Agents-window hide or close, revoke, and app termination go through the host coordinator and kill the leased PTY immediately. They do not wait for grace.
+- If the final lease is still absent when grace expires, `pty-manager` kills the harness and removes its PTY, clients, and registry state. Natural harness exit, explicit kill, and manager shutdown cancel pending reap work and leave no leased child.
+- An unexpected renderer failure, terminal socket loss, transport loss, or iOS suspension detaches rather than issuing explicit kill, preserving the bounded reattach path.
 
 ## Risks Tracked Outside This Doc
 

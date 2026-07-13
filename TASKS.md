@@ -47,7 +47,7 @@ resume.
 
 | Lane | Owned surface | R-tasks | Starts after | Implementor task | Reviewer task | State |
 | --- | --- | --- | --- | --- | --- | --- |
-| L0 Decision | ADR/SPEC compatibility contract | R58 | none | not opened | not opened | queued |
+| L0 Decision | ADR/SPEC compatibility contract | D58 | none | `019f59b0-7e57-72c3-b81c-30f862200e61` | `019f59b0-823e-70f3-a4d2-50fb7bfb63aa` | complete |
 | L1 PTY core | PTY protocol, Rust manager, Swift bindings | R59-R61 | L0 | not opened | not opened | queued |
 | L2 Host control | resume identity, coordinator, AgentDesk wire | R62-R64 | L1 | not opened | not opened | queued |
 | L3 Panel intent | ATC webview and native bridge intent | R65 | L2 | not opened | not opened | queued |
@@ -84,11 +84,11 @@ replacement task ID and handoff state are written into this table before work co
 No behavior code lands until the lifecycle owner, protocol boundary, and compatibility consequence are
 recorded.
 
-- [ ] R58. Add and accept ADR-0056 for the bottom Agent Panel terminal. Record: native SwiftTerm
+- [x] D58. Add and accept ADR-0056 for the bottom Agent Panel terminal. Record: native SwiftTerm
   composition; deterministic per-harness-session identity; direct argv launch; `persistent` versus
   `leased` PTY lifetime; final-lease reaping; explicit-close semantics; active-elsewhere rejection;
   host-owned command construction; and the macOS/iOS ownership split. Update `SPEC.md` with the new
-  Agent Panel terminal flow, PTY v2 inner protocol, and AgentDesk session protocol v7 requirement.
+  Agent Panel terminal flow, PTY v4 inner protocol, and AgentDesk session protocol v7 requirement.
   Test/verification: ADR index is consistent, accepted ADRs remain untouched, and `rg` finds no
   conflicting description that says all PTYs survive detach.
 
@@ -99,8 +99,8 @@ This phase changes the in-tree PTY pair in lockstep. It does not add an Agent Pa
 - [ ] R59. Replace the v1 `CreateOrAttach.shell` shape in `terminal/pty-manager/proto/pty.proto` with
   an explicit launch oneof (`ShellLaunch` or `CommandLaunch { executable, arguments }`) plus
   `SessionLifetime { persistent, leased }`; include lifetime in session summaries. Bump the inner PTY
-  protocol to v2 and regenerate both Rust and Swift bindings. Update every existing caller to request
-  `persistent + ShellLaunch` explicitly; no v1 compatibility shim. Tests: Rust protocol round trips
+  protocol from v3 to v4 and regenerate both Rust and Swift bindings. Update every existing caller to request
+  `persistent + ShellLaunch` explicitly; no v3 compatibility shim. Tests: Rust protocol round trips
   and `PtyClientSwiftTests` preserve executable/argument boundaries, lifetime, and current shell
   creation semantics.
 - [ ] R60. Refactor `PtySession::spawn` to execute either the existing login-interactive shell or a
@@ -236,4 +236,6 @@ human checkpoint.
 
 ## Promotion log
 
-No v5 tasks promoted yet.
+| ID | Date | Status | Summary |
+| --- | --- | --- | --- |
+| D58 | 2026-07-13 | landed | ADR-0056 and `SPEC.md` lock leased Agent Panel terminals and the PTY v4 and AgentDesk v7 targets. |
