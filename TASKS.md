@@ -48,7 +48,7 @@ resume.
 | Lane | Owned surface | R-tasks | Starts after | Implementor task | Reviewer task | State |
 | --- | --- | --- | --- | --- | --- | --- |
 | L0 Decision | ADR/SPEC compatibility contract | D58 | none | `019f59b0-7e57-72c3-b81c-30f862200e61` | `019f59b0-823e-70f3-a4d2-50fb7bfb63aa` | complete |
-| L1 PTY core | PTY protocol, Rust manager, Swift bindings | D59, R60-R61 | L0 | `019f59be-2304-7a73-bbe1-cef19e64338e` | `019f59be-1efa-7b41-98d2-420985d6eb0f` | active |
+| L1 PTY core | PTY protocol, Rust manager, Swift bindings | D59-D60, R61 | L0 | `019f59be-2304-7a73-bbe1-cef19e64338e` | `019f59be-1efa-7b41-98d2-420985d6eb0f` | active |
 | L2 Host control | resume identity, coordinator, AgentDesk wire | R62-R64 | L1 | not opened | not opened | queued |
 | L3 Panel intent | ATC webview and native bridge intent | R65 | L2 | not opened | not opened | queued |
 | L4 Terminal content | shared SwiftTerm content and existing consumers | R66 | L1 | not opened | not opened | queued |
@@ -103,7 +103,7 @@ This phase changes the in-tree PTY pair in lockstep. It does not add an Agent Pa
   `persistent + ShellLaunch` explicitly; no v3 compatibility shim. Tests: Rust protocol round trips
   and `PtyClientSwiftTests` preserve executable/argument boundaries, lifetime, and current shell
   creation semantics.
-- [ ] R60. Refactor `PtySession::spawn` to execute either the existing login-interactive shell or a
+- [x] D60. Refactor `PtySession::spawn` to execute either the existing login-interactive shell or a
   direct executable with argv. Command arguments remain an array from request to `CommandBuilder`;
   no joined command string, shell quoting, or terminal-input injection. Preserve TERM/COLORTERM/
   TERM_PROGRAM/PTY_SESSION and PTY sizing. Tests: a fixture executable receives exact arguments
@@ -240,3 +240,4 @@ human checkpoint.
 | --- | --- | --- | --- |
 | D58 | 2026-07-13 | landed | ADR-0056 and `SPEC.md` lock leased Agent Panel terminals and the PTY v4 and AgentDesk v7 targets. |
 | D59 | 2026-07-13 | landed | PTY v4 adds explicit shell/command launch and persistent/leased lifetime across Rust and Swift callers. |
+| D60 | 2026-07-13 | landed | Direct PTY command launch preserves argv boundaries and orders attachment before short-lived process output and exit. |

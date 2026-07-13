@@ -191,6 +191,7 @@ async fn handle_client(
                 match create_or_attach(
                     &state,
                     &events,
+                    request_id,
                     client_id,
                     &client_tx,
                     &close_tx,
@@ -199,14 +200,7 @@ async fn handle_client(
                 )
                 .await
                 {
-                    Ok(attached) => {
-                        let _ = client_tx.send(protocol::envelope(
-                            request_id,
-                            session_name,
-                            Payload::Attached(attached),
-                        ));
-                        broadcast_session_snapshot(&state).await;
-                    }
+                    Ok(()) => broadcast_session_snapshot(&state).await,
                     Err(error) => {
                         let _ = client_tx.send(error_envelope(
                             request_id,

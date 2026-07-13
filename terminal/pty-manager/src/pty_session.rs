@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 
@@ -12,6 +12,18 @@ use crate::error::{Result, TerminalError};
 pub enum PtyEvent {
     Output { session_name: String, data: Vec<u8> },
     Exited { session_name: String, status: i32 },
+}
+
+pub enum PtyLaunch {
+    Shell {
+        cwd: PathBuf,
+        shell: String,
+    },
+    Command {
+        cwd: PathBuf,
+        executable: String,
+        arguments: Vec<String>,
+    },
 }
 
 pub struct PtySession {
@@ -27,15 +39,28 @@ pub struct PtySession {
 impl PtySession {
     pub fn spawn(
         name: impl Into<String>,
-        cwd: impl AsRef<Path>,
-        shell: impl Into<String>,
+        launch: PtyLaunch,
         columns: u16,
         rows: u16,
         events: UnboundedSender<PtyEvent>,
     ) -> Result<Self> {
         let name = name.into();
-        let cwd = cwd.as_ref().to_path_buf();
-        let shell = shell.into();
+        let (cwd, shell, mut command) = match launch {
+            PtyLaunch::Shell { cwd, shell } => {
+                let mut command = CommandBuilder::new_default_prog();
+                command.env("SHELL", &shell);
+                (cwd, shell, command)
+            }
+            PtyLaunch::Command {
+                cwd,
+                executable,
+                arguments,
+            } => {
+                let mut command = CommandBuilder::new(&executable);
+                command.args(arguments);
+                (cwd, executable, command)
+            }
+        };
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(PtySize {
@@ -46,9 +71,7 @@ impl PtySession {
             })
             .map_err(|error| TerminalError::Pty(error.to_string()))?;
 
-        let mut command = CommandBuilder::new_default_prog();
         command.cwd(&cwd);
-        command.env("SHELL", &shell);
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
         command.env("TERM_PROGRAM", "agentdesk");

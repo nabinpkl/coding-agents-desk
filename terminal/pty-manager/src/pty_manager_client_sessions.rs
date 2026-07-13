@@ -9,7 +9,7 @@ use crate::protocol::{
     self, create_or_attach, validate_session_name, Attached, ClientDetached, ClientSummary,
     CreateOrAttach, Envelope, Payload, SessionLifetime, SessionSnapshot,
 };
-use crate::pty_session::{PtyEvent, PtySession};
+use crate::pty_session::{PtyEvent, PtyLaunch, PtySession};
 use crate::session_registry::SessionRegistry;
 
 pub(crate) struct PtyManagerState {
@@ -66,12 +66,13 @@ impl PtyManagerState {
 pub(crate) async fn create_or_attach(
     state: &Arc<Mutex<PtyManagerState>>,
     events: &mpsc::UnboundedSender<PtyEvent>,
+    request_id: u64,
     client_id: u64,
     client_tx: &mpsc::UnboundedSender<Envelope>,
     close_tx: &mpsc::UnboundedSender<()>,
     session_name: &str,
     request: CreateOrAttach,
-) -> Result<Attached> {
+) -> Result<()> {
     validate_session_name(session_name)?;
     let lifetime = explicit_lifetime(request.lifetime)?;
     if request.launch.is_none() {
@@ -92,19 +93,27 @@ pub(crate) async fn create_or_attach(
         if !request.create_if_missing {
             return Err(TerminalError::SessionNotFound(session_name.to_owned()));
         }
-        let create_or_attach::Launch::ShellLaunch(launch) =
-            request.launch.as_ref().expect("launch checked above")
-        else {
-            return Err(TerminalError::Protocol(
-                "command launch creation is not implemented".to_owned(),
-            ));
+        let launch = match request.launch.as_ref().expect("launch checked above") {
+            create_or_attach::Launch::ShellLaunch(launch) => PtyLaunch::Shell {
+                cwd: defaulted_cwd(&launch.cwd),
+                shell: defaulted_shell(&launch.shell),
+            },
+            create_or_attach::Launch::CommandLaunch(launch) => {
+                if launch.executable.is_empty() {
+                    return Err(TerminalError::Protocol(
+                        "command executable must not be empty".to_owned(),
+                    ));
+                }
+                PtyLaunch::Command {
+                    cwd: defaulted_cwd(&launch.cwd),
+                    executable: launch.executable.clone(),
+                    arguments: launch.arguments.clone(),
+                }
+            }
         };
-        let cwd = defaulted_cwd(&launch.cwd);
-        let shell = defaulted_shell(&launch.shell);
         let pty = PtySession::spawn(
             session_name,
-            cwd,
-            shell,
+            launch,
             request.columns.max(1).min(u16::MAX as u32) as u16,
             request.rows.max(1).min(u16::MAX as u32) as u16,
             events.clone(),
@@ -156,8 +165,13 @@ pub(crate) async fn create_or_attach(
         .entry(client_id)
         .or_default()
         .insert(session_name.to_owned());
+    let _ = client_tx.send(protocol::envelope(
+        request_id,
+        session_name,
+        Payload::Attached(attached),
+    ));
 
-    Ok(attached)
+    Ok(())
 }
 
 fn explicit_lifetime(value: i32) -> Result<SessionLifetime> {
