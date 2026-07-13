@@ -38,13 +38,54 @@ Before doing project work, read `PRD.md` and `SPEC.md` once. They are short on p
 - **Anything inferable from reading the code** does not need a doc. Skip the ADR.
 
 # How work is done
-- For major features
-- Work runs through Codex native threads, not a generic subagent flow. The four standing roles are **Co-ordinator**, **Implementor**, **Reviewer**, and **Small Tasks Doer**.
-- **Co-ordinator** is the main control thread. It owns the live plan, keeps `TASKS.md` current, breaks large work into concrete R-tasks, opens or steers other Codex threads, integrates results, resolves conflicts, verifies the merged state, and decides when a task cluster is ready to commit and push.
-- **Implementor** threads take one bounded R-task or sub-task. They modify code and tests inside that scope, report the exact files changed, and hand back verification results and remaining risks.
-- **Reviewer** threads are read-only unless explicitly asked to patch. They review diffs or codepaths for correctness, regressions, security, and missing tests, with findings first and file/line references.
-- **Intern/Small Tasks Doer** handles narrow, low-risk chores that do not need decomposition: spelling fixes, small doc updates, targeted test additions, mechanical renames, and one-file bug fixes. It should not absorb broad feature work or architecture changes.
-- Huge feature work goes through `TASKS.md` and the Codex thread roles above. The Co-ordinator decomposes the plan, delegates bounded implementation and review work to separate threads when parallelism or isolation helps, integrates the results, updates `TASKS.md`, verifies with `just check`, then commits and pushes each green task cluster.
+
+Major features run through Codex native threads, not a generic subagent flow. The four standing roles
+are **Co-ordinator**, **Implementor**, **Reviewer**, and **Small Tasks Doer**.
+
+- **Co-ordinator** is the main control thread and the only integration owner. It owns the live plan,
+  keeps `TASKS.md` current, assigns bounded work, relays review findings, verifies the integrated tree,
+  and decides when a task cluster is ready to commit and push.
+- **Implementor** takes one bounded R-task or sub-task, modifies code and tests inside that scope, runs
+  the task's stated gates, self-reviews the complete diff, and reports exact files changed, verification
+  results, and remaining risks. It does not promote the ledger, commit, or push.
+- **Reviewer** is independent and read-only. It reviews the task requirement and current complete diff
+  for correctness, regressions, security, lifecycle cleanup, and missing tests. Findings lead the
+  response, ordered by severity, with file and line references. It does not patch its own findings.
+- **Small Tasks Doer** handles narrow, low-risk chores that do not need decomposition: spelling fixes,
+  small doc updates, targeted test additions, mechanical renames, and one-file bug fixes. It does not
+  absorb broad feature work or architecture changes.
+
+## Implementor-reviewer loop
+
+Every R-task that changes behavior uses this loop. The Co-ordinator mediates all handoffs so task scope,
+review disposition, and repository state have one owner.
+
+1. **Brief.** The Co-ordinator gives the Implementor one R-task or named sub-task with the exact
+   acceptance criteria, allowed surface, relevant paths, required tests, and known unrelated dirty
+   files. The brief names dependencies that must already be green and states that scope changes return
+   to the Co-ordinator rather than being assumed.
+2. **Implement.** The Implementor reads the current files, writes tests and code, runs the task gates,
+   then performs the final self-review below. It hands back the commit-ready diff without committing,
+   including exact commands and outcomes. A failing or unrun gate is reported plainly.
+3. **Review.** The Co-ordinator sends the same task contract and current diff to a separate Reviewer.
+   The Reviewer reads the implementation in repository context, not only the patch. No findings means
+   it says so explicitly and records residual test gaps; approval is never inferred from silence.
+4. **Correct.** The Co-ordinator sends every actionable finding and open question back to the same
+   Implementor. The Implementor either fixes it and reruns affected gates, or returns a concrete
+   technical disagreement with evidence. It does not silently dismiss or defer findings.
+5. **Re-review.** The Reviewer checks the corrections and the complete task diff again. Steps 4-5
+   repeat until no actionable findings remain. The Co-ordinator resolves disagreements; a disputed
+   correctness, security, data-loss, or lifecycle finding blocks promotion until resolved or escalated
+   to the human.
+6. **Integrate.** The Co-ordinator checks the actual worktree, runs the cluster-level gates from
+   `TASKS.md` (including `just check`), performs its own final integration review, and only then flips
+   the task from R to D. The task code, tests, and ledger transition land in the same commit and are
+   pushed immediately under the repo's commit policy.
+
+Do not run Implementor and Reviewer edits concurrently on the same task. Parallelism is for independent
+R-tasks with non-overlapping ownership. Reuse the same Implementor for correction rounds and retain the
+same Reviewer for re-review; replace a thread only when it is unavailable or its context is demonstrably
+stale, and give the replacement the complete task contract and current diff.
 
 ## Final self-review before handoff
 
