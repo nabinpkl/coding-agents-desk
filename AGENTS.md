@@ -43,49 +43,65 @@ Major features run through Codex native threads, not a generic subagent flow. Th
 are **Co-ordinator**, **Implementor**, **Reviewer**, and **Small Tasks Doer**.
 
 - **Co-ordinator** is the main control thread and the only integration owner. It owns the live plan,
-  keeps `TASKS.md` current, assigns bounded work, relays review findings, verifies the integrated tree,
-  and decides when a task cluster is ready to commit and push.
-- **Implementor** takes one bounded R-task or sub-task, modifies code and tests inside that scope, runs
-  the task's stated gates, self-reviews the complete diff, and reports exact files changed, verification
-  results, and remaining risks. It does not promote the ledger, commit, or push.
-- **Reviewer** is independent and read-only. It reviews the task requirement and current complete diff
+  keeps `TASKS.md` current, partitions each coherent phase into ownership lanes, assigns one standing
+  Implementor-Reviewer pair to each lane, coordinates contracts and ordering between lanes, verifies
+  the integrated tree, and decides when a task cluster is ready to commit and push.
+- **Implementor** owns one coherent phase or lane for its duration. It takes that lane's R-tasks in
+  sequence, modifies code and tests inside the assigned ownership boundary, runs the stated gates,
+  self-reviews the complete diff, and reports exact files changed, verification results, and remaining
+  risks. It does not promote the ledger, commit, or push.
+- **Reviewer** is the standing independent, read-only reviewer for one phase or lane. It retains the
+  lane's context across task reviews and correction rounds, and reviews requirements and complete diffs
   for correctness, regressions, security, lifecycle cleanup, and missing tests. Findings lead the
   response, ordered by severity, with file and line references. It does not patch its own findings.
 - **Small Tasks Doer** handles narrow, low-risk chores that do not need decomposition: spelling fixes,
   small doc updates, targeted test additions, mechanical renames, and one-file bug fixes. It does not
   absorb broad feature work or architecture changes.
 
-## Implementor-reviewer loop
+## Phase-lane implementor-reviewer loop
 
-Every R-task that changes behavior uses this loop. The Co-ordinator mediates all handoffs so task scope,
-review disposition, and repository state have one owner.
+Every R-task that changes behavior uses this loop, but thread ownership persists across the coherent
+phase or lane. Do not spawn a fresh Implementor or Reviewer for each R-task. The Co-ordinator mediates
+all handoffs so task scope, review disposition, cross-lane contracts, and repository state have one
+owner.
 
-1. **Brief.** The Co-ordinator gives the Implementor one R-task or named sub-task with the exact
-   acceptance criteria, allowed surface, relevant paths, required tests, and known unrelated dirty
-   files. The brief names dependencies that must already be green and states that scope changes return
-   to the Co-ordinator rather than being assumed.
-2. **Implement.** The Implementor reads the current files, writes tests and code, runs the task gates,
+1. **Partition.** Before implementation, the Co-ordinator divides the phase only where work has
+   independent ownership boundaries and can progress without concurrent edits to the same files or
+   contracts. It records each lane's ordered R-tasks, dependencies, owned surface, and standing
+   Implementor-Reviewer pair in the live plan. Sequential tasks in the same subsystem stay in one lane
+   so their pair retains context.
+2. **Brief.** The Co-ordinator gives the lane's existing Implementor its next R-task or named sub-task
+   with the exact acceptance criteria, allowed surface, relevant paths, required tests, and known
+   unrelated dirty files. The brief names dependencies that must already be green and states that scope
+   changes return to the Co-ordinator rather than being assumed.
+3. **Implement.** The Implementor reads the current files, writes tests and code, runs the task gates,
    then performs the final self-review below. It hands back the commit-ready diff without committing,
    including exact commands and outcomes. A failing or unrun gate is reported plainly.
-3. **Review.** The Co-ordinator sends the same task contract and current diff to a separate Reviewer.
-   The Reviewer reads the implementation in repository context, not only the patch. No findings means
-   it says so explicitly and records residual test gaps; approval is never inferred from silence.
-4. **Correct.** The Co-ordinator sends every actionable finding and open question back to the same
+4. **Review.** The Co-ordinator sends the same task contract and current diff to the lane's standing
+   Reviewer. The Reviewer reads the implementation in repository and accumulated lane context, not only
+   the patch. No findings means it says so explicitly and records residual test gaps; approval is never
+   inferred from silence.
+5. **Correct.** The Co-ordinator sends every actionable finding and open question back to the same
    Implementor. The Implementor either fixes it and reruns affected gates, or returns a concrete
    technical disagreement with evidence. It does not silently dismiss or defer findings.
-5. **Re-review.** The Reviewer checks the corrections and the complete task diff again. Steps 4-5
+6. **Re-review.** The same Reviewer checks the corrections and the complete task diff again. Steps 5-6
    repeat until no actionable findings remain. The Co-ordinator resolves disagreements; a disputed
    correctness, security, data-loss, or lifecycle finding blocks promotion until resolved or escalated
    to the human.
-6. **Integrate.** The Co-ordinator checks the actual worktree, runs the cluster-level gates from
+7. **Integrate the task.** The Co-ordinator checks the actual worktree, runs the task-level gates from
    `TASKS.md` (including `just check`), performs its own final integration review, and only then flips
    the task from R to D. The task code, tests, and ledger transition land in the same commit and are
    pushed immediately under the repo's commit policy.
+8. **Continue or close the lane.** The same pair receives the lane's next R-task without re-onboarding.
+   After its final task, the Reviewer performs one aggregate phase/lane review against the landed tree,
+   and the Co-ordinator runs the phase-level gates and cross-lane integration checks before releasing
+   the pair.
 
-Do not run Implementor and Reviewer edits concurrently on the same task. Parallelism is for independent
-R-tasks with non-overlapping ownership. Reuse the same Implementor for correction rounds and retain the
-same Reviewer for re-review; replace a thread only when it is unavailable or its context is demonstrably
-stale, and give the replacement the complete task contract and current diff.
+Parallel lanes are created and scheduled only by the Co-ordinator. Contract-producing lanes land before
+dependent lanes consume them; the Co-ordinator relays contract changes and blocks stale consumers until
+they refresh. Do not run Implementor and Reviewer edits concurrently on the same lane. Replace a standing
+thread only when it is unavailable, near its context limit, or demonstrably stale, and give the
+replacement the full lane contract, landed task history, current diff, review disposition, and next task.
 
 ## Final self-review before handoff
 
