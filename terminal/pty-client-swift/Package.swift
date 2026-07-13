@@ -27,6 +27,7 @@ let package = Package(
         .target(
             name: "PtyTerminalSwiftTerm",
             dependencies: [
+                "PtyTerminalSession",
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
             ]
         ),
@@ -37,7 +38,12 @@ let package = Package(
         ),
         .testTarget(
             name: "PtyTerminalSwiftTermTests",
-            dependencies: ["PtyTerminalSwiftTerm", "SwiftTerm"]
+            dependencies: [
+                "PtyClientSwift",
+                "PtyTerminalSession",
+                "PtyTerminalSwiftTerm",
+                "SwiftTerm",
+            ]
         ),
     ]
 )

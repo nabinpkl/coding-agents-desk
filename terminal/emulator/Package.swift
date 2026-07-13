@@ -15,15 +15,12 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../pty-client-swift"),
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.13.0"),
     ],
     targets: [
         .target(
             name: "TerminalEmulator",
             dependencies: [
-                "SwiftTerm",
                 .product(name: "PtyClientSwift", package: "pty-client-swift"),
-                .product(name: "PtyTerminalSession", package: "pty-client-swift"),
                 .product(name: "PtyTerminalSwiftTerm", package: "pty-client-swift"),
             ],
             linkerSettings: [

@@ -56,7 +56,7 @@ append the replacement ID, and write the exact handoff checkpoint before impleme
 | L1 PTY core | PTY protocol, Rust manager, Swift bindings | D59-D61 | L0 | `019f59be-2304-7a73-bbe1-cef19e64338e` | `019f59be-1efa-7b41-98d2-420985d6eb0f` | complete | Landed through `4a4495a`; standing pair closed. |
 | L2 Host control | resume identity, coordinator, AgentDesk wire | D62, R63-R64 | L1 | `019f59f0-7854-7f23-9dff-80f7adb409d7` | `019f59f0-7bf4-7c72-9ceb-5b63143d7b2a` | active | D62 passed Implementor self-review, standing Reviewer approval, and the Co-ordinator `just check` gate (427 host tests). Reuse this pair for R63 next. |
 | L3 Panel intent | ATC webview and native bridge intent | R65 | L2 | not opened | not opened | queued | Co-ordinator opens one standing pair only after D64 lands. That pair owns R65 through approval and landing. |
-| L4 Terminal content | shared SwiftTerm content and existing consumers | R66 | L1 | `019f59f0-7f6a-7191-a273-59b2ee115db5` | `019f59f0-8367-7990-ba70-41dfe70f7fb0` | active | R66 implementation and tests are in the shared worktree; Reviewer baseline is complete. Implementor owns lifecycle teardown, self-review, and test handoff, then Reviewer reviews the complete R66 diff. |
+| L4 Terminal content | shared SwiftTerm content and existing consumers | D66 | L1 | `019f59f0-7f6a-7191-a273-59b2ee115db5` | `019f59f0-8367-7990-ba70-41dfe70f7fb0` | complete | D66 passed Implementor self-review, standing Reviewer approval, 32 package tests, `just check` (427 host tests), and `just sim-test` (325 client tests). Standing pair may close after landing. |
 | L5 macOS | Agent window layout and macOS lifecycle | R67-R68 | L2, L3, L4 | not opened | not opened | queued | Co-ordinator opens one pair after D64-D66 land. The same pair owns R67 and R68; do not split layout from lifecycle. |
 | L6 iOS | Agent surface layout, transport, and iOS lifecycle | R69-R70 | L2, L3, L4 | not opened | not opened | queued | Co-ordinator opens one pair after D64-D66 land. The same pair owns R69 and R70; do not split layout from lifecycle. |
 | L7 Verification | integration smoke, simulator, macOS AX, orphan audit | R71-R73 | L5, L6 | not opened | not opened | queued | Co-ordinator opens one pair after D70 lands. The same pair owns automated integration and both preapproved live drives so evidence and process-lifecycle observations stay in one context. |
@@ -185,7 +185,7 @@ The canonical web UI is authored in the ATC sibling and built into AgentPanel re
 
 ### L4: Shared terminal content
 
-- [ ] R66. Extract the reusable SwiftTerm content from the existing iOS `TerminalPaneView` and macOS
+- [x] D66. Extract the reusable SwiftTerm content from the existing iOS `TerminalPaneView` and macOS
   `SwiftTermPtyManagerTerminalWindow` into the existing `PtyTerminalSwiftTerm` product. It owns
   TerminalView input delegation, paste/bracketed-paste, output feeding, focus, PTY driver, and resize;
   platform containers supply chrome and constraints. Rewire the current full-screen iOS Terminal and
@@ -267,3 +267,4 @@ human checkpoint.
 | D60 | 2026-07-13 | landed | Direct PTY command launch preserves argv boundaries and orders attachment before short-lived process output and exit. |
 | D61 | 2026-07-13 | landed | Generation-safe final-lease reaping covers detach, socket loss, reconnect, explicit cleanup, and manager shutdown. |
 | D62 | 2026-07-13 | landed | Canonical harness identity and host-owned positional resume argv reject path escapes and shell interpolation. |
+| D66 | 2026-07-13 | landed | Shared SwiftTerm content now owns input, rendering, resize, and idempotent detach while both existing platform containers retain lifecycle policy. |

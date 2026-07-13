@@ -1,9 +1,7 @@
 import AppKit
 import Foundation
 import PtyClientSwift
-import PtyTerminalSession
 import PtyTerminalSwiftTerm
-import SwiftTerm
 import os
 
 public enum SwiftTermPtyManagerTerminalSpawnError: Error, Equatable {
@@ -87,20 +85,19 @@ public final class SwiftTermPtyManagerTerminalSpawn: TerminalEmulatorSpawn {
     }
 }
 
-final class SwiftTermPtyManagerTerminalWindow: NSObject, TerminalEmulatorWindow, NSWindowDelegate, TerminalViewDelegate, PtyTerminalRenderer {
-    private static let defaultFontSize: CGFloat = 14
-
+final class SwiftTermPtyManagerTerminalWindow: NSObject,
+    TerminalEmulatorWindow,
+    NSWindowDelegate,
+    PtyTerminalSwiftTermContentViewDelegate
+{
     private let window: NSWindow
-    private let terminalView: TerminalView
-    private let terminalStyle: PtyTerminalViewStyle
+    private let terminalContent: PtyTerminalSwiftTermContentView
     private let cwd: URL
     private let logger = Logger(subsystem: "com.example.agentdesk.agent-workspace-ide", category: "terminal")
-    private var sessionDriver: PtyTerminalSessionDriver?
-    private var terminalFontSize = defaultFontSize
     private var closed = false
 
-    var columns: Int { terminalView.getTerminal().cols }
-    var rows: Int { terminalView.getTerminal().rows }
+    var columns: Int { terminalContent.columns }
+    var rows: Int { terminalContent.rows }
 
     var isOpen: Bool { !closed }
 
@@ -117,17 +114,8 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject, TerminalEmulatorWindow,
         )
     ) {
         self.cwd = cwd
-        self.terminalStyle = terminalStyle
-        terminalView = PtyManagerTerminalView(
-            frame: CGRect(origin: .zero, size: frame.size),
-            font: PtyTerminalViewStyle.terminalFont(pointSize: Self.defaultFontSize)
-        )
-        terminalView.autoresizingMask = [.width, .height]
-        do {
-            try terminalStyle.apply(to: terminalView)
-        } catch {
-            terminalView.feed(text: "\r\n[terminal renderer unavailable: \(error)]\r\n")
-        }
+        terminalContent = PtyTerminalSwiftTermContentView(style: terminalStyle)
+        terminalContent.autoresizingMask = [.width, .height]
 
         window = NSWindow(
             contentRect: frame,
@@ -143,32 +131,18 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject, TerminalEmulatorWindow,
         window.hidesOnDeactivate = false
         window.level = .normal
         window.minSize = NSSize(width: 480, height: 320)
-        window.contentView = terminalView
+        window.contentView = terminalContent
         super.init()
         window.delegate = self
-        terminalView.terminalDelegate = self
+        terminalContent.delegate = self
+        if let error = terminalContent.rendererSetupError {
+            terminalContent.feedOutput(Data("\r\n[terminal renderer unavailable: \(error)]\r\n".utf8))
+        }
     }
 
     func attach(_ connection: PtySessionConnection) {
         guard !closed else { return }
-        let driver = PtyTerminalSessionDriver(
-            connection: connection,
-            renderer: self
-        ) { [weak self] error in
-            self?.logger.error("pty manager event stream failed: \(String(describing: error), privacy: .public)")
-        }
-        sessionDriver = driver
-        driver.start()
-    }
-
-    func feedOutput(_ data: Data) {
-        guard !closed else { return }
-        terminalView.feed(byteArray: [UInt8](data)[...])
-    }
-
-    func feedStatus(_ text: String) {
-        guard !closed else { return }
-        terminalView.feed(text: text)
+        terminalContent.bind(to: connection)
     }
 
     func place(into frame: CGRect) {
@@ -185,13 +159,13 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject, TerminalEmulatorWindow,
         guard !closed else { return }
         window.setFrame(frame, display: true)
         window.orderFrontRegardless()
-        window.makeFirstResponder(terminalView)
+        terminalContent.focus()
     }
 
     func raise() {
         guard !closed else { return }
         window.orderFrontRegardless()
-        window.makeFirstResponder(terminalView)
+        terminalContent.focus()
     }
 
     func prepareForAssignedDesktop(into frame: CGRect) {
@@ -208,7 +182,7 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject, TerminalEmulatorWindow,
         window.alphaValue = 1
         window.orderFrontRegardless()
         if focus {
-            window.makeFirstResponder(terminalView)
+            terminalContent.focus()
         }
     }
 
@@ -219,21 +193,9 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject, TerminalEmulatorWindow,
         window.close()
     }
 
-    func closeAfterManagerDetach() {
-        guard !closed else { return }
-        closed = true
-        sessionDriver = nil
-        window.alphaValue = 1
-        window.orderOut(nil)
-        window.close()
-    }
-
     func setTerminalFontSize(_ pointSize: CGFloat) {
         guard !closed else { return }
-        terminalFontSize = pointSize
-        terminalView.font = PtyTerminalViewStyle.terminalFont(pointSize: pointSize)
-        terminalView.resize(cols: terminalView.getTerminal().cols, rows: terminalView.getTerminal().rows)
-        terminalView.needsDisplay = true
+        terminalContent.setFontSize(pointSize)
     }
 
     func setWorkspaceLabel(_ workspaceName: String) {
@@ -247,50 +209,48 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject, TerminalEmulatorWindow,
     func focusForAccessibility() {
         guard !closed else { return }
         window.orderFrontRegardless()
-        window.makeFirstResponder(terminalView)
+        terminalContent.focus()
     }
 
     func windowWillClose(_ notification: Notification) {
         _ = markClosed()
     }
 
-    func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-        guard !closed else { return }
-        sessionDriver?.resize(columns: newCols, rows: newRows)
-    }
-
-    func setTerminalTitle(source: TerminalView, title: String) {
+    func ptyTerminalContent(
+        _ content: PtyTerminalSwiftTermContentView,
+        didSetTitle title: String
+    ) {
         guard !title.isEmpty else { return }
         window.title = title
     }
 
-    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
-
-    func send(source: TerminalView, data: ArraySlice<UInt8>) {
+    func ptyTerminalContent(
+        _ content: PtyTerminalSwiftTermContentView,
+        didReceiveStatus text: String
+    ) {
         guard !closed else { return }
-        sessionDriver?.sendInput(Data(data))
+        content.feedOutput(Data(text.utf8))
     }
 
-    func scrolled(source: TerminalView, position: Double) {}
-
-    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
-
-    func clipboardCopy(source: TerminalView, content: Data) {
-        guard let string = String(data: content, encoding: .utf8) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([string as NSString])
+    func ptyTerminalContent(
+        _ content: PtyTerminalSwiftTermContentView,
+        didFail error: Error
+    ) {
+        logger.error("pty manager event stream failed: \(String(describing: error), privacy: .public)")
     }
 
-    func clipboardRead(source: TerminalView) -> Data? {
-        guard let string = NSPasteboard.general.string(forType: .string) else { return nil }
-        return Data(string.utf8)
+    func ptyTerminalContentDidDetachByManager(_ content: PtyTerminalSwiftTermContentView) {
+        guard !closed else { return }
+        closed = true
+        window.alphaValue = 1
+        window.orderOut(nil)
+        window.close()
     }
 
     private func markClosed() -> Bool {
         guard !closed else { return false }
         closed = true
-        sessionDriver?.detach()
-        sessionDriver = nil
+        terminalContent.detach()
         return true
     }
 

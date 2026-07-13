@@ -3,7 +3,6 @@ import os
 import PtyClientSwift
 import PtyTerminalSession
 import PtyTerminalSwiftTerm
-import SwiftTerm
 import UIKit
 
 @available(iOS 26.0, *)
@@ -42,124 +41,23 @@ enum TerminalPaneUserCloseResult: Equatable {
 }
 
 @available(iOS 26.0, *)
-final class AgentDeskTerminalView: TerminalView {
-    private enum WheelDirection {
-        case up
-        case down
-    }
-
-    private enum MouseWheel {
-        static let stepDistance: CGFloat = 18
-
-        static func gridPosition(point: CGPoint, bounds: CGRect, columns: Int, rows: Int) -> (column: Int, row: Int) {
-            let safeColumns = max(columns, 1)
-            let safeRows = max(rows, 1)
-            guard bounds.width > 0, bounds.height > 0 else {
-                return (0, 0)
-            }
-
-            let clampedX = min(max(point.x, 0), bounds.width.nextDown)
-            let clampedY = min(max(point.y, 0), bounds.height.nextDown)
-            let column = min(max(Int((clampedX / bounds.width) * CGFloat(safeColumns)), 0), safeColumns - 1)
-            let row = min(max(Int((clampedY / bounds.height) * CGFloat(safeRows)), 0), safeRows - 1)
-            return (column, row)
-        }
-    }
-
-    private var terminalWheelPanGesture: UIPanGestureRecognizer?
-    private var wheelRemainderY: CGFloat = 0
-
-    override func mouseModeChanged(source: Terminal) {
-        if source.mouseMode != .off {
-            enableTerminalWheelPanGesture()
-        } else {
-            disableTerminalWheelPanGesture()
-        }
-    }
-
-    private func enableTerminalWheelPanGesture() {
-        guard terminalWheelPanGesture == nil else { return }
-        let gesture = UIPanGestureRecognizer(target: self, action: #selector(handleTerminalWheelPan(_:)))
-        gesture.cancelsTouchesInView = true
-        gesture.maximumNumberOfTouches = 1
-        addGestureRecognizer(gesture)
-        panGestureRecognizer.require(toFail: gesture)
-        terminalWheelPanGesture = gesture
-    }
-
-    private func disableTerminalWheelPanGesture() {
-        guard let terminalWheelPanGesture else { return }
-        removeGestureRecognizer(terminalWheelPanGesture)
-        self.terminalWheelPanGesture = nil
-        wheelRemainderY = 0
-    }
-
-    @objc private func handleTerminalWheelPan(_ gesture: UIPanGestureRecognizer) {
-        switch gesture.state {
-        case .began:
-            wheelRemainderY = 0
-            gesture.setTranslation(.zero, in: self)
-        case .changed:
-            let translation = gesture.translation(in: self)
-            gesture.setTranslation(.zero, in: self)
-            wheelRemainderY += translation.y
-            flushWheelEvents(at: gesture.location(in: self))
-        case .cancelled, .ended, .failed:
-            wheelRemainderY = 0
-        default:
-            break
-        }
-    }
-
-    private func flushWheelEvents(at location: CGPoint) {
-        guard abs(wheelRemainderY) >= MouseWheel.stepDistance else { return }
-
-        let terminal = getTerminal()
-        let grid = MouseWheel.gridPosition(
-            point: location,
-            bounds: bounds,
-            columns: terminal.cols,
-            rows: terminal.rows
-        )
-
-        while abs(wheelRemainderY) >= MouseWheel.stepDistance {
-            let direction: WheelDirection = wheelRemainderY > 0 ? .up : .down
-            sendWheelEvent(direction: direction, column: grid.column, row: grid.row)
-            wheelRemainderY += direction == .up ? -MouseWheel.stepDistance : MouseWheel.stepDistance
-        }
-    }
-
-    private func sendWheelEvent(direction: WheelDirection, column: Int, row: Int) {
-        let terminal = getTerminal()
-        let button = direction == .up ? 4 : 5
-        let buttonFlags = terminal.encodeButton(
-            button: button,
-            release: false,
-            shift: false,
-            meta: false,
-            control: false
-        )
-        terminal.sendEvent(buttonFlags: buttonFlags, x: column, y: row)
-    }
-}
-
-@available(iOS 26.0, *)
-final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTerminalRenderer, UIGestureRecognizerDelegate {
+final class TerminalPaneView: UIView, PtyTerminalSwiftTermContentViewDelegate, UIGestureRecognizerDelegate {
     let leaf: TerminalPaneLeaf
 
     weak var delegate: TerminalPaneViewDelegate?
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal-pane")
-    private let terminalView = AgentDeskTerminalView(
-        frame: .zero,
-        font: PtyTerminalViewStyle.terminalFont(pointSize: 14)
+    private let terminalContent = PtyTerminalSwiftTermContentView(
+        style: PtyTerminalViewStyle(
+            fontSize: 14,
+            metalRendering: PtyTerminalMetalRendering.from()
+        )
     )
     private let statusLabel = UILabel()
     private let titleLabel = UILabel()
     private let dismissKeyboardButton = UIButton(type: .system)
     private let closeButton = UIButton(type: .system)
     private var sessionConnection: TerminalPaneSessionConnection?
-    private var sessionDriver: PtyTerminalSessionDriver?
     private weak var transport: QuicSessionClientTransport?
     private var latestClientCount: UInt32?
     private var connectTask: Task<Void, Never>?
@@ -181,11 +79,6 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
 
     deinit {
         connectTask?.cancel()
-        if let sessionDriver {
-            Task { @MainActor in
-                sessionDriver.detach()
-            }
-        }
     }
 
     func connect(using transport: QuicSessionClientTransport?) {
@@ -202,8 +95,8 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
         let sessionName = leaf.sessionName
         let createIfMissing = leaf.createIfMissing
         let clientTitle = "AgentDesk iPhone pane \(leaf.paneID.rawValue)"
-        let columns = UInt32(max(terminalView.getTerminal().cols, 80))
-        let rows = UInt32(max(terminalView.getTerminal().rows, 24))
+        let columns = UInt32(max(terminalContent.columns, 80))
+        let rows = UInt32(max(terminalContent.rows, 24))
         connectTask = Task { [weak self, weak transport] in
             do {
                 guard let transport else { throw PtyClientError.closed }
@@ -247,8 +140,7 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
         connectGeneration += 1
         connectTask?.cancel()
         connectTask = nil
-        sessionDriver?.detach()
-        sessionDriver = nil
+        terminalContent.detach()
         latestClientCount = nil
         transport = nil
         self.sessionConnection = nil
@@ -260,8 +152,7 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
         connectTask = nil
 
         guard let sessionConnection else {
-            sessionDriver?.stop()
-            sessionDriver = nil
+            terminalContent.stop()
             latestClientCount = nil
             setStatus("")
             return .closedBeforeAttach
@@ -289,12 +180,13 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
 
     func setFocused(_ focused: Bool) {
         isFocusedPane = focused
+        terminalContent.isInputEnabled = focused
         layer.borderWidth = focused ? 2 : 1
         layer.borderColor = focused ? UIColor.systemBlue.cgColor : UIColor.separator.cgColor
         if focused {
-            _ = terminalView.becomeFirstResponder()
-        } else if terminalView.isFirstResponder {
-            _ = terminalView.resignFirstResponder()
+            terminalContent.focus()
+        } else {
+            terminalContent.resignFocus()
         }
     }
 
@@ -303,63 +195,35 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
         closeButton.isEnabled = enabled
     }
 
-    func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-        sessionDriver?.resize(columns: newCols, rows: newRows)
-    }
-
-    func setTerminalTitle(source: TerminalView, title: String) {}
-
-    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
-
-    func feedOutput(_ data: Data) {
-        terminalView.feed(byteArray: [UInt8](data)[...])
-    }
-
-    func feedStatus(_ text: String) {
+    func ptyTerminalContent(
+        _ content: PtyTerminalSwiftTermContentView,
+        didReceiveStatus text: String
+    ) {
         let status = text.trimmingCharacters(in: .whitespacesAndNewlines)
         setStatus(status)
     }
 
-    func closeAfterManagerDetach() {
-        sessionDriver?.stop()
-        sessionDriver = nil
+    func ptyTerminalContent(
+        _ content: PtyTerminalSwiftTermContentView,
+        didFail error: Error
+    ) {
+        logger.error("terminal session driver failed: \(String(describing: error), privacy: .public)")
+    }
+
+    func ptyTerminalContentDidDetachByManager(_ content: PtyTerminalSwiftTermContentView) {
         sessionConnection = nil
         latestClientCount = nil
         setStatus("Terminal detached by manager.")
     }
 
-    func send(source: TerminalView, data: ArraySlice<UInt8>) {
-        guard isFocusedPane else { return }
-        sessionDriver?.sendInput(Data(data))
+    func closeAfterManagerDetach() {
+        terminalContent.closeAfterManagerDetach()
     }
-
-    func scrolled(source: TerminalView, position: Double) {}
-
-    func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
-        guard let url = URL(string: link) else { return }
-        UIApplication.shared.open(url)
-    }
-
-    func bell(source: TerminalView) {}
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard let touchedView = touch.view else { return true }
         return !isControlTouch(touchedView)
     }
-
-    func clipboardCopy(source: TerminalView, content: Data) {
-        guard let text = String(data: content, encoding: .utf8) else { return }
-        UIPasteboard.general.string = text
-    }
-
-    func clipboardRead(source: TerminalView) -> Data? {
-        guard let text = UIPasteboard.general.string else { return nil }
-        return Data(text.utf8)
-    }
-
-    func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
-
-    func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
 
     private func configureView() {
         backgroundColor = .black
@@ -399,20 +263,13 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
         header.addSubview(dismissKeyboardButton)
         header.addSubview(closeButton)
 
-        terminalView.translatesAutoresizingMaskIntoConstraints = false
-        do {
-            try PtyTerminalViewStyle(
-                metalRendering: PtyTerminalMetalRendering.from()
-            ).apply(to: terminalView)
-        } catch {
+        terminalContent.translatesAutoresizingMaskIntoConstraints = false
+        terminalContent.delegate = self
+        terminalContent.isInputEnabled = false
+        if let error = terminalContent.rendererSetupError {
             logger.error("terminal renderer setup failed: \(String(describing: error), privacy: .public)")
         }
-        terminalView.backgroundColor = PtyTerminalViewStyle.defaultBackgroundColor
-        terminalView.contentInsetAdjustmentBehavior = .never
-        terminalView.keyboardDismissMode = .interactive
-        terminalView.alwaysBounceVertical = true
-        terminalView.terminalDelegate = self
-        addSubview(terminalView)
+        addSubview(terminalContent)
 
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.textColor = .secondaryLabel
@@ -440,10 +297,10 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
             splitRightButton.trailingAnchor.constraint(equalTo: splitDownButton.leadingAnchor, constant: -8),
             splitRightButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
 
-            terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            terminalView.topAnchor.constraint(equalTo: header.bottomAnchor),
-            terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            terminalContent.leadingAnchor.constraint(equalTo: leadingAnchor),
+            terminalContent.trailingAnchor.constraint(equalTo: trailingAnchor),
+            terminalContent.topAnchor.constraint(equalTo: header.bottomAnchor),
+            terminalContent.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             statusLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
@@ -465,13 +322,9 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
         sessionConnection = connection
         latestClientCount = connection.attachedClientCount
         setStatus("")
-        let driver = PtyTerminalSessionDriver(connection: connection, renderer: self) { [weak self] error in
-            self?.logger.error("terminal session driver failed: \(String(describing: error), privacy: .public)")
-        }
-        sessionDriver = driver
-        driver.start()
+        terminalContent.bind(to: connection)
         if isFocusedPane {
-            _ = terminalView.becomeFirstResponder()
+            terminalContent.focus()
         }
     }
 
@@ -498,8 +351,7 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
 
     private func finishClosedSession() {
         sessionConnection = nil
-        sessionDriver?.stop()
-        sessionDriver = nil
+        terminalContent.stop()
         latestClientCount = nil
         setStatus("")
     }
@@ -532,7 +384,7 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
     }
 
     @objc private func handleDismissKeyboard() {
-        _ = terminalView.resignFirstResponder()
+        terminalContent.resignFocus()
     }
 
     @objc private func handleClose() {
