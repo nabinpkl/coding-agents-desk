@@ -31,8 +31,9 @@ Ordering and reasons:
   native containers own SwiftTerm and layout (Phase 3 before platform integrations).
 - macOS and iOS consume the same coordinator contract and shared SwiftTerm content, but keep their
   platform layout/lifecycle adapters separate (Phases 4 and 5).
-- Automated lifecycle gates land before any host/device launch. Physical installation and launch
-  remain an explicit human checkpoint (Phase 6 before Phase 7).
+- Automated lifecycle gates land before preapproved live-surface drives. Phase 7 uses the isolated dev
+  host plus iPhone Simulator, so it can run autonomously without touching the stable host or a physical
+  device (Phase 6 before Phase 7).
 
 ## Lifecycle contract
 
@@ -177,22 +178,29 @@ The canonical web UI is authored in the ATC sibling and built into AgentPanel re
   and `just check`. Review the complete cross-repo diff and confirm the only durable terminal owner is
   `pty-manager`.
 
-## v5 Phase 7: explicit live feel verification
+## v5 Phase 7: autonomous simulator and macOS AX verification
 
-This phase is blocked on the repository's device/host launch checkpoint, not on implementation. State
-the exact command and wait for the user to say `run it` before launching or reinstalling anything.
+Standing authorization for R72-R73: build, install, relaunch, and drive the isolated dev host and
+iPhone Simulator without asking for another `run it`. This authorization includes identifier-based
+macOS Accessibility actions and app-window screenshots. It excludes the stable host, physical iPhone,
+coordinate clicks, pointer capture, and whole-screen screenshots; those retain the repository's normal
+human checkpoint.
 
-- [ ] R72. With approval, run the current Release host/client via
-  `just fresh-release-diagnostic-run` and preserve attached client plus host logs. Verify an idle Claude
-  session reaches its native resume UI (including the old-session summary choice), an idle Codex
-  session restores its TUI, both accept keyboard input through SwiftTerm, the bottom pane resizes
-  without covering the feed, and build SHAs match HEAD.
-- [ ] R73. In the same approved run, verify lifecycle on the real surfaces: explicit close/back/session
-  change/surface switch leaves no deterministic PTY; reconnect within grace keeps PID; grace expiry
-  removes the PTY; Mac+iPhone dual attach survives the first detach and dies after the final detach;
-  externally live sessions report `activeElsewhere`. Inspect the PTY Manager window and process table
-  after every terminal path. Promote R58-R73 only when automated gates and this no-dangling-PTY read
-  are both green.
+- [ ] R72. Add a Maestro Agent Panel terminal flow and make `just ui-flow` accept the dev simulator
+  variant. Run `just agent-feed-sim-pair-dev`, confirm the dev host and simulator client build SHAs
+  match HEAD, then drive the flow with `just ui-flow agent-terminal-smoke dev`. Verify idle Claude and
+  Codex sessions reach their native resume TUIs, SwiftTerm accepts input, the bottom pane resizes
+  without covering the feed, back/session change/surface switch kills the deterministic PTY, reconnect
+  within grace preserves PID, and grace expiry removes it. Preserve simulator screenshots plus bounded
+  host/client logs, and inspect the PTY Manager/process table after every terminal exit path.
+- [ ] R73. Add or extend a repo-local macOS AX driver that resolves the dev host by bundle id and uses
+  AX identifiers only. Relaunch the dev host as needed without further approval, verify its build SHA,
+  open Agents, select idle Claude and Codex sessions, open each bottom terminal, exercise focus/input/
+  resize/close, and capture only the Agent window. Verify hide, close, back, session change, harness
+  natural exit, and grace expiry leave no deterministic PTY. Attach the simulator and Mac to one PTY
+  to prove the first detach preserves the PID and the final detach reaps it; verify externally live
+  sessions report `activeElsewhere`. Promote R58-R73 only when R71, both live drives, and the final
+  no-dangling-PTY process-table read are green.
 
 ## Promotion log
 
