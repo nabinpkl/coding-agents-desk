@@ -21,19 +21,46 @@ contract.
 
 Ordering and reasons:
 
-- ADR-0056 fixes the lifecycle and ownership contract before protocol or UI code lands (Phase 0).
+- ADR-0056 fixes the lifecycle and ownership contract before protocol or UI code lands (L0).
 - The PTY protocol gains explicit launch and lifetime semantics before either app asks it to resume a
-  harness (Phase 1 before Phases 3-5). Input injection into a shell is not an intermediate path.
+  harness (L1 before L2/L4-L6). Input injection into a shell is not an intermediate path.
 - The host coordinator owns harness command construction and deduplication before platform UI joins,
   because GUI-launched processes do not have a reliable shell `PATH` and two opens must not create two
-  resume processes (Phase 2 before Phases 4-5).
+  resume processes (L2 before L3/L5/L6).
 - The authored Agent Panel webview in the ATC sibling emits session-scoped open/close intent only;
-  native containers own SwiftTerm and layout (Phase 3 before platform integrations).
+  native containers own SwiftTerm and layout (L3 before L5/L6).
+- Shared SwiftTerm extraction is a separate lane from webview intent and can run alongside L2 once the
+  PTY contract lands (L4 after L1); this keeps React/bridge and terminal-renderer ownership distinct.
 - macOS and iOS consume the same coordinator contract and shared SwiftTerm content, but keep their
-  platform layout/lifecycle adapters separate (Phases 4 and 5).
+  platform layout/lifecycle adapters in parallel lanes (L5 and L6 after L2-L4).
 - Automated lifecycle gates land before preapproved live-surface drives. Phase 7 uses the isolated dev
   host plus iPhone Simulator, so it can run autonomously without touching the stable host or a physical
-  device (Phase 6 before Phase 7).
+  device (L7 after L5/L6).
+
+## Execution lanes
+
+The Co-ordinator opens one standing Implementor task and one standing Reviewer task per lane, then
+records their Codex task IDs in this table immediately. The same pair owns every R-task in that lane,
+including correction and re-review rounds. `not opened` is an execution state, not permission to spawn
+one task per R-task. After context compaction, this table is the source of truth for which tasks to
+resume.
+
+| Lane | Owned surface | R-tasks | Starts after | Implementor task | Reviewer task | State |
+| --- | --- | --- | --- | --- | --- | --- |
+| L0 Decision | ADR/SPEC compatibility contract | R58 | none | not opened | not opened | queued |
+| L1 PTY core | PTY protocol, Rust manager, Swift bindings | R59-R61 | L0 | not opened | not opened | queued |
+| L2 Host control | resume identity, coordinator, AgentDesk wire | R62-R64 | L1 | not opened | not opened | queued |
+| L3 Panel intent | ATC webview and native bridge intent | R65 | L2 | not opened | not opened | queued |
+| L4 Terminal content | shared SwiftTerm content and existing consumers | R66 | L1 | not opened | not opened | queued |
+| L5 macOS | Agent window layout and macOS lifecycle | R67-R68 | L2, L3, L4 | not opened | not opened | queued |
+| L6 iOS | Agent surface layout, transport, and iOS lifecycle | R69-R70 | L2, L3, L4 | not opened | not opened | queued |
+| L7 Verification | integration smoke, simulator, macOS AX, orphan audit | R71-R73 | L5, L6 | not opened | not opened | queued |
+
+The Co-ordinator may run lanes in parallel only when the dependency column is satisfied and file
+ownership does not overlap. L3 and L4 may run in parallel; L5 and L6 may run in parallel. Contract
+changes discovered inside a consumer lane return to the producing lane and land there before dependent
+work resumes. A standing task is replaced only when unavailable, near its context limit, or stale; the
+replacement task ID and handoff state are written into this table before work continues.
 
 ## Lifecycle contract
 
@@ -52,7 +79,7 @@ Ordering and reasons:
 | Mac and iPhone both attached | Reap only after the final lease disappears |
 | Session is live outside an Agent Panel PTY | Report `activeElsewhere`; do not start a competing resume |
 
-## v5 Phase 0: decision and compatibility gate
+## v5 Phase 0: decision and compatibility gate (L0)
 
 No behavior code lands until the lifecycle owner, protocol boundary, and compatibility consequence are
 recorded.
@@ -65,7 +92,7 @@ recorded.
   Test/verification: ADR index is consistent, accepted ADRs remain untouched, and `rg` finds no
   conflicting description that says all PTYs survive detach.
 
-## v5 Phase 1: explicit PTY launch and leased lifetime
+## v5 Phase 1: explicit PTY launch and leased lifetime (L1)
 
 This phase changes the in-tree PTY pair in lockstep. It does not add an Agent Panel UI.
 
@@ -91,7 +118,7 @@ This phase changes the in-tree PTY pair in lockstep. It does not add an Agent Pa
   sockets reap; explicit kill is immediate; natural exit leaves no session; manager shutdown leaves
   no leased harness child.
 
-## v5 Phase 2: one host-owned harness terminal coordinator
+## v5 Phase 2: one host-owned harness terminal coordinator (L2)
 
 The host is authoritative for translating a normalized harness source/session into a local process.
 The webview and iPhone never supply arbitrary executable text.
@@ -122,6 +149,8 @@ The webview and iPhone never supply arbitrary executable text.
 The canonical web UI is authored in the ATC sibling and built into AgentPanel resources. Generated
 `packages/AgentPanel/.../AgentPanelWebview` output is never hand-edited.
 
+### L3: Panel intent
+
 - [ ] R65. Extend `AgentPanelRequest` and the ATC `WebkitHostBridge` contract with session-scoped
   terminal open/close/context-ended intent. In `dashboard/webview/App.tsx`, add a fixed bottom launcher
   on the thread view only: terminal icon plus `Open Claude` or `Open Codex`. Opening enters a loading
@@ -129,6 +158,9 @@ The canonical web UI is authored in the ATC sibling and built into AgentPanel re
   `pagehide` emit context-ended before leaving. Tests: project/session lists have no terminal action;
   the thread request carries the exact project/source/session; back closes before navigation; stale
   ready events cannot reopen a terminal for another session.
+
+### L4: Shared terminal content
+
 - [ ] R66. Extract the reusable SwiftTerm content from the existing iOS `TerminalPaneView` and macOS
   `SwiftTermPtyManagerTerminalWindow` into the existing `PtyTerminalSwiftTerm` product. It owns
   TerminalView input delegation, paste/bracketed-paste, output feeding, focus, PTY driver, and resize;
@@ -137,7 +169,7 @@ The canonical web UI is authored in the ATC sibling and built into AgentPanel re
   output, resize, and detach behavior; no second terminal input implementation appears in AgentPanel
   or React.
 
-## v5 Phase 4: macOS bottom terminal
+## v5 Phase 4: macOS bottom terminal (L5)
 
 - [ ] R67. Change `AgentWindowController` from a webview-only content view to an AppKit vertical
   container: AgentPanel webview above, native resize handle, shared SwiftTerm content below. Closed
@@ -152,7 +184,7 @@ The canonical web UI is authored in the ATC sibling and built into AgentPanel re
   relies on manager grace. AX identifiers cover launcher, splitter, terminal content, status, and
   close. Tests prove hide kills once, show does not resurrect an old PTY, and stop leaves no terminal.
 
-## v5 Phase 5: iOS bottom terminal
+## v5 Phase 5: iOS bottom terminal (L6)
 
 - [ ] R69. Change `AgentFeedSurface` into a UIKit vertical container with the AgentPanel webview above,
   native resize handle, and shared SwiftTerm content below. It opens through the v7 host coordinator
@@ -168,7 +200,7 @@ The canonical web UI is authored in the ATC sibling and built into AgentPanel re
   generation checks so an old ready/attach task cannot bind to a newer session. Tests cover every
   transition, including Mac+iPhone final-lease behavior through manager integration.
 
-## v5 Phase 6: automated integration and cleanup gates
+## v5 Phase 6: automated integration and cleanup gates (L7)
 
 - [ ] R71. Add an end-to-end temporary-socket smoke that starts the real `pty-manager`, launches a
   harmless command as a leased PTY through the coordinator, attaches two clients, drops them in order,
@@ -178,7 +210,7 @@ The canonical web UI is authored in the ATC sibling and built into AgentPanel re
   and `just check`. Review the complete cross-repo diff and confirm the only durable terminal owner is
   `pty-manager`.
 
-## v5 Phase 7: autonomous simulator and macOS AX verification
+## v5 Phase 7: autonomous simulator and macOS AX verification (L7)
 
 Standing authorization for R72-R73: build, install, relaunch, and drive the isolated dev host and
 iPhone Simulator without asking for another `run it`. This authorization includes identifier-based
