@@ -49,9 +49,9 @@ resume.
 | --- | --- | --- | --- | --- | --- | --- |
 | L0 Decision | ADR/SPEC compatibility contract | D58 | none | `019f59b0-7e57-72c3-b81c-30f862200e61` | `019f59b0-823e-70f3-a4d2-50fb7bfb63aa` | complete |
 | L1 PTY core | PTY protocol, Rust manager, Swift bindings | D59-D61 | L0 | `019f59be-2304-7a73-bbe1-cef19e64338e` | `019f59be-1efa-7b41-98d2-420985d6eb0f` | complete |
-| L2 Host control | resume identity, coordinator, AgentDesk wire | R62-R64 | L1 | not opened | not opened | queued |
+| L2 Host control | resume identity, coordinator, AgentDesk wire | R62-R64 | L1 | `019f59f0-7854-7f23-9dff-80f7adb409d7` | `019f59f0-7bf4-7c72-9ceb-5b63143d7b2a` | active |
 | L3 Panel intent | ATC webview and native bridge intent | R65 | L2 | not opened | not opened | queued |
-| L4 Terminal content | shared SwiftTerm content and existing consumers | R66 | L1 | not opened | not opened | queued |
+| L4 Terminal content | shared SwiftTerm content and existing consumers | R66 | L1 | `019f59f0-7f6a-7191-a273-59b2ee115db5` | `019f59f0-8367-7990-ba70-41dfe70f7fb0` | active |
 | L5 macOS | Agent window layout and macOS lifecycle | R67-R68 | L2, L3, L4 | not opened | not opened | queued |
 | L6 iOS | Agent surface layout, transport, and iOS lifecycle | R69-R70 | L2, L3, L4 | not opened | not opened | queued |
 | L7 Verification | integration smoke, simulator, macOS AX, orphan audit | R71-R73 | L5, L6 | not opened | not opened | queued |
