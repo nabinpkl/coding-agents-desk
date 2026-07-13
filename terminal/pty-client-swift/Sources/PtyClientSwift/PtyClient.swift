@@ -2,7 +2,7 @@ import Foundation
 import SwiftProtobuf
 
 public final class PtyClient {
-    public static let protocolVersion: UInt32 = 3
+    public static let protocolVersion: UInt32 = 4
 
     private let makeTransport: () throws -> PtyTransport
 
@@ -29,7 +29,7 @@ public final class PtyClient {
         let envelope = try await receiveEnvelope(transport: transport)
         switch envelope.payload {
         case .sessionList(let list):
-            return list.sessions.map(PtySessionSummary.init(proto:))
+            return try list.sessions.map(PtySessionSummary.init(proto:))
         case .error(let error):
             throw PtyClientError.daemonError(error.message)
         case .none:
@@ -55,7 +55,7 @@ public final class PtyClient {
                         let envelope = try await receiveEnvelope(transport: transport)
                         switch envelope.payload {
                         case .sessionSnapshot(let snapshot):
-                            continuation.yield(snapshot.sessions.map(PtySessionSummary.init(proto:)))
+                            continuation.yield(try snapshot.sessions.map(PtySessionSummary.init(proto:)))
                         case .error(let error):
                             throw PtyClientError.daemonError(error.message)
                         case .none:
@@ -75,8 +75,8 @@ public final class PtyClient {
 
     public func openSession(
         name: String,
-        cwd: String,
-        shell: String,
+        launch: PtySessionLaunch,
+        lifetime: PtySessionLifetime,
         columns: UInt32,
         rows: UInt32,
         createIfMissing: Bool = true,
@@ -89,8 +89,8 @@ public final class PtyClient {
                 $0.requestID = 1
                 $0.sessionName = name
                 $0.payload = .createOrAttach(.with {
-                    $0.cwd = cwd
-                    $0.shell = shell
+                    $0.launch = launch.proto
+                    $0.lifetime = lifetime.proto
                     $0.columns = columns
                     $0.rows = rows
                     $0.createIfMissing = createIfMissing
@@ -183,13 +183,14 @@ public final class PtyClient {
 }
 
 private extension PtySessionSummary {
-    init(proto: Pty_V1_SessionSummary) {
+    init(proto: Pty_V1_SessionSummary) throws {
         self.init(
             name: proto.name,
             cwd: proto.cwd,
             shell: proto.shell,
             pid: proto.pid,
             state: .init(proto: proto.state),
+            lifetime: try .init(proto: proto.lifetime),
             clients: proto.clients.map(PtySessionClientSummary.init(proto:))
         )
     }

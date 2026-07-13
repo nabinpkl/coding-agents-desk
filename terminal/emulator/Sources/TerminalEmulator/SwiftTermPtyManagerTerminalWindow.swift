@@ -32,8 +32,8 @@ public final class SwiftTermPtyManagerTerminalSpawn: TerminalEmulatorSpawn {
                 do {
                     let connection = try await self.client.openSession(
                         name: TerminalSessionName.make(for: cwd),
-                        cwd: cwd.path,
-                        shell: self.shell,
+                        launch: .shell(cwd: cwd.path, shell: self.shell),
+                        lifetime: .persistent,
                         columns: UInt32(window.columns),
                         rows: UInt32(window.rows),
                         createIfMissing: true,
@@ -65,8 +65,8 @@ public final class SwiftTermPtyManagerTerminalSpawn: TerminalEmulatorSpawn {
                 do {
                     let connection = try await self.client.openSession(
                         name: session.name,
-                        cwd: session.cwd,
-                        shell: session.shell,
+                        launch: .shell(cwd: session.cwd, shell: session.shell),
+                        lifetime: .persistent,
                         columns: UInt32(window.columns),
                         rows: UInt32(window.rows),
                         createIfMissing: false,

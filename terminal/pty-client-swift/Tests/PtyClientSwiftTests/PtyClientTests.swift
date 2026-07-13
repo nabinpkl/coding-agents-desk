@@ -13,6 +13,7 @@ final class PtyClientTests: XCTestCase {
                     $0.shell = "/bin/zsh"
                     $0.pid = 42
                     $0.state = .running
+                    $0.lifetime = .persistent
                     $0.clients = [
                         .with {
                             $0.id = 10
@@ -37,6 +38,7 @@ final class PtyClientTests: XCTestCase {
                 shell: "/bin/zsh",
                 pid: 42,
                 state: .running,
+                lifetime: .persistent,
                 clients: [
                     PtySessionClientSummary(id: 10, title: "first"),
                     PtySessionClientSummary(id: 11, title: "second"),
@@ -56,6 +58,7 @@ final class PtyClientTests: XCTestCase {
                     $0.shell = "/bin/zsh"
                     $0.pid = 42
                     $0.state = .running
+                    $0.lifetime = .persistent
                 }]
             })
         }
@@ -83,8 +86,8 @@ final class PtyClientTests: XCTestCase {
 
         let connection = try await PtyClient(transport: transport).openSession(
             name: "main",
-            cwd: "/tmp/work",
-            shell: "/bin/zsh",
+            launch: .shell(cwd: "/tmp/work", shell: "/bin/zsh"),
+            lifetime: .persistent,
             columns: 120,
             rows: 40,
             createIfMissing: false,
@@ -104,12 +107,56 @@ final class PtyClientTests: XCTestCase {
             return XCTFail("expected createOrAttach, got \(String(describing: sent.payload))")
         }
         XCTAssertEqual(sent.sessionName, "main")
-        XCTAssertEqual(request.cwd, "/tmp/work")
-        XCTAssertEqual(request.shell, "/bin/zsh")
+        guard case .shellLaunch(let shell) = request.launch else {
+            return XCTFail("expected shell launch, got \(String(describing: request.launch))")
+        }
+        XCTAssertEqual(shell.cwd, "/tmp/work")
+        XCTAssertEqual(shell.shell, "/bin/zsh")
+        XCTAssertEqual(request.lifetime, .persistent)
         XCTAssertEqual(request.columns, 120)
         XCTAssertEqual(request.rows, 40)
         XCTAssertFalse(request.createIfMissing)
         XCTAssertEqual(request.clientTitle, "Inspector")
+    }
+
+    func testOpenSessionPreservesCommandArgumentBoundariesAndLeasedLifetime() async throws {
+        let transport = MockPtyTransport()
+        transport.receivedFrames = [try Pty_V1_Envelope.with {
+            $0.protocolVersion = PtyClient.protocolVersion
+            $0.sessionName = "agent-resume-codex-session"
+            $0.payload = .attached(.with {
+                $0.pid = 84
+                $0.cwd = "/tmp/project with spaces"
+                $0.shell = "/usr/local/bin/codex"
+                $0.clientCount = 1
+                $0.clientID = 78
+            })
+        }.serializedData()]
+        let arguments = ["resume", "id with spaces", "$(not-expanded)", "semi;colon"]
+
+        _ = try await PtyClient(transport: transport).openSession(
+            name: "agent-resume-codex-session",
+            launch: .command(
+                cwd: "/tmp/project with spaces",
+                executable: "/usr/local/bin/codex",
+                arguments: arguments
+            ),
+            lifetime: .leased,
+            columns: 100,
+            rows: 30,
+            createIfMissing: true,
+            clientTitle: "Agent Panel"
+        )
+
+        let sent = try XCTUnwrap(transport.sentEnvelope(at: 0))
+        guard case .createOrAttach(let request) = sent.payload,
+              case .commandLaunch(let command) = request.launch else {
+            return XCTFail("expected command create or attach")
+        }
+        XCTAssertEqual(command.cwd, "/tmp/project with spaces")
+        XCTAssertEqual(command.executable, "/usr/local/bin/codex")
+        XCTAssertEqual(command.arguments, arguments)
+        XCTAssertEqual(request.lifetime, .leased)
     }
 
     func testSessionConnectionYieldsOutputAndExitEvents() async throws {

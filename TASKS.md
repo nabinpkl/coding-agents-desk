@@ -48,7 +48,7 @@ resume.
 | Lane | Owned surface | R-tasks | Starts after | Implementor task | Reviewer task | State |
 | --- | --- | --- | --- | --- | --- | --- |
 | L0 Decision | ADR/SPEC compatibility contract | D58 | none | `019f59b0-7e57-72c3-b81c-30f862200e61` | `019f59b0-823e-70f3-a4d2-50fb7bfb63aa` | complete |
-| L1 PTY core | PTY protocol, Rust manager, Swift bindings | R59-R61 | L0 | `019f59be-2304-7a73-bbe1-cef19e64338e` | `019f59be-1efa-7b41-98d2-420985d6eb0f` | active |
+| L1 PTY core | PTY protocol, Rust manager, Swift bindings | D59, R60-R61 | L0 | `019f59be-2304-7a73-bbe1-cef19e64338e` | `019f59be-1efa-7b41-98d2-420985d6eb0f` | active |
 | L2 Host control | resume identity, coordinator, AgentDesk wire | R62-R64 | L1 | not opened | not opened | queued |
 | L3 Panel intent | ATC webview and native bridge intent | R65 | L2 | not opened | not opened | queued |
 | L4 Terminal content | shared SwiftTerm content and existing consumers | R66 | L1 | not opened | not opened | queued |
@@ -96,7 +96,7 @@ recorded.
 
 This phase changes the in-tree PTY pair in lockstep. It does not add an Agent Panel UI.
 
-- [ ] R59. Replace the v1 `CreateOrAttach.shell` shape in `terminal/pty-manager/proto/pty.proto` with
+- [x] D59. Replace the v1 `CreateOrAttach.shell` shape in `terminal/pty-manager/proto/pty.proto` with
   an explicit launch oneof (`ShellLaunch` or `CommandLaunch { executable, arguments }`) plus
   `SessionLifetime { persistent, leased }`; include lifetime in session summaries. Bump the inner PTY
   protocol from v3 to v4 and regenerate both Rust and Swift bindings. Update every existing caller to request
@@ -239,3 +239,4 @@ human checkpoint.
 | ID | Date | Status | Summary |
 | --- | --- | --- | --- |
 | D58 | 2026-07-13 | landed | ADR-0056 and `SPEC.md` lock leased Agent Panel terminals and the PTY v4 and AgentDesk v7 targets. |
+| D59 | 2026-07-13 | landed | PTY v4 adds explicit shell/command launch and persistent/leased lifetime across Rust and Swift callers. |

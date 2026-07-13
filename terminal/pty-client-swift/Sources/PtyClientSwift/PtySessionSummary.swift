@@ -12,6 +12,7 @@ public struct PtySessionSummary: Equatable, Sendable {
     public let shell: String
     public let pid: UInt32
     public let state: State
+    public let lifetime: PtySessionLifetime
     public let clients: [PtySessionClientSummary]
 
     public var clientCount: UInt32 {
@@ -24,6 +25,7 @@ public struct PtySessionSummary: Equatable, Sendable {
         shell: String,
         pid: UInt32,
         state: State,
+        lifetime: PtySessionLifetime,
         clients: [PtySessionClientSummary]
     ) {
         self.name = name
@@ -31,6 +33,7 @@ public struct PtySessionSummary: Equatable, Sendable {
         self.shell = shell
         self.pid = pid
         self.state = state
+        self.lifetime = lifetime
         self.clients = clients
     }
 }

@@ -16,6 +16,10 @@ nonisolated extension Pty_V1_SessionState: SwiftProtobuf._ProtoNameProviding {
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0SESSION_STATE_UNSPECIFIED\0\u{1}SESSION_STATE_RUNNING\0\u{1}SESSION_STATE_EXITED\0")
 }
 
+nonisolated extension Pty_V1_SessionLifetime: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0SESSION_LIFETIME_UNSPECIFIED\0\u{1}SESSION_LIFETIME_PERSISTENT\0\u{1}SESSION_LIFETIME_LEASED\0")
+}
+
 nonisolated extension Pty_V1_Envelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Envelope"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}protocol_version\0\u{3}request_id\0\u{3}session_name\0\u{2}\u{7}hello\0\u{3}create_or_attach\0\u{1}attached\0\u{1}detach\0\u{1}input\0\u{1}output\0\u{3}list_sessions\0\u{3}session_list\0\u{3}kill_session\0\u{3}session_exited\0\u{1}error\0\u{3}subscribe_sessions\0\u{3}session_snapshot\0\u{1}resize\0\u{3}close_client\0\u{3}client_detached\0")

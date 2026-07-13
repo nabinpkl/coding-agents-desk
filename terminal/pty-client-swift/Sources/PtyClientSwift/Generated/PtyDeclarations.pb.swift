@@ -63,6 +63,44 @@ nonisolated enum Pty_V1_SessionState: SwiftProtobuf.Enum, Swift.CaseIterable {
 
 }
 
+nonisolated enum Pty_V1_SessionLifetime: SwiftProtobuf.Enum, Swift.CaseIterable {
+  typealias RawValue = Int
+  case unspecified // = 0
+  case persistent // = 1
+  case leased // = 2
+  case UNRECOGNIZED(Int)
+
+  init() {
+    self = .unspecified
+  }
+
+  init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .persistent
+    case 2: self = .leased
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .persistent: return 1
+    case .leased: return 2
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  static let allCases: [Pty_V1_SessionLifetime] = [
+    .unspecified,
+    .persistent,
+    .leased,
+  ]
+
+}
+
 nonisolated struct Pty_V1_Envelope: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -246,9 +284,23 @@ nonisolated struct Pty_V1_CreateOrAttach: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var cwd: String = String()
+  var launch: Pty_V1_CreateOrAttach.OneOf_Launch? = nil
 
-  var shell: String = String()
+  var shellLaunch: Pty_V1_ShellLaunch {
+    get {
+      if case .shellLaunch(let v)? = launch {return v}
+      return Pty_V1_ShellLaunch()
+    }
+    set {launch = .shellLaunch(newValue)}
+  }
+
+  var commandLaunch: Pty_V1_CommandLaunch {
+    get {
+      if case .commandLaunch(let v)? = launch {return v}
+      return Pty_V1_CommandLaunch()
+    }
+    set {launch = .commandLaunch(newValue)}
+  }
 
   var columns: UInt32 = 0
 
@@ -257,6 +309,44 @@ nonisolated struct Pty_V1_CreateOrAttach: Sendable {
   var createIfMissing: Bool = false
 
   var clientTitle: String = String()
+
+  var lifetime: Pty_V1_SessionLifetime = .unspecified
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  nonisolated enum OneOf_Launch: Equatable, Sendable {
+    case shellLaunch(Pty_V1_ShellLaunch)
+    case commandLaunch(Pty_V1_CommandLaunch)
+
+  }
+
+  init() {}
+}
+
+nonisolated struct Pty_V1_ShellLaunch: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var cwd: String = String()
+
+  var shell: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+nonisolated struct Pty_V1_CommandLaunch: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var cwd: String = String()
+
+  var executable: String = String()
+
+  var arguments: [String] = []
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -391,6 +481,8 @@ nonisolated struct Pty_V1_SessionSummary: Sendable {
   var state: Pty_V1_SessionState = .unspecified
 
   var clients: [Pty_V1_ClientSummary] = []
+
+  var lifetime: Pty_V1_SessionLifetime = .unspecified
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 

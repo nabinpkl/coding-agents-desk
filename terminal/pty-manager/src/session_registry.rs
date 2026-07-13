@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
 use crate::error::{Result, TerminalError};
-use crate::protocol::{validate_session_name, ClientSummary, SessionState, SessionSummary};
+use crate::protocol::{
+    validate_session_name, ClientSummary, SessionLifetime, SessionState, SessionSummary,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionRecord {
@@ -9,6 +11,7 @@ pub struct SessionRecord {
     pub cwd: String,
     pub shell: String,
     pub pid: u32,
+    pub lifetime: SessionLifetime,
     pub state: SessionLifecycle,
 }
 
@@ -34,6 +37,7 @@ impl SessionRegistry {
         cwd: impl Into<String>,
         shell: impl Into<String>,
         pid: u32,
+        lifetime: SessionLifetime,
     ) -> Result<bool> {
         validate_session_name(name)?;
         if let Some(existing) = self.sessions.get(name) {
@@ -49,6 +53,7 @@ impl SessionRegistry {
                 cwd: cwd.into(),
                 shell: shell.into(),
                 pid,
+                lifetime,
                 state: SessionLifecycle::Running,
             },
         );
@@ -87,6 +92,7 @@ impl SessionRegistry {
                     .get(&record.name)
                     .cloned()
                     .unwrap_or_default(),
+                lifetime: record.lifetime as i32,
             })
             .collect()
     }

@@ -34,8 +34,11 @@ final class PtyClientIntegrationTests: XCTestCase {
             $0.requestID = 7
             $0.sessionName = "main"
             $0.payload = .createOrAttach(.with {
-                $0.cwd = root.path
-                $0.shell = "/bin/sh"
+                $0.launch = .shellLaunch(.with {
+                    $0.cwd = root.path
+                    $0.shell = "/bin/sh"
+                })
+                $0.lifetime = .persistent
                 $0.columns = 80
                 $0.rows = 24
                 $0.createIfMissing = true
@@ -57,6 +60,7 @@ final class PtyClientIntegrationTests: XCTestCase {
         XCTAssertEqual(created.first?.clientCount, 1)
         XCTAssertEqual(created.first?.clients.first?.title, "integration")
         XCTAssertEqual(created.first?.clients.first?.id, attachedClientID)
+        XCTAssertEqual(created.first?.lifetime, .persistent)
     }
 
     private func repoRoot() -> URL {

@@ -8,7 +8,10 @@ use clap::Parser;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size as terminal_size};
 use futures_util::{SinkExt, StreamExt};
 use pty_manager::client::{connect, kill_session, next_numeric_session_name};
-use pty_manager::protocol::{self, CreateOrAttach, Detach, Input, Payload, Resize};
+use pty_manager::protocol::{
+    self, create_or_attach, CreateOrAttach, Detach, Input, Payload, Resize, SessionLifetime,
+    ShellLaunch,
+};
 use pty_manager::pty_client_footer::{child_pty_rows, FooterRenderer, FooterState, TerminalSize};
 use tokio::sync::{mpsc, Mutex};
 
@@ -86,8 +89,11 @@ async fn run_client(
             1,
             &session_name,
             Payload::CreateOrAttach(CreateOrAttach {
-                cwd: cwd.to_string_lossy().into_owned(),
-                shell,
+                launch: Some(create_or_attach::Launch::ShellLaunch(ShellLaunch {
+                    cwd: cwd.to_string_lossy().into_owned(),
+                    shell,
+                })),
+                lifetime: SessionLifetime::Persistent as i32,
                 columns: attach_columns,
                 rows: attach_rows,
                 create_if_missing: true,

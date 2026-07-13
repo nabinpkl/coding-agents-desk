@@ -44,7 +44,7 @@ nonisolated extension Pty_V1_Hello: SwiftProtobuf.Message, SwiftProtobuf._Messag
 
 nonisolated extension Pty_V1_CreateOrAttach: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".CreateOrAttach"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cwd\0\u{1}shell\0\u{1}columns\0\u{1}rows\0\u{3}create_if_missing\0\u{3}client_title\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}shell_launch\0\u{3}command_launch\0\u{1}columns\0\u{1}rows\0\u{3}create_if_missing\0\u{3}client_title\0\u{1}lifetime\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -52,23 +52,57 @@ nonisolated extension Pty_V1_CreateOrAttach: SwiftProtobuf.Message, SwiftProtobu
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.cwd) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.shell) }()
+      case 1: try {
+        var v: Pty_V1_ShellLaunch?
+        var hadOneofValue = false
+        if let current = self.launch {
+          hadOneofValue = true
+          if case .shellLaunch(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.launch = .shellLaunch(v)
+        }
+      }()
+      case 2: try {
+        var v: Pty_V1_CommandLaunch?
+        var hadOneofValue = false
+        if let current = self.launch {
+          hadOneofValue = true
+          if case .commandLaunch(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.launch = .commandLaunch(v)
+        }
+      }()
       case 3: try { try decoder.decodeSingularUInt32Field(value: &self.columns) }()
       case 4: try { try decoder.decodeSingularUInt32Field(value: &self.rows) }()
       case 5: try { try decoder.decodeSingularBoolField(value: &self.createIfMissing) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.clientTitle) }()
+      case 7: try { try decoder.decodeSingularEnumField(value: &self.lifetime) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.cwd.isEmpty {
-      try visitor.visitSingularStringField(value: self.cwd, fieldNumber: 1)
-    }
-    if !self.shell.isEmpty {
-      try visitor.visitSingularStringField(value: self.shell, fieldNumber: 2)
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.launch {
+    case .shellLaunch?: try {
+      guard case .shellLaunch(let v)? = self.launch else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .commandLaunch?: try {
+      guard case .commandLaunch(let v)? = self.launch else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case nil: break
     }
     if self.columns != 0 {
       try visitor.visitSingularUInt32Field(value: self.columns, fieldNumber: 3)
@@ -82,16 +116,94 @@ nonisolated extension Pty_V1_CreateOrAttach: SwiftProtobuf.Message, SwiftProtobu
     if !self.clientTitle.isEmpty {
       try visitor.visitSingularStringField(value: self.clientTitle, fieldNumber: 6)
     }
+    if self.lifetime != .unspecified {
+      try visitor.visitSingularEnumField(value: self.lifetime, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Pty_V1_CreateOrAttach, rhs: Pty_V1_CreateOrAttach) -> Bool {
-    if lhs.cwd != rhs.cwd {return false}
-    if lhs.shell != rhs.shell {return false}
+    if lhs.launch != rhs.launch {return false}
     if lhs.columns != rhs.columns {return false}
     if lhs.rows != rhs.rows {return false}
     if lhs.createIfMissing != rhs.createIfMissing {return false}
     if lhs.clientTitle != rhs.clientTitle {return false}
+    if lhs.lifetime != rhs.lifetime {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Pty_V1_ShellLaunch: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ShellLaunch"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cwd\0\u{1}shell\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.cwd) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.shell) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.cwd.isEmpty {
+      try visitor.visitSingularStringField(value: self.cwd, fieldNumber: 1)
+    }
+    if !self.shell.isEmpty {
+      try visitor.visitSingularStringField(value: self.shell, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Pty_V1_ShellLaunch, rhs: Pty_V1_ShellLaunch) -> Bool {
+    if lhs.cwd != rhs.cwd {return false}
+    if lhs.shell != rhs.shell {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Pty_V1_CommandLaunch: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".CommandLaunch"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cwd\0\u{1}executable\0\u{1}arguments\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.cwd) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.executable) }()
+      case 3: try { try decoder.decodeRepeatedStringField(value: &self.arguments) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.cwd.isEmpty {
+      try visitor.visitSingularStringField(value: self.cwd, fieldNumber: 1)
+    }
+    if !self.executable.isEmpty {
+      try visitor.visitSingularStringField(value: self.executable, fieldNumber: 2)
+    }
+    if !self.arguments.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.arguments, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Pty_V1_CommandLaunch, rhs: Pty_V1_CommandLaunch) -> Bool {
+    if lhs.cwd != rhs.cwd {return false}
+    if lhs.executable != rhs.executable {return false}
+    if lhs.arguments != rhs.arguments {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -361,7 +473,7 @@ nonisolated extension Pty_V1_SessionSnapshot: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".SessionSummary"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}cwd\0\u{1}shell\0\u{1}pid\0\u{1}state\0\u{1}clients\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}cwd\0\u{1}shell\0\u{1}pid\0\u{1}state\0\u{1}clients\0\u{1}lifetime\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -375,6 +487,7 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
       case 4: try { try decoder.decodeSingularUInt32Field(value: &self.pid) }()
       case 5: try { try decoder.decodeSingularEnumField(value: &self.state) }()
       case 6: try { try decoder.decodeRepeatedMessageField(value: &self.clients) }()
+      case 7: try { try decoder.decodeSingularEnumField(value: &self.lifetime) }()
       default: break
       }
     }
@@ -399,6 +512,9 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
     if !self.clients.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.clients, fieldNumber: 6)
     }
+    if self.lifetime != .unspecified {
+      try visitor.visitSingularEnumField(value: self.lifetime, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -409,6 +525,7 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
     if lhs.pid != rhs.pid {return false}
     if lhs.state != rhs.state {return false}
     if lhs.clients != rhs.clients {return false}
+    if lhs.lifetime != rhs.lifetime {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

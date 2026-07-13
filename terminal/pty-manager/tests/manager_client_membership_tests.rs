@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use pty_manager::manager::{PtyManager, PtyManagerOptions};
 use pty_manager::protocol::{
-    self, Attached, CreateOrAttach, Detach, Input, KillSession, Payload, SessionExited,
+    self, create_or_attach, Attached, CreateOrAttach, Detach, Input, KillSession, Payload,
+    SessionExited, SessionLifetime, ShellLaunch,
 };
 use pty_manager::transport::{receive, send};
 use tempfile::tempdir;
@@ -28,8 +29,11 @@ async fn detached_session_stays_running_until_killed() {
             1,
             "0",
             Payload::CreateOrAttach(CreateOrAttach {
-                cwd: tempdir.path().to_string_lossy().into_owned(),
-                shell: "/bin/sh".to_owned(),
+                launch: Some(create_or_attach::Launch::ShellLaunch(ShellLaunch {
+                    cwd: tempdir.path().to_string_lossy().into_owned(),
+                    shell: "/bin/sh".to_owned(),
+                })),
+                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: true,
@@ -79,8 +83,11 @@ async fn detached_session_stays_running_until_killed() {
             4,
             "0",
             Payload::CreateOrAttach(CreateOrAttach {
-                cwd: tempdir.path().to_string_lossy().into_owned(),
-                shell: "/bin/sh".to_owned(),
+                launch: Some(create_or_attach::Launch::ShellLaunch(ShellLaunch {
+                    cwd: tempdir.path().to_string_lossy().into_owned(),
+                    shell: "/bin/sh".to_owned(),
+                })),
+                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: true,
@@ -227,8 +234,11 @@ async fn close_client_detaches_only_target_and_keeps_session_running() {
             2,
             "main",
             Payload::CreateOrAttach(CreateOrAttach {
-                cwd: tempdir.path().to_string_lossy().into_owned(),
-                shell: "/bin/sh".to_owned(),
+                launch: Some(create_or_attach::Launch::ShellLaunch(ShellLaunch {
+                    cwd: tempdir.path().to_string_lossy().into_owned(),
+                    shell: "/bin/sh".to_owned(),
+                })),
+                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: true,
@@ -343,8 +353,11 @@ async fn attach_without_create_fails_for_missing_session() {
             1,
             "missing",
             Payload::CreateOrAttach(CreateOrAttach {
-                cwd: tempdir.path().to_string_lossy().into_owned(),
-                shell: "/bin/sh".to_owned(),
+                launch: Some(create_or_attach::Launch::ShellLaunch(ShellLaunch {
+                    cwd: tempdir.path().to_string_lossy().into_owned(),
+                    shell: "/bin/sh".to_owned(),
+                })),
+                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: false,
@@ -389,8 +402,11 @@ async fn send_create(
             request_id,
             session_name,
             Payload::CreateOrAttach(CreateOrAttach {
-                cwd: cwd.to_string_lossy().into_owned(),
-                shell: "/bin/sh".to_owned(),
+                launch: Some(create_or_attach::Launch::ShellLaunch(ShellLaunch {
+                    cwd: cwd.to_string_lossy().into_owned(),
+                    shell: "/bin/sh".to_owned(),
+                })),
+                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: true,

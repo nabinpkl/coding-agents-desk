@@ -32,12 +32,26 @@ message Hello {
 }
 
 message CreateOrAttach {
-  string cwd = 1;
-  string shell = 2;
+  oneof launch {
+    ShellLaunch shell_launch = 1;
+    CommandLaunch command_launch = 2;
+  }
   uint32 columns = 3;
   uint32 rows = 4;
   bool create_if_missing = 5;
   string client_title = 6;
+  SessionLifetime lifetime = 7;
+}
+
+message ShellLaunch {
+  string cwd = 1;
+  string shell = 2;
+}
+
+message CommandLaunch {
+  string cwd = 1;
+  string executable = 2;
+  repeated string arguments = 3;
 }
 
 message Attached {
@@ -82,6 +96,7 @@ message SessionSummary {
   uint32 pid = 4;
   SessionState state = 5;
   repeated ClientSummary clients = 6;
+  SessionLifetime lifetime = 7;
 }
 
 message ClientSummary {
@@ -93,6 +108,12 @@ enum SessionState {
   SESSION_STATE_UNSPECIFIED = 0;
   SESSION_STATE_RUNNING = 1;
   SESSION_STATE_EXITED = 2;
+}
+
+enum SessionLifetime {
+  SESSION_LIFETIME_UNSPECIFIED = 0;
+  SESSION_LIFETIME_PERSISTENT = 1;
+  SESSION_LIFETIME_LEASED = 2;
 }
 
 message KillSession {}

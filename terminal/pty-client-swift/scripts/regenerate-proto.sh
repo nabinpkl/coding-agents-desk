@@ -33,9 +33,19 @@ import SwiftProtobuf
 '
 
 runtime_marker_line="$(grep -n -m1 '^// MARK: - Code below here is support for the SwiftProtobuf runtime\.$' "$generated" | cut -d: -f1)"
-runtime_start_line="$(grep -n -m1 '^nonisolated extension Pty_V1_SessionState:' "$generated" | cut -d: -f1)"
+runtime_start_line="$(awk -v marker="$runtime_marker_line" '
+    NR > marker && /^nonisolated extension .*: SwiftProtobuf\._ProtoNameProviding \{$/ {
+        print NR
+        exit
+    }
+' "$generated")"
 messages_start_line="$(grep -n -m1 '^nonisolated extension Pty_V1_Hello:' "$generated" | cut -d: -f1)"
 package_line="$(grep -m1 '^fileprivate nonisolated let _protobuf_package' "$generated" | sed 's/fileprivate nonisolated let _protobuf_package/nonisolated let _protobuf_package/')"
+
+if [[ -z "$runtime_start_line" ]]; then
+    echo "failed to locate generated enum runtime support" >&2
+    exit 1
+fi
 
 declarations_end_line=$((runtime_marker_line - 1))
 envelope_end_line=$((messages_start_line - 2))

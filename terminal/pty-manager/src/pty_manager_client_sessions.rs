@@ -6,8 +6,8 @@ use tokio::sync::{mpsc, Mutex};
 
 use crate::error::{Result, TerminalError};
 use crate::protocol::{
-    self, validate_session_name, Attached, ClientDetached, ClientSummary, CreateOrAttach, Envelope,
-    Payload, SessionSnapshot,
+    self, create_or_attach, validate_session_name, Attached, ClientDetached, ClientSummary,
+    CreateOrAttach, Envelope, Payload, SessionLifetime, SessionSnapshot,
 };
 use crate::pty_session::{PtyEvent, PtySession};
 use crate::session_registry::SessionRegistry;
@@ -21,6 +21,7 @@ pub(crate) struct PtyManagerState {
 
 pub(crate) struct LiveSession {
     pub(crate) pty: PtySession,
+    pub(crate) lifetime: SessionLifetime,
     pub(crate) clients: HashMap<u64, LiveClient>,
 }
 
@@ -72,13 +73,34 @@ pub(crate) async fn create_or_attach(
     request: CreateOrAttach,
 ) -> Result<Attached> {
     validate_session_name(session_name)?;
+    let lifetime = explicit_lifetime(request.lifetime)?;
+    if request.launch.is_none() {
+        return Err(TerminalError::Protocol(
+            "create or attach requires an explicit launch".to_owned(),
+        ));
+    }
+
     let mut state = state.lock().await;
-    if !state.sessions.contains_key(session_name) {
+    if let Some(session) = state.sessions.get(session_name) {
+        if session.lifetime != lifetime {
+            return Err(TerminalError::Protocol(format!(
+                "session lifetime mismatch for {session_name}: existing {:?}, requested {:?}",
+                session.lifetime, lifetime
+            )));
+        }
+    } else {
         if !request.create_if_missing {
             return Err(TerminalError::SessionNotFound(session_name.to_owned()));
         }
-        let cwd = defaulted_cwd(&request.cwd);
-        let shell = defaulted_shell(&request.shell);
+        let create_or_attach::Launch::ShellLaunch(launch) =
+            request.launch.as_ref().expect("launch checked above")
+        else {
+            return Err(TerminalError::Protocol(
+                "command launch creation is not implemented".to_owned(),
+            ));
+        };
+        let cwd = defaulted_cwd(&launch.cwd);
+        let shell = defaulted_shell(&launch.shell);
         let pty = PtySession::spawn(
             session_name,
             cwd,
@@ -87,13 +109,18 @@ pub(crate) async fn create_or_attach(
             request.rows.max(1).min(u16::MAX as u32) as u16,
             events.clone(),
         )?;
-        state
-            .registry
-            .ensure_running(session_name, pty.cwd.clone(), pty.shell.clone(), pty.pid)?;
+        state.registry.ensure_running(
+            session_name,
+            pty.cwd.clone(),
+            pty.shell.clone(),
+            pty.pid,
+            lifetime,
+        )?;
         state.sessions.insert(
             session_name.to_owned(),
             LiveSession {
                 pty,
+                lifetime,
                 clients: HashMap::new(),
             },
         );
@@ -131,6 +158,17 @@ pub(crate) async fn create_or_attach(
         .insert(session_name.to_owned());
 
     Ok(attached)
+}
+
+fn explicit_lifetime(value: i32) -> Result<SessionLifetime> {
+    let lifetime = SessionLifetime::try_from(value)
+        .map_err(|_| TerminalError::Protocol(format!("unknown session lifetime value {value}")))?;
+    match lifetime {
+        SessionLifetime::Persistent | SessionLifetime::Leased => Ok(lifetime),
+        SessionLifetime::Unspecified => Err(TerminalError::Protocol(
+            "create or attach requires an explicit session lifetime".to_owned(),
+        )),
+    }
 }
 
 fn defaulted_cwd(cwd: &str) -> PathBuf {

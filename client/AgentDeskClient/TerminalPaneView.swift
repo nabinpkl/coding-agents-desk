@@ -211,8 +211,8 @@ final class TerminalPaneView: UIView, @MainActor TerminalViewDelegate, PtyTermin
                 try Task.checkCancellation()
                 let connection = try await client.openSession(
                     name: sessionName,
-                    cwd: "",
-                    shell: "",
+                    launch: .shell(cwd: "", shell: ""),
+                    lifetime: .persistent,
                     columns: columns,
                     rows: rows,
                     createIfMissing: createIfMissing,
