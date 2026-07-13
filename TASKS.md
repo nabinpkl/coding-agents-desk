@@ -48,7 +48,7 @@ resume.
 | Lane | Owned surface | R-tasks | Starts after | Implementor task | Reviewer task | State |
 | --- | --- | --- | --- | --- | --- | --- |
 | L0 Decision | ADR/SPEC compatibility contract | D58 | none | `019f59b0-7e57-72c3-b81c-30f862200e61` | `019f59b0-823e-70f3-a4d2-50fb7bfb63aa` | complete |
-| L1 PTY core | PTY protocol, Rust manager, Swift bindings | R59-R61 | L0 | not opened | not opened | queued |
+| L1 PTY core | PTY protocol, Rust manager, Swift bindings | R59-R61 | L0 | `019f59be-2304-7a73-bbe1-cef19e64338e` | `019f59be-1efa-7b41-98d2-420985d6eb0f` | active |
 | L2 Host control | resume identity, coordinator, AgentDesk wire | R62-R64 | L1 | not opened | not opened | queued |
 | L3 Panel intent | ATC webview and native bridge intent | R65 | L2 | not opened | not opened | queued |
 | L4 Terminal content | shared SwiftTerm content and existing consumers | R66 | L1 | not opened | not opened | queued |
