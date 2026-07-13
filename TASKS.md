@@ -54,7 +54,7 @@ append the replacement ID, and write the exact handoff checkpoint before impleme
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | L0 Decision | ADR/SPEC compatibility contract | D58 | none | `019f59b0-7e57-72c3-b81c-30f862200e61` | `019f59b0-823e-70f3-a4d2-50fb7bfb63aa` | complete | Landed in `03b6d97`; no next action. |
 | L1 PTY core | PTY protocol, Rust manager, Swift bindings | D59-D61 | L0 | `019f59be-2304-7a73-bbe1-cef19e64338e` | `019f59be-1efa-7b41-98d2-420985d6eb0f` | complete | Landed through `4a4495a`; standing pair closed. |
-| L2 Host control | resume identity, coordinator, AgentDesk wire | R62-R64 | L1 | `019f59f0-7854-7f23-9dff-80f7adb409d7` | `019f59f0-7bf4-7c72-9ceb-5b63143d7b2a` | active | R62 implementation and tests are in the shared worktree; Reviewer baseline is complete. Implementor owns final self-review/test handoff, then Reviewer reviews the complete R62 diff. Reuse this pair for R63 and R64. |
+| L2 Host control | resume identity, coordinator, AgentDesk wire | D62, R63-R64 | L1 | `019f59f0-7854-7f23-9dff-80f7adb409d7` | `019f59f0-7bf4-7c72-9ceb-5b63143d7b2a` | active | D62 passed Implementor self-review, standing Reviewer approval, and the Co-ordinator `just check` gate (427 host tests). Reuse this pair for R63 next. |
 | L3 Panel intent | ATC webview and native bridge intent | R65 | L2 | not opened | not opened | queued | Co-ordinator opens one standing pair only after D64 lands. That pair owns R65 through approval and landing. |
 | L4 Terminal content | shared SwiftTerm content and existing consumers | R66 | L1 | `019f59f0-7f6a-7191-a273-59b2ee115db5` | `019f59f0-8367-7990-ba70-41dfe70f7fb0` | active | R66 implementation and tests are in the shared worktree; Reviewer baseline is complete. Implementor owns lifecycle teardown, self-review, and test handoff, then Reviewer reviews the complete R66 diff. |
 | L5 macOS | Agent window layout and macOS lifecycle | R67-R68 | L2, L3, L4 | not opened | not opened | queued | Co-ordinator opens one pair after D64-D66 land. The same pair owns R67 and R68; do not split layout from lifecycle. |
@@ -147,7 +147,7 @@ This phase changes the in-tree PTY pair in lockstep. It does not add an Agent Pa
 The host is authoritative for translating a normalized harness source/session into a local process.
 The webview and iPhone never supply arbitrary executable text.
 
-- [ ] R62. Add pure `AgentResumeTerminalIdentity` and `AgentResumeLaunch` models. Validate source as
+- [x] D62. Add pure `AgentResumeTerminalIdentity` and `AgentResumeLaunch` models. Validate source as
   exactly `claude | codex`, require a UUID session id, require an absolute project directory under the
   user's home, and derive one deterministic PTY name per source/session. Build command launches with
   positional arguments through the user's login zsh so GUI launch can resolve the real CLI without
@@ -266,3 +266,4 @@ human checkpoint.
 | D59 | 2026-07-13 | landed | PTY v4 adds explicit shell/command launch and persistent/leased lifetime across Rust and Swift callers. |
 | D60 | 2026-07-13 | landed | Direct PTY command launch preserves argv boundaries and orders attachment before short-lived process output and exit. |
 | D61 | 2026-07-13 | landed | Generation-safe final-lease reaping covers detach, socket loss, reconnect, explicit cleanup, and manager shutdown. |
+| D62 | 2026-07-13 | landed | Canonical harness identity and host-owned positional resume argv reject path escapes and shell interpolation. |

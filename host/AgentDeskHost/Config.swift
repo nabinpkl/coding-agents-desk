@@ -881,6 +881,18 @@ enum Config {
         defaultValue: false,
         environment: ProcessInfo.processInfo.environment
     )
+    static let agentResumeExecutables = agentResumeExecutables(
+        environment: ProcessInfo.processInfo.environment
+    )
+
+    static func agentResumeExecutables(environment: [String: String]) -> AgentResumeLaunch.Executables {
+        AgentResumeLaunch.Executables(
+            claude: environment["AGENTDESK_CLAUDE_EXECUTABLE"].flatMap { $0.isEmpty ? nil : $0 }
+                ?? "claude",
+            codex: environment["AGENTDESK_CODEX_EXECUTABLE"].flatMap { $0.isEmpty ? nil : $0 }
+                ?? "codex"
+        )
+    }
     // Optional workspace root registered on first launch when the store is empty, so the Files
     // surface has something to browse before the macOS workspace shell (R20/R21) exists to let the
     // user add roots. No default: unset means nothing is auto-registered.
