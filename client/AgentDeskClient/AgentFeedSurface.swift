@@ -15,6 +15,7 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-surface")
     private let terminalCloseDelivery: AgentFeedTerminalCloseDelivery
+    private static let terminalControlBarHeight: CGFloat = 32
 
     /// Injected by PairingViewController to forward inbound requests to the input lane.
     var onAgentRequest: ((AgentFeedRequest) -> Void)?
@@ -27,6 +28,7 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
     private var panelController: AgentPanelWebViewController?
     private(set) var panelContentView = UIView()
     let resizeHandle = UIView()
+    let terminalKeyboardDismissButton = UIButton(type: .system)
     let terminalContent = PtyTerminalSwiftTermContentView(
         style: PtyTerminalViewStyle(fontSize: 14, metalRendering: PtyTerminalMetalRendering.from())
     )
@@ -129,6 +131,13 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
         grabber.backgroundColor = .separator
         grabber.layer.cornerRadius = 1.5
         resizeHandle.addSubview(grabber)
+        terminalKeyboardDismissButton.translatesAutoresizingMaskIntoConstraints = false
+        terminalKeyboardDismissButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down"), for: .normal)
+        terminalKeyboardDismissButton.tintColor = .secondaryLabel
+        terminalKeyboardDismissButton.accessibilityIdentifier = "agent-terminal-keyboard-dismiss"
+        terminalKeyboardDismissButton.accessibilityLabel = "Hide keyboard"
+        terminalKeyboardDismissButton.addTarget(self, action: #selector(handleTerminalKeyboardDismiss), for: .touchUpInside)
+        resizeHandle.addSubview(terminalKeyboardDismissButton)
         resizeHandle.addGestureRecognizer(UIPanGestureRecognizer(
             target: self,
             action: #selector(handleTerminalResize(_:))
@@ -160,6 +169,11 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
             grabber.heightAnchor.constraint(equalToConstant: 3),
             grabber.centerXAnchor.constraint(equalTo: resizeHandle.centerXAnchor),
             grabber.centerYAnchor.constraint(equalTo: resizeHandle.centerYAnchor),
+
+            terminalKeyboardDismissButton.trailingAnchor.constraint(equalTo: resizeHandle.trailingAnchor, constant: -10),
+            terminalKeyboardDismissButton.centerYAnchor.constraint(equalTo: resizeHandle.centerYAnchor),
+            terminalKeyboardDismissButton.widthAnchor.constraint(equalToConstant: 28),
+            terminalKeyboardDismissButton.heightAnchor.constraint(equalToConstant: 28),
         ])
 
         terminalBottomConstraint = terminalContent.bottomAnchor.constraint(
@@ -167,7 +181,7 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
         )
         panelClosedBottomConstraint = panelContentView.bottomAnchor.constraint(equalTo: bottomAnchor)
         panelOpenBottomConstraint = panelContentView.bottomAnchor.constraint(equalTo: resizeHandle.topAnchor)
-        resizeHandleOpenHeightConstraint = resizeHandle.heightAnchor.constraint(equalToConstant: 14)
+        resizeHandleOpenHeightConstraint = resizeHandle.heightAnchor.constraint(equalToConstant: Self.terminalControlBarHeight)
         resizeHandleClosedHeightConstraint = resizeHandle.heightAnchor.constraint(equalToConstant: 0)
         terminalClosedHeightConstraint = terminalContent.heightAnchor.constraint(equalToConstant: 0)
         terminalBottomConstraint.isActive = true
@@ -206,6 +220,7 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
         panelOpenBottomConstraint.isActive = presented
         resizeHandleOpenHeightConstraint.isActive = presented
         resizeHandle.isHidden = !presented
+        terminalKeyboardDismissButton.isHidden = !presented
         terminalContent.isHidden = !presented
         if presented {
             replaceTerminalHeightConstraint()
@@ -238,6 +253,10 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
         default:
             break
         }
+    }
+
+    @objc func handleTerminalKeyboardDismiss() {
+        terminalContent.resignFocus()
     }
 
     func deliver(rawJSON: String) {

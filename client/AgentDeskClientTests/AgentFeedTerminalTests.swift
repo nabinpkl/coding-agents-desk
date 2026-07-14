@@ -61,6 +61,7 @@ struct AgentFeedTerminalTests {
 
         #expect(!surface.isTerminalPresented)
         #expect(surface.resizeHandle.isHidden)
+        #expect(surface.terminalKeyboardDismissButton.isHidden)
         #expect(surface.terminalContent.isHidden)
         #expect(surface.resizeHandle.frame.height == 0)
         #expect(surface.terminalContent.frame.height == 0)
@@ -70,6 +71,8 @@ struct AgentFeedTerminalTests {
         layout(surface)
 
         #expect(surface.isTerminalPresented)
+        #expect(!surface.terminalKeyboardDismissButton.isHidden)
+        #expect(surface.terminalKeyboardDismissButton.accessibilityIdentifier == "agent-terminal-keyboard-dismiss")
         #expect(abs(surface.terminalHeightFraction - 0.38) < 0.001)
         #expect(surface.panelContentView.frame.maxY <= surface.resizeHandle.frame.minY + 0.5)
         #expect(surface.panelContentView.frame.height < surface.bounds.height)
@@ -713,6 +716,26 @@ struct AgentFeedTerminalTests {
                 && !harness.surface.isTerminalPresented
                 && firstResponder(in: harness.surface.terminalContent) == nil
         }
+    }
+
+    @Test func keyboardDismissButtonResignsSwiftTermFocus() async throws {
+        let harness = makeHarness()
+        let window = hostInWindow(harness.surface)
+        defer { window.isHidden = true }
+        try await openAndAttach(harness)
+
+        harness.surface.terminalContent.focus()
+        try await waitUntil { firstResponder(in: harness.surface.terminalContent) != nil }
+
+        #expect(
+            harness.surface.terminalKeyboardDismissButton.actions(
+                forTarget: harness.surface,
+                forControlEvent: .touchUpInside
+            ) == ["handleTerminalKeyboardDismiss"]
+        )
+        harness.surface.handleTerminalKeyboardDismiss()
+
+        try await waitUntil { firstResponder(in: harness.surface.terminalContent) == nil }
     }
 
     @Test func explicitCloseTaskCompletesOnlyAfterTypedCloseSendSettles() async throws {
