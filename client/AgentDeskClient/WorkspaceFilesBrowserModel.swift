@@ -24,7 +24,7 @@ struct WorkspaceFilesBrowserModel: Equatable {
     /// loaded preview carries the revision it was read at, so a save can be revision-checked.
     enum Preview: Equatable {
         case loading(path: String)
-        case loaded(path: String, text: String, revision: WorkspaceFileRevision)
+        case loaded(path: String, content: WorkspaceFileReadContent, revision: WorkspaceFileRevision)
         case failed(path: String, message: String)
 
         var path: String {
@@ -175,10 +175,14 @@ struct WorkspaceFilesBrowserModel: Equatable {
         return copy
     }
 
-    func previewLoaded(previewGeneration: Int, text: String, revision: WorkspaceFileRevision) -> Self {
+    func previewLoaded(
+        previewGeneration: Int,
+        content: WorkspaceFileReadContent,
+        revision: WorkspaceFileRevision
+    ) -> Self {
         guard previewGeneration == self.previewGeneration, let path = preview?.path else { return self }
         var copy = self
-        copy.preview = .loaded(path: path, text: text, revision: revision)
+        copy.preview = .loaded(path: path, content: content, revision: revision)
         copy.saveStatus = .idle
         return copy
     }
@@ -203,7 +207,7 @@ struct WorkspaceFilesBrowserModel: Equatable {
     func saved(previewGeneration: Int, text: String, revision: WorkspaceFileRevision) -> Self {
         guard previewGeneration == self.previewGeneration, let path = preview?.path else { return self }
         var copy = self
-        copy.preview = .loaded(path: path, text: text, revision: revision)
+        copy.preview = .loaded(path: path, content: .text(text), revision: revision)
         copy.saveStatus = .idle
         return copy
     }

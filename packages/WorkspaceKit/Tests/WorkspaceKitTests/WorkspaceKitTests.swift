@@ -8,4 +8,14 @@ struct WorkspaceKitTests {
     @Test func exposesWireProtocolVersion() {
         #expect(WorkspaceKit.wireProtocolVersion == WireProtocol.version)
     }
+
+    @Test func classifiesPreviewFormatsOnce() {
+        #expect(WorkspaceFileKind(path: "Reports/Plan.DOCX") == .docx)
+        #expect(WorkspaceFileKind(path: "README.md") == .markdown)
+        #expect(WorkspaceFileKind(path: "analysis.ipynb") == .notebook)
+        #expect(WorkspaceFileKind(path: "main.swift") == .text)
+        #expect(WorkspaceFileKind.docx.isReadOnly)
+        #expect(WorkspaceFileKind.notebook.isReadOnly)
+        #expect(!WorkspaceFileKind.text.isReadOnly)
+    }
 }

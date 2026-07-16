@@ -9,7 +9,7 @@ enum WorkspaceFilesLaneError: Error, Equatable {
     case notStarted
 }
 
-/// Serves one authenticated `.files` QUIC stream (protocol 6, ADR-0050). It reads a
+/// Serves one authenticated `.files` QUIC stream (binary body codec in protocol 8, ADR-0057). It reads a
 /// `WorkspaceFileRequest` per frame, dispatches it through the injected handler (which resolves the
 /// current workspace store and applies root-scoped file semantics), and writes back the correlated
 /// `WorkspaceFileResponse`. All filesystem authority lives behind the handler; this type only
@@ -71,7 +71,7 @@ final class WorkspaceFilesLaneServer: @unchecked Sendable {
         }
         do {
             while !Task.isCancelled {
-                let frame = try await QuicSessionStreamIO.receiveFrame(on: stream)
+                let frame = try await QuicSessionStreamIO.receiveFrame(on: stream, expectedRole: .files)
                 guard frame.role == .files else {
                     throw WorkspaceFilesLaneError.unexpectedRole(frame.role)
                 }
@@ -97,11 +97,11 @@ final class WorkspaceFilesLaneServer: @unchecked Sendable {
     ) async throws -> Data {
         let request: WorkspaceFileRequest
         do {
-            request = try JSONDecoder().decode(WorkspaceFileRequest.self, from: payload)
+            request = try WorkspaceFilesCodec.decodeRequest(payload)
         } catch {
             throw WorkspaceFilesLaneError.malformedRequest
         }
         let response = await handleRequest(request)
-        return try JSONEncoder().encode(response)
+        return try WorkspaceFilesCodec.encode(response)
     }
 }

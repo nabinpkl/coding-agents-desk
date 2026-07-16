@@ -28,15 +28,22 @@ enum QuicSessionStreamIO {
         try await stream.send(try QuicSessionStreamFrame.encode(role: role, payload: payload))
     }
 
-    static func receiveFrame(on stream: QUIC.Stream<QUICStream>) async throws -> QuicSessionStreamFrame {
+    static func receiveFrame(
+        on stream: QUIC.Stream<QUICStream>,
+        expectedRole: QuicSessionStreamRole? = nil
+    ) async throws -> QuicSessionStreamFrame {
         let header = try await stream.receive(exactly: 5).content
         guard header.count == 5,
               let role = QuicSessionStreamRole(rawValue: header[header.startIndex])
         else {
             throw QuicSessionFrameError.malformed
         }
+        guard expectedRole == nil || expectedRole == role else {
+            throw QuicSessionFrameError.malformed
+        }
         let length = Int(try header.readUInt32BE(at: 1))
-        guard length <= QuicSessionStreamFrame.maxFrameLength else {
+        let boundedRole = expectedRole ?? role
+        guard length <= QuicSessionStreamFrame.maxFrameLength(for: boundedRole) else {
             throw QuicSessionFrameError.frameTooLarge
         }
         let payload = try await stream.receive(exactly: length).content

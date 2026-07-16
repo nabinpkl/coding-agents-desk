@@ -45,7 +45,7 @@ final class DomMirrorClient: @unchecked Sendable {
             }
             while !Task.isCancelled {
                 do {
-                    let frame = try await QuicSessionStreamIO.receiveFrame(on: stream)
+                    let frame = try await QuicSessionStreamIO.receiveFrame(on: stream, expectedRole: .dom)
                     guard frame.role == .dom else { continue }
                     // Typed discrimination on the `t` tag: a batch is forwarded verbatim; an
                     // ADR-0046 dom-status updates the diagnostic line without touching the stream;

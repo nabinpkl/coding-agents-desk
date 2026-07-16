@@ -29,7 +29,7 @@ final class TerminalQuicPtyTransport: PtyTransport, @unchecked Sendable {
 
     func receiveFrame() async throws -> Data {
         try ensureOpen()
-        let frame = try await QuicSessionStreamIO.receiveFrame(on: stream)
+        let frame = try await QuicSessionStreamIO.receiveFrame(on: stream, expectedRole: .terminal)
         guard frame.role == .terminal else {
             throw TerminalQuicPtyTransportError.unexpectedRole(frame.role)
         }

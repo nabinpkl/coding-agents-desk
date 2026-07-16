@@ -98,6 +98,15 @@ enum WorkspaceFilePOSIX {
     }
 
     static func readUTF8(file: WorkspaceFileDescriptor, maxBytes: Int) throws -> WorkspaceFileTextContent {
+        let data = try readData(file: file, maxBytes: maxBytes)
+        guard !data.contains(0) else { throw WorkspaceFileServiceFailure.binary }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw WorkspaceFileServiceFailure.invalidUTF8
+        }
+        return WorkspaceFileTextContent(data: data, text: text)
+    }
+
+    static func readData(file: WorkspaceFileDescriptor, maxBytes: Int) throws -> Data {
         let mode = try fileMode(of: file)
         guard isRegularFile(mode) else { throw WorkspaceFileServiceFailure.notFile }
         var status = stat()
@@ -119,11 +128,7 @@ enum WorkspaceFilePOSIX {
             guard data.count + count <= maxBytes else { throw WorkspaceFileServiceFailure.tooLarge }
             data.append(buffer, count: count)
         }
-        guard !data.contains(0) else { throw WorkspaceFileServiceFailure.binary }
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw WorkspaceFileServiceFailure.invalidUTF8
-        }
-        return WorkspaceFileTextContent(data: data, text: text)
+        return data
     }
 
     static func writeAll(_ descriptor: Int32, _ data: Data) throws {

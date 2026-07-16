@@ -50,8 +50,31 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
 }
 
 @Test func wireProtocolFilesVersionIsPinned() {
-    #expect(WireProtocol.version == 7)
-    #expect(WireProtocol.minCompatibleVersion == 7)
+    #expect(WireProtocol.version == 8)
+    #expect(WireProtocol.minCompatibleVersion == 8)
+}
+
+@Test func workspaceFilesCodecCarriesDocumentBytesWithoutJSONBase64() throws {
+    let bytes = Data([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff])
+    let response = WorkspaceFileResponse.read(
+        requestID: WorkspaceFileRequestID(value: "docx"),
+        result: WorkspaceFileReadResult(
+            workspaceID: "workspace-a",
+            path: "Report.docx",
+            content: .document(bytes),
+            revision: WorkspaceFileRevision(digest: "sha256:docx")
+        )
+    )
+
+    let encoded = try WorkspaceFilesCodec.encode(response)
+    #expect(encoded.starts(with: Data("bplist".utf8)))
+    guard case .read(_, let decoded) = try WorkspaceFilesCodec.decodeResponse(encoded) else {
+        Issue.record("expected document read")
+        return
+    }
+    #expect(decoded.document == bytes)
+    #expect(decoded.text == nil)
+    #expect(encoded.count < bytes.base64EncodedString().utf8.count + 200)
 }
 
 @Test func agentTerminalMessagesRoundTripWithContextIdentityAndNoLaunchText() throws {

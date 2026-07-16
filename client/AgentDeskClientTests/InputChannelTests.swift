@@ -1064,9 +1064,9 @@ struct InputChannelTests {
         #expect(decoded.event == event)
     }
 
-    @Test func protocolVersionIsSevenForAgentTerminalWireBreak() {
-        #expect(Config.protocolVersion == 7)
-        #expect(Config.minCompatibleProtocolVersion == 7)
+    @Test func protocolVersionIsEightForBinaryWorkspaceDocuments() {
+        #expect(Config.protocolVersion == 8)
+        #expect(Config.minCompatibleProtocolVersion == 8)
     }
 
     @Test func eventFrameRoundTripPreservesKeyWithModifiers() throws {

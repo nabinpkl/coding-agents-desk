@@ -1,6 +1,7 @@
 import UIKit
 import AgentDeskWire
 import WorkspaceEditorViewer
+import WorkspaceKit
 
 /// The iOS Files surface (R28): renders a `WorkspaceFilesBrowser`'s navigation state — a breadcrumb
 /// with an up control and a table of directory entries — and forwards taps back to the browser.
@@ -37,7 +38,7 @@ final class WorkspaceFilesSurface: UIView {
     /// modeButton: markdown/notebook open rendered, everything else opens as editable source. The
     /// mode toggle flips it and re-renders, so the iOS Files surface keeps the editability the raw
     /// UITextView had before this surface rendered through the shared viewer.
-    private var previewMode = "preview"
+    private var previewMode = WorkspaceFileMode.preview
 
     init(browser: WorkspaceFilesBrowser) {
         self.browser = browser
@@ -221,17 +222,18 @@ final class WorkspaceFilesSurface: UIView {
             previewStatusLabel.text = "Loading…"
             previewStatusLabel.isHidden = false
             previewedPath = nil
-        case .loaded(let path, let text, _):
-            previewSaveButton.isHidden = false
+        case .loaded(let path, let content, _):
+            let kind = WorkspaceFileKind(path: path)
+            previewSaveButton.isHidden = kind.isReadOnly
             // Render the baseline into the web surface only when the file changes, so re-renders
             // while the user edits (or a save/conflict result) never reload and clobber edits.
             if previewedPath != path {
                 previewedPath = path
                 latestEditedText = nil
-                previewMode = Self.defaultMode(forKind: Self.webKind(forPath: path))
-                webSurface.render(payload(path: path, text: text, mode: previewMode))
+                previewMode = Self.defaultMode(for: kind)
+                webSurface.render(payload(path: path, content: content, mode: previewMode))
             }
-            updateModeButton(forKind: Self.webKind(forPath: path))
+            updateModeButton(for: kind)
             renderSaveStatus(saveStatus)
         case .failed(_, let message):
             previewSaveButton.isHidden = true
@@ -242,40 +244,40 @@ final class WorkspaceFilesSurface: UIView {
         }
     }
 
-    private func payload(path: String, text: String, mode: String) -> WorkspaceFilePayload {
-        let kind = Self.webKind(forPath: path)
+    private func payload(
+        path: String,
+        content: WorkspaceFileReadContent,
+        mode: WorkspaceFileMode
+    ) -> WorkspaceFilePayload {
+        let kind = WorkspaceFileKind(path: path)
+        let viewerContent: WorkspaceFileContent
+        switch content {
+        case .text(let text): viewerContent = .text(text)
+        case .document(let data): viewerContent = .documentData(data)
+        }
         let workspace = browser.model.workspaces.first { $0.id == browser.model.selectedWorkspaceID }?.name ?? ""
         return WorkspaceFilePayload(
             id: path, name: (path as NSString).lastPathComponent, path: path,
-            workspace: workspace, root: "", text: text, kind: kind, mode: mode
+            workspace: workspace, root: "", content: viewerContent, kind: kind, mode: mode
         )
     }
 
     /// The mode a freshly opened file renders in. Markdown and notebooks open rendered (the viewer's
     /// whole point); everything else — including HTML, which the SPA shows only as source, not a live
     /// page — opens as editable source so it is never a read-only dead end.
-    private static func defaultMode(forKind kind: String) -> String {
+    private static func defaultMode(for kind: WorkspaceFileKind) -> WorkspaceFileMode {
         switch kind {
-        case "markdown", "notebook": "preview"
-        default: "edit"
+        case .docx, .markdown, .notebook: .preview
+        default: .edit
         }
     }
 
-    /// Notebooks always render read-only through the SPA (matching macOS), so they get no toggle;
-    /// every other kind can flip between the rendered viewer and editable source. The label names the
+    /// Read-only kinds always render through the SPA (matching macOS), so they get no toggle; every
+    /// writable kind can flip between the rendered viewer and editable source. The label names the
     /// mode the tap switches TO (the macOS modeButton convention).
-    private func updateModeButton(forKind kind: String) {
-        previewModeButton.isHidden = kind == "notebook"
-        previewModeButton.setTitle(previewMode == "edit" ? "Preview" : "Edit", for: .normal)
-    }
-
-    private static func webKind(forPath path: String) -> String {
-        switch (path as NSString).pathExtension.lowercased() {
-        case "md", "markdown": "markdown"
-        case "html", "htm": "html"
-        case "ipynb": "notebook"
-        default: "text"
-        }
+    private func updateModeButton(for kind: WorkspaceFileKind) {
+        previewModeButton.isHidden = kind.isReadOnly
+        previewModeButton.setTitle(previewMode == .edit ? "Preview" : "Edit", for: .normal)
     }
 
     private func renderSaveStatus(_ saveStatus: WorkspaceFilesBrowserModel.SaveStatus) {
@@ -310,10 +312,14 @@ final class WorkspaceFilesSurface: UIView {
     /// Carries the user's in-progress edits across the flip (renders latestEditedText when present), so
     /// toggling to preview shows the edited content and toggling back does not lose it.
     @objc private func toggleModeTapped() {
-        guard case .loaded(let path, let baseline, _)? = browser.model.preview else { return }
-        previewMode = previewMode == "edit" ? "preview" : "edit"
-        webSurface.render(payload(path: path, text: latestEditedText ?? baseline, mode: previewMode))
-        updateModeButton(forKind: Self.webKind(forPath: path))
+        guard case .loaded(let path, .text(let baseline), _)? = browser.model.preview else { return }
+        previewMode = previewMode == .edit ? .preview : .edit
+        webSurface.render(payload(
+            path: path,
+            content: .text(latestEditedText ?? baseline),
+            mode: previewMode
+        ))
+        updateModeButton(for: WorkspaceFileKind(path: path))
     }
 
     @objc private func saveTapped() {
@@ -321,7 +327,7 @@ final class WorkspaceFilesSurface: UIView {
         let text: String
         if let latestEditedText {
             text = latestEditedText
-        } else if case .loaded(_, let loaded, _)? = browser.model.preview {
+        } else if case .loaded(_, .text(let loaded), _)? = browser.model.preview {
             text = loaded
         } else {
             return

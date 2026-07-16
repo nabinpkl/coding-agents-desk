@@ -16,6 +16,7 @@ xcuserdata/
 # Xcode build output and SPM caches
 build/
 DerivedData/
+.derivedData/
 .swiftpm/
 .build/
 

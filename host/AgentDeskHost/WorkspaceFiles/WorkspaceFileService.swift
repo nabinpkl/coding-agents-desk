@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import AgentDeskWire
+import WorkspaceKit
 
 enum WorkspaceFileServiceFailure: Error, Sendable {
     case workspaceUnavailable
@@ -9,6 +10,7 @@ enum WorkspaceFileServiceFailure: Error, Sendable {
     case forbidden
     case notDirectory
     case notFile
+    case readOnly
     case binary
     case invalidUTF8
     case tooLarge
@@ -24,6 +26,7 @@ enum WorkspaceFileServiceFailure: Error, Sendable {
         case .forbidden: .forbidden
         case .notDirectory: .notDirectory
         case .notFile: .notFile
+        case .readOnly: .forbidden
         case .binary: .binary
         case .invalidUTF8: .invalidUTF8
         case .tooLarge: .tooLarge
@@ -39,6 +42,7 @@ enum WorkspaceFileServiceFailure: Error, Sendable {
         case .forbidden: "Access to this path is not permitted."
         case .notDirectory: "The requested path is not a directory."
         case .notFile: "The requested path is not a regular file."
+        case .readOnly: "This document is read-only."
         case .binary: "Binary files cannot be opened here."
         case .invalidUTF8: "This file is not valid UTF-8 text."
         case .tooLarge: "This file exceeds the supported size."
@@ -55,6 +59,7 @@ typealias WorkspaceFileTemporaryWriter = (Int32, Data) throws -> Void
 final class WorkspaceFileService {
     private let storeProvider: () -> WorkspaceStore
     private let maxUTF8Bytes: Int
+    private let maxDocumentBytes: Int
     private let temporaryFileWriter: WorkspaceFileTemporaryWriter
 
     convenience init(
@@ -65,6 +70,21 @@ final class WorkspaceFileService {
         self.init(
             storeProvider: { store },
             maxUTF8Bytes: maxUTF8Bytes,
+            maxDocumentBytes: WorkspaceFilesCodec.maximumDocumentBytes,
+            temporaryFileWriter: temporaryFileWriter
+        )
+    }
+
+    convenience init(
+        store: WorkspaceStore,
+        maxUTF8Bytes: Int,
+        maxDocumentBytes: Int,
+        temporaryFileWriter: @escaping WorkspaceFileTemporaryWriter = WorkspaceFilePOSIX.writeAll
+    ) {
+        self.init(
+            storeProvider: { store },
+            maxUTF8Bytes: maxUTF8Bytes,
+            maxDocumentBytes: maxDocumentBytes,
             temporaryFileWriter: temporaryFileWriter
         )
     }
@@ -72,11 +92,17 @@ final class WorkspaceFileService {
     init(
         storeProvider: @escaping () -> WorkspaceStore,
         maxUTF8Bytes: Int,
+        maxDocumentBytes: Int = WorkspaceFilesCodec.maximumDocumentBytes,
         temporaryFileWriter: @escaping WorkspaceFileTemporaryWriter = WorkspaceFilePOSIX.writeAll
     ) {
         precondition(maxUTF8Bytes > 0, "workspace files byte limit must be positive")
+        precondition(
+            maxDocumentBytes > 0 && maxDocumentBytes <= WorkspaceFilesCodec.maximumDocumentBytes,
+            "workspace document byte limit exceeds the wire budget"
+        )
         self.storeProvider = storeProvider
         self.maxUTF8Bytes = maxUTF8Bytes
+        self.maxDocumentBytes = maxDocumentBytes
         self.temporaryFileWriter = temporaryFileWriter
     }
 
@@ -136,14 +162,24 @@ final class WorkspaceFileService {
                 root: workspace.root,
                 components: try components(in: path, allowRoot: false)
             )
-            let content = try WorkspaceFilePOSIX.readUTF8(file: file.file, maxBytes: maxUTF8Bytes)
+            let content: WorkspaceFileReadContent
+            let revisionData: Data
+            if WorkspaceFileKind(path: path) == .docx {
+                let data = try WorkspaceFilePOSIX.readData(file: file.file, maxBytes: maxDocumentBytes)
+                content = .document(data)
+                revisionData = data
+            } else {
+                let text = try WorkspaceFilePOSIX.readUTF8(file: file.file, maxBytes: maxUTF8Bytes)
+                content = .text(text.text)
+                revisionData = text.data
+            }
             return .read(
                 requestID: requestID,
                 result: WorkspaceFileReadResult(
                     workspaceID: workspaceID,
                     path: path,
-                    text: content.text,
-                    revision: revision(for: content.data)
+                    content: content,
+                    revision: revision(for: revisionData)
                 )
             )
         } catch let failure as WorkspaceFileServiceFailure {
@@ -161,6 +197,9 @@ final class WorkspaceFileService {
         text: String
     ) -> WorkspaceFileResponse {
         do {
+            guard WorkspaceFileKind(path: path) != .docx else {
+                throw WorkspaceFileServiceFailure.readOnly
+            }
             let newData = Data(text.utf8)
             guard newData.count <= maxUTF8Bytes else { throw WorkspaceFileServiceFailure.tooLarge }
             guard !newData.contains(0) else { throw WorkspaceFileServiceFailure.binary }

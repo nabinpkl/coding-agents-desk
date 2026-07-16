@@ -121,7 +121,7 @@ final class TerminalClientBridge: @unchecked Sendable {
 
     private func relayClientToManager(_ socket: LengthPrefixedUnixSocket) async throws {
         while !Task.isCancelled {
-            let frame = try await QuicSessionStreamIO.receiveFrame(on: stream)
+            let frame = try await QuicSessionStreamIO.receiveFrame(on: stream, expectedRole: .terminal)
             guard frame.role == .terminal else {
                 throw TerminalClientBridgeError.unexpectedRole(frame.role)
             }

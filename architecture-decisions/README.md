@@ -94,3 +94,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0054 | Share the workspace+files data model; port the agent-workspace-ide shell | accepted | 2026-07-11 |
 | ADR-0055 | Port the dock-enrichment strip, backed by a single SkyLight source | accepted | 2026-07-12 |
 | ADR-0056 | Bottom Agent Panel terminal | accepted | 2026-07-13 |
+| ADR-0057 | Shared responsive DOCX preview over the Files stream | accepted | 2026-07-16 |

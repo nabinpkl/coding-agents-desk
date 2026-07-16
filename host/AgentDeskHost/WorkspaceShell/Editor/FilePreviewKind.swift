@@ -1,21 +1,10 @@
 import Foundation
+import WorkspaceKit
 
-public enum FilePreviewKind: Equatable {
-    case html
-    case markdown
-    case notebook
-    case text
+public typealias FilePreviewKind = WorkspaceFileKind
 
-    public static func classify(_ url: URL) -> FilePreviewKind {
-        switch url.pathExtension.lowercased() {
-        case "html", "htm":
-            return .html
-        case "md", "markdown":
-            return .markdown
-        case "ipynb":
-            return .notebook
-        default:
-            return .text
-        }
+extension WorkspaceFileKind {
+    public static func classify(_ url: URL) -> WorkspaceFileKind {
+        WorkspaceFileKind(path: url.path)
     }
 }

@@ -253,7 +253,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             guard let self else { return }
             while !Task.isCancelled {
                 do {
-                    let frame = try await QuicSessionStreamIO.receiveFrame(on: inputStream)
+                    let frame = try await QuicSessionStreamIO.receiveFrame(on: inputStream, expectedRole: .input)
                     guard frame.role == .input else { continue }
                     handleInputPayload(frame.payload)
                 } catch {

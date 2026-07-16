@@ -3,15 +3,22 @@ import WorkspaceEditorViewer
 
 extension FileViewer {
     func payload(for tab: FileTab) -> WorkspaceFilePayload {
-        WorkspaceFilePayload(
+        let kind = tab.kind ?? .text
+        let content: WorkspaceFileContent
+        if kind == .docx {
+            content = .documentFile(tab.documentURL ?? tab.url, maximumBytes: Config.workspaceDocumentMaxBytes)
+        } else {
+            content = .text(tab.text)
+        }
+        return WorkspaceFilePayload(
             id: tab.url.path,
             name: tab.url.lastPathComponent,
             path: displayPath(for: tab.url),
             workspace: workspace?.name ?? "",
             root: workspace?.root.path ?? "",
-            text: tab.text,
-            kind: (tab.kind ?? .text).webName,
-            mode: tab.mode.rawValue
+            content: content,
+            kind: kind,
+            mode: WorkspaceFileMode(rawValue: tab.mode.rawValue) ?? .preview
         )
     }
 
@@ -36,18 +43,6 @@ extension FileViewer {
         surface.onOpenFile = { [weak self] url in self?.onOpenFile?(url) }
         reusableHTMLSurface = surface
         return surface
-    }
-}
-
-extension FilePreviewKind {
-    /// The `kind` string the web SPA understands.
-    var webName: String {
-        switch self {
-        case .html: "html"
-        case .markdown: "markdown"
-        case .notebook: "notebook"
-        case .text: "text"
-        }
     }
 }
 

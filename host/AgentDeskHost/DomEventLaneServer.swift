@@ -62,7 +62,7 @@ final class DomEventLaneServer: @unchecked Sendable {
                 guard let self else { return }
                 while !(self.sendChain.withLock { $0.closed }) {
                     do {
-                        let frame = try await QuicSessionStreamIO.receiveFrame(on: self.stream)
+                        let frame = try await QuicSessionStreamIO.receiveFrame(on: self.stream, expectedRole: .dom)
                         guard frame.role == .dom,
                               isForwardableDomControl(frame.payload) else { continue }
                         // ADR-0047 scroll diagnostic: log each forwarded control the instant it is read

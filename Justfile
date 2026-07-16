@@ -217,6 +217,17 @@ ensure-webview-placeholder:
     test -f '{{justfile_directory()}}/packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelFixture/index.html'
     mkdir -p '{{webview_out}}'
 
+# Rebuild the committed WorkspaceEditorViewer SPA used by both macOS and iOS.
+# The authored project lives beside the Swift target; its build emits only runtime assets into
+# package Resources so npm dependencies and tests can never be copied into either application.
+vendor-viewer:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VIEWER='{{justfile_directory()}}/packages/WorkspaceEditorViewer/Viewer'
+    npm ci --prefix "$VIEWER"
+    npm test --prefix "$VIEWER"
+    npm run build --prefix "$VIEWER"
+
 # Build the ATC dashboard webview bundle into AgentPanel's package resources.
 # The package resource bundle then embeds the same renderer in macOS and iOS.
 # Requires bun on PATH and replaces any prior ignored Vite output in place.

@@ -1,5 +1,6 @@
 import Foundation
 import WebKit
+import WorkspaceKit
 import os
 #if canImport(AppKit)
 import AppKit
@@ -8,33 +9,69 @@ import AppKit
 import UIKit
 #endif
 
-/// The file content + classification handed to the web viewer. Stringly-typed `kind`/`mode` keep the
-/// surface free of any host enum, so both the macOS shell and the iOS Files surface can build one.
+public enum WorkspaceFileMode: String, Equatable, Sendable {
+    case preview
+    case edit
+}
+
+public enum WorkspaceFileContent: Equatable, Sendable {
+    case text(String)
+    case documentData(Data)
+    case documentFile(URL, maximumBytes: Int)
+}
+
+/// The file content + classification handed to the shared web viewer.
 public struct WorkspaceFilePayload: Equatable, Sendable {
     public let id: String
     public let name: String
     public let path: String
     public let workspace: String
     public let root: String
-    public let text: String
-    /// "markdown" | "html" | "notebook" | "text" — how the SPA renders the file.
-    public let kind: String
-    /// "preview" | "edit" — the SPA's initial mode.
-    public let mode: String
+    public let content: WorkspaceFileContent
+    public let kind: WorkspaceFileKind
+    public let mode: WorkspaceFileMode
 
-    public init(id: String, name: String, path: String, workspace: String, root: String, text: String, kind: String, mode: String) {
+    public init(
+        id: String,
+        name: String,
+        path: String,
+        workspace: String,
+        root: String,
+        content: WorkspaceFileContent,
+        kind: WorkspaceFileKind,
+        mode: WorkspaceFileMode
+    ) {
         self.id = id
         self.name = name
         self.path = path
         self.workspace = workspace
         self.root = root
-        self.text = text
+        self.content = content
         self.kind = kind
         self.mode = mode
     }
 
-    var dictionary: [String: Any] {
-        ["id": id, "name": name, "path": path, "workspace": workspace, "root": root, "text": text, "kind": kind, "mode": mode]
+    func dictionary(resourceURL: URL?) -> [String: Any] {
+        var value: [String: Any] = [
+            "id": id,
+            "name": name,
+            "path": path,
+            "workspace": workspace,
+            "root": root,
+            "kind": kind.rawValue,
+            "mode": mode.rawValue,
+        ]
+        switch content {
+        case .text(let text):
+            value["text"] = text
+        case .documentData, .documentFile:
+            precondition(kind == .docx, "binary document content requires DOCX kind")
+            guard let resourceURL else {
+                preconditionFailure("DOCX resource URL was not published")
+            }
+            value["resourceURL"] = resourceURL.absoluteString
+        }
+        return value
     }
 }
 
@@ -103,13 +140,19 @@ public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
     public var onEditRequest: ((URL) -> Void)?
 
     private let logger = Logger(subsystem: "com.example.agentdesk.AgentDesk.editor-viewer", category: "file-web-surface")
+    private let resourceStore: WorkspaceFileResourceStore
     private var state = FileWebSurfaceState()
 
     /// `viewerRoot` defaults to the bundled SPA; callers rarely override it.
     public init(viewerRoot: URL = WorkspaceEditorViewer.viewerRootURL) {
         let messageSink = ScriptMessageSink()
+        let resourceStore = WorkspaceFileResourceStore()
+        self.resourceStore = resourceStore
         let config = WKWebViewConfiguration()
-        config.setURLSchemeHandler(AppSchemeHandler(root: viewerRoot), forURLScheme: AppSchemeHandler.scheme)
+        config.setURLSchemeHandler(
+            AppSchemeHandler(root: viewerRoot, resourceStore: resourceStore),
+            forURLScheme: AppSchemeHandler.scheme
+        )
         config.userContentController.add(ScriptMessageProxy { body in messageSink.handle(body) }, name: "shell")
         #if DEBUG
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -138,7 +181,11 @@ public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
         for effect in effects {
             switch effect {
             case .render(let payload):
-                callJS("await window.fileSurface.render(payload)", ["payload": payload.dictionary])
+                let resourceURL = resourceStore.publish(payload.content)
+                callJS(
+                    "await window.fileSurface.render(payload)",
+                    ["payload": payload.dictionary(resourceURL: resourceURL)]
+                )
             case .setTextZoom(let zoom):
                 callJS("await window.fileSurface.setTextZoom(zoom)", ["zoom": zoom.dictionary])
             }
@@ -197,7 +244,7 @@ public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
     public func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
-        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
     ) {
         guard let url = navigationAction.request.url else { decisionHandler(.cancel); return }
         if url.scheme == AppSchemeHandler.scheme {

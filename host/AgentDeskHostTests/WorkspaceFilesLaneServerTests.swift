@@ -8,7 +8,7 @@ struct WorkspaceFilesLaneServerTests {
     @Test func decodesRequestDispatchesAndEncodesResponse() async throws {
         let requestID = WorkspaceFileRequestID(value: "req-1")
         let request = WorkspaceFileRequest.listWorkspaces(requestID: requestID)
-        let payload = try JSONEncoder().encode(request)
+        let payload = try WorkspaceFilesCodec.encode(request)
         let expected = WorkspaceFileResponse.workspaces(
             requestID: requestID,
             result: WorkspaceListResult(workspaces: [WorkspaceSummary(id: "w1", name: "Alpha")])
@@ -19,12 +19,12 @@ struct WorkspaceFilesLaneServerTests {
             return expected
         }
 
-        #expect(try JSONDecoder().decode(WorkspaceFileResponse.self, from: responsePayload) == expected)
+        #expect(try WorkspaceFilesCodec.decodeResponse(responsePayload) == expected)
     }
 
     @Test func preservesRequestIDForErrorResponses() async throws {
         let requestID = WorkspaceFileRequestID(value: "req-2")
-        let payload = try JSONEncoder().encode(
+        let payload = try WorkspaceFilesCodec.encode(
             WorkspaceFileRequest.read(requestID: requestID, workspaceID: "missing", path: "note.txt")
         )
 
@@ -32,9 +32,7 @@ struct WorkspaceFilesLaneServerTests {
             .error(requestID: received.requestID, error: WorkspaceFileError(code: .notFound))
         }
 
-        guard case .error(let responseID, _) = try JSONDecoder().decode(
-            WorkspaceFileResponse.self, from: responsePayload
-        ) else {
+        guard case .error(let responseID, _) = try WorkspaceFilesCodec.decodeResponse(responsePayload) else {
             Issue.record("expected an error response")
             return
         }

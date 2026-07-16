@@ -12,11 +12,23 @@ import AgentDeskWire
 /// discarding the first writer's change.
 actor WorkspaceFilesResponder {
     private let repository: WorkspaceRepository
-    private let maxBytes: Int
+    private let maxUTF8Bytes: Int
+    private let maxDocumentBytes: Int
+
+    init(
+        repository: WorkspaceRepository,
+        maxUTF8Bytes: Int,
+        maxDocumentBytes: Int = WorkspaceFilesCodec.maximumDocumentBytes
+    ) {
+        self.repository = repository
+        self.maxUTF8Bytes = maxUTF8Bytes
+        self.maxDocumentBytes = maxDocumentBytes
+    }
 
     init(repository: WorkspaceRepository, maxBytes: Int) {
         self.repository = repository
-        self.maxBytes = maxBytes
+        self.maxUTF8Bytes = maxBytes
+        self.maxDocumentBytes = WorkspaceFilesCodec.maximumDocumentBytes
     }
 
     func handle(_ request: WorkspaceFileRequest) async -> WorkspaceFileResponse {
@@ -36,6 +48,10 @@ actor WorkspaceFilesResponder {
         }
         // Synchronous: this runs to completion on the actor before any other request, which is what
         // makes the revision-checked write atomic.
-        return WorkspaceFileService(store: store, maxUTF8Bytes: maxBytes).handle(request)
+        return WorkspaceFileService(
+            store: store,
+            maxUTF8Bytes: maxUTF8Bytes,
+            maxDocumentBytes: maxDocumentBytes
+        ).handle(request)
     }
 }

@@ -39,6 +39,14 @@ struct QuicSessionStreamFrameTests {
         }
     }
 
+    @Test func filesRoleUsesItsDocumentBudgetWithoutRaisingOtherLaneLimits() throws {
+        let payload = Data(repeating: 0xab, count: QuicSessionStreamFrame.maxFrameLength + 1)
+        let encoded = try QuicSessionStreamFrame.encode(role: .files, payload: payload)
+        #expect(try QuicSessionStreamFrame.decode(encoded).payload == payload)
+        #expect(QuicSessionStreamFrame.maxFrameLength(for: .input) == QuicSessionStreamFrame.maxFrameLength)
+        #expect(QuicSessionStreamFrame.maxFrameLength(for: .files) == WorkspaceFilesCodec.maximumFrameBytes)
+    }
+
     @Test func streamRoleBytesArePinned() {
         #expect(QuicSessionStreamRole.control.rawValue == 1)
         #expect(QuicSessionStreamRole.input.rawValue == 2)
@@ -240,9 +248,9 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded.event == event)
     }
 
-    @Test func protocolVersionIsSevenForAgentTerminalWireBreak() {
-        #expect(Config.protocolVersion == 7)
-        #expect(Config.minCompatibleProtocolVersion == 7)
+    @Test func protocolVersionIsEightForBinaryWorkspaceDocuments() {
+        #expect(Config.protocolVersion == 8)
+        #expect(Config.minCompatibleProtocolVersion == 8)
     }
 
     @available(macOS 26.0, *)

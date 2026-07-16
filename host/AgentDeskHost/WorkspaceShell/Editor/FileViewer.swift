@@ -292,6 +292,10 @@ public final class FileViewer: NSObject, FileViewing {
             let surface = editorSurface()
             surface.render(payload(for: tab))
             install(surface.view)
+        case (_, .docx, _):
+            let surface = editorSurface()
+            surface.render(payload(for: tab))
+            install(surface.view)
         default:
             let surface = editorSurface()
             surface.render(payload(for: tab))
@@ -340,7 +344,7 @@ public final class FileViewer: NSObject, FileViewing {
         breadcrumb.render(file: tab.url, workspace: workspace)
         saveLabel.stringValue = saveText(for: tab)
         saveLabel.textColor = tab.saveError == nil ? .secondaryLabelColor : .systemRed
-        modeButton.isHidden = tab.unsupportedReason != nil
+        modeButton.isHidden = tab.unsupportedReason != nil || (tab.kind?.isReadOnly ?? false)
         modeButton.title = tab.mode == .edit ? "Preview" : "Edit"
         conflictBar.render(conflictState(for: tab))
     }
@@ -373,7 +377,10 @@ public final class FileViewer: NSObject, FileViewing {
     }
 
     private func setMode(_ mode: FileTabMode, for identity: FileTabIdentity) {
-        guard let tab = tabsByID[identity], tab.unsupportedReason == nil else { return }
+        guard let tab = tabsByID[identity],
+              tab.unsupportedReason == nil,
+              !(tab.kind?.isReadOnly ?? false)
+        else { return }
         tab.mode = mode
         if identity == activeID { showActiveTab() }
     }

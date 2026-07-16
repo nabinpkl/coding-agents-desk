@@ -327,7 +327,7 @@ final class SessionDialer {
 
     @available(iOS 26.0, *)
     private func receiveControlPayload(on stream: QUIC.Stream<QUICStream>) async throws -> Data {
-        let frame = try await QuicSessionStreamIO.receiveFrame(on: stream)
+        let frame = try await QuicSessionStreamIO.receiveFrame(on: stream, expectedRole: .control)
         guard frame.role == .control else { throw SessionRejected(reason: .malformed) }
         if let rejected = try? JSONDecoder().decode(SessionRejected.self, from: frame.payload),
            rejected.type == "session-rejected" {

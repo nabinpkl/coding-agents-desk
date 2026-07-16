@@ -1,0 +1,310 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --bg-elev: #f6f8fa;
+  --bg-tab: #f3f4f6;
+  --fg: #1f2328;
+  --fg-dim: #656d76;
+  --accent: #0f766e;
+  --border: #d0d7de;
+  --code-bg: #f6f8fa;
+  --peek-fade: rgba(255, 255, 255, 0.92);
+  --danger-bg: #fff1f1;
+  --danger-fg: #cf222e;
+  --stderr-bg: #fff8f8;
+  --stderr-fg: #86181d;
+  --image-bg: #fff;
+  --editor-selection: rgba(9, 105, 218, 0.22);
+  --editor-active-line: rgba(208, 215, 222, 0.35);
+  --tok-keyword: #cf222e;
+  --tok-comment: #6e7781;
+  --tok-string: #0a3069;
+  --tok-number: #0550ae;
+  --tok-type: #953800;
+  --tok-name: #24292f;
+  --tok-function: #8250df;
+  --tok-heading: #0550ae;
+  --markdown-font-size: 13px;
+  --editor-code-font-size: 12.5px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1e1e;
+    --bg-elev: #252526;
+    --bg-tab: #2d2d2d;
+    --fg: #d4d4d4;
+    --fg-dim: #9da0a6;
+    --accent: #2dd4bf;
+    --border: #333;
+    --code-bg: #0d1117;
+    --peek-fade: rgba(0, 0, 0, 0.45);
+    --danger-bg: #3a1d1d;
+    --danger-fg: #f48771;
+    --stderr-bg: #3a1d1d;
+    --stderr-fg: #f0b0b0;
+    --editor-selection: rgba(45, 212, 191, 0.22);
+    --editor-active-line: rgba(255, 255, 255, 0.05);
+    --tok-keyword: #c678dd;
+    --tok-comment: #6a9955;
+    --tok-string: #ce9178;
+    --tok-number: #d19a66;
+    --tok-type: #e5c07b;
+    --tok-name: #e06c75;
+    --tok-function: #56b6c2;
+    --tok-heading: #e06c75;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--markdown-font-size)/1.5 -apple-system, system-ui, sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+#content {
+  flex: 1 1 auto;
+  overflow: hidden;  /* the CodeMirror editor scrolls itself; markdown body scrolls inside */
+  padding: 0;
+  position: relative;
+}
+
+/* A code file fills the content area with its own scroller. */
+#content > .cm-editor {
+  height: 100%;
+  font: var(--editor-code-font-size)/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+/* Markdown bodies scroll (the editor handles its own scrolling). */
+#content > .markdown-body { height: 100%; overflow: auto; }
+
+/* DOCX is one shared responsive renderer on macOS and iOS. docx-preview emits
+   fixed page semantics; ignoreWidth/ignoreHeight in renderDocx.mjs lets this
+   shell own the viewport while page breaks remain visible. */
+#content > .docx-scroll {
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.docx-document,
+.docx-document > .docx-wrapper {
+  width: 100%;
+  min-width: 0;
+}
+.docx-document > .docx-wrapper {
+  padding: clamp(8px, 3vw, 24px) !important;
+}
+.docx-document .docx-wrapper > section.docx {
+  width: min(100%, 860px);
+  min-width: 0;
+  min-height: 0 !important;
+  padding: clamp(18px, 6vw, 72px) !important;
+  overflow-wrap: anywhere;
+  content-visibility: auto;
+  contain-intrinsic-size: 860px 1110px;
+}
+.docx-document section.docx img,
+.docx-document section.docx svg {
+  max-width: 100%;
+  height: auto;
+}
+.docx-document section.docx table {
+  max-width: 100%;
+}
+
+.viewer-error {
+  display: flex;
+  min-height: 100%;
+  padding: 24px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--danger-fg);
+  text-align: center;
+}
+.viewer-error span {
+  color: var(--fg-dim);
+}
+
+.markdown-body {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 24px 28px 64px;
+}
+.markdown-body h1, .markdown-body h2 {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+/* Fenced code inside rendered markdown (statically highlighted, tok-* classes). */
+.cm-static {
+  margin: 0;
+  background: var(--code-bg);
+  border-radius: 6px;
+  padding: 12px 14px;
+  overflow: auto;
+  font: var(--editor-code-font-size)/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.cm-static code { background: none; padding: 0; font-size: inherit; }
+/* Static token colors are variables so notebook code cells follow the system theme. */
+.cm-static .tok-keyword { color: var(--tok-keyword); }
+.cm-static .tok-comment { color: var(--tok-comment); font-style: italic; }
+.cm-static .tok-string, .cm-static .tok-string2 { color: var(--tok-string); }
+.cm-static .tok-number, .cm-static .tok-bool, .cm-static .tok-null, .cm-static .tok-atom { color: var(--tok-number); }
+.cm-static .tok-typeName, .cm-static .tok-className, .cm-static .tok-namespace { color: var(--tok-type); }
+.cm-static .tok-variableName, .cm-static .tok-propertyName { color: var(--tok-name); }
+.cm-static .tok-function, .cm-static .tok-operator, .cm-static .tok-derefOperator { color: var(--tok-function); }
+.cm-static .tok-meta, .cm-static .tok-punctuation, .cm-static .tok-bracket { color: var(--fg-dim); }
+.cm-static .tok-heading { color: var(--tok-heading); font-weight: 600; }
+.cm-static .tok-link, .cm-static .tok-url { color: var(--accent); }
+.markdown-body code:not(pre code) {
+  background: var(--bg-elev);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+}
+.markdown-body a { color: var(--accent); }
+.markdown-body table { border-collapse: collapse; }
+.markdown-body th, .markdown-body td { border: 1px solid var(--border); padding: 4px 10px; }
+.markdown-body blockquote {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--border);
+  color: var(--fg-dim);
+}
+
+.mermaid-rendered { padding: 12px; background: var(--code-bg); border-radius: 6px; }
+.mermaid-error { padding: 12px; color: var(--danger-fg); font-family: ui-monospace, monospace; }
+
+/* ── Notebook (.ipynb) read-only view ───────────────────────────────────── */
+#content > .nb { height: 100%; overflow: auto; }
+.nb {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px 18px 64px;
+}
+
+.nb-cell {
+  position: relative;
+  margin: 6px 0;
+}
+
+.nb-cell-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding-left: 18px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.nb-cell-code:hover .nb-cell-toolbar,
+.nb-cell-code:focus-within .nb-cell-toolbar,
+.nb-cell-code.is-running .nb-cell-toolbar {
+  opacity: 1;
+}
+.nb-run-button {
+  min-width: 52px;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  background: var(--bg-elev);
+  font: 11px/1 system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  cursor: pointer;
+}
+.nb-run-button:hover { border-color: var(--accent); }
+.nb-run-status {
+  color: var(--fg-dim);
+  font: 11px/1.4 system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+.nb-cell-code.is-running .nb-run-status { color: var(--accent); }
+
+/* A region is a clickable left gutter bar beside its body; the bar height
+   tracks the body because they are flex siblings in the same row. */
+.nb-region { display: flex; gap: 6px; align-items: stretch; }
+.nb-region-body { flex: 1 1 auto; min-width: 0; }
+
+.nb-gutter-zone {
+  flex: 0 0 12px;
+  width: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+/* The thin bar itself, so the whole 12px stays an easy click target. */
+.nb-gutter-zone::before {
+  content: '';
+  display: block;
+  width: 3px;
+  height: 100%;
+  margin: 0 auto;
+  border-radius: 2px;
+  background: var(--border);
+}
+.nb-gutter-zone:hover::before { background: var(--accent); }
+
+/* Collapsing clamps the region to a ~3-line peek with a fade, instead of
+   hiding it behind an ellipsis. The fade covers the bottom using the current
+   system theme, signalling more content. Clicking
+   the peek (or the gutter bar) expands it. */
+.nb-region.is-collapsed .nb-region-body {
+  position: relative;
+  max-height: 5.5em;
+  overflow: hidden;
+  cursor: pointer;
+}
+.nb-region.is-collapsed .nb-region-body::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1.8em;
+  background: linear-gradient(transparent, var(--peek-fade));
+  pointer-events: none;
+}
+
+/* Markdown cells reuse .markdown-body content styling, but drop its page
+   layout (centered 860px, large padding) so each cell sits flush in the flow. */
+.nb-md.markdown-body { max-width: none; margin: 0; padding: 4px 6px; }
+
+.nb-prompt {
+  color: var(--fg-dim);
+  font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin: 2px 0;
+  user-select: none;
+}
+.nb-input .cm-static { margin: 0; }
+
+.nb-outputs { margin-top: 6px; }
+.nb-out {
+  margin: 0 0 4px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: var(--bg-elev);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: var(--editor-code-font-size)/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.nb-text, .nb-stream { color: var(--fg); }
+.nb-stream-stderr { background: var(--stderr-bg); color: var(--stderr-fg); }
+.nb-error { background: var(--danger-bg); color: var(--danger-fg); }
+.nb-image { display: block; max-width: 100%; background: var(--image-bg); border-radius: 4px; padding: 4px; }
+.nb-out.nb-md.markdown-body { background: none; padding: 4px 6px; }
+.nb-html-deferred { background: var(--bg-elev); border-radius: 4px; padding: 6px 10px; }
+.nb-html-note { color: var(--fg-dim); font-style: italic; font-size: 0.9em; margin-bottom: 4px; }
+.nb-raw { color: var(--fg-dim); white-space: pre-wrap; padding: 6px 10px; }

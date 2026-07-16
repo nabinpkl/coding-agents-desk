@@ -1,13 +1,12 @@
 import Foundation
 
-/// The vendored WKWebView editor SPA, bundled as a package `.copy` resource so the `viewer/`
-/// directory structure is preserved (ADR-0054). The host's `FileViewer`/`AppSchemeHandler` serve
-/// files under this root over the `app://` scheme.
+/// The shared WKWebView viewer SPA runtime (ADR-0054). Authored sources and build dependencies live
+/// outside the Swift target; only `index.html`, `viewer.css`, and `dist/` are bundled here.
 public enum WorkspaceEditorViewer {
-    /// The bundled `viewer/` directory (contains `index.html`, `viewer.css`, and `dist/`).
+    /// The package resource root containing `index.html`, `viewer.css`, and `dist/`.
     public static var viewerRootURL: URL {
-        guard let url = Bundle.module.url(forResource: "viewer", withExtension: nil) else {
-            fatalError("WorkspaceEditorViewer: bundled viewer/ resource missing")
+        guard let url = Bundle.module.resourceURL else {
+            fatalError("WorkspaceEditorViewer: package resource root missing")
         }
         return url
     }

@@ -36,8 +36,16 @@ struct WorkspaceFileServiceTests {
         try WorkspaceStore().adding(workspace(root: root, id: id, name: name))
     }
 
-    private func service(root: URL, maxTextBytes: Int = 1_024) throws -> WorkspaceFileService {
-        WorkspaceFileService(store: try store(root: root), maxUTF8Bytes: maxTextBytes)
+    private func service(
+        root: URL,
+        maxTextBytes: Int = 1_024,
+        maxDocumentBytes: Int = 1_024
+    ) throws -> WorkspaceFileService {
+        WorkspaceFileService(
+            store: try store(root: root),
+            maxUTF8Bytes: maxTextBytes,
+            maxDocumentBytes: maxDocumentBytes
+        )
     }
 
     private func requestID(_ value: String = "request") -> WorkspaceFileRequestID {
@@ -217,6 +225,29 @@ struct WorkspaceFileServiceTests {
         #expect(result.revision == digest(bytes))
     }
 
+    @Test func docxReadReturnsExactBinaryBytesAndHonorsItsOwnLimit() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bytes = Data([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff])
+        try bytes.write(to: root.appendingPathComponent("Report.DOCX"))
+        let workspaceID = try store(root: root).workspaces[0].id.uuidString
+
+        let response = try service(root: root, maxTextBytes: 1, maxDocumentBytes: bytes.count)
+            .handle(.read(requestID: requestID(), workspaceID: workspaceID, path: "Report.DOCX"))
+
+        guard case .read(_, let result) = response else {
+            Issue.record("expected document read")
+            return
+        }
+        #expect(result.document == bytes)
+        #expect(result.text == nil)
+        #expect(result.revision == digest(bytes))
+
+        let oversized = try service(root: root, maxDocumentBytes: bytes.count - 1)
+            .handle(.read(requestID: requestID("large"), workspaceID: workspaceID, path: "Report.DOCX"))
+        #expect(error(oversized)?.code == .tooLarge)
+    }
+
     @Test func successfulWriteReturnsNewDigestAndAtomicallyReplacesText() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -240,6 +271,28 @@ struct WorkspaceFileServiceTests {
         }
         #expect(try Data(contentsOf: url) == Data("after\n".utf8))
         #expect(result.revision == digest(Data("after\n".utf8)))
+    }
+
+    @Test func docxWriteIsForbiddenAndLeavesOriginalBytesUntouched() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("Report.DOCX")
+        let before = Data([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff])
+        try before.write(to: url)
+        let workspaceID = try store(root: root).workspaces[0].id.uuidString
+        let service = try service(root: root)
+
+        let response = service.handle(.write(
+            requestID: requestID(),
+            workspaceID: workspaceID,
+            path: "Report.DOCX",
+            expectedRevision: digest(before),
+            text: "replacement"
+        ))
+
+        #expect(error(response)?.code == .forbidden)
+        #expect(error(response)?.message == "This document is read-only.")
+        #expect(try Data(contentsOf: url) == before)
     }
 
     @Test func staleWriteReturnsConflictAndLeavesOriginalBytesUntouched() throws {

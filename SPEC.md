@@ -14,13 +14,13 @@
 | Transport | One authenticated `NetworkConnection<QUIC>` per live session, ALPN `agentdesk-session-quic-v2` | Control, input, DOM, terminal, and files use ordered QUIC streams. HEVC media uses the same connection's datagram lane. File payloads cannot head-of-line block input. ADR-0030 and ADR-0052. |
 | Network | Tailscale only | No public rendezvous, relay, or internet routing. Both peers are on the tailnet. |
 | Pairing | Mac-initiated tailnet device picker (ADR-0019), QR fallback | The Mac enumerates online iOS tailnet peers, probes each on the plain-TCP offer port (`AGENTDESK_OFFER_PORT`, default 41890) for a self-reported display name, and pushes a pre-approved signed offer to the picked device. The pick is the authorization. The iPhone runs the unchanged signed handshake. Signed token stored in Keychain on both sides. |
-| Wire compatibility | Current-iteration target is protocol version 7 (ADR-0020, ADR-0052, ADR-0056) | The Agent Panel terminal coordination messages are a breaking contract addition. R64 performs the code bump from the currently implemented v6 to v7; the completed v5 host and client reject peers below `7` with `incompatible-protocol`. Matching app versions remain irrelevant. |
+| Wire compatibility | Current protocol version is 8 (ADR-0020, ADR-0056, ADR-0057) | Protocol v8 changes the Files body codec to carry native document bytes. Host and client reject peers below `8` with `incompatible-protocol`; matching app versions remain irrelevant. |
 | Spaces enumeration | Private SkyLight/CoreGraphics symbols bound with `dlopen` and `dlsym` | No public API exists. Risk is acceptable because App Store distribution is not the v0 target. |
 | Spaces switch | Synthesize Dock swipe `CGEvent`s via `SpacesProvider.postDockSwipeFrame` and `commitStep(delta:)` | Stock macOS path that preserves live Space transition animation. |
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
 
-ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with ordered role streams and media datagrams. ADR-0031 records client-visible selected-display projection. ADR-0032 records bounded client diagnostics. ADR-0033 records the adaptive media quality ladder. ADR-0035 records the phone Agent feed. ADR-0051 (superseded by ADR-0053) records the terminal lane. ADR-0052 makes AgentDesk the workspace owner and adds the authenticated files lane at protocol version `6`. ADR-0053 moves the terminal `pty-manager` and `pty-client-swift` packages in-tree, removing the last build dependency on the retired `agent-workspace-ide` donor. ADR-0054 locks the shared workspace-data and platform-presentation boundary. ADR-0056 adds host-coordinated leased Agent Panel terminals, requires PTY inner protocol v4, and raises the current-iteration AgentDesk session target to protocol version `7`.
+ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with ordered role streams and media datagrams. ADR-0031 records client-visible selected-display projection. ADR-0032 records bounded client diagnostics. ADR-0033 records the adaptive media quality ladder. ADR-0035 records the phone Agent feed. ADR-0051 (superseded by ADR-0053) records the terminal lane. ADR-0052 makes AgentDesk the workspace owner and adds the authenticated files lane at protocol version `6`. ADR-0053 moves the terminal `pty-manager` and `pty-client-swift` packages in-tree, removing the last build dependency on the retired `agent-workspace-ide` donor. ADR-0054 locks the shared workspace-data and platform-presentation boundary. ADR-0056 adds host-coordinated leased Agent Panel terminals and raises the session target to protocol version `7`. ADR-0057 adds the shared responsive DOCX renderer, a binary Files codec, and protocol version `8`.
 
 ## Module Boundaries
 
@@ -53,10 +53,10 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 21. **DictationBar.** Host-local push-to-talk overlay under `host/AgentDeskHost/DictationBar/`, independent of the iPhone media and input channels.
 22. **WorkspaceStore.** Host-local authoritative ordered workspace roots and active workspace under the host variant's Application Support directory. It imports the retiring AWI store once, then never reads donor state again.
 23. **WorkspaceShell.** AppKit sidebar and top bar composed at host launch. It uses AgentDesk Spaces, PTY, terminal launcher, and ATC ownership instead of donor implementations.
-24. **WorkspaceFiles.** Walks workspace-relative path components from an open registered-root descriptor with `openat` and no-follow semantics, rejects traversal and symlinks, reads bounded UTF-8 content, and performs atomic revision-checked writes.
+24. **WorkspaceFiles.** Walks workspace-relative path components from an open registered-root descriptor with `openat` and no-follow semantics, rejects traversal and symlinks, reads bounded UTF-8 content or read-only DOCX bytes, and performs atomic revision-checked text writes.
 25. **WorkspaceFilesStream.** Owns the host `.files` stream endpoint and request correlation. It never runs file I/O on the input or media lanes.
 26. **AgentPanel.** Reusable WebKit surface. The macOS adapter reads the local ATC sidecar directly; the iOS adapter carries the same request/push contract over the authenticated session. For the bottom terminal it emits session-scoped open, close, and context-ended intent only; it never renders a terminal or forwards terminal keystrokes.
-27. **AgentSessionTerminalCoordinator.** Host-only authority for Agent Panel resume terminals (ADR-0056). It validates project/source/session context, derives `agent-resume-<source>-<session-id>`, constructs the fixed Claude or Codex argv, serializes create-or-attach, holds a bootstrap client through native renderer handoff, rejects `activeElsewhere`, and owns immediate explicit kill. macOS calls it directly; iOS reaches the same coordinator through protocol-v7 messages.
+27. **AgentSessionTerminalCoordinator.** Host-only authority for Agent Panel resume terminals (ADR-0056). It validates project/source/session context, derives `agent-resume-<source>-<session-id>`, constructs the fixed Claude or Codex argv, serializes create-or-attach, holds a bootstrap client through native renderer handoff, rejects `activeElsewhere`, and owns immediate explicit kill. macOS calls it directly; iOS reaches the same coordinator through the terminal messages introduced in protocol v7 and carried by current protocol v8.
 
 ### Client
 
@@ -76,7 +76,7 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 14. **ClientDiagnosticsStore.** Bounded durable client diagnostics store in `Application Support/Diagnostics`. It persists structured NDJSON essentials for the current run plus two prior runs, rotates unclean exits on bootstrap, mirrors essentials to OSLog, summarizes delayed MetricKit payloads, and serves prior-run tails on demand over the input lane or the foreground tailnet control listener.
 15. **TerminalSurface.** Full-bleed SwiftTerm renderer selected from the Control | Agent | Terminal | Browser switcher. It opens `.terminal` QUIC streams, wraps them in `PtyClientSwift`, and gives each app-owned split pane its own persistent `agentdesk-N` PTY session with the default host login shell. A drawer overlays the terminal and subscribes to the PTY manager session tree: sessions expand to client rows, Open joins an existing manager-owned session as a new iOS pane/client with `createIfMissing=false`, close-client asks the manager to detach that exact client id, and close-session asks the manager to kill the session. User close on a pane still detaches only when other PTY clients remain attached to that session; when the pane is the only client, user close kills the PTY session. Teardown and view deallocation detach only, which is correct for these persistent workspace PTYs and does not apply to leased Agent Panel PTYs.
 16. **FilesTransport.** Opens the authenticated `.files` stream, correlates workspace list/directory/read/write responses, and cancels pending operations when the session ends.
-17. **FilesSurface.** UIKit workspace and directory navigation plus the shared WebKit file viewer/editor. Saves carry the last observed file revision and surface conflicts instead of overwriting host changes.
+17. **FilesSurface.** UIKit workspace and directory navigation plus the shared WebKit file viewer/editor. DOCX is responsive and read-only through the same SPA used by macOS. Text saves carry the last observed file revision and surface conflicts instead of overwriting host changes.
 18. **AgentFeedSurface.** UIKit vertical container for the AgentPanel webview, native resize handle, and shared `PtyTerminalSwiftTerm` content. It requests a host-coordinated leased PTY over protocol v7, attaches over `.terminal` with `createIfMissing=false`, acknowledges handoff, and owns iOS layout and explicit/involuntary lifecycle mapping. It does not construct harness commands or own process lifetime.
 
 Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView.** Additional owned-media contract tests pin wire shapes, packet repair, and decoder recovery behavior where regressions are expensive.
@@ -90,7 +90,7 @@ mode after each implementation bump lands.
 1. The thread-view AgentPanel webview emits open intent containing project path, source, and harness
    session id. It cannot supply an executable, arguments, PTY name, or terminal input.
 2. The macOS AppKit adapter calls the host coordinator directly. The iOS UIKit adapter sends the same
-   normalized context over the authenticated input lane using the protocol-v7 contract.
+   normalized context over the authenticated input lane using the terminal contract introduced in protocol v7.
 3. The host accepts only source `claude` or `codex`, a UUID harness session id, and an absolute project
    directory beneath the user's home. It derives `agent-resume-<source>-<session-id>` and constructs
    the fixed resume command. The session id remains a positional argument through the login-zsh
@@ -181,14 +181,14 @@ DiagnosticsError        { t: "diagnostics-error", rid, r }
 The offer is an untagged `PairingPayload`; the iPhone synthesizes its `pairingURL()` locally and reuses the QR handshake path. `whois`/`id` carry only a display name for the picker and are pre-auth; the signed handshake still gates pairing. The payload carries the host's bound signaling port (`sp`), so the client dials the advertised port rather than a hardcoded default; this is what lets the stable and dev hosts run concurrently on tier-derived ports (ADR-0037).
 Foreground diagnostics fallback reuses the same offer port only when the app is paired and foregrounded. The host signs the request body with the paired host key; the client rejects a request whose host fingerprint does not match the stored pairing, whose signature fails, or whose timestamp is older than 60 seconds.
 
-Session establishment is locked by ADR-0003, ADR-0011, ADR-0020, and ADR-0030. Frames on QUIC streams are length-prefixed JSON payloads.
+Session establishment is locked by ADR-0003, ADR-0011, ADR-0020, and ADR-0030. Frames on QUIC streams are length-prefixed. Control, input, graphics, DOM, and terminal keep their existing bodies; protocol v8 encodes only Files request/response bodies as binary property lists so `Data` stays binary.
 
 ```
 QuicStreamFrame   = UInt8 role || UInt32BE length || body
 role              = 1 control | 2 input | 3 graphics | 4 dom | 5 terminal | 6 files
 
 SessionInit       { deviceFingerprint, sessionToken, clientNonce,
-                    protocolVersion, minCompatibleProtocolVersion }   // v5 target: pv must be >= 7
+                    protocolVersion, minCompatibleProtocolVersion }   // current target: pv must be >= 8
 SessionChallenge  { hostNonce, hostSignature, protocolVersion }
 SessionProof      { clientSignature }
 SessionReady      { sessionId, resumeId, resumeSecret, resumeExpiresAt, mediaKeySalt,
@@ -212,7 +212,7 @@ and rotates resume id, resume secret, and media key salt in the next signed
 `SessionReady`; the client verifies the ready signature before accepting the new
 material.
 
-Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. The v5 contract requires both to be `7` for Agent Panel terminal coordination; R64 performs that code change from the currently implemented `6`. Once R64 lands, older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
+Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. Protocol v8 is required because the Files role changed from JSON text-only bodies to binary property-list bodies with native document bytes. Older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
 
 Terminal PTY frames travel over the reliable ordered `.terminal` stream as opaque PTY protobuf envelopes from AgentDesk's `terminal/pty-client-swift` and `terminal/pty-manager` pair (moved in-tree under ADR-0053). The checked-in Rust and Swift clients both enforce inner protocol v3. The v5 target is PTY inner protocol v4; R59 replaces the create/attach shape and bumps both implementations in lockstep, with no protocol-v3 compatibility path:
 
@@ -267,13 +267,14 @@ WorkspaceFilesRequest =
 WorkspaceFilesResponse =
   | { t: "workspace-list-result", rid, workspaces }
   | { t: "directory-list-result", rid, wid, path, entries }
-  | { t: "file-read-result", rid, wid, path, revision, utf8 }
+  | { t: "file-read-result", rid, wid, path, revision,
+      content: utf8-text | docx-bytes }
   | { t: "file-write-result", rid, wid, path, revision }
   | { t: "file-conflict", rid, wid, path, revision }
   | { t: "file-error", rid, code, message }
 ```
 
-The host never authorizes a file by comparing reconstructed absolute path strings. It rejects empty, absolute, `.` and `..` components, opens the registered root once, and walks beneath that descriptor with `openat` plus `O_NOFOLLOW`; regular-file and directory requirements are checked from the opened descriptors. File size and response bounds come from central host/client config. A revision is a digest of the exact file content returned by the last read. Writes create a temporary sibling through the verified parent descriptor, fsync as required, then rename atomically within that descriptor only when the supplied content revision still matches.
+The host never authorizes a file by comparing reconstructed absolute path strings. It rejects empty, absolute, `.` and `..` components, opens the registered root once, and walks beneath that descriptor with `openat` plus `O_NOFOLLOW`; regular-file and directory requirements are checked from the opened descriptors. UTF-8 text retains its 4 MiB default; DOCX has an independent configurable admission ceiling capped at 100 MiB. The Files role permits a 101 MiB application frame while every other role retains the 4 MiB frame ceiling. QUIC performs reliable stream segmentation and reassembly, so there is no AgentDesk document-chunk protocol. A revision is a digest of the exact file content returned by the last read. Writes remain text-only: they create a temporary sibling through the verified parent descriptor, fsync as required, then rename atomically within that descriptor only when the supplied content revision still matches.
 
 Owned media travels over the unified QUIC session's datagram lane after `SessionReady`.
 

@@ -127,7 +127,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private lazy var workspaceFilesResponder = WorkspaceFilesResponder(
         repository: workspaceRepository,
-        maxBytes: Config.workspaceFileMaxBytes
+        maxUTF8Bytes: Config.workspaceFileMaxBytes,
+        maxDocumentBytes: Config.workspaceDocumentMaxBytes
     )
     private var workspaceShellPresenter: WorkspaceShellPresenter?
     // R24: the macOS Agents window, toggled from the shell's top-bar "Agents" command. Backed by the

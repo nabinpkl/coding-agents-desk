@@ -884,6 +884,17 @@ enum Config {
         environmentKey: "AGENTDESK_WORKSPACE_FILE_MAX_BYTES",
         defaultValue: 4 * 1024 * 1024
     )
+    static let workspaceDocumentMaxBytes: Int = {
+        let value = positiveInt(
+            environmentKey: "AGENTDESK_WORKSPACE_DOCUMENT_MAX_BYTES",
+            defaultValue: WorkspaceFilesCodec.maximumDocumentBytes
+        )
+        precondition(
+            value <= WorkspaceFilesCodec.maximumDocumentBytes,
+            "AGENTDESK_WORKSPACE_DOCUMENT_MAX_BYTES exceeds the Files wire budget"
+        )
+        return value
+    }()
     // macOS workspace shell (R20/R23; reveal chrome ADR-0054). On by default: starting the host
     // starts the whole shell (the floating, all-Spaces, reveal-on-hover sidebar + top bar). Set the
     // env override to 0 to disable (CI and any host run that must not show the shell).

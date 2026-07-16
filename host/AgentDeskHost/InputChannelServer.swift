@@ -190,7 +190,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             guard let self else { return }
             while !Task.isCancelled {
                 do {
-                    let frame = try await QuicSessionStreamIO.receiveFrame(on: stream)
+                    let frame = try await QuicSessionStreamIO.receiveFrame(on: stream, expectedRole: .input)
                     guard frame.role == .input else { continue }
                     dispatch(data: frame.payload)
                 } catch {

@@ -98,26 +98,85 @@ public struct WorkspaceDirectoryListResult: Codable, Equatable, Sendable {
     }
 }
 
-/// A bounded UTF-8 file read. The host rejects binary, non-UTF-8, and oversized files instead of
-/// emitting this result.
+public enum WorkspaceFileReadContent: Equatable, Sendable {
+    case text(String)
+    case document(Data)
+}
+
+/// One bounded file read. Text remains revision-checkable and writable; supported documents carry
+/// their original bytes and remain read-only at both the service and presentation boundaries.
 public struct WorkspaceFileReadResult: Codable, Equatable, Sendable {
     public let workspaceID: String
     public let path: String
-    public let text: String
+    public let content: WorkspaceFileReadContent
     public let revision: WorkspaceFileRevision
 
-    public init(workspaceID: String, path: String, text: String, revision: WorkspaceFileRevision) {
+    public init(
+        workspaceID: String,
+        path: String,
+        content: WorkspaceFileReadContent,
+        revision: WorkspaceFileRevision
+    ) {
         self.workspaceID = workspaceID
         self.path = path
-        self.text = text
+        self.content = content
         self.revision = revision
+    }
+
+    public init(workspaceID: String, path: String, text: String, revision: WorkspaceFileRevision) {
+        self.init(workspaceID: workspaceID, path: path, content: .text(text), revision: revision)
+    }
+
+    public var text: String? {
+        if case .text(let text) = content { return text }
+        return nil
+    }
+
+    public var document: Data? {
+        if case .document(let data) = content { return data }
+        return nil
     }
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case workspaceID = "w"
         case path = "p"
+        case contentKind = "k"
         case text = "x"
+        case document = "b"
         case revision = "r"
+    }
+
+    private enum ContentKind: String, Codable {
+        case text = "t"
+        case document = "d"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workspaceID = try container.decode(String.self, forKey: .workspaceID)
+        path = try container.decode(String.self, forKey: .path)
+        revision = try container.decode(WorkspaceFileRevision.self, forKey: .revision)
+        switch try container.decode(ContentKind.self, forKey: .contentKind) {
+        case .text:
+            content = .text(try container.decode(String.self, forKey: .text))
+        case .document:
+            content = .document(try container.decode(Data.self, forKey: .document))
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(workspaceID, forKey: .workspaceID)
+        try container.encode(path, forKey: .path)
+        try container.encode(revision, forKey: .revision)
+        switch content {
+        case .text(let text):
+            try container.encode(ContentKind.text, forKey: .contentKind)
+            try container.encode(text, forKey: .text)
+        case .document(let data):
+            try container.encode(ContentKind.document, forKey: .contentKind)
+            try container.encode(data, forKey: .document)
+        }
     }
 }
 
@@ -331,7 +390,9 @@ public enum WorkspaceFileResponse: Codable, Equatable, Sendable {
         case workspaceID = "w"
         case path = "p"
         case entries = "e"
+        case contentKind = "k"
         case text = "x"
+        case document = "b"
         case revision = "r"
         case code = "c"
         case requestID = "rid"
@@ -370,10 +431,21 @@ public enum WorkspaceFileResponse: Codable, Equatable, Sendable {
                 entries: try container.decode([WorkspaceDirectoryEntry].self, forKey: .entries)
             ))
         case .read:
+            let content: WorkspaceFileReadContent
+            switch try container.decode(String.self, forKey: .contentKind) {
+            case "t": content = .text(try container.decode(String.self, forKey: .text))
+            case "d": content = .document(try container.decode(Data.self, forKey: .document))
+            case let kind:
+                throw DecodingError.dataCorruptedError(
+                    forKey: .contentKind,
+                    in: container,
+                    debugDescription: "unknown workspace file content kind: \(kind)"
+                )
+            }
             self = .read(requestID: requestID, result: WorkspaceFileReadResult(
                 workspaceID: try container.decode(String.self, forKey: .workspaceID),
                 path: try container.decode(String.self, forKey: .path),
-                text: try container.decode(String.self, forKey: .text),
+                content: content,
                 revision: try container.decode(WorkspaceFileRevision.self, forKey: .revision)
             ))
         case .write:
@@ -416,7 +488,14 @@ public enum WorkspaceFileResponse: Codable, Equatable, Sendable {
             try container.encode(requestID, forKey: .requestID)
             try container.encode(result.workspaceID, forKey: .workspaceID)
             try container.encode(result.path, forKey: .path)
-            try container.encode(result.text, forKey: .text)
+            switch result.content {
+            case .text(let text):
+                try container.encode("t", forKey: .contentKind)
+                try container.encode(text, forKey: .text)
+            case .document(let data):
+                try container.encode("d", forKey: .contentKind)
+                try container.encode(data, forKey: .document)
+            }
             try container.encode(result.revision, forKey: .revision)
         case .write(let requestID, let result):
             try container.encode(MessageType.write.rawValue, forKey: .type)

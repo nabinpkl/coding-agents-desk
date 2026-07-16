@@ -73,6 +73,7 @@ public enum FileIcon {
         case "png", "jpg", "jpeg", "gif", "svg", "webp", "heic", "bmp", "ico", "icns":
             return glyph(0xE60D, .systemPurple)                  // seti-image
         case "pdf": return glyph(0xE67D, .systemRed)             // seti-pdf
+        case "docx": return glyph(0xE64E, .systemBlue)           // seti-default document
         case "zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar": return glyph(0xE6AA, .systemGray)  // seti-zip
         case "lock": return glyph(0xE672, .systemGray)           // seti-lock
         default: return glyph(0xE64E, .secondaryLabelColor)      // seti-default

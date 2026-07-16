@@ -26,7 +26,7 @@ public struct QuicSessionStreamFrame: Equatable, Sendable {
     }
 
     public static func encode(role: QuicSessionStreamRole, payload: Data) throws -> Data {
-        guard payload.count <= maxFrameLength else { throw QuicSessionFrameError.frameTooLarge }
+        guard payload.count <= maxFrameLength(for: role) else { throw QuicSessionFrameError.frameTooLarge }
         var data = Data()
         data.append(role.rawValue)
         data.appendUInt32BE(UInt32(payload.count))
@@ -41,7 +41,7 @@ public struct QuicSessionStreamFrame: Equatable, Sendable {
             throw QuicSessionFrameError.malformed
         }
         let length = Int(try data.readUInt32BE(at: 1))
-        guard length <= maxFrameLength,
+        guard length <= maxFrameLength(for: role),
               data.count == 5 + length
         else {
             throw QuicSessionFrameError.malformed
@@ -50,6 +50,10 @@ public struct QuicSessionStreamFrame: Equatable, Sendable {
             role: role,
             payload: data.subdata(in: (data.startIndex + 5)..<data.endIndex)
         )
+    }
+
+    public static func maxFrameLength(for role: QuicSessionStreamRole) -> Int {
+        role == .files ? WorkspaceFilesCodec.maximumFrameBytes : maxFrameLength
     }
 }
 

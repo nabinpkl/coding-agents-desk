@@ -186,7 +186,7 @@ final class WorkspaceFilesBrowser {
         switch response {
         case .read(_, let result):
             model = model.previewLoaded(
-                previewGeneration: previewGeneration, text: result.text, revision: result.revision
+                previewGeneration: previewGeneration, content: result.content, revision: result.revision
             )
         case .error, .workspaces, .directory, .write, .conflict:
             model = model.previewFailed(previewGeneration: previewGeneration, message: failureMessage(response))
@@ -202,7 +202,7 @@ final class WorkspaceFilesBrowser {
         // browser rather than trusting the view to disable its button.
         guard model.saveStatus != .saving else { return }
         guard let workspaceID = model.selectedWorkspaceID,
-              case .loaded(let path, _, let revision)? = model.preview
+              case .loaded(let path, .text(_), let revision)? = model.preview
         else { return }
         model = model.savingFile()
         onChange?()

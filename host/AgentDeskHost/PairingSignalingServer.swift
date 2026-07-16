@@ -372,7 +372,7 @@ final class PairingSignalingServer: @unchecked Sendable {
             context.attemptingFingerprint = initMessage.deviceFingerprint
             sessionAttemptStartedHandler(initMessage.deviceFingerprint)
             try await QuicSessionStreamIO.send(challenge, role: .control, on: stream)
-            let proofFrame = try await QuicSessionStreamIO.receiveFrame(on: stream)
+            let proofFrame = try await QuicSessionStreamIO.receiveFrame(on: stream, expectedRole: .control)
             guard proofFrame.role == .control else {
                 try await reject(.malformed, on: stream)
                 return
@@ -424,7 +424,7 @@ final class PairingSignalingServer: @unchecked Sendable {
             try await QuicSessionStreamIO.send(challenge, role: .control, on: stream)
             let proof: SessionResumeProof
             do {
-                let proofFrame = try await QuicSessionStreamIO.receiveFrame(on: stream)
+                let proofFrame = try await QuicSessionStreamIO.receiveFrame(on: stream, expectedRole: .control)
                 guard proofFrame.role == .control else {
                     await sessionResumeChallengeCancelledHandler(request)
                     try await reject(.malformed, on: stream)

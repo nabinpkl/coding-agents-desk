@@ -33,7 +33,7 @@ private final class MockFilesChannel: WorkspaceFilesFrameChannel, @unchecked Sen
     }
 
     func deliver(_ response: WorkspaceFileResponse) {
-        continuation.yield((try? JSONEncoder().encode(response)) ?? Data())
+        continuation.yield((try? WorkspaceFilesCodec.encode(response)) ?? Data())
     }
 
     func deliverRaw(_ data: Data) {

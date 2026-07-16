@@ -62,7 +62,7 @@ actor WorkspaceFilesTransport {
     func request(_ request: WorkspaceFileRequest) async throws -> WorkspaceFileResponse {
         guard !closed else { throw WorkspaceFilesTransportError.closed }
         guard receiveTask != nil else { throw WorkspaceFilesTransportError.notStarted }
-        let payload = try JSONEncoder().encode(request)
+        let payload = try WorkspaceFilesCodec.encode(request)
         let key = request.requestID.value
         return try await withCheckedThrowingContinuation { continuation in
             // Fail loud on an id collision rather than overwriting the earlier waiter, which would
@@ -119,7 +119,7 @@ actor WorkspaceFilesTransport {
                 teardown(with: .closed)
                 return
             }
-            guard let response = try? JSONDecoder().decode(WorkspaceFileResponse.self, from: payload) else {
+            guard let response = try? WorkspaceFilesCodec.decodeResponse(payload) else {
                 // A response we cannot decode is a protocol break with no id to correlate. Mirror
                 // the host's fail-loud handling of a bad frame: close the lane so the request this
                 // frame was answering fails instead of hanging forever with no timeout.
@@ -147,7 +147,7 @@ final class QuicWorkspaceFilesChannel: WorkspaceFilesFrameChannel, @unchecked Se
     }
 
     func receive() async throws -> Data {
-        let frame = try await QuicSessionStreamIO.receiveFrame(on: stream)
+        let frame = try await QuicSessionStreamIO.receiveFrame(on: stream, expectedRole: .files)
         guard frame.role == .files else {
             throw WorkspaceFilesTransportError.unexpectedRole(frame.role)
         }

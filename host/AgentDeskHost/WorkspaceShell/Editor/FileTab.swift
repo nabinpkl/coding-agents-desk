@@ -54,6 +54,7 @@ final class FileTab {
     let identity: FileTabIdentity
     var text = ""
     var kind: FilePreviewKind? = nil
+    var documentURL: URL?
     var mode: FileTabMode = .preview
     var unsupportedReason: String?
     private(set) var diskState: FileTabDiskState = .unloaded
