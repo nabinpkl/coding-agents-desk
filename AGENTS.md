@@ -39,8 +39,14 @@ Before doing project work, read `PRD.md` and `SPEC.md` once. They are short on p
 
 # How work is done
 
-Major features run through Codex native threads, not a generic subagent flow. The four standing roles
-are **Co-ordinator**, **Implementor**, **Reviewer**, and **Small Tasks Doer**.
+Workers mode is opt-in. Use it only when the user explicitly asks to use workers mode for the current
+task. Do not infer workers mode from task size, complexity, an R-task, or the generic ECC guidance to
+delegate proactively. Outside workers mode, the active thread plans, implements, reviews, and verifies
+the work itself without spawning workers.
+
+When workers mode is active, major features run through Codex native threads, not a generic subagent
+flow. The four standing roles are **Co-ordinator**, **Implementor**, **Reviewer**, and **Small Tasks
+Doer**.
 
 - **Co-ordinator** is the main control thread and the only integration owner. It owns the live plan,
   keeps `TASKS.md` current, partitions each coherent phase into ownership lanes, assigns one standing
@@ -60,10 +66,10 @@ are **Co-ordinator**, **Implementor**, **Reviewer**, and **Small Tasks Doer**.
 
 ## Phase-lane implementor-reviewer loop
 
-Every R-task that changes behavior uses this loop, but thread ownership persists across the coherent
-phase or lane. Do not spawn a fresh Implementor or Reviewer for each R-task. The Co-ordinator mediates
-all handoffs so task scope, review disposition, cross-lane contracts, and repository state have one
-owner.
+When workers mode is active, every R-task that changes behavior uses this loop, but thread ownership
+persists across the coherent phase or lane. Do not spawn a fresh Implementor or Reviewer for each
+R-task. The Co-ordinator mediates all handoffs so task scope, review disposition, cross-lane contracts,
+and repository state have one owner.
 
 1. **Partition.** Before implementation, the Co-ordinator divides the phase only where work has
    independent ownership boundaries and can progress without concurrent edits to the same files or
