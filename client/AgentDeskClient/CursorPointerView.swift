@@ -12,6 +12,11 @@ import UIKit
 // In both modes a blue glow sits behind the glyph so the predicted cursor
 // is easy to spot against busy desktop video.
 final class CursorPointerView: UIView {
+    enum Presentation: Equatable {
+        case confirmed
+        case ghost
+    }
+
     // Drawn-arrow fallback size in points. Small so it does not dominate.
     static let pointerSize = CGSize(width: 8, height: 12)
     // Mirrored host cursors render at their host point size times this
@@ -21,6 +26,17 @@ final class CursorPointerView: UIView {
     private let glowLayer = CAShapeLayer()
     private let arrowLayer = CAShapeLayer()
     private let imageLayer = CALayer()
+    private let ghostImageLayer = CALayer()
+    private let ghostImageMaskLayer = CALayer()
+    private var hasMirroredImage = false
+    private(set) var presentation: Presentation = .confirmed
+
+    var ghostVisualIsActive: Bool {
+        guard presentation == .ghost else { return false }
+        return hasMirroredImage
+            ? !ghostImageLayer.isHidden && imageLayer.isHidden
+            : arrowLayer.fillColor == UIColor.systemGray2.cgColor
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -60,6 +76,19 @@ final class CursorPointerView: UIView {
         imageLayer.contentsGravity = .resize
         layer.addSublayer(imageLayer)
 
+        // A host cursor can be a full-colour custom image, so tintColor cannot
+        // reliably make it grey. Render the same alpha silhouette as a mask
+        // over a system-grey layer when the prediction becomes unconfirmed.
+        ghostImageLayer.isHidden = true
+        ghostImageLayer.backgroundColor = UIColor.systemGray2.cgColor
+        ghostImageLayer.shadowColor = UIColor.systemGray.cgColor
+        ghostImageLayer.shadowRadius = 5
+        ghostImageLayer.shadowOpacity = 0.65
+        ghostImageLayer.shadowOffset = .zero
+        ghostImageLayer.mask = ghostImageMaskLayer
+        ghostImageMaskLayer.contentsGravity = .resize
+        layer.addSublayer(ghostImageLayer)
+
         self.frame = CGRect(origin: .zero, size: Self.pointerSize)
     }
 
@@ -71,15 +100,46 @@ final class CursorPointerView: UIView {
     // size. The owning controller sets the view frame (and hotspot offset)
     // separately; here we just fill the bounds and toggle the layers.
     func apply(image: UIImage, renderSize: CGSize) {
+        hasMirroredImage = true
         imageLayer.contents = image.cgImage
         imageLayer.shadowPath = nil
+        ghostImageMaskLayer.contents = image.cgImage
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         imageLayer.frame = CGRect(origin: .zero, size: renderSize)
+        ghostImageLayer.frame = CGRect(origin: .zero, size: renderSize)
+        ghostImageMaskLayer.frame = CGRect(origin: .zero, size: renderSize)
         CATransaction.commit()
-        imageLayer.isHidden = false
-        glowLayer.isHidden = true
-        arrowLayer.isHidden = true
+        updatePresentation()
+    }
+
+    func setPresentation(_ presentation: Presentation) {
+        guard self.presentation != presentation else { return }
+        self.presentation = presentation
+        updatePresentation()
+    }
+
+    private func updatePresentation() {
+        let isGhost = presentation == .ghost
+        if hasMirroredImage {
+            imageLayer.isHidden = isGhost
+            ghostImageLayer.isHidden = !isGhost
+            glowLayer.isHidden = true
+            arrowLayer.isHidden = true
+            return
+        }
+
+        imageLayer.isHidden = true
+        ghostImageLayer.isHidden = true
+        glowLayer.isHidden = false
+        arrowLayer.isHidden = false
+        glowLayer.fillColor = (isGhost ? UIColor.systemGray4 : UIColor.white).cgColor
+        glowLayer.shadowColor = (isGhost ? UIColor.systemGray : UIColor.systemBlue).cgColor
+        glowLayer.shadowOpacity = isGhost ? 0.55 : 0.95
+        arrowLayer.fillColor = (isGhost ? UIColor.systemGray2 : UIColor.white).cgColor
+        arrowLayer.strokeColor = (isGhost
+            ? UIColor.systemGray5
+            : UIColor.black.withAlphaComponent(0.85)).cgColor
     }
 
     // Classic macOS arrow outline on an 11x18 reference grid, tip at the

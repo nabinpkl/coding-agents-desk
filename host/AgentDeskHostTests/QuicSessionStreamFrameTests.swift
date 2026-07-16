@@ -237,20 +237,22 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded == frame)
         #expect(decoded.type == "input-event")
         #expect(decoded.event == event)
+        #expect(decoded.cursorRevision == nil)
     }
 
     @Test func cursorSetInputEventFrameRoundTripsThroughCodable() throws {
         let event = NormalizedInput.cursorSet(displayId: "display-a", x: 250.5, y: 500.75)
-        let frame = InputChannelEvent(event: event)
+        let frame = InputChannelEvent(event: event, cursorRevision: 11)
         let data = try JSONEncoder().encode(frame)
         let decoded = try JSONDecoder().decode(InputChannelEvent.self, from: data)
 
         #expect(decoded.event == event)
+        #expect(decoded.cursorRevision == 11)
     }
 
-    @Test func protocolVersionIsEightForBinaryWorkspaceDocuments() {
-        #expect(Config.protocolVersion == 8)
-        #expect(Config.minCompatibleProtocolVersion == 8)
+    @Test func protocolVersionIsNineForCursorReconciliation() {
+        #expect(Config.protocolVersion == 9)
+        #expect(Config.minCompatibleProtocolVersion == 9)
     }
 
     @available(macOS 26.0, *)

@@ -20,7 +20,12 @@ final class InputDispatcher: @unchecked Sendable {
     typealias SwitchSpaceStepHandler = (Int) -> Void
     typealias SystemCommandHandler = (NormalizedInput.SystemCommand) -> Void
     typealias ScrollFocusHandler = @Sendable (NormalizedInput, ScrollFocusSnapshot) -> Void
-    typealias CursorPositionHandler = (CGPoint) -> Void
+    struct CursorDispatchResult: Equatable, Sendable {
+        let displayId: String?
+        let position: CGPoint
+    }
+
+    typealias CursorAppliedHandler = @Sendable (_ revision: UInt64, _ result: CursorDispatchResult) -> Void
 
     struct ScrollFocusSnapshot: Sendable {
         let focusPoint: CGPoint
@@ -47,7 +52,6 @@ final class InputDispatcher: @unchecked Sendable {
     // leave it unset.
     var switchSpaceStepHandler: SwitchSpaceStepHandler?
     var systemCommandHandler: SystemCommandHandler?
-    var cursorPositionHandler: CursorPositionHandler?
     private var loggedUntrusted = false
     // Custom event source so we can disable the 0.25s synthetic-event
     // suppression interval macOS otherwise applies. Without this, posted
@@ -95,13 +99,11 @@ final class InputDispatcher: @unchecked Sendable {
     // cursor locked to the client's predicted dot.
     private var cursorPosition: CGPoint?
     private var lastCursorMoveTime: CFTimeInterval = 0
-    private var lastCursorPositionEmitTime: CFTimeInterval = -Double.infinity
     // Re-sync the held position from the OS when the move stream has been
     // idle this long, so a physical mouse / trackpad move between remote
     // strokes is picked up. During an active stream we trust our own
     // integrated position over the lagging OS query.
     private static let cursorResyncIdleInterval: CFTimeInterval = 0.2
-    private static let cursorPositionEmitInterval: CFTimeInterval = 0.05
     // Serial queue so dispatch() is callable from any context (network
     // Task, MainActor, tests) without racing on loggedUntrusted /
     // scrollRemainder. Previously the AppDelegate forced every input
@@ -132,7 +134,9 @@ final class InputDispatcher: @unchecked Sendable {
 
     func dispatch(
         _ input: NormalizedInput,
+        cursorRevision: UInt64? = nil,
         scrollFocusHandler: ScrollFocusHandler? = nil,
+        cursorAppliedHandler: CursorAppliedHandler? = nil,
         afterDispatch: (@Sendable () -> Void)? = nil
     ) {
         // async so the caller's Task moves on while CGEvent.post runs on
@@ -141,7 +145,15 @@ final class InputDispatcher: @unchecked Sendable {
             if case .scroll = input, let scrollFocusHandler {
                 scrollFocusHandler(input, makeScrollFocusSnapshot())
             }
-            performDispatch(input)
+            let cursorResult = performDispatch(input)
+            if let cursorResult {
+                guard let cursorRevision else {
+                    assertionFailure("revisioned cursor input required by ADR-0058")
+                    afterDispatch?()
+                    return
+                }
+                cursorAppliedHandler?(cursorRevision, cursorResult)
+            }
             afterDispatch?()
         }
     }
@@ -165,20 +177,21 @@ final class InputDispatcher: @unchecked Sendable {
 
     // Synchronous core, called only from `queue`. Exposed-internal so tests
     // can drive it without paying the async hop.
-    func performDispatch(_ input: NormalizedInput) {
+    @discardableResult
+    func performDispatch(_ input: NormalizedInput) -> CursorDispatchResult? {
         guard isTrusted() else {
             if !loggedUntrusted {
                 logger.warning("Accessibility not granted; dropping input events")
                 loggedUntrusted = true
             }
-            return
+            return nil
         }
         loggedUntrusted = false
         switch input {
         case .cursorSet(let displayId, let x, let y):
-            postCursorSet(displayId: displayId, x: CGFloat(x), y: CGFloat(y))
+            return postCursorSet(displayId: displayId, x: CGFloat(x), y: CGFloat(y))
         case .cursorMove(let dx, let dy):
-            postCursorMove(dx: CGFloat(dx), dy: CGFloat(dy))
+            return postCursorMove(dx: CGFloat(dx), dy: CGFloat(dy))
         case .click(let button):
             postClick(button)
         case .scroll(let dx, let dy, let phase):
@@ -217,6 +230,7 @@ final class InputDispatcher: @unchecked Sendable {
                 systemCommandHandler(command)
             }
         }
+        return nil
     }
 
     private func currentLocation() -> CGPoint {
@@ -235,10 +249,10 @@ final class InputDispatcher: @unchecked Sendable {
         return currentLocation()
     }
 
-    private func postCursorSet(displayId: String, x: CGFloat, y: CGFloat) {
+    private func postCursorSet(displayId: String, x: CGFloat, y: CGFloat) -> CursorDispatchResult? {
         guard selectedDisplayIdProvider() == displayId else {
             logger.notice("dropping cursorSet for stale display id=\(displayId, privacy: .public)")
-            return
+            return nil
         }
         let bounds = displayBoundsProvider()
         let next = Self.clamp(CGPoint(x: x, y: y), to: bounds)
@@ -250,14 +264,14 @@ final class InputDispatcher: @unchecked Sendable {
             mouseCursorPosition: next,
             mouseButton: .left
         ) else {
-            return
+            return nil
         }
         event.flags = []
         eventPoster(event)
-        emitCursorPosition(next, force: true)
+        return CursorDispatchResult(displayId: displayId, position: next)
     }
 
-    private func postCursorMove(dx: CGFloat, dy: CGFloat) {
+    private func postCursorMove(dx: CGFloat, dy: CGFloat) -> CursorDispatchResult? {
         let base = cursorBase()
         let raw = CGPoint(x: base.x + dx, y: base.y + dy)
         let bounds = displayBoundsProvider()
@@ -282,7 +296,7 @@ final class InputDispatcher: @unchecked Sendable {
             mouseCursorPosition: next,
             mouseButton: .left
         ) else {
-            return
+            return nil
         }
         event.flags = []
         if inDrag {
@@ -293,14 +307,7 @@ final class InputDispatcher: @unchecked Sendable {
             event.setIntegerValueField(.mouseEventClickState, value: dragClickState)
         }
         eventPoster(event)
-        emitCursorPosition(next, force: false)
-    }
-
-    private func emitCursorPosition(_ point: CGPoint, force: Bool) {
-        let now = clock()
-        guard force || now - lastCursorPositionEmitTime >= Self.cursorPositionEmitInterval else { return }
-        lastCursorPositionEmitTime = now
-        cursorPositionHandler?(point)
+        return CursorDispatchResult(displayId: selectedDisplayIdProvider(), position: next)
     }
 
     private func postDragStart() {

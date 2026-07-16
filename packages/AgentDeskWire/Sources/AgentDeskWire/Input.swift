@@ -69,15 +69,67 @@ public enum NormalizedInput: Codable, Equatable, Sendable {
 public struct InputChannelEvent: Codable, Equatable, Sendable {
     public let type: String
     public let event: NormalizedInput
+    public let cursorRevision: UInt64?
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case type = "t"
         case event = "ev"
+        case cursorRevision = "cr"
     }
 
-    public init(event: NormalizedInput) {
+    public init(event: NormalizedInput, cursorRevision: UInt64? = nil) {
         self.type = "input-event"
         self.event = event
+        self.cursorRevision = cursorRevision
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        event = try container.decode(NormalizedInput.self, forKey: .event)
+        cursorRevision = try container.decodeIfPresent(UInt64.self, forKey: .cursorRevision)
+
+        let isCursorInput: Bool
+        switch event {
+        case .cursorSet, .cursorMove:
+            isCursorInput = true
+        default:
+            isCursorInput = false
+        }
+        guard isCursorInput == (cursorRevision != nil) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .cursorRevision,
+                in: container,
+                debugDescription: isCursorInput
+                    ? "cursor input requires a revision"
+                    : "non-cursor input must not carry a cursor revision"
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        let isCursorInput: Bool
+        switch event {
+        case .cursorSet, .cursorMove:
+            isCursorInput = true
+        default:
+            isCursorInput = false
+        }
+        guard isCursorInput == (cursorRevision != nil) else {
+            throw EncodingError.invalidValue(
+                cursorRevision as Any,
+                EncodingError.Context(
+                    codingPath: encoder.codingPath,
+                    debugDescription: isCursorInput
+                        ? "cursor input requires a revision"
+                        : "non-cursor input must not carry a cursor revision"
+                )
+            )
+        }
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(event, forKey: .event)
+        try container.encodeIfPresent(cursorRevision, forKey: .cursorRevision)
     }
 }
 public struct InputChannelClose: Codable, Equatable, Sendable {

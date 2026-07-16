@@ -49,9 +49,47 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded.payload == payload)
 }
 
-@Test func wireProtocolFilesVersionIsPinned() {
-    #expect(WireProtocol.version == 8)
-    #expect(WireProtocol.minCompatibleVersion == 8)
+@Test func wireProtocolCursorReconciliationVersionIsPinned() {
+    #expect(WireProtocol.version == 9)
+    #expect(WireProtocol.minCompatibleVersion == 9)
+}
+
+@Test func cursorInputRequiresAndPreservesRevision() throws {
+    let frame = InputChannelEvent(
+        event: .cursorMove(dx: 4.5, dy: -2.25),
+        cursorRevision: 17
+    )
+    try roundTrip(frame)
+
+    let missingRevision = Data(#"{"t":"input-event","ev":{"cursorMove":{"dx":4.5,"dy":-2.25}}}"#.utf8)
+    #expect(throws: DecodingError.self) {
+        try JSONDecoder().decode(InputChannelEvent.self, from: missingRevision)
+    }
+}
+
+@Test func nonCursorInputRejectsCursorRevision() throws {
+    let invalid = InputChannelEvent(
+        event: .click(button: .left),
+        cursorRevision: 3
+    )
+    #expect(throws: EncodingError.self) {
+        try JSONEncoder().encode(invalid)
+    }
+}
+
+@Test func cursorFeedbackSeparatesAppliedAndHostMovedProvenance() throws {
+    try roundTrip(CursorAppliedPush(
+        cursorRevision: 23,
+        displayId: "display-a",
+        cursorX: 410,
+        cursorY: 215
+    ))
+    try roundTrip(HostCursorMovedPush(
+        afterCursorRevision: 23,
+        displayId: "display-a",
+        cursorX: 900,
+        cursorY: 600
+    ))
 }
 
 @Test func workspaceFilesCodecCarriesDocumentBytesWithoutJSONBase64() throws {

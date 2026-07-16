@@ -108,8 +108,14 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     func startCursorObservation() {
         cursorTask?.cancel()
         cursorTask = nil
-        cursorPositionTask?.cancel()
-        cursorPositionTask = nil
+        cursorReconciliationTask?.cancel()
+        cursorReconciliationTask = nil
+        cursorConfirmationTask?.cancel()
+        cursorConfirmationTask = nil
+        inputSendTailTask?.cancel()
+        inputSendTailTask = nil
+        cursorReconciliation.reset()
+        applyCursorConfidencePresentation()
         guard let channel = pairingClient.activeInputChannel else { return }
         cursorTask = Task { [weak self, channel] in
             for await push in channel.cursorUpdates {
@@ -120,10 +126,15 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
                 }
             }
         }
-        cursorPositionTask = Task { [weak self, channel] in
-            for await push in channel.cursorPositionUpdates {
+        cursorReconciliationTask = Task { [weak self, channel] in
+            for await update in channel.cursorReconciliationUpdates {
                 await MainActor.run {
-                    self?.applyCursorPosition(push)
+                    switch update {
+                    case .applied(let push):
+                        self?.applyCursorApplied(push)
+                    case .hostMoved(let push):
+                        self?.applyHostCursorMoved(push)
+                    }
                 }
             }
         }
@@ -470,19 +481,119 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     }
 
     // ADR-0030: input rides its own ordered stream inside the authenticated
-    // session QUIC connection. The channel send is async;
-    // fire-and-forget into a detached Task so the trackpad / keyboard
-    // caller stays synchronous and main-thread.
+    // session QUIC connection. The channel send is async; main-actor task
+    // chaining keeps call order identical to cursor revision order while the
+    // trackpad / keyboard caller remains synchronous.
     func sendInput(_ input: NormalizedInput) {
         applyKeyboardPresentationIntentForRemoteInput(input)
+        let now = cursorConfirmationClock()
+        let cursorRevision: UInt64?
+        switch input {
+        case .cursorSet, .cursorMove:
+            guard let operation = cursorOperation(for: input) else {
+                ClientDiagnostics.shared.record(
+                    type: "cursorInputDropped",
+                    fields: ["reason": "missing-local-cursor-geometry"],
+                    level: .error
+                )
+                return
+            }
+            guard let revision = cursorReconciliation.record(operation, sentAt: now) else {
+                applyCursorConfidencePresentation()
+                ClientDiagnostics.shared.record(
+                    type: "cursorInputDropped",
+                    fields: ["reason": "pending-window-full"],
+                    level: .error
+                )
+                return
+            }
+            cursorRevision = revision
+        default:
+            cursorRevision = nil
+        }
+        let event = InputChannelEvent(event: input, cursorRevision: cursorRevision)
+        applyCursorConfidencePresentation()
+        scheduleCursorConfirmationDeadline(now: now)
         guard let channel = pairingClient.activeInputChannel else {
+            if let cursorRevision {
+                cursorReconciliation.markSendFailed(revision: cursorRevision)
+                applyCursorConfidencePresentation()
+                scheduleCursorConfirmationDeadline()
+            }
             if panFollowActive || !panFollowEdgeAxes.isEmpty {
                 PanFollowDiagnostics.log("drop-no-input-channel input=\(input)")
             }
             return
         }
-        Task { [channel, input] in
-            try? await channel.send(input)
+        let priorSend = inputSendTailTask
+        let sendTask = Task { @MainActor [weak self, channel, event, cursorRevision, priorSend] in
+            await priorSend?.value
+            guard !Task.isCancelled else { return }
+            do {
+                try await channel.send(event)
+            } catch {
+                if let cursorRevision {
+                    self?.cursorReconciliation.markSendFailed(revision: cursorRevision)
+                    self?.applyCursorConfidencePresentation()
+                    self?.scheduleCursorConfirmationDeadline()
+                }
+                ClientDiagnostics.shared.record(
+                    type: "inputSendFailed",
+                    fields: ["error": String(describing: error)],
+                    level: .error
+                )
+            }
+        }
+        inputSendTailTask = sendTask
+    }
+
+    private func cursorOperation(
+        for input: NormalizedInput
+    ) -> CursorReconciliationStateMachine.Operation? {
+        switch input {
+        case .cursorMove(let dx, let dy):
+            return .move(CGPoint(x: CGFloat(dx), y: CGFloat(dy)))
+        case .cursorSet(let displayId, let x, let y):
+            guard let point = cursorSourcePos ?? cursorSourcePoint(
+                displayId: displayId,
+                hostX: x,
+                hostY: y
+            ) else { return nil }
+            return .set(point)
+        default:
+            return nil
+        }
+    }
+
+    func cursorConfirmationClock() -> TimeInterval {
+        ProcessInfo.processInfo.systemUptime
+    }
+
+    func applyCursorConfidencePresentation() {
+        let presentation: CursorPointerView.Presentation = cursorReconciliation.confidence == .ghost
+            ? .ghost
+            : .confirmed
+        cursorDotView?.setPresentation(presentation)
+    }
+
+    func scheduleCursorConfirmationDeadline(now: TimeInterval? = nil) {
+        cursorConfirmationTask?.cancel()
+        cursorConfirmationTask = nil
+        guard cursorReconciliation.confidence != .ghost,
+              let deadline = cursorReconciliation.ghostDeadline else { return }
+        let current = now ?? cursorConfirmationClock()
+        let delay = max(0, deadline - current)
+        cursorConfirmationTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            let wakeTime = self.cursorConfirmationClock()
+            self.cursorReconciliation.advance(now: wakeTime)
+            self.applyCursorConfidencePresentation()
+            self.scheduleCursorConfirmationDeadline(now: wakeTime)
         }
     }
 

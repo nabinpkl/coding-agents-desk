@@ -71,7 +71,14 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // Defaults describe the drawn-arrow fallback (tip hotspot, small size).
     let cursorImageStore = CursorImageStore()
     var cursorTask: Task<Void, Never>?
-    var cursorPositionTask: Task<Void, Never>?
+    var cursorReconciliationTask: Task<Void, Never>?
+    var cursorConfirmationTask: Task<Void, Never>?
+    // Main-actor-created task chain. Each event waits for the prior send, so
+    // cursor revision order is also the order presented to the QUIC stream.
+    var inputSendTailTask: Task<Void, Never>?
+    var cursorReconciliation = CursorReconciliationStateMachine(
+        confirmationTimeout: Double(Config.cursorConfirmationTimeoutMs) / 1_000
+    )
     var hostAvailabilityTask: Task<Void, Never>?
     var textInputFocusTask: Task<Void, Never>?
     var keyboardPendingTimeoutTask: Task<Void, Never>?
@@ -270,8 +277,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         topWindowsTask = nil
         cursorTask?.cancel()
         cursorTask = nil
-        cursorPositionTask?.cancel()
-        cursorPositionTask = nil
+        cursorReconciliationTask?.cancel()
+        cursorReconciliationTask = nil
+        cursorConfirmationTask?.cancel()
+        cursorConfirmationTask = nil
+        inputSendTailTask?.cancel()
+        inputSendTailTask = nil
         hostAvailabilityTask?.cancel()
         hostAvailabilityTask = nil
         textInputFocusTask?.cancel()
@@ -359,7 +370,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         iceGraceTask?.cancel()
         desktopStateTask?.cancel()
         cursorTask?.cancel()
-        cursorPositionTask?.cancel()
+        cursorReconciliationTask?.cancel()
+        cursorConfirmationTask?.cancel()
+        inputSendTailTask?.cancel()
         hostAvailabilityTask?.cancel()
         diagnosticsTask?.cancel()
         agentSayTask?.cancel()

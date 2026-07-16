@@ -1038,12 +1038,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         sessions.attachInputTask(
             Task { [server, dispatcher, scrollActivityHints, logger, scheduleTextFocusProbe] in
-                for await input in server.events {
+                for await frame in server.events {
+                    let input = frame.event
                     scrollActivityHints.record(input)
-                    dispatcher.dispatch(input, afterDispatch: {
-                        guard case .click(.left) = input else { return }
-                        scheduleTextFocusProbe()
-                    })
+                    dispatcher.dispatch(
+                        input,
+                        cursorRevision: frame.cursorRevision,
+                        cursorAppliedHandler: { revision, result in
+                            server.pushCursorApplied(CursorAppliedPush(
+                                cursorRevision: revision,
+                                displayId: result.displayId,
+                                cursorX: Float(result.position.x),
+                                cursorY: Float(result.position.y)
+                            ))
+                        },
+                        afterDispatch: {
+                            guard case .click(.left) = input else { return }
+                            scheduleTextFocusProbe()
+                        }
+                    )
                 }
                 logger.notice("input event stream finished")
                 Task { @MainActor [weak self] in
@@ -1287,36 +1300,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cursorMonitor.start()
     }
 
-    // Cursor position correction. Remote cursor moves are echoed back at a
-    // bounded cadence so the client overlay can reconcile if dead-reckoning
-    // diverges. When the remote stream is idle, CursorMonitor also catches
-    // physical Mac mouse / trackpad moves behind the client's model.
+    // Cursor position correction. Revisioned remote input is acknowledged by
+    // the originating InputChannelServer directly from the dispatch loop.
+    // CursorMonitor handles only independently observed Mac movement while the
+    // remote stream is idle, preserving the provenance split from ADR-0058.
     private func installCursorPositionMonitor() {
-        inputDispatcher.cursorPositionHandler = { [weak self] position in
-            Task { @MainActor [weak self] in
-                self?.broadcastCursorPosition(position)
-            }
-        }
         cursorMonitor.shouldEmitPosition = { [weak self] in
             guard let self else { return false }
             return !self.inputDispatcher.isCursorInputActive()
         }
         cursorMonitor.onPositionChange = { [weak self] position in
-            self?.broadcastCursorPosition(position)
+            self?.broadcastHostCursorMoved(position)
         }
     }
 
-    private func broadcastCursorPosition(_ position: CGPoint) {
+    private func broadcastHostCursorMoved(_ position: CGPoint) {
         let displayId = displaySelection.selectedDisplayId
         let bounds = displaySelection.selectedBounds()
         let clamped = InputDispatcher.clamp(position, to: bounds)
-        let push = CursorPositionPush(
-            displayId: displayId,
-            cursorX: Float(clamped.x),
-            cursorY: Float(clamped.y)
-        )
         for server in sessions.allInputChannelServers() {
-            server.pushCursorPosition(push)
+            server.pushHostCursorMoved(
+                displayId: displayId,
+                cursorX: Float(clamped.x),
+                cursorY: Float(clamped.y)
+            )
         }
     }
 

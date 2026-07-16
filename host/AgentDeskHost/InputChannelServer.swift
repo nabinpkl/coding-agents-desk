@@ -33,7 +33,7 @@ extension AgentDataPushing {
 }
 
 protocol InputChannelServing: AgentDataPushing {
-    var events: AsyncStream<NormalizedInput> { get }
+    var events: AsyncStream<InputChannelEvent> { get }
     var diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate> { get }
     var configHandler: ((ClientConfig) -> Void)? { get set }
     // Called on each decoded agent-feed request from the client.
@@ -53,7 +53,8 @@ protocol InputChannelServing: AgentDataPushing {
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow])
     func pushAgentSay(_ push: AgentSayPush)
     func pushCursor(_ push: CursorImagePush)
-    func pushCursorPosition(_ push: CursorPositionPush)
+    func pushCursorApplied(_ push: CursorAppliedPush)
+    func pushHostCursorMoved(displayId: String?, cursorX: Float, cursorY: Float)
     func pushHostAvailability(_ push: HostAvailabilityPush)
     func pushTextInputFocus(_ push: HostTextInputFocusPush)
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest)
@@ -70,22 +71,29 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "input-lane")
     private let stream: QUIC.Stream<QUICStream>
     private let fingerprint: DeviceFingerprint
-    private var continuation: AsyncStream<NormalizedInput>.Continuation?
+    private var continuation: AsyncStream<InputChannelEvent>.Continuation?
     private var diagnosticsContinuation: AsyncStream<DiagnosticsChannelUpdate>.Continuation?
     private var receiveTask: Task<Void, Never>?
+    // Every host -> client frame on this QUIC stream shares one byte lane.
+    // Synchronous enqueue under the lock preserves producer call order; each
+    // async write then waits for its predecessor so frames cannot interleave
+    // or overtake cursor causality feedback (ADR-0030, ADR-0058).
+    private let sendChain = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
 
-    let events: AsyncStream<NormalizedInput>
+    let events: AsyncStream<InputChannelEvent>
     let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
     var configHandler: ((ClientConfig) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
     var onClosed: (() -> Void)?
     var receiveErrorPreservationHandler: (@Sendable (Error) async -> Bool)?
     var revokeHandler: (() -> Void)?
+    private let cursorRevisionLock = NSLock()
+    private var lastAppliedCursorRevision: UInt64?
 
     init(stream: QUIC.Stream<QUICStream>, fingerprint: DeviceFingerprint) {
         self.stream = stream
         self.fingerprint = fingerprint
-        var captured: AsyncStream<NormalizedInput>.Continuation?
+        var captured: AsyncStream<InputChannelEvent>.Continuation?
         events = AsyncStream { continuation in
             captured = continuation
         }
@@ -101,6 +109,10 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     func close() {
         receiveTask?.cancel()
         receiveTask = nil
+        sendChain.withLock { tail in
+            tail?.cancel()
+            tail = nil
+        }
         continuation?.finish()
         continuation = nil
         diagnosticsContinuation?.finish()
@@ -124,8 +136,23 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         sendCodableFrame(push)
     }
 
-    func pushCursorPosition(_ push: CursorPositionPush) {
+    func pushCursorApplied(_ push: CursorAppliedPush) {
+        cursorRevisionLock.lock()
+        lastAppliedCursorRevision = max(lastAppliedCursorRevision ?? 0, push.cursorRevision)
+        cursorRevisionLock.unlock()
         sendCodableFrame(push)
+    }
+
+    func pushHostCursorMoved(displayId: String?, cursorX: Float, cursorY: Float) {
+        cursorRevisionLock.lock()
+        let afterCursorRevision = lastAppliedCursorRevision
+        cursorRevisionLock.unlock()
+        sendCodableFrame(HostCursorMovedPush(
+            afterCursorRevision: afterCursorRevision,
+            displayId: displayId,
+            cursorX: cursorX,
+            cursorY: cursorY
+        ))
     }
 
     func pushHostAvailability(_ push: HostAvailabilityPush) {
@@ -176,11 +203,16 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             logger.error("input lane encode failed: \(String(describing: error), privacy: .public)")
             return
         }
-        Task { [stream, logger, payload] in
-            do {
-                try await QuicSessionStreamIO.sendPayload(payload, role: .input, on: stream)
-            } catch {
-                logger.error("input lane send failed: \(String(describing: error), privacy: .public)")
+        sendChain.withLock { tail in
+            let prior = tail
+            tail = Task { [stream, logger, payload] in
+                _ = await prior?.value
+                guard !Task.isCancelled else { return }
+                do {
+                    try await QuicSessionStreamIO.sendPayload(payload, role: .input, on: stream)
+                } catch {
+                    logger.error("input lane send failed: \(String(describing: error), privacy: .public)")
+                }
             }
         }
     }
@@ -237,7 +269,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         case "input-event":
             do {
                 let frame = try JSONDecoder().decode(InputChannelEvent.self, from: data)
-                continuation?.yield(frame.event)
+                continuation?.yield(frame)
             } catch {
                 logger.error("input lane event decode failed: \(String(describing: error), privacy: .public)")
             }

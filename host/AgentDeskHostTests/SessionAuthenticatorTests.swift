@@ -459,9 +459,9 @@ private final class ByteSequence {
 }
 
 private final class FakeInputChannelServer: InputChannelServing, @unchecked Sendable {
-    let events: AsyncStream<NormalizedInput>
+    let events: AsyncStream<InputChannelEvent>
     let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
-    private let continuation: AsyncStream<NormalizedInput>.Continuation
+    private let continuation: AsyncStream<InputChannelEvent>.Continuation
     private let diagnosticsContinuation: AsyncStream<DiagnosticsChannelUpdate>.Continuation
     private(set) var closed = false
     var configHandler: ((ClientConfig) -> Void)?
@@ -471,7 +471,7 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     var revokeHandler: (() -> Void)?
 
     init() {
-        var continuation: AsyncStream<NormalizedInput>.Continuation!
+        var continuation: AsyncStream<InputChannelEvent>.Continuation!
         var diagnosticsContinuation: AsyncStream<DiagnosticsChannelUpdate>.Continuation!
         events = AsyncStream { continuation = $0 }
         diagnosticsUpdates = AsyncStream { diagnosticsContinuation = $0 }
@@ -493,7 +493,8 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
 
     func pushCursor(_ push: CursorImagePush) {}
 
-    func pushCursorPosition(_ push: CursorPositionPush) {}
+    func pushCursorApplied(_ push: CursorAppliedPush) {}
+    func pushHostCursorMoved(displayId: String?, cursorX: Float, cursorY: Float) {}
 
     func pushHostAvailability(_ push: HostAvailabilityPush) {}
 

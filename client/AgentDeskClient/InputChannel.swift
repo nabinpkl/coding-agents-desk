@@ -5,11 +5,16 @@ enum InputChannelDiagnosticsUpdate: Equatable, Sendable {
     case request(DiagnosticsRequest)
 }
 
+enum CursorReconciliationUpdate: Equatable, Sendable {
+    case applied(CursorAppliedPush)
+    case hostMoved(HostCursorMovedPush)
+}
+
 // ADR-0030: input is a reliable lane on the authenticated QUIC session,
 // not a separate WebSocket. The concrete implementation is
 // QuicSessionClientTransport.
 protocol InputChannel: AnyObject, Sendable {
-    func send(_ input: NormalizedInput) async throws
+    func send(_ event: InputChannelEvent) async throws
     func close()
 
     var desktopStateUpdates: AsyncStream<DesktopState> { get }
@@ -17,7 +22,7 @@ protocol InputChannel: AnyObject, Sendable {
     var topWindowsUpdates: AsyncStream<[String: SpaceTopWindow]> { get }
     var agentSayUpdates: AsyncStream<AgentSayPush> { get }
     var cursorUpdates: AsyncStream<CursorImagePush> { get }
-    var cursorPositionUpdates: AsyncStream<CursorPositionPush> { get }
+    var cursorReconciliationUpdates: AsyncStream<CursorReconciliationUpdate> { get }
     var hostAvailabilityUpdates: AsyncStream<HostAvailabilityPush> { get }
     var textInputFocusUpdates: AsyncStream<HostTextInputFocusPush> { get }
     var diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate> { get }

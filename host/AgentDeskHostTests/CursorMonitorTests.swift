@@ -238,6 +238,10 @@ struct CursorMonitorTests {
 
         monitor.shouldEmitPosition = { true }
         monitor.tick()
-        #expect(emitted == [CGPoint(x: 10, y: 20), CGPoint(x: 30, y: 40)])
+        #expect(emitted == [CGPoint(x: 10, y: 20)])
+
+        point = CGPoint(x: 50, y: 60)
+        monitor.tick()
+        #expect(emitted == [CGPoint(x: 10, y: 20), CGPoint(x: 50, y: 60)])
     }
 }

@@ -180,26 +180,61 @@ public struct HostTextInputFocusPush: Codable, Equatable, Sendable {
     }
 }
 
-// Host -> client cursor-position correction. This is not sent for every
-// iPhone-driven cursor delta. It is a low-rate authoritative reseed when the
-// Mac-side system cursor moves outside the remote input stream, so the
-// client's local cursor overlay and edge-follow model do not drift after a
-// physical mouse or trackpad move on the host.
-public struct CursorPositionPush: Codable, Equatable, Sendable {
+// Host -> client acknowledgement emitted only after the host posts one
+// revisioned iPhone cursor input. An acknowledgement older than the client's
+// latest prediction advances applied progress but must not rewind the visible
+// client cursor.
+public struct CursorAppliedPush: Codable, Equatable, Sendable {
     public let type: String
+    public let cursorRevision: UInt64
     public let displayId: String?
     public let cursorX: Float
     public let cursorY: Float
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case type = "t"
+        case cursorRevision = "cr"
         case displayId = "d"
         case cursorX = "x"
         case cursorY = "y"
     }
 
-    public init(displayId: String?, cursorX: Float, cursorY: Float) {
-        self.type = "cursor-position"
+    public init(cursorRevision: UInt64, displayId: String?, cursorX: Float, cursorY: Float) {
+        self.type = "cursor-applied"
+        self.cursorRevision = cursorRevision
+        self.displayId = displayId
+        self.cursorX = cursorX
+        self.cursorY = cursorY
+    }
+}
+
+// Host -> client movement observed outside the remote-input dispatcher. The
+// host includes the last cursor revision it applied for this specific client,
+// letting the client rebase on the Mac position and replay only newer pending
+// operations.
+public struct HostCursorMovedPush: Codable, Equatable, Sendable {
+    public let type: String
+    public let afterCursorRevision: UInt64?
+    public let displayId: String?
+    public let cursorX: Float
+    public let cursorY: Float
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case type = "t"
+        case afterCursorRevision = "ar"
+        case displayId = "d"
+        case cursorX = "x"
+        case cursorY = "y"
+    }
+
+    public init(
+        afterCursorRevision: UInt64?,
+        displayId: String?,
+        cursorX: Float,
+        cursorY: Float
+    ) {
+        self.type = "host-cursor-moved"
+        self.afterCursorRevision = afterCursorRevision
         self.displayId = displayId
         self.cursorX = cursorX
         self.cursorY = cursorY

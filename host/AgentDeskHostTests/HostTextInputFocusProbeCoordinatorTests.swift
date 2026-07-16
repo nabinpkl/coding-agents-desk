@@ -170,7 +170,7 @@ struct HostTextInputFocusProbeCoordinatorTests {
 }
 
 private final class RecordingInputChannelServer: InputChannelServing, @unchecked Sendable {
-    let events: AsyncStream<NormalizedInput>
+    let events: AsyncStream<InputChannelEvent>
     let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
     var configHandler: ((ClientConfig) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
@@ -193,7 +193,8 @@ private final class RecordingInputChannelServer: InputChannelServing, @unchecked
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow]) {}
     func pushAgentSay(_ push: AgentSayPush) {}
     func pushCursor(_ push: CursorImagePush) {}
-    func pushCursorPosition(_ push: CursorPositionPush) {}
+    func pushCursorApplied(_ push: CursorAppliedPush) {}
+    func pushHostCursorMoved(displayId: String?, cursorX: Float, cursorY: Float) {}
     func pushHostAvailability(_ push: HostAvailabilityPush) {}
     func pushTextInputFocus(_ push: HostTextInputFocusPush) {
         textInputFocusPushes.append(push)

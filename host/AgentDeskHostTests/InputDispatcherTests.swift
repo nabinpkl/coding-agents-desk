@@ -92,9 +92,8 @@ struct InputDispatcherTests {
         #expect(recorder.events[0].location == CGPoint(x: 450, y: 650))
     }
 
-    @Test func cursorSetEmitsPositionCorrectionAtPostedPoint() {
+    @Test func cursorSetReturnsAppliedPositionAtPostedPoint() {
         let recorder = EventRecorder()
-        var corrections: [CGPoint] = []
         let dispatcher = InputDispatcher(
             eventPoster: { recorder.record($0) },
             isTrusted: { true },
@@ -102,16 +101,16 @@ struct InputDispatcherTests {
             displayBoundsProvider: { CGRect(x: 100, y: 200, width: 1500, height: 1000) },
             selectedDisplayIdProvider: { "display-a" }
         )
-        dispatcher.cursorPositionHandler = { corrections.append($0) }
+        let applied = dispatcher.performDispatch(.cursorSet(displayId: "display-a", x: 450, y: 650))
 
-        dispatcher.performDispatch(.cursorSet(displayId: "display-a", x: 450, y: 650))
-
-        #expect(corrections == [CGPoint(x: 450, y: 650)])
+        #expect(applied == InputDispatcher.CursorDispatchResult(
+            displayId: "display-a",
+            position: CGPoint(x: 450, y: 650)
+        ))
     }
 
-    @Test func staleCursorSetDoesNotEmitPositionCorrection() {
+    @Test func staleCursorSetDoesNotReturnAppliedPosition() {
         let recorder = EventRecorder()
-        var corrections: [CGPoint] = []
         let dispatcher = InputDispatcher(
             eventPoster: { recorder.record($0) },
             isTrusted: { true },
@@ -119,17 +118,14 @@ struct InputDispatcherTests {
             displayBoundsProvider: { CGRect(x: 100, y: 200, width: 1500, height: 1000) },
             selectedDisplayIdProvider: { "display-a" }
         )
-        dispatcher.cursorPositionHandler = { corrections.append($0) }
+        let applied = dispatcher.performDispatch(.cursorSet(displayId: "display-b", x: 450, y: 650))
 
-        dispatcher.performDispatch(.cursorSet(displayId: "display-b", x: 450, y: 650))
-
-        #expect(corrections.isEmpty)
+        #expect(applied == nil)
     }
 
-    @Test func cursorMoveEmitsBoundedPositionCorrections() {
+    @Test func everyCursorMoveReturnsItsAppliedPosition() {
         let recorder = EventRecorder()
         var now: CFTimeInterval = 10
-        var corrections: [CGPoint] = []
         let dispatcher = InputDispatcher(
             eventPoster: { recorder.record($0) },
             isTrusted: { true },
@@ -137,18 +133,45 @@ struct InputDispatcherTests {
             displayBoundsProvider: { CGRect(x: 0, y: 0, width: 1500, height: 1000) },
             clock: { now }
         )
-        dispatcher.cursorPositionHandler = { corrections.append($0) }
-
-        dispatcher.performDispatch(.cursorMove(dx: 10, dy: 0))
+        let first = dispatcher.performDispatch(.cursorMove(dx: 10, dy: 0))
         now += 0.02
-        dispatcher.performDispatch(.cursorMove(dx: 10, dy: 0))
+        let second = dispatcher.performDispatch(.cursorMove(dx: 10, dy: 0))
         now += 0.04
-        dispatcher.performDispatch(.cursorMove(dx: 10, dy: 0))
+        let third = dispatcher.performDispatch(.cursorMove(dx: 10, dy: 0))
 
-        #expect(corrections == [
-            CGPoint(x: 110, y: 200),
-            CGPoint(x: 130, y: 200)
-        ])
+        #expect(first?.position == CGPoint(x: 110, y: 200))
+        #expect(second?.position == CGPoint(x: 120, y: 200))
+        #expect(third?.position == CGPoint(x: 130, y: 200))
+    }
+
+    @Test func asynchronousCursorDispatchAcknowledgesExactRevisionAfterPosting() async {
+        let recorder = EventRecorder()
+        let dispatcher = InputDispatcher(
+            eventPoster: { recorder.record($0) },
+            isTrusted: { true },
+            locationProvider: { CGPoint(x: 100, y: 200) },
+            displayBoundsProvider: { CGRect(x: 0, y: 0, width: 1_500, height: 1_000) },
+            selectedDisplayIdProvider: { "display-a" }
+        )
+
+        let applied: (UInt64, InputDispatcher.CursorDispatchResult) = await withCheckedContinuation {
+            continuation in
+            dispatcher.dispatch(
+                .cursorMove(dx: 10, dy: -20),
+                cursorRevision: 41,
+                cursorAppliedHandler: { revision, result in
+                    continuation.resume(returning: (revision, result))
+                }
+            )
+        }
+
+        #expect(recorder.events.count == 1)
+        #expect(recorder.events[0].location == CGPoint(x: 110, y: 180))
+        #expect(applied.0 == 41)
+        #expect(applied.1 == InputDispatcher.CursorDispatchResult(
+            displayId: "display-a",
+            position: CGPoint(x: 110, y: 180)
+        ))
     }
 
     @Test func cursorSetClampsToSelectedDisplayBounds() {

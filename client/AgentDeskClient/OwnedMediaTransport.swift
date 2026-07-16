@@ -29,8 +29,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     let agentSayUpdates: AsyncStream<AgentSayPush>
     private let cursorContinuation: AsyncStream<CursorImagePush>.Continuation
     let cursorUpdates: AsyncStream<CursorImagePush>
-    private let cursorPositionContinuation: AsyncStream<CursorPositionPush>.Continuation
-    let cursorPositionUpdates: AsyncStream<CursorPositionPush>
+    private let cursorReconciliationContinuation: AsyncStream<CursorReconciliationUpdate>.Continuation
+    let cursorReconciliationUpdates: AsyncStream<CursorReconciliationUpdate>
     private let hostAvailabilityContinuation: AsyncStream<HostAvailabilityPush>.Continuation
     let hostAvailabilityUpdates: AsyncStream<HostAvailabilityPush>
     private let textInputFocusContinuation: AsyncStream<HostTextInputFocusPush>.Continuation
@@ -87,9 +87,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         var cursorCont: AsyncStream<CursorImagePush>.Continuation!
         cursorUpdates = AsyncStream { cursorCont = $0 }
         cursorContinuation = cursorCont
-        var cursorPositionCont: AsyncStream<CursorPositionPush>.Continuation!
-        cursorPositionUpdates = AsyncStream { cursorPositionCont = $0 }
-        cursorPositionContinuation = cursorPositionCont
+        var cursorReconciliationCont: AsyncStream<CursorReconciliationUpdate>.Continuation!
+        cursorReconciliationUpdates = AsyncStream { cursorReconciliationCont = $0 }
+        cursorReconciliationContinuation = cursorReconciliationCont
         var availabilityCont: AsyncStream<HostAvailabilityPush>.Continuation!
         hostAvailabilityUpdates = AsyncStream { availabilityCont = $0 }
         hostAvailabilityContinuation = availabilityCont
@@ -148,9 +148,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         close()
     }
 
-    func send(_ input: NormalizedInput) async throws {
+    func send(_ event: InputChannelEvent) async throws {
         try await QuicSessionStreamIO.send(
-            InputChannelEvent(event: input),
+            event,
             role: .input,
             on: inputStream
         )
@@ -236,7 +236,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         topWindowsContinuation.finish()
         agentSayContinuation.finish()
         cursorContinuation.finish()
-        cursorPositionContinuation.finish()
+        cursorReconciliationContinuation.finish()
         hostAvailabilityContinuation.finish()
         textInputFocusContinuation.finish()
         diagnosticsContinuation.finish()
@@ -374,9 +374,13 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             if let push = try? JSONDecoder().decode(CursorImagePush.self, from: data) {
                 cursorContinuation.yield(push)
             }
-        case "cursor-position":
-            if let push = try? JSONDecoder().decode(CursorPositionPush.self, from: data) {
-                cursorPositionContinuation.yield(push)
+        case "cursor-applied":
+            if let push = try? JSONDecoder().decode(CursorAppliedPush.self, from: data) {
+                cursorReconciliationContinuation.yield(.applied(push))
+            }
+        case "host-cursor-moved":
+            if let push = try? JSONDecoder().decode(HostCursorMovedPush.self, from: data) {
+                cursorReconciliationContinuation.yield(.hostMoved(push))
             }
         case "host-availability":
             if let push = try? JSONDecoder().decode(HostAvailabilityPush.self, from: data) {

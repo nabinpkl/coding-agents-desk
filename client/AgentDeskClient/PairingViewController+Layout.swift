@@ -417,8 +417,13 @@ extension PairingViewController {
         topWindowsTask = nil
         cursorTask?.cancel()
         cursorTask = nil
-        cursorPositionTask?.cancel()
-        cursorPositionTask = nil
+        cursorReconciliationTask?.cancel()
+        cursorReconciliationTask = nil
+        cursorConfirmationTask?.cancel()
+        cursorConfirmationTask = nil
+        inputSendTailTask?.cancel()
+        inputSendTailTask = nil
+        cursorReconciliation.reset()
         hostAvailabilityTask?.cancel()
         hostAvailabilityTask = nil
         textInputFocusTask?.cancel()

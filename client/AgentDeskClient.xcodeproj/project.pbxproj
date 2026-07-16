@@ -42,7 +42,6 @@
 				AgentFeedWebview,
 				AppDelegate.swift,
 				Assets.xcassets,
-				CursorPointerView.swift,
 				DomMirrorWebview,
 				HitOutsetView.swift,
 				Info.plist,

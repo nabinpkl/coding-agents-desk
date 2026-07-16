@@ -157,7 +157,14 @@ final class CursorMonitor {
 
     @discardableResult
     private func tickPosition() -> CGPoint? {
-        guard shouldEmitPosition(), let position = positionSampler() else { return nil }
+        guard let position = positionSampler() else { return nil }
+        guard shouldEmitPosition() else {
+            // Remote input owns the cursor while its dispatcher is active.
+            // Keep the observation baseline current so the final remote-applied
+            // point is not emitted later as an independent Mac movement.
+            lastPosition = position
+            return nil
+        }
         guard position != lastPosition else { return nil }
         lastPosition = position
         onPositionChange?(position)

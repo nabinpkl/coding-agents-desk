@@ -124,18 +124,61 @@ extension PairingViewController: UIScrollViewDelegate {
         updateCursorDot()
     }
 
-    // Authoritative host-side correction for cursor moves that did not
-    // originate on the iPhone, such as a physical mouse or trackpad move on
-    // the Mac while remote input was idle.
-    func applyCursorPosition(_ push: CursorPositionPush) {
-        if isManualViewportPanActive || panFollowActive || !panFollowEdgeAxes.isEmpty || !panFollowEdgeReturnAxes.isEmpty {
-            PanFollowDiagnostics.log(
-                "ignore-host-correction-during-pan display=\(String(describing: push.displayId)) host=(\(push.cursorX), \(push.cursorY)) panFollowActive=\(panFollowActive) edgeAxes=\(panFollowEdgeAxes.rawValue) returnAxes=\(panFollowEdgeReturnAxes.rawValue)"
-            )
-            return
+    // Revisioned acknowledgement for an iPhone-originated cursor input. An
+    // acknowledgement older than the newest local prediction advances the
+    // reducer but deliberately returns no visible correction.
+    func applyCursorApplied(_ push: CursorAppliedPush) {
+        guard let corrected = cursorSourcePoint(
+            displayId: push.displayId,
+            hostX: push.cursorX,
+            hostY: push.cursorY
+        ) else { return }
+        let correction = cursorReconciliation.applyHostApplied(
+            revision: push.cursorRevision,
+            position: corrected,
+            now: cursorConfirmationClock()
+        )
+        if let correction {
+            cursorSourcePos = correction
+            if !isManualViewportPanActive && !panFollowActive {
+                applyEdgeFollow()
+            }
+            updateCursorDot()
         }
-        guard let state = lastDesktopState else { return }
-        let displayId = push.displayId
+        applyCursorConfidencePresentation()
+        scheduleCursorConfirmationDeadline()
+    }
+
+    // Authoritative cursor movement observed outside the iPhone dispatcher.
+    // Rebase at the Mac position, then replay any client operations newer than
+    // the host's last applied revision.
+    func applyHostCursorMoved(_ push: HostCursorMovedPush) {
+        guard let corrected = cursorSourcePoint(
+            displayId: push.displayId,
+            hostX: push.cursorX,
+            hostY: push.cursorY
+        ), let reconciled = cursorReconciliation.applyHostMoved(
+            position: corrected,
+            afterRevision: push.afterCursorRevision,
+            displayBounds: activeDisplayRect,
+            now: cursorConfirmationClock()
+        ) else { return }
+        cursorSourcePos = reconciled
+        if !isManualViewportPanActive && !panFollowActive {
+            applyEdgeFollow()
+        }
+        updateCursorDot()
+        applyCursorConfidencePresentation()
+        scheduleCursorConfirmationDeadline()
+    }
+
+    func cursorSourcePoint(
+        displayId explicitDisplayId: String?,
+        hostX: Float,
+        hostY: Float
+    ) -> CGPoint? {
+        guard let state = lastDesktopState else { return nil }
+        let displayId = explicitDisplayId
             ?? activeDisplayIdMirror
             ?? state.selectedDisplayId
             ?? state.activeDisplayId
@@ -143,18 +186,16 @@ extension PairingViewController: UIScrollViewDelegate {
               displayId == activeDisplayIdMirror,
               let display = state.displays.first(where: { $0.id == displayId }),
               activeDisplayRect.width > 0,
-              activeDisplayRect.height > 0 else { return }
-        let corrected = CGPoint(
-            x: CGFloat(push.cursorX - display.originX),
-            y: CGFloat(push.cursorY - display.originY)
+              activeDisplayRect.height > 0 else { return nil }
+        let source = CGPoint(
+            x: CGFloat(hostX - display.originX),
+            y: CGFloat(hostY - display.originY)
         )
-        cursorSourcePos = EdgeFollow.advanceCursor(
-            from: corrected,
+        return EdgeFollow.advanceCursor(
+            from: source,
             delta: .zero,
             displayBounds: activeDisplayRect
         )
-        applyEdgeFollow()
-        updateCursorDot()
     }
 
     func applyEdgeFollow() {

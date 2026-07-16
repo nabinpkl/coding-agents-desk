@@ -1049,24 +1049,26 @@ struct InputChannelTests {
 
     @Test func eventFramePreservesNormalizedInput() throws {
         let event = NormalizedInput.cursorMove(dx: 1.5, dy: -2.25)
-        let frame = InputChannelEvent(event: event)
+        let frame = InputChannelEvent(event: event, cursorRevision: 7)
         let data = try JSONEncoder().encode(frame)
         let decoded = try JSONDecoder().decode(InputChannelEvent.self, from: data)
         #expect(decoded.event == event)
+        #expect(decoded.cursorRevision == 7)
     }
 
     @Test func cursorSetEventFramePreservesNormalizedInput() throws {
         let event = NormalizedInput.cursorSet(displayId: "display-a", x: 250.5, y: 500.75)
-        let frame = InputChannelEvent(event: event)
+        let frame = InputChannelEvent(event: event, cursorRevision: 8)
         let data = try JSONEncoder().encode(frame)
         let decoded = try JSONDecoder().decode(InputChannelEvent.self, from: data)
 
         #expect(decoded.event == event)
+        #expect(decoded.cursorRevision == 8)
     }
 
-    @Test func protocolVersionIsEightForBinaryWorkspaceDocuments() {
-        #expect(Config.protocolVersion == 8)
-        #expect(Config.minCompatibleProtocolVersion == 8)
+    @Test func protocolVersionIsNineForCursorReconciliation() {
+        #expect(Config.protocolVersion == 9)
+        #expect(Config.minCompatibleProtocolVersion == 9)
     }
 
     @Test func eventFrameRoundTripPreservesKeyWithModifiers() throws {
@@ -1110,19 +1112,37 @@ struct InputChannelTests {
         #expect(decoded == push)
     }
 
-    @Test func cursorPositionFrameDecodes() throws {
-        let push = CursorPositionPush(
+    @Test func cursorAppliedFrameDecodes() throws {
+        let push = CursorAppliedPush(
+            cursorRevision: 42,
             displayId: "display-1",
             cursorX: 1499,
             cursorY: 480
         )
         let data = try JSONEncoder().encode(push)
         let json = String(data: data, encoding: .utf8) ?? ""
-        let decoded = try JSONDecoder().decode(CursorPositionPush.self, from: data)
+        let decoded = try JSONDecoder().decode(CursorAppliedPush.self, from: data)
 
-        #expect(json.contains("\"t\":\"cursor-position\""))
+        #expect(json.contains("\"t\":\"cursor-applied\""))
+        #expect(json.contains("\"cr\":42"))
         #expect(json.contains("\"d\":\"display-1\""))
         #expect(json.contains("\"x\":1499"))
+        #expect(decoded == push)
+    }
+
+    @Test func hostCursorMovedFrameDecodes() throws {
+        let push = HostCursorMovedPush(
+            afterCursorRevision: 42,
+            displayId: "display-1",
+            cursorX: 120,
+            cursorY: 340
+        )
+        let data = try JSONEncoder().encode(push)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        let decoded = try JSONDecoder().decode(HostCursorMovedPush.self, from: data)
+
+        #expect(json.contains("\"t\":\"host-cursor-moved\""))
+        #expect(json.contains("\"ar\":42"))
         #expect(decoded == push)
     }
 

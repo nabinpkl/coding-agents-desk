@@ -28,6 +28,13 @@ enum Config {
         environmentKey: "AGENTDESK_SESSION_RECONNECT_RETRY_DELAY_MS",
         defaultValue: 1_000
     )
+    // ADR-0058: grace before an unconfirmed locally predicted cursor becomes
+    // a grey ghost. This is intentionally longer than normal input-lane RTT,
+    // while still surfacing a host that stopped applying cursor input quickly.
+    static let cursorConfirmationTimeoutMs = positiveInt(
+        environmentKey: "AGENTDESK_CURSOR_CONFIRMATION_TIMEOUT_MS",
+        defaultValue: 250
+    )
     // The stable and experimental client installs differ only by bundle id.
     // Deriving the log subsystem and keychain namespace from the running
     // bundle id keeps each variant's diagnostics and stored credentials
