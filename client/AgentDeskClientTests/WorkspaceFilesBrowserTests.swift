@@ -214,7 +214,9 @@ struct WorkspaceFilesBrowserTests {
         await browser.selectWorkspace("w1")
         await browser.openFile(file("README.md", "README.md"))
         #expect(browser.model.preview == .loaded(
-            path: "README.md", text: "# Demo\n", revision: WorkspaceFileRevision(digest: "d")
+            path: "README.md",
+            content: .text("# Demo\n"),
+            revision: WorkspaceFileRevision(digest: "d")
         ))
 
         browser.closePreview()
@@ -234,7 +236,9 @@ struct WorkspaceFilesBrowserTests {
         #expect(await mock.writtenText["note.txt"] == "edited")
         #expect(browser.model.saveStatus == .idle)
         #expect(browser.model.preview == .loaded(
-            path: "note.txt", text: "edited", revision: WorkspaceFileRevision(digest: "d-written")
+            path: "note.txt",
+            content: .text("edited"),
+            revision: WorkspaceFileRevision(digest: "d-written")
         ))
     }
 
@@ -357,7 +361,7 @@ struct WorkspaceFilesBrowserTests {
         #expect(browser.model.selectedWorkspaceID == "w2")
         #expect(browser.model.preview == .loaded(
             path: "src/main.swift",
-            text: "print(\"restored\")",
+            content: .text("print(\"restored\")"),
             revision: WorkspaceFileRevision(digest: "d")
         ))
     }
