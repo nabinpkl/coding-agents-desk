@@ -85,9 +85,14 @@ struct DockEnrichmentSwapInteractionTests {
 
         panel.render(snapshot, swapState: .choosingSource)
 
-        let swap = panel.descendant(identifier: "dock-desktop-swap") as? NSButton
+        let swap = panel.descendant(identifier: "dock-desktop-swap") as? HoverButton
         let primary = panel.descendant(identifier: "dock-desktop-select-100") as? NSButton
         #expect(swap != nil)
+        #expect(swap?.image != nil)
+        #expect(swap?.imagePosition == .imageOnly)
+        #expect(swap?.isBordered == false)
+        #expect(swap?.restingColor != .clear)
+        #expect(swap?.contentTintColor?.isEqual(AppTheme.accent) == true)
         #expect(panel.descendant(identifier: "dock-desktop-swap-status") is NSTextField)
         #expect(panel.descendant(identifier: "dock-desktop-swap-status")?.isHidden == false)
         #expect(primary != nil)

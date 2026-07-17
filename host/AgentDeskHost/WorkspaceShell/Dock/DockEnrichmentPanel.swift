@@ -21,7 +21,7 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
     private let color = WorkspaceShellOverlay.adaptiveWhite(light: 0.96, dark: 0.12)
     private var isKeyboardFocused = false
     private let stripContainer = NSView()
-    private let swapButton = NSButton()
+    private let swapButton = HoverButton(frame: .zero)
     private let scrollView = NSScrollView()
     private let desktopStrip = NSStackView()
     private let emptyLabel = NSTextField(labelWithString: "No running apps")
@@ -151,9 +151,16 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
         addSubview(stripContainer)
 
         swapButton.translatesAutoresizingMaskIntoConstraints = false
-        swapButton.image = NSImage(systemSymbolName: "arrow.left.arrow.right", accessibilityDescription: nil)
+        swapButton.isBordered = false
+        swapButton.bezelStyle = .regularSquare
+        swapButton.image = NSImage(
+            systemSymbolName: "arrow.left.arrow.right",
+            accessibilityDescription: "Swap desktop contents"
+        )?.withSymbolConfiguration(.init(pointSize: 17, weight: .semibold))
         swapButton.imagePosition = .imageOnly
-        swapButton.bezelStyle = .rounded
+        swapButton.imageScaling = .scaleProportionallyDown
+        swapButton.cornerRadius = 10
+        swapButton.restingColor = HoverButton.subtleFill
         swapButton.target = self
         swapButton.action = #selector(toggleSwap)
         swapButton.toolTip = "Swap desktop contents"
@@ -228,7 +235,10 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
     private func renderControls(_ state: DockDesktopSwapState) {
         swapButton.isEnabled = !state.isBusy
         swapButton.state = state.holdsDock ? .on : .off
-        swapButton.contentTintColor = state.holdsDock ? AppTheme.accent : .secondaryLabelColor
+        swapButton.restingColor = state.holdsDock
+            ? AppTheme.accent.withAlphaComponent(0.18)
+            : HoverButton.subtleFill
+        swapButton.contentTintColor = AppTheme.accent
         swapButton.setAccessibilityValue(state.holdsDock ? "active" : "inactive")
 
         statusView.render(state)

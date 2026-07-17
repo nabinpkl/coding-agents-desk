@@ -27,7 +27,8 @@ window-ID verification waits for the required host relaunch checkpoint.
 ## v10 Phase 3: integration and live checkpoint
 
 - [x] D92. Run focused host tests, `git diff --check`, and `just check`; self-review the complete transaction, UI, lifecycle, accessibility, config, docs, and logs.
-- [ ] R93. After the required host relaunch checkpoint, capture source/destination window IDs, exercise Swap and Undo through AX, verify moved and excluded sets, and record a window-only screenshot.
+- [x] D93. Run the exact `fresh-install` composite before editing, prove the host binary was replaced, diagnose the missing Swap control as an inactive-state rendering defect, adopt the shared `HoverButton` presentation with a persistent accent glyph, and verify the corrected Release host through AX plus a live screenshot. The composite's client reinstall completed; its final launch retry remains blocked only while the physical phone is locked.
+- [ ] R94. Capture source/destination window IDs, exercise an actual Swap and Undo through AX, verify moved and excluded sets, and record a window-only screenshot.
 
 ## Promotion log
 
@@ -37,4 +38,5 @@ window-ID verification waits for the required host relaunch checkpoint.
 | D90 | 2026-07-17 | done | Typed yabai transaction, rollback, conservative Undo, command-runner limits, and pure interaction state are covered by focused host tests. |
 | D91 | 2026-07-17 | done | Typed presenter effects, extracted AppKit controls, held reveal, empty targets, eight-second Undo, Escape/outside cancellation, keyboard buttons, and stable AX identifiers are covered by focused tests. |
 | D92 | 2026-07-17 | done | Focused interaction/transaction suites, all 529 host tests, package checks, diff hygiene, and integrated self-review are green. |
-| R93 | pending | pending | Checkpointed live AX/window-ID Swap and Undo verification with a window-only screenshot. |
+| D93 | 2026-07-17 | done | Exact fresh-install verification separated lifecycle from rendering; the current Release host visibly presents the inactive Swap glyph and AX confirms inactive, active, then inactive state. |
+| R94 | pending | pending | Live window-ID Swap and Undo verification with a window-only screenshot. |
