@@ -49,10 +49,11 @@ retain zoom, and a different document starts at fit-width.
 | --- | --- | --- | --- |
 | D84 | 2026-07-17 | done | One bounded WKWebView zoom state now owns DOCX pinch, command zoom, refresh preservation, and file-change reset. |
 | D85 | 2026-07-17 | done | The iOS DOCX header exposes accessible minus/plus controls backed by an end-to-end surface regression. |
-| R86 | pending | pending | Current-SHA iOS rendered-surface verification awaits the required run checkpoint. |
+| R86 | pending | pending | Fit-width and below-fit control zoom are verified; pinch, zoomed panning, and same-file refresh remain. |
 | D87 | 2026-07-17 | done | DOCX can zoom out to a 0.5x overview without changing the 1x fit-width opening scale. |
 | D88 | 2026-07-17 | done | Word page geometry now opens fit-width and buttons or pinch scale the nested DOCX reader itself. |
 
-The viewer tests, `just check`, iOS application build, and focused iOS test build are green. R86 keeps
-the rendered-surface behavior open until the current commit is installed and visually verified after
-the required run checkpoint.
+The viewer tests, `just check`, iOS application build, and focused iOS test build are green. The
+current `e7af127` build was installed and the real Assurance report was visually verified at fit-width
+and below-fit overview zoom on the iOS simulator. R86 remains open for pinch, zoomed panning, and
+same-file refresh.
