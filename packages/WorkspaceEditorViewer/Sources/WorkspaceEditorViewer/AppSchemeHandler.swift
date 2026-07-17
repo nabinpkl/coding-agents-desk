@@ -17,6 +17,7 @@ public final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
         case traversal(String)
         case notFound(String)
         case documentTooLarge
+        case responseCreationFailed(String)
     }
 
     private let root: URL
@@ -56,15 +57,12 @@ public final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
             task.didFailWithError(Failure.notFound(relative))
             return
         }
-        let response = URLResponse(
-            url: url,
+        serve(
+            data,
             mimeType: Self.mimeType(forExtension: fileURL.pathExtension.lowercased()),
-            expectedContentLength: data.count,
-            textEncodingName: nil
+            at: url,
+            task: task
         )
-        task.didReceive(response)
-        task.didReceive(data)
-        task.didFinish()
     }
 
     public func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {
@@ -92,12 +90,29 @@ public final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
             task.didFailWithError(error)
             return
         }
-        task.didReceive(URLResponse(
-            url: url,
+        serve(
+            data,
             mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            expectedContentLength: data.count,
-            textEncodingName: nil
-        ))
+            at: url,
+            task: task
+        )
+    }
+
+    private func serve(_ data: Data, mimeType: String, at url: URL, task: WKURLSchemeTask) {
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: [
+                "Content-Type": mimeType,
+                "Content-Length": String(data.count),
+                "Cache-Control": "no-cache",
+            ]
+        ) else {
+            task.didFailWithError(Failure.responseCreationFailed(url.absoluteString))
+            return
+        }
+        task.didReceive(response)
         task.didReceive(data)
         task.didFinish()
     }
