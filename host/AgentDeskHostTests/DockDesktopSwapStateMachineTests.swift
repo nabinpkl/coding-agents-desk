@@ -93,5 +93,11 @@ struct DockDesktopSwapStateMachineTests {
         )
         #expect(DockDesktopSwapState.choosingDestination(source: primary).marker(for: 100) == "1")
         #expect(DockDesktopSwapState.choosingDestination(source: primary).marker(for: 200) == "2")
+        #expect(DockDesktopSwapState.choosingSource.shouldCancelForPrimaryClick(insideDock: false))
+        #expect(!DockDesktopSwapState.choosingSource.shouldCancelForPrimaryClick(insideDock: true))
+        #expect(
+            !DockDesktopSwapState.swapping(source: primary, destination: secondary)
+                .shouldCancelForPrimaryClick(insideDock: false)
+        )
     }
 }

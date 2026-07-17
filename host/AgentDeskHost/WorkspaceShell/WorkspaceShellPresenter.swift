@@ -26,6 +26,8 @@ final class WorkspaceShellPresenter: NSObject {
     /// Surfaces the user has pinned open (per-surface, like the donor's two pins). When Input
     /// Monitoring is absent both are treated pinned so the shell stays reachable (see effectivePinned).
     private var pinnedSurfaces: Set<WorkspaceShellSurface> = []
+    /// Active desktop selection, execution, and Undo hold the Dock open independently of user pins.
+    private var dockInteractionHeld = false
     /// The live sidebar width (seeded from the store, updated by the resize handle drag).
     private var sidebarWidth: CGFloat = SidebarWidth.defaultValue
     private var screenObserver: NSObjectProtocol?
@@ -163,8 +165,9 @@ final class WorkspaceShellPresenter: NSObject {
         if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver); self.spaceObserver = nil }
         ptyManagerWindow?.stop()
         ptyManagerWindow = nil
-        dockPresenter?.setVisible(false)
+        dockPresenter?.stop()
         dockPresenter = nil
+        dockInteractionHeld = false
         overlay.stop()
     }
 
@@ -172,7 +175,10 @@ final class WorkspaceShellPresenter: NSObject {
 
     private func startPointerTapOrDegrade() {
         if CGPreflightListenEventAccess() {
-            let tap = WorkspaceShellPointerTap(onPointer: { [weak self] quartz in self?.enqueuePointer(quartz) })
+            let tap = WorkspaceShellPointerTap(
+                onPointer: { [weak self] quartz in self?.enqueuePointer(quartz) },
+                onPrimaryClick: { [weak self] quartz in self?.enqueuePrimaryClick(quartz) }
+            )
             if tap.start() {
                 pointerTap = tap
                 inputMonitoringGranted = true
@@ -201,6 +207,10 @@ final class WorkspaceShellPresenter: NSObject {
         Task { @MainActor [weak self] in self?.drainPointer() }
     }
 
+    nonisolated private func enqueuePrimaryClick(_ quartz: CGPoint) {
+        Task { @MainActor [weak self] in self?.handlePrimaryClick(quartz) }
+    }
+
     private func drainPointer() {
         pointerLock.lock()
         let quartz = pendingPointerQuartz
@@ -211,6 +221,13 @@ final class WorkspaceShellPresenter: NSObject {
         let point = WorkspaceShellPointerTap.appKitPoint(quartz: quartz)
         let inside = Set(WorkspaceShellSurface.allCases.filter { overlay.containsSurface($0, point: point) })
         edgeReveal.pointerMoved(to: point, insideSurfaces: inside)
+    }
+
+    private func handlePrimaryClick(_ quartz: CGPoint) {
+        let point = WorkspaceShellPointerTap.appKitPoint(quartz: quartz)
+        let insideDock = overlay.containsSurface(.dockEnrichment, point: point)
+        guard dockPresenter?.swapState.shouldCancelForPrimaryClick(insideDock: insideDock) == true else { return }
+        dockPresenter?.cancelInteraction()
     }
 
     /// The surfaces to hold revealed: the user's pins, or both when Input Monitoring is absent (the
@@ -224,7 +241,14 @@ final class WorkspaceShellPresenter: NSObject {
     }
 
     private func updateConfiguration() {
-        edgeReveal.setConfiguration(WorkspaceShellRevealConfiguration(pinned: effectivePinned(), held: []))
+        edgeReveal.setConfiguration(revealConfiguration(pinned: effectivePinned()))
+    }
+
+    private func revealConfiguration(pinned: Set<WorkspaceShellSurface>) -> WorkspaceShellRevealConfiguration {
+        WorkspaceShellRevealConfiguration(
+            pinned: pinned,
+            held: dockInteractionHeld ? [.dockEnrichment] : []
+        )
     }
 
     private func relayout() {
@@ -246,7 +270,7 @@ final class WorkspaceShellPresenter: NSObject {
         edgeReveal.update(
             screen: screen,
             descriptors: layout.revealDescriptors,
-            configuration: WorkspaceShellRevealConfiguration(pinned: pinned, held: [])
+            configuration: revealConfiguration(pinned: pinned)
         )
     }
 
@@ -296,7 +320,17 @@ final class WorkspaceShellPresenter: NSObject {
             dockPanel.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
         dockPanel.workspaceLabelProvider = { [weak self] spaceID in self?.workspaceName(forSpaceID: spaceID) }
-        dockPresenter = DockEnrichmentPresenter(reader: DockAppSnapshotReader(), renderer: dockPanel)
+        let presenter = DockEnrichmentPresenter(reader: DockAppSnapshotReader(), renderer: dockPanel)
+        dockPanel.onSwapToggle = { [weak presenter] in presenter?.toggleSwap() }
+        dockPanel.onDesktopSelection = { [weak presenter] selection in presenter?.selectDesktop(selection) }
+        dockPanel.onUndo = { [weak presenter] in presenter?.undo() }
+        dockPanel.onCancel = { [weak presenter] in presenter?.cancelInteraction() }
+        presenter.onInteractionHeldChange = { [weak self] held in
+            guard let self else { return }
+            self.dockInteractionHeld = held
+            self.updateConfiguration()
+        }
+        dockPresenter = presenter
         DockDisplayMonitorCache.shared.refreshFromScreens()
         // Re-lay out the strip whenever the Dock's geometry changes (auto-hide toggled, moved, resized)
         // so it keeps floating above the Dock.

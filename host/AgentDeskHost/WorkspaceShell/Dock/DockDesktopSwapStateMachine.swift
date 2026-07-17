@@ -47,6 +47,10 @@ enum DockDesktopSwapState: Equatable, Sendable {
         }
     }
 
+    func shouldCancelForPrimaryClick(insideDock: Bool) -> Bool {
+        holdsDock && !isBusy && !insideDock
+    }
+
     var instruction: String? {
         switch self {
         case .idle:
@@ -154,5 +158,9 @@ struct DockDesktopSwapStateMachine: Equatable, Sendable {
             state = .failed(message)
         }
         return nil
+    }
+
+    mutating func reset() {
+        state = .idle
     }
 }

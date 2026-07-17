@@ -1,4 +1,5 @@
 import AppKit
+@preconcurrency import CoreFoundation
 import CoreGraphics
 import os
 
@@ -15,34 +16,50 @@ import os
 /// Restartable: `start()` creates the tap and enables it on a dedicated CFRunLoop thread; `stop()`
 /// tears it down. A `start()` after a `stop()` builds a fresh tap, so the same instance can be
 /// cycled. All shared mutable state is guarded by `lock`.
-final class WorkspaceShellPointerTap {
+final class WorkspaceShellPointerTap: @unchecked Sendable {
+    enum EventKind: Equatable {
+        case movement
+        case primaryClick
+        case ignored
+    }
+
     private let lock = NSLock()
     private let onPointer: (CGPoint) -> Void
+    private let onPrimaryClick: (CGPoint) -> Void
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var runLoop: CFRunLoop?
     private var thread: Thread?
     private var running = false
 
-    /// The events the tap listens for: pointer movement in every button state. A drag is still a
-    /// move, so all three drag types are included, matching the donor.
-    fileprivate static let pointerEventMask =
+    /// The tap keeps the donor's movement coverage and also observes primary clicks so an active Dock
+    /// interaction can cancel when the user clicks outside the all-Spaces surface.
+    static let eventMask =
         CGEventMask(1) << CGEventType.mouseMoved.rawValue |
+        CGEventMask(1) << CGEventType.leftMouseDown.rawValue |
         CGEventMask(1) << CGEventType.leftMouseDragged.rawValue |
         CGEventMask(1) << CGEventType.rightMouseDragged.rawValue |
         CGEventMask(1) << CGEventType.otherMouseDragged.rawValue
 
-    fileprivate static func isPointerMovement(_ type: CGEventType) -> Bool {
-        type == .mouseMoved ||
+    static func eventKind(for type: CGEventType) -> EventKind {
+        if type == .leftMouseDown { return .primaryClick }
+        if type == .mouseMoved ||
             type == .leftMouseDragged ||
             type == .rightMouseDragged ||
-            type == .otherMouseDragged
+            type == .otherMouseDragged {
+            return .movement
+        }
+        return .ignored
     }
 
-    /// The pointer callback delivers Quartz coordinates (top-left origin, y-down). AppKit is
-    /// bottom-left origin, y-up, so callers flip through the primary (menu-bar) display height.
-    init(onPointer: @escaping (CGPoint) -> Void) {
+    /// Callbacks deliver Quartz coordinates (top-left origin, y-down). AppKit is bottom-left origin,
+    /// y-up, so callers flip through the primary (menu-bar) display height.
+    init(
+        onPointer: @escaping (CGPoint) -> Void,
+        onPrimaryClick: @escaping (CGPoint) -> Void = { _ in }
+    ) {
         self.onPointer = onPointer
+        self.onPrimaryClick = onPrimaryClick
     }
 
     deinit {
@@ -62,7 +79,7 @@ final class WorkspaceShellPointerTap {
             tap: .cgSessionEventTap,
             place: .tailAppendEventTap,
             options: .listenOnly,
-            eventsOfInterest: WorkspaceShellPointerTap.pointerEventMask,
+            eventsOfInterest: WorkspaceShellPointerTap.eventMask,
             callback: WorkspaceShellPointerTap.eventTapCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
@@ -155,8 +172,14 @@ final class WorkspaceShellPointerTap {
             }
             return
         }
-        guard WorkspaceShellPointerTap.isPointerMovement(type) else { return }
-        onPointer(event.location)
+        switch WorkspaceShellPointerTap.eventKind(for: type) {
+        case .movement:
+            onPointer(event.location)
+        case .primaryClick:
+            onPrimaryClick(event.location)
+        case .ignored:
+            break
+        }
     }
 
     private static let eventTapCallback: CGEventTapCallBack = { _, type, event, refcon in

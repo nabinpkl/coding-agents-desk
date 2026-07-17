@@ -2,6 +2,8 @@ import AppKit
 
 private enum DockEnrichmentMetrics {
     static let stripHeight: CGFloat = 82
+    static let actionWidth: CGFloat = 44
+    static let statusHeight: CGFloat = 36
     static let desktopPillWidth: CGFloat = 196
     static let desktopPillHeight: CGFloat = 64
     static let desktopPillCornerRadius: CGFloat = 12
@@ -19,14 +21,25 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
     private let color = WorkspaceShellOverlay.adaptiveWhite(light: 0.96, dark: 0.12)
     private var isKeyboardFocused = false
     private let stripContainer = NSView()
+    private let swapButton = NSButton()
     private let scrollView = NSScrollView()
     private let desktopStrip = NSStackView()
     private let emptyLabel = NSTextField(labelWithString: "No running apps")
+    private let statusView = DockDesktopSwapStatusView()
     private let tooltip = DockAppTooltipView()
     private weak var tooltipAnchor: NSView?
     private var selectedButton: DockAppIconButton?
     private var appPopover: NSPopover?
     private var popoverDelegate: DockAppPopoverDelegate?
+    private var swapState = DockDesktopSwapState.idle
+    private var escapeMonitor: Any?
+
+    var onSwapToggle: (() -> Void)?
+    var onDesktopSelection: ((DockDesktopSwapSelection) -> Void)?
+    var onUndo: (() -> Void)? {
+        didSet { statusView.onUndo = onUndo }
+    }
+    var onCancel: (() -> Void)?
 
     /// Maps a group's Space id to the assigned workspace name (Q2). Set by the shell presenter; read on
     /// the main thread at render, where the workspace store lives. Nil result falls back to "Desktop N".
@@ -42,7 +55,16 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
         fatalError("init(coder:) is not supported")
     }
 
-    func render(_ snapshot: DockAppSnapshot) {
+    deinit {
+        MainActor.assumeIsolated {
+            if let escapeMonitor {
+                NSEvent.removeMonitor(escapeMonitor)
+            }
+        }
+    }
+
+    func render(_ snapshot: DockAppSnapshot, swapState: DockDesktopSwapState) {
+        self.swapState = swapState
         closeAppPopover()
         hideTooltip()
         desktopStrip.arrangedSubviews.forEach { view in
@@ -52,17 +74,26 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
 
         let provider = workspaceLabelProvider
         let groups = snapshot.desktopGroups
-            .filter { !$0.apps.isEmpty || $0.diagnostic != nil }
             .map { group -> DockDesktopGroupSummary in
                 // Overlay the assigned workspace name; keep the base "Desktop N" when unassigned.
                 guard let name = group.spaceID.flatMap({ provider?($0) }) else { return group }
                 return group.withLabel(name)
+            }
+            .filter { group in
+                if swapState.isSelecting {
+                    return group.spaceID != nil && group.diagnostic == nil
+                }
+                return !group.apps.isEmpty || group.diagnostic != nil
             }
         emptyLabel.isHidden = !groups.isEmpty
         for group in groups {
             desktopStrip.addArrangedSubview(
                 DockDesktopPillView(
                     group: group,
+                    swapState: swapState,
+                    onDesktopSelection: { [weak self] selection in
+                        self?.onDesktopSelection?(selection)
+                    },
                     onAppContextMenu: { [weak self] button, app in
                         self?.showAppPopover(for: app, in: group, anchoredTo: button)
                     },
@@ -75,6 +106,8 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
                 )
             )
         }
+
+        renderControls(swapState)
 
         needsLayout = true
         needsDisplay = true
@@ -98,6 +131,14 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
         applyColor()
     }
 
+    override func cancelOperation(_ sender: Any?) {
+        guard swapState.holdsDock, !swapState.isBusy else {
+            super.cancelOperation(sender)
+            return
+        }
+        onCancel?()
+    }
+
     private func configure() {
         configureRootAccessibility()
         wantsLayer = true
@@ -108,6 +149,17 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
         stripContainer.wantsLayer = true
         stripContainer.layer?.zPosition = 1
         addSubview(stripContainer)
+
+        swapButton.translatesAutoresizingMaskIntoConstraints = false
+        swapButton.image = NSImage(systemSymbolName: "arrow.left.arrow.right", accessibilityDescription: nil)
+        swapButton.imagePosition = .imageOnly
+        swapButton.bezelStyle = .rounded
+        swapButton.target = self
+        swapButton.action = #selector(toggleSwap)
+        swapButton.toolTip = "Swap desktop contents"
+        swapButton.setAccessibilityIdentifier("dock-desktop-swap")
+        swapButton.setAccessibilityLabel("Swap desktop contents")
+        stripContainer.addSubview(swapButton)
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.drawsBackground = false
@@ -130,6 +182,8 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         stripContainer.addSubview(emptyLabel)
 
+        addSubview(statusView)
+
         tooltip.translatesAutoresizingMaskIntoConstraints = true
         tooltip.autoresizingMask = []
         tooltip.isHidden = true
@@ -142,7 +196,12 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
             stripContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
             stripContainer.heightAnchor.constraint(equalToConstant: DockEnrichmentMetrics.stripHeight),
 
-            scrollView.leadingAnchor.constraint(equalTo: stripContainer.leadingAnchor),
+            swapButton.leadingAnchor.constraint(equalTo: stripContainer.leadingAnchor, constant: 10),
+            swapButton.centerYAnchor.constraint(equalTo: stripContainer.centerYAnchor),
+            swapButton.widthAnchor.constraint(equalToConstant: DockEnrichmentMetrics.actionWidth),
+            swapButton.heightAnchor.constraint(equalToConstant: DockEnrichmentMetrics.actionWidth),
+
+            scrollView.leadingAnchor.constraint(equalTo: swapButton.trailingAnchor, constant: 8),
             scrollView.trailingAnchor.constraint(equalTo: stripContainer.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: stripContainer.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: stripContainer.bottomAnchor),
@@ -154,7 +213,40 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
 
             emptyLabel.centerXAnchor.constraint(equalTo: stripContainer.centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: stripContainer.centerYAnchor),
+
+            statusView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            statusView.bottomAnchor.constraint(equalTo: stripContainer.topAnchor, constant: -8),
+            statusView.heightAnchor.constraint(equalToConstant: DockEnrichmentMetrics.statusHeight),
+            statusView.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -24),
         ])
+    }
+
+    @objc private func toggleSwap() {
+        onSwapToggle?()
+    }
+
+    private func renderControls(_ state: DockDesktopSwapState) {
+        swapButton.isEnabled = !state.isBusy
+        swapButton.state = state.holdsDock ? .on : .off
+        swapButton.contentTintColor = state.holdsDock ? AppTheme.accent : .secondaryLabelColor
+        swapButton.setAccessibilityValue(state.holdsDock ? "active" : "inactive")
+
+        statusView.render(state)
+        updateEscapeMonitor(for: state)
+    }
+
+    private func updateEscapeMonitor(for state: DockDesktopSwapState) {
+        let shouldMonitor = state.holdsDock && !state.isBusy
+        if shouldMonitor, escapeMonitor == nil {
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard event.keyCode == 53 else { return event }
+                MainActor.assumeIsolated { self?.onCancel?() }
+                return nil
+            }
+        } else if !shouldMonitor, let escapeMonitor {
+            NSEvent.removeMonitor(escapeMonitor)
+            self.escapeMonitor = nil
+        }
     }
 
     private func configureRootAccessibility() {
@@ -265,14 +357,20 @@ private final class DockDesktopPillView: NSView {
     private let onAppContextMenu: (DockAppIconButton, DockAppInstanceSummary) -> Void
     private let onAppHover: (DockAppIconButton, DockAppInstanceSummary) -> Void
     private let onAppHoverEnd: () -> Void
+    private let swapState: DockDesktopSwapState
+    private let onDesktopSelection: (DockDesktopSwapSelection) -> Void
 
     init(
         group: DockDesktopGroupSummary,
+        swapState: DockDesktopSwapState,
+        onDesktopSelection: @escaping (DockDesktopSwapSelection) -> Void,
         onAppContextMenu: @escaping (DockAppIconButton, DockAppInstanceSummary) -> Void,
         onAppHover: @escaping (DockAppIconButton, DockAppInstanceSummary) -> Void,
         onAppHoverEnd: @escaping () -> Void
     ) {
         self.group = group
+        self.swapState = swapState
+        self.onDesktopSelection = onDesktopSelection
         self.onAppContextMenu = onAppContextMenu
         self.onAppHover = onAppHover
         self.onAppHoverEnd = onAppHoverEnd
@@ -343,6 +441,29 @@ private final class DockDesktopPillView: NSView {
         name.translatesAutoresizingMaskIntoConstraints = false
         name.setAccessibilityIdentifier("dock-desktop-name")
         addSubview(name)
+
+        if swapState.isSelecting, let spaceID = group.spaceID,
+           let marker = swapState.marker(for: spaceID) {
+            let selection = DockDesktopSwapSelection(
+                spaceID: spaceID,
+                desktopLabel: group.desktopLabel,
+                monitorBadgeLabel: group.monitorBadgeLabel
+            )
+            let selectionButton = DockDesktopSelectionButton(
+                marker: marker,
+                isChosen: swapState.isSelected(spaceID: spaceID),
+                selection: selection,
+                onSelect: onDesktopSelection
+            )
+            selectionButton.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(selectionButton)
+            NSLayoutConstraint.activate([
+                selectionButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+                selectionButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+                selectionButton.topAnchor.constraint(equalTo: topAnchor),
+                selectionButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
+        }
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: DockEnrichmentMetrics.desktopPillWidth),
@@ -822,12 +943,14 @@ private func iconImage(_ app: DockAppInstanceSummary) -> NSImage {
     return image
 }
 
+@MainActor
 private func windowLabel(_ window: DockAppWindowSummary) -> NSTextField {
     let prefix = window.isFocused ? "* " : ""
     let suffix = window.isMinimized ? " minimized" : ""
     return label("\(prefix)\(window.title)\(suffix)", size: 10, weight: .regular, color: .labelColor)
 }
 
+@MainActor
 private func label(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor) -> NSTextField {
     let field = NSTextField(labelWithString: text)
     field.font = .systemFont(ofSize: size, weight: weight)

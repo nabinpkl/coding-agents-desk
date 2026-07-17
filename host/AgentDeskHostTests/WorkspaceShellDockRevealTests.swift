@@ -56,4 +56,23 @@ struct WorkspaceShellDockRevealTests {
         move(toY: 400)
         #expect(!machine.state.contains(.dockEnrichment))
     }
+
+    @Test func heldDockRevealSurvivesPointerLeavingRetentionRegion() {
+        let layout = computeSlotLayout(screen: screen)
+        var machine = WorkspaceShellRevealStateMachine()
+        let pointer = WorkspaceShellRevealPointer(
+            point: CGPoint(x: 700, y: 500),
+            screen: screen,
+            descriptors: layout.revealDescriptors,
+            insideSurfaces: [],
+            defaultTriggerBand: 4
+        )
+
+        machine.send(
+            .pointerMoved(pointer),
+            configuration: WorkspaceShellRevealConfiguration(held: [.dockEnrichment])
+        )
+
+        #expect(machine.state.contains(.dockEnrichment))
+    }
 }
