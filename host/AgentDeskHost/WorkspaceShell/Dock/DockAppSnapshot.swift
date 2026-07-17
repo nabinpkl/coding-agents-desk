@@ -53,6 +53,10 @@ public struct DockDesktopGroupSummary: Equatable, Sendable {
         return "\(monitorName)\(size)\(main)\(active)"
     }
 
+    public var monitorBadgeLabel: String {
+        isMainDisplay ? "P" : "S"
+    }
+
     public init(
         spaceID: UInt64?,
         displayID: String?,

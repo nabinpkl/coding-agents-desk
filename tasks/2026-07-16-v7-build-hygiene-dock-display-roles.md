@@ -13,16 +13,16 @@ Standalone Bun compilation must never expose compiler intermediates in the works
 
 ## v7 Phase 1: Dock display-role badge
 
-- [ ] R79. Give `DockDesktopGroupSummary` one display-role badge label derived from `isMainDisplay`, render `P` for the primary display and `S` for every secondary display, and replace the ordinal-owned badge view with a monitor-role badge view. Add model tests for both roles.
+- [x] D79. Give `DockDesktopGroupSummary` one display-role badge label derived from `isMainDisplay`, render `P` for the primary display and `S` for every secondary display, and replace the ordinal-owned badge view with a monitor-role badge view. Add model tests for both roles.
 
 ## v7 Phase 2: integration gate
 
-- [ ] R80. Run focused Dock snapshot tests, `git diff --check`, and `just check`; self-review the build cleanup and Dock presentation as one system. Do not launch or relaunch the host without the required user checkpoint.
+- [x] D80. Run focused Dock snapshot tests, `git diff --check`, and `just check`; self-review the build cleanup and Dock presentation as one system. Do not launch or relaunch the host without the required user checkpoint.
 
 ## Promotion log
 
 | ID | Date | Status | Summary |
 | --- | --- | --- | --- |
 | D78 | 2026-07-16 | done | Bun standalone compilation is isolated under OS temp storage and trap-cleaned. |
-| R79 | pending | pending | Primary and secondary display-role monitor badges. |
-| R80 | pending | pending | Focused and repository integration verification. |
+| D79 | 2026-07-16 | done | The Dock monitor glyph reads `P` from the main-display fact and `S` for secondary displays without an ordinal fallback. |
+| D80 | 2026-07-16 | done | Real Bun compile completed 519 modules in 122 ms without leaked artifacts; `git diff --check` and `just check` passed with 512 tests. No app was launched. |

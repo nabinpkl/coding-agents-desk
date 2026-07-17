@@ -74,4 +74,32 @@ struct DockAppSnapshotReaderTests {
         #expect(snapshot.desktopGroups.first?.diagnostic != nil)
         #expect(snapshot.desktopGroups.first?.apps.map(\.name) == ["Editor"])
     }
+
+    @Test func monitorBadgeUsesDisplayRoleInsteadOfDesktopOrdinal() {
+        let primary = DockDesktopGroupSummary(
+            spaceID: 1,
+            displayID: "primary",
+            desktopOrdinal: 7,
+            monitorName: "Studio Display",
+            monitorFrame: nil,
+            isActive: true,
+            isMainDisplay: true,
+            diagnostic: nil,
+            apps: []
+        )
+        let secondary = DockDesktopGroupSummary(
+            spaceID: 2,
+            displayID: "secondary",
+            desktopOrdinal: 0,
+            monitorName: "Side Display",
+            monitorFrame: nil,
+            isActive: false,
+            isMainDisplay: false,
+            diagnostic: nil,
+            apps: []
+        )
+
+        #expect(primary.monitorBadgeLabel == "P")
+        #expect(secondary.monitorBadgeLabel == "S")
+    }
 }

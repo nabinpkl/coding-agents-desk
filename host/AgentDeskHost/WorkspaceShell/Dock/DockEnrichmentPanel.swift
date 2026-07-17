@@ -59,11 +59,10 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
                 return group.withLabel(name)
             }
         emptyLabel.isHidden = !groups.isEmpty
-        for (index, group) in groups.enumerated() {
+        for group in groups {
             desktopStrip.addArrangedSubview(
                 DockDesktopPillView(
                     group: group,
-                    fallbackNumber: index + 1,
                     onAppContextMenu: { [weak self] button, app in
                         self?.showAppPopover(for: app, in: group, anchoredTo: button)
                     },
@@ -263,20 +262,17 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
 
 private final class DockDesktopPillView: NSView {
     private let group: DockDesktopGroupSummary
-    private let fallbackNumber: Int
     private let onAppContextMenu: (DockAppIconButton, DockAppInstanceSummary) -> Void
     private let onAppHover: (DockAppIconButton, DockAppInstanceSummary) -> Void
     private let onAppHoverEnd: () -> Void
 
     init(
         group: DockDesktopGroupSummary,
-        fallbackNumber: Int,
         onAppContextMenu: @escaping (DockAppIconButton, DockAppInstanceSummary) -> Void,
         onAppHover: @escaping (DockAppIconButton, DockAppInstanceSummary) -> Void,
         onAppHoverEnd: @escaping () -> Void
     ) {
         self.group = group
-        self.fallbackNumber = fallbackNumber
         self.onAppContextMenu = onAppContextMenu
         self.onAppHover = onAppHover
         self.onAppHoverEnd = onAppHoverEnd
@@ -331,7 +327,7 @@ private final class DockDesktopPillView: NSView {
             icons.addArrangedSubview(button)
         }
 
-        let badge = DockDesktopBadgeView(number: group.desktopOrdinal ?? fallbackNumber, isActive: group.isActive)
+        let badge = DockMonitorBadgeView(label: group.monitorBadgeLabel, isActive: group.isActive)
         badge.translatesAutoresizingMaskIntoConstraints = false
         addSubview(badge)
 
@@ -377,12 +373,12 @@ private final class DockDesktopPillView: NSView {
     }
 }
 
-private final class DockDesktopBadgeView: NSView {
-    private let number: Int
+private final class DockMonitorBadgeView: NSView {
+    private let label: String
     private let isActive: Bool
 
-    init(number: Int, isActive: Bool) {
-        self.number = number
+    init(label: String, isActive: Bool) {
+        self.label = label
         self.isActive = isActive
         super.init(frame: .zero)
         setAccessibilityElement(false)
@@ -415,7 +411,7 @@ private final class DockDesktopBadgeView: NSView {
         stand.line(to: NSPoint(x: 20, y: 24))
         stand.stroke()
 
-        let text = "\(number)" as NSString
+        let text = label as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11, weight: .heavy),
             .foregroundColor: accent,
