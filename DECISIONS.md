@@ -317,3 +317,14 @@ too, so both host targets link the terminal products.
 - **Known overlaps, accepted for now:** the strip duplicates SpaceAgent's Desktop overview in a
   different shape, and its full-width bottom placement can transiently overlap the bottom-center
   dictation bar. Both surfaces auto-hide; revisit if they feel redundant in use.
+
+## Dock desktop-content swaps use a transactional yabai adapter (ADR-0059)
+
+- **Space identity stays authoritative.** The Dock hands stable Space IDs to the action layer. Volatile
+  Desktop indices are resolved from yabai immediately before a transaction and never become UI state.
+- **Window movement is all-or-rollback.** Both eligible sets are captured before the first move, every
+  result is verified, and a partial failure reverses completed moves. Undo touches only captured windows
+  still at the destination established by that swap, so later user movement remains authoritative.
+- **SkyLight remains read-only at this boundary.** `SpacesProvider` continues to own enumeration and
+  window membership. The configured yabai executable is one isolated host adapter for mutation; the UI
+  neither parses JSON nor invokes a shell.

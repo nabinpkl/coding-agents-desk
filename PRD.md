@@ -42,6 +42,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 12. Edit workspace files locally with atomic autosave and visible external-change conflicts.
 13. Open a macOS Agents window from the top bar and browse all ATC projects, sessions, history, and live activity.
 14. On iPhone, browse the same registered workspace roots, preview files, edit UTF-8 text, and save only when the host revision still matches.
+15. On macOS, inspect running apps by Desktop in the bottom Dock-enrichment strip and transactionally swap the ordinary window contents of two existing Desktops, with a short conservative Undo.
 
 ## What v0 is not
 
@@ -58,7 +59,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 - iPad client (later iteration, same codebase).
 - Browser client. AnyDesk and TeamViewer do not ship a mobile browser client either; chasing crisp text in a browser is not the v0 fight.
 - Marketplace / TestFlight wider distribution. v0 is signed Developer ID DMG for Mac and TestFlight to one device for iOS.
-- Debug Browser, Jupyter execution, Dock enrichment, and duplicate Desktop orchestration from the retired `agent-workspace-ide` donor. They did not move with the consolidation and would return only through later product decisions, not as incidental porting.
+- Debug Browser, Jupyter execution, and duplicate Desktop creation or reordering from the retired `agent-workspace-ide` donor. Dock enrichment returned through ADR-0055; content swap exchanges windows between existing Desktops without creating, deleting, or reordering Spaces (ADR-0059).
 
 ## Source of truth for detail
 
