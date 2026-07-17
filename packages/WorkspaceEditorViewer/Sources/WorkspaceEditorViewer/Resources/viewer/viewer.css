@@ -86,39 +86,21 @@ body {
 /* Markdown bodies scroll (the editor handles its own scrolling). */
 #content > .markdown-body { height: 100%; overflow: auto; }
 
-/* DOCX is one shared responsive renderer on macOS and iOS. docx-preview emits
-   fixed page semantics; ignoreWidth/ignoreHeight in renderDocx.mjs lets this
-   shell own the viewport while page breaks remain visible. */
+/* DOCX is one shared reader on macOS and iOS. docx-preview owns Word's page
+   geometry; DocxViewport scales that complete geometry to fit this scroller. */
 #content > .docx-scroll {
   height: 100%;
   overflow: auto;
   overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
   -webkit-overflow-scrolling: touch;
 }
-.docx-document,
-.docx-document > .docx-wrapper {
-  width: 100%;
+.docx-document {
   min-width: 0;
-}
-.docx-document > .docx-wrapper {
-  padding: clamp(8px, 3vw, 24px) !important;
 }
 .docx-document .docx-wrapper > section.docx {
-  width: min(100%, 860px);
-  min-width: 0;
-  min-height: 0 !important;
-  padding: clamp(18px, 6vw, 72px) !important;
-  overflow-wrap: anywhere;
   content-visibility: auto;
   contain-intrinsic-size: 860px 1110px;
-}
-.docx-document section.docx img,
-.docx-document section.docx svg {
-  max-width: 100%;
-  height: auto;
-}
-.docx-document section.docx table {
-  max-width: 100%;
 }
 
 .viewer-error {

@@ -11,7 +11,11 @@ import { detectLanguage } from './detectLanguage.mjs'
 import { genericLanguage } from './genericLanguage.mjs'
 import { applyNotebookRunEvent, renderNotebook } from './renderNotebook.mjs'
 import { renderDocx } from './renderDocx.mjs'
-import { captureScrollPosition, restoreScrollPosition } from './scrollPosition.mjs'
+import {
+  captureDocumentViewport,
+  documentZoomFor,
+  restoreDocumentViewport,
+} from './documentViewportState.mjs'
 
 const content = document.getElementById('content')
 const language = new Compartment()
@@ -35,7 +39,7 @@ const escapeHtml = (s) => s.replace(/[&<>"']/g, (ch) => (
 ))
 
 let active = null
-const scrollPositions = new Map()
+const documentViewports = new Map()
 
 const md = new MarkdownIt({
   html: false,
@@ -47,8 +51,9 @@ const md = new MarkdownIt({
 })
 
 function destroyActiveView() {
-  captureScrollPosition(scrollPositions, active)
+  captureDocumentViewport(documentViewports, active)
   active?.abortController?.abort()
+  active?.viewport?.destroy()
   active?.view?.destroy()
 }
 
@@ -62,6 +67,7 @@ async function render(payload) {
     mode: payload.mode ?? 'preview',
     resourceURL: payload.resourceURL ?? null,
     view: null,
+    viewport: null,
     scroller: null,
     abortController: null,
   }
@@ -76,10 +82,17 @@ async function render(payload) {
     const abortController = new AbortController()
     active.abortController = abortController
     try {
-      const scroller = await renderDocx(content, active.resourceURL, { signal: abortController.signal })
-      if (active !== state) return
-      active.scroller = scroller
-      restoreScrollPosition(scrollPositions, active)
+      const viewport = await renderDocx(content, active.resourceURL, {
+        initialZoom: documentZoomFor(documentViewports, active.id),
+        signal: abortController.signal,
+      })
+      if (active !== state) {
+        viewport.destroy()
+        return
+      }
+      active.viewport = viewport
+      active.scroller = viewport.scroller
+      restoreDocumentViewport(documentViewports, active)
     } catch (error) {
       if (error?.name === 'AbortError' || active !== state) return
       renderFailure(`Could not open ${active.name}`, error)
@@ -116,6 +129,14 @@ function setTextZoom(zoom) {
   root.style.setProperty('--editor-code-font-size', `${zoom.editorCodePointSize}px`)
   root.style.setProperty('--markdown-font-size', `${zoom.markdownPointSize}px`)
   active?.view?.requestMeasure()
+}
+
+function zoomDocumentIn() {
+  if (active?.kind === 'docx') active.viewport?.zoomIn()
+}
+
+function zoomDocumentOut() {
+  if (active?.kind === 'docx') active.viewport?.zoomOut()
 }
 
 function renderMarkdown(state) {
@@ -272,6 +293,12 @@ if (themeMedia?.addEventListener) {
   themeMedia.addListener(refreshEditorTheme)
 }
 
-window.fileSurface = { render, setTextZoom, applyNotebookRunEvent: applyRunEvent }
+window.fileSurface = {
+  render,
+  setTextZoom,
+  zoomDocumentIn,
+  zoomDocumentOut,
+  applyNotebookRunEvent: applyRunEvent,
+}
 
 send({ type: 'ready' })

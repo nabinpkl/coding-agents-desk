@@ -1,9 +1,10 @@
 import { renderAsync as renderDocxDocument } from 'docx-preview'
+import { DocxViewport } from './docxViewport.mjs'
 
 export const responsiveDocxOptions = Object.freeze({
   breakPages: true,
-  ignoreHeight: true,
-  ignoreWidth: true,
+  ignoreHeight: false,
+  ignoreWidth: false,
   renderAltChunks: false,
   renderChanges: false,
   renderComments: false,
@@ -13,6 +14,8 @@ export const responsiveDocxOptions = Object.freeze({
 export async function renderDocx(container, resourceURL, {
   fetchResource = globalThis.fetch,
   renderDocument = renderDocxDocument,
+  createViewport = (scroller, host, options) => new DocxViewport(scroller, host, options),
+  initialZoom = 1,
   signal,
 } = {}) {
   if (!resourceURL) throw new Error('DOCX content URL is missing')
@@ -28,5 +31,5 @@ export async function renderDocx(container, resourceURL, {
   if (!response.ok) throw new Error(`DOCX content request failed (${response.status})`)
   const bytes = await response.arrayBuffer()
   await renderDocument(bytes, documentHost, undefined, responsiveDocxOptions)
-  return scroller
+  return createViewport(scroller, documentHost, { initialZoom })
 }

@@ -467,7 +467,7 @@ struct WorkspaceFilesBrowserTests {
         #expect(message == "Workspace store is unavailable.")
     }
 
-    @Test func docxPreviewUsesOneNativeZoomStateForPinchAndButtons() async throws {
+    @Test func docxPreviewWiresRendererOwnedZoomControls() async throws {
         let mock = MockFilesRequester()
         await mock.script(path: "", entries: [file("Report.docx", "Report.docx")])
         await mock.scriptDocument(path: "Report.docx", data: Data([0x50, 0x4b, 0x03, 0x04]))
@@ -477,13 +477,9 @@ struct WorkspaceFilesBrowserTests {
         await browser.selectWorkspace("w1")
         await browser.openFile(file("Report.docx", "Report.docx"))
 
-        let webView = try #require(surface.firstDescendant(ofType: WKWebView.self))
+        _ = try #require(surface.firstDescendant(ofType: WKWebView.self))
         let zoomOutButton = try #require(surface.control(identifier: "workspace-files-preview-zoom-out"))
         let zoomInButton = try #require(surface.control(identifier: "workspace-files-preview-zoom-in"))
-        #expect(webView.scrollView.minimumZoomScale == 0.5)
-        #expect(webView.scrollView.maximumZoomScale == 4)
-        #expect(webView.scrollView.zoomScale == 1)
-        #expect(webView.scrollView.pinchGestureRecognizer?.isEnabled == true)
         #expect(!zoomOutButton.isHidden)
         #expect(!zoomInButton.isHidden)
         #expect(zoomOutButton.actions(
@@ -495,48 +491,6 @@ struct WorkspaceFilesBrowserTests {
             forControlEvent: .touchUpInside
         ) == ["zoomInTapped"])
 
-        let sharedSurface = WorkspaceFileWebSurface()
-        sharedSurface.render(WorkspaceFilePayload(
-            id: "Report.docx",
-            name: "Report.docx",
-            path: "Report.docx",
-            workspace: "Test",
-            root: "",
-            content: .documentData(Data([0x50, 0x4b, 0x03, 0x04])),
-            kind: .docx,
-            mode: .preview
-        ))
-        #expect(sharedSurface.view.scrollView.zoomScale == 1)
-        for _ in 0..<4 { sharedSurface.zoomDocumentOut(animated: false) }
-        #expect(sharedSurface.view.scrollView.zoomScale == 0.5)
-        let refreshedScale = sharedSurface.view.scrollView.zoomScale
-        sharedSurface.render(WorkspaceFilePayload(
-            id: "Report.docx",
-            name: "Report.docx",
-            path: "Report.docx",
-            workspace: "Test",
-            root: "",
-            content: .documentData(Data([0x50, 0x4b, 0x03, 0x04])),
-            kind: .docx,
-            mode: .preview
-        ))
-        #expect(sharedSurface.view.scrollView.zoomScale == refreshedScale)
-        sharedSurface.zoomDocumentIn(animated: false)
-        #expect(sharedSurface.view.scrollView.zoomScale > refreshedScale)
-
-        sharedSurface.render(WorkspaceFilePayload(
-            id: "Notes.txt",
-            name: "Notes.txt",
-            path: "Notes.txt",
-            workspace: "Test",
-            root: "",
-            content: .text("notes"),
-            kind: .text,
-            mode: .preview
-        ))
-        #expect(sharedSurface.view.scrollView.zoomScale == 1)
-        #expect(sharedSurface.view.scrollView.minimumZoomScale == 1)
-        #expect(sharedSurface.view.scrollView.maximumZoomScale == 1)
     }
 
     /// A navigation that happens while a listing is in flight supersedes it: the late response is

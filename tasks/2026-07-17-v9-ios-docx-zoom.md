@@ -6,10 +6,10 @@ macOS live-verification checkpoint remains open.
 
 ## Position
 
-The iOS DOCX reader opens at fit-width 1x and uses WKWebView's native scroll view as the only zoom
-state. Pinch and explicit controls operate that same 0.5x through 4x range, including a 0.5x overview.
-Same-file refreshes retain zoom, changing files resets to 1x, and non-DOCX previews do not inherit
-document magnification.
+The shared DOCX reader preserves Word's page geometry and opens with the complete first-page width
+fitted to its viewport. A renderer-owned transform is the only zoom state on macOS and iOS. Pinch and
+explicit controls operate the same 0.5x through 4x range relative to fit-width, same-file refreshes
+retain zoom, and a different document starts at fit-width.
 
 ## v9 Phase 0: native zoom contract
 
@@ -37,6 +37,12 @@ document magnification.
   view and HTML viewport contracts, preserving the DOCX range across page readiness while keeping
   non-DOCX previews locked to 1x.
 
+## v9 Phase 4: renderer-owned fit width
+
+- [x] D88. Preserve docx-preview's Word page dimensions, fit the complete page width with one
+  renderer-owned transform, route buttons and pinch through that state, and remove the outer
+  WKWebView scroll-view zoom path that cannot scale the nested DOCX scroller.
+
 ## Promotion log
 
 | ID | Date | Status | Summary |
@@ -45,7 +51,8 @@ document magnification.
 | D85 | 2026-07-17 | done | The iOS DOCX header exposes accessible minus/plus controls backed by an end-to-end surface regression. |
 | R86 | pending | pending | Current-SHA iOS rendered-surface verification awaits the required run checkpoint. |
 | D87 | 2026-07-17 | done | DOCX can zoom out to a 0.5x overview without changing the 1x fit-width opening scale. |
+| D88 | 2026-07-17 | done | Word page geometry now opens fit-width and buttons or pinch scale the nested DOCX reader itself. |
 
-The viewer tests and focused iOS Files suite are green. The repository-wide client gate remains red in
-the unrelated `AgentFeedTerminalTests` lifecycle suite, including under serial execution; this viewer
-slice does not change the terminal surface or its contracts.
+The viewer tests, `just check`, iOS application build, and focused iOS test build are green. R86 keeps
+the rendered-surface behavior open until the current commit is installed and visually verified after
+the required run checkpoint.
