@@ -55,7 +55,7 @@ test('renders DOCX bytes into one responsive scrolling surface', async () => {
 test('admits the native iOS document zoom range in the viewport contract', () => {
   assert.match(
     viewerHTML,
-    /name="viewport"[\s\S]*minimum-scale=1, maximum-scale=4, user-scalable=yes/,
+    /name="viewport"[\s\S]*minimum-scale=0.5, maximum-scale=4, user-scalable=yes/,
   )
 })
 

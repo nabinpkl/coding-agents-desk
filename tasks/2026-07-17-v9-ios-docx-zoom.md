@@ -6,9 +6,10 @@ macOS live-verification checkpoint remains open.
 
 ## Position
 
-The iOS DOCX reader keeps Word page layout at fit-width and uses WKWebView's native scroll view as the
-only zoom state. Pinch and explicit controls operate that same state. Same-file refreshes retain zoom,
-changing files resets to 1x, and non-DOCX previews do not inherit document magnification.
+The iOS DOCX reader opens at fit-width 1x and uses WKWebView's native scroll view as the only zoom
+state. Pinch and explicit controls operate that same 0.5x through 4x range, including a 0.5x overview.
+Same-file refreshes retain zoom, changing files resets to 1x, and non-DOCX previews do not inherit
+document magnification.
 
 ## v9 Phase 0: native zoom contract
 
@@ -27,8 +28,14 @@ changing files resets to 1x, and non-DOCX previews do not inherit document magni
 ## v9 Phase 2: live iOS verification
 
 - [ ] R86. After the required simulator or device checkpoint, install the current-SHA client, open a
-  real DOCX, and verify fit-width rendering, both controls, pinch zoom, zoomed panning, and same-file
-  refresh behavior on the rendered surface.
+  real DOCX, and verify fit-width rendering, 0.5x overview, both controls, pinch zoom, zoomed panning,
+  and same-file refresh behavior on the rendered surface.
+
+## v9 Phase 3: overview zoom floor
+
+- [x] D87. Separate the DOCX 0.5x overview minimum from its 1x fit-width default in the native scroll
+  view and HTML viewport contracts, preserving the DOCX range across page readiness while keeping
+  non-DOCX previews locked to 1x.
 
 ## Promotion log
 
@@ -37,6 +44,7 @@ changing files resets to 1x, and non-DOCX previews do not inherit document magni
 | D84 | 2026-07-17 | done | One bounded WKWebView zoom state now owns DOCX pinch, command zoom, refresh preservation, and file-change reset. |
 | D85 | 2026-07-17 | done | The iOS DOCX header exposes accessible minus/plus controls backed by an end-to-end surface regression. |
 | R86 | pending | pending | Current-SHA iOS rendered-surface verification awaits the required run checkpoint. |
+| D87 | 2026-07-17 | done | DOCX can zoom out to a 0.5x overview without changing the 1x fit-width opening scale. |
 
 The viewer tests and focused iOS Files suite are green. The repository-wide client gate remains red in
 the unrelated `AgentFeedTerminalTests` lifecycle suite, including under serial execution; this viewer

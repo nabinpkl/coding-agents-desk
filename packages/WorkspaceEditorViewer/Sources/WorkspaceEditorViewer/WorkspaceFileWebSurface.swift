@@ -144,7 +144,8 @@ public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
     private var state = FileWebSurfaceState()
     #if os(iOS)
     private enum DocumentZoom {
-        static let minimum: CGFloat = 1
+        static let overviewMinimum: CGFloat = 0.5
+        static let fitWidth: CGFloat = 1
         static let maximum: CGFloat = 4
         static let step: CGFloat = 1.25
     }
@@ -175,8 +176,8 @@ public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
         view.isOpaque = false
         view.backgroundColor = .clear
         view.scrollView.backgroundColor = .clear
-        view.scrollView.minimumZoomScale = DocumentZoom.minimum
-        view.scrollView.maximumZoomScale = DocumentZoom.minimum
+        view.scrollView.minimumZoomScale = DocumentZoom.fitWidth
+        view.scrollView.maximumZoomScale = DocumentZoom.fitWidth
         view.scrollView.bouncesZoom = true
         #endif
 
@@ -220,11 +221,13 @@ public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
 
     private func applyViewportZoomPolicy(kind: WorkspaceFileKind, resetForNewFile: Bool) {
         if kind == .docx {
+            view.scrollView.minimumZoomScale = DocumentZoom.overviewMinimum
             view.scrollView.maximumZoomScale = DocumentZoom.maximum
-            if resetForNewFile { setDocumentZoom(DocumentZoom.minimum, animated: false) }
+            if resetForNewFile { setDocumentZoom(DocumentZoom.fitWidth, animated: false) }
         } else {
-            setDocumentZoom(DocumentZoom.minimum, animated: false)
-            view.scrollView.maximumZoomScale = DocumentZoom.minimum
+            view.scrollView.minimumZoomScale = DocumentZoom.fitWidth
+            view.scrollView.maximumZoomScale = DocumentZoom.fitWidth
+            setDocumentZoom(DocumentZoom.fitWidth, animated: false)
         }
     }
 

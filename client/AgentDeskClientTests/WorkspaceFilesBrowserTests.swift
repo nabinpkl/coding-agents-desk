@@ -480,8 +480,9 @@ struct WorkspaceFilesBrowserTests {
         let webView = try #require(surface.firstDescendant(ofType: WKWebView.self))
         let zoomOutButton = try #require(surface.control(identifier: "workspace-files-preview-zoom-out"))
         let zoomInButton = try #require(surface.control(identifier: "workspace-files-preview-zoom-in"))
-        #expect(webView.scrollView.minimumZoomScale == 1)
+        #expect(webView.scrollView.minimumZoomScale == 0.5)
         #expect(webView.scrollView.maximumZoomScale == 4)
+        #expect(webView.scrollView.zoomScale == 1)
         #expect(webView.scrollView.pinchGestureRecognizer?.isEnabled == true)
         #expect(!zoomOutButton.isHidden)
         #expect(!zoomInButton.isHidden)
@@ -505,12 +506,9 @@ struct WorkspaceFilesBrowserTests {
             kind: .docx,
             mode: .preview
         ))
-        sharedSurface.zoomDocumentIn(animated: false)
-        #expect(sharedSurface.view.scrollView.zoomScale > 1)
-        sharedSurface.zoomDocumentOut(animated: false)
         #expect(sharedSurface.view.scrollView.zoomScale == 1)
-
-        sharedSurface.zoomDocumentIn(animated: false)
+        for _ in 0..<4 { sharedSurface.zoomDocumentOut(animated: false) }
+        #expect(sharedSurface.view.scrollView.zoomScale == 0.5)
         let refreshedScale = sharedSurface.view.scrollView.zoomScale
         sharedSurface.render(WorkspaceFilePayload(
             id: "Report.docx",
@@ -523,6 +521,8 @@ struct WorkspaceFilesBrowserTests {
             mode: .preview
         ))
         #expect(sharedSurface.view.scrollView.zoomScale == refreshedScale)
+        sharedSurface.zoomDocumentIn(animated: false)
+        #expect(sharedSurface.view.scrollView.zoomScale > refreshedScale)
 
         sharedSurface.render(WorkspaceFilePayload(
             id: "Notes.txt",
@@ -535,6 +535,7 @@ struct WorkspaceFilesBrowserTests {
             mode: .preview
         ))
         #expect(sharedSurface.view.scrollView.zoomScale == 1)
+        #expect(sharedSurface.view.scrollView.minimumZoomScale == 1)
         #expect(sharedSurface.view.scrollView.maximumZoomScale == 1)
     }
 
