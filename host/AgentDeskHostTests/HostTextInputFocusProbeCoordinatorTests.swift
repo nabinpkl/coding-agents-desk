@@ -121,14 +121,15 @@ struct HostTextInputFocusProbeCoordinatorTests {
         let coordinator = HostTextInputFocusProbeCoordinator(
             resolver: resolver,
             cursorKindSampler: { cursorKinds.next() },
-            initialDelayNs: 10_000_000,
+            initialDelayNs: 0,
             settleDelayNs: 0
         )
         let fingerprint = DeviceFingerprint("device-a")
 
         coordinator.schedule(for: fingerprint, server: server)
         coordinator.schedule(for: fingerprint, server: server)
-        try await Task.sleep(nanoseconds: 25_000_000)
+        await Task.yield()
+        await Task.yield()
 
         #expect(server.textInputFocusPushes == [
             HostTextInputFocusPush(
