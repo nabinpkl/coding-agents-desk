@@ -18,7 +18,7 @@ window-ID verification waits for the required host relaunch checkpoint.
 
 ## v10 Phase 1: transactional yabai boundary
 
-- [ ] R90. Add `host/AgentDeskHost/WorkspaceShell/Dock/DockDesktopSwapExecutor.swift` with typed yabai JSON decoding, central executable and timeout configuration, visible-only eligibility, capture-before-move ordering, post-move verification, rollback, and conservative Undo; add focused host tests using an injected command runner.
+- [x] D90. Add `host/AgentDeskHost/WorkspaceShell/Dock/DockDesktopSwapExecutor.swift` with typed yabai JSON decoding, central executable and timeout configuration, ordinary-window eligibility without `is-visible` filtering, capture-before-move ordering, post-move verification, rollback, and conservative Undo; add focused host tests using an injected command runner.
 
 ## v10 Phase 2: Dock interaction state and presentation
 
@@ -33,6 +33,6 @@ window-ID verification waits for the required host relaunch checkpoint.
 | ID | Date | Status | Summary |
 | --- | --- | --- | --- |
 | D89 | 2026-07-17 | done | ADR-0059 and product, technical, and decision surfaces define transactional yabai content swaps over stable Space IDs. |
-| R90 | pending | pending | Typed yabai transaction, rollback, and conservative Undo boundary. |
+| D90 | 2026-07-17 | done | Typed yabai transaction, rollback, conservative Undo, command-runner limits, and pure interaction state are covered by focused host tests. |
 | R91 | pending | pending | Dock swap state machine, presentation, reveal hold, cancellation, and accessibility. |
 | R92 | pending | pending | Repository gates and checkpointed live AX/window-ID verification. |

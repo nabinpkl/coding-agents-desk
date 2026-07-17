@@ -903,6 +903,27 @@ enum Config {
         defaultValue: true,
         environment: ProcessInfo.processInfo.environment
     )
+    static let yabaiURL = yabaiURL(
+        environment: ProcessInfo.processInfo.environment,
+        homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+    )
+    static let yabaiCommandTimeoutSeconds = positiveDouble(
+        environmentKey: "AGENTDESK_YABAI_COMMAND_TIMEOUT_SECONDS",
+        defaultValue: 5
+    )
+
+    static func yabaiURL(environment: [String: String], homeDirectory: URL) -> URL {
+        guard let raw = environment["AGENTDESK_YABAI_PATH"]?.trimmingCharacters(in: .whitespaces),
+              !raw.isEmpty
+        else {
+            return homeDirectory.appendingPathComponent(".local/bin/yabai", isDirectory: false)
+        }
+        if raw == "~" { return homeDirectory }
+        if raw.hasPrefix("~/") {
+            return homeDirectory.appendingPathComponent(String(raw.dropFirst(2)), isDirectory: false)
+        }
+        return URL(fileURLWithPath: raw, isDirectory: false)
+    }
     // R24 dev affordance: auto-show the macOS Agents window on launch (and log its accessibility
     // self-report) so the surface can be observed without a manual top-bar tap. Off by default;
     // requires the workspace shell to be enabled since the window is composed alongside it.
