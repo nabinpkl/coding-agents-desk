@@ -142,6 +142,15 @@ public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
     private let logger = Logger(subsystem: "com.example.agentdesk.AgentDesk.editor-viewer", category: "file-web-surface")
     private let resourceStore: WorkspaceFileResourceStore
     private var state = FileWebSurfaceState()
+    #if os(iOS)
+    private enum DocumentZoom {
+        static let minimum: CGFloat = 1
+        static let maximum: CGFloat = 4
+        static let step: CGFloat = 1.25
+    }
+
+    private var renderedFile: (id: String, kind: WorkspaceFileKind)?
+    #endif
 
     /// `viewerRoot` defaults to the bundled SPA; callers rarely override it.
     public init(viewerRoot: URL = WorkspaceEditorViewer.viewerRootURL) {
@@ -166,6 +175,9 @@ public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
         view.isOpaque = false
         view.backgroundColor = .clear
         view.scrollView.backgroundColor = .clear
+        view.scrollView.minimumZoomScale = DocumentZoom.minimum
+        view.scrollView.maximumZoomScale = DocumentZoom.minimum
+        view.scrollView.bouncesZoom = true
         #endif
 
         super.init()
@@ -174,8 +186,54 @@ public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
         view.load(URLRequest(url: URL(string: "\(AppSchemeHandler.scheme)://app/index.html")!))
     }
 
-    public func render(_ payload: WorkspaceFilePayload) { apply(state.render(payload)) }
+    public func render(_ payload: WorkspaceFilePayload) {
+        #if os(iOS)
+        configureViewportZoom(for: payload)
+        #endif
+        apply(state.render(payload))
+    }
     public func setTextZoom(_ zoom: WorkspaceFileTextZoom) { apply(state.setTextZoom(zoom)) }
+
+    #if os(iOS)
+    public func zoomDocumentIn(animated: Bool = true) {
+        setDocumentZoom(view.scrollView.zoomScale * DocumentZoom.step, animated: animated)
+    }
+
+    public func zoomDocumentOut(animated: Bool = true) {
+        setDocumentZoom(view.scrollView.zoomScale / DocumentZoom.step, animated: animated)
+    }
+
+    /// WKWebView's UIScrollView is the sole document-zoom state. A same-file render keeps the
+    /// user's pinch position during refresh; changing files returns to fit-width at 1x.
+    private func configureViewportZoom(for payload: WorkspaceFilePayload) {
+        let isNewFile = renderedFile?.id != payload.id
+        renderedFile = (payload.id, payload.kind)
+        applyViewportZoomPolicy(kind: payload.kind, resetForNewFile: isNewFile)
+    }
+
+    /// Page navigation can reapply the HTML viewport bounds after an early render. Restore the
+    /// active file policy once the SPA is ready without disturbing an existing same-file scale.
+    private func restoreViewportZoomPolicyAfterNavigation() {
+        guard let renderedFile else { return }
+        applyViewportZoomPolicy(kind: renderedFile.kind, resetForNewFile: false)
+    }
+
+    private func applyViewportZoomPolicy(kind: WorkspaceFileKind, resetForNewFile: Bool) {
+        if kind == .docx {
+            view.scrollView.maximumZoomScale = DocumentZoom.maximum
+            if resetForNewFile { setDocumentZoom(DocumentZoom.minimum, animated: false) }
+        } else {
+            setDocumentZoom(DocumentZoom.minimum, animated: false)
+            view.scrollView.maximumZoomScale = DocumentZoom.minimum
+        }
+    }
+
+    private func setDocumentZoom(_ requestedScale: CGFloat, animated: Bool) {
+        let scrollView = view.scrollView
+        let scale = min(max(requestedScale, scrollView.minimumZoomScale), scrollView.maximumZoomScale)
+        scrollView.setZoomScale(scale, animated: animated)
+    }
+    #endif
 
     private func apply(_ effects: [FileWebSurfaceState.Effect]) {
         for effect in effects {
@@ -265,5 +323,10 @@ public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
 
     /// `viewer.mjs` sends `ready` once `window.fileSurface` is installed (ES modules may still be
     /// evaluating after `didFinish`); render the latest payload then.
-    private func markReady() { apply(state.markReady()) }
+    private func markReady() {
+        #if os(iOS)
+        restoreViewportZoomPolicyAfterNavigation()
+        #endif
+        apply(state.markReady())
+    }
 }

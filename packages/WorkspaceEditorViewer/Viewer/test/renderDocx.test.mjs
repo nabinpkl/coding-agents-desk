@@ -1,6 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { renderDocx, responsiveDocxOptions } from '../src/renderDocx.mjs'
+
+const viewerHTML = readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8')
 
 class StubElement {
   constructor(tagName) {
@@ -46,6 +50,13 @@ test('renders DOCX bytes into one responsive scrolling surface', async () => {
   assert.equal(responsiveDocxOptions.ignoreWidth, true)
   assert.equal(responsiveDocxOptions.ignoreHeight, true)
   assert.equal(responsiveDocxOptions.renderAltChunks, false)
+})
+
+test('admits the native iOS document zoom range in the viewport contract', () => {
+  assert.match(
+    viewerHTML,
+    /name="viewport"[\s\S]*minimum-scale=1, maximum-scale=4, user-scalable=yes/,
+  )
 })
 
 test('fails loudly when the native document resource cannot be read', async () => {

@@ -26,6 +26,8 @@ final class WorkspaceFilesSurface: UIView {
     private let previewContainer = UIView()
     private let previewTitleLabel = UILabel()
     private let previewCloseButton = UIButton(type: .system)
+    private let previewZoomOutButton = UIButton(type: .system)
+    private let previewZoomInButton = UIButton(type: .system)
     private let previewModeButton = UIButton(type: .system)
     private let previewSaveButton = UIButton(type: .system)
     private let webSurface = WorkspaceFileWebSurface()
@@ -113,6 +115,16 @@ final class WorkspaceFilesSurface: UIView {
         previewCloseButton.accessibilityIdentifier = "workspace-files-preview-close"
         previewCloseButton.addTarget(self, action: #selector(closePreviewTapped), for: .touchUpInside)
 
+        previewZoomOutButton.setImage(UIImage(systemName: "minus.magnifyingglass"), for: .normal)
+        previewZoomOutButton.accessibilityLabel = "Zoom Out"
+        previewZoomOutButton.accessibilityIdentifier = "workspace-files-preview-zoom-out"
+        previewZoomOutButton.addTarget(self, action: #selector(zoomOutTapped), for: .touchUpInside)
+
+        previewZoomInButton.setImage(UIImage(systemName: "plus.magnifyingglass"), for: .normal)
+        previewZoomInButton.accessibilityLabel = "Zoom In"
+        previewZoomInButton.accessibilityIdentifier = "workspace-files-preview-zoom-in"
+        previewZoomInButton.addTarget(self, action: #selector(zoomInTapped), for: .touchUpInside)
+
         // Preview/Edit toggle (parity with the macOS FileViewer modeButton): flips the open file
         // between the rendered viewer and the editable source, re-rendering through the same SPA.
         previewModeButton.accessibilityIdentifier = "workspace-files-preview-mode"
@@ -125,6 +137,7 @@ final class WorkspaceFilesSurface: UIView {
         previewTitleLabel.font = .preferredFont(forTextStyle: .headline)
         previewTitleLabel.adjustsFontForContentSizeCategory = true
         previewTitleLabel.lineBreakMode = .byTruncatingHead
+        previewTitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         previewStatusLabel.font = .preferredFont(forTextStyle: .footnote)
         previewStatusLabel.textColor = .secondaryLabel
@@ -136,7 +149,14 @@ final class WorkspaceFilesSurface: UIView {
         webSurface.view.accessibilityIdentifier = "workspace-files-preview-text"
         webSurface.onDirty = { [weak self] _, text in self?.latestEditedText = text }
 
-        let header = UIStackView(arrangedSubviews: [previewCloseButton, previewTitleLabel, previewModeButton, previewSaveButton])
+        let header = UIStackView(arrangedSubviews: [
+            previewCloseButton,
+            previewTitleLabel,
+            previewZoomOutButton,
+            previewZoomInButton,
+            previewModeButton,
+            previewSaveButton,
+        ])
         header.axis = .horizontal
         header.spacing = 8
         header.alignment = .center
@@ -219,6 +239,7 @@ final class WorkspaceFilesSurface: UIView {
         case .loading:
             previewSaveButton.isHidden = true
             previewModeButton.isHidden = true
+            updateZoomButtons(for: nil)
             previewStatusLabel.text = "Loading…"
             previewStatusLabel.isHidden = false
             previewedPath = nil
@@ -234,10 +255,12 @@ final class WorkspaceFilesSurface: UIView {
                 webSurface.render(payload(path: path, content: content, mode: previewMode))
             }
             updateModeButton(for: kind)
+            updateZoomButtons(for: kind)
             renderSaveStatus(saveStatus)
         case .failed(_, let message):
             previewSaveButton.isHidden = true
             previewModeButton.isHidden = true
+            updateZoomButtons(for: nil)
             previewStatusLabel.text = message
             previewStatusLabel.isHidden = false
             previewedPath = nil
@@ -280,6 +303,12 @@ final class WorkspaceFilesSurface: UIView {
         previewModeButton.setTitle(previewMode == .edit ? "Preview" : "Edit", for: .normal)
     }
 
+    private func updateZoomButtons(for kind: WorkspaceFileKind?) {
+        let isDocument = kind == .docx
+        previewZoomOutButton.isHidden = !isDocument
+        previewZoomInButton.isHidden = !isDocument
+    }
+
     private func renderSaveStatus(_ saveStatus: WorkspaceFilesBrowserModel.SaveStatus) {
         switch saveStatus {
         case .idle:
@@ -306,6 +335,14 @@ final class WorkspaceFilesSurface: UIView {
 
     @objc private func closePreviewTapped() {
         browser.closePreview()
+    }
+
+    @objc private func zoomOutTapped() {
+        webSurface.zoomDocumentOut()
+    }
+
+    @objc private func zoomInTapped() {
+        webSurface.zoomDocumentIn()
     }
 
     /// Flips the open file between rendered preview and editable source, re-rendering through the SPA.
