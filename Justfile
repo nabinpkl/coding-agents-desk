@@ -159,7 +159,27 @@ ensure-pty-manager-placeholder:
 # DMG packaging time, not here. Local/dev builds run unsigned or with the
 # local Developer ID applied during the normal Xcode codesign step.
 build-agent-sidecar:
-    bun build --compile '{{atc_engine_dir}}/src/server.ts' --outfile '{{sidecar_out}}'
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ENTRY='{{atc_engine_dir}}/src/server.ts'
+    OUT='{{sidecar_out}}'
+    TEMP_ROOT="${TMPDIR:-/tmp}"
+    BUILD_DIR="$(mktemp -d "${TEMP_ROOT%/}/agentdesk-bun-build.XXXXXX")"
+    cleanup() {
+        rm -rf "$BUILD_DIR"
+    }
+    trap cleanup EXIT
+
+    # Bun may create dot-prefixed compiler intermediates beside its working
+    # directory. Run it from one disposable directory so the workspace and its
+    # parent never surface those files in the Dock/file browser. The EXIT trap
+    # removes intermediates after success, failure, or an interrupted build.
+    # Leave Bun's own temp-cache selection alone; overriding BUN_TMPDIR makes
+    # standalone compilation miss its normal fast path.
+    cd "$BUILD_DIR"
+    bun build --compile "$ENTRY" --outfile "$BUILD_DIR/atc-sidecar"
+    chmod +x "$BUILD_DIR/atc-sidecar"
+    mv -f "$BUILD_DIR/atc-sidecar" "$OUT"
 
 # Build Agent Workspace IDE's Rust PTY manager into the host app bundle source
 # dir. The host launches this binary and bridges iOS SwiftTerm clients into its
