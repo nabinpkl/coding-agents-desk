@@ -169,15 +169,14 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = true
-        scrollView.scrollerStyle = .overlay
         scrollView.borderType = .noBorder
         scrollView.automaticallyAdjustsContentInsets = false
         stripContainer.addSubview(scrollView)
 
         desktopStrip.orientation = .horizontal
-        desktopStrip.alignment = .centerY
+        desktopStrip.alignment = .top
         desktopStrip.spacing = 8
-        desktopStrip.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+        desktopStrip.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
         desktopStrip.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = desktopStrip
 
@@ -202,7 +201,7 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
             stripContainer.heightAnchor.constraint(equalToConstant: DockEnrichmentMetrics.stripHeight),
 
             swapButton.leadingAnchor.constraint(equalTo: stripContainer.leadingAnchor, constant: 10),
-            swapButton.centerYAnchor.constraint(equalTo: stripContainer.centerYAnchor),
+            swapButton.topAnchor.constraint(equalTo: scrollView.topAnchor),
             swapButton.widthAnchor.constraint(equalToConstant: DockActionButton.tileSize.width),
             swapButton.heightAnchor.constraint(equalToConstant: DockActionButton.tileSize.height),
 

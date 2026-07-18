@@ -129,18 +129,15 @@ struct DockEnrichmentSwapInteractionTests {
         let panel = DockEnrichmentPanel()
         panel.frame = NSRect(x: 0, y: 0, width: 800, height: 140)
         panel.render(Self.snapshot(), swapState: .idle)
-        let scrollView = panel.firstDescendant(ofType: NSScrollView.self)
         panel.layoutSubtreeIfNeeded()
 
         let swap = panel.descendant(identifier: "dock-desktop-swap") as? HoverButton
         let icon = panel.descendant(identifier: "dock-desktop-swap-icon")
         let label = panel.descendant(identifier: "dock-desktop-swap-label") as? NSTextField
-        let desktop = panel.descendant(identifier: "dock-desktop-100")
         #expect(swap?.title.isEmpty == true)
         #expect(swap?.image == nil)
         #expect(swap?.accessibilityTitle() == "Swap")
         #expect(swap?.accessibilityLabel() == "Swap desktop contents")
-        #expect(scrollView?.scrollerStyle == .overlay)
         #expect(swap?.frame.size == NSSize(width: 72, height: 64))
         #expect(icon?.frame.size == NSSize(width: 22, height: 22))
         #expect(label?.stringValue == "Swap")
@@ -154,11 +151,6 @@ struct DockEnrichmentSwapInteractionTests {
             #expect(topPadding >= 10)
             #expect(abs(topPadding - bottomPadding) <= 1)
         }
-        if let swap, let desktop {
-            let swapFrame = swap.convert(swap.bounds, to: panel)
-            let desktopFrame = desktop.convert(desktop.bounds, to: panel)
-            #expect(abs(swapFrame.midY - desktopFrame.midY) <= 0.5)
-        }
         #expect(swap?.cornerRadius == 12)
         #expect(swap?.layer?.borderWidth == 1)
         #expect(swap?.layer?.backgroundColor?.alpha == 1)
@@ -169,6 +161,37 @@ struct DockEnrichmentSwapInteractionTests {
         #expect(swap?.layer?.borderWidth == 2)
         #expect(swap?.restingColor.isEqual(AppTheme.accent) == true)
         #expect((swap as? DockActionButton)?.foregroundColor.isEqual(AppTheme.onAccent) == true)
+    }
+
+    @Test func swapAndDesktopCardsShareOneRowAcrossScrollerStyles() {
+        for style in [NSScroller.Style.legacy, .overlay] {
+            let panel = DockEnrichmentPanel()
+            panel.frame = NSRect(x: 0, y: 0, width: 800, height: 140)
+            let window = NSWindow(
+                contentRect: panel.frame,
+                styleMask: .borderless,
+                backing: .buffered,
+                defer: false
+            )
+            window.contentView = panel
+            panel.render(Self.snapshot(), swapState: .idle)
+            let scrollView = panel.firstDescendant(ofType: NSScrollView.self)
+            scrollView?.scrollerStyle = style
+            scrollView?.tile()
+            window.contentView?.layoutSubtreeIfNeeded()
+
+            let swap = panel.descendant(identifier: "dock-desktop-swap")
+            let desktop = panel.descendant(identifier: "dock-desktop-100")
+            #expect(scrollView != nil)
+            #expect(swap != nil)
+            #expect(desktop != nil)
+            if let swap, let desktop {
+                let swapFrame = swap.convert(swap.bounds, to: panel)
+                let desktopFrame = desktop.convert(desktop.bounds, to: panel)
+                #expect(abs(swapFrame.maxY - desktopFrame.maxY) <= 0.5)
+                #expect(abs(swapFrame.midY - desktopFrame.midY) <= 0.5)
+            }
+        }
     }
 
     @Test func pointerTapClassifiesPrimaryClickSeparatelyFromMovement() {
