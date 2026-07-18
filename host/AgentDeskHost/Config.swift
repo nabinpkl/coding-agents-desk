@@ -924,14 +924,6 @@ enum Config {
         }
         return URL(fileURLWithPath: raw, isDirectory: false)
     }
-    // R24 dev affordance: auto-show the macOS Agents window on launch (and log its accessibility
-    // self-report) so the surface can be observed without a manual top-bar tap. Off by default;
-    // requires the workspace shell to be enabled since the window is composed alongside it.
-    static let agentsWindowAutoShow: Bool = enabledFlag(
-        environmentKey: "AGENTDESK_AGENTS_WINDOW_AUTOSHOW",
-        defaultValue: false,
-        environment: ProcessInfo.processInfo.environment
-    )
     // Dev-only AX automation mode: run the host as a regular app so macOS exposes
     // its windows to out-of-process Accessibility clients during repository-local
     // automation. Off by default so daily-driver behavior stays LSUIElement-based.

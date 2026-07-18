@@ -461,6 +461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // R24: the Agents window shares the sidecar-backed AgentFeedBridge path with the phone feed;
         // it resolves the sidecar base URL lazily per request, same as the QUIC-lane wiring, so a
         // toggle that arrives while the sidecar is mid-restart fails transiently rather than for good.
+        // The controller remains unpresented until the top-bar command invokes toggle().
         let sidecar = agentEngineSidecar
         let agentWindow = AgentWindowController(
             sidecarClient: HttpSidecarClient(baseURLProvider: { [weak sidecar] in sidecar?.baseURL }),
@@ -471,12 +472,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presenter.onAgentsCommand = { [weak agentWindow] in agentWindow?.toggle() }
 
         presenter.show()
-
-        // Dev affordance (R24): auto-open the Agents window so it can be observed without a manual
-        // tap, and its accessibility self-report lands in os_log on launch.
-        if Config.agentsWindowAutoShow {
-            agentWindow.show()
-        }
     }
 
     private func bootstrapDefaultWorkspaceIfConfigured() {

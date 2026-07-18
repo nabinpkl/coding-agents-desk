@@ -39,6 +39,8 @@ struct AgentWindowControllerTests {
 
     @Test func showBuildsAnAccessibilityIdentifiedAgentsWindow() throws {
         let controller = AgentWindowController(sidecarClient: FakeSidecarClient())
+        #expect(controller.windowForTesting == nil)
+
         controller.show()
 
         let window = try #require(controller.windowForTesting)

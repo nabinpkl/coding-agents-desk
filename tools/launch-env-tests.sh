@@ -16,6 +16,7 @@ export LAUNCHCTL_LOG="$tmpdir/launchctl.log"
 
 export AGENTDESK_AUTO_APPROVE=1
 export AGENTDESK_DEV_ITERATION_RUN=1
+export AGENTDESK_AGENTS_WINDOW_AUTOSHOW=1
 export AGENTDESK_GRAPHICS_PORT=41889
 export AGENTDESK_HYBRID_SCROLL_HEVC_FPS=0
 export AGENTDESK_HYBRID_SCROLL_IDLE_REFRESH_MS=250
@@ -94,5 +95,10 @@ grep -F 'unsetenv AGENTDESK_OWNED_MEDIA_BEHIND_MAX_UNACKED_FRAMES' "$LAUNCHCTL_L
 
 if grep -F 'AGENTDESK_UNRELATED' "$LAUNCHCTL_LOG" >/dev/null; then
     echo "unrelated AGENTDESK var was forwarded" >&2
+    exit 1
+fi
+
+if grep -F 'AGENTDESK_AGENTS_WINDOW_AUTOSHOW' "$LAUNCHCTL_LOG" >/dev/null; then
+    echo "retired Agents window auto-show var was forwarded" >&2
     exit 1
 fi
