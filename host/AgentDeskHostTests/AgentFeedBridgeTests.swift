@@ -9,8 +9,16 @@ import AgentDeskWire
 final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     // Configurable canned return values.
     var digestResult: Result<[EngineProjectDigest], Error> = .success([])
+    var digestDelayNanoseconds: UInt64 = 0
     var eventsPageResult: Result<EngineEventsPage, Error> = .success(EngineEventsPage(events: [], total: 0))
     var rawEventResult: Result<String, Error> = .success("")
+
+    private let digestLock = NSLock()
+    private var _fetchDigestCount = 0
+
+    var fetchDigestCount: Int {
+        digestLock.withLock { _fetchDigestCount }
+    }
 
     // Whether a stream was opened and the injected event-push closure.
     private(set) var streamOpenedForSessionId: String?
@@ -19,7 +27,11 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     private var capturedOnError: (@Sendable (Error) -> Void)?
 
     func fetchDigest() async throws -> [EngineProjectDigest] {
-        try digestResult.get()
+        digestLock.withLock { _fetchDigestCount += 1 }
+        if digestDelayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: digestDelayNanoseconds)
+        }
+        return try digestResult.get()
     }
 
     func fetchEventsPage(sessionId: String, offset: Int, limit: Int) async throws -> EngineEventsPage {
@@ -178,6 +190,25 @@ struct AgentFeedBridgeTests {
         #expect(push.projects[0].sessions[0].source == "claude")
         #expect(push.projects[0].sessions[0].title == "Fix the bug")
         #expect(push.projects[0].sessions[0].isLive == true)
+    }
+
+    @Test func repeatedProjectsSubscribeSharesOneInFlightDigestFetch() async throws {
+        let fake = FakeSidecarClient()
+        fake.digestDelayNanoseconds = 100_000_000
+        fake.digestResult = .success([makeDigest()])
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: { sink.accept($0) })
+
+        bridge.handleProjectsSubscribe()
+        bridge.handleProjectsSubscribe()
+        bridge.handleProjectsSubscribe()
+
+        try await Task.sleep(nanoseconds: 20_000_000)
+        #expect(fake.fetchDigestCount == 1)
+
+        await waitForMessages(sink, count: 1)
+        #expect(sink.received.count == 1)
+        #expect(fake.fetchDigestCount == 1)
     }
 
     @Test func projectsSubscribeMapsCombinedSourcesSessionList() async throws {

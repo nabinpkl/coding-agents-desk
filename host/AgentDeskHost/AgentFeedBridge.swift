@@ -25,8 +25,12 @@ final class AgentFeedBridge: @unchecked Sendable {
     private let rawEventDeliveryMode: RawEventDeliveryMode
     private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).agent-feed-bridge")
 
-    // Active per-session SSE stream handles.
+    // Active per-session SSE stream handles and the shared project snapshot
+    // request. The dashboard retries its initial subscribe while the lane comes
+    // up; one bridge-level task keeps those retries from multiplying the same
+    // expensive sidecar digest scan.
     private var activeStreams: [String: SidecarStreamHandle] = [:]
+    private var projectsFetchTask: Task<Void, Never>?
 
     // Construct with the injectable client and the lane push closure.
     // The send closure mirrors the pattern used by InputChannelServer.sendCodableFrame:
@@ -45,6 +49,8 @@ final class AgentFeedBridge: @unchecked Sendable {
     // Reset cancels all active streams. Call when the lane re-attaches.
     func reset() {
         queue.sync {
+            projectsFetchTask?.cancel()
+            projectsFetchTask = nil
             for handle in activeStreams.values {
                 handle.cancel()
             }
@@ -55,19 +61,19 @@ final class AgentFeedBridge: @unchecked Sendable {
     // MARK: - Request handlers
 
     func handleProjectsSubscribe() {
-        logger.notice("agent-feed: projects subscribe received; fetching digest")
-        Task {
-            do {
-                let digests = try await client.fetchDigest()
-                let wireProjects = digests.map { wireDigest(from: $0) }
-                let push = AgentProjectsPush(projects: wireProjects)
-                sendCodable(push)
-                logger.notice("agent-feed: projects push sent count=\(wireProjects.count, privacy: .public)")
-            } catch {
-                logger.error("agent-feed-bridge: projects fetch failed: \(String(describing: error), privacy: .public)")
-                // Projects errors use an empty sessionId per the brief note.
-                let err = AgentThreadError(sessionId: "", reason: error.localizedDescription)
-                sendCodable(err)
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard self.projectsFetchTask == nil else {
+                self.logger.debug("agent-feed: projects subscribe joined in-flight digest fetch")
+                return
+            }
+            self.logger.notice("agent-feed: projects subscribe received; fetching digest")
+            self.projectsFetchTask = Task { [weak self] in
+                guard let self else { return }
+                await self.fetchAndPushProjects()
+                self.queue.async { [weak self] in
+                    self?.projectsFetchTask = nil
+                }
             }
         }
     }
@@ -178,6 +184,26 @@ final class AgentFeedBridge: @unchecked Sendable {
     }
 
     // MARK: - Private helpers
+
+    private func fetchAndPushProjects() async {
+        do {
+            let digests = try await client.fetchDigest()
+            guard !Task.isCancelled else { return }
+            let wireProjects = digests.map { wireDigest(from: $0) }
+            let push = AgentProjectsPush(projects: wireProjects)
+            sendCodable(push)
+            logger.notice("agent-feed: projects push sent count=\(wireProjects.count, privacy: .public)")
+        } catch is CancellationError {
+            logger.debug("agent-feed: projects fetch cancelled")
+        } catch {
+            guard !Task.isCancelled else { return }
+            logger.error("agent-feed-bridge: projects fetch failed: \(String(describing: error), privacy: .public)")
+            // Projects errors use an empty sessionId because this request is not
+            // tied to one thread.
+            let err = AgentThreadError(sessionId: "", reason: error.localizedDescription)
+            sendCodable(err)
+        }
+    }
 
     private func openStream(sessionId: String, after: Int) {
         let handle = client.openEventStream(
