@@ -22,7 +22,7 @@ Restore the macOS-only donor Git experience required by ADR-0054 without adding 
 ## Phase 4: verification
 
 - D5. Run the focused host tests, `git diff --check`, and `just check`; self-review the complete sidebar/session/viewer lifecycle and stop at the host-launch checkpoint before AX smoke.
-- R6. After explicit approval, launch the landed host and verify Explorer/Source Control switching, exact count accessibility, changed-file opening, and decorated breadcrumb menus through live AX and screenshots.
+- D6. After explicit approval, launch the landed host and verify Explorer/Source Control switching, exact count accessibility, changed-file opening, and decorated breadcrumb menus through live AX and screenshots.
 
 ## Promotion log
 
@@ -30,4 +30,4 @@ Restore the macOS-only donor Git experience required by ADR-0054 without adding 
 | --- | --- | --- | --- |
 | D1-D4 | 2026-07-18 | done | Donor Git navigation is restored around one root-confined live status snapshot. |
 | D5 | 2026-07-18 | done | Six focused tests, all 537 host tests, diff hygiene, and final cross-file self-review are green. |
-| R6 | pending | pending | Live AX and screenshot verification awaits the required host relaunch checkpoint. |
+| D6 | 2026-07-18 | done | Release build `7c0ea0f` passed live AX and window-scoped screenshot verification: one changed file, Source Control and Explorer selection, changed-file opening, and breadcrumb `.gitkeep  M` decoration. |
