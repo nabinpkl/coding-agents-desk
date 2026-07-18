@@ -16,6 +16,14 @@ struct AgentWindowSplitViewTests {
         #expect(feed.frame == split.bounds)
         #expect(terminal.superview == nil)
         #expect(split.dividerViewForTesting.superview == nil)
+        #expect(
+            split.dividerViewForTesting.accessibilityIdentifier()
+                == AgentWindowAccessibilityIdentifiers.terminalSplitter
+        )
+        #expect(
+            terminal.accessibilityIdentifier()
+                == AgentWindowAccessibilityIdentifiers.terminalContent
+        )
     }
 
     @Test func openingUsesDefaultFractionAndShrinksTheFeed() {

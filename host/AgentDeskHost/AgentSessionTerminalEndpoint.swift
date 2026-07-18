@@ -3,6 +3,11 @@ import AgentDeskWire
 protocol AgentSessionTerminalCoordinating: Sendable {
     func open(_ request: AgentSessionTerminalOpenRequest) async throws -> AgentSessionTerminalReady
     func acknowledgeAttachment(requestID: String, ptySessionName: String) async
+    func transferRequest(
+        from oldRequestID: String,
+        to newRequestID: String,
+        ptySessionName: String
+    ) async -> Bool
     func close(requestID: String, ptySessionName: String?) async
 }
 
@@ -22,6 +27,17 @@ actor AgentSessionTerminalEndpoint {
         var ptySessionName: String?
     }
 
+    private struct RequestTransfer {
+        let token: UInt64
+        let oldRequestID: String
+        let newRequestID: String
+        let context: AgentResumeTerminalContext
+        let oldGeneration: UInt64
+        let newGeneration: UInt64
+        let ptySessionName: String
+        let task: Task<Bool, Never>
+    }
+
     private let coordinator: any AgentSessionTerminalCoordinating
     private let platform: AgentSessionTerminalPlatform
     private let requestNamespace: String
@@ -29,6 +45,7 @@ actor AgentSessionTerminalEndpoint {
     private var pushBindingID: String?
     private var nextGeneration: UInt64 = 0
     private var activeRequests: [String: RequestState] = [:]
+    private var pendingTransfers: [String: RequestTransfer] = [:]
     private var tombstones: AgentSessionTerminalRequestTombstones
     private var isShutdown = false
 
@@ -56,6 +73,9 @@ actor AgentSessionTerminalEndpoint {
     func shutdown() async {
         guard !isShutdown else { return }
         isShutdown = true
+        while let requestID = pendingTransfers.keys.first {
+            await settleTransfer(for: requestID)
+        }
         let requestsToClose = activeRequests
         activeRequests.removeAll(keepingCapacity: false)
         tombstones.removeAll()
@@ -100,6 +120,7 @@ actor AgentSessionTerminalEndpoint {
     }
 
     func openLocal(_ open: AgentTerminalOpen) async -> AgentTerminalHostMessage? {
+        await settleTransfer(for: open.requestID)
         guard !isShutdown else { return sessionEndedError(for: open) }
         if tombstones.contains(open.requestID) {
             return sessionEndedError(for: open)
@@ -164,10 +185,77 @@ actor AgentSessionTerminalEndpoint {
         }
     }
 
+    /// Moves one live request identity without closing its leased PTY. Both IDs are fenced while the
+    /// coordinator moves its handoff key; close/shutdown and stale callbacks await the same transfer
+    /// task before observing ownership. The old wire ID is tombstoned before the new ID can return
+    /// ready. Transfer failure retires both IDs and closes the old coordinator authority.
+    func transferLocal(
+        from oldRequestID: String,
+        to open: AgentTerminalOpen
+    ) async -> AgentTerminalHostMessage? {
+        if oldRequestID == open.requestID {
+            return await openLocal(open)
+        }
+
+        await settleTransfer(for: oldRequestID)
+        await settleTransfer(for: open.requestID)
+        guard !isShutdown,
+              !tombstones.contains(oldRequestID),
+              !tombstones.contains(open.requestID),
+              activeRequests[open.requestID] == nil,
+              let oldState = activeRequests[oldRequestID],
+              oldState.context == open.context,
+              let ptySessionName = oldState.ptySessionName else {
+            return sessionEndedError(for: open)
+        }
+
+        nextGeneration &+= 1
+        let newGeneration = nextGeneration
+        nextGeneration &+= 1
+        let token = nextGeneration
+        let oldCoordinatorRequestID = namespacedRequestID(oldRequestID)
+        let newCoordinatorRequestID = namespacedRequestID(open.requestID)
+        let coordinator = coordinator
+        let task = Task {
+            await coordinator.transferRequest(
+                from: oldCoordinatorRequestID,
+                to: newCoordinatorRequestID,
+                ptySessionName: ptySessionName
+            )
+        }
+        let transfer = RequestTransfer(
+            token: token,
+            oldRequestID: oldRequestID,
+            newRequestID: open.requestID,
+            context: open.context,
+            oldGeneration: oldState.generation,
+            newGeneration: newGeneration,
+            ptySessionName: ptySessionName,
+            task: task
+        )
+        pendingTransfers[oldRequestID] = transfer
+        pendingTransfers[open.requestID] = transfer
+
+        await settleTransfer(for: open.requestID)
+        guard let state = activeRequests[open.requestID],
+              state.generation == newGeneration,
+              state.context == open.context,
+              state.ptySessionName == ptySessionName else {
+            return sessionEndedError(for: open)
+        }
+        return .ready(AgentTerminalReady(
+            requestID: open.requestID,
+            context: open.context,
+            ptySessionName: ptySessionName
+        ))
+    }
+
     func handleCoordinatorEvent(_ event: AgentSessionTerminalCoordinatorEvent) async {
         switch event {
         case .handoffTimedOut(let internalRequestID, let ready):
-            guard let requestID = wireRequestID(from: internalRequestID),
+            guard let requestID = wireRequestID(from: internalRequestID) else { return }
+            await settleTransfer(for: requestID)
+            guard
                   let state = activeRequests[requestID],
                   state.ptySessionName == nil || state.ptySessionName == ready.ptySessionName else {
                 return
@@ -188,6 +276,7 @@ actor AgentSessionTerminalEndpoint {
         ptySessionName: String,
         exitStatus: Int32?
     ) async {
+        await settleTransfer(for: requestID)
         guard let state = activeRequests[requestID],
               state.context == context,
               state.ptySessionName == nil || state.ptySessionName == ptySessionName else {
@@ -203,6 +292,7 @@ actor AgentSessionTerminalEndpoint {
     }
 
     private func acknowledge(_ acknowledgement: AgentTerminalAttachedAck) async {
+        await settleTransfer(for: acknowledgement.requestID)
         guard let state = activeRequests[acknowledgement.requestID],
               state.context == acknowledgement.context,
               state.ptySessionName == acknowledgement.ptySessionName else {
@@ -215,6 +305,7 @@ actor AgentSessionTerminalEndpoint {
     }
 
     private func close(_ close: AgentTerminalClose) async {
+        await settleTransfer(for: close.requestID)
         guard let state = activeRequests[close.requestID],
               state.context == close.context else {
             return
@@ -254,6 +345,45 @@ actor AgentSessionTerminalEndpoint {
     private func finishRequest(_ requestID: String) {
         guard activeRequests.removeValue(forKey: requestID) != nil else { return }
         tombstones.insert(requestID)
+    }
+
+    private func settleTransfer(for requestID: String) async {
+        guard let transfer = pendingTransfers[requestID] else { return }
+        let transferred = await transfer.task.value
+        guard pendingTransfers[transfer.oldRequestID]?.token == transfer.token,
+              pendingTransfers[transfer.newRequestID]?.token == transfer.token else {
+            return
+        }
+        pendingTransfers.removeValue(forKey: transfer.oldRequestID)
+        pendingTransfers.removeValue(forKey: transfer.newRequestID)
+
+        let oldState = activeRequests[transfer.oldRequestID]
+        let endpointStateMatches = oldState?.generation == transfer.oldGeneration
+            && oldState?.context == transfer.context
+            && oldState?.ptySessionName == transfer.ptySessionName
+            && activeRequests[transfer.newRequestID] == nil
+
+        if transferred, endpointStateMatches {
+            activeRequests.removeValue(forKey: transfer.oldRequestID)
+            tombstones.insert(transfer.oldRequestID)
+            activeRequests[transfer.newRequestID] = RequestState(
+                context: transfer.context,
+                generation: transfer.newGeneration,
+                ptySessionName: transfer.ptySessionName
+            )
+            return
+        }
+
+        activeRequests.removeValue(forKey: transfer.oldRequestID)
+        activeRequests.removeValue(forKey: transfer.newRequestID)
+        tombstones.insert(transfer.oldRequestID)
+        tombstones.insert(transfer.newRequestID)
+        await coordinator.close(
+            requestID: namespacedRequestID(
+                transferred ? transfer.newRequestID : transfer.oldRequestID
+            ),
+            ptySessionName: transfer.ptySessionName
+        )
     }
 
     private func wireCode(for error: Error) -> AgentTerminalErrorCode {

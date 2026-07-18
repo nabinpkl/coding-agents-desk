@@ -26,7 +26,8 @@ public final class AgentPanelWebViewController: NSObject {
     public init(
         transport: (any AgentPanelTransport)?,
         resources: AgentPanelResourceLocator = AgentPanelResourceLocator(),
-        contract: AgentPanelJavaScriptContract = .agentFeed
+        contract: AgentPanelJavaScriptContract = .agentFeed,
+        additionalUserScripts: [WKUserScript] = []
     ) throws {
         guard let rootDirectory = resources.rootDirectory(indexPath: contract.indexPath) else {
             throw InitializationError.missingResourceRoot
@@ -39,6 +40,9 @@ public final class AgentPanelWebViewController: NSObject {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = contentController
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        for script in additionalUserScripts {
+            contentController.addUserScript(script)
+        }
         configuration.setURLSchemeHandler(
             AgentPanelSchemeHandler(rootDirectory: rootDirectory),
             forURLScheme: contract.scheme

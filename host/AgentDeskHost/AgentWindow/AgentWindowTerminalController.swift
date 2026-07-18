@@ -1,3 +1,4 @@
+import AppKit
 import AgentDeskWire
 import AgentPanel
 import Foundation
@@ -5,10 +6,30 @@ import PtyClientSwift
 import PtyTerminalSession
 import PtyTerminalSwiftTerm
 
+enum AgentWindowTerminalExplicitCloseReason: String, Equatable {
+    case windowHidden = "window-hidden"
+    case windowShouldClose = "window-should-close"
+    case appTermination = "app-termination"
+}
+
+@MainActor
+protocol AgentWindowTerminalControlling: AnyObject {
+    var terminalView: NSView { get }
+    func handle(_ intent: AgentPanelTerminalIntent)
+    @discardableResult
+    func beginExplicitClose(
+        reason: AgentWindowTerminalExplicitCloseReason
+    ) -> Task<Void, Never>?
+}
+
 @MainActor
 protocol AgentWindowTerminalEndpointRouting: AnyObject {
     func setPush(_ push: (@Sendable (AgentTerminalHostMessage) async -> Void)?) async
     func openLocal(_ open: AgentTerminalOpen) async -> AgentTerminalHostMessage?
+    func transferLocal(
+        from oldRequestID: String,
+        to open: AgentTerminalOpen
+    ) async -> AgentTerminalHostMessage?
     func handle(_ message: AgentTerminalClientMessage) async
     func terminalEnded(
         requestID: String,
@@ -32,6 +53,13 @@ final class LocalAgentSessionTerminalEndpointRouter: AgentWindowTerminalEndpoint
 
     func openLocal(_ open: AgentTerminalOpen) async -> AgentTerminalHostMessage? {
         await endpoint.openLocal(open)
+    }
+
+    func transferLocal(
+        from oldRequestID: String,
+        to open: AgentTerminalOpen
+    ) async -> AgentTerminalHostMessage? {
+        await endpoint.transferLocal(from: oldRequestID, to: open)
     }
 
     func handle(_ message: AgentTerminalClientMessage) async {
@@ -192,7 +220,9 @@ enum AgentWindowTerminalState: Equatable {
 }
 
 @MainActor
-final class AgentWindowTerminalController: NSObject, PtyTerminalSwiftTermContentViewDelegate {
+final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControlling,
+    PtyTerminalSwiftTermContentViewDelegate
+{
     private struct OpenRequest: Equatable {
         let requestID: String
         let context: AgentResumeTerminalContext
@@ -223,10 +253,12 @@ final class AgentWindowTerminalController: NSObject, PtyTerminalSwiftTermContent
 
     private final class OpenOperation {
         let binding: Binding
+        let transferFromRequestID: String?
         var task: Task<Void, Never>?
 
-        init(binding: Binding) {
+        init(binding: Binding, transferFromRequestID: String? = nil) {
             self.binding = binding
+            self.transferFromRequestID = transferFromRequestID
         }
     }
 
@@ -323,10 +355,12 @@ final class AgentWindowTerminalController: NSObject, PtyTerminalSwiftTermContent
         case opening(OpenOperation)
         case acknowledging(AcknowledgementOperation)
         case ready(Binding)
+        case detached(Binding)
         case closing(CloseBarrier)
     }
 
     let contentView: PtyTerminalSwiftTermContentView
+    var terminalView: NSView { contentView }
     private(set) var stateForTesting: AgentWindowTerminalState = .idle
 
     private let endpoint: any AgentWindowTerminalEndpointRouting
@@ -376,6 +410,58 @@ final class AgentWindowTerminalController: NSObject, PtyTerminalSwiftTermContent
         }
     }
 
+    @discardableResult
+    func beginExplicitClose(
+        reason: AgentWindowTerminalExplicitCloseReason
+    ) -> Task<Void, Never>? {
+        let closeReason = reason.rawValue
+        switch phase {
+        case .idle:
+            return nil
+        case .opening(let operation):
+            return beginClose(
+                binding: operation.binding,
+                acknowledgement: nil,
+                reason: closeReason,
+                pendingOpen: nil,
+                completion: .none,
+                cancel: operation.task
+            ).task
+        case .acknowledging(let acknowledgement):
+            return beginClose(
+                binding: acknowledgement.binding,
+                acknowledgement: acknowledgement,
+                reason: closeReason,
+                pendingOpen: nil,
+                completion: .none,
+                cancel: nil
+            ).task
+        case .ready(let binding):
+            return beginClose(
+                binding: binding,
+                acknowledgement: nil,
+                reason: closeReason,
+                pendingOpen: nil,
+                completion: .none,
+                cancel: nil
+            ).task
+        case .detached(let binding):
+            return beginClose(
+                binding: binding,
+                acknowledgement: nil,
+                reason: closeReason,
+                pendingOpen: nil,
+                completion: .none,
+                cancel: nil
+            ).task
+        case .closing(let barrier):
+            // Lifecycle teardown supersedes any queued replacement but never overtakes or duplicates
+            // the close already committed to this barrier.
+            barrier.pendingOpen = nil
+            return barrier.task
+        }
+    }
+
     private func beginOpen(_ request: OpenRequest) {
         switch phase {
         case .idle:
@@ -410,20 +496,47 @@ final class AgentWindowTerminalController: NSObject, PtyTerminalSwiftTermContent
                 completion: .none,
                 cancel: nil
             )
+        case .detached(let binding):
+            if binding.context == request.context {
+                // Re-enter the coordinator for the same deterministic leased PTY while its manager
+                // grace is active. A fresh panel request ID atomically takes endpoint/coordinator
+                // ownership before attach; exact-ID retry uses the endpoint's cached-ready path.
+                startOpen(
+                    request,
+                    transferFromRequestID: binding.requestID == request.requestID
+                        ? nil
+                        : binding.requestID
+                )
+            } else {
+                beginClose(
+                    binding: binding,
+                    acknowledgement: nil,
+                    reason: "context-replaced",
+                    pendingOpen: request,
+                    completion: .none,
+                    cancel: nil
+                )
+            }
         case .closing(let barrier):
             if barrier.pendingOpen == request { return }
             barrier.pendingOpen = request
         }
     }
 
-    private func startOpen(_ request: OpenRequest) {
+    private func startOpen(
+        _ request: OpenRequest,
+        transferFromRequestID: String? = nil
+    ) {
         nextGeneration &+= 1
         let binding = Binding(
             requestID: request.requestID,
             context: request.context,
             generation: nextGeneration
         )
-        let operation = OpenOperation(binding: binding)
+        let operation = OpenOperation(
+            binding: binding,
+            transferFromRequestID: transferFromRequestID
+        )
         phase = .opening(operation)
         stateForTesting = .loading(requestID: request.requestID, context: request.context)
         operation.task = Task { [weak self, weak operation] in
@@ -441,7 +554,13 @@ final class AgentWindowTerminalController: NSObject, PtyTerminalSwiftTermContent
 
         let binding = operation.binding
         let open = AgentTerminalOpen(requestID: binding.requestID, context: binding.context)
-        guard let response = await endpoint.openLocal(open),
+        let response: AgentTerminalHostMessage?
+        if let oldRequestID = operation.transferFromRequestID {
+            response = await endpoint.transferLocal(from: oldRequestID, to: open)
+        } else {
+            response = await endpoint.openLocal(open)
+        }
+        guard let response,
               isOpening(operation) else {
             return
         }
@@ -576,6 +695,15 @@ final class AgentWindowTerminalController: NSObject, PtyTerminalSwiftTermContent
                 completion: .none,
                 cancel: nil
             )
+        case .detached(let binding) where binding.matches(request):
+            beginClose(
+                binding: binding,
+                acknowledgement: nil,
+                reason: reason,
+                pendingOpen: nil,
+                completion: .none,
+                cancel: nil
+            )
         case .closing(let barrier) where barrier.binding.matches(request):
             return
         case .closing(let barrier) where barrier.pendingOpen == request:
@@ -585,6 +713,7 @@ final class AgentWindowTerminalController: NSObject, PtyTerminalSwiftTermContent
         }
     }
 
+    @discardableResult
     private func beginClose(
         binding: Binding,
         acknowledgement: AcknowledgementOperation?,
@@ -592,7 +721,7 @@ final class AgentWindowTerminalController: NSObject, PtyTerminalSwiftTermContent
         pendingOpen: OpenRequest?,
         completion: CloseCompletion,
         cancel taskToCancel: Task<Void, Never>?
-    ) {
+    ) -> CloseBarrier {
         let barrier = CloseBarrier(
             binding: binding,
             reason: reason,
@@ -610,6 +739,7 @@ final class AgentWindowTerminalController: NSObject, PtyTerminalSwiftTermContent
             guard let self, let barrier else { return }
             await self.performClose(barrier)
         }
+        return barrier
     }
 
     private func performClose(_ barrier: CloseBarrier) async {
@@ -683,7 +813,7 @@ final class AgentWindowTerminalController: NSObject, PtyTerminalSwiftTermContent
         case .opening(let operation): operation.binding
         case .acknowledging(let acknowledgement): acknowledgement.binding
         case .ready(let binding): binding
-        case .idle, .closing: nil
+        case .idle, .detached, .closing: nil
         }
     }
 
@@ -693,7 +823,7 @@ final class AgentWindowTerminalController: NSObject, PtyTerminalSwiftTermContent
             operation.task?.cancel()
         case .acknowledging(let acknowledgement):
             acknowledgement.cancel()
-        case .idle, .ready, .closing:
+        case .idle, .ready, .detached, .closing:
             break
         }
     }
@@ -738,5 +868,39 @@ final class AgentWindowTerminalController: NSObject, PtyTerminalSwiftTermContent
                 exitStatus: status
             )
         }
+    }
+
+    func ptyTerminalContent(
+        _ content: PtyTerminalSwiftTermContentView,
+        didFail error: Error
+    ) {
+        detachAfterUnexpectedLoss(contentAlreadyStopped: false)
+    }
+
+    func ptyTerminalContentDidDetachByManager(
+        _ content: PtyTerminalSwiftTermContentView
+    ) {
+        detachAfterUnexpectedLoss(contentAlreadyStopped: true)
+    }
+
+    private func detachAfterUnexpectedLoss(contentAlreadyStopped: Bool) {
+        let binding: Binding
+        switch phase {
+        case .acknowledging(let acknowledgement):
+            binding = acknowledgement.binding
+        case .ready(let readyBinding):
+            binding = readyBinding
+        case .idle, .opening, .detached, .closing:
+            return
+        }
+        cancelActiveOperation()
+        phase = .detached(binding)
+        if contentAlreadyStopped {
+            contentView.stop()
+        } else {
+            contentView.detach()
+        }
+        updatePresentation(open: false)
+        stateForTesting = .idle
     }
 }

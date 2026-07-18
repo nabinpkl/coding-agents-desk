@@ -8,6 +8,7 @@ actor AgentSessionTerminalCoordinator {
     private struct Handoff {
         let ready: AgentSessionTerminalReady
         let platform: AgentSessionTerminalPlatform
+        let timeoutIdentity: UInt64
         var lease: AgentSessionTerminalPtyLease?
         var acknowledged = false
         var timeoutTask: Task<Void, Never>?
@@ -28,6 +29,7 @@ actor AgentSessionTerminalCoordinator {
     private var cancelledRequestIDs: AgentSessionTerminalRequestTombstones
     private var ownedSessionNames: Set<String> = []
     private var closingNames: Set<String> = []
+    private var nextHandoffTimeoutIdentity: UInt64 = 0
 
     init(
         ptyClient: any AgentSessionTerminalPtyClient,
@@ -112,6 +114,45 @@ actor AgentSessionTerminalCoordinator {
         handoff.lease = nil
         handoffs[requestID] = handoff
         try? await lease?.detach()
+    }
+
+    /// Transfers request ownership for an existing handoff without releasing or killing its leased
+    /// PTY. The old ID becomes a coordinator tombstone; only the new ID may acknowledge or close.
+    /// The handoff's bootstrap lease, acknowledgement state, and original timeout task move together
+    /// with the identity. Transfer never restarts or extends the unacknowledged handoff deadline.
+    func transferRequest(
+        from oldRequestID: String,
+        to newRequestID: String,
+        ptySessionName: String
+    ) -> Bool {
+        guard oldRequestID != newRequestID,
+              !cancelledRequestIDs.contains(oldRequestID),
+              !cancelledRequestIDs.contains(newRequestID),
+              handoffs[newRequestID] == nil,
+              openTasks[newRequestID] == nil,
+              openingIdentities[newRequestID] == nil,
+              let oldHandoff = handoffs[oldRequestID],
+              oldHandoff.ready.ptySessionName == ptySessionName,
+              !closingNames.contains(ptySessionName) else {
+            return false
+        }
+
+        handoffs.removeValue(forKey: oldRequestID)
+        cancelledRequestIDs.insert(oldRequestID)
+        let ready = AgentSessionTerminalReady(
+            requestID: newRequestID,
+            identity: oldHandoff.ready.identity,
+            pid: oldHandoff.ready.pid
+        )
+        handoffs[newRequestID] = Handoff(
+            ready: ready,
+            platform: oldHandoff.platform,
+            timeoutIdentity: oldHandoff.timeoutIdentity,
+            lease: oldHandoff.lease,
+            acknowledged: oldHandoff.acknowledged,
+            timeoutTask: oldHandoff.timeoutTask
+        )
+        return true
     }
 
     func close(requestID: String, ptySessionName: String?) async {
@@ -267,18 +308,31 @@ actor AgentSessionTerminalCoordinator {
         openTasks.removeValue(forKey: requestID)
         openingIdentities.removeValue(forKey: requestID)
         openingPlatforms.removeValue(forKey: requestID)
+        nextHandoffTimeoutIdentity &+= 1
+        let timeoutIdentity = nextHandoffTimeoutIdentity
         handoffs[requestID] = Handoff(
             ready: ready,
             platform: platform,
+            timeoutIdentity: timeoutIdentity,
             lease: lease
         )
 
+        scheduleHandoffTimeout(
+            requestID: requestID,
+            timeoutIdentity: timeoutIdentity
+        )
+    }
+
+    private func scheduleHandoffTimeout(
+        requestID: String,
+        timeoutIdentity: UInt64
+    ) {
         let waitForHandoffTimeout = waitForHandoffTimeout
         let timeoutTask = Task { [weak self] in
             do {
                 try await waitForHandoffTimeout()
                 try Task.checkCancellation()
-                await self?.expireHandoff(requestID: requestID)
+                await self?.expireHandoff(timeoutIdentity: timeoutIdentity)
             } catch {
                 // Acknowledgement and explicit close cancel the timeout.
             }
@@ -286,8 +340,14 @@ actor AgentSessionTerminalCoordinator {
         handoffs[requestID]?.timeoutTask = timeoutTask
     }
 
-    private func expireHandoff(requestID: String) async {
-        guard let handoff = handoffs[requestID], !handoff.acknowledged else { return }
+    private func expireHandoff(timeoutIdentity: UInt64) async {
+        guard let entry = handoffs.first(where: {
+            $0.value.timeoutIdentity == timeoutIdentity && !$0.value.acknowledged
+        }) else {
+            return
+        }
+        let requestID = entry.key
+        let handoff = entry.value
         handoffs.removeValue(forKey: requestID)
         cancelledRequestIDs.insert(requestID)
 

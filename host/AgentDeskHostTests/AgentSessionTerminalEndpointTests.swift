@@ -134,6 +134,106 @@ struct AgentSessionTerminalEndpointTests {
         ))
     }
 
+    @Test func localTransferTombstonesOldIDAndMovesExactCloseAuthority() async throws {
+        let coordinator = RecordingTerminalCoordinator()
+        let pushes = TerminalPushRecorder()
+        let endpoint = AgentSessionTerminalEndpoint(
+            coordinator: coordinator,
+            platform: .macOS,
+            requestNamespace: "macos-local",
+            tombstoneLimit: 8,
+            push: { message in await pushes.append(message) }
+        )
+        let oldOpen = AgentTerminalOpen(requestID: "request-old", context: context)
+        guard case .ready(let oldReady) = await endpoint.openLocal(oldOpen) else {
+            Issue.record("Expected old request to become ready")
+            return
+        }
+        let newOpen = AgentTerminalOpen(requestID: "request-new", context: context)
+
+        let response = await endpoint.transferLocal(from: oldOpen.requestID, to: newOpen)
+
+        #expect(response == .ready(AgentTerminalReady(
+            requestID: newOpen.requestID,
+            context: context,
+            ptySessionName: oldReady.ptySessionName
+        )))
+        #expect(await coordinator.transferRequests == [TerminalRequestTransfer(
+            oldRequestID: "macos-local:request-old",
+            newRequestID: "macos-local:request-new",
+            ptySessionName: oldReady.ptySessionName
+        )])
+
+        await endpoint.handle(.open(oldOpen))
+        #expect(await pushes.messages == [.error(AgentTerminalError(
+            requestID: oldOpen.requestID,
+            context: context,
+            ptySessionName: nil,
+            code: .sessionEnded
+        ))])
+
+        let close = AgentTerminalClose(
+            requestID: newOpen.requestID,
+            context: context,
+            ptySessionName: oldReady.ptySessionName,
+            reason: "window-hidden"
+        )
+        await endpoint.handle(.close(close))
+        await endpoint.handle(.close(close))
+
+        #expect(await coordinator.closeRequests == [TerminalCloseRecord(
+            requestID: "macos-local:request-new",
+            ptySessionName: oldReady.ptySessionName
+        )])
+        #expect(await endpoint.stateSnapshot() == AgentSessionTerminalEndpointStateSnapshot(
+            activeRequestCount: 0,
+            tombstoneRequestIDs: [oldOpen.requestID, newOpen.requestID]
+        ))
+        #expect(await pushes.messages.allSatisfy { message in
+            if case .ready = message { return false }
+            return true
+        })
+    }
+
+    @Test func closeWaitsForRequestTransferBeforeUsingNewAuthority() async throws {
+        let coordinator = RecordingTerminalCoordinator(suspendTransfer: true)
+        let endpoint = AgentSessionTerminalEndpoint(
+            coordinator: coordinator,
+            platform: .macOS,
+            requestNamespace: "macos-local",
+            tombstoneLimit: 8
+        )
+        let oldOpen = AgentTerminalOpen(requestID: "request-old", context: context)
+        guard case .ready(let ready) = await endpoint.openLocal(oldOpen) else {
+            Issue.record("Expected old request to become ready")
+            return
+        }
+        let newOpen = AgentTerminalOpen(requestID: "request-new", context: context)
+        let transfer = Task { await endpoint.transferLocal(from: oldOpen.requestID, to: newOpen) }
+        try await waitUntil { await coordinator.transferRequests.count == 1 }
+
+        let close = Task {
+            await endpoint.handle(.close(AgentTerminalClose(
+                requestID: newOpen.requestID,
+                context: context,
+                ptySessionName: ready.ptySessionName,
+                reason: "app-termination"
+            )))
+        }
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(await coordinator.closeRequests.isEmpty)
+
+        await coordinator.resumeTransfer()
+        _ = await transfer.value
+        await close.value
+
+        #expect(await coordinator.closeRequests == [TerminalCloseRecord(
+            requestID: "macos-local:request-new",
+            ptySessionName: ready.ptySessionName
+        )])
+        #expect(await endpoint.stateSnapshot().activeRequestCount == 0)
+    }
+
     @Test func closeDuringOpenSuppressesLateReady() async throws {
         let coordinator = RecordingTerminalCoordinator(suspendOpen: true)
         let pushes = TerminalPushRecorder()
@@ -465,17 +565,22 @@ private actor TerminalPushRecorder {
 
 private actor RecordingTerminalCoordinator: AgentSessionTerminalCoordinating {
     private let suspendOpen: Bool
+    private let suspendTransfer: Bool
     private let openError: AgentSessionTerminalCoordinatorError?
     private var openContinuation: CheckedContinuation<Void, Never>?
+    private var transferContinuation: CheckedContinuation<Void, Never>?
     private(set) var openRequests: [AgentSessionTerminalOpenRequest] = []
     private(set) var acknowledgements: [(String, String)] = []
-    private(set) var closeRequests: [(String, String?)] = []
+    private(set) var closeRequests: [TerminalCloseRecord] = []
+    private(set) var transferRequests: [TerminalRequestTransfer] = []
 
     init(
         suspendOpen: Bool = false,
+        suspendTransfer: Bool = false,
         openError: AgentSessionTerminalCoordinatorError? = nil
     ) {
         self.suspendOpen = suspendOpen
+        self.suspendTransfer = suspendTransfer
         self.openError = openError
     }
 
@@ -501,14 +606,51 @@ private actor RecordingTerminalCoordinator: AgentSessionTerminalCoordinating {
         acknowledgements.append((requestID, ptySessionName))
     }
 
+    func transferRequest(
+        from oldRequestID: String,
+        to newRequestID: String,
+        ptySessionName: String
+    ) async -> Bool {
+        transferRequests.append(TerminalRequestTransfer(
+            oldRequestID: oldRequestID,
+            newRequestID: newRequestID,
+            ptySessionName: ptySessionName
+        ))
+        if suspendTransfer {
+            await withCheckedContinuation { continuation in
+                transferContinuation = continuation
+            }
+        }
+        return true
+    }
+
     func close(requestID: String, ptySessionName: String?) async {
-        closeRequests.append((requestID, ptySessionName))
+        closeRequests.append(TerminalCloseRecord(
+            requestID: requestID,
+            ptySessionName: ptySessionName
+        ))
     }
 
     func resumeOpen() {
         openContinuation?.resume()
         openContinuation = nil
     }
+
+    func resumeTransfer() {
+        transferContinuation?.resume()
+        transferContinuation = nil
+    }
+}
+
+private struct TerminalRequestTransfer: Equatable, Sendable {
+    let oldRequestID: String
+    let newRequestID: String
+    let ptySessionName: String
+}
+
+private struct TerminalCloseRecord: Equatable, Sendable {
+    let requestID: String
+    let ptySessionName: String?
 }
 
 private final class PermissiveDirectoryFileManager: FileManager, @unchecked Sendable {

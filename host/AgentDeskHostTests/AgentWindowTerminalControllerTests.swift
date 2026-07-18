@@ -559,6 +559,431 @@ struct AgentWindowTerminalControllerTests {
         #expect(controller.stateForTesting == .idle)
     }
 
+    @Test func lifecycleCloseKillsExactlyOnceAcrossRepeatedWindowTeardownSignals() async throws {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let status = AgentWindowTerminalStatusRecorder()
+        let layout = AgentWindowTerminalLayoutRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { layout.values.append($0) },
+            deliverStatus: { status.messages.append($0) }
+        )
+        endpoint.completeOpen(
+            requestID: "request-lifecycle",
+            with: .ready(ready(requestID: "request-lifecycle", context: firstContext))
+        )
+        controller.handle(.open(requestID: "request-lifecycle", context: firstContext))
+        try await waitUntil { status.messages.count == 1 }
+        let connection = attacher.connections[ptyName(for: firstContext)]
+
+        let hideClose = controller.beginExplicitClose(reason: .windowHidden)
+        let titlebarClose = controller.beginExplicitClose(reason: .windowShouldClose)
+        await hideClose?.value
+        await titlebarClose?.value
+
+        #expect(endpoint.closeMessages == [AgentTerminalClose(
+            requestID: "request-lifecycle",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext),
+            reason: "window-hidden"
+        )])
+        #expect(connection?.detachCount == 1)
+        #expect(endpoint.terminalEnds.isEmpty)
+        #expect(layout.values == [true, false])
+        #expect(controller.contentView.isBound == false)
+        #expect(controller.stateForTesting == .idle)
+    }
+
+    @Test func lifecycleCloseFencesSuspendedOpenCompletionFromBindingOrReady() async throws {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        endpoint.suspendedRequestIDs = ["request-stale-lifecycle"]
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let status = AgentWindowTerminalStatusRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { _ in },
+            deliverStatus: { status.messages.append($0) }
+        )
+
+        controller.handle(.open(requestID: "request-stale-lifecycle", context: firstContext))
+        try await waitUntil { endpoint.openRequests.count == 1 }
+        let close = controller.beginExplicitClose(reason: .appTermination)
+        await close?.value
+        endpoint.resumeOpen(
+            requestID: "request-stale-lifecycle",
+            with: .ready(ready(requestID: "request-stale-lifecycle", context: firstContext))
+        )
+        try await Task.sleep(for: .milliseconds(30))
+
+        #expect(endpoint.closeMessages == [AgentTerminalClose(
+            requestID: "request-stale-lifecycle",
+            context: wireContext(firstContext),
+            ptySessionName: nil,
+            reason: "app-termination"
+        )])
+        #expect(attacher.requests.isEmpty)
+        #expect(status.messages.isEmpty)
+        #expect(controller.contentView.isBound == false)
+        #expect(controller.stateForTesting == .idle)
+    }
+
+    @Test func socketLossDetachesLocallyWithoutExplicitKill() async throws {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let layout = AgentWindowTerminalLayoutRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { layout.values.append($0) },
+            deliverStatus: { _ in }
+        )
+        endpoint.completeOpen(
+            requestID: "request-socket-loss",
+            with: .ready(ready(requestID: "request-socket-loss", context: firstContext))
+        )
+        controller.handle(.open(requestID: "request-socket-loss", context: firstContext))
+        try await waitUntil {
+            controller.stateForTesting == .ready(
+                requestID: "request-socket-loss",
+                context: wireContext(firstContext),
+                ptySessionName: ptyName(for: firstContext)
+            )
+        }
+        let connection = try #require(attacher.connections[ptyName(for: firstContext)])
+
+        connection.fail(TestTerminalConnectionError.socketLost)
+        try await waitUntil {
+            controller.stateForTesting == .idle && connection.detachCount == 1
+        }
+
+        #expect(endpoint.closeMessages.isEmpty)
+        #expect(endpoint.terminalEnds.isEmpty)
+        #expect(connection.detachCount == 1)
+        #expect(layout.values == [true, false])
+        #expect(controller.contentView.isBound == false)
+    }
+
+    @Test func socketLossThenAppTerminationConsumesExactCloseOnce() async throws {
+        let (controller, endpoint, connection) = try await socketLostTerminal(
+            requestID: "request-loss-app"
+        )
+
+        let firstClose = controller.beginExplicitClose(reason: .appTermination)
+        let repeatedClose = controller.beginExplicitClose(reason: .appTermination)
+        await firstClose?.value
+        await repeatedClose?.value
+
+        #expect(endpoint.closeMessages == [AgentTerminalClose(
+            requestID: "request-loss-app",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext),
+            reason: "app-termination"
+        )])
+        #expect(endpoint.terminalEnds.isEmpty)
+        #expect(connection.detachCount == 1)
+        #expect(controller.contentView.isBound == false)
+    }
+
+    @Test func socketLossThenWindowHideConsumesExactCloseOnce() async throws {
+        let (controller, endpoint, connection) = try await socketLostTerminal(
+            requestID: "request-loss-hide"
+        )
+
+        let hideClose = controller.beginExplicitClose(reason: .windowHidden)
+        let repeatedSignal = controller.beginExplicitClose(reason: .windowShouldClose)
+        await hideClose?.value
+        await repeatedSignal?.value
+
+        #expect(endpoint.closeMessages == [AgentTerminalClose(
+            requestID: "request-loss-hide",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext),
+            reason: "window-hidden"
+        )])
+        #expect(endpoint.terminalEnds.isEmpty)
+        #expect(connection.detachCount == 1)
+        #expect(controller.contentView.isBound == false)
+    }
+
+    @Test func socketLossThenContextEndedConsumesExactCloseOnce() async throws {
+        let (controller, endpoint, connection) = try await socketLostTerminal(
+            requestID: "request-loss-context"
+        )
+
+        controller.handle(.contextEnded(
+            requestID: "request-loss-context",
+            context: firstContext
+        ))
+        controller.handle(.contextEnded(
+            requestID: "request-loss-context",
+            context: firstContext
+        ))
+        try await waitUntil { endpoint.closeMessages.count == 1 }
+
+        #expect(endpoint.closeMessages == [AgentTerminalClose(
+            requestID: "request-loss-context",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext),
+            reason: "context-ended"
+        )])
+        #expect(endpoint.terminalEnds.isEmpty)
+        #expect(connection.detachCount == 1)
+        #expect(controller.contentView.isBound == false)
+    }
+
+    @Test func socketLossRecoveryTransfersDifferentRequestIDBeforeReadyAndClose() async throws {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let status = AgentWindowTerminalStatusRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { _ in },
+            deliverStatus: { status.messages.append($0) }
+        )
+        endpoint.completeOpen(
+            requestID: "request-old",
+            with: .ready(ready(requestID: "request-old", context: firstContext))
+        )
+        endpoint.completeOpen(
+            requestID: "request-new",
+            with: .ready(ready(requestID: "request-new", context: firstContext))
+        )
+        controller.handle(.open(requestID: "request-old", context: firstContext))
+        try await waitUntil { status.messages.count == 1 }
+        let oldConnection = try #require(attacher.connections[ptyName(for: firstContext)])
+
+        oldConnection.fail(TestTerminalConnectionError.socketLost)
+        try await waitUntil { !controller.contentView.isBound }
+        controller.handle(.open(requestID: "request-new", context: firstContext))
+        try await waitUntil { status.messages.count == 2 }
+
+        #expect(endpoint.transferRequests == [FakeTerminalRequestTransfer(
+            oldRequestID: "request-old",
+            open: open(requestID: "request-new", context: firstContext)
+        )])
+        #expect(endpoint.openRequests == [open(requestID: "request-old", context: firstContext)])
+        #expect(endpoint.acknowledgements.map(\.requestID) == ["request-old", "request-new"])
+        #expect(status.messages == [
+            .ready(ready(requestID: "request-old", context: firstContext)),
+            .ready(ready(requestID: "request-new", context: firstContext)),
+        ])
+
+        await endpoint.sendPush(.ready(ready(requestID: "request-old", context: firstContext)))
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(status.messages.count == 2)
+
+        await controller.beginExplicitClose(reason: .windowHidden)?.value
+        #expect(endpoint.closeMessages == [AgentTerminalClose(
+            requestID: "request-new",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext),
+            reason: "window-hidden"
+        )])
+        #expect(oldConnection.detachCount == 1)
+        #expect(controller.contentView.isBound == false)
+    }
+
+    @Test func socketLossTransferLeavesOneKillAuthorityAndNoOldReady() async throws {
+        let coordinator = WindowTransferCoordinator()
+        let endpoint = AgentSessionTerminalEndpoint(
+            coordinator: coordinator,
+            platform: .macOS,
+            requestNamespace: "macos-window",
+            tombstoneLimit: 8
+        )
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let status = AgentWindowTerminalStatusRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: LocalAgentSessionTerminalEndpointRouter(endpoint: endpoint),
+            attacher: attacher,
+            setTerminalOpen: { _ in },
+            deliverStatus: { status.messages.append($0) }
+        )
+        controller.handle(.open(requestID: "request-old", context: firstContext))
+        try await waitUntil { status.messages.count == 1 }
+        let oldConnection = try #require(attacher.connections[ptyName(for: firstContext)])
+
+        oldConnection.fail(TestTerminalConnectionError.socketLost)
+        try await waitUntil { !controller.contentView.isBound }
+        controller.handle(.open(requestID: "request-new", context: firstContext))
+        try await waitUntil { status.messages.count == 2 }
+
+        let oldResponse = await endpoint.openLocal(open(
+            requestID: "request-old",
+            context: firstContext
+        ))
+        #expect(oldResponse == .error(AgentTerminalError(
+            requestID: "request-old",
+            context: wireContext(firstContext),
+            ptySessionName: nil,
+            code: .sessionEnded
+        )))
+        await endpoint.handle(.open(open(
+            requestID: "request-old",
+            context: firstContext
+        )))
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(status.messages == [
+            .ready(ready(requestID: "request-old", context: firstContext)),
+            .ready(ready(requestID: "request-new", context: firstContext)),
+        ])
+
+        await controller.beginExplicitClose(reason: .appTermination)?.value
+
+        #expect(await coordinator.killCount == 1)
+        #expect(await coordinator.activeRequestIDs.isEmpty)
+        #expect(await endpoint.stateSnapshot() == AgentSessionTerminalEndpointStateSnapshot(
+            activeRequestCount: 0,
+            tombstoneRequestIDs: ["request-old", "request-new"]
+        ))
+        #expect(oldConnection.detachCount == 1)
+        #expect(controller.contentView.isBound == false)
+    }
+
+    @Test func socketLossRecoveryWithExactRequestIDUsesCachedOpenWithoutTransfer() async throws {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let status = AgentWindowTerminalStatusRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { _ in },
+            deliverStatus: { status.messages.append($0) }
+        )
+        endpoint.completeOpen(
+            requestID: "request-exact",
+            with: .ready(ready(requestID: "request-exact", context: firstContext))
+        )
+        controller.handle(.open(requestID: "request-exact", context: firstContext))
+        try await waitUntil { status.messages.count == 1 }
+        let firstConnection = try #require(attacher.connections[ptyName(for: firstContext)])
+
+        firstConnection.fail(TestTerminalConnectionError.socketLost)
+        try await waitUntil { !controller.contentView.isBound }
+        controller.handle(.open(requestID: "request-exact", context: firstContext))
+        try await waitUntil { status.messages.count == 2 }
+
+        #expect(endpoint.transferRequests.isEmpty)
+        #expect(endpoint.openRequests == [
+            open(requestID: "request-exact", context: firstContext),
+            open(requestID: "request-exact", context: firstContext),
+        ])
+        #expect(controller.stateForTesting == .ready(
+            requestID: "request-exact",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext)
+        ))
+    }
+
+    @Test func socketLossContextReplacementClosesOldBeforeOpeningNew() async throws {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let status = AgentWindowTerminalStatusRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { _ in },
+            deliverStatus: { status.messages.append($0) }
+        )
+        endpoint.completeOpen(
+            requestID: "request-old",
+            with: .ready(ready(requestID: "request-old", context: firstContext))
+        )
+        endpoint.completeOpen(
+            requestID: "request-new",
+            with: .ready(ready(requestID: "request-new", context: secondContext))
+        )
+        controller.handle(.open(requestID: "request-old", context: firstContext))
+        try await waitUntil { status.messages.count == 1 }
+        let oldConnection = try #require(attacher.connections[ptyName(for: firstContext)])
+
+        oldConnection.fail(TestTerminalConnectionError.socketLost)
+        try await waitUntil { !controller.contentView.isBound }
+        controller.handle(.open(requestID: "request-new", context: secondContext))
+        try await waitUntil { status.messages.count == 2 }
+
+        #expect(endpoint.transferRequests.isEmpty)
+        #expect(endpoint.committedEvents.suffix(2) == [
+            "close:request-old",
+            "ack:request-new",
+        ])
+        #expect(endpoint.closeMessages == [AgentTerminalClose(
+            requestID: "request-old",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext),
+            reason: "context-replaced"
+        )])
+        #expect(controller.stateForTesting == .ready(
+            requestID: "request-new",
+            context: wireContext(secondContext),
+            ptySessionName: ptyName(for: secondContext)
+        ))
+    }
+
+    @Test func managerDetachCollapsesWithoutSendingCloseOrDetachingAgain() async throws {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let layout = AgentWindowTerminalLayoutRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { layout.values.append($0) },
+            deliverStatus: { _ in }
+        )
+        endpoint.completeOpen(
+            requestID: "request-manager-loss",
+            with: .ready(ready(requestID: "request-manager-loss", context: firstContext))
+        )
+        controller.handle(.open(requestID: "request-manager-loss", context: firstContext))
+        try await waitUntil { controller.contentView.isBound }
+        let connection = try #require(attacher.connections[ptyName(for: firstContext)])
+
+        connection.yield(.detachedByManager(7))
+        try await waitUntil { controller.stateForTesting == .idle }
+
+        #expect(endpoint.closeMessages.isEmpty)
+        #expect(endpoint.terminalEnds.isEmpty)
+        #expect(connection.detachCount == 0)
+        #expect(layout.values == [true, false])
+        #expect(controller.contentView.isBound == false)
+    }
+
+    private func socketLostTerminal(
+        requestID: String
+    ) async throws -> (
+        AgentWindowTerminalController,
+        FakeAgentWindowTerminalEndpoint,
+        FakeAgentWindowTerminalConnection
+    ) {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { _ in },
+            deliverStatus: { _ in }
+        )
+        endpoint.completeOpen(
+            requestID: requestID,
+            with: .ready(ready(requestID: requestID, context: firstContext))
+        )
+        controller.handle(.open(requestID: requestID, context: firstContext))
+        try await waitUntil { controller.contentView.isBound }
+        let connection = try #require(attacher.connections[ptyName(for: firstContext)])
+
+        connection.fail(TestTerminalConnectionError.socketLost)
+        try await waitUntil {
+            !controller.contentView.isBound && connection.detachCount == 1
+        }
+        #expect(endpoint.closeMessages.isEmpty)
+
+        return (controller, endpoint, connection)
+    }
+
     private func open(
         requestID: String,
         context: AgentPanelTerminalContext
@@ -612,6 +1037,7 @@ private final class FakeAgentWindowTerminalEndpoint: AgentWindowTerminalEndpoint
     var suspendedAcknowledgementRequestIDs: Set<String> = []
     var acknowledgementStarts: [AgentTerminalAttachedAck] = []
     var committedEvents: [String] = []
+    var transferRequests: [FakeTerminalRequestTransfer] = []
 
     private var completedResponses: [String: AgentTerminalHostMessage] = [:]
     private var continuations: [String: CheckedContinuation<AgentTerminalHostMessage?, Never>] = [:]
@@ -629,6 +1055,17 @@ private final class FakeAgentWindowTerminalEndpoint: AgentWindowTerminalEndpoint
                 continuations[open.requestID] = continuation
             }
         }
+        return completedResponses[open.requestID]
+    }
+
+    func transferLocal(
+        from oldRequestID: String,
+        to open: AgentTerminalOpen
+    ) async -> AgentTerminalHostMessage? {
+        transferRequests.append(FakeTerminalRequestTransfer(
+            oldRequestID: oldRequestID,
+            open: open
+        ))
         return completedResponses[open.requestID]
     }
 
@@ -680,6 +1117,66 @@ private final class FakeAgentWindowTerminalEndpoint: AgentWindowTerminalEndpoint
 
     func resumeAcknowledgement(requestID: String) {
         acknowledgementGates.removeValue(forKey: requestID)?.finish()
+    }
+
+    func sendPush(_ message: AgentTerminalHostMessage) async {
+        await push?(message)
+    }
+}
+
+private struct FakeTerminalRequestTransfer: Equatable {
+    let oldRequestID: String
+    let open: AgentTerminalOpen
+}
+
+private actor WindowTransferCoordinator: AgentSessionTerminalCoordinating {
+    private(set) var activeRequestIDs: Set<String> = []
+    private(set) var killCount = 0
+
+    func open(_ request: AgentSessionTerminalOpenRequest) async throws -> AgentSessionTerminalReady {
+        activeRequestIDs.insert(request.requestID)
+        let identity = try AgentResumeTerminalIdentity(
+            source: request.context.source,
+            harnessSessionID: request.context.harnessSessionID,
+            projectDirectoryPath: request.context.projectPath,
+            homeDirectory: URL(fileURLWithPath: "/Users/dev", isDirectory: true),
+            fileManager: WindowPermissiveDirectoryFileManager()
+        )
+        return AgentSessionTerminalReady(
+            requestID: request.requestID,
+            identity: identity,
+            pid: 7001
+        )
+    }
+
+    func acknowledgeAttachment(requestID: String, ptySessionName: String) async {}
+
+    func transferRequest(
+        from oldRequestID: String,
+        to newRequestID: String,
+        ptySessionName: String
+    ) async -> Bool {
+        guard activeRequestIDs.remove(oldRequestID) != nil,
+              !activeRequestIDs.contains(newRequestID) else {
+            return false
+        }
+        activeRequestIDs.insert(newRequestID)
+        return true
+    }
+
+    func close(requestID: String, ptySessionName: String?) async {
+        guard activeRequestIDs.remove(requestID) != nil else { return }
+        killCount += 1
+    }
+}
+
+private final class WindowPermissiveDirectoryFileManager: FileManager, @unchecked Sendable {
+    override func fileExists(
+        atPath path: String,
+        isDirectory: UnsafeMutablePointer<ObjCBool>?
+    ) -> Bool {
+        isDirectory?.pointee = true
+        return true
     }
 }
 
@@ -771,10 +1268,18 @@ private final class FakeAgentWindowTerminalConnection: PtyTerminalConnection, @u
         continuation.yield(event)
     }
 
+    func fail(_ error: Error) {
+        continuation.finish(throwing: error)
+    }
+
     func events() -> AsyncThrowingStream<PtySessionEvent, Error> { stream }
     func sendInput(_ data: Data) async throws {}
     func resize(columns: UInt32, rows: UInt32) async throws {}
     func detach() async throws { detachCount += 1 }
+}
+
+private enum TestTerminalConnectionError: Error {
+    case socketLost
 }
 
 @MainActor

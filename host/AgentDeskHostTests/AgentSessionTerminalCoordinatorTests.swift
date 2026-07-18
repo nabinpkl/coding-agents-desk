@@ -295,6 +295,261 @@ struct AgentSessionTerminalCoordinatorTests {
         #expect(await fixture.pty.openCalls.count == 1)
     }
 
+    @Test func requestTransferMovesKillAuthorityWithoutReplacingThePTY() async throws {
+        let fixture = try Fixture()
+        defer { fixture.removeTemporaryFiles() }
+        let oldRequest = fixture.request(
+            id: "transfer-old",
+            source: "claude",
+            sessionID: claudeSessionID,
+            platform: .macOS
+        )
+        let oldReady = try await fixture.coordinator.open(oldRequest)
+        _ = try await fixture.pty.attachNative(to: oldReady.ptySessionName, title: "native")
+        await fixture.coordinator.acknowledgeAttachment(
+            requestID: oldRequest.requestID,
+            ptySessionName: oldReady.ptySessionName
+        )
+        let newRequestID = "transfer-new"
+
+        let transferred = await fixture.coordinator.transferRequest(
+            from: oldRequest.requestID,
+            to: newRequestID,
+            ptySessionName: oldReady.ptySessionName
+        )
+
+        #expect(transferred)
+        #expect(await fixture.pty.killCount == 0)
+        await #expect(throws: AgentSessionTerminalCoordinatorError.sessionEnded) {
+            try await fixture.coordinator.open(oldRequest)
+        }
+
+        let newRequest = fixture.request(
+            id: newRequestID,
+            source: "claude",
+            sessionID: claudeSessionID,
+            platform: .macOS
+        )
+        let transferredReady = try await fixture.coordinator.open(newRequest)
+        #expect(transferredReady.requestID == newRequestID)
+        #expect(transferredReady.pid == oldReady.pid)
+        #expect(await fixture.pty.openCalls.count == 1)
+
+        await fixture.coordinator.close(
+            requestID: oldRequest.requestID,
+            ptySessionName: oldReady.ptySessionName
+        )
+        #expect(await fixture.pty.killCount == 0)
+        await fixture.coordinator.close(
+            requestID: newRequestID,
+            ptySessionName: oldReady.ptySessionName
+        )
+        await fixture.coordinator.close(
+            requestID: newRequestID,
+            ptySessionName: oldReady.ptySessionName
+        )
+
+        #expect(await fixture.pty.killCount == 1)
+        #expect(await fixture.pty.sessionCount == 0)
+    }
+
+    @Test func requestTransferPreservesOriginalUnacknowledgedHandoffTimeout() async throws {
+        let events = EventRecorder()
+        let fixture = try Fixture(onEvent: { event in
+            Task { await events.append(event) }
+        })
+        defer { fixture.removeTemporaryFiles() }
+        let oldRequest = fixture.request(
+            id: "timeout-transfer-old",
+            source: "claude",
+            sessionID: claudeSessionID,
+            platform: .macOS
+        )
+        let oldReady = try await fixture.coordinator.open(oldRequest)
+        try await waitUntil { await fixture.timeout.startedWaitCount == 1 }
+        let newRequestID = "timeout-transfer-new"
+
+        #expect(await fixture.coordinator.transferRequest(
+            from: oldRequest.requestID,
+            to: newRequestID,
+            ptySessionName: oldReady.ptySessionName
+        ))
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(await fixture.timeout.startedWaitCount == 1)
+        #expect(await fixture.timeout.waiterCount == 1)
+        #expect(await fixture.pty.detachCount == 0)
+
+        await fixture.timeout.fireAll()
+        try await waitUntil { await fixture.pty.killCount == 1 }
+        try await waitUntil { await events.values.count == 1 }
+
+        let newReady = AgentSessionTerminalReady(
+            requestID: newRequestID,
+            identity: oldReady.identity,
+            pid: oldReady.pid
+        )
+        #expect(await fixture.pty.detachCount == 1)
+        #expect(await events.values == [
+            .handoffTimedOut(requestID: newRequestID, ready: newReady),
+        ])
+        #expect(await fixture.timeout.startedWaitCount == 1)
+        #expect(await fixture.timeout.waiterCount == 0)
+        await #expect(throws: AgentSessionTerminalCoordinatorError.sessionEnded) {
+            try await fixture.coordinator.open(oldRequest)
+        }
+        await #expect(throws: AgentSessionTerminalCoordinatorError.sessionEnded) {
+            try await fixture.coordinator.open(fixture.request(
+                id: newRequestID,
+                source: "claude",
+                sessionID: claudeSessionID,
+                platform: .macOS
+            ))
+        }
+    }
+
+    @Test func repeatedRequestTransferCannotExtendOriginalHandoffTimeout() async throws {
+        let events = EventRecorder()
+        let fixture = try Fixture(onEvent: { event in
+            Task { await events.append(event) }
+        })
+        defer { fixture.removeTemporaryFiles() }
+        let oldRequest = fixture.request(
+            id: "timeout-chain-old",
+            source: "codex",
+            sessionID: codexSessionID,
+            platform: .macOS
+        )
+        let oldReady = try await fixture.coordinator.open(oldRequest)
+        try await waitUntil { await fixture.timeout.startedWaitCount == 1 }
+        let midRequestID = "timeout-chain-mid"
+        let newRequestID = "timeout-chain-new"
+
+        #expect(await fixture.coordinator.transferRequest(
+            from: oldRequest.requestID,
+            to: midRequestID,
+            ptySessionName: oldReady.ptySessionName
+        ))
+        #expect(await fixture.coordinator.transferRequest(
+            from: midRequestID,
+            to: newRequestID,
+            ptySessionName: oldReady.ptySessionName
+        ))
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(await fixture.timeout.startedWaitCount == 1)
+        #expect(await fixture.timeout.waiterCount == 1)
+
+        await fixture.timeout.fireAll()
+        try await waitUntil { await fixture.pty.killCount == 1 }
+        try await waitUntil { await events.values.count == 1 }
+
+        let newReady = AgentSessionTerminalReady(
+            requestID: newRequestID,
+            identity: oldReady.identity,
+            pid: oldReady.pid
+        )
+        #expect(await fixture.pty.detachCount == 1)
+        #expect(await events.values == [
+            .handoffTimedOut(requestID: newRequestID, ready: newReady),
+        ])
+        await fixture.timeout.fireAll()
+        await Task.yield()
+        #expect(await fixture.pty.detachCount == 1)
+        #expect(await fixture.pty.killCount == 1)
+        #expect(await events.values.count == 1)
+        #expect(await fixture.timeout.startedWaitCount == 1)
+
+        for requestID in [oldRequest.requestID, midRequestID, newRequestID] {
+            await #expect(throws: AgentSessionTerminalCoordinatorError.sessionEnded) {
+                try await fixture.coordinator.open(fixture.request(
+                    id: requestID,
+                    source: "codex",
+                    sessionID: codexSessionID,
+                    platform: .macOS
+                ))
+            }
+        }
+    }
+
+    @Test func newRequestAcknowledgementRacingOriginalTimeoutHasOneOutcome() async throws {
+        let events = EventRecorder()
+        let fixture = try Fixture(onEvent: { event in
+            Task { await events.append(event) }
+        })
+        defer { fixture.removeTemporaryFiles() }
+        let oldRequest = fixture.request(
+            id: "timeout-race-old",
+            source: "claude",
+            sessionID: claudeSessionID,
+            platform: .macOS
+        )
+        let oldReady = try await fixture.coordinator.open(oldRequest)
+        try await waitUntil { await fixture.timeout.startedWaitCount == 1 }
+        let midRequestID = "timeout-race-mid"
+        let newRequestID = "timeout-race-new"
+        #expect(await fixture.coordinator.transferRequest(
+            from: oldRequest.requestID,
+            to: midRequestID,
+            ptySessionName: oldReady.ptySessionName
+        ))
+        #expect(await fixture.coordinator.transferRequest(
+            from: midRequestID,
+            to: newRequestID,
+            ptySessionName: oldReady.ptySessionName
+        ))
+
+        async let acknowledgement: Void = fixture.coordinator.acknowledgeAttachment(
+            requestID: newRequestID,
+            ptySessionName: oldReady.ptySessionName
+        )
+        async let timeout: Void = fixture.timeout.fireAll()
+        _ = await (acknowledgement, timeout)
+        try await waitUntil { await fixture.pty.detachCount == 1 }
+        try await Task.sleep(for: .milliseconds(20))
+
+        let killCount = await fixture.pty.killCount
+        let recordedEvents = await events.values
+        #expect(await fixture.timeout.startedWaitCount == 1)
+        #expect(await fixture.timeout.waiterCount == 0)
+        #expect(await fixture.pty.detachCount == 1)
+        #expect(killCount == recordedEvents.count)
+        #expect(killCount <= 1)
+        if killCount == 1 {
+            let newReady = AgentSessionTerminalReady(
+                requestID: newRequestID,
+                identity: oldReady.identity,
+                pid: oldReady.pid
+            )
+            #expect(recordedEvents == [
+                .handoffTimedOut(requestID: newRequestID, ready: newReady),
+            ])
+        } else {
+            let newRequest = fixture.request(
+                id: newRequestID,
+                source: "claude",
+                sessionID: claudeSessionID,
+                platform: .macOS
+            )
+            #expect(try await fixture.coordinator.open(newRequest).requestID == newRequestID)
+            await fixture.coordinator.close(
+                requestID: newRequestID,
+                ptySessionName: oldReady.ptySessionName
+            )
+        }
+
+        for requestID in [oldRequest.requestID, midRequestID] {
+            await #expect(throws: AgentSessionTerminalCoordinatorError.sessionEnded) {
+                try await fixture.coordinator.open(fixture.request(
+                    id: requestID,
+                    source: "claude",
+                    sessionID: claudeSessionID,
+                    platform: .macOS
+                ))
+            }
+        }
+        #expect(await fixture.pty.detachCount == 1)
+        #expect(await events.values.count <= 1)
+    }
+
     @Test func staleAckAndDuplicateCloseCannotAffectReplacementProcess() async throws {
         let fixture = try Fixture()
         defer { fixture.removeTemporaryFiles() }
@@ -688,6 +943,18 @@ private actor BlockingFirstCloseTerminalCoordinator: AgentSessionTerminalCoordin
         )
     }
 
+    func transferRequest(
+        from oldRequestID: String,
+        to newRequestID: String,
+        ptySessionName: String
+    ) async -> Bool {
+        await coordinator.transferRequest(
+            from: oldRequestID,
+            to: newRequestID,
+            ptySessionName: ptySessionName
+        )
+    }
+
     func close(requestID: String, ptySessionName: String?) async {
         if !hasBlockedClose {
             hasBlockedClose = true
@@ -741,10 +1008,12 @@ private actor FakeAgentSessionTerminalLivenessChecker: AgentSessionTerminalLiven
 
 private actor ManualHandoffTimeout {
     private var waiters: [UUID: CheckedContinuation<Void, Error>] = [:]
+    private(set) var startedWaitCount = 0
 
     var waiterCount: Int { waiters.count }
 
     func wait() async throws {
+        startedWaitCount += 1
         let id = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in

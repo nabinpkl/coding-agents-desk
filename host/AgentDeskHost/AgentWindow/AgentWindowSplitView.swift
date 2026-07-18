@@ -22,6 +22,9 @@ final class AgentWindowSplitView: NSView {
         super.init(frame: .zero)
 
         feedView.translatesAutoresizingMaskIntoConstraints = false
+        terminalView.setAccessibilityIdentifier(
+            AgentWindowAccessibilityIdentifiers.terminalContent
+        )
         addSubview(feedView)
         closedConstraints = [
             feedView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -117,6 +120,7 @@ final class AgentWindowResizeHandle: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setAccessibilityRole(.splitter)
+        setAccessibilityIdentifier(AgentWindowAccessibilityIdentifiers.terminalSplitter)
         setAccessibilityLabel("Resize agent terminal")
     }
 

@@ -28,6 +28,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
     private let sidecarClient: any SidecarClient
     private let localTerminalEndpoint: AgentSessionTerminalEndpoint?
     private let terminalPtyClient: PtyClient?
+    private let terminalControllerForTesting: (any AgentWindowTerminalControlling)?
     private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-window")
 
     private var window: NSWindow?
@@ -35,16 +36,20 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
     private var transport: AgentPanelBridgeTransport?
     private var bridge: AgentFeedBridge?
     private var splitView: AgentWindowSplitView?
-    private var terminalController: AgentWindowTerminalController?
+    private var terminalController: (any AgentWindowTerminalControlling)?
+    private var hideTask: Task<Void, Never>?
+    private var stopTask: Task<Void, Never>?
 
     init(
         sidecarClient: any SidecarClient,
         localTerminalEndpoint: AgentSessionTerminalEndpoint? = nil,
-        terminalPtyClient: PtyClient? = nil
+        terminalPtyClient: PtyClient? = nil,
+        terminalControllerForTesting: (any AgentWindowTerminalControlling)? = nil
     ) {
         self.sidecarClient = sidecarClient
         self.localTerminalEndpoint = localTerminalEndpoint
         self.terminalPtyClient = terminalPtyClient
+        self.terminalControllerForTesting = terminalControllerForTesting
         super.init()
     }
 
@@ -55,7 +60,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
     /// command so the button toggles the surface.
     func toggle() {
         if let window, window.isVisible {
-            window.orderOut(nil)
+            beginHide(window, reason: .windowHidden)
         } else {
             show()
         }
@@ -105,9 +110,26 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
         return result
     }
 
-    /// Tears down the bridge streams and webview. Call on app termination so the sidecar SSE Tasks
-    /// stop and the webview releases.
-    func stop() {
+    /// Establishes terminal close synchronously, then tears down the retained feed only after the
+    /// endpoint close barrier commits. The returned task keeps this controller alive through commit.
+    @discardableResult
+    func beginStop() -> Task<Void, Never> {
+        if let stopTask { return stopTask }
+        let terminalClose = terminalController?.beginExplicitClose(reason: .appTermination)
+        let task = Task { @MainActor [self] in
+            await terminalClose?.value
+            finishStop()
+        }
+        stopTask = task
+        return task
+    }
+
+    func stop() async {
+        await beginStop().value
+    }
+
+    private func finishStop() {
+        hideTask = nil
         bridge?.reset()
         panelController?.teardown()
         window?.orderOut(nil)
@@ -117,6 +139,29 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
         bridge = nil
         splitView = nil
         terminalController = nil
+        stopTask = nil
+    }
+
+    @discardableResult
+    private func beginHide(
+        _ window: NSWindow,
+        reason: AgentWindowTerminalExplicitCloseReason
+    ) -> Task<Void, Never>? {
+        if let hideTask { return hideTask }
+        guard let terminalClose = terminalController?.beginExplicitClose(reason: reason) else {
+            window.orderOut(nil)
+            return nil
+        }
+        let task = Task { @MainActor [weak self, weak window] in
+            await terminalClose.value
+            guard let self else { return }
+            if let window, self.window === window {
+                window.orderOut(nil)
+            }
+            self.hideTask = nil
+        }
+        hideTask = task
+        return task
     }
 
     private func build() {
@@ -124,7 +169,10 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
         self.window = window
 
         do {
-            let controller = try AgentPanelWebViewController(transport: nil)
+            let controller = try AgentPanelWebViewController(
+                transport: nil,
+                additionalUserScripts: [AgentWindowPanelAccessibility.userScript]
+            )
             // The bridge pushes already-encoded agent-feed JSON; deliver it into the webview on the
             // main actor. The closure is @Sendable and may fire on a sidecar background Task, so it
             // hops to MainActor before touching the controller.
@@ -140,8 +188,11 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
             let webView = controller.webView
             webView.setAccessibilityIdentifier(Self.webViewAccessibilityIdentifier)
 
-            if let localTerminalEndpoint, let terminalPtyClient {
-                let terminalController = AgentWindowTerminalController(
+            let terminalController: (any AgentWindowTerminalControlling)?
+            if let terminalControllerForTesting {
+                terminalController = terminalControllerForTesting
+            } else if let localTerminalEndpoint, let terminalPtyClient {
+                terminalController = AgentWindowTerminalController(
                     endpoint: LocalAgentSessionTerminalEndpointRouter(
                         endpoint: localTerminalEndpoint
                     ),
@@ -153,9 +204,14 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
                         self?.deliverTerminalStatus(message)
                     }
                 )
+            } else {
+                terminalController = nil
+            }
+
+            if let terminalController {
                 let splitView = AgentWindowSplitView(
                     feedView: webView,
-                    terminalView: terminalController.contentView
+                    terminalView: terminalController.terminalView
                 )
                 self.splitView = splitView
                 self.terminalController = terminalController
@@ -231,7 +287,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         // Hide instead of close so `isReleasedWhenClosed = false` keeps the surface alive.
-        sender.orderOut(nil)
+        beginHide(sender, reason: .windowShouldClose)
         return false
     }
 }

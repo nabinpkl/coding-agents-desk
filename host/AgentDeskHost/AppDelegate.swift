@@ -132,6 +132,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // R24: the macOS Agents window, toggled from the shell's top-bar "Agents" command. Backed by the
     // host-owned ATC sidecar through AgentPanel, independent of the QUIC-lane agent feed.
     private var agentWindowController: AgentWindowController?
+    private var agentWindowTerminationTask: Task<Void, Never>?
+    private let agentWindowApplicationLifecycle = AgentWindowApplicationLifecycle()
     private var gesturePortalController: GesturePortalController?
     private var gestureChildController: GestureChildController?
     private var voiceChildController: VoiceChildController?
@@ -303,6 +305,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         diagnosticsSignalSource = diagnostics
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let controller = agentWindowController else { return .terminateNow }
+        guard agentWindowTerminationTask == nil else { return .terminateLater }
+        let stopTask = agentWindowApplicationLifecycle.beginStop {
+            controller.beginStop()
+        }
+        agentWindowTerminationTask = Task { @MainActor [weak self, weak sender] in
+            await stopTask.value
+            if self?.agentWindowController === controller {
+                self?.agentWindowController = nil
+            }
+            sender?.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         textInputFocusProbeCoordinator.cancelAll()
         spaceAgentController?.stop()
@@ -317,7 +335,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspaceFilesLanes.removeAll()
         workspaceShellPresenter?.stop()
         workspaceShellPresenter = nil
-        agentWindowController?.stop()
+        // Normal termination waits for this in applicationShouldTerminate. This fallback still
+        // establishes the close barrier if AppKit reaches willTerminate without that callback.
+        if let controller = agentWindowController {
+            agentWindowApplicationLifecycle.beginStop {
+                controller.beginStop()
+            }
+        }
         agentWindowController = nil
         voiceChildController?.stop()
         agentSayServer?.stop()
