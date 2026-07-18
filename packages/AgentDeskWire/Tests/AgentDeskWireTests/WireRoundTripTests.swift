@@ -50,8 +50,91 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
 }
 
 @Test func wireProtocolFilesVersionIsPinned() {
-    #expect(WireProtocol.version == 6)
-    #expect(WireProtocol.minCompatibleVersion == 6)
+    #expect(WireProtocol.version == 7)
+    #expect(WireProtocol.minCompatibleVersion == 7)
+}
+
+@Test func agentTerminalMessagesRoundTripWithContextIdentityAndNoLaunchText() throws {
+    let context = AgentResumeTerminalContext(
+        projectPath: "/Users/dev/project; $(never)",
+        source: "claude",
+        harnessSessionID: "a4cdd7b8-3f9a-4d80-bc72-5f4aab6f39e1"
+    )
+    let requestID = "request-1"
+    let sessionName = "agent-resume-claude-a4cdd7b8-3f9a-4d80-bc72-5f4aab6f39e1"
+    let clientMessages: [AgentTerminalClientMessage] = [
+        .open(AgentTerminalOpen(requestID: requestID, context: context)),
+        .attached(AgentTerminalAttachedAck(
+            requestID: requestID,
+            context: context,
+            ptySessionName: sessionName
+        )),
+        .close(AgentTerminalClose(
+            requestID: requestID,
+            context: context,
+            ptySessionName: sessionName,
+            reason: "context-changed"
+        )),
+    ]
+    let hostMessages: [AgentTerminalHostMessage] = [
+        .ready(AgentTerminalReady(
+            requestID: requestID,
+            context: context,
+            ptySessionName: sessionName
+        )),
+        .ended(AgentTerminalEnded(
+            requestID: requestID,
+            context: context,
+            ptySessionName: sessionName,
+            exitStatus: 0
+        )),
+        .error(AgentTerminalError(
+            requestID: requestID,
+            context: context,
+            ptySessionName: sessionName,
+            code: .activeElsewhere
+        )),
+    ]
+
+    for message in clientMessages {
+        try roundTrip(message)
+    }
+    for message in hostMessages {
+        try roundTrip(message)
+    }
+
+    let encoded = try clientMessages.map { try JSONEncoder().encode($0) }
+    let tags = try encoded.map {
+        (try JSONSerialization.jsonObject(with: $0) as? [String: Any])?["t"] as? String
+    }
+    #expect(tags == [
+        "agent-terminal-open",
+        "agent-terminal-attached",
+        "agent-terminal-close",
+    ])
+    for data in encoded {
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["rid"] as? String == requestID)
+        #expect((object["ctx"] as? [String: Any])?["pp"] as? String == context.projectPath)
+        let json = String(decoding: data, as: UTF8.self)
+        #expect(!json.contains("executable"))
+        #expect(!json.contains("arguments"))
+        #expect(!json.contains("command"))
+        #expect(!json.contains("/bin/zsh"))
+    }
+}
+
+@Test func agentTerminalErrorCodesAreExhaustiveAndStable() throws {
+    #expect(AgentTerminalErrorCode.allCases.map(\.rawValue) == [
+        "invalidContext",
+        "activeElsewhere",
+        "launchFailed",
+        "handoffTimedOut",
+        "sessionEnded",
+    ])
+    for code in AgentTerminalErrorCode.allCases {
+        try roundTrip(code)
+    }
 }
 
 @Test func workspaceFileRequestsRoundTripWithCompactKeys() throws {

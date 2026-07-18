@@ -168,6 +168,35 @@ struct SessionAuthenticatorTests {
 
 @MainActor
 struct SessionRegistryTests {
+    @Test func noteReadyReportsInitialSameAndReplacementTransitions() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now })
+        let fingerprint = DeviceFingerprint("device-fp")
+        let first = ActiveSession(
+            sessionId: "session-1",
+            deviceFingerprint: fingerprint,
+            establishedAt: Int(now.timeIntervalSince1970)
+        )
+        let replacement = ActiveSession(
+            sessionId: "session-2",
+            deviceFingerprint: fingerprint,
+            establishedAt: Int(now.timeIntervalSince1970) + 1
+        )
+
+        #expect(registry.noteReady(
+            first,
+            ready: makeReady(now: now, sessionId: first.sessionId)
+        ) == .initial)
+        #expect(registry.noteReady(
+            first,
+            ready: makeReady(now: now, sessionId: first.sessionId)
+        ) == .sameSession)
+        #expect(registry.noteReady(
+            replacement,
+            ready: makeReady(now: now, sessionId: replacement.sessionId)
+        ) == .replaced(previousSessionID: first.sessionId))
+    }
+
     @Test func readySessionBecomesConnectedAndStoresResumeMaterial() throws {
         let random = ByteSequence()
         let now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -178,7 +207,7 @@ struct SessionRegistryTests {
         let request = makeResumeRequest(ready: ready, fingerprint: fingerprint)
 
         registry.noteAttempt(fingerprint)
-        registry.noteReady(active, ready: ready)
+        _ = registry.noteReady(active, ready: ready)
         let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
         let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
 
@@ -202,7 +231,7 @@ struct SessionRegistryTests {
             try? await Task.sleep(nanoseconds: 60_000_000_000)
         }
 
-        registry.noteReady(active, ready: ready, transport: mediaTransport)
+        _ = registry.noteReady(active, ready: ready, transport: mediaTransport)
         registry.attachInputChannelServer(inputServer, for: fingerprint)
         registry.attachInputTask(inputTask, for: fingerprint)
         registry.markSuspended(fingerprint, sessionId: "session-1")
@@ -223,7 +252,7 @@ struct SessionRegistryTests {
         let fingerprint = DeviceFingerprint("device-fp")
         let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
         let ready = makeReady(now: now)
-        registry.noteReady(active, ready: ready)
+        _ = registry.noteReady(active, ready: ready)
 
         #expect(registry.makeResumeChallenge(SessionResumeInit(
             deviceFingerprint: fingerprint,
@@ -259,7 +288,7 @@ struct SessionRegistryTests {
         let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
         let ready = makeReady(now: now)
         let request = makeResumeRequest(ready: ready, fingerprint: fingerprint)
-        registry.noteReady(active, ready: ready)
+        _ = registry.noteReady(active, ready: ready)
         registry.markSuspended(fingerprint, sessionId: "session-1")
         let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
         let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
@@ -284,7 +313,7 @@ struct SessionRegistryTests {
         let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
         let ready = makeReady(now: now)
         let request = makeResumeRequest(ready: ready, fingerprint: fingerprint)
-        registry.noteReady(active, ready: ready)
+        _ = registry.noteReady(active, ready: ready)
         let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
         let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
 
@@ -301,7 +330,7 @@ struct SessionRegistryTests {
         let ready = makeReady(now: now)
         let firstRequest = makeResumeRequest(ready: ready, fingerprint: fingerprint, clientNonce: Data(repeating: 4, count: 32))
         let secondRequest = makeResumeRequest(ready: ready, fingerprint: fingerprint, clientNonce: Data(repeating: 5, count: 32))
-        registry.noteReady(active, ready: ready)
+        _ = registry.noteReady(active, ready: ready)
         let firstChallenge = try acceptedChallenge(from: registry.makeResumeChallenge(firstRequest))
         let secondChallenge = try acceptedChallenge(from: registry.makeResumeChallenge(secondRequest))
         let firstProof = makeResumeProof(ready: ready, request: firstRequest, challenge: firstChallenge)
@@ -324,7 +353,7 @@ struct SessionRegistryTests {
             try? await Task.sleep(nanoseconds: 60_000_000_000)
         }
 
-        registry.noteReady(active, ready: ready, transport: mediaTransport)
+        _ = registry.noteReady(active, ready: ready, transport: mediaTransport)
         registry.attachInputChannelServer(inputServer, for: fingerprint)
         registry.attachInputTask(inputTask, for: fingerprint)
         registry.endSession(fingerprint, sessionId: "session-1")
@@ -334,6 +363,42 @@ struct SessionRegistryTests {
         #expect(mediaTransport.stopped)
         #expect(inputTask.isCancelled)
         #expect(registry.makeResumeChallenge(request) == .rejected(.unauthorized))
+    }
+
+    @Test func staleSessionEndDoesNotTearDownReplacementSurfaces() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now })
+        let fingerprint = DeviceFingerprint("device-fp")
+        let replacement = ActiveSession(
+            sessionId: "session-2",
+            deviceFingerprint: fingerprint,
+            establishedAt: Int(now.timeIntervalSince1970)
+        )
+        let inputServer = FakeInputChannelServer()
+        let mediaTransport = FakeMediaTransport()
+        let original = ActiveSession(
+            sessionId: "session-1",
+            deviceFingerprint: fingerprint,
+            establishedAt: Int(now.timeIntervalSince1970) - 1
+        )
+        _ = registry.noteReady(
+            original,
+            ready: makeReady(now: now, sessionId: original.sessionId)
+        )
+        let transition = registry.noteReady(
+            replacement,
+            ready: makeReady(now: now, sessionId: replacement.sessionId),
+            transport: mediaTransport
+        )
+        registry.attachInputChannelServer(inputServer, for: fingerprint)
+
+        let ended = registry.endSession(fingerprint, sessionId: "session-1")
+
+        #expect(transition == .replaced(previousSessionID: original.sessionId))
+        #expect(!ended)
+        #expect(registry.state(for: fingerprint) == .connected)
+        #expect(!inputServer.closed)
+        #expect(!mediaTransport.stopped)
     }
 
     private func makeReady(now: Date, sessionId: String = "session-1") -> SessionReady {

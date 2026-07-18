@@ -54,8 +54,8 @@ append the replacement ID, and write the exact handoff checkpoint before impleme
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | L0 Decision | ADR/SPEC compatibility contract | D58 | none | `019f59b0-7e57-72c3-b81c-30f862200e61` | `019f59b0-823e-70f3-a4d2-50fb7bfb63aa` | complete | Landed in `03b6d97`; no next action. |
 | L1 PTY core | PTY protocol, Rust manager, Swift bindings | D59-D61 | L0 | `019f59be-2304-7a73-bbe1-cef19e64338e` | `019f59be-1efa-7b41-98d2-420985d6eb0f` | complete | Landed through `4a4495a`; standing pair closed. |
-| L2 Host control | resume identity, coordinator, AgentDesk wire | D62-D63, R64 | L1 | `019f59f0-7854-7f23-9dff-80f7adb409d7` | `019f59f0-7bf4-7c72-9ceb-5b63143d7b2a` | active | Retention/routing findings and async shutdown ordering are fixed, but third review found automatic different-session replacement in `SessionRegistry.noteReady` does not retire the prior terminal endpoint. Same Implementor owns an explicit replacement signal wired through `AppDelegate.handleSessionReady`, with same-session/no-retire and different-session/retire regression tests; same Reviewer re-reviews again. |
-| L3 Panel intent | ATC webview and native bridge intent | R65 | L2 | not opened | not opened | queued | Co-ordinator opens one standing pair only after D64 lands. That pair owns R65 through approval and landing. |
+| L2 Host control | resume identity, coordinator, AgentDesk wire | D62-D64 | L1 | `019f59f0-7854-7f23-9dff-80f7adb409d7` | `019f59f0-7bf4-7c72-9ceb-5b63143d7b2a` | complete | R64 approved after three correction rounds with the same pair. Co-ordinator gates are green: `git diff --check`, `just check` (459 Swift Testing cases plus host XCTest), and `just sim-test` (308 Swift Testing cases plus 23 XCTest). This commit lands the cluster; after push, close the pair and record the commit before L3 starts. |
+| L3 Panel intent | ATC webview and native bridge intent | R65 | L2 | not opened | not opened | next | After the D64 commit is pushed, Co-ordinator opens exactly one standing Implementor/Reviewer pair and records both IDs here before R65 edits begin. That pair owns ATC webview intent, the generated AgentPanel handoff, fixes, re-review, and landing. |
 | L4 Terminal content | shared SwiftTerm content and existing consumers | D66 | L1 | `019f59f0-7f6a-7191-a273-59b2ee115db5` | `019f59f0-8367-7990-ba70-41dfe70f7fb0` | complete | Landed in `6677a33` after Implementor self-review, standing Reviewer approval, 32 package tests, `just check` (427 host tests), and `just sim-test` (325 client tests). Standing pair closed. |
 | L5 macOS | Agent window layout and macOS lifecycle | R67-R68 | L2, L3, L4 | not opened | not opened | queued | Co-ordinator opens one pair after D64-D66 land. The same pair owns R67 and R68; do not split layout from lifecycle. |
 | L6 iOS | Agent surface layout, transport, and iOS lifecycle | R69-R70 | L2, L3, L4 | not opened | not opened | queued | Co-ordinator opens one pair after D64-D66 land. The same pair owns R69 and R70; do not split layout from lifecycle. |
@@ -161,7 +161,7 @@ The webview and iPhone never supply arbitrary executable text.
   again. If ATC marks the session live and no deterministic PTY exists, return `activeElsewhere`.
   Tests: concurrent opens produce one process; handoff timeout cleans up; second platform attachment
   reuses PID; failed launch returns a typed error and leaves no PTY.
-- [ ] R64. Extend the host/client AgentDesk wire at session protocol v7 with terminal open, ready,
+- [x] D64. Extend the host/client AgentDesk wire at session protocol v7 with terminal open, ready,
   attached-ack, close, ended, and typed-error messages carrying request id, project path, source,
   harness session id, and PTY session name where applicable. Route iOS requests through the existing
   authenticated input lane and terminal readiness back through the owned Agent push path; route the
@@ -268,4 +268,5 @@ human checkpoint.
 | D61 | 2026-07-13 | landed | Generation-safe final-lease reaping covers detach, socket loss, reconnect, explicit cleanup, and manager shutdown. |
 | D62 | 2026-07-13 | landed | Canonical harness identity and host-owned positional resume argv reject path escapes and shell interpolation. |
 | D63 | 2026-07-13 | landed | Serialized host coordination deduplicates resume processes, fences handoffs, and cleans failed or timed-out bootstrap leases. |
+| D64 | 2026-07-13 | landed | AgentDesk v7 terminal messages route through authenticated input and owned Agent push lanes with bounded request fencing and session-replacement-safe endpoint teardown. |
 | D66 | 2026-07-13 | landed | Shared SwiftTerm content now owns input, rendering, resize, and idempotent detach while both existing platform containers retain lifecycle policy. |

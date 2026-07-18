@@ -27,6 +27,64 @@ struct InputChannelTests {
         }
     }
 
+    @available(iOS 26.0, *)
+    @Test func sendAgentTerminalBuildsExactAuthenticatedInputFrame() throws {
+        let context = AgentResumeTerminalContext(
+            projectPath: "/Users/dev/project; $(never)",
+            source: "claude",
+            harnessSessionID: "a4cdd7b8-3f9a-4d80-bc72-5f4aab6f39e1"
+        )
+        let command = AgentTerminalClientMessage.open(AgentTerminalOpen(
+            requestID: "request-1",
+            context: context
+        ))
+
+        let encoded = try QuicSessionClientTransport.agentTerminalFrame(command)
+        let decoded = try QuicSessionStreamFrame.decode(encoded)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let expected = try QuicSessionStreamFrame.encode(
+            role: .input,
+            payload: encoder.encode(command)
+        )
+
+        #expect(encoded == expected)
+        #expect(decoded.role == .input)
+        #expect(try JSONDecoder().decode(
+            AgentTerminalClientMessage.self,
+            from: decoded.payload
+        ) == command)
+    }
+
+    @available(iOS 26.0, *)
+    @Test func ownedMediaTerminalDispatchYieldsTypedUpdate() async throws {
+        let context = AgentResumeTerminalContext(
+            projectPath: "/Users/dev/project",
+            source: "codex",
+            harnessSessionID: "5315800f-fab6-42ed-a80f-a622f563b57a"
+        )
+        let message = AgentTerminalHostMessage.ready(AgentTerminalReady(
+            requestID: "request-1",
+            context: context,
+            ptySessionName: "agent-resume-codex-5315800f-fab6-42ed-a80f-a622f563b57a"
+        ))
+        var continuation: AsyncStream<AgentTerminalHostMessage>.Continuation!
+        let updates = AsyncStream<AgentTerminalHostMessage> { continuation = $0 }
+        let nextUpdate = Task {
+            var iterator = updates.makeAsyncIterator()
+            return await iterator.next()
+        }
+
+        let handled = QuicSessionClientTransport.dispatchAgentTerminalPayload(
+            try JSONEncoder().encode(message),
+            to: continuation
+        )
+
+        #expect(handled)
+        #expect(await nextUpdate.value == message)
+        continuation.finish()
+    }
+
     @Test func sessionReadyCarriesResumeAndMediaKeySalt() throws {
         let ready = SessionReady(
             sessionId: "session-123",
@@ -1006,9 +1064,9 @@ struct InputChannelTests {
         #expect(decoded.event == event)
     }
 
-    @Test func protocolVersionIsFiveForTerminalLaneWireBreak() {
-        #expect(Config.protocolVersion == 6)
-        #expect(Config.minCompatibleProtocolVersion == 6)
+    @Test func protocolVersionIsSevenForAgentTerminalWireBreak() {
+        #expect(Config.protocolVersion == 7)
+        #expect(Config.minCompatibleProtocolVersion == 7)
     }
 
     @Test func eventFrameRoundTripPreservesKeyWithModifiers() throws {

@@ -25,7 +25,7 @@ actor AgentSessionTerminalCoordinator {
     private var openingIdentities: [String: AgentResumeTerminalIdentity] = [:]
     private var openingPlatforms: [String: AgentSessionTerminalPlatform] = [:]
     private var handoffs: [String: Handoff] = [:]
-    private var cancelledRequestIDs: Set<String> = []
+    private var cancelledRequestIDs: AgentSessionTerminalRequestTombstones
     private var ownedSessionNames: Set<String> = []
     private var closingNames: Set<String> = []
 
@@ -34,6 +34,7 @@ actor AgentSessionTerminalCoordinator {
         livenessChecker: any AgentSessionTerminalLivenessChecking,
         homeDirectory: URL,
         executables: AgentResumeLaunch.Executables,
+        requestTombstoneLimit: Int,
         waitForHandoffTimeout: @escaping @Sendable () async throws -> Void,
         onEvent: @escaping @Sendable (AgentSessionTerminalCoordinatorEvent) -> Void = { _ in }
     ) {
@@ -41,6 +42,9 @@ actor AgentSessionTerminalCoordinator {
         self.livenessChecker = livenessChecker
         self.homeDirectory = homeDirectory
         self.executables = executables
+        self.cancelledRequestIDs = AgentSessionTerminalRequestTombstones(
+            limit: requestTombstoneLimit
+        )
         self.waitForHandoffTimeout = waitForHandoffTimeout
         self.onEvent = onEvent
     }

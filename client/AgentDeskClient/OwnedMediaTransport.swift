@@ -37,6 +37,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     let textInputFocusUpdates: AsyncStream<HostTextInputFocusPush>
     private let diagnosticsContinuation: AsyncStream<InputChannelDiagnosticsUpdate>.Continuation
     let diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate>
+    private let agentTerminalContinuation: AsyncStream<AgentTerminalHostMessage>.Continuation
+    let agentTerminalUpdates: AsyncStream<AgentTerminalHostMessage>
     private let closedContinuation: AsyncStream<Void>.Continuation
     let closed: AsyncStream<Void>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
@@ -97,6 +99,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         var diagnosticsCont: AsyncStream<InputChannelDiagnosticsUpdate>.Continuation!
         diagnosticsUpdates = AsyncStream { diagnosticsCont = $0 }
         diagnosticsContinuation = diagnosticsCont
+        var agentTerminalCont: AsyncStream<AgentTerminalHostMessage>.Continuation!
+        agentTerminalUpdates = AsyncStream { agentTerminalCont = $0 }
+        agentTerminalContinuation = agentTerminalCont
         var closedCont: AsyncStream<Void>.Continuation!
         closed = AsyncStream { closedCont = $0 }
         closedContinuation = closedCont
@@ -189,6 +194,19 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
     }
 
+    func sendAgentTerminal(_ message: AgentTerminalClientMessage) async throws {
+        try await inputStream.send(try Self.agentTerminalFrame(message))
+    }
+
+    static func agentTerminalFrame(_ message: AgentTerminalClientMessage) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try QuicSessionStreamFrame.encode(
+            role: .input,
+            payload: encoder.encode(message)
+        )
+    }
+
     func openTerminalPtyClient() async throws -> PtyClient {
         let stream = try await connection.openStream()
         let transport = TerminalQuicPtyTransport(stream: stream)
@@ -222,6 +240,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         hostAvailabilityContinuation.finish()
         textInputFocusContinuation.finish()
         diagnosticsContinuation.finish()
+        agentTerminalContinuation.finish()
         closedContinuation.yield(())
         closedContinuation.finish()
         stateContinuation.yield(.closed)
@@ -389,11 +408,25 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                 let closure = onAgentPush
                 Task { @MainActor in closure?(json) }
             }
+        case "agent-terminal-ready", "agent-terminal-ended", "agent-terminal-error":
+            if !Self.dispatchAgentTerminalPayload(data, to: agentTerminalContinuation) {
+                logger.error("input lane agent terminal push decode failed")
+            }
         case "session-rejected":
             close()
         default:
             logger.debug("input lane ignored frame type=\(header.type, privacy: .public)")
         }
+    }
+
+    @discardableResult
+    static func dispatchAgentTerminalPayload(
+        _ data: Data,
+        to continuation: AsyncStream<AgentTerminalHostMessage>.Continuation
+    ) -> Bool {
+        guard let message = AgentTerminalPushDecoder.decode(data) else { return false }
+        continuation.yield(message)
+        return true
     }
 
     private func handleVideoDatagram(_ data: Data) {

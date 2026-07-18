@@ -9,15 +9,30 @@ enum DiagnosticsChannelUpdate: Equatable, Sendable {
     case error(DiagnosticsError)
 }
 
-// Agent-feed request message routed to the caller via agentRequestHandler.
+// Agent request message routed to the caller via agentRequestHandler.
 enum AgentFeedRequest: Sendable {
     case projectsSubscribe(AgentProjectsSubscribe)
     case threadSubscribe(AgentThreadSubscribe)
     case threadLoadOlder(AgentThreadLoadOlder)
     case threadUnsubscribe(AgentThreadUnsubscribe)
+    case terminal(AgentTerminalClientMessage)
 }
 
-protocol InputChannelServing: AnyObject, Sendable {
+protocol AgentDataPushing: AnyObject, Sendable {
+    func pushAgentData(_ data: Data)
+}
+
+extension AgentDataPushing {
+    func pushAgentTerminal(_ message: AgentTerminalHostMessage) {
+        do {
+            pushAgentData(try JSONEncoder().encode(message))
+        } catch {
+            preconditionFailure("Agent terminal host message must encode: \(error)")
+        }
+    }
+}
+
+protocol InputChannelServing: AgentDataPushing {
     var events: AsyncStream<NormalizedInput> { get }
     var diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate> { get }
     var configHandler: ((ClientConfig) -> Void)? { get set }
@@ -42,11 +57,16 @@ protocol InputChannelServing: AnyObject, Sendable {
     func pushHostAvailability(_ push: HostAvailabilityPush)
     func pushTextInputFocus(_ push: HostTextInputFocusPush)
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest)
-    func pushAgentData(_ data: Data)
 }
 
 @available(macOS 26.0, *)
 final class InputChannelServer: InputChannelServing, @unchecked Sendable {
+    private static let agentTerminalRequestTypes: Set<String> = [
+        "agent-terminal-open",
+        "agent-terminal-attached",
+        "agent-terminal-close",
+    ]
+
     private let logger = Logger(subsystem: Config.logSubsystem, category: "input-lane")
     private let stream: QUIC.Stream<QUICStream>
     private let fingerprint: DeviceFingerprint
@@ -204,6 +224,15 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             logger.error("input lane frame missing type discriminator")
             return
         }
+        if Self.agentTerminalRequestTypes.contains(header.type) {
+            if !Self.dispatchAgentTerminal(
+                data: data,
+                handler: agentRequestHandler
+            ) {
+                logger.error("agent terminal request decode failed")
+            }
+            return
+        }
         switch header.type {
         case "input-event":
             do {
@@ -264,6 +293,18 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         default:
             logger.notice("input lane unknown frame type=\(header.type, privacy: .public)")
         }
+    }
+
+    @discardableResult
+    static func dispatchAgentTerminal(
+        data: Data,
+        handler: ((AgentFeedRequest) -> Void)?
+    ) -> Bool {
+        guard let message = try? JSONDecoder().decode(AgentTerminalClientMessage.self, from: data) else {
+            return false
+        }
+        handler?(.terminal(message))
+        return true
     }
 
     private struct InboundFrameHeader: Decodable {

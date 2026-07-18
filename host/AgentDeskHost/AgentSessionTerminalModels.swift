@@ -1,5 +1,37 @@
 import Foundation
 
+struct AgentSessionTerminalRequestTombstones {
+    private let limit: Int
+    private var requestIDs: Set<String> = []
+    private var insertionOrder: [String] = []
+
+    init(limit: Int) {
+        precondition(limit > 0, "Agent terminal tombstone limit must be positive")
+        self.limit = limit
+    }
+
+    func contains(_ requestID: String) -> Bool {
+        requestIDs.contains(requestID)
+    }
+
+    mutating func insert(_ requestID: String) {
+        guard requestIDs.insert(requestID).inserted else { return }
+        insertionOrder.append(requestID)
+        if insertionOrder.count > limit {
+            requestIDs.remove(insertionOrder.removeFirst())
+        }
+    }
+
+    mutating func removeAll() {
+        requestIDs.removeAll(keepingCapacity: false)
+        insertionOrder.removeAll(keepingCapacity: false)
+    }
+
+    var orderedRequestIDs: [String] {
+        insertionOrder
+    }
+}
+
 struct AgentSessionTerminalContext: Equatable, Sendable {
     let projectPath: String
     let source: String

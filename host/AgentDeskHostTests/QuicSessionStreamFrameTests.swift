@@ -142,6 +142,20 @@ struct QuicSessionStreamFrameTests {
         ]) == true)
     }
 
+    @Test func agentTerminalTombstoneLimitUsesPositiveEnvironmentValueOrDefault() {
+        #expect(Config.positiveInt(
+            environment: ["AGENTDESK_AGENT_TERMINAL_TOMBSTONE_LIMIT": "17"],
+            environmentKey: "AGENTDESK_AGENT_TERMINAL_TOMBSTONE_LIMIT",
+            defaultValue: 256
+        ) == 17)
+        #expect(Config.positiveInt(
+            environment: ["AGENTDESK_AGENT_TERMINAL_TOMBSTONE_LIMIT": "0"],
+            environmentKey: "AGENTDESK_AGENT_TERMINAL_TOMBSTONE_LIMIT",
+            defaultValue: 256
+        ) == 256)
+        #expect(Config.agentTerminalRequestTombstoneLimit > 0)
+    }
+
     @Test func sessionReadyCarriesResumeAndMediaKeySalt() throws {
         let ready = SessionReady(
             sessionId: "session-123",
@@ -226,9 +240,9 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded.event == event)
     }
 
-    @Test func protocolVersionIsFiveForTerminalLaneWireBreak() {
-        #expect(Config.protocolVersion == 6)
-        #expect(Config.minCompatibleProtocolVersion == 6)
+    @Test func protocolVersionIsSevenForAgentTerminalWireBreak() {
+        #expect(Config.protocolVersion == 7)
+        #expect(Config.minCompatibleProtocolVersion == 7)
     }
 
     @available(macOS 26.0, *)

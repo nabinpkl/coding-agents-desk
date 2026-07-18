@@ -21,6 +21,7 @@ protocol InputChannel: AnyObject, Sendable {
     var hostAvailabilityUpdates: AsyncStream<HostAvailabilityPush> { get }
     var textInputFocusUpdates: AsyncStream<HostTextInputFocusPush> { get }
     var diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate> { get }
+    var agentTerminalUpdates: AsyncStream<AgentTerminalHostMessage> { get }
 
     func sendConfig(_ config: ClientConfig) async throws
     // Best-effort revoke notice sent just before teardown when the user unpairs,
@@ -30,12 +31,12 @@ protocol InputChannel: AnyObject, Sendable {
     func sendDiagnosticsChunk(_ chunk: DiagnosticsChunk) async throws
     func sendDiagnosticsError(_ error: DiagnosticsError) async throws
 
-    // Agent-feed subscription requests. Mirrored after the diagnostics sends:
-    // each encodes the t-tagged struct and sends it on the input lane.
+    // Agent requests encode shared t-tagged types on the authenticated input lane.
     func sendAgentProjectsSubscribe() async throws
     func sendAgentThreadSubscribe(_ request: AgentThreadSubscribe) async throws
     func sendAgentThreadLoadOlder(_ request: AgentThreadLoadOlder) async throws
     func sendAgentThreadUnsubscribe(_ request: AgentThreadUnsubscribe) async throws
+    func sendAgentTerminal(_ message: AgentTerminalClientMessage) async throws
 
     var closed: AsyncStream<Void> { get }
 }

@@ -643,7 +643,18 @@ enum Config {
         environment: ProcessInfo.processInfo.environment
     )
     static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
-        guard let raw = ProcessInfo.processInfo.environment[environmentKey],
+        positiveInt(
+            environment: ProcessInfo.processInfo.environment,
+            environmentKey: environmentKey,
+            defaultValue: defaultValue
+        )
+    }
+    static func positiveInt(
+        environment: [String: String],
+        environmentKey: String,
+        defaultValue: Int
+    ) -> Int {
+        guard let raw = environment[environmentKey],
               let value = Int(raw),
               value > 0
         else {
@@ -815,6 +826,14 @@ enum Config {
     static let ptyLeasedSessionGraceSeconds = positiveInt(
         environmentKey: "AGENTDESK_PTY_LEASED_SESSION_GRACE_SECONDS",
         defaultValue: 30
+    )
+    static let agentTerminalHandoffTimeoutSeconds = positiveInt(
+        environmentKey: "AGENTDESK_AGENT_TERMINAL_HANDOFF_TIMEOUT_SECONDS",
+        defaultValue: 10
+    )
+    static let agentTerminalRequestTombstoneLimit = positiveInt(
+        environmentKey: "AGENTDESK_AGENT_TERMINAL_TOMBSTONE_LIMIT",
+        defaultValue: 256
     )
     static var ptyManagerURL: URL? {
         Bundle.main.url(forResource: ptyManagerResourceName, withExtension: nil)

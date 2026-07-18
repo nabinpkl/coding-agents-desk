@@ -170,6 +170,87 @@ struct AgentFeedWireTests {
         #expect(decoded.sessionId == "sess-z")
     }
 
+    @available(macOS 26.0, *)
+    @Test func authenticatedInputFramesDispatchAllTerminalCommands() throws {
+        let context = AgentResumeTerminalContext(
+            projectPath: "/Users/dev/project",
+            source: "claude",
+            harnessSessionID: "a4cdd7b8-3f9a-4d80-bc72-5f4aab6f39e1"
+        )
+        let commands: [AgentTerminalClientMessage] = [
+            .open(AgentTerminalOpen(
+                requestID: "request-1",
+                context: context
+            )),
+            .attached(AgentTerminalAttachedAck(
+                requestID: "request-1",
+                context: context,
+                ptySessionName: "agent-resume-claude-a4cdd7b8-3f9a-4d80-bc72-5f4aab6f39e1"
+            )),
+            .close(AgentTerminalClose(
+                requestID: "request-1",
+                context: context,
+                ptySessionName: "agent-resume-claude-a4cdd7b8-3f9a-4d80-bc72-5f4aab6f39e1",
+                reason: "test-close"
+            )),
+        ]
+
+        for command in commands {
+            let payload = try JSONEncoder().encode(command)
+            let frame = try QuicSessionStreamFrame.decode(
+                QuicSessionStreamFrame.encode(role: .input, payload: payload)
+            )
+            var routed: AgentTerminalClientMessage?
+
+            let handled = InputChannelServer.dispatchAgentTerminal(
+                data: frame.payload,
+                handler: { request in
+                    guard case .terminal(let terminal) = request else { return }
+                    routed = terminal
+                }
+            )
+
+            #expect(frame.role == .input)
+            #expect(handled)
+            #expect(routed == command)
+        }
+    }
+
+    @Test func pushAgentTerminalEmitsDecodableOwnedAgentData() throws {
+        let pusher = RecordingAgentDataPusher()
+        let context = AgentResumeTerminalContext(
+            projectPath: "/Users/dev/project",
+            source: "codex",
+            harnessSessionID: "5315800f-fab6-42ed-a80f-a622f563b57a"
+        )
+        let pushes: [AgentTerminalHostMessage] = [
+            .ready(AgentTerminalReady(
+                requestID: "request-1",
+                context: context,
+                ptySessionName: "agent-resume-codex-5315800f-fab6-42ed-a80f-a622f563b57a"
+            )),
+            .ended(AgentTerminalEnded(
+                requestID: "request-1",
+                context: context,
+                ptySessionName: "agent-resume-codex-5315800f-fab6-42ed-a80f-a622f563b57a",
+                exitStatus: 0
+            )),
+            .error(AgentTerminalError(
+                requestID: "request-1",
+                context: context,
+                code: .sessionEnded
+            )),
+        ]
+
+        for push in pushes {
+            pusher.pushAgentTerminal(push)
+        }
+
+        #expect(try pusher.payloads.map {
+            try JSONDecoder().decode(AgentTerminalHostMessage.self, from: $0)
+        } == pushes)
+    }
+
     // MARK: - Host-to-client push types
 
     @Test func agentProjectsPushRoundTripsThroughCodable() throws {
@@ -286,5 +367,13 @@ struct AgentFeedWireTests {
                     "\"lv\":", "\"i\":", "\"ts\":", "\"tp\":", "\"b\":", "\"k\":", "\"tx\":"] {
             #expect(json.contains(key), "AgentThreadChunk wire missing \(key); JS BridgeDataSource mirror will break")
         }
+    }
+}
+
+private final class RecordingAgentDataPusher: AgentDataPushing, @unchecked Sendable {
+    private(set) var payloads: [Data] = []
+
+    func pushAgentData(_ data: Data) {
+        payloads.append(data)
     }
 }

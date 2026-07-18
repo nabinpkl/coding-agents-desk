@@ -1,6 +1,7 @@
 import Foundation
 import PtyClientSwift
 import Testing
+import AgentDeskWire
 
 @testable import AgentDeskHost
 
@@ -338,6 +339,175 @@ struct AgentSessionTerminalCoordinatorTests {
         #expect(await fixture.pty.session(named: replacement.ptySessionName)?.pid == replacement.pid)
     }
 
+    @MainActor
+    @Test func replacementEndpointWaitsForPriorShutdownBeforeOpeningSamePTY() async throws {
+        let fixture = try Fixture()
+        defer { fixture.removeTemporaryFiles() }
+        let blockingCoordinator = BlockingFirstCloseTerminalCoordinator(
+            coordinator: fixture.coordinator
+        )
+        let registry = AgentSessionTerminalEndpointRegistry<String> { _, epoch in
+            AgentSessionTerminalEndpoint(
+                coordinator: blockingCoordinator,
+                platform: .iOS,
+                requestNamespace: "ios-device-\(epoch)",
+                tombstoneLimit: 8
+            )
+        }
+        let context = AgentResumeTerminalContext(
+            projectPath: fixture.project.path,
+            source: "claude",
+            harnessSessionID: claudeSessionID
+        )
+        let sessions = SessionRegistry()
+        let fingerprint = DeviceFingerprint("device")
+        let oldSession = ActiveSession(
+            sessionId: "session-old",
+            deviceFingerprint: fingerprint,
+            establishedAt: 1
+        )
+        _ = sessions.noteReady(oldSession, ready: sessionReady(id: oldSession.sessionId))
+
+        let oldBinding = registry.beginBinding(for: "device")
+        let oldEndpoint = try #require(await registry.endpoint(
+            for: "device",
+            binding: oldBinding
+        ))
+        let oldResponse = await oldEndpoint.openLocal(AgentTerminalOpen(
+            requestID: "old",
+            context: context
+        ))
+        guard case .ready(let oldReady) = oldResponse else {
+            Issue.record("Expected the original endpoint to become ready")
+            return
+        }
+        let oldPID = try #require(
+            await fixture.pty.session(named: oldReady.ptySessionName)?.pid
+        )
+
+        let replacementSession = ActiveSession(
+            sessionId: "session-replacement",
+            deviceFingerprint: fingerprint,
+            establishedAt: 2
+        )
+        let transition = sessions.noteReady(
+            replacementSession,
+            ready: sessionReady(id: replacementSession.sessionId)
+        )
+        if case .replaced = transition {
+            registry.endBinding(for: "device")
+        }
+        #expect(transition == .replaced(previousSessionID: oldSession.sessionId))
+        try await waitUntil { await blockingCoordinator.closeIsBlocked }
+
+        let replacementBinding = registry.beginBinding(for: "device")
+        let replacementTask = Task { @MainActor in
+            guard let endpoint = await registry.endpoint(
+                for: "device",
+                binding: replacementBinding
+            ) else {
+                return Optional<(AgentSessionTerminalEndpoint, AgentTerminalHostMessage)>.none
+            }
+            let response = await endpoint.openLocal(AgentTerminalOpen(
+                requestID: "replacement",
+                context: context
+            ))
+            guard let response else { return nil }
+            return (endpoint, response)
+        }
+        await Task.yield()
+        #expect(await fixture.pty.openCalls.count == 1)
+
+        await blockingCoordinator.releaseClose()
+        let (replacementEndpoint, replacementResponse) = try #require(
+            await replacementTask.value
+        )
+        guard case .ready(let replacementReady) = replacementResponse else {
+            Issue.record("Expected the replacement endpoint to become ready")
+            return
+        }
+        let replacementPID = try #require(
+            await fixture.pty.session(named: replacementReady.ptySessionName)?.pid
+        )
+
+        #expect(replacementReady.ptySessionName == oldReady.ptySessionName)
+        #expect(replacementPID != oldPID)
+        #expect(await fixture.pty.killCount == 1)
+        #expect(await fixture.pty.session(named: replacementReady.ptySessionName)?.pid == replacementPID)
+
+        await replacementEndpoint.handle(.close(AgentTerminalClose(
+            requestID: "replacement",
+            context: context,
+            ptySessionName: replacementReady.ptySessionName,
+            reason: "current-explicit-close"
+        )))
+
+        #expect(await fixture.pty.killCount == 2)
+        #expect(await fixture.pty.session(named: replacementReady.ptySessionName) == nil)
+    }
+
+    @MainActor
+    @Test func sameSessionReadyKeepsEndpointAndPTYOwnership() async throws {
+        let fixture = try Fixture()
+        defer { fixture.removeTemporaryFiles() }
+        let registry = AgentSessionTerminalEndpointRegistry<String> { _, epoch in
+            AgentSessionTerminalEndpoint(
+                coordinator: fixture.coordinator,
+                platform: .iOS,
+                requestNamespace: "ios-device-\(epoch)",
+                tombstoneLimit: 8
+            )
+        }
+        let sessions = SessionRegistry()
+        let fingerprint = DeviceFingerprint("device")
+        let session = ActiveSession(
+            sessionId: "session-current",
+            deviceFingerprint: fingerprint,
+            establishedAt: 1
+        )
+        _ = sessions.noteReady(session, ready: sessionReady(id: session.sessionId))
+        let binding = registry.beginBinding(for: "device")
+        let endpoint = try #require(await registry.endpoint(for: "device", binding: binding))
+        let context = AgentResumeTerminalContext(
+            projectPath: fixture.project.path,
+            source: "claude",
+            harnessSessionID: claudeSessionID
+        )
+        guard case .ready(let firstReady) = await endpoint.openLocal(AgentTerminalOpen(
+            requestID: "first",
+            context: context
+        )) else {
+            Issue.record("Expected initial endpoint readiness")
+            return
+        }
+        let firstPID = try #require(
+            await fixture.pty.session(named: firstReady.ptySessionName)?.pid
+        )
+
+        let transition = sessions.noteReady(session, ready: sessionReady(id: session.sessionId))
+        if case .replaced = transition {
+            registry.endBinding(for: "device")
+        }
+        let resumedBinding = registry.beginBinding(for: "device")
+        let resumedEndpoint = try #require(await registry.endpoint(
+            for: "device",
+            binding: resumedBinding
+        ))
+        guard case .ready(let resumedReady) = await resumedEndpoint.openLocal(AgentTerminalOpen(
+            requestID: "resumed",
+            context: context
+        )) else {
+            Issue.record("Expected same-session endpoint readiness")
+            return
+        }
+
+        #expect(transition == .sameSession)
+        #expect(resumedEndpoint === endpoint)
+        #expect(await fixture.pty.session(named: resumedReady.ptySessionName)?.pid == firstPID)
+        #expect(await fixture.pty.killCount == 0)
+        #expect(await fixture.pty.createdSessionCount == 1)
+    }
+
     @Test func creatorTimeoutDoesNotKillSessionAdoptedByAnotherHandoff() async throws {
         let fixture = try Fixture()
         defer { fixture.removeTemporaryFiles() }
@@ -369,6 +539,33 @@ struct AgentSessionTerminalCoordinatorTests {
         #expect(await fixture.pty.session(named: creator.ptySessionName)?.pid == creator.pid)
     }
 
+    @Test func cancelledRequestTombstonesAreBoundedAndEvictOldestID() async throws {
+        let fixture = try Fixture(requestTombstoneLimit: 2)
+        defer { fixture.removeTemporaryFiles() }
+
+        for requestID in ["request-1", "request-2", "request-3"] {
+            let request = fixture.request(
+                id: requestID,
+                source: "claude",
+                sessionID: claudeSessionID,
+                platform: .iOS
+            )
+            let ready = try await fixture.coordinator.open(request)
+            await fixture.coordinator.close(
+                requestID: request.requestID,
+                ptySessionName: ready.ptySessionName
+            )
+        }
+
+        let evicted = fixture.request(
+            id: "request-1",
+            source: "claude",
+            sessionID: claudeSessionID,
+            platform: .iOS
+        )
+        #expect(try await fixture.coordinator.open(evicted).requestID == evicted.requestID)
+    }
+
     private func waitUntil(
         _ condition: @escaping @Sendable () async -> Bool
     ) async throws {
@@ -377,6 +574,17 @@ struct AgentSessionTerminalCoordinatorTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         Issue.record("Timed out waiting for asynchronous test condition")
+    }
+
+    private func sessionReady(id: String) -> SessionReady {
+        SessionReady(
+            sessionId: id,
+            resumeId: Data(repeating: 1, count: 32),
+            resumeSecret: Data(repeating: 2, count: 32),
+            resumeExpiresAt: 2_000_000_000,
+            mediaKeySalt: Data(repeating: 3, count: 32),
+            hostSignature: Data(repeating: 4, count: 64)
+        )
     }
 }
 
@@ -392,6 +600,7 @@ private struct Fixture: @unchecked Sendable {
     init(
         isLive: Bool = false,
         executables: AgentResumeLaunch.Executables = Config.agentResumeExecutables(environment: [:]),
+        requestTombstoneLimit: Int = 8,
         onEvent: @escaping @Sendable (AgentSessionTerminalCoordinatorEvent) -> Void = { _ in }
     ) throws {
         sandbox = FileManager.default.temporaryDirectory
@@ -410,6 +619,7 @@ private struct Fixture: @unchecked Sendable {
             livenessChecker: liveness,
             homeDirectory: home,
             executables: executables,
+            requestTombstoneLimit: requestTombstoneLimit,
             waitForHandoffTimeout: { try await timeout.wait() },
             onEvent: onEvent
         )
@@ -451,6 +661,46 @@ private actor EventRecorder {
 
     func append(_ event: AgentSessionTerminalCoordinatorEvent) {
         values.append(event)
+    }
+}
+
+private actor BlockingFirstCloseTerminalCoordinator: AgentSessionTerminalCoordinating {
+    private let coordinator: AgentSessionTerminalCoordinator
+    private var closeContinuation: CheckedContinuation<Void, Never>?
+    private var hasBlockedClose = false
+
+    init(coordinator: AgentSessionTerminalCoordinator) {
+        self.coordinator = coordinator
+    }
+
+    var closeIsBlocked: Bool {
+        closeContinuation != nil
+    }
+
+    func open(_ request: AgentSessionTerminalOpenRequest) async throws -> AgentSessionTerminalReady {
+        try await coordinator.open(request)
+    }
+
+    func acknowledgeAttachment(requestID: String, ptySessionName: String) async {
+        await coordinator.acknowledgeAttachment(
+            requestID: requestID,
+            ptySessionName: ptySessionName
+        )
+    }
+
+    func close(requestID: String, ptySessionName: String?) async {
+        if !hasBlockedClose {
+            hasBlockedClose = true
+            await withCheckedContinuation { continuation in
+                closeContinuation = continuation
+            }
+        }
+        await coordinator.close(requestID: requestID, ptySessionName: ptySessionName)
+    }
+
+    func releaseClose() {
+        closeContinuation?.resume()
+        closeContinuation = nil
     }
 }
 

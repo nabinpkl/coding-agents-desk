@@ -20,6 +20,12 @@ enum SessionResumeChallengeResult: Equatable {
     case rejected(SessionRejectionReason)
 }
 
+enum SessionReadyTransition: Equatable {
+    case initial
+    case sameSession
+    case replaced(previousSessionID: String)
+}
+
 private struct PendingResumeProof {
     let resumeId: Data
     let clientNonce: Data
@@ -62,10 +68,21 @@ final class SessionRegistry {
         attempting.insert(fingerprint)
     }
 
-    func noteReady(_ session: ActiveSession, ready: SessionReady, transport: MediaTransport? = nil) {
-        if let prior = records[session.deviceFingerprint],
-           prior.session.sessionId != session.sessionId {
-            endSession(session.deviceFingerprint, sessionId: prior.session.sessionId)
+    func noteReady(
+        _ session: ActiveSession,
+        ready: SessionReady,
+        transport: MediaTransport? = nil
+    ) -> SessionReadyTransition {
+        let transition: SessionReadyTransition
+        if let prior = records[session.deviceFingerprint] {
+            if prior.session.sessionId == session.sessionId {
+                transition = .sameSession
+            } else {
+                transition = .replaced(previousSessionID: prior.session.sessionId)
+                endSession(session.deviceFingerprint, sessionId: prior.session.sessionId)
+            }
+        } else {
+            transition = .initial
         }
         attempting.remove(session.deviceFingerprint)
         resumeTimers[session.deviceFingerprint]?.cancel()
@@ -82,6 +99,7 @@ final class SessionRegistry {
         if let transport {
             transports[session.deviceFingerprint] = transport
         }
+        return transition
     }
 
     func markSuspended(_ fingerprint: DeviceFingerprint, sessionId: String? = nil) {
@@ -206,11 +224,12 @@ final class SessionRegistry {
         resumeTimers[fingerprint] = task
     }
 
-    func endSession(_ fingerprint: DeviceFingerprint, sessionId: String? = nil) {
+    @discardableResult
+    func endSession(_ fingerprint: DeviceFingerprint, sessionId: String? = nil) -> Bool {
         if let sessionId,
            let current = records[fingerprint],
            current.session.sessionId != sessionId {
-            return
+            return false
         }
         attempting.remove(fingerprint)
         records.removeValue(forKey: fingerprint)
@@ -222,6 +241,7 @@ final class SessionRegistry {
         inputChannelServers.removeValue(forKey: fingerprint)
         transports[fingerprint]?.stop()
         transports.removeValue(forKey: fingerprint)
+        return true
     }
 
     func attachTransport(_ transport: MediaTransport, for fingerprint: DeviceFingerprint) {
