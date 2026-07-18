@@ -15,6 +15,10 @@ public protocol PtyTerminalSwiftTermContentViewDelegate: AnyObject {
     func ptyTerminalContent(_ content: PtyTerminalSwiftTermContentView, didSetTitle title: String)
     func ptyTerminalContent(_ content: PtyTerminalSwiftTermContentView, didReceiveStatus text: String)
     func ptyTerminalContent(_ content: PtyTerminalSwiftTermContentView, didFail error: Error)
+    func ptyTerminalContent(
+        _ content: PtyTerminalSwiftTermContentView,
+        didTerminate termination: PtyTerminalSessionTermination
+    )
     func ptyTerminalContentDidDetachByManager(_ content: PtyTerminalSwiftTermContentView)
 }
 
@@ -22,6 +26,10 @@ public extension PtyTerminalSwiftTermContentViewDelegate {
     func ptyTerminalContent(_ content: PtyTerminalSwiftTermContentView, didSetTitle title: String) {}
     func ptyTerminalContent(_ content: PtyTerminalSwiftTermContentView, didReceiveStatus text: String) {}
     func ptyTerminalContent(_ content: PtyTerminalSwiftTermContentView, didFail error: Error) {}
+    func ptyTerminalContent(
+        _ content: PtyTerminalSwiftTermContentView,
+        didTerminate termination: PtyTerminalSessionTermination
+    ) {}
     func ptyTerminalContentDidDetachByManager(_ content: PtyTerminalSwiftTermContentView) {}
 }
 
@@ -36,6 +44,7 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
     public var isInputEnabled = true
     public private(set) var isBound = false
     public private(set) var rendererSetupError: Error?
+    private(set) var bindingGeneration: UInt64 = 0
 
     public var columns: Int { terminalView.getTerminal().cols }
     public var rows: Int { terminalView.getTerminal().rows }
@@ -95,11 +104,16 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
 
     public func bind(to connection: PtyTerminalConnection) {
         precondition(sessionDriver == nil, "detach the current PTY connection before rebinding")
+        bindingGeneration &+= 1
+        let generation = bindingGeneration
         let driver = PtyTerminalSessionDriver(
             connection: connection,
-            renderer: self
+            renderer: self,
+            onTermination: { [weak self] termination in
+                self?.handleSessionTermination(termination, bindingGeneration: generation)
+            }
         ) { [weak self] error in
-            guard let self else { return }
+            guard let self, self.bindingGeneration == generation, self.isBound else { return }
             self.delegate?.ptyTerminalContent(self, didFail: error)
         }
         sessionDriver = driver
@@ -108,15 +122,19 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
     }
 
     public func detach() {
-        sessionDriver?.detach()
+        let driver = sessionDriver
+        invalidateBinding()
         sessionDriver = nil
         isBound = false
+        driver?.detach()
     }
 
     public func stop() {
-        sessionDriver?.stop()
+        let driver = sessionDriver
+        invalidateBinding()
         sessionDriver = nil
         isBound = false
+        driver?.stop()
     }
 
     public func focus() {
@@ -171,6 +189,15 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
         delegate?.ptyTerminalContentDidDetachByManager(self)
     }
 
+    func handleSessionTermination(
+        _ termination: PtyTerminalSessionTermination,
+        bindingGeneration: UInt64
+    ) {
+        guard isBound, bindingGeneration == self.bindingGeneration else { return }
+        stop()
+        delegate?.ptyTerminalContent(self, didTerminate: termination)
+    }
+
     public func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
         sessionDriver?.resize(columns: newCols, rows: newRows)
     }
@@ -220,4 +247,8 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
 
     public func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
     public func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
+
+    private func invalidateBinding() {
+        bindingGeneration &+= 1
+    }
 }
