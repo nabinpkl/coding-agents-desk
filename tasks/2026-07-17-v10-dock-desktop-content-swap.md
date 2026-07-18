@@ -30,7 +30,7 @@ window-ID verification waits for the required host relaunch checkpoint.
 - [x] D93. Run the exact `fresh-install` composite before editing, prove the host binary was replaced, diagnose the missing Swap control as an inactive-state rendering defect, adopt the shared `HoverButton` presentation with a persistent accent glyph, and verify the corrected Release host through AX plus a live screenshot. The composite's client reinstall completed; its final launch retry remains blocked only while the physical phone is locked.
 - [ ] R94. Capture source/destination window IDs, exercise an actual Swap and Undo through AX, verify moved and excluded sets, and record a window-only screenshot.
 - [x] D95. Replace the wallpaper-dependent icon wash with a labeled 72-by-64-point opaque action tile sharing the desktop-card surface, add distinct resting, hover, focus, and active styling, and cover its size, opacity, label, and state contrast in AppKit tests; focused tests and all 530 host tests pass.
-- [ ] R96. After the required host relaunch checkpoint, verify the idle and active action-tile presentation through AX and a window-only screenshot.
+- [x] D96. Relaunch the landed Release host, match its loaded executable and embedded SHA to commit `9708287`, verify labeled idle and active AX states, and capture window-only screenshots confirming the opaque resting tile and solid-teal active tile.
 
 ## Promotion log
 
@@ -43,4 +43,4 @@ window-ID verification waits for the required host relaunch checkpoint.
 | D93 | 2026-07-17 | done | Exact fresh-install verification separated lifecycle from rendering; the current Release host visibly presents the inactive Swap glyph and AX confirms inactive, active, then inactive state. |
 | R94 | pending | pending | Live window-ID Swap and Undo verification with a window-only screenshot. |
 | D95 | 2026-07-17 | done | The Swap affordance is now an opaque, labeled action tile with shared Dock surface tokens and explicit inactive and active visual contracts. |
-| R96 | pending | pending | Checkpointed live AX and window-only screenshot verification of the redesigned tile. |
+| D96 | 2026-07-17 | done | Release host `9708287` passed build-identity, AX idle/active, and window-only visual verification for the redesigned tile. |
