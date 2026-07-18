@@ -4,14 +4,15 @@ import UIKit
 import WebKit
 import AgentDeskWire
 import AgentPanel
+import PtyTerminalSwiftTerm
 
-/// The iOS agent feed surface (R19). A thin UIView wrapper around the reusable AgentPanel package's
-/// `AgentPanelWebViewController`: it hosts the panel's WKWebView, forwards deliver/resume/teardown to
-/// it, and adapts the panel's request contract to the client's QUIC input-lane request callback. The
-/// webview lifecycle, bundled-asset loading, JS bridge, and serialized delivery all live in the
-/// package now, shared with the macOS Agents window rather than reimplemented per platform.
+/// The iOS Agent surface. AgentPanel retains web content ownership while this UIKit container owns
+/// the native terminal layout and attachment workflow.
 @MainActor
 final class AgentFeedSurface: UIView, AgentPanelTransport {
+    static let defaultTerminalHeightFraction: CGFloat = 0.38
+    static let terminalHeightRange: ClosedRange<CGFloat> = 0.25...0.65
+
     private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-surface")
 
     /// Injected by PairingViewController to forward inbound requests to the input lane.
@@ -23,54 +24,193 @@ final class AgentFeedSurface: UIView, AgentPanelTransport {
     var resumeAfterReconnectForTesting: (() -> Void)?
 
     private var panelController: AgentPanelWebViewController?
+    private(set) var panelContentView = UIView()
+    let resizeHandle = UIView()
+    let terminalContent = PtyTerminalSwiftTermContentView(
+        style: PtyTerminalViewStyle(fontSize: 14, metalRendering: PtyTerminalMetalRendering.from())
+    )
+    let terminalAvailableLayoutGuide = UILayoutGuide()
+    private(set) var terminalHeightFraction = AgentFeedSurface.defaultTerminalHeightFraction
+    private(set) var isTerminalPresented = false
+    private(set) var terminalHeightConstraint: NSLayoutConstraint?
+    private(set) var terminalBottomConstraint: NSLayoutConstraint!
+
+    private var panelClosedBottomConstraint: NSLayoutConstraint!
+    private var panelOpenBottomConstraint: NSLayoutConstraint!
+    private var resizeHandleOpenHeightConstraint: NSLayoutConstraint!
+    private var resizeHandleClosedHeightConstraint: NSLayoutConstraint!
+    private var terminalClosedHeightConstraint: NSLayoutConstraint!
+    private var resizeStartFraction = AgentFeedSurface.defaultTerminalHeightFraction
+
+    private lazy var terminalSession = AgentFeedTerminalSession(
+        terminalContent: terminalContent,
+        setPresented: { [weak self] presented in
+            self?.setTerminalPresented(presented)
+        },
+        deliver: { [weak self] message in
+            self?.deliver(message)
+        }
+    )
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         setUpPanel()
+        configureContainer()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setUpPanel()
+        configureContainer()
+    }
+
+    init(panelViewForTesting panelView: UIView) {
+        super.init(frame: .zero)
+        panelContentView = panelView
+        configureContainer()
     }
 
     private func setUpPanel() {
         do {
             let controller = try AgentPanelWebViewController(transport: self)
             panelController = controller
-            let webView = controller.webView
-            webView.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(webView)
-            NSLayoutConstraint.activate([
-                webView.leadingAnchor.constraint(equalTo: leadingAnchor),
-                webView.trailingAnchor.constraint(equalTo: trailingAnchor),
-                webView.topAnchor.constraint(equalTo: topAnchor),
-                webView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            ])
+            panelContentView = controller.webView
         } catch {
             logger.error("agent-feed: AgentPanel init failed: \(String(describing: error), privacy: .public)")
-            installUnavailableFallback()
+            panelContentView = unavailableFallback()
         }
     }
 
     /// Shows a visible placeholder when the panel could not be constructed (missing/misconfigured
     /// bundled web assets). Without this the surface is a mute blank pane the user cannot diagnose;
     /// the accessibility identifier also lets an AX/Maestro check assert the failure state.
-    private func installUnavailableFallback() {
+    private func unavailableFallback() -> UIView {
         let label = UILabel()
         label.text = "Agent view unavailable"
         label.textAlignment = .center
         label.textColor = .secondaryLabel
         label.numberOfLines = 0
         label.accessibilityIdentifier = "agent-surface-unavailable"
-        label.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(label)
+        return label
+    }
+
+    private func configureContainer() {
+        backgroundColor = .systemBackground
+        addLayoutGuide(terminalAvailableLayoutGuide)
+
+        panelContentView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(panelContentView)
+
+        resizeHandle.translatesAutoresizingMaskIntoConstraints = false
+        resizeHandle.backgroundColor = .secondarySystemBackground
+        resizeHandle.accessibilityIdentifier = "agent-terminal-resize-handle"
+        resizeHandle.accessibilityLabel = "Resize terminal"
+        resizeHandle.isAccessibilityElement = true
+        let grabber = UIView()
+        grabber.translatesAutoresizingMaskIntoConstraints = false
+        grabber.backgroundColor = .separator
+        grabber.layer.cornerRadius = 1.5
+        resizeHandle.addSubview(grabber)
+        resizeHandle.addGestureRecognizer(UIPanGestureRecognizer(
+            target: self,
+            action: #selector(handleTerminalResize(_:))
+        ))
+        addSubview(resizeHandle)
+
+        terminalContent.translatesAutoresizingMaskIntoConstraints = false
+        terminalContent.accessibilityIdentifier = "agent-terminal-content"
+        addSubview(terminalContent)
+
         NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            label.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 16),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+            terminalAvailableLayoutGuide.topAnchor.constraint(equalTo: topAnchor),
+            terminalAvailableLayoutGuide.bottomAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor),
+            terminalAvailableLayoutGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
+            terminalAvailableLayoutGuide.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+            panelContentView.topAnchor.constraint(equalTo: topAnchor),
+            panelContentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            panelContentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+            terminalContent.leadingAnchor.constraint(equalTo: leadingAnchor),
+            terminalContent.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+            resizeHandle.leadingAnchor.constraint(equalTo: leadingAnchor),
+            resizeHandle.trailingAnchor.constraint(equalTo: trailingAnchor),
+            resizeHandle.bottomAnchor.constraint(equalTo: terminalContent.topAnchor),
+
+            grabber.widthAnchor.constraint(equalToConstant: 44),
+            grabber.heightAnchor.constraint(equalToConstant: 3),
+            grabber.centerXAnchor.constraint(equalTo: resizeHandle.centerXAnchor),
+            grabber.centerYAnchor.constraint(equalTo: resizeHandle.centerYAnchor),
         ])
+
+        terminalBottomConstraint = terminalContent.bottomAnchor.constraint(
+            equalTo: keyboardLayoutGuide.topAnchor
+        )
+        panelClosedBottomConstraint = panelContentView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        panelOpenBottomConstraint = panelContentView.bottomAnchor.constraint(equalTo: resizeHandle.topAnchor)
+        resizeHandleOpenHeightConstraint = resizeHandle.heightAnchor.constraint(equalToConstant: 14)
+        resizeHandleClosedHeightConstraint = resizeHandle.heightAnchor.constraint(equalToConstant: 0)
+        terminalClosedHeightConstraint = terminalContent.heightAnchor.constraint(equalToConstant: 0)
+        terminalBottomConstraint.isActive = true
+        setTerminalPresented(false)
+    }
+
+    func bindTerminalDependencies(
+        coordinator: (any AgentFeedTerminalCoordinating)?,
+        sessionOpener: (any AgentFeedTerminalSessionOpening)?
+    ) {
+        terminalSession.bind(coordinator: coordinator, sessionOpener: sessionOpener)
+    }
+
+    func setTerminalHeightFraction(_ fraction: CGFloat) {
+        terminalHeightFraction = min(max(fraction, Self.terminalHeightRange.lowerBound),
+                                     Self.terminalHeightRange.upperBound)
+        guard isTerminalPresented else { return }
+        replaceTerminalHeightConstraint()
+    }
+
+    private func setTerminalPresented(_ presented: Bool) {
+        guard presented != isTerminalPresented || terminalHeightConstraint == nil else { return }
+        isTerminalPresented = presented
+        panelClosedBottomConstraint.isActive = !presented
+        resizeHandleClosedHeightConstraint.isActive = !presented
+        terminalClosedHeightConstraint.isActive = !presented
+        panelOpenBottomConstraint.isActive = presented
+        resizeHandleOpenHeightConstraint.isActive = presented
+        resizeHandle.isHidden = !presented
+        terminalContent.isHidden = !presented
+        if presented {
+            replaceTerminalHeightConstraint()
+        } else {
+            terminalHeightConstraint?.isActive = false
+            terminalHeightConstraint = nil
+        }
+        setNeedsLayout()
+    }
+
+    private func replaceTerminalHeightConstraint() {
+        terminalHeightConstraint?.isActive = false
+        let constraint = terminalContent.heightAnchor.constraint(
+            equalTo: terminalAvailableLayoutGuide.heightAnchor,
+            multiplier: terminalHeightFraction
+        )
+        constraint.priority = .required
+        constraint.isActive = true
+        terminalHeightConstraint = constraint
+    }
+
+    @objc private func handleTerminalResize(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            resizeStartFraction = terminalHeightFraction
+        case .changed:
+            let availableHeight = max(terminalAvailableLayoutGuide.layoutFrame.height, 1)
+            let translation = recognizer.translation(in: self)
+            setTerminalHeightFraction(resizeStartFraction - (translation.y / availableHeight))
+        default:
+            break
+        }
     }
 
     func deliver(rawJSON: String) {
@@ -90,6 +230,7 @@ final class AgentFeedSurface: UIView, AgentPanelTransport {
     }
 
     func teardown() {
+        terminalSession.invalidate()
         panelController?.teardown()
         panelController = nil
     }
@@ -99,9 +240,21 @@ final class AgentFeedSurface: UIView, AgentPanelTransport {
     func sendAgentPanelRequest(_ request: AgentPanelRequest) {
         if case .terminal(let intent) = request {
             onTerminalIntent?(intent)
+            terminalSession.handle(intent)
             return
         }
         onAgentRequest?(AgentFeedRequest(request))
+    }
+
+    private func deliver(_ message: AgentTerminalHostMessage) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(message),
+              let rawJSON = String(data: data, encoding: .utf8) else {
+            logger.error("agent terminal status encode failed")
+            return
+        }
+        deliver(rawJSON: rawJSON)
     }
 }
 

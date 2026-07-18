@@ -255,7 +255,9 @@ extension PairingViewController {
             surface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
         agentSurface = surface
-        agentSurfaceBoundTransport = pairingClient.activeSessionTransport
+        let transport = pairingClient.activeSessionTransport
+        agentSurfaceBoundTransport = transport
+        surface.bindTerminalDependencies(coordinator: transport, sessionOpener: transport)
 
         // Wire inbound: JS requests -> InputChannel sends. The channel is pulled
         // live on each request so a reconnect's fresh channel is used.
@@ -298,6 +300,7 @@ extension PairingViewController {
             return
         }
         agentSurfaceBoundTransport = transport
+        surface.bindTerminalDependencies(coordinator: transport, sessionOpener: transport)
         pairingClient.onAgentPush = { [weak surface] json in
             surface?.deliver(rawJSON: json)
         }

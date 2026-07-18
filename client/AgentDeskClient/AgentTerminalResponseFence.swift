@@ -12,6 +12,10 @@ struct AgentTerminalResponseFence: Sendable {
         activeRequest = nil
     }
 
+    mutating func cancel() {
+        activeRequest = nil
+    }
+
     mutating func accept(_ message: AgentTerminalHostMessage) -> AgentTerminalHostMessage? {
         guard let activeRequest,
               message.requestID == activeRequest.requestID,
