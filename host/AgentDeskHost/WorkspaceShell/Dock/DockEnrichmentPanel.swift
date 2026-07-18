@@ -2,8 +2,6 @@ import AppKit
 
 private enum DockEnrichmentMetrics {
     static let stripHeight: CGFloat = 82
-    static let actionWidth: CGFloat = 72
-    static let actionHeight: CGFloat = 64
     static let statusHeight: CGFloat = 36
     static let desktopPillWidth: CGFloat = 196
     static let desktopPillHeight: CGFloat = 64
@@ -27,7 +25,11 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
     private let color = WorkspaceShellOverlay.adaptiveWhite(light: 0.96, dark: 0.12)
     private var isKeyboardFocused = false
     private let stripContainer = NSView()
-    private let swapButton = HoverButton(frame: .zero)
+    private let swapButton = DockActionButton(
+        title: "Swap",
+        systemSymbolName: "arrow.left.arrow.right",
+        accessibilityLabel: "Swap desktop contents"
+    )
     private let scrollView = NSScrollView()
     private let desktopStrip = NSStackView()
     private let emptyLabel = NSTextField(labelWithString: "No running apps")
@@ -156,25 +158,11 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
         stripContainer.layer?.zPosition = 1
         addSubview(stripContainer)
 
-        swapButton.translatesAutoresizingMaskIntoConstraints = false
-        swapButton.title = "Swap"
-        swapButton.font = .systemFont(ofSize: 11, weight: .semibold)
-        swapButton.isBordered = false
-        swapButton.bezelStyle = .regularSquare
-        swapButton.image = NSImage(
-            systemSymbolName: "arrow.left.arrow.right",
-            accessibilityDescription: "Swap desktop contents"
-        )?.withSymbolConfiguration(.init(pointSize: 18, weight: .semibold))
-        swapButton.imagePosition = .imageAbove
-        swapButton.imageScaling = .scaleProportionallyDown
-        swapButton.alignment = .center
         swapButton.cornerRadius = DockEnrichmentMetrics.desktopPillCornerRadius
-        swapButton.focusRingType = .exterior
         swapButton.target = self
         swapButton.action = #selector(toggleSwap)
         swapButton.toolTip = "Swap desktop contents"
         swapButton.setAccessibilityIdentifier("dock-desktop-swap")
-        swapButton.setAccessibilityLabel("Swap desktop contents")
         stripContainer.addSubview(swapButton)
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -214,8 +202,8 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
 
             swapButton.leadingAnchor.constraint(equalTo: stripContainer.leadingAnchor, constant: 10),
             swapButton.centerYAnchor.constraint(equalTo: stripContainer.centerYAnchor),
-            swapButton.widthAnchor.constraint(equalToConstant: DockEnrichmentMetrics.actionWidth),
-            swapButton.heightAnchor.constraint(equalToConstant: DockEnrichmentMetrics.actionHeight),
+            swapButton.widthAnchor.constraint(equalToConstant: DockActionButton.tileSize.width),
+            swapButton.heightAnchor.constraint(equalToConstant: DockActionButton.tileSize.height),
 
             scrollView.leadingAnchor.constraint(equalTo: swapButton.trailingAnchor, constant: 8),
             scrollView.trailingAnchor.constraint(equalTo: stripContainer.trailingAnchor),
@@ -254,7 +242,7 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
     private func applySwapButtonStyle(_ state: DockDesktopSwapState) {
         swapButton.restingColor = state.holdsDock ? AppTheme.accent : DockEnrichmentPalette.tileSurface
         swapButton.hoverColor = state.holdsDock ? AppTheme.activeHoverFill : DockEnrichmentPalette.tileHoverSurface
-        swapButton.contentTintColor = state.holdsDock ? AppTheme.onAccent : AppTheme.accent
+        swapButton.foregroundColor = state.holdsDock ? AppTheme.onAccent : AppTheme.accent
         effectiveAppearance.performAsCurrentDrawingAppearance {
             swapButton.layer?.borderColor = (state.holdsDock ? AppTheme.accent : NSColor.separatorColor).cgColor
             swapButton.layer?.borderWidth = state.holdsDock ? 2 : 1

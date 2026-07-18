@@ -88,12 +88,11 @@ struct DockEnrichmentSwapInteractionTests {
         let swap = panel.descendant(identifier: "dock-desktop-swap") as? HoverButton
         let primary = panel.descendant(identifier: "dock-desktop-select-100") as? NSButton
         #expect(swap != nil)
-        #expect(swap?.image != nil)
-        #expect(swap?.title == "Swap")
-        #expect(swap?.imagePosition == .imageAbove)
+        #expect(panel.descendant(identifier: "dock-desktop-swap-icon") is NSImageView)
+        #expect((panel.descendant(identifier: "dock-desktop-swap-label") as? NSTextField)?.stringValue == "Swap")
         #expect(swap?.isBordered == false)
         #expect(swap?.restingColor != .clear)
-        #expect(swap?.contentTintColor?.isEqual(AppTheme.onAccent) == true)
+        #expect((swap as? DockActionButton)?.foregroundColor.isEqual(AppTheme.onAccent) == true)
         #expect(panel.descendant(identifier: "dock-desktop-swap-status") is NSTextField)
         #expect(panel.descendant(identifier: "dock-desktop-swap-status")?.isHidden == false)
         #expect(primary != nil)
@@ -128,23 +127,40 @@ struct DockEnrichmentSwapInteractionTests {
 
     @Test func swapControlIsALabeledOpaqueTileWithDistinctActiveState() {
         let panel = DockEnrichmentPanel()
+        panel.frame = NSRect(x: 0, y: 0, width: 800, height: 140)
         panel.render(Self.snapshot(), swapState: .idle)
+        panel.layoutSubtreeIfNeeded()
 
         let swap = panel.descendant(identifier: "dock-desktop-swap") as? HoverButton
-        #expect(swap?.title == "Swap")
-        #expect(swap?.imagePosition == .imageAbove)
-        #expect(swap?.constraints.contains { $0.firstAttribute == .width && $0.constant == 72 } == true)
-        #expect(swap?.constraints.contains { $0.firstAttribute == .height && $0.constant == 64 } == true)
+        let icon = panel.descendant(identifier: "dock-desktop-swap-icon")
+        let label = panel.descendant(identifier: "dock-desktop-swap-label") as? NSTextField
+        #expect(swap?.title.isEmpty == true)
+        #expect(swap?.image == nil)
+        #expect(swap?.accessibilityTitle() == "Swap")
+        #expect(swap?.accessibilityLabel() == "Swap desktop contents")
+        #expect(swap?.frame.size == NSSize(width: 72, height: 64))
+        #expect(icon?.frame.size == NSSize(width: 22, height: 22))
+        #expect(label?.stringValue == "Swap")
+        if let swap, let icon, let label {
+            let iconFrame = icon.convert(icon.bounds, to: swap)
+            let labelFrame = label.convert(label.bounds, to: swap)
+            let contentFrame = iconFrame.union(labelFrame)
+            let bottomPadding = contentFrame.minY - swap.bounds.minY
+            let topPadding = swap.bounds.maxY - contentFrame.maxY
+            #expect(bottomPadding >= 10)
+            #expect(topPadding >= 10)
+            #expect(abs(topPadding - bottomPadding) <= 1)
+        }
         #expect(swap?.cornerRadius == 12)
         #expect(swap?.layer?.borderWidth == 1)
         #expect(swap?.layer?.backgroundColor?.alpha == 1)
-        #expect(swap?.contentTintColor?.isEqual(AppTheme.accent) == true)
+        #expect((swap as? DockActionButton)?.foregroundColor.isEqual(AppTheme.accent) == true)
 
         panel.render(Self.snapshot(), swapState: .choosingSource)
 
         #expect(swap?.layer?.borderWidth == 2)
         #expect(swap?.restingColor.isEqual(AppTheme.accent) == true)
-        #expect(swap?.contentTintColor?.isEqual(AppTheme.onAccent) == true)
+        #expect((swap as? DockActionButton)?.foregroundColor.isEqual(AppTheme.onAccent) == true)
     }
 
     @Test func pointerTapClassifiesPrimaryClickSeparatelyFromMovement() {

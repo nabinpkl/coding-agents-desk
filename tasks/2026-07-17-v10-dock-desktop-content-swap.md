@@ -31,6 +31,8 @@ window-ID verification waits for the required host relaunch checkpoint.
 - [ ] R94. Capture source/destination window IDs, exercise an actual Swap and Undo through AX, verify moved and excluded sets, and record a window-only screenshot.
 - [x] D95. Replace the wallpaper-dependent icon wash with a labeled 72-by-64-point opaque action tile sharing the desktop-card surface, add distinct resting, hover, focus, and active styling, and cover its size, opacity, label, and state contrast in AppKit tests; focused tests and all 530 host tests pass.
 - [x] D96. Relaunch the landed Release host, match its loaded executable and embedded SHA to commit `9708287`, verify labeled idle and active AX states, and capture window-only screenshots confirming the opaque resting tile and solid-teal active tile.
+- [x] D97. Replace `NSButtonCell` image-above layout with a fixed `DockActionButton` that renders a 72-by-64-point tile, explicitly centers a 22-point icon and label with balanced vertical padding, preserves the single keyboard and accessibility target, and cover the rendered frame, padding, state colors, and AX semantics in AppKit tests.
+- [ ] R98. Relaunch the landed Release host, verify the Swap tile's AX title and description, and capture an idle window-only screenshot confirming the corrected padding against adjacent Desktop cards.
 
 ## Promotion log
 
@@ -44,3 +46,5 @@ window-ID verification waits for the required host relaunch checkpoint.
 | R94 | pending | pending | Live window-ID Swap and Undo verification with a window-only screenshot. |
 | D95 | 2026-07-17 | done | The Swap affordance is now an opaque, labeled action tile with shared Dock surface tokens and explicit inactive and active visual contracts. |
 | D96 | 2026-07-17 | done | Release host `9708287` passed build-identity, AX idle/active, and window-only visual verification for the redesigned tile. |
+| D97 | 2026-07-17 | done | A dedicated Dock action control removes AppKit cell alignment insets and owns measured icon, label, and vertical-padding layout; focused tests and all 530 host tests pass. |
+| R98 | pending | pending | Live Release AX and screenshot verification for the corrected Swap tile padding. |
