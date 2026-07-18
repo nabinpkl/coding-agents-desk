@@ -39,6 +39,9 @@ final class WorkspaceShellPresenter: NSObject {
     private let switcher = WorkspaceSwitcher()
     private let filePane = FilePane()
     private let viewer = FileViewer()
+    private let activityBar = ActivityBar()
+    private let sourceControl = SourceControlPanel()
+    private let sidebarPanelArea = NSView()
     /// The bottom dock-enrichment strip (ADR-0054): a per-desktop overview of running apps, revealed on
     /// a bottom-edge hover. `dockPresenter` drives its off-main snapshot + coalesced render.
     private let dockPanel = DockEnrichmentPanel()
@@ -126,11 +129,15 @@ final class WorkspaceShellPresenter: NSObject {
                 }
             )
             session.onActiveChanged = { [weak self] in self?.refreshSwitcher() }
+            session.onGitStatusChanged = { [weak self] status, root in
+                self?.applyGitStatus(status, root: root)
+            }
             self.session = session
             // Seed the sidebar chrome from the persisted store: width for the panel, text zoom for
             // the switcher/title, before the first render.
             self.sidebarWidth = session.sidebarWidth
             self.switcher.setTextZoom(session.textZoom)
+            self.sourceControl.setTextZoom(session.textZoom)
             self.applyTitleFont(session.textZoom)
             // The top-bar "＋ Terminal" chip spawns a terminal for the active workspace (R55); the
             // "PTY Manager" chip opens the embedded session-list window (R56).
@@ -346,9 +353,8 @@ final class WorkspaceShellPresenter: NSObject {
         return workspace.name
     }
 
-    /// The donor sidebar (minus the left-behind activity/dock/mode areas): the workspace switcher on
-    /// top, a divider, the active-workspace title header with text-zoom −/+ and the sidebar pin, and
-    /// the file tree filling the rest — with a right-edge hairline and a drag-resize handle over it.
+    /// The donor sidebar: workspace switcher, Explorer/Source Control activity tabs, active-workspace
+    /// title and zoom/pin controls, then one replaceable panel area filling the remaining height.
     private func buildSidebar() {
         let content = overlay.sidebarContentView
 
@@ -365,6 +371,10 @@ final class WorkspaceShellPresenter: NSObject {
 
         let divider = makeSeparator()
         content.addSubview(divider)
+
+        activityBar.onSelect = { [weak self] tab in self?.showSidebarPanel(tab) }
+        activityBar.view.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(activityBar.view)
 
         sidebarTitleLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         sidebarTitleLabel.textColor = .secondaryLabelColor
@@ -385,8 +395,11 @@ final class WorkspaceShellPresenter: NSObject {
         content.addSubview(sidebarPinButton)
 
         filePane.view.setAccessibilityIdentifier("workspace-shell-file-tree")
-        filePane.view.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(filePane.view)
+        sourceControl.onActivate = { [weak self] url in self?.session?.openFile(url) }
+        sourceControl.view.setAccessibilityIdentifier("source-control-panel")
+        sidebarPanelArea.setAccessibilityIdentifier("workspace-shell-sidebar-panel")
+        sidebarPanelArea.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(sidebarPanelArea)
 
         let edge = makeSeparator()
         content.addSubview(edge)
@@ -406,9 +419,14 @@ final class WorkspaceShellPresenter: NSObject {
             divider.topAnchor.constraint(equalTo: switcher.view.bottomAnchor, constant: 6),
             divider.heightAnchor.constraint(equalToConstant: 1),
 
+            activityBar.view.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            activityBar.view.trailingAnchor.constraint(equalTo: edge.leadingAnchor),
+            activityBar.view.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 4),
+            activityBar.view.heightAnchor.constraint(equalToConstant: 30),
+
             sidebarTitleLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 14),
             sidebarTitleLabel.trailingAnchor.constraint(equalTo: zoomOutButton.leadingAnchor, constant: -6),
-            sidebarTitleLabel.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 8),
+            sidebarTitleLabel.topAnchor.constraint(equalTo: activityBar.view.bottomAnchor, constant: 8),
 
             zoomOutButton.trailingAnchor.constraint(equalTo: zoomInButton.leadingAnchor, constant: -2),
             zoomOutButton.centerYAnchor.constraint(equalTo: sidebarTitleLabel.centerYAnchor),
@@ -417,10 +435,10 @@ final class WorkspaceShellPresenter: NSObject {
             sidebarPinButton.trailingAnchor.constraint(equalTo: edge.leadingAnchor, constant: -6),
             sidebarPinButton.centerYAnchor.constraint(equalTo: sidebarTitleLabel.centerYAnchor),
 
-            filePane.view.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            filePane.view.trailingAnchor.constraint(equalTo: edge.leadingAnchor),
-            filePane.view.topAnchor.constraint(equalTo: sidebarTitleLabel.bottomAnchor, constant: 8),
-            filePane.view.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            sidebarPanelArea.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            sidebarPanelArea.trailingAnchor.constraint(equalTo: edge.leadingAnchor),
+            sidebarPanelArea.topAnchor.constraint(equalTo: sidebarTitleLabel.bottomAnchor, constant: 8),
+            sidebarPanelArea.bottomAnchor.constraint(equalTo: content.bottomAnchor),
 
             edge.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             edge.topAnchor.constraint(equalTo: content.topAnchor),
@@ -432,6 +450,34 @@ final class WorkspaceShellPresenter: NSObject {
             resizeHandle.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             resizeHandle.widthAnchor.constraint(equalToConstant: 8),
         ])
+        showSidebarPanel(.explorer)
+    }
+
+    private func showSidebarPanel(_ tab: SidebarTab) {
+        activityBar.select(tab)
+        let panel: NSView
+        switch tab {
+        case .explorer: panel = filePane.view
+        case .sourceControl: panel = sourceControl.view
+        }
+        sidebarPanelArea.subviews.forEach { $0.removeFromSuperview() }
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        sidebarPanelArea.addSubview(panel)
+        NSLayoutConstraint.activate([
+            panel.leadingAnchor.constraint(equalTo: sidebarPanelArea.leadingAnchor),
+            panel.trailingAnchor.constraint(equalTo: sidebarPanelArea.trailingAnchor),
+            panel.topAnchor.constraint(equalTo: sidebarPanelArea.topAnchor),
+            panel.bottomAnchor.constraint(equalTo: sidebarPanelArea.bottomAnchor),
+        ])
+    }
+
+    private func applyGitStatus(_ status: GitStatus, root: URL?) {
+        if let root {
+            activityBar.setSourceControlCount(sourceControl.apply(status, root: root))
+        } else {
+            sourceControl.clear()
+            activityBar.setSourceControlCount(0)
+        }
     }
 
     /// Top bar: Agents on the left; the terminal chips + top-bar pin ride the right edge, matching the
@@ -541,6 +587,7 @@ final class WorkspaceShellPresenter: NSObject {
         guard let session else { return }
         let zoom = session.applyTextZoom(command)
         switcher.setTextZoom(zoom)
+        sourceControl.setTextZoom(zoom)
         refreshSwitcher()
         applyTitleFont(zoom)
     }
@@ -602,6 +649,7 @@ final class WorkspaceShellPresenter: NSObject {
         let expected = [
             "workspace-shell-agents", "open-terminal", "open-pty-manager",
             "workspace-switcher", "add-workspace", "workspace-shell-title",
+            "activity-bar", "activity-explorer", "activity-source-control",
             "sidebar-zoom-out", "sidebar-zoom-in", "workspace-shell-file-tree",
             "sidebar-resize-handle", "toggle-sidebar-pin", "toggle-topbar-pin",
             "workspace-dock-enrichment",

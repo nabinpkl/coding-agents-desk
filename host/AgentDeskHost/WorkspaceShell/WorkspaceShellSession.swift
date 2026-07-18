@@ -24,6 +24,9 @@ final class WorkspaceShellSession {
     private let terminalSpawn: TerminalEmulatorSpawn
     private let fileWriter = FileWriter()
     private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-shell")
+    /// The latest status for the active workspace. `FileTreeLive` is the sole producer; this cached
+    /// snapshot lets the viewer breadcrumb and the presenter consume the same result as Explorer.
+    private var gitStatus = GitStatus.empty
     /// Open file tabs per workspace (in-memory; the viewer mirrors the active workspace's set).
     private var tabs: [UUID: OpenTabs] = [:]
     /// Live terminal windows per workspace. They are normal titled windows on the workspace's Desktop,
@@ -36,6 +39,8 @@ final class WorkspaceShellSession {
 
     /// Fired after the active workspace changes so the presenter refreshes the switcher selection.
     var onActiveChanged: (() -> Void)?
+    /// Fired for the reset and each completed status read. A nil root means no active workspace.
+    var onGitStatusChanged: ((GitStatus, URL?) -> Void)?
 
     init(
         store: WorkspaceStore,
@@ -68,6 +73,14 @@ final class WorkspaceShellSession {
         viewer.onCloseTab = { [weak self] identity in self?.closeTab(identity) }
         viewer.onFrameChanged = { [weak self] frame in self?.recordEditorFrame(frame) }
         viewer.onOpenFile = { [weak self] url in self?.openFile(url) }
+        viewer.onListDirectory = { [weak self] directory in self?.listDirectory(directory) ?? [] }
+        fileTreeLive.onGitStatus = { [weak self] status, root in
+            guard let self,
+                  self.store.active?.root.resolvingSymlinksInPath() == root.resolvingSymlinksInPath()
+            else { return }
+            self.gitStatus = status
+            self.onGitStatusChanged?(status, root)
+        }
     }
 
     /// Root the tree + render the viewer for whatever workspace is active on launch, at the persisted
@@ -92,6 +105,11 @@ final class WorkspaceShellSession {
         // window-move API.
         viewer.revealAfterAssignedDesktop(in: frame, focus: true)
         persistEditorFrameIfUnset(frame, for: id)
+    }
+
+    private func listDirectory(_ directory: URL) -> [DirectoryListingEntry] {
+        guard let root = store.active?.root else { return [] }
+        return directoryListing(directory: directory, workspaceRoot: root, gitStatus: gitStatus)
     }
 
     private func activateTab(_ identity: FileTabIdentity) {
@@ -259,11 +277,15 @@ final class WorkspaceShellSession {
     // MARK: - Rendering
 
     private func renderActive() {
+        gitStatus = .empty
         guard let workspace = store.active else {
             fileTreeLive.clear()
             viewer.clear()
+            onGitStatusChanged?(.empty, nil)
             return
         }
+        // Clear the prior workspace's panel/breadcrumb status before the asynchronous read returns.
+        onGitStatusChanged?(.empty, workspace.root)
         fileTreeLive.show(root: workspace.root)
         renderViewer(for: workspace.id)
     }

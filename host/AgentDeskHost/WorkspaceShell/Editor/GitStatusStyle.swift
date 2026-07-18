@@ -37,6 +37,17 @@ extension GitFileStatus {
         case .ignored: return "·"
         }
     }
+
+    var accessibilityName: String {
+        switch self {
+        case .conflicted: return "Conflicted"
+        case .modified: return "Modified"
+        case .added: return "Added"
+        case .deleted: return "Deleted"
+        case .untracked: return "Untracked"
+        case .ignored: return "Ignored"
+        }
+    }
 }
 
 private enum GitStatusPalette {
