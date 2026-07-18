@@ -8,6 +8,7 @@ import AgentDeskWire
 
 struct EngineActivityBlock: Codable {
     let kind: String
+    let label: String?
     let text: String?
     // tool_use carries tool + summary (+ callId); tool_result carries preview
     // (+ callId). The sidecar emits these with full field names, matching the
@@ -26,6 +27,7 @@ struct EngineActivityBlock: Codable {
     // construction in tests terse.
     init(
         kind: String,
+        label: String? = nil,
         text: String? = nil,
         tool: String? = nil,
         summary: String? = nil,
@@ -33,6 +35,7 @@ struct EngineActivityBlock: Codable {
         callId: String? = nil
     ) {
         self.kind = kind
+        self.label = label
         self.text = text
         self.tool = tool
         self.summary = summary
@@ -110,12 +113,19 @@ final class SidecarStreamHandle: @unchecked Sendable {
 protocol SidecarClient: Sendable {
     func fetchDigest() async throws -> [EngineProjectDigest]
     func fetchEventsPage(sessionId: String, offset: Int, limit: Int) async throws -> EngineEventsPage
+    func fetchRawEvent(sessionId: String, eventIndex: Int) async throws -> String
     func openEventStream(
         sessionId: String,
         after: Int,
         onEvent: @escaping @Sendable (EngineActivityEvent) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle
+}
+
+extension SidecarClient {
+    func fetchRawEvent(sessionId: String, eventIndex: Int) async throws -> String {
+        throw SidecarClientError.unsupported
+    }
 }
 
 // Real implementation over URLSession.
@@ -171,6 +181,28 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         }
         let envelope = try JSONDecoder().decode(Envelope.self, from: data)
         return EngineEventsPage(events: envelope.events, total: envelope.total)
+    }
+
+    func fetchRawEvent(sessionId: String, eventIndex: Int) async throws -> String {
+        let url = try currentBaseURL().appendingPathComponent(
+            "/api/sessions/\(sessionId)/events/\(eventIndex)/raw"
+        )
+        let (data, response) = try await session.data(from: url)
+        guard let http = response as? HTTPURLResponse else {
+            throw SidecarClientError.badStatusCode
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let detail = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+            logger.error("sidecar raw event HTTP \(http.statusCode, privacy: .public) detail=\(detail, privacy: .public)")
+            throw SidecarClientError.server(detail)
+        }
+        guard data.count <= AgentRawEventLimits.maximumRecordBytes else {
+            throw SidecarClientError.server("raw event exceeds 100 MiB")
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw SidecarClientError.server("raw event is not valid UTF-8 text")
+        }
+        return text
     }
 
     func openEventStream(
@@ -235,10 +267,22 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
     }
 }
 
-enum SidecarClientError: Error, Equatable {
+enum SidecarClientError: LocalizedError, Equatable {
     case badURL
     case badStatusCode
     // The sidecar has no ready base URL right now (starting or mid-restart). The
     // request is transient-failed; the client retries.
     case notReady
+    case unsupported
+    case server(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .badURL: "invalid sidecar URL"
+        case .badStatusCode: "sidecar returned an unsuccessful response"
+        case .notReady: "agent feed is not ready"
+        case .unsupported: "raw event loading is unsupported"
+        case .server(let message): message
+        }
+    }
 }

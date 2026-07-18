@@ -314,6 +314,7 @@ enum AgentFeedRequest: Equatable {
     case threadSubscribe(AgentThreadSubscribe)
     case threadLoadOlder(AgentThreadLoadOlder)
     case threadUnsubscribe(AgentThreadUnsubscribe)
+    case rawEvent(AgentRawEventRequest)
 
     init(_ request: AgentPanelRequest) {
         switch request {
@@ -325,6 +326,12 @@ enum AgentFeedRequest: Equatable {
             self = .threadLoadOlder(AgentThreadLoadOlder(sessionId: sessionId, beforeIndex: beforeIndex, limit: limit))
         case .threadUnsubscribe(let sessionId):
             self = .threadUnsubscribe(AgentThreadUnsubscribe(sessionId: sessionId))
+        case .rawEvent(let requestId, let sessionId, let eventIndex):
+            self = .rawEvent(AgentRawEventRequest(
+                requestId: requestId,
+                sessionId: sessionId,
+                eventIndex: eventIndex
+            ))
         case .terminal:
             preconditionFailure("Terminal intents must route through AgentFeedSurface.onTerminalIntent")
         }

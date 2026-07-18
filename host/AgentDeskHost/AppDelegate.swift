@@ -939,6 +939,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 bridge?.handleThreadLoadOlder(msg)
             case .threadUnsubscribe(let msg):
                 bridge?.handleThreadUnsubscribe(msg)
+            case .rawEvent(let msg):
+                bridge?.handleRawEvent(msg)
             case .terminal(let message):
                 Task {
                     await terminalPushBindingTask.value

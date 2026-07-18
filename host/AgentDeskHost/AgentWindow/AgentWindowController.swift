@@ -181,7 +181,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
             // The bridge pushes already-encoded agent-feed JSON; deliver it into the webview on the
             // main actor. The closure is @Sendable and may fire on a sidecar background Task, so it
             // hops to MainActor before touching the controller.
-            let bridge = AgentFeedBridge(client: sidecarClient, send: { [weak self] data in
+            let bridge = AgentFeedBridge(client: sidecarClient, rawEventDeliveryMode: .direct, send: { [weak self] data in
                 let json = String(decoding: data, as: UTF8.self)
                 Task { @MainActor [weak self] in
                     self?.panelController?.deliver(rawJSON: json)

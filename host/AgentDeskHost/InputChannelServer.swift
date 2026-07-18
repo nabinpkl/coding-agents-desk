@@ -15,6 +15,7 @@ enum AgentFeedRequest: Sendable {
     case threadSubscribe(AgentThreadSubscribe)
     case threadLoadOlder(AgentThreadLoadOlder)
     case threadUnsubscribe(AgentThreadUnsubscribe)
+    case rawEvent(AgentRawEventRequest)
     case terminal(AgentTerminalClientMessage)
 }
 
@@ -168,13 +169,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     }
 
     func pushAgentData(_ data: Data) {
-        Task { [stream, logger] in
-            do {
-                try await QuicSessionStreamIO.sendPayload(data, role: .input, on: stream)
-            } catch {
-                logger.error("input lane agent push send failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        enqueuePayload(data)
     }
 
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow] = [:]) {
@@ -203,6 +198,10 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             logger.error("input lane encode failed: \(String(describing: error), privacy: .public)")
             return
         }
+        enqueuePayload(payload)
+    }
+
+    private func enqueuePayload(_ payload: Data) {
         sendChain.withLock { tail in
             let prior = tail
             tail = Task { [stream, logger, payload] in
@@ -321,6 +320,11 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             logger.debug("input lane agent-thread-unsub received fp=\(self.fingerprint.rawValue, privacy: .public)")
             if let msg = try? JSONDecoder().decode(AgentThreadUnsubscribe.self, from: data) {
                 agentRequestHandler?(.threadUnsubscribe(msg))
+            }
+        case "agent-raw-event-get":
+            logger.debug("input lane agent-raw-event-get received fp=\(self.fingerprint.rawValue, privacy: .public)")
+            if let msg = try? JSONDecoder().decode(AgentRawEventRequest.self, from: data) {
+                agentRequestHandler?(.rawEvent(msg))
             }
         default:
             logger.notice("input lane unknown frame type=\(header.type, privacy: .public)")

@@ -63,6 +63,17 @@ struct AgentPanelTests {
         #expect(AgentPanelRequest.decode(tag: "future-message", body: [:]) == nil)
     }
 
+    @Test func requestDecoderPreservesRawEventIdentity() {
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-raw-event-get",
+            body: ["rid": "r1", "sid": "s1", "ei": 9]
+        ) == .rawEvent(requestId: "r1", sessionId: "s1", eventIndex: 9))
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-raw-event-get",
+            body: ["rid": "", "sid": "s1", "ei": 9]
+        ) == nil)
+    }
+
     @Test func requestDecoderPreservesTerminalIntentContext() {
         let context = AgentPanelTerminalContext(
             projectPath: "/Users/dev/projects/alpha",

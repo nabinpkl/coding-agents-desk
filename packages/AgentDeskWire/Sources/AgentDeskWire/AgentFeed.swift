@@ -4,6 +4,7 @@ import Foundation
 
 public struct ActivityBlock: Codable, Equatable, Sendable {
     public let kind: String
+    public let label: String?
     public let text: String?
     public let tool: String?
     public let summary: String?
@@ -12,6 +13,7 @@ public struct ActivityBlock: Codable, Equatable, Sendable {
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case kind = "k"
+        case label = "lb"
         case text = "tx"
         case tool = "tl"
         case summary = "sm"
@@ -19,8 +21,9 @@ public struct ActivityBlock: Codable, Equatable, Sendable {
         case callId = "ci"
     }
 
-    public init(kind: String, text: String? = nil, tool: String? = nil, summary: String? = nil, preview: String? = nil, callId: String? = nil) {
+    public init(kind: String, label: String? = nil, text: String? = nil, tool: String? = nil, summary: String? = nil, preview: String? = nil, callId: String? = nil) {
         self.kind = kind
+        self.label = label
         self.text = text
         self.tool = tool
         self.summary = summary

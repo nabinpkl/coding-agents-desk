@@ -28,6 +28,7 @@ public enum AgentPanelRequest: Equatable, Sendable {
     case threadSubscribe(projectPath: String?, source: String?, sessionId: String?)
     case threadLoadOlder(sessionId: String, beforeIndex: Int, limit: Int)
     case threadUnsubscribe(sessionId: String)
+    case rawEvent(requestId: String, sessionId: String, eventIndex: Int)
     case terminal(AgentPanelTerminalIntent)
 
     public static func decode(tag: String, body: [String: Any]) -> AgentPanelRequest? {
@@ -54,6 +55,16 @@ public enum AgentPanelRequest: Equatable, Sendable {
                 return nil
             }
             return .threadUnsubscribe(sessionId: sessionId)
+        case "agent-raw-event-get":
+            guard let requestId = body["rid"] as? String,
+                  !requestId.isEmpty,
+                  let sessionId = body["sid"] as? String,
+                  !sessionId.isEmpty,
+                  let eventIndex = body["ei"] as? Int,
+                  eventIndex >= 0 else {
+                return nil
+            }
+            return .rawEvent(requestId: requestId, sessionId: sessionId, eventIndex: eventIndex)
         case "agent-terminal-open":
             return decodeTerminalIntent(body: body, make: AgentPanelTerminalIntent.open)
         case "agent-terminal-close":

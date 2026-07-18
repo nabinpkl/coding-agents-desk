@@ -97,3 +97,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0057 | Shared responsive DOCX preview over the Files stream | accepted | 2026-07-16 |
 | ADR-0058 | Sequenced cursor reconciliation with explicit host provenance | accepted | 2026-07-16 |
 | ADR-0059 | Swap Dock desktop contents through yabai | accepted | 2026-07-17 |
+| ADR-0060 | Fragment large Agent feed raw events on the input lane | accepted | 2026-07-18 |

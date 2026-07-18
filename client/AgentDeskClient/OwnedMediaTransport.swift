@@ -44,6 +44,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
     let connectionState: AsyncStream<MediaConnectionState>
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
+    private let rawEventReassembly = OSAllocatedUnfairLock<AgentRawEventReassembler>(
+        initialState: AgentRawEventReassembler()
+    )
     private var datagramReceiveTask: Task<Void, Never>?
     private var inputReceiveTask: Task<Void, Never>?
     private var graphicsReceiveTask: Task<Void, Never>?
@@ -191,6 +194,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     }
 
     func sendAgentThreadUnsubscribe(_ request: AgentThreadUnsubscribe) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
+    func sendAgentRawEventRequest(_ request: AgentRawEventRequest) async throws {
         try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
     }
 
@@ -396,21 +403,27 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             }
         case "agent-projects":
             logger.debug("input lane agent-projects received")
-            if let json = String(data: data, encoding: .utf8) {
-                let closure = onAgentPush
-                Task { @MainActor in closure?(json) }
-            }
+            deliverAgentPush(data)
         case "agent-thread-chunk":
             logger.debug("input lane agent-thread-chunk received")
-            if let json = String(data: data, encoding: .utf8) {
-                let closure = onAgentPush
-                Task { @MainActor in closure?(json) }
-            }
+            deliverAgentPush(data)
         case "agent-thread-error":
             logger.debug("input lane agent-thread-error received")
-            if let json = String(data: data, encoding: .utf8) {
-                let closure = onAgentPush
-                Task { @MainActor in closure?(json) }
+            deliverAgentPush(data)
+        case "agent-raw-event", "agent-raw-event-error":
+            deliverAgentPush(data)
+        case "agent-raw-event-part":
+            guard let part = try? JSONDecoder().decode(AgentRawEventPart.self, from: data) else {
+                logger.error("input lane raw event part decode failed")
+                return
+            }
+            let (outcome, needsCleanup) = rawEventReassembly.withLock { reassembler in
+                let isNew = !reassembler.containsTransfer(part.transferId)
+                return (reassembler.accept(part), isNew)
+            }
+            handleRawEventReassembly(outcome)
+            if needsCleanup, case .pending = outcome {
+                scheduleRawEventCleanup()
             }
         case "agent-terminal-ready", "agent-terminal-ended", "agent-terminal-error":
             if !Self.dispatchAgentTerminalPayload(data, to: agentTerminalContinuation) {
@@ -420,6 +433,47 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             close()
         default:
             logger.debug("input lane ignored frame type=\(header.type, privacy: .public)")
+        }
+    }
+
+    private func deliverAgentPush(_ data: Data) {
+        guard let json = String(data: data, encoding: .utf8) else {
+            logger.error("agent push was not valid UTF-8")
+            return
+        }
+        let closure = onAgentPush
+        Task { @MainActor in closure?(json) }
+    }
+
+    private func handleRawEventReassembly(_ outcome: AgentRawEventReassembler.Outcome) {
+        switch outcome {
+        case .pending:
+            return
+        case .complete(let response):
+            if let data = try? JSONEncoder().encode(response) {
+                deliverAgentPush(data)
+            }
+        case .rejected(let error, let cause):
+            logger.error("raw event transfer rejected cause=\(String(describing: cause), privacy: .public)")
+            if let data = try? JSONEncoder().encode(error) {
+                deliverAgentPush(data)
+            }
+        }
+    }
+
+    private func scheduleRawEventCleanup() {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(AgentRawEventLimits.transferTimeout))
+            guard let self else { return }
+            let errors = rawEventReassembly.withLock { reassembler in
+                reassembler.expire()
+            }
+            for error in errors {
+                logger.error("raw event transfer expired sessionId=\(error.sessionId, privacy: .public) eventIndex=\(error.eventIndex, privacy: .public)")
+                if let data = try? JSONEncoder().encode(error) {
+                    deliverAgentPush(data)
+                }
+            }
         }
     }
 

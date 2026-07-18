@@ -41,6 +41,7 @@ protocol InputChannel: AnyObject, Sendable {
     func sendAgentThreadSubscribe(_ request: AgentThreadSubscribe) async throws
     func sendAgentThreadLoadOlder(_ request: AgentThreadLoadOlder) async throws
     func sendAgentThreadUnsubscribe(_ request: AgentThreadUnsubscribe) async throws
+    func sendAgentRawEventRequest(_ request: AgentRawEventRequest) async throws
     func sendAgentTerminal(_ message: AgentTerminalClientMessage) async throws
 
     var closed: AsyncStream<Void> { get }

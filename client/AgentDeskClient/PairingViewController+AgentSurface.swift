@@ -576,6 +576,8 @@ extension PairingViewController {
                     try await channel.sendAgentThreadLoadOlder(older)
                 case .threadUnsubscribe(let unsub):
                     try await channel.sendAgentThreadUnsubscribe(unsub)
+                case .rawEvent(let request):
+                    try await channel.sendAgentRawEventRequest(request)
                 }
             } catch {
                 Self.logger.error(

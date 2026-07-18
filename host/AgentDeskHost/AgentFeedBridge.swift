@@ -14,9 +14,15 @@ final class AgentFeedBridge: @unchecked Sendable {
     // Page size for the initial seed window on AgentThreadSubscribe.
     static let pageSize = 100
 
+    enum RawEventDeliveryMode: Sendable, Equatable {
+        case direct
+        case fragmentForInputLane
+    }
+
     private let client: any SidecarClient
     private let send: @Sendable (Data) -> Void
     private let logger: Logger
+    private let rawEventDeliveryMode: RawEventDeliveryMode
     private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).agent-feed-bridge")
 
     // Active per-session SSE stream handles.
@@ -25,8 +31,13 @@ final class AgentFeedBridge: @unchecked Sendable {
     // Construct with the injectable client and the lane push closure.
     // The send closure mirrors the pattern used by InputChannelServer.sendCodableFrame:
     // encode the message and write to the QUIC stream.
-    init(client: any SidecarClient, send: @escaping @Sendable (Data) -> Void) {
+    init(
+        client: any SidecarClient,
+        rawEventDeliveryMode: RawEventDeliveryMode = .fragmentForInputLane,
+        send: @escaping @Sendable (Data) -> Void
+    ) {
         self.client = client
+        self.rawEventDeliveryMode = rawEventDeliveryMode
         self.send = send
         self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-bridge")
     }
@@ -135,6 +146,37 @@ final class AgentFeedBridge: @unchecked Sendable {
         logger.debug("agent-feed-bridge: unsubscribed sessionId=\(request.sessionId, privacy: .public)")
     }
 
+    func handleRawEvent(_ request: AgentRawEventRequest) {
+        guard request.eventIndex >= 0 else {
+            sendCodable(AgentRawEventError(
+                requestId: request.requestId,
+                sessionId: request.sessionId,
+                eventIndex: request.eventIndex,
+                reason: "invalid event index"
+            ))
+            return
+        }
+        Task {
+            do {
+                let text = try await client.fetchRawEvent(
+                    sessionId: request.sessionId,
+                    eventIndex: request.eventIndex
+                )
+                try sendRawEvent(text, request: request)
+            } catch {
+                logger.error(
+                    "agent-feed raw event failed sessionId=\(request.sessionId, privacy: .public) eventIndex=\(request.eventIndex, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+                sendCodable(AgentRawEventError(
+                    requestId: request.requestId,
+                    sessionId: request.sessionId,
+                    eventIndex: request.eventIndex,
+                    reason: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                ))
+            }
+        }
+    }
+
     // MARK: - Private helpers
 
     private func openStream(sessionId: String, after: Int) {
@@ -179,12 +221,48 @@ final class AgentFeedBridge: @unchecked Sendable {
         }
     }
 
+    private func sendRawEvent(_ text: String, request: AgentRawEventRequest) throws {
+        let source = Data(text.utf8)
+        guard source.count <= AgentRawEventLimits.maximumRecordBytes else {
+            throw SidecarClientError.server("raw event exceeds 100 MiB")
+        }
+        let response = AgentRawEventResponse(
+            requestId: request.requestId,
+            sessionId: request.sessionId,
+            eventIndex: request.eventIndex,
+            text: text
+        )
+        let encoded = try JSONEncoder().encode(response)
+        if rawEventDeliveryMode == .direct || encoded.count <= QuicSessionStreamFrame.maxFrameLength {
+            send(encoded)
+            return
+        }
+        var partCount = 0
+        try AgentRawEventFragmenter.forEachPart(
+            data: source,
+            requestId: request.requestId,
+            sessionId: request.sessionId,
+            eventIndex: request.eventIndex
+        ) { part in
+            let frame = try JSONEncoder().encode(part)
+            guard frame.count <= QuicSessionStreamFrame.maxFrameLength else {
+                throw QuicSessionFrameError.frameTooLarge
+            }
+            send(frame)
+            partCount += 1
+        }
+        logger.notice(
+            "agent-feed raw event fragmented sessionId=\(request.sessionId, privacy: .public) eventIndex=\(request.eventIndex, privacy: .public) bytes=\(source.count, privacy: .public) parts=\(partCount, privacy: .public)"
+        )
+    }
+
     // MARK: - Mapping sidecar DTOs to wire types
 
     private func wireEvent(from engine: EngineActivityEvent) -> ActivityEvent {
         let blocks = engine.blocks.map { block -> ActivityBlock in
             ActivityBlock(
                 kind: block.kind,
+                label: block.label,
                 text: block.text,
                 tool: block.tool,
                 summary: block.summary,

@@ -33,6 +33,12 @@ final class AgentPanelBridgeTransport: AgentPanelTransport {
             ))
         case .threadUnsubscribe(let sessionId):
             bridge.handleThreadUnsubscribe(AgentThreadUnsubscribe(sessionId: sessionId))
+        case .rawEvent(let requestId, let sessionId, let eventIndex):
+            bridge.handleRawEvent(AgentRawEventRequest(
+                requestId: requestId,
+                sessionId: sessionId,
+                eventIndex: eventIndex
+            ))
         case .terminal(let intent):
             onTerminalIntent?(intent)
         }

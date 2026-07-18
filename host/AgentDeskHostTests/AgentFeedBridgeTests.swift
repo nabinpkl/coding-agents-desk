@@ -10,6 +10,7 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     // Configurable canned return values.
     var digestResult: Result<[EngineProjectDigest], Error> = .success([])
     var eventsPageResult: Result<EngineEventsPage, Error> = .success(EngineEventsPage(events: [], total: 0))
+    var rawEventResult: Result<String, Error> = .success("")
 
     // Whether a stream was opened and the injected event-push closure.
     private(set) var streamOpenedForSessionId: String?
@@ -23,6 +24,10 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
 
     func fetchEventsPage(sessionId: String, offset: Int, limit: Int) async throws -> EngineEventsPage {
         try eventsPageResult.get()
+    }
+
+    func fetchRawEvent(sessionId: String, eventIndex: Int) async throws -> String {
+        try rawEventResult.get()
     }
 
     func openEventStream(
@@ -397,6 +402,47 @@ struct AgentFeedBridgeTests {
         let errMsg = try sink.decode(AgentThreadError.self, at: 0)
         #expect(errMsg.sessionId == "sess-err")
         #expect(!errMsg.reason.isEmpty)
+    }
+
+    @Test func rawEventUsesOneFrameWhenEncodedResponseFits() async throws {
+        let fake = FakeSidecarClient()
+        fake.rawEventResult = .success(#"{"exact":true}"#)
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: { sink.accept($0) })
+
+        bridge.handleRawEvent(AgentRawEventRequest(
+            requestId: "r1", sessionId: "s1", eventIndex: 7
+        ))
+        await waitForMessages(sink, count: 1)
+
+        #expect(sink.received.count == 1)
+        let response = try sink.decode(AgentRawEventResponse.self, at: 0)
+        #expect(response.text == #"{"exact":true}"#)
+    }
+
+    @Test func rawEventFragmentsAboveInputFrameLimitAndReassembles() async throws {
+        let fake = FakeSidecarClient()
+        let text = String(repeating: "a", count: QuicSessionStreamFrame.maxFrameLength)
+        fake.rawEventResult = .success(text)
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: { sink.accept($0) })
+
+        bridge.handleRawEvent(AgentRawEventRequest(
+            requestId: "r2", sessionId: "s2", eventIndex: 8
+        ))
+        await waitForMessages(sink, count: 2)
+
+        #expect(sink.received.count == 2)
+        var reassembler = AgentRawEventReassembler()
+        var completed: AgentRawEventResponse?
+        for frame in sink.received {
+            #expect(frame.count <= QuicSessionStreamFrame.maxFrameLength)
+            let part = try JSONDecoder().decode(AgentRawEventPart.self, from: frame)
+            if case .complete(let response) = reassembler.accept(part) {
+                completed = response
+            }
+        }
+        #expect(completed?.text == text)
     }
 
     // MARK: SSE stream error -> AgentThreadError for that session
