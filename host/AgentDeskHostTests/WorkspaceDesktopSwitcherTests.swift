@@ -75,4 +75,24 @@ struct WorkspaceDesktopSwitcherTests {
         #expect(desktops.map(\.id) == [10, 20])
         #expect(desktops.first { $0.isActive }?.id == 20)
     }
+
+    @Test func desktopsUsesGlobalMissionControlOrderWithoutChangingDisplayOrdinal() {
+        let state = DesktopState(
+            displays: [],
+            spaces: [
+                SpaceMetadata(id: 10, displayId: "D1", index: 0, type: 0),
+                SpaceMetadata(id: 11, displayId: "D1", index: 1, type: 0),
+                SpaceMetadata(id: 99, displayId: "D1", index: nil, type: 4),
+                SpaceMetadata(id: 20, displayId: "D2", index: 0, type: 0),
+            ],
+            activeDisplayId: "D2",
+            activeSpaceId: 20
+        )
+        let switcher = WorkspaceDesktopSwitcher(state: { state }, commit: { _ in })
+
+        let desktops = switcher.desktops()
+
+        #expect(desktops.map(\.ordinal) == [0])
+        #expect(desktops.map(\.missionControlOrdinal) == [2])
+    }
 }

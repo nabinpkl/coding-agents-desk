@@ -36,6 +36,8 @@ window-ID verification waits for the required host relaunch checkpoint.
 - [x] D99. Attempt to stabilize the row with overlay scroller styling and an in-process midline assertion; the tests passed, but live R100 AX frames proved AppKit still reserved scrollbar height and left an 8.5-point offset.
 - [x] D100. Relaunch the landed Release host, compare the live Swap and desktop-card AX midlines, and capture a window-only screenshot confirming row alignment.
 - [x] D101. Replace the ineffective scroller-style assumption with one explicit top-aligned row shared by the fixed Swap tile and scrollable desktop cards; cover equal top edges and midlines under both legacy and overlay scroller styles.
+- [x] D102. Split live Desktop topology into stable Space identity, per-display control ordinal, and global Mission Control ordinal; derive the global ordinal from flattened SkyLight user-Space order, make Dock labels consume only that field, and cover the secondary-display `ordinal 0` to `Desktop 8` case without adding a yabai label dependency.
+- [ ] R103. Relaunch the landed Release host, verify Space `1934` on the secondary monitor exposes `Desktop 8` plus the `S` badge through AX, and capture a window-only screenshot.
 
 ## Promotion log
 
@@ -54,3 +56,5 @@ window-ID verification waits for the required host relaunch checkpoint.
 | D99 | 2026-07-17 | done | The overlay-scroller attempt landed with green tests, but live Release AX verification falsified its geometry assumption and measured the original 8.5-point offset. |
 | D100 | 2026-07-17 | done | Release host `100781c` matched its embedded SHA; live AX measured a 0.0-point Swap-to-desktop midline difference, and the window-only capture confirmed one aligned row above the scrollbar. |
 | D101 | 2026-07-17 | done | An explicit top-aligned row replaces content-center inference; focused tests and all 531 host tests cover equal Swap and desktop-card geometry for both scroller styles. |
+| D102 | 2026-07-17 | done | Dual local and global ordinals preserve workspace switching while Dock labels now match Mission Control; focused suites and all 534 host tests pass. |
+| R103 | pending | pending | Release host AX and screenshot verification for secondary Space 1934 as Desktop 8 with the S badge. |

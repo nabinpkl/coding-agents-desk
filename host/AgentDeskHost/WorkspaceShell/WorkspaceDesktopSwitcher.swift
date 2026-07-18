@@ -37,9 +37,20 @@ final class WorkspaceDesktopSwitcher {
     /// The live user Desktops on the active display, for the switcher / audit.
     func desktops() -> [WorkspaceDesktop] {
         guard let state = state(), let activeDisplayId = state.activeDisplayId else { return [] }
-        return userSpaces(on: activeDisplayId, in: state).enumerated().map { ordinal, space in
+        let userSpaces = userSpaces(on: activeDisplayId, in: state)
+        let missionControlOrdinals = Dictionary(uniqueKeysWithValues:
+            state.spaces
+                .filter { $0.type == 0 }
+                .enumerated()
+                .map { ($0.element.id, $0.offset) }
+        )
+        guard userSpaces.allSatisfy({ missionControlOrdinals[$0.id] != nil }) else { return [] }
+        return userSpaces.enumerated().map { ordinal, space in
             WorkspaceDesktop(
-                id: space.id, displayID: space.displayId, ordinal: ordinal,
+                id: space.id,
+                displayID: space.displayId,
+                ordinal: ordinal,
+                missionControlOrdinal: missionControlOrdinals[space.id]!,
                 isActive: space.id == state.activeSpaceId
             )
         }

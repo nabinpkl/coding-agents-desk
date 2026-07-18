@@ -10,7 +10,7 @@ public struct DockAppSnapshot: Equatable, Sendable {
             DockDesktopGroupSummary(
                 spaceID: nil,
                 displayID: nil,
-                desktopOrdinal: nil,
+                missionControlOrdinal: nil,
                 monitorName: "Current Desktop",
                 monitorFrame: nil,
                 isActive: true,
@@ -29,7 +29,8 @@ public struct DockAppSnapshot: Equatable, Sendable {
 public struct DockDesktopGroupSummary: Equatable, Sendable {
     public let spaceID: UInt64?
     public let displayID: String?
-    public let desktopOrdinal: Int?
+    /// Zero-based global position among user Desktops in SkyLight's Mission Control order.
+    public let missionControlOrdinal: Int?
     public let monitorName: String
     public let monitorFrame: CGRect?
     public let isActive: Bool
@@ -43,7 +44,7 @@ public struct DockDesktopGroupSummary: Equatable, Sendable {
     }
 
     public var desktopLabel: String {
-        label ?? desktopOrdinal.map { "Desktop \($0)" } ?? "Current Desktop"
+        label ?? missionControlOrdinal.map { "Desktop \($0 + 1)" } ?? "Current Desktop"
     }
 
     public var monitorDetailLabel: String {
@@ -60,7 +61,7 @@ public struct DockDesktopGroupSummary: Equatable, Sendable {
     public init(
         spaceID: UInt64?,
         displayID: String?,
-        desktopOrdinal: Int?,
+        missionControlOrdinal: Int?,
         monitorName: String,
         monitorFrame: CGRect?,
         isActive: Bool,
@@ -71,7 +72,7 @@ public struct DockDesktopGroupSummary: Equatable, Sendable {
     ) {
         self.spaceID = spaceID
         self.displayID = displayID
-        self.desktopOrdinal = desktopOrdinal
+        self.missionControlOrdinal = missionControlOrdinal
         self.monitorName = monitorName
         self.monitorFrame = monitorFrame
         self.isActive = isActive
@@ -216,7 +217,7 @@ extension DockDesktopGroupSummary {
         DockDesktopGroupSummary(
             spaceID: spaceID,
             displayID: displayID,
-            desktopOrdinal: desktopOrdinal,
+            missionControlOrdinal: missionControlOrdinal,
             monitorName: monitorName,
             monitorFrame: monitorFrame,
             isActive: isActive,

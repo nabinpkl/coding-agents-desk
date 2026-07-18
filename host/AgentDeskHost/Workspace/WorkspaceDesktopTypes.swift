@@ -1,18 +1,26 @@
 import Foundation
 
-/// A live macOS Desktop (Space) row, ported from the agent-workspace-ide donor. Used by the workspace
-/// store's desktop ops (`orderByDesktopEnumeration`) and `WorkspaceDesktopSwitcher`. The donor's
-/// window/audit value types are not ported (AgentDesk has no desktop-audit surface).
+/// A live macOS Desktop (Space). `ordinal` is scoped to `displayID` and remains the control coordinate
+/// used by workspace assignment and switching. `missionControlOrdinal` is global across displays in
+/// SkyLight order and exists only for Mission Control-compatible presentation.
 public struct WorkspaceDesktop: Equatable, Sendable {
     public let id: UInt64
     public let displayID: String
     public let ordinal: Int
+    public let missionControlOrdinal: Int
     public let isActive: Bool
 
-    public init(id: UInt64, displayID: String, ordinal: Int, isActive: Bool) {
+    public init(
+        id: UInt64,
+        displayID: String,
+        ordinal: Int,
+        missionControlOrdinal: Int,
+        isActive: Bool
+    ) {
         self.id = id
         self.displayID = displayID
         self.ordinal = ordinal
+        self.missionControlOrdinal = missionControlOrdinal
         self.isActive = isActive
     }
 }

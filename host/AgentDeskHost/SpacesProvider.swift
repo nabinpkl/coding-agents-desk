@@ -98,9 +98,10 @@ func skyLightDesktopAuditSnapshot() -> WorkspaceDesktopSnapshot {
     )
 }
 
-/// User Desktops (Space type 0) per display, ordinal 0-based to match `WorkspaceDesktopAssignment`.
-private func skyLightAuditDesktops(from displays: [[String: Any]], active: UInt64) -> [WorkspaceDesktop] {
+/// User Desktops (Space type 0) with both per-display control order and Mission Control's global order.
+func skyLightAuditDesktops(from displays: [[String: Any]], active: UInt64) -> [WorkspaceDesktop] {
     var desktops: [WorkspaceDesktop] = []
+    var missionControlOrdinal = 0
     for display in displays {
         let displayID = display["Display Identifier"] as? String ?? "unknown-display"
         let spaces = display["Spaces"] as? [[String: Any]] ?? []
@@ -109,8 +110,15 @@ private func skyLightAuditDesktops(from displays: [[String: Any]], active: UInt6
             guard let id = (space["id64"] as? NSNumber)?.uint64Value else { continue }
             let type = (space["type"] as? NSNumber)?.intValue ?? (space["type"] as? Int ?? -1)
             guard type == 0 else { continue }
-            desktops.append(WorkspaceDesktop(id: id, displayID: displayID, ordinal: ordinal, isActive: id == active))
+            desktops.append(WorkspaceDesktop(
+                id: id,
+                displayID: displayID,
+                ordinal: ordinal,
+                missionControlOrdinal: missionControlOrdinal,
+                isActive: id == active
+            ))
             ordinal += 1
+            missionControlOrdinal += 1
         }
     }
     return desktops

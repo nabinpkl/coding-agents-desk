@@ -212,7 +212,7 @@ struct DockEnrichmentSwapInteractionTests {
             DockDesktopGroupSummary(
                 spaceID: 100,
                 displayID: "primary",
-                desktopOrdinal: 1,
+                missionControlOrdinal: 1,
                 monitorName: "Primary",
                 monitorFrame: CGRect(x: 0, y: 0, width: 1920, height: 1080),
                 isActive: true,
@@ -224,7 +224,7 @@ struct DockEnrichmentSwapInteractionTests {
             DockDesktopGroupSummary(
                 spaceID: 200,
                 displayID: "secondary",
-                desktopOrdinal: 7,
+                missionControlOrdinal: 7,
                 monitorName: "Secondary",
                 monitorFrame: CGRect(x: 1920, y: 0, width: 1920, height: 1080),
                 isActive: false,

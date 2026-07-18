@@ -42,6 +42,32 @@ struct SpacesProviderTests {
         }
     }
 
+    @Test func desktopAuditKeepsDisplayOrdinalsAndAddsMissionControlOrdinals() {
+        let displays: [[String: Any]] = [
+            [
+                "Display Identifier": "primary",
+                "Spaces": [
+                    ["id64": NSNumber(value: 10), "type": NSNumber(value: 0)],
+                    ["id64": NSNumber(value: 99), "type": NSNumber(value: 4)],
+                    ["id64": NSNumber(value: 11), "type": NSNumber(value: 0)],
+                ],
+            ],
+            [
+                "Display Identifier": "secondary",
+                "Spaces": [
+                    ["id64": NSNumber(value: 20), "type": NSNumber(value: 0)],
+                ],
+            ],
+        ]
+
+        let desktops = skyLightAuditDesktops(from: displays, active: 20)
+
+        #expect(desktops.map(\.id) == [10, 11, 20])
+        #expect(desktops.map(\.ordinal) == [0, 1, 0])
+        #expect(desktops.map(\.missionControlOrdinal) == [0, 1, 2])
+        #expect(desktops.map(\.isActive) == [false, false, true])
+    }
+
     @Test func postDockSwipeFrameEmitsDockControlEventWithSwipeFields() {
         let recorder = EventRecorder()
         let provider = SpacesProvider(eventPoster: { recorder.record($0) })

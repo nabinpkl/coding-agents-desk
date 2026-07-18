@@ -29,8 +29,20 @@ struct DockAppSnapshotReaderTests {
         let ax = DockAXWindowFacts(title: "main.swift", role: "AXWindow", subrole: "AXStandardWindow", isFocused: true, isMinimized: false, bounds: bounds)
         let cg = DockCGWindowFacts(pid: 100, windowID: 42, title: "main.swift", layer: 0, alpha: 1, bounds: bounds)
         let desktops = [
-            WorkspaceDesktop(id: 1, displayID: "display-1", ordinal: 0, isActive: true),
-            WorkspaceDesktop(id: 2, displayID: "display-1", ordinal: 1, isActive: false),
+            WorkspaceDesktop(
+                id: 1,
+                displayID: "display-1",
+                ordinal: 0,
+                missionControlOrdinal: 0,
+                isActive: true
+            ),
+            WorkspaceDesktop(
+                id: 2,
+                displayID: "display-1",
+                ordinal: 1,
+                missionControlOrdinal: 1,
+                isActive: false
+            ),
         ]
         let auditWindow = WorkspaceDesktopWindow(windowID: 42, ownerName: "Editor", title: "main.swift", spaceIDs: [1], layer: 0, bounds: bounds, expectation: .otherApp)
         let audit = StaticWorkspaceDesktopAudit(WorkspaceDesktopSnapshot(activeSpaceID: 1, desktops: desktops, windows: [auditWindow], diagnostic: nil))
@@ -75,11 +87,11 @@ struct DockAppSnapshotReaderTests {
         #expect(snapshot.desktopGroups.first?.apps.map(\.name) == ["Editor"])
     }
 
-    @Test func monitorBadgeUsesDisplayRoleInsteadOfDesktopOrdinal() {
+    @Test func monitorBadgeUsesDisplayRoleInsteadOfMissionControlOrdinal() {
         let primary = DockDesktopGroupSummary(
             spaceID: 1,
             displayID: "primary",
-            desktopOrdinal: 7,
+            missionControlOrdinal: 7,
             monitorName: "Studio Display",
             monitorFrame: nil,
             isActive: true,
@@ -90,7 +102,7 @@ struct DockAppSnapshotReaderTests {
         let secondary = DockDesktopGroupSummary(
             spaceID: 2,
             displayID: "secondary",
-            desktopOrdinal: 0,
+            missionControlOrdinal: 0,
             monitorName: "Side Display",
             monitorFrame: nil,
             isActive: false,
@@ -101,5 +113,42 @@ struct DockAppSnapshotReaderTests {
 
         #expect(primary.monitorBadgeLabel == "P")
         #expect(secondary.monitorBadgeLabel == "S")
+    }
+
+    @Test func secondaryDisplayUsesMissionControlDesktopNumber() {
+        let audit = StaticWorkspaceDesktopAudit(WorkspaceDesktopSnapshot(
+            activeSpaceID: 80,
+            desktops: [
+                WorkspaceDesktop(
+                    id: 80,
+                    displayID: "secondary",
+                    ordinal: 0,
+                    missionControlOrdinal: 7,
+                    isActive: true
+                ),
+            ],
+            windows: [],
+            diagnostic: nil
+        ))
+        let reader = DockAppSnapshotReader(
+            applications: StubApps(apps: []),
+            axWindows: StubAX(byPID: [:]),
+            cgWindows: StubCG(list: []),
+            desktopAudit: audit,
+            monitors: StaticDockDisplayMonitorReader(monitors: [
+                DockDisplayMonitorFacts(
+                    displayID: "secondary",
+                    name: "Secondary",
+                    frame: bounds,
+                    visibleFrame: bounds,
+                    isMain: false
+                ),
+            ])
+        )
+
+        let group = reader.snapshot().desktopGroups.first
+
+        #expect(group?.desktopLabel == "Desktop 8")
+        #expect(group?.monitorBadgeLabel == "S")
     }
 }

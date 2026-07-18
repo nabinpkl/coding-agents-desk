@@ -180,7 +180,7 @@ public struct DockAppSnapshotReader: DockAppSnapshotReading {
                 DockDesktopGroupSummary(
                     spaceID: nil,
                     displayID: nil,
-                    desktopOrdinal: nil,
+                    missionControlOrdinal: nil,
                     monitorName: "Current Desktop",
                     monitorFrame: nil,
                     isActive: true,
@@ -222,16 +222,13 @@ public struct DockAppSnapshotReader: DockAppSnapshotReading {
             return DockDesktopGroupSummary(
                 spaceID: desktop.id,
                 displayID: desktop.displayID,
-                desktopOrdinal: desktop.ordinal,
+                missionControlOrdinal: desktop.missionControlOrdinal,
                 monitorName: monitor?.name ?? desktop.displayID,
                 monitorFrame: monitor?.frame,
                 isActive: desktop.isActive,
                 isMainDisplay: monitor?.isMain ?? false,
                 diagnostic: nil,
-                apps: Self.sortedApps(appsByDesktopID[desktop.id] ?? []),
-                // Base label is the human 1-based "Desktop N"; the panel overlays the assigned
-                // workspace name (Q2) on the main thread where the store lives.
-                label: "Desktop \(desktop.ordinal + 1)"
+                apps: Self.sortedApps(appsByDesktopID[desktop.id] ?? [])
             )
         }
         if !ungroupedApps.isEmpty {
@@ -240,7 +237,7 @@ public struct DockAppSnapshotReader: DockAppSnapshotReading {
             groups.append(DockDesktopGroupSummary(
                 spaceID: nil,
                 displayID: active?.displayID,
-                desktopOrdinal: nil,
+                missionControlOrdinal: nil,
                 monitorName: monitor?.name ?? "No resolved Space membership",
                 monitorFrame: monitor?.frame,
                 isActive: false,
