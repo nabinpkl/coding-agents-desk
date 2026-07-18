@@ -86,4 +86,31 @@ struct AgentPanelBridgeTransportTests {
         try await Task.sleep(nanoseconds: 200_000_000)
         #expect(fake.streamCancelledCount >= 1)
     }
+
+    @Test func terminalIntentsRouteToTheNativeCallbackWithoutTouchingTheFeedBridge() {
+        let fake = FakeSidecarClient()
+        var received: [AgentPanelTerminalIntent] = []
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: { sink.accept($0) })
+        let transport = AgentPanelBridgeTransport(
+            bridge: bridge,
+            onTerminalIntent: { received.append($0) }
+        )
+        let context = AgentPanelTerminalContext(
+            projectPath: "/Users/dev/projects/alpha",
+            source: .codex,
+            sessionID: "session-1"
+        )
+
+        transport.sendAgentPanelRequest(.terminal(.open(requestID: "request-1", context: context)))
+        transport.sendAgentPanelRequest(.terminal(.close(requestID: "request-1", context: context)))
+        transport.sendAgentPanelRequest(.terminal(.contextEnded(requestID: "request-1", context: context)))
+
+        #expect(received == [
+            .open(requestID: "request-1", context: context),
+            .close(requestID: "request-1", context: context),
+            .contextEnded(requestID: "request-1", context: context),
+        ])
+        #expect(sink.received.isEmpty)
+    }
 }

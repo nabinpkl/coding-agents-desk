@@ -83,6 +83,30 @@ struct AgentFeedSurfaceTests {
         #expect(Bool(true))
     }
 
+    @Test func terminalIntentsUseTheirOwnNativeCallback() {
+        let surface = AgentFeedSurface()
+        var feedRequests: [AgentFeedRequest] = []
+        var terminalIntents: [AgentPanelTerminalIntent] = []
+        surface.onAgentRequest = { feedRequests.append($0) }
+        surface.onTerminalIntent = { terminalIntents.append($0) }
+        let context = AgentPanelTerminalContext(
+            projectPath: "/Users/dev/projects/alpha",
+            source: .claude,
+            sessionID: "session-1"
+        )
+
+        surface.sendAgentPanelRequest(.terminal(.open(requestID: "request-1", context: context)))
+        surface.sendAgentPanelRequest(.terminal(.close(requestID: "request-1", context: context)))
+        surface.sendAgentPanelRequest(.terminal(.contextEnded(requestID: "request-1", context: context)))
+
+        #expect(feedRequests.isEmpty)
+        #expect(terminalIntents == [
+            .open(requestID: "request-1", context: context),
+            .close(requestID: "request-1", context: context),
+            .contextEnded(requestID: "request-1", context: context),
+        ])
+    }
+
     // MARK: - Delivery seam: deliver/resume route through the injectable seam
 
     @Test func deliverRoutesToSeam() {

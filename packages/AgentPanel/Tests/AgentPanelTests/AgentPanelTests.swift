@@ -63,6 +63,81 @@ struct AgentPanelTests {
         #expect(AgentPanelRequest.decode(tag: "future-message", body: [:]) == nil)
     }
 
+    @Test func requestDecoderPreservesTerminalIntentContext() {
+        let context = AgentPanelTerminalContext(
+            projectPath: "/Users/dev/projects/alpha",
+            source: .claude,
+            sessionID: "3A58D7B8-4E2D-4E06-93C2-49BB6F6CB21A"
+        )
+
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-terminal-open",
+                body: [
+                    "rid": "request-1",
+                    "ctx": [
+                        "pp": context.projectPath,
+                        "src": context.source.rawValue,
+                        "sid": context.sessionID,
+                    ],
+                ]
+            ) == .terminal(.open(requestID: "request-1", context: context))
+        )
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-terminal-close",
+                body: [
+                    "rid": "request-1",
+                    "ctx": [
+                        "pp": context.projectPath,
+                        "src": context.source.rawValue,
+                        "sid": context.sessionID,
+                    ],
+                ]
+            ) == .terminal(.close(requestID: "request-1", context: context))
+        )
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-terminal-context-ended",
+                body: [
+                    "rid": "request-1",
+                    "ctx": [
+                        "pp": context.projectPath,
+                        "src": context.source.rawValue,
+                        "sid": context.sessionID,
+                    ],
+                ]
+            ) == .terminal(.contextEnded(requestID: "request-1", context: context))
+        )
+    }
+
+    @Test func requestDecoderRejectsIncompleteOrUnknownTerminalContext() {
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-terminal-open",
+                body: [
+                    "rid": "request-1",
+                    "ctx": ["pp": "/project", "src": "other", "sid": "session-1"],
+                ]
+            ) == nil
+        )
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-terminal-open",
+                body: [
+                    "rid": "",
+                    "ctx": ["pp": "/project", "src": "codex", "sid": "session-1"],
+                ]
+            ) == nil
+        )
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-terminal-open",
+                body: ["rid": "request-1", "ctx": ["src": "codex", "sid": "session-1"]]
+            ) == nil
+        )
+    }
+
     @MainActor
     @Test func queuedPushesFlushInOrderAfterWebReadiness() {
         var delivered: [String] = []

@@ -16,6 +16,8 @@ final class AgentFeedSurface: UIView, AgentPanelTransport {
 
     /// Injected by PairingViewController to forward inbound requests to the input lane.
     var onAgentRequest: ((AgentFeedRequest) -> Void)?
+    /// Native container seam for Agent Panel terminal intent. L6 supplies terminal ownership.
+    var onTerminalIntent: ((AgentPanelTerminalIntent) -> Void)?
     /// Test seam: when set, receives the delivered payload instead of the real panel.
     var deliverForTesting: ((String) -> Void)?
     var resumeAfterReconnectForTesting: (() -> Void)?
@@ -95,6 +97,10 @@ final class AgentFeedSurface: UIView, AgentPanelTransport {
     // MARK: - AgentPanelTransport
 
     func sendAgentPanelRequest(_ request: AgentPanelRequest) {
+        if case .terminal(let intent) = request {
+            onTerminalIntent?(intent)
+            return
+        }
         onAgentRequest?(AgentFeedRequest(request))
     }
 }
@@ -118,6 +124,8 @@ enum AgentFeedRequest: Equatable {
             self = .threadLoadOlder(AgentThreadLoadOlder(sessionId: sessionId, beforeIndex: beforeIndex, limit: limit))
         case .threadUnsubscribe(let sessionId):
             self = .threadUnsubscribe(AgentThreadUnsubscribe(sessionId: sessionId))
+        case .terminal:
+            preconditionFailure("Terminal intents must route through AgentFeedSurface.onTerminalIntent")
         }
     }
 }

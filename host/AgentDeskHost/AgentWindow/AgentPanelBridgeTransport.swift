@@ -9,9 +9,14 @@ import AgentPanel
 @MainActor
 final class AgentPanelBridgeTransport: AgentPanelTransport {
     private let bridge: AgentFeedBridge
+    private let onTerminalIntent: ((AgentPanelTerminalIntent) -> Void)?
 
-    init(bridge: AgentFeedBridge) {
+    init(
+        bridge: AgentFeedBridge,
+        onTerminalIntent: ((AgentPanelTerminalIntent) -> Void)? = nil
+    ) {
         self.bridge = bridge
+        self.onTerminalIntent = onTerminalIntent
     }
 
     func sendAgentPanelRequest(_ request: AgentPanelRequest) {
@@ -28,6 +33,8 @@ final class AgentPanelBridgeTransport: AgentPanelTransport {
             ))
         case .threadUnsubscribe(let sessionId):
             bridge.handleThreadUnsubscribe(AgentThreadUnsubscribe(sessionId: sessionId))
+        case .terminal(let intent):
+            onTerminalIntent?(intent)
         }
     }
 }

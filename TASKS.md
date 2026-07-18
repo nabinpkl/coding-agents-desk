@@ -55,10 +55,10 @@ append the replacement ID, and write the exact handoff checkpoint before impleme
 | L0 Decision | ADR/SPEC compatibility contract | D58 | none | `019f59b0-7e57-72c3-b81c-30f862200e61` | `019f59b0-823e-70f3-a4d2-50fb7bfb63aa` | complete | Landed in `03b6d97`; no next action. |
 | L1 PTY core | PTY protocol, Rust manager, Swift bindings | D59-D61 | L0 | `019f59be-2304-7a73-bbe1-cef19e64338e` | `019f59be-1efa-7b41-98d2-420985d6eb0f` | complete | Landed through `4a4495a`; standing pair closed. |
 | L2 Host control | resume identity, coordinator, AgentDesk wire | D62-D64 | L1 | `019f59f0-7854-7f23-9dff-80f7adb409d7` | `019f59f0-7bf4-7c72-9ceb-5b63143d7b2a` | complete | R64 landed and pushed in `37af154` after three correction rounds with the same pair. Co-ordinator gates: `git diff --check`, `just check` (459 Swift Testing cases plus host XCTest), and `just sim-test` (308 Swift Testing cases plus 23 XCTest). Standing pair closed; no L2 work remains. |
-| L3 Panel intent | ATC webview and native bridge intent | R65 | L2 | unavailable `019f5a64-0175-7d50-9973-9ec723d4e488`; replacement `019f5a6b-abb5-7223-8d77-3de8a68031ad` | `019f5a64-050f-7063-9942-17d5005ae034` | active | First full review rejected one HIGH: the default request-id path assumes `crypto.randomUUID()` under custom `agentfeed://`, while tests injected a factory. Same replacement Implementor owns a non-throwing production-safe generator plus default-path tests; same Reviewer re-reviews. All other intent, fencing, ordering, bottom-band, and native callback boundaries passed review. Exclude agent-desk `AgentPanelWebview/.gitkeep` and ATC `dashboard/pnpm-workspace.yaml` plus `taste/library/README.md`. |
+| L3 Panel intent | ATC webview and native bridge intent | D65 | L2 | unavailable `019f5a64-0175-7d50-9973-9ec723d4e488`; replacement `019f5a6b-abb5-7223-8d77-3de8a68031ad` | `019f5a64-050f-7063-9942-17d5005ae034` | complete | Approved after one correction round with the same replacement Implementor and standing Reviewer. ATC authored source landed in `3b2021d`; this agent-desk commit lands typed native intent callbacks. Co-ordinator gates: ATC 33 webview and 36 data-source tests, `just webview-smoke` (144 assets), `just check` (460 Swift Testing cases plus host XCTest), `just sim-test` (309 Swift Testing cases plus 23 XCTest), and both diff checks. Close pair after push. |
 | L4 Terminal content | shared SwiftTerm content and existing consumers | D66 | L1 | `019f59f0-7f6a-7191-a273-59b2ee115db5` | `019f59f0-8367-7990-ba70-41dfe70f7fb0` | complete | Landed in `6677a33` after Implementor self-review, standing Reviewer approval, 32 package tests, `just check` (427 host tests), and `just sim-test` (325 client tests). Standing pair closed. |
-| L5 macOS | Agent window layout and macOS lifecycle | R67-R68 | L2, L3, L4 | not opened | not opened | queued | Co-ordinator opens one pair after D64-D66 land. The same pair owns R67 and R68; do not split layout from lifecycle. |
-| L6 iOS | Agent surface layout, transport, and iOS lifecycle | R69-R70 | L2, L3, L4 | not opened | not opened | queued | Co-ordinator opens one pair after D64-D66 land. The same pair owns R69 and R70; do not split layout from lifecycle. |
+| L5 macOS | Agent window layout and macOS lifecycle | R67-R68 | L2, L3, L4 | not opened | not opened | next | After the D65 agent-desk commit is pushed, open one standing pair and record both IDs before edits. The same pair owns R67 and R68; do not split layout from lifecycle. |
+| L6 iOS | Agent surface layout, transport, and iOS lifecycle | R69-R70 | L2, L3, L4 | not opened | not opened | next | After the D65 agent-desk commit is pushed, open one standing pair and record both IDs before edits. The same pair owns R69 and R70; do not split layout from lifecycle. |
 | L7 Verification | integration smoke, simulator, macOS AX, orphan audit | R71-R73 | L5, L6 | not opened | not opened | queued | Co-ordinator opens one pair after D70 lands. The same pair owns automated integration and both preapproved live drives so evidence and process-lifecycle observations stay in one context. |
 
 ### Lane SDLC loop
@@ -175,7 +175,7 @@ The canonical web UI is authored in the ATC sibling and built into AgentPanel re
 
 ### L3: Panel intent
 
-- [ ] R65. Extend `AgentPanelRequest` and the ATC `WebkitHostBridge` contract with session-scoped
+- [x] D65. Extend `AgentPanelRequest` and the ATC `WebkitHostBridge` contract with session-scoped
   terminal open/close/context-ended intent. In `dashboard/webview/App.tsx`, add a fixed bottom launcher
   on the thread view only: terminal icon plus `Open Claude` or `Open Codex`. Opening enters a loading
   state; native ready/error/ended events update the bar. Back navigation, session replacement, and
@@ -269,4 +269,5 @@ human checkpoint.
 | D62 | 2026-07-13 | landed | Canonical harness identity and host-owned positional resume argv reject path escapes and shell interpolation. |
 | D63 | 2026-07-13 | landed | Serialized host coordination deduplicates resume processes, fences handoffs, and cleans failed or timed-out bootstrap leases. |
 | D64 | 2026-07-13 | landed | AgentDesk v7 terminal messages route through authenticated input and owned Agent push lanes with bounded request fencing and session-replacement-safe endpoint teardown. |
+| D65 | 2026-07-13 | landed | The thread-only bottom launcher emits fenced open/close/context-ended intent, consumes matching native status, and keeps PTY/input/layout ownership native. |
 | D66 | 2026-07-13 | landed | Shared SwiftTerm content now owns input, rendering, resize, and idempotent detach while both existing platform containers retain lifecycle policy. |
