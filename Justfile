@@ -1188,6 +1188,7 @@ motion-verify variant="dev" video="1" seconds="60":
 client-sim-install variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
+    GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
     if [ "{{variant}}" = "dev" ]; then
         SIM='{{ios_sim_udid_dev}}'; DD='{{dev_derived_data}}'; APP='{{client_sim_dev_app}}'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev')
@@ -1196,7 +1197,7 @@ client-sim-install variant="stable":
         EXTRA=()
     fi
     xcrun simctl bootstatus "$SIM" -b >/dev/null
-    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath "$DD" -sdk iphonesimulator -destination "platform=iOS Simulator,id=$SIM" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
+    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath "$DD" -sdk iphonesimulator -destination "platform=iOS Simulator,id=$SIM" AGENTDESK_GIT_SHA="$GIT_SHA" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     xcrun simctl install "$SIM" "$APP"
 
 # Uninstall + clean install on the simulator. Same reasoning as
@@ -1214,7 +1215,7 @@ client-sim-reinstall variant="stable":
 # the sim-fresh-install feel-test composite. No signing concerns on the simulator.
 client-sim-install-release:
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
-    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' build >/dev/null
+    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     xcrun simctl install {{ios_sim_udid}} "{{client_sim_app_release}}"
 
 client-sim-reinstall-release:
@@ -1375,14 +1376,42 @@ agent-feed-sim-pair-dev:
 # Screenshots emitted by `takeScreenshot:` land in the CWD where maestro
 # runs, so we cd into client/maestro/screenshots first to keep them
 # corralled and gitignorable. Pass the flow as the positional arg, eg.
-# `just ui-flow keyboard-up`.
+# `just ui-flow keyboard-up`. Pass `dev` as the second argument to target the
+# isolated dev simulator and dev client bundle without touching the stable app.
 #
 # Requires brew-installed openjdk on PATH for JAVA_HOME.
-ui-flow flow:
+ui-flow flow variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{variant}}" in
+        stable) SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}' ;;
+        dev) SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}' ;;
+        *) echo "unsupported simulator variant: {{variant}} (expected stable or dev)" >&2; exit 64 ;;
+    esac
+    FLOW='{{flow}}'
+    FLOW_PATH="client/maestro/$FLOW.yaml"
+    test -f "$FLOW_PATH" || { echo "Maestro flow not found: $FLOW_PATH" >&2; exit 66; }
+    PROJECT_NAME="${AGENTDESK_MAESTRO_PROJECT_NAME:-}"
+    CLAUDE_SESSION="${AGENTDESK_MAESTRO_CLAUDE_SESSION:-}"
+    CODEX_SESSION="${AGENTDESK_MAESTRO_CODEX_SESSION:-}"
+    if [ "$FLOW" = "agent-terminal-smoke" ]; then
+        for selector in AGENTDESK_MAESTRO_PROJECT_NAME AGENTDESK_MAESTRO_CLAUDE_SESSION AGENTDESK_MAESTRO_CODEX_SESSION; do
+            value="${!selector:-}"
+            if [ -z "${value//[[:space:]]/}" ]; then
+                echo "$selector is required for agent-terminal-smoke" >&2
+                exit 64
+            fi
+        done
+    fi
     mkdir -p client/maestro/screenshots
-    cd client/maestro/screenshots && \
-        JAVA_HOME="$(brew --prefix openjdk)/libexec/openjdk.jdk/Contents/Home" \
-        maestro --udid {{ios_sim_udid}} test ../{{flow}}.yaml
+    cd client/maestro/screenshots
+    JAVA_HOME="$(brew --prefix openjdk)/libexec/openjdk.jdk/Contents/Home" \
+        maestro --udid "$SIM" test \
+        -e "APP_ID=$BID" \
+        -e "PROJECT_NAME=$PROJECT_NAME" \
+        -e "CLAUDE_SESSION=$CLAUDE_SESSION" \
+        -e "CODEX_SESSION=$CODEX_SESSION" \
+        "../$FLOW.yaml"
 
 # Stronger terminal simulator smoke: drives the SwiftTerm surface, types a host
 # command, screenshots the rendered PTY output, then OCR-checks the pixel buffer.

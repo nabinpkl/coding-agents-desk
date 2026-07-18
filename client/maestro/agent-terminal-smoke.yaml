@@ -1,0 +1,120 @@
+appId: ${APP_ID}
+---
+# The paired dev stack is launched by `just agent-feed-sim-pair-dev`; do not
+# relaunch here or the simulator-only pairing environment is lost.
+- extendedWaitUntil:
+    visible: "Agent"
+    timeout: 30000
+- tapOn: "Agent"
+- tapOn:
+    text: "Go back"
+    optional: true
+    retryTapIfNoChange: true
+- tapOn:
+    text: "Go back"
+    optional: true
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    notVisible: "No projects yet"
+    timeout: 30000
+- scrollUntilVisible:
+    element: "Open project ${PROJECT_NAME}"
+    direction: DOWN
+    timeout: 30000
+    visibilityPercentage: 50
+- tapOn:
+    text: "Open project ${PROJECT_NAME}"
+    retryTapIfNoChange: true
+
+# Claude: native SwiftTerm handoff, non-submitted input, resize, and explicit close.
+- scrollUntilVisible:
+    centerElement: true
+    element: "Open Claude session ${CLAUDE_SESSION}"
+    direction: UP
+    timeout: 20000
+    visibilityPercentage: 100
+- tapOn:
+    text: "Open Claude session ${CLAUDE_SESSION}"
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    visible: "Open Claude terminal"
+    timeout: 15000
+- tapOn: "Open Claude terminal"
+- extendedWaitUntil:
+    visible: "Close Claude terminal"
+    timeout: 15000
+- assertVisible:
+    id: "agent-terminal-content"
+- takeScreenshot: agent-terminal-claude-ready
+- swipe:
+    from:
+      id: "agent-terminal-resize-handle"
+    direction: UP
+    duration: 500
+- assertVisible: "Close Claude terminal"
+- takeScreenshot: agent-terminal-claude-resized
+- tapOn:
+    id: "agent-terminal-content"
+- extendedWaitUntil:
+    visible: "Hide keyboard"
+    timeout: 5000
+- takeScreenshot: agent-terminal-claude-input-before
+- inputText: "R7Q"
+- takeScreenshot: agent-terminal-claude-input-marker
+- eraseText: 3
+- assertNotVisible: "R7Q"
+- takeScreenshot: agent-terminal-claude-input-erased
+- tapOn: "Close Claude terminal"
+- extendedWaitUntil:
+    visible: "Open Claude terminal"
+    timeout: 15000
+
+# Back/context teardown, then switch to the Codex session in the same project.
+- tapOn: "Open Claude terminal"
+- extendedWaitUntil:
+    visible: "Close Claude terminal"
+    timeout: 15000
+- tapOn: "Go back"
+- extendedWaitUntil:
+    visible: "Open Codex session ${CODEX_SESSION}"
+    timeout: 10000
+- scrollUntilVisible:
+    centerElement: true
+    element: "Open Codex session ${CODEX_SESSION}"
+    direction: DOWN
+    timeout: 20000
+    visibilityPercentage: 100
+- tapOn:
+    text: "Open Codex session ${CODEX_SESSION}"
+    retryTapIfNoChange: true
+- extendedWaitUntil:
+    visible: "Open Codex terminal"
+    timeout: 15000
+- tapOn: "Open Codex terminal"
+- extendedWaitUntil:
+    visible: "Close Codex terminal"
+    timeout: 15000
+- assertVisible:
+    id: "agent-terminal-content"
+- tapOn:
+    id: "agent-terminal-content"
+- extendedWaitUntil:
+    visible: "Hide keyboard"
+    timeout: 5000
+- takeScreenshot: agent-terminal-codex-input-before
+- inputText: "R7Q"
+- takeScreenshot: agent-terminal-codex-input-marker
+- eraseText: 3
+- assertNotVisible: "R7Q"
+- takeScreenshot: agent-terminal-codex-input-erased
+
+# Switching away from the Agent surface must retire the active terminal context.
+- tapOn: "Control"
+- extendedWaitUntil:
+    visible: "Agent"
+    timeout: 10000
+- tapOn: "Agent"
+- extendedWaitUntil:
+    visible: "Open Codex terminal"
+    timeout: 15000
+- takeScreenshot: agent-terminal-after-surface-switch

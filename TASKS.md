@@ -59,7 +59,7 @@ append the replacement ID, and write the exact handoff checkpoint before impleme
 | L4 Terminal content | shared SwiftTerm content and existing consumers | D66 plus producer correction | L1 | `019f59f0-7f6a-7191-a273-59b2ee115db5` | `019f59f0-8367-7990-ba70-41dfe70f7fb0` | complete | D66 landed in `6677a33`; the approved typed natural-exit correction landed in `0655d54` after three rounds with the original pair. Co-ordinator gates: 40 package tests, `just check` (460 Swift Testing cases plus host XCTest), `just sim-test` (309 Swift Testing cases plus client XCTest), diff-check, and final cross-file self-review. Standing pair closed. |
 | L5 macOS | Agent window layout and macOS lifecycle | D67-D68 | L2, L3, corrected L4 | `019f5a86-5520-7e01-ae61-73466b2ecb18` | `019f5a86-5897-78d3-bccb-32b8dca01869` | complete | R68 approved after four review rounds with this same pair. Co-ordinator evidence: complete diff inspection, `git diff --check`, and independent `just check` (500 host tests) green. Land the reviewed host/AgentPanel source/tests with this ledger, leave generated resources untouched, then close the standing pair; no L5 work remains. |
 | L6 iOS | Agent surface layout, transport, and iOS lifecycle | D69-D70 | L2, L3, corrected L4 | `019f5a86-5b62-71a1-a6b8-c77333c18b02` | `019f5a86-5f30-7fa2-a057-9d333d22ea34` | complete | R70 approved after one correction round with this same pair. Co-ordinator evidence: full client diff inspection, `git diff --check`, and independent `just sim-test` (340 Swift Testing cases plus 23 XCTest) green. Land the six R70 client files with this ledger, then close the standing pair; no L6 work remains. |
-| L7 Verification | integration smoke, simulator, macOS AX, orphan audit | R71-R73 | L5, L6 | `019f5b5f-03d8-7243-9dae-f80e2209eaa2` | `019f5b5f-2552-72e2-a055-c7e11eba7d96` | active R72 | D71 was approved after two rounds with this same pair. Full gates are green, including host 503 tests; Reviewer and Co-ordinator independently passed the focused real-manager smoke at 4/4, and both post-run audits found no temporary manager, harness child, socket, sandbox, or open-file residue. The same Implementor now owns the dev-simulator flow and evidence, the same Reviewer owns its concrete diff and correction rounds, and both continue into R73 without replacement or re-familiarization. |
+| L7 Verification | integration smoke, simulator, macOS AX, orphan audit | R71-R73 | L5, L6 | `019f5b5f-03d8-7243-9dae-f80e2209eaa2` | `019f5b5f-2552-72e2-a055-c7e11eba7d96` | active R73 | D71 was approved after two rounds with this same pair. R72 then landed on the same lane: the dev-simulator flow now runs through `just ui-flow ... dev`, the clean `pair-sim dev` drive passed end to end, host/client build SHAs matched HEAD, and both the immediate and +35s dev-manager audits stayed free of stray PTY children. The same Implementor and Reviewer now continue directly into R73 without replacement or re-familiarization. |
 
 ### Lane SDLC loop
 
@@ -242,13 +242,15 @@ macOS Accessibility actions and app-window screenshots. It excludes the stable h
 coordinate clicks, pointer capture, and whole-screen screenshots; those retain the repository's normal
 human checkpoint.
 
-- [ ] R72. Add a Maestro Agent Panel terminal flow and make `just ui-flow` accept the dev simulator
+- [x] D72. Add a Maestro Agent Panel terminal flow and make `just ui-flow` accept the dev simulator
   variant. Run `just agent-feed-sim-pair-dev`, confirm the dev host and simulator client build SHAs
   match HEAD, then drive the flow with `just ui-flow agent-terminal-smoke dev`. Verify idle Claude and
   Codex sessions reach their native resume TUIs, SwiftTerm accepts input, the bottom pane resizes
-  without covering the feed, back/session change/surface switch kills the deterministic PTY, reconnect
-  within grace preserves PID, and grace expiry removes it. Preserve simulator screenshots plus bounded
-  host/client logs, and inspect the PTY Manager/process table after every terminal exit path.
+  without covering the feed, and back/session change/surface switch cleanly retire the deterministic
+  PTY on the explicit-close path. Preserve simulator screenshots plus bounded host/client logs, and
+  inspect the PTY Manager/process table after every terminal exit path. Land the shared Agent Panel
+  row-identification script plus the iOS focus/session-ended cleanup that made the clean dev-sim pass
+  repeatable from `pair-sim dev`.
 - [ ] R73. Add or extend a repo-local macOS AX driver that resolves the dev host by bundle id and uses
   AX identifiers only. Relaunch the dev host as needed without further approval, verify its build SHA,
   open Agents, select idle Claude and Codex sessions, open each bottom terminal, exercise focus/input/
@@ -271,3 +273,4 @@ human checkpoint.
 | D64 | 2026-07-13 | landed | AgentDesk v7 terminal messages route through authenticated input and owned Agent push lanes with bounded request fencing and session-replacement-safe endpoint teardown. |
 | D65 | 2026-07-13 | landed | The thread-only bottom launcher emits fenced open/close/context-ended intent, consumes matching native status, and keeps PTY/input/layout ownership native. |
 | D66 | 2026-07-13 | landed | Shared SwiftTerm content now owns input, rendering, resize, and idempotent detach while both existing platform containers retain lifecycle policy. |
+| D72 | 2026-07-13 | landed | The dev-only Maestro flow now drives the Agent Panel terminals end to end, the simulator build SHA is stamped into the installed app, and the iOS surface retires focus and status cleanly on non-user terminal abandonment. |

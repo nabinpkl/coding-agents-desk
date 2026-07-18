@@ -87,7 +87,10 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
 
     private func setUpPanel() {
         do {
-            let controller = try AgentPanelWebViewController(transport: self)
+            let controller = try AgentPanelWebViewController(
+                transport: self,
+                additionalUserScripts: [AgentPanelAccessibility.userScript]
+            )
             panelController = controller
             panelContentView = controller.webView
         } catch {

@@ -411,6 +411,22 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
         attachTask?.cancel()
         attachTask = nil
         detachCurrentTerminal()
+        if reason != .userClose {
+            if let ptySessionName = close.ptySessionName {
+                deliver(.ended(AgentTerminalEnded(
+                    requestID: close.requestID,
+                    context: close.context,
+                    ptySessionName: ptySessionName,
+                    exitStatus: nil
+                )))
+            } else {
+                deliver(.error(AgentTerminalError(
+                    requestID: close.requestID,
+                    context: close.context,
+                    code: .sessionEnded
+                )))
+            }
+        }
 
         let dependencyGeneration = self.dependencyGeneration
         let operationGeneration = self.operationGeneration
@@ -785,6 +801,7 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
     }
 
     private func detachCurrentTerminal() {
+        terminalContent?.resignFocus()
         terminalContent?.detach()
         activeTerminal = nil
         setPresented(false)

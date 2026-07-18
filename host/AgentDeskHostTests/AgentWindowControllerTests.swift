@@ -212,6 +212,64 @@ struct AgentWindowControllerTests {
         }
     }
 
+    @Test func panelAccessibilityScriptIdentifiesProjectAndSessionRows() async throws {
+        let contentController = WKUserContentController()
+        contentController.addUserScript(AgentWindowPanelAccessibility.userScript)
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController = contentController
+        let webView = WKWebView(
+            frame: NSRect(x: 0, y: 0, width: 480, height: 320),
+            configuration: configuration
+        )
+        let window = NSWindow(
+            contentRect: webView.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "R72 panel row accessibility test"
+        window.contentView = webView
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+
+        webView.loadHTMLString(
+            """
+            <html><body>
+              <ul aria-label="Projects">
+                <li><button><span>Alpha Project</span></button></li>
+              </ul>
+              <ul aria-label="Sessions">
+                <li>
+                  <button>
+                    <span aria-label="Source: Claude">Claude</span>
+                    <p>Debug cloud FinOps notifications firing issue</p>
+                    <p>01:05 AM</p>
+                  </button>
+                </li>
+              </ul>
+            </body></html>
+            """,
+            baseURL: nil
+        )
+
+        let projectID = "\(AgentPanelAccessibilityIdentifiers.projectRowPrefix)alpha-project"
+        let sessionID =
+            "\(AgentPanelAccessibilityIdentifiers.sessionRowPrefix)claude-debug-cloud-finops-notifications-firing-issue"
+        try await waitForDOMIdentifier(projectID, in: webView)
+        try await waitForDOMIdentifier(sessionID, in: webView)
+        #expect(try await elementID(for: "ul[aria-label='Projects'] button", in: webView) == projectID)
+        #expect(try await elementID(for: "ul[aria-label='Sessions'] button", in: webView) == sessionID)
+
+        let exposesAccessibilityDOMIdentifiers = try await accessibilityDOMIdentifierIsAvailable(
+            sessionID,
+            in: window
+        )
+        if exposesAccessibilityDOMIdentifiers {
+            try await waitForAccessibilityDOMIdentifier(projectID, in: window)
+            try await waitForAccessibilityDOMIdentifier(sessionID, in: window)
+        }
+    }
+
     @Test func appTerminationWaitsUntilTheAgentWindowHasNoTerminal() async {
         let terminal = FakeAgentWindowTerminalController()
         terminal.suspendClose = true

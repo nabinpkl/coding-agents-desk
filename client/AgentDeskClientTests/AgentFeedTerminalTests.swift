@@ -496,13 +496,18 @@ struct AgentFeedTerminalTests {
                 reason: wireReason
             )))
             harness.coordinator.yield(.ready(ready))
-            await drainTasks()
+            try await waitUntil { delivered.count == 1 }
 
             #expect(harness.coordinator.sent.count == 3)
             #expect(harness.connection.detachCount == 1)
             #expect(!harness.surface.terminalContent.isBound)
             #expect(!harness.surface.isTerminalPresented)
-            #expect(delivered.isEmpty)
+            #expect(delivered == [expectedTerminalJSON(
+                tag: "agent-terminal-ended",
+                requestID: ready.requestID,
+                context: ready.context,
+                ptySessionName: ready.ptySessionName
+            )])
         }
     }
 
@@ -690,6 +695,24 @@ struct AgentFeedTerminalTests {
             reason: "surface-switched"
         ))])
         #expect(replacementOpener.requests.isEmpty)
+    }
+
+    @Test func switchAwayResignsTerminalFocusBeforeDetaching() async throws {
+        let harness = makeHarness()
+        let window = hostInWindow(harness.surface)
+        defer { window.isHidden = true }
+        try await openAndAttach(harness)
+
+        harness.surface.terminalContent.focus()
+        try await waitUntil { firstResponder(in: harness.surface.terminalContent) != nil }
+
+        harness.surface.abandonTerminal(.surfaceSwitched)
+
+        try await waitUntil {
+            !harness.surface.terminalContent.isBound
+                && !harness.surface.isTerminalPresented
+                && firstResponder(in: harness.surface.terminalContent) == nil
+        }
     }
 
     @Test func explicitCloseTaskCompletesOnlyAfterTypedCloseSendSettles() async throws {
@@ -1110,6 +1133,38 @@ struct AgentFeedTerminalTests {
         surface.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         surface.setNeedsLayout()
         surface.layoutIfNeeded()
+    }
+
+    private func hostInWindow(_ surface: AgentFeedSurface) -> UIWindow {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let controller = UIViewController()
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        controller.view.addSubview(surface)
+        NSLayoutConstraint.activate([
+            surface.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor),
+            surface.topAnchor.constraint(equalTo: controller.view.topAnchor),
+            surface.bottomAnchor.constraint(equalTo: controller.view.bottomAnchor),
+        ])
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        surface.layoutIfNeeded()
+        return window
+    }
+
+    private func firstResponder(in view: UIView) -> UIView? {
+        if view.isFirstResponder {
+            return view
+        }
+        for subview in view.subviews {
+            if let responder = firstResponder(in: subview) {
+                return responder
+            }
+        }
+        return nil
     }
 
     private func waitUntil(
