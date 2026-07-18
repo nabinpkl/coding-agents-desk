@@ -20,7 +20,7 @@ The ATC parser and dashboard contract lands before AgentDesk transport consumes 
 ## Phase 3: verification
 
 - D6. Rebuild sidecar and webview only through `just build-agent-sidecar` and `just build-agent-webview`, then pass `just check` and a compile-only generic iOS Simulator build.
-- R7. After explicit launch approval, smoke Plain, metadata, Raw JSON, Reasoning, and a fragmented response on macOS and iOS.
+- R7. Complete the live fragmented-response leg. The approved macOS and iOS shared-feed run verified Plain, metadata, Raw JSON, and Reasoning. Existing records above 4 MiB are outside the dashboard's 30-session project window, so the live UI could not request one without adding a test-only route; the direct 13,855,661-byte endpoint response and the automated fragmented-transfer/100 MiB boundary tests remain green.
 
 ## Promotion log
 
@@ -28,5 +28,5 @@ The ATC parser and dashboard contract lands before AgentDesk transport consumes 
 D1-D2    2026-07-18  committed   shared activity and bounded raw-event transfer contract
 D3-D5    2026-07-18  committed   host and client raw-event lifecycle
 D6       2026-07-18  committed   generated artifacts and automated cross-platform gates green
-R7       pending     approval    live macOS and iOS shared-feed smoke
+R7       2026-07-18  partial     macOS+iOS semantic/raw feed green; live fragmented UI leg remains
 ```
