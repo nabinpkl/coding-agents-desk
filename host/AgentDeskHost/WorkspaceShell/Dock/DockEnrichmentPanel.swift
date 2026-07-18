@@ -169,6 +169,7 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = true
+        scrollView.scrollerStyle = .overlay
         scrollView.borderType = .noBorder
         scrollView.automaticallyAdjustsContentInsets = false
         stripContainer.addSubview(scrollView)

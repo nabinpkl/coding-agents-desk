@@ -33,6 +33,8 @@ window-ID verification waits for the required host relaunch checkpoint.
 - [x] D96. Relaunch the landed Release host, match its loaded executable and embedded SHA to commit `9708287`, verify labeled idle and active AX states, and capture window-only screenshots confirming the opaque resting tile and solid-teal active tile.
 - [x] D97. Replace `NSButtonCell` image-above layout with a fixed `DockActionButton` that renders a 72-by-64-point tile, explicitly centers a 22-point icon and label with balanced vertical padding, preserves the single keyboard and accessibility target, and cover the rendered frame, padding, state colors, and AX semantics in AppKit tests.
 - [x] D98. Relaunch the landed Release host, verify the Swap tile's AX title and description, and capture an idle window-only screenshot confirming the corrected padding against adjacent Desktop cards.
+- [x] D99. Make the Dock's horizontal `NSScrollView` own overlay scroller styling so the system's legacy scroller preference cannot shrink and lift the desktop-card row away from the Swap tile; cover the scroller contract and rendered midline alignment in AppKit tests.
+- [ ] R100. Relaunch the landed Release host, compare the live Swap and desktop-card AX midlines, and capture a window-only screenshot confirming row alignment.
 
 ## Promotion log
 
@@ -48,3 +50,5 @@ window-ID verification waits for the required host relaunch checkpoint.
 | D96 | 2026-07-17 | done | Release host `9708287` passed build-identity, AX idle/active, and window-only visual verification for the redesigned tile. |
 | D97 | 2026-07-17 | done | A dedicated Dock action control removes AppKit cell alignment insets and owns measured icon, label, and vertical-padding layout; focused tests and all 530 host tests pass. |
 | D98 | 2026-07-17 | done | Release host `8c6e896` passed executable and embedded-SHA identity checks, AX title and description checks, and idle window-only visual verification for the corrected Swap tile padding. |
+| D99 | 2026-07-17 | done | The Dock owns overlay scroller geometry, and focused interaction tests plus all 530 host tests confirm Swap and desktop cards share one midline regardless of the machine's legacy scroller preference. |
+| R100 | pending | pending | Live Release AX-frame and window-only screenshot verification for the aligned action and desktop-card row. |
