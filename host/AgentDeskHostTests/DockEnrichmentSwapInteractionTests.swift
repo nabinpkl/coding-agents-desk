@@ -89,10 +89,11 @@ struct DockEnrichmentSwapInteractionTests {
         let primary = panel.descendant(identifier: "dock-desktop-select-100") as? NSButton
         #expect(swap != nil)
         #expect(swap?.image != nil)
-        #expect(swap?.imagePosition == .imageOnly)
+        #expect(swap?.title == "Swap")
+        #expect(swap?.imagePosition == .imageAbove)
         #expect(swap?.isBordered == false)
         #expect(swap?.restingColor != .clear)
-        #expect(swap?.contentTintColor?.isEqual(AppTheme.accent) == true)
+        #expect(swap?.contentTintColor?.isEqual(AppTheme.onAccent) == true)
         #expect(panel.descendant(identifier: "dock-desktop-swap-status") is NSTextField)
         #expect(panel.descendant(identifier: "dock-desktop-swap-status")?.isHidden == false)
         #expect(primary != nil)
@@ -123,6 +124,27 @@ struct DockEnrichmentSwapInteractionTests {
         #expect(undo?.isHidden == false)
         undo?.performClick(nil)
         #expect(undos == 1)
+    }
+
+    @Test func swapControlIsALabeledOpaqueTileWithDistinctActiveState() {
+        let panel = DockEnrichmentPanel()
+        panel.render(Self.snapshot(), swapState: .idle)
+
+        let swap = panel.descendant(identifier: "dock-desktop-swap") as? HoverButton
+        #expect(swap?.title == "Swap")
+        #expect(swap?.imagePosition == .imageAbove)
+        #expect(swap?.constraints.contains { $0.firstAttribute == .width && $0.constant == 72 } == true)
+        #expect(swap?.constraints.contains { $0.firstAttribute == .height && $0.constant == 64 } == true)
+        #expect(swap?.cornerRadius == 12)
+        #expect(swap?.layer?.borderWidth == 1)
+        #expect(swap?.layer?.backgroundColor?.alpha == 1)
+        #expect(swap?.contentTintColor?.isEqual(AppTheme.accent) == true)
+
+        panel.render(Self.snapshot(), swapState: .choosingSource)
+
+        #expect(swap?.layer?.borderWidth == 2)
+        #expect(swap?.restingColor.isEqual(AppTheme.accent) == true)
+        #expect(swap?.contentTintColor?.isEqual(AppTheme.onAccent) == true)
     }
 
     @Test func pointerTapClassifiesPrimaryClickSeparatelyFromMovement() {

@@ -2,7 +2,8 @@ import AppKit
 
 private enum DockEnrichmentMetrics {
     static let stripHeight: CGFloat = 82
-    static let actionWidth: CGFloat = 44
+    static let actionWidth: CGFloat = 72
+    static let actionHeight: CGFloat = 64
     static let statusHeight: CGFloat = 36
     static let desktopPillWidth: CGFloat = 196
     static let desktopPillHeight: CGFloat = 64
@@ -15,6 +16,11 @@ private enum DockEnrichmentMetrics {
     static let badgeWidth: CGFloat = 34
     static let badgeHeight: CGFloat = 28
     static let maxVisibleAppsPerDesktop = 3
+}
+
+private enum DockEnrichmentPalette {
+    static let tileSurface = WorkspaceShellOverlay.adaptiveWhite(light: 0.91, dark: 0.16)
+    static let tileHoverSurface = WorkspaceShellOverlay.adaptiveWhite(light: 0.84, dark: 0.22)
 }
 
 final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
@@ -151,16 +157,19 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
         addSubview(stripContainer)
 
         swapButton.translatesAutoresizingMaskIntoConstraints = false
+        swapButton.title = "Swap"
+        swapButton.font = .systemFont(ofSize: 11, weight: .semibold)
         swapButton.isBordered = false
         swapButton.bezelStyle = .regularSquare
         swapButton.image = NSImage(
             systemSymbolName: "arrow.left.arrow.right",
             accessibilityDescription: "Swap desktop contents"
-        )?.withSymbolConfiguration(.init(pointSize: 17, weight: .semibold))
-        swapButton.imagePosition = .imageOnly
+        )?.withSymbolConfiguration(.init(pointSize: 18, weight: .semibold))
+        swapButton.imagePosition = .imageAbove
         swapButton.imageScaling = .scaleProportionallyDown
-        swapButton.cornerRadius = 10
-        swapButton.restingColor = HoverButton.subtleFill
+        swapButton.alignment = .center
+        swapButton.cornerRadius = DockEnrichmentMetrics.desktopPillCornerRadius
+        swapButton.focusRingType = .exterior
         swapButton.target = self
         swapButton.action = #selector(toggleSwap)
         swapButton.toolTip = "Swap desktop contents"
@@ -206,7 +215,7 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
             swapButton.leadingAnchor.constraint(equalTo: stripContainer.leadingAnchor, constant: 10),
             swapButton.centerYAnchor.constraint(equalTo: stripContainer.centerYAnchor),
             swapButton.widthAnchor.constraint(equalToConstant: DockEnrichmentMetrics.actionWidth),
-            swapButton.heightAnchor.constraint(equalToConstant: DockEnrichmentMetrics.actionWidth),
+            swapButton.heightAnchor.constraint(equalToConstant: DockEnrichmentMetrics.actionHeight),
 
             scrollView.leadingAnchor.constraint(equalTo: swapButton.trailingAnchor, constant: 8),
             scrollView.trailingAnchor.constraint(equalTo: stripContainer.trailingAnchor),
@@ -235,14 +244,21 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
     private func renderControls(_ state: DockDesktopSwapState) {
         swapButton.isEnabled = !state.isBusy
         swapButton.state = state.holdsDock ? .on : .off
-        swapButton.restingColor = state.holdsDock
-            ? AppTheme.accent.withAlphaComponent(0.18)
-            : HoverButton.subtleFill
-        swapButton.contentTintColor = AppTheme.accent
+        applySwapButtonStyle(state)
         swapButton.setAccessibilityValue(state.holdsDock ? "active" : "inactive")
 
         statusView.render(state)
         updateEscapeMonitor(for: state)
+    }
+
+    private func applySwapButtonStyle(_ state: DockDesktopSwapState) {
+        swapButton.restingColor = state.holdsDock ? AppTheme.accent : DockEnrichmentPalette.tileSurface
+        swapButton.hoverColor = state.holdsDock ? AppTheme.activeHoverFill : DockEnrichmentPalette.tileHoverSurface
+        swapButton.contentTintColor = state.holdsDock ? AppTheme.onAccent : AppTheme.accent
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            swapButton.layer?.borderColor = (state.holdsDock ? AppTheme.accent : NSColor.separatorColor).cgColor
+            swapButton.layer?.borderWidth = state.holdsDock ? 2 : 1
+        }
     }
 
     private func updateEscapeMonitor(for state: DockDesktopSwapState) {
@@ -359,6 +375,7 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
             stripContainer.layer?.borderWidth = isKeyboardFocused ? 2 : 1
             stripContainer.layer?.cornerRadius = 13
         }
+        applySwapButtonStyle(swapState)
     }
 }
 
@@ -496,7 +513,7 @@ private final class DockDesktopPillView: NSView {
 
     private func applyColor() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = WorkspaceShellOverlay.adaptiveWhite(light: 0.91, dark: 0.16).cgColor
+            layer?.backgroundColor = DockEnrichmentPalette.tileSurface.cgColor
             layer?.borderColor = (group.isActive ? AppTheme.accent : NSColor.separatorColor).cgColor
             layer?.borderWidth = group.isActive ? 2 : 1
             layer?.cornerRadius = DockEnrichmentMetrics.desktopPillCornerRadius
