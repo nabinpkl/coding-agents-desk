@@ -23,7 +23,7 @@ final class WorkspaceWorkbenchSurface: UIView {
     )
     private let rightColumn = UIView()
     private let terminalContainer = UIView()
-    private let terminalPlaceholder = UILabel()
+    private var terminalSessionController: WorkspaceTerminalSessionController!
 
     private var workspaceID: String?
     private var state = WorkspaceWorkbenchState()
@@ -34,7 +34,9 @@ final class WorkspaceWorkbenchSurface: UIView {
 
     init(
         browser: WorkspaceFilesBrowser,
-        stateStore: WorkspaceWorkbenchStateStoring = WorkspaceWorkbenchStateStore.shared
+        stateStore: WorkspaceWorkbenchStateStoring = WorkspaceWorkbenchStateStore.shared,
+        terminalCoordinator: (any WorkspaceTerminalCoordinating)? = nil,
+        terminalSessionOpener: (any WorkspaceTerminalSessionOpening)? = nil
     ) {
         self.browser = browser
         self.stateStore = stateStore
@@ -42,6 +44,12 @@ final class WorkspaceWorkbenchSurface: UIView {
         self.editor = WorkspaceFileEditorView(browser: browser)
         super.init(frame: .zero)
         setUp()
+        terminalSessionController = WorkspaceTerminalSessionController(
+            container: terminalContainer,
+            coordinator: terminalCoordinator,
+            sessionOpener: terminalSessionOpener,
+            stateStore: stateStore
+        )
         browser.onChange = { [weak self] in self?.render() }
         render()
     }
@@ -51,6 +59,7 @@ final class WorkspaceWorkbenchSurface: UIView {
 
     func teardown() {
         browser.onChange = nil
+        terminalSessionController.teardown()
     }
 
     private func setUp() {
@@ -69,13 +78,6 @@ final class WorkspaceWorkbenchSurface: UIView {
 
         terminalContainer.backgroundColor = .black
         terminalContainer.accessibilityIdentifier = "workspace-terminal"
-        terminalPlaceholder.translatesAutoresizingMaskIntoConstraints = false
-        terminalPlaceholder.text = "Select a workspace to open its terminal."
-        terminalPlaceholder.textColor = .secondaryLabel
-        terminalPlaceholder.font = .preferredFont(forTextStyle: .footnote)
-        terminalPlaceholder.textAlignment = .center
-        terminalPlaceholder.numberOfLines = 0
-        terminalContainer.addSubview(terminalPlaceholder)
 
         explorerWidthConstraint = explorer.widthAnchor.constraint(
             equalTo: widthAnchor,
@@ -122,14 +124,6 @@ final class WorkspaceWorkbenchSurface: UIView {
             terminalContainer.trailingAnchor.constraint(equalTo: rightColumn.trailingAnchor),
             terminalContainer.bottomAnchor.constraint(equalTo: rightColumn.bottomAnchor),
             terminalHeightConstraint!,
-
-            terminalPlaceholder.leadingAnchor.constraint(
-                equalTo: terminalContainer.layoutMarginsGuide.leadingAnchor
-            ),
-            terminalPlaceholder.trailingAnchor.constraint(
-                equalTo: terminalContainer.layoutMarginsGuide.trailingAnchor
-            ),
-            terminalPlaceholder.centerYAnchor.constraint(equalTo: terminalContainer.centerYAnchor),
         ])
 
         sidebarDivider.onPan = { [weak self] delta in self?.resizeSidebar(by: delta) }
@@ -190,9 +184,8 @@ final class WorkspaceWorkbenchSurface: UIView {
         updateWorkspacePicker(model)
         explorer.render(model)
         editor.render(model)
-        terminalPlaceholder.text = model.selectedWorkspaceID == nil
-            ? "Select a workspace to open its terminal."
-            : "Connecting workspace terminal…"
+        let selectedName = model.workspaces.first { $0.id == model.selectedWorkspaceID }?.name
+        terminalSessionController.selectWorkspace(id: model.selectedWorkspaceID, name: selectedName)
     }
 
     private func updateWorkspacePicker(_ model: WorkspaceFilesBrowserModel) {
@@ -225,6 +218,7 @@ final class WorkspaceWorkbenchSurface: UIView {
 
         terminalContainer.isHidden = !state.terminalVisible
         terminalDivider.isHidden = !state.terminalVisible
+        terminalSessionController?.setPresented(state.terminalVisible)
         replaceTerminalHeightConstraint(
             state.terminalVisible
                 ? terminalContainer.heightAnchor.constraint(

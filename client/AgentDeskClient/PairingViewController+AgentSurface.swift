@@ -495,7 +495,11 @@ extension PairingViewController {
                     return
                 }
                 let browser = WorkspaceFilesBrowser(transport: transport)
-                let surface = WorkspaceWorkbenchSurface(browser: browser)
+                let surface = WorkspaceWorkbenchSurface(
+                    browser: browser,
+                    terminalCoordinator: session,
+                    terminalSessionOpener: session
+                )
                 surface.translatesAutoresizingMaskIntoConstraints = false
                 surface.isHidden = self.activeControlSurface != .files
                 self.view.addSubview(surface)

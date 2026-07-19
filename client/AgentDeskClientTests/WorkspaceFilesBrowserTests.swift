@@ -521,6 +521,19 @@ struct WorkspaceFilesBrowserTests {
         #expect(stateStore.states["w1"]?.terminalVisible == false)
     }
 
+    @Test func workspaceTerminalRegionStopsAtTheKeyboardLayoutGuide() {
+        let browser = makeBrowser(transport: MockFilesRequester())
+        let surface = WorkspaceWorkbenchSurface(browser: browser)
+
+        let keyboardConstraint = surface.constraints.first {
+            ($0.secondItem as AnyObject?) === surface.keyboardLayoutGuide
+                && $0.firstAttribute == .bottom
+                && $0.secondAttribute == .top
+        }
+
+        #expect(keyboardConstraint != nil)
+    }
+
     /// A navigation that happens while a listing is in flight supersedes it: the late response is
     /// dropped, and the newer directory stays shown.
     @Test func aSupersededListingIsDropped() async {
