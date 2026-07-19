@@ -1,0 +1,108 @@
+appId: ${APP_ID}
+---
+# The paired dev stack is launched before this flow. Do not relaunch here or the
+# simulator-only pairing environment is lost.
+- extendedWaitUntil:
+    visible: "Files"
+    timeout: 30000
+- tapOn: "Files"
+- extendedWaitUntil:
+    visible:
+      id: "workspace-workbench"
+    timeout: 30000
+
+# A fresh install starts with the complete workbench chrome visible and no file
+# selected. The terminal becomes attachable after choosing its workspace.
+- assertVisible:
+    id: "workspace-files-sidebar"
+- assertVisible:
+    id: "workspace-editor-empty"
+- assertVisible:
+    id: "workspace-terminal"
+- takeScreenshot: workspace-workbench-empty
+- tapOn:
+    id: "workspace-files-picker"
+- tapOn: "agent-desk"
+- extendedWaitUntil:
+    notVisible: "Loading…"
+    timeout: 30000
+- extendedWaitUntil:
+    visible:
+      id: "workspace-terminal-content"
+    timeout: 30000
+- assertVisible: "Open a file from the sidebar."
+- takeScreenshot: workspace-workbench-ready
+
+# Both dividers are real, accessible pan surfaces.
+- swipe:
+    from:
+      id: "workspace-sidebar-divider"
+    direction: RIGHT
+    duration: 500
+- swipe:
+    from:
+      id: "workspace-terminal-divider"
+    direction: UP
+    duration: 500
+- takeScreenshot: workspace-workbench-resized
+
+# Open a real repository file in the shared viewer, then return to the empty
+# editor without disturbing the terminal attachment.
+- swipe:
+    from:
+      id: "workspace-files-table"
+    direction: UP
+    duration: 500
+- swipe:
+    from:
+      id: "workspace-files-table"
+    direction: UP
+    duration: 500
+- extendedWaitUntil:
+    visible: "AGENTS.md"
+    timeout: 10000
+- tapOn: "AGENTS.md"
+- extendedWaitUntil:
+    visible:
+      id: "workspace-files-preview-close"
+    timeout: 30000
+- takeScreenshot: workspace-workbench-file
+- tapOn:
+    id: "workspace-files-preview-close"
+- assertVisible:
+    id: "workspace-editor-empty"
+
+# Prove that the native terminal accepts input in the selected workspace. The
+# OCR assertion is performed by the calling verification step.
+- tapOn:
+    id: "workspace-terminal-content"
+- extendedWaitUntil:
+    visible: "Dismiss terminal keyboard"
+    timeout: 5000
+- inputText: "printf '\\122\\070\\062\\120\\101\\123\\123\\012'; pwd\n"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: workspace-workbench-terminal
+- tapOn:
+    id: "workspace-terminal-dismiss-keyboard"
+
+# Collapse and restore each pane through its toolbar toggle. The terminal must
+# remain attached and keep the output it already rendered.
+- tapOn:
+    id: "workspace-sidebar-toggle"
+- assertNotVisible:
+    id: "workspace-files-sidebar"
+- takeScreenshot: workspace-workbench-sidebar-collapsed
+- tapOn:
+    id: "workspace-sidebar-toggle"
+- assertVisible:
+    id: "workspace-files-sidebar"
+- tapOn:
+    id: "workspace-terminal-toggle"
+- assertNotVisible:
+    id: "workspace-terminal-content"
+- tapOn:
+    id: "workspace-terminal-toggle"
+- assertVisible:
+    id: "workspace-terminal-content"
+- takeScreenshot: workspace-workbench-restored

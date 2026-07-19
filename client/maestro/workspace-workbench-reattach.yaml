@@ -1,0 +1,28 @@
+appId: ${APP_ID}
+---
+# Run after workspace-workbench-smoke and a paired client relaunch. The saved
+# workspace identity must restore the workbench and reattach its persistent PTY.
+- extendedWaitUntil:
+    visible: "Files"
+    timeout: 30000
+- tapOn: "Files"
+- extendedWaitUntil:
+    visible:
+      id: "workspace-workbench"
+    timeout: 30000
+- assertVisible: "agent-desk"
+- extendedWaitUntil:
+    visible:
+      id: "workspace-terminal-content"
+    timeout: 30000
+- tapOn:
+    id: "workspace-terminal-content"
+- extendedWaitUntil:
+    visible: "Dismiss terminal keyboard"
+    timeout: 5000
+- inputText: "printf '\\122\\070\\062\\122\\105\\101\\124\\124\\101\\103\\110\\012'; pwd\n"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: workspace-workbench-reattached
+- tapOn:
+    id: "workspace-terminal-dismiss-keyboard"

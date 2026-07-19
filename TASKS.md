@@ -57,7 +57,7 @@ the existing preview overlay.
 - [x] D81. Run PTY Rust and Swift package tests, wire tests, host/client focused tests, `just check`,
   and `just sim-test`; self-review the complete cross-file contract and confirm no full host path is
   exposed on the iOS wire.
-- [ ] R82. After the repository launch checkpoint and explicit user approval, install the isolated dev
+- [x] D82. After the repository launch checkpoint and explicit user approval, install the isolated dev
   host and simulator client, verify both build SHAs, and smoke sidebar resize/collapse, empty editor,
   file viewing, terminal resize/input, workspace cwd, relaunch reattachment, and Mac-created terminal
   attachment using accessibility identifiers and app-only screenshots.
@@ -79,5 +79,5 @@ D77-D78  2026-07-19  landed      host workspace resolution, safe handoff, and sh
 D79      2026-07-19  landed      resizable UIKit explorer, empty editor, and persistent pane state
 D80      2026-07-19  landed      one persistent shared workspace shell
 D81      2026-07-19  landed      PTY, wire, host, client, and simulator gates green
-R82      pending     pending     checkpointed live smoke
+D82      2026-07-19  landed      dev SHA, workbench, persistent reattach, and Mac-created PTY smoke green
 ```

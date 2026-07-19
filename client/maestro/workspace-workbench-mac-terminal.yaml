@@ -1,0 +1,27 @@
+appId: ${APP_ID}
+---
+# Run after the dev Mac host creates a persistent PTY for dumping-ground through
+# its open-terminal AX action. Selecting that workspace must attach this client
+# to the newest eligible Mac-created session instead of launching another one.
+- extendedWaitUntil:
+    visible: "Files"
+    timeout: 30000
+- tapOn: "Files"
+- extendedWaitUntil:
+    visible:
+      id: "workspace-files-picker"
+    timeout: 30000
+- tapOn:
+    id: "workspace-files-picker"
+- tapOn: "dumping-ground"
+- extendedWaitUntil:
+    notVisible: "Loading…"
+    timeout: 30000
+- extendedWaitUntil:
+    visible:
+      id: "workspace-terminal-content"
+    timeout: 30000
+- extendedWaitUntil:
+    notVisible: "Connecting workspace terminal…"
+    timeout: 30000
+- takeScreenshot: workspace-workbench-mac-terminal
