@@ -1,6 +1,7 @@
 import WebKit
 
 public enum AgentPanelAccessibilityIdentifiers {
+    public static let backButton = "agent-session-back"
     public static let terminalLauncher = "agent-terminal-launcher"
     public static let terminalClose = "agent-terminal-close"
     public static let terminalStatus = "agent-terminal-status"
@@ -99,6 +100,11 @@ public enum AgentPanelAccessibility {
       }
 
       function identifyTerminalControls() {
+        var backButton = document.querySelector('button[aria-label="Go back"], button[title="Go back"]');
+        if (backButton) {
+          setID(backButton, '\(AgentPanelAccessibilityIdentifiers.backButton)');
+        }
+
         var footer = document.querySelector('footer');
         if (!footer) return;
 

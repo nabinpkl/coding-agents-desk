@@ -4,6 +4,9 @@ import PtyTerminalSession
 @testable import PtyTerminalSwiftTerm
 import SwiftTerm
 import XCTest
+#if canImport(AppKit)
+import AppKit
+#endif
 
 @MainActor
 final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
@@ -293,6 +296,28 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
         }
         XCTAssertEqual(connection.detachCount, 0)
     }
+
+    #if canImport(AppKit)
+    func testAccessibilityPressFocusesNativeTerminal() {
+        let content = PtyTerminalSwiftTermContentView()
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 320))
+        container.addSubview(content)
+        content.frame = container.bounds
+        let probe = NSButton(title: "Probe", target: nil, action: nil)
+        container.addSubview(probe)
+        let window = NSWindow(
+            contentRect: container.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        window.makeFirstResponder(probe)
+
+        XCTAssertTrue(content.accessibilityPerformPress())
+        XCTAssertTrue(window.firstResponder === content.terminalView)
+    }
+    #endif
 
     private func waitUntil(
         timeoutNanoseconds: UInt64 = 1_000_000_000,

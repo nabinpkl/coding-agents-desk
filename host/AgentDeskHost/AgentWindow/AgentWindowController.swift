@@ -70,9 +70,14 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
         if window == nil {
             build()
         }
-        // orderFrontRegardless (not makeKeyAndOrderFront) so the LSUIElement app never activates; the
-        // nonactivating panel can still become key for webview interaction.
-        window?.orderFrontRegardless()
+        if Config.axAutomationEnabled {
+            NSApp.activate(ignoringOtherApps: true)
+            window?.makeKeyAndOrderFront(nil)
+        } else {
+            // orderFrontRegardless (not makeKeyAndOrderFront) so the LSUIElement app never activates; the
+            // nonactivating panel can still become key for webview interaction.
+            window?.orderFrontRegardless()
+        }
         logAXSelfReport()
     }
 
@@ -246,12 +251,25 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
     }
 
     private func makeWindow() -> NSWindow {
-        let window = AgentPanelWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 720),
-            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
+        let styleMask: NSWindow.StyleMask = Config.axAutomationEnabled
+            ? [.titled, .closable, .resizable]
+            : [.titled, .closable, .resizable, .nonactivatingPanel]
+        let window: NSWindow
+        if Config.axAutomationEnabled {
+            window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 480, height: 720),
+                styleMask: styleMask,
+                backing: .buffered,
+                defer: false
+            )
+        } else {
+            window = AgentPanelWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 480, height: 720),
+                styleMask: styleMask,
+                backing: .buffered,
+                defer: false
+            )
+        }
         window.title = "Agents"
         // A normal utility window, not an always-on-top HUD, matching the shell panel's level so it
         // can be covered when another app is frontmost.

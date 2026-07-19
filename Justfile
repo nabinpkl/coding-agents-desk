@@ -521,6 +521,9 @@ host-run-dev variant="stable":
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
         EXTRA=()
     fi
+    if [ "${AGENTDESK_AX_AUTOMATION_ENABLED:-0}" != "0" ]; then
+        EXTRA+=(INFOPLIST_KEY_LSUIElement=NO)
+    fi
     kill_pty_managers_for_socket() {
         SOCKET_PIDS=$(find_pty_manager_pids)
         [ -n "$SOCKET_PIDS" ] && kill $SOCKET_PIDS 2>/dev/null || true
@@ -644,6 +647,9 @@ host-run variant="stable":
         DD='{{derived_data}}'; APP='{{host_app_release}}'; SIGPORT=41888
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
         EXTRA=()
+    fi
+    if [ "${AGENTDESK_AX_AUTOMATION_ENABLED:-0}" != "0" ]; then
+        EXTRA+=(INFOPLIST_KEY_LSUIElement=NO)
     fi
     kill_pty_managers_for_socket() {
         SOCKET_PIDS=$(find_pty_manager_pids)

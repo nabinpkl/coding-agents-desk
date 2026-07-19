@@ -71,6 +71,10 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
         nativeView.translatesAutoresizingMaskIntoConstraints = false
         nativeView.terminalDelegate = self
         #if canImport(AppKit)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Agent terminal")
+        setAccessibilityHelp("Press to focus the native terminal.")
         nativeView.pasteHandler = { [weak self] text in self?.paste(text: text) }
         #endif
         addSubview(nativeView)
@@ -251,4 +255,11 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
     private func invalidateBinding() {
         bindingGeneration &+= 1
     }
+
+    #if canImport(AppKit)
+    public override func accessibilityPerformPress() -> Bool {
+        focus()
+        return true
+    }
+    #endif
 }

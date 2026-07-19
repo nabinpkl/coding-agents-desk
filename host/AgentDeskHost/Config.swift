@@ -900,6 +900,14 @@ enum Config {
         defaultValue: false,
         environment: ProcessInfo.processInfo.environment
     )
+    // Dev-only AX automation mode: run the host as a regular app so macOS exposes
+    // its windows to out-of-process Accessibility clients during repository-local
+    // automation. Off by default so daily-driver behavior stays LSUIElement-based.
+    static let axAutomationEnabled: Bool = enabledFlag(
+        environmentKey: "AGENTDESK_AX_AUTOMATION_ENABLED",
+        defaultValue: false,
+        environment: ProcessInfo.processInfo.environment
+    )
     static let agentResumeExecutables = agentResumeExecutables(
         environment: ProcessInfo.processInfo.environment
     )

@@ -4,11 +4,20 @@ import AppKit
 final class AgentWindowSplitView: NSView {
     static let defaultTerminalFraction: CGFloat = 0.38
     static let terminalFractionRange: ClosedRange<CGFloat> = 0.25...0.65
+    static let accessibilityResizeStep: CGFloat = 0.05
 
     let dividerViewForTesting = AgentWindowResizeHandle()
 
     private let feedView: NSView
     private let terminalView: NSView
+    private lazy var dividerAccessibilityElement = AgentWindowResizeProxyAccessibilityElement(
+        parentView: self,
+        sourceView: dividerViewForTesting
+    )
+    private lazy var terminalAccessibilityElement = AgentWindowTerminalProxyAccessibilityElement(
+        parentView: self,
+        sourceView: terminalView
+    )
     private var closedConstraints: [NSLayoutConstraint] = []
     private var openConstraints: [NSLayoutConstraint] = []
     private var terminalHeightConstraint: NSLayoutConstraint?
@@ -21,6 +30,9 @@ final class AgentWindowSplitView: NSView {
         self.terminalView = terminalView
         super.init(frame: .zero)
 
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Agent panel content")
         feedView.translatesAutoresizingMaskIntoConstraints = false
         terminalView.setAccessibilityIdentifier(
             AgentWindowAccessibilityIdentifiers.terminalContent
@@ -38,6 +50,12 @@ final class AgentWindowSplitView: NSView {
             guard let self, self.bounds.height > 0 else { return }
             self.setTerminalFraction(dividerPosition / self.bounds.height)
         }
+        dividerViewForTesting.onIncrement = { [weak self] in
+            self?.stepTerminalFraction(by: Self.accessibilityResizeStep)
+        }
+        dividerViewForTesting.onDecrement = { [weak self] in
+            self?.stepTerminalFraction(by: -Self.accessibilityResizeStep)
+        }
     }
 
     @available(*, unavailable)
@@ -48,6 +66,15 @@ final class AgentWindowSplitView: NSView {
     override func layout() {
         updateTerminalHeight()
         super.layout()
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        var children: [Any] = [feedView]
+        if isTerminalOpen {
+            children.append(dividerAccessibilityElement)
+            children.append(terminalAccessibilityElement)
+        }
+        return NSAccessibility.unignoredChildren(from: children)
     }
 
     func setTerminalOpen(_ open: Bool) {
@@ -110,18 +137,95 @@ final class AgentWindowSplitView: NSView {
     private func updateTerminalHeight() {
         guard isTerminalOpen else { return }
         terminalHeightConstraint?.constant = bounds.height * terminalFraction
+        dividerViewForTesting.setAccessibilityValue(NSNumber(value: Double(terminalFraction)))
+    }
+
+    private func stepTerminalFraction(by delta: CGFloat) {
+        setTerminalFraction(terminalFraction + delta)
+    }
+}
+
+private class AgentWindowProxyAccessibilityElement: NSAccessibilityElement {
+    nonisolated(unsafe) private weak var parentView: NSView?
+    nonisolated(unsafe) fileprivate weak var sourceView: NSView?
+
+    init(
+        parentView: NSView,
+        sourceView: NSView,
+        role: NSAccessibility.Role,
+        identifier: String,
+        label: String,
+        help: String? = nil
+    ) {
+        self.parentView = parentView
+        self.sourceView = sourceView
+        super.init()
+        setAccessibilityParent(parentView)
+        setAccessibilityElement(true)
+        setAccessibilityRole(role)
+        setAccessibilityIdentifier(identifier)
+        setAccessibilityLabel(label)
+        if let help {
+            setAccessibilityHelp(help)
+        }
+    }
+
+    override func accessibilityFrameInParentSpace() -> NSRect {
+        sourceView?.frame ?? .zero
+    }
+}
+
+private final class AgentWindowResizeProxyAccessibilityElement: AgentWindowProxyAccessibilityElement {
+    init(parentView: NSView, sourceView: NSView) {
+        super.init(
+            parentView: parentView,
+            sourceView: sourceView,
+            role: .splitter,
+            identifier: AgentWindowAccessibilityIdentifiers.terminalSplitter,
+            label: "Resize agent terminal",
+            help: "Use increment and decrement accessibility actions to resize the agent terminal."
+        )
+    }
+
+    override func accessibilityPerformIncrement() -> Bool {
+        sourceView?.accessibilityPerformIncrement() ?? false
+    }
+
+    override func accessibilityPerformDecrement() -> Bool {
+        sourceView?.accessibilityPerformDecrement() ?? false
+    }
+}
+
+private final class AgentWindowTerminalProxyAccessibilityElement: AgentWindowProxyAccessibilityElement {
+    init(parentView: NSView, sourceView: NSView) {
+        super.init(
+            parentView: parentView,
+            sourceView: sourceView,
+            role: .group,
+            identifier: AgentWindowAccessibilityIdentifiers.terminalContent,
+            label: "Agent terminal",
+            help: "Press to focus the native terminal."
+        )
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        sourceView?.accessibilityPerformPress() ?? false
     }
 }
 
 @MainActor
 final class AgentWindowResizeHandle: NSView {
     var onDrag: ((CGFloat) -> Void)?
+    var onIncrement: (() -> Void)?
+    var onDecrement: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         setAccessibilityIdentifier(AgentWindowAccessibilityIdentifiers.terminalSplitter)
         setAccessibilityLabel("Resize agent terminal")
+        setAccessibilityHelp("Use increment and decrement accessibility actions to resize the agent terminal.")
     }
 
     @available(*, unavailable)
@@ -142,5 +246,15 @@ final class AgentWindowResizeHandle: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.separatorColor.setFill()
         NSRect(x: bounds.minX, y: bounds.midY, width: bounds.width, height: 1).fill()
+    }
+
+    override func accessibilityPerformIncrement() -> Bool {
+        onIncrement?()
+        return true
+    }
+
+    override func accessibilityPerformDecrement() -> Bool {
+        onDecrement?()
+        return true
     }
 }

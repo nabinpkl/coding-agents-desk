@@ -59,6 +59,19 @@ struct AgentWindowSplitViewTests {
         #expect(abs(split.terminalFraction - 0.25) < 0.001)
     }
 
+    @Test func accessibilityResizeActionsAdjustTheOpenTerminalFraction() {
+        let split = AgentWindowSplitView(feedView: NSView(), terminalView: NSView())
+        split.frame = NSRect(x: 0, y: 0, width: 480, height: 720)
+        split.setTerminalOpen(true)
+        split.layoutSubtreeIfNeeded()
+
+        let starting = split.terminalFraction
+        #expect(split.dividerViewForTesting.accessibilityPerformIncrement())
+        #expect(abs(split.terminalFraction - (starting + 0.05)) < 0.001)
+        #expect(split.dividerViewForTesting.accessibilityPerformDecrement())
+        #expect(abs(split.terminalFraction - starting) < 0.001)
+    }
+
     @Test func resizingTheWindowPreservesTheChosenFraction() {
         let terminal = NSView()
         let split = AgentWindowSplitView(feedView: NSView(), terminalView: terminal)

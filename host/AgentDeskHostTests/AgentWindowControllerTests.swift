@@ -1,6 +1,7 @@
 import AppKit
 import AgentPanel
 import ApplicationServices
+import PtyTerminalSwiftTerm
 import Testing
 import WebKit
 
@@ -142,6 +143,37 @@ struct AgentWindowControllerTests {
         )
     }
 
+    @Test func nativeTerminalIdentifiersReachExternalAccessibilityClients() async throws {
+        let split = AgentWindowSplitView(
+            feedView: NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 320)),
+            terminalView: PtyTerminalSwiftTermContentView()
+        )
+        split.frame = NSRect(x: 0, y: 0, width: 480, height: 320)
+        split.setTerminalOpen(true)
+        split.layoutSubtreeIfNeeded()
+
+        let window = NSWindow(
+            contentRect: split.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "R73 native terminal accessibility test"
+        window.contentView = split
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+
+        guard nativeWindowAccessibilityIsExternallyVendored() else { return }
+        try await waitForAccessibilityIdentifier(
+            AgentWindowAccessibilityIdentifiers.terminalSplitter,
+            in: window
+        )
+        try await waitForAccessibilityIdentifier(
+            AgentWindowAccessibilityIdentifiers.terminalContent,
+            in: window
+        )
+    }
+
     @Test func terminalAccessibilityScriptIdentifiesDynamicWebStates() async throws {
         let contentController = WKUserContentController()
         contentController.addUserScript(AgentWindowPanelAccessibility.userScript)
@@ -235,6 +267,7 @@ struct AgentWindowControllerTests {
         webView.loadHTMLString(
             """
             <html><body>
+              <header><button aria-label="Go back">Back</button></header>
               <ul aria-label="Projects">
                 <li><button><span>Alpha Project</span></button></li>
               </ul>
@@ -252,11 +285,14 @@ struct AgentWindowControllerTests {
             baseURL: nil
         )
 
+        try await waitForDOMIdentifier(AgentPanelAccessibilityIdentifiers.backButton, in: webView)
         let projectID = "\(AgentPanelAccessibilityIdentifiers.projectRowPrefix)alpha-project"
         let sessionID =
             "\(AgentPanelAccessibilityIdentifiers.sessionRowPrefix)claude-debug-cloud-finops-notifications-firing-issue"
         try await waitForDOMIdentifier(projectID, in: webView)
         try await waitForDOMIdentifier(sessionID, in: webView)
+        #expect(try await elementID(for: "button[aria-label='Go back']", in: webView)
+            == AgentPanelAccessibilityIdentifiers.backButton)
         #expect(try await elementID(for: "ul[aria-label='Projects'] button", in: webView) == projectID)
         #expect(try await elementID(for: "ul[aria-label='Sessions'] button", in: webView) == sessionID)
 
@@ -265,6 +301,10 @@ struct AgentWindowControllerTests {
             in: window
         )
         if exposesAccessibilityDOMIdentifiers {
+            try await waitForAccessibilityDOMIdentifier(
+                AgentPanelAccessibilityIdentifiers.backButton,
+                in: window
+            )
             try await waitForAccessibilityDOMIdentifier(projectID, in: window)
             try await waitForAccessibilityDOMIdentifier(sessionID, in: window)
         }
@@ -357,6 +397,18 @@ struct AgentWindowControllerTests {
         Issue.record("Timed out waiting for WebKit AX DOM identifier \(identifier)")
     }
 
+    private func waitForAccessibilityIdentifier(
+        _ identifier: String,
+        in window: NSWindow
+    ) async throws {
+        for _ in 0..<200 {
+            if accessibilityIdentifiers(in: window).contains(identifier) { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let visible = accessibilityIdentifiers(in: window).sorted().joined(separator: ", ")
+        Issue.record("Timed out waiting for native AX identifier \(identifier); visible ids: [\(visible)]")
+    }
+
     private func accessibilityDOMIdentifierIsAvailable(
         _ identifier: String,
         in window: NSWindow
@@ -371,28 +423,25 @@ struct AgentWindowControllerTests {
     private func accessibilityDOMIdentifiers(in window: NSWindow) -> Set<String> {
         let application = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
         AXUIElementSetMessagingTimeout(application, 0.05)
-        guard let windows = axValues(application, attribute: kAXWindowsAttribute),
-              let windowElement = windows.first(where: {
-                  axString($0, attribute: kAXTitleAttribute) == window.title
-              }) else {
-            return []
-        }
+        return collectAccessibilityStrings(
+            attribute: kAXDOMIdentifierAttribute as String,
+            from: application
+        )
+    }
 
-        func collect(_ element: AXUIElement, depth: Int) -> Set<String> {
-            guard depth < 32 else { return [] }
-            AXUIElementSetMessagingTimeout(element, 0.05)
-            var result: Set<String> = []
-            if let identifier = axString(element, attribute: kAXDOMIdentifierAttribute as String),
-               !identifier.isEmpty {
-                result.insert(identifier)
-            }
-            for child in axValues(element, attribute: kAXChildrenAttribute) ?? [] {
-                result.formUnion(collect(child, depth: depth + 1))
-            }
-            return result
-        }
+    private func accessibilityIdentifiers(in window: NSWindow) -> Set<String> {
+        let application = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+        AXUIElementSetMessagingTimeout(application, 0.05)
+        return collectAccessibilityStrings(
+            attribute: kAXIdentifierAttribute as String,
+            from: application
+        )
+    }
 
-        return collect(windowElement, depth: 0)
+    private func nativeWindowAccessibilityIsExternallyVendored() -> Bool {
+        let application = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+        AXUIElementSetMessagingTimeout(application, 0.05)
+        return !collectAccessibilityWindows(from: application).isEmpty
     }
 
     private func axValues(_ element: AXUIElement, attribute: String) -> [AXUIElement]? {
@@ -409,6 +458,111 @@ struct AgentWindowControllerTests {
             return nil
         }
         return value as? String
+    }
+
+    private func collectAccessibilityStrings(
+        attribute: String,
+        from root: AXUIElement
+    ) -> Set<String> {
+        var visited: Set<UInt> = []
+        return collectAccessibilityStrings(
+            attribute: attribute,
+            from: root,
+            depth: 0,
+            visited: &visited
+        )
+    }
+
+    private func collectAccessibilityStrings(
+        attribute: String,
+        from element: AXUIElement,
+        depth: Int,
+        visited: inout Set<UInt>
+    ) -> Set<String> {
+        let hash = CFHash(element)
+        guard visited.insert(hash).inserted, depth < 32 else { return [] }
+        AXUIElementSetMessagingTimeout(element, 0.05)
+
+        var result: Set<String> = []
+        if let value = axString(element, attribute: attribute), !value.isEmpty {
+            result.insert(value)
+        }
+        for related in relatedAccessibilityElements(for: element) {
+            result.formUnion(
+                collectAccessibilityStrings(
+                    attribute: attribute,
+                    from: related,
+                    depth: depth + 1,
+                    visited: &visited
+                )
+            )
+        }
+        return result
+    }
+
+    private func relatedAccessibilityElements(for element: AXUIElement) -> [AXUIElement] {
+        let role = axString(element, attribute: kAXRoleAttribute as String)
+        var related = axValues(element, attribute: kAXChildrenAttribute) ?? []
+        related.append(contentsOf: axValues(element, attribute: "AXChildrenInNavigationOrder") ?? [])
+
+        if role == kAXApplicationRole {
+            related.append(contentsOf: axValues(element, attribute: kAXWindowsAttribute as String) ?? [])
+            related.append(contentsOf: axValues(element, attribute: "AXFunctionRowTopLevelElements") ?? [])
+            if let focusedWindow = axValue(element, attribute: kAXFocusedWindowAttribute as String) {
+                related.append(focusedWindow)
+            }
+            if let mainWindow = axValue(element, attribute: kAXMainWindowAttribute as String) {
+                related.append(mainWindow)
+            }
+            if let menuBar = axValue(element, attribute: kAXMenuBarAttribute as String) {
+                related.append(menuBar)
+            }
+            if let extrasMenuBar = axValue(element, attribute: "AXExtrasMenuBar") {
+                related.append(extrasMenuBar)
+            }
+            if let focusedElement = axValue(element, attribute: kAXFocusedUIElementAttribute as String) {
+                related.append(focusedElement)
+            }
+        }
+
+        var seen: Set<UInt> = []
+        return related.filter { seen.insert(CFHash($0)).inserted }
+    }
+
+    private func collectAccessibilityWindows(from root: AXUIElement) -> [AXUIElement] {
+        var visited: Set<UInt> = []
+        return collectAccessibilityWindows(from: root, depth: 0, visited: &visited)
+    }
+
+    private func collectAccessibilityWindows(
+        from element: AXUIElement,
+        depth: Int,
+        visited: inout Set<UInt>
+    ) -> [AXUIElement] {
+        let hash = CFHash(element)
+        guard visited.insert(hash).inserted, depth < 32 else { return [] }
+
+        var result: [AXUIElement] = []
+        if axString(element, attribute: kAXRoleAttribute as String) == kAXWindowRole {
+            result.append(element)
+        }
+        for related in relatedAccessibilityElements(for: element) {
+            result.append(contentsOf: collectAccessibilityWindows(
+                from: related,
+                depth: depth + 1,
+                visited: &visited
+            ))
+        }
+        return result
+    }
+
+    private func axValue(_ element: AXUIElement, attribute: String) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
+            return nil
+        }
+        guard let value else { return nil }
+        return unsafeBitCast(value, to: AXUIElement.self)
     }
 }
 

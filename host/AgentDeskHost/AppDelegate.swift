@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import CryptoKit
 import Foundation
 import Network
@@ -218,7 +219,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var activePreArmName: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        if Config.axAutomationEnabled {
+            promoteToForegroundApplicationForAXAutomation()
+            NSApp.setActivationPolicy(.regular)
+        } else {
+            NSApp.setActivationPolicy(.accessory)
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         // A dev iteration run (`just host-run`) is a transient, env-carrying
         // launch, not a production login install. Registering the LaunchAgent here
@@ -262,6 +268,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // concurrency-safety checks.
         let promptOptions = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(promptOptions)
+    }
+
+    private func promoteToForegroundApplicationForAXAutomation() {
+        var processSerialNumber = ProcessSerialNumber(
+            highLongOfPSN: 0,
+            lowLongOfPSN: UInt32(kCurrentProcess)
+        )
+        TransformProcessType(
+            &processSerialNumber,
+            ProcessApplicationTransformState(kProcessTransformToForegroundApplication)
+        )
     }
 
     private func bootstrapTLSIdentity() {
