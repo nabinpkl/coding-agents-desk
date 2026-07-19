@@ -16,6 +16,7 @@ import {
   documentZoomFor,
   restoreDocumentViewport,
 } from './documentViewportState.mjs'
+import { ViewerZoomController } from './viewerZoom.mjs'
 
 const content = document.getElementById('content')
 const language = new Compartment()
@@ -124,19 +125,25 @@ function applyRunEvent(event) {
   applyNotebookRunEvent(content, event, { md, escapeHtml, highlightFenced, runMermaid })
 }
 
+const zoomController = new ViewerZoomController({
+  applyTextZoom(zoom) {
+    const root = document.documentElement
+    root.style.setProperty('--editor-code-font-size', `${zoom.editorCodePointSize}px`)
+    root.style.setProperty('--markdown-font-size', `${zoom.markdownPointSize}px`)
+    active?.view?.requestMeasure()
+  },
+})
+
 function setTextZoom(zoom) {
-  const root = document.documentElement
-  root.style.setProperty('--editor-code-font-size', `${zoom.editorCodePointSize}px`)
-  root.style.setProperty('--markdown-font-size', `${zoom.markdownPointSize}px`)
-  active?.view?.requestMeasure()
+  zoomController.setTextZoom(zoom)
 }
 
-function zoomDocumentIn() {
-  if (active?.kind === 'docx') active.viewport?.zoomIn()
+function zoomIn() {
+  zoomController.zoomIn(active)
 }
 
-function zoomDocumentOut() {
-  if (active?.kind === 'docx') active.viewport?.zoomOut()
+function zoomOut() {
+  zoomController.zoomOut(active)
 }
 
 function renderMarkdown(state) {
@@ -296,8 +303,8 @@ if (themeMedia?.addEventListener) {
 window.fileSurface = {
   render,
   setTextZoom,
-  zoomDocumentIn,
-  zoomDocumentOut,
+  zoomIn,
+  zoomOut,
   applyNotebookRunEvent: applyRunEvent,
 }
 

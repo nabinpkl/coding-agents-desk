@@ -43,3 +43,8 @@ test('file preview content does not enter edit mode on double-click', () => {
   assert.doesNotMatch(viewer, /addEventListener\('dblclick'/)
   assert.doesNotMatch(viewer, /type:\s*'edit'/)
 })
+
+test('native chrome receives one content-aware zoom contract', () => {
+  assert.match(viewer, /window\.fileSurface\s*=\s*\{[\s\S]*\bzoomIn,[\s\S]*\bzoomOut,/)
+  assert.doesNotMatch(viewer, /zoomDocument(In|Out)/)
+})

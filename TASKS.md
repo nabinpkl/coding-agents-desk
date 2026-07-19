@@ -62,6 +62,13 @@ the existing preview overlay.
   file viewing, terminal resize/input, workspace cwd, relaunch reattachment, and Mac-created terminal
   attachment using accessibility identifiers and app-only screenshots.
 
+## v6 Phase 5: workspace naming and viewer zoom
+
+- [x] D83. Rename the iOS switcher surface and automation contract from Files to Workspace, replace
+  the folder symbol with an IDE-layout symbol, and expose shared content-aware zoom controls for every
+  open file. Viewer tests pin bounded text scaling and DOCX viewport delegation; iOS tests pin the
+  symbol, label, picker, and controls for text and DOCX.
+
 ---
 
 ## v7 scope (captured, not started)
@@ -80,4 +87,5 @@ D79      2026-07-19  landed      resizable UIKit explorer, empty editor, and per
 D80      2026-07-19  landed      one persistent shared workspace shell
 D81      2026-07-19  landed      PTY, wire, host, client, and simulator gates green
 D82      2026-07-19  landed      dev SHA, workbench, persistent reattach, and Mac-created PTY smoke green
+D83      2026-07-19  landed      Workspace naming, IDE symbol, and content-aware viewer zoom
 ```

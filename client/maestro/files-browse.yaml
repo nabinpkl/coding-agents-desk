@@ -2,22 +2,22 @@ appId: com.example.agentdesk.AgentDeskClient
 ---
 # Wait for the paired session UI (the surface toggle appears once connected).
 - extendedWaitUntil:
-    visible: "Files"
+    visible: "Workspace"
     timeout: 30000
-# Switch to the Files surface: opens the .files lane and loads the workspace list.
-- tapOn: "Files"
+# Switch to the Workspace surface: opens the .files lane and loads the workspace list.
+- tapOn: "Workspace"
 # R38 picker: the surface opens on the workspace picker with NOTHING auto-selected. The picker button
 # reads "Select workspace" until the user chooses, proving every workspace is reachable (the old
 # auto-select-first hid all but the first).
 - extendedWaitUntil:
     visible:
-      id: "workspace-files-picker"
+      id: "workspace-picker"
     timeout: 30000
 - assertVisible: "Select workspace"
 - takeScreenshot: files-picker
 # Open the picker and choose a known workspace (this repo), then browse its root.
 - tapOn:
-    id: "workspace-files-picker"
+    id: "workspace-picker"
 - tapOn: "agent-desk"
 - extendedWaitUntil:
     notVisible: "Loading…"

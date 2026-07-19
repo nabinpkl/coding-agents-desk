@@ -3,9 +3,9 @@ appId: ${APP_ID}
 # The paired dev stack is launched before this flow. Do not relaunch here or the
 # simulator-only pairing environment is lost.
 - extendedWaitUntil:
-    visible: "Files"
+    visible: "Workspace"
     timeout: 30000
-- tapOn: "Files"
+- tapOn: "Workspace"
 - extendedWaitUntil:
     visible:
       id: "workspace-workbench"
@@ -21,7 +21,7 @@ appId: ${APP_ID}
     id: "workspace-terminal"
 - takeScreenshot: workspace-workbench-empty
 - tapOn:
-    id: "workspace-files-picker"
+    id: "workspace-picker"
 - tapOn: "agent-desk"
 - extendedWaitUntil:
     notVisible: "Loading…"
@@ -64,11 +64,11 @@ appId: ${APP_ID}
 - tapOn: "AGENTS.md"
 - extendedWaitUntil:
     visible:
-      id: "workspace-files-preview-close"
+      id: "workspace-preview-close"
     timeout: 30000
 - takeScreenshot: workspace-workbench-file
 - tapOn:
-    id: "workspace-files-preview-close"
+    id: "workspace-preview-close"
 - assertVisible:
     id: "workspace-editor-empty"
 

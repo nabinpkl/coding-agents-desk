@@ -83,24 +83,24 @@ final class WorkspaceFileEditorView: UIView {
 
         closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
         closeButton.accessibilityLabel = "Close file"
-        closeButton.accessibilityIdentifier = "workspace-files-preview-close"
+        closeButton.accessibilityIdentifier = "workspace-preview-close"
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
 
         zoomOutButton.setImage(UIImage(systemName: "minus.magnifyingglass"), for: .normal)
         zoomOutButton.accessibilityLabel = "Zoom Out"
-        zoomOutButton.accessibilityIdentifier = "workspace-files-preview-zoom-out"
+        zoomOutButton.accessibilityIdentifier = "workspace-preview-zoom-out"
         zoomOutButton.addTarget(self, action: #selector(zoomOutTapped), for: .touchUpInside)
 
         zoomInButton.setImage(UIImage(systemName: "plus.magnifyingglass"), for: .normal)
         zoomInButton.accessibilityLabel = "Zoom In"
-        zoomInButton.accessibilityIdentifier = "workspace-files-preview-zoom-in"
+        zoomInButton.accessibilityIdentifier = "workspace-preview-zoom-in"
         zoomInButton.addTarget(self, action: #selector(zoomInTapped), for: .touchUpInside)
 
-        modeButton.accessibilityIdentifier = "workspace-files-preview-mode"
+        modeButton.accessibilityIdentifier = "workspace-preview-mode"
         modeButton.addTarget(self, action: #selector(toggleModeTapped), for: .touchUpInside)
 
         saveButton.setTitle("Save", for: .normal)
-        saveButton.accessibilityIdentifier = "workspace-files-preview-save"
+        saveButton.accessibilityIdentifier = "workspace-preview-save"
         saveButton.addTarget(self, action: #selector(saveTapped), for: .touchUpInside)
 
         titleLabel.font = .preferredFont(forTextStyle: .headline)
@@ -120,7 +120,7 @@ final class WorkspaceFileEditorView: UIView {
         emptyLabel.numberOfLines = 0
         emptyLabel.accessibilityIdentifier = "workspace-editor-empty"
 
-        webSurface.view.accessibilityIdentifier = "workspace-files-preview-text"
+        webSurface.view.accessibilityIdentifier = "workspace-preview-text"
         webSurface.onDirty = { [weak self] _, text in self?.latestEditedText = text }
 
         header.addArrangedSubview(titleLabel)
@@ -190,9 +190,9 @@ final class WorkspaceFileEditorView: UIView {
     }
 
     private func updateZoomButtons(for kind: WorkspaceFileKind?) {
-        let isDocument = kind == .docx
-        zoomOutButton.isHidden = !isDocument
-        zoomInButton.isHidden = !isDocument
+        let hasOpenFile = kind != nil
+        zoomOutButton.isHidden = !hasOpenFile
+        zoomInButton.isHidden = !hasOpenFile
     }
 
     private func renderSaveStatus(_ saveStatus: WorkspaceFilesBrowserModel.SaveStatus) {
@@ -216,8 +216,8 @@ final class WorkspaceFileEditorView: UIView {
     }
 
     @objc private func closeTapped() { browser.closePreview() }
-    @objc private func zoomOutTapped() { webSurface.zoomDocumentOut() }
-    @objc private func zoomInTapped() { webSurface.zoomDocumentIn() }
+    @objc private func zoomOutTapped() { webSurface.zoomOut() }
+    @objc private func zoomInTapped() { webSurface.zoomIn() }
 
     @objc private func toggleModeTapped() {
         guard case .loaded(let path, .text(let baseline), _)? = browser.model.preview else { return }

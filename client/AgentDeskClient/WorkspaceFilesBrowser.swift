@@ -50,7 +50,7 @@ final class WorkspaceFilesResumeStore: WorkspaceFilesResumeStoring, @unchecked S
     }
 }
 
-/// Drives the iOS Files surface: it owns the `WorkspaceFilesBrowserModel`, issues the matching
+/// Drives the iOS Workspace surface: it owns the `WorkspaceFilesBrowserModel`, issues the matching
 /// `WorkspaceFileRequest` for each navigation over the transport, and folds each response back into
 /// the model tagged with the generation captured when the request was issued. Because the model
 /// ignores responses for a superseded generation, a navigation that happens while a request is in

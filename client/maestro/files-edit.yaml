@@ -1,17 +1,17 @@
 appId: com.example.agentdesk.AgentDeskClient
 ---
-# Switch to Files and open README.md into the editor.
+# Switch to Workspace and open README.md into the editor.
 - extendedWaitUntil:
-    visible: "Files"
+    visible: "Workspace"
     timeout: 30000
-- tapOn: "Files"
+- tapOn: "Workspace"
 # R38: pick a workspace from the picker first (no more auto-select-first).
 - extendedWaitUntil:
     visible:
-      id: "workspace-files-picker"
+      id: "workspace-picker"
     timeout: 30000
 - tapOn:
-    id: "workspace-files-picker"
+    id: "workspace-picker"
 - tapOn: "agent-desk"
 - extendedWaitUntil:
     notVisible: "Loading…"
@@ -20,14 +20,14 @@ appId: com.example.agentdesk.AgentDeskClient
     id: "workspace-files-entry-README.md"
 - extendedWaitUntil:
     visible:
-      id: "workspace-files-preview-text"
+      id: "workspace-preview-text"
     timeout: 15000
 # Edit the text and save it back through the revision-checked .files write.
 - tapOn:
-    id: "workspace-files-preview-text"
+    id: "workspace-preview-text"
 - inputText: " [edited on device]"
 - tapOn:
-    id: "workspace-files-preview-save"
+    id: "workspace-preview-save"
 - extendedWaitUntil:
     notVisible: "Saving…"
     timeout: 15000

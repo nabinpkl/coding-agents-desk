@@ -3,7 +3,7 @@ import PackageDescription
 
 // WorkspaceEditorViewer: the shared file web viewer (ADR-0054). The authored web project lives in
 // `Viewer/`; only its runtime entry files and committed `dist/` output are package resources. Both
-// the macOS shell and iOS Files surface host this one SPA, so DOCX, Markdown, notebook, and source
+// the macOS shell and iOS Workspace surface host this one SPA, so DOCX, Markdown, notebook, and source
 // rendering share one implementation while their surrounding native chrome remains platform-owned.
 let package = Package(
     name: "WorkspaceEditorViewer",

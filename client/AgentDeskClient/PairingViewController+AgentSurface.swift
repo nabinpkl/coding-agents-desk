@@ -35,13 +35,13 @@ extension PairingViewController {
         nonisolated(unsafe) static var agentSurfaceConstraints: UInt8 = 0
         nonisolated(unsafe) static var agentSurfaceBoundTransport: UInt8 = 0
         nonisolated(unsafe) static var agentTerminalLifecycleRouter: UInt8 = 0
-        nonisolated(unsafe) static var filesSurface: UInt8 = 0
-        nonisolated(unsafe) static var filesBrowser: UInt8 = 0
+        nonisolated(unsafe) static var workspaceSurface: UInt8 = 0
+        nonisolated(unsafe) static var workspaceBrowser: UInt8 = 0
         nonisolated(unsafe) static var filesTransport: UInt8 = 0
-        nonisolated(unsafe) static var filesSurfaceLoading: UInt8 = 0
-        nonisolated(unsafe) static var filesSurfaceTask: UInt8 = 0
-        nonisolated(unsafe) static var filesSurfaceGeneration: UInt8 = 0
-        nonisolated(unsafe) static var filesSurfaceBoundSession: UInt8 = 0
+        nonisolated(unsafe) static var workspaceSurfaceLoading: UInt8 = 0
+        nonisolated(unsafe) static var workspaceSurfaceTask: UInt8 = 0
+        nonisolated(unsafe) static var workspaceSurfaceGeneration: UInt8 = 0
+        nonisolated(unsafe) static var workspaceSurfaceBoundSession: UInt8 = 0
     }
 
     private final class AgentSurfaceTransportBinding {
@@ -85,14 +85,14 @@ extension PairingViewController {
         set { objc_setAssociatedObject(self, &Keys.surfaceSegmentedControl, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    var filesSurface: WorkspaceWorkbenchSurface? {
-        get { objc_getAssociatedObject(self, &Keys.filesSurface) as? WorkspaceWorkbenchSurface }
-        set { objc_setAssociatedObject(self, &Keys.filesSurface, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    var workspaceSurface: WorkspaceWorkbenchSurface? {
+        get { objc_getAssociatedObject(self, &Keys.workspaceSurface) as? WorkspaceWorkbenchSurface }
+        set { objc_setAssociatedObject(self, &Keys.workspaceSurface, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    private var filesBrowser: WorkspaceFilesBrowser? {
-        get { objc_getAssociatedObject(self, &Keys.filesBrowser) as? WorkspaceFilesBrowser }
-        set { objc_setAssociatedObject(self, &Keys.filesBrowser, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    private var workspaceBrowser: WorkspaceFilesBrowser? {
+        get { objc_getAssociatedObject(self, &Keys.workspaceBrowser) as? WorkspaceFilesBrowser }
+        set { objc_setAssociatedObject(self, &Keys.workspaceBrowser, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
     private var filesTransport: WorkspaceFilesTransport? {
@@ -100,35 +100,35 @@ extension PairingViewController {
         set { objc_setAssociatedObject(self, &Keys.filesTransport, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    private var filesSurfaceTask: Task<Void, Never>? {
-        get { objc_getAssociatedObject(self, &Keys.filesSurfaceTask) as? Task<Void, Never> }
-        set { objc_setAssociatedObject(self, &Keys.filesSurfaceTask, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    private var workspaceSurfaceTask: Task<Void, Never>? {
+        get { objc_getAssociatedObject(self, &Keys.workspaceSurfaceTask) as? Task<Void, Never> }
+        set { objc_setAssociatedObject(self, &Keys.workspaceSurfaceTask, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
     // Bumped by every teardown/rebuild so an in-flight open Task can tell it has been superseded and
     // must not touch surface state or reset the loading flag.
-    private var filesSurfaceGeneration: Int {
-        get { (objc_getAssociatedObject(self, &Keys.filesSurfaceGeneration) as? Int) ?? 0 }
-        set { objc_setAssociatedObject(self, &Keys.filesSurfaceGeneration, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    private var workspaceSurfaceGeneration: Int {
+        get { (objc_getAssociatedObject(self, &Keys.workspaceSurfaceGeneration) as? Int) ?? 0 }
+        set { objc_setAssociatedObject(self, &Keys.workspaceSurfaceGeneration, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    // The session transport the mounted Files surface was opened from, so a reconnect can detect the
+    // The session transport the mounted Workspace surface was opened from, so a reconnect can detect the
     // transport swap and rebuild (mirrors agentSurfaceBoundTransport).
-    private var filesSurfaceBoundSession: QuicSessionClientTransport? {
-        get { (objc_getAssociatedObject(self, &Keys.filesSurfaceBoundSession) as? AgentSurfaceTransportBinding)?.transport }
+    private var workspaceSurfaceBoundSession: QuicSessionClientTransport? {
+        get { (objc_getAssociatedObject(self, &Keys.workspaceSurfaceBoundSession) as? AgentSurfaceTransportBinding)?.transport }
         set {
             objc_setAssociatedObject(
                 self,
-                &Keys.filesSurfaceBoundSession,
+                &Keys.workspaceSurfaceBoundSession,
                 AgentSurfaceTransportBinding(newValue),
                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC
             )
         }
     }
 
-    private var filesSurfaceLoading: Bool {
-        get { (objc_getAssociatedObject(self, &Keys.filesSurfaceLoading) as? Bool) ?? false }
-        set { objc_setAssociatedObject(self, &Keys.filesSurfaceLoading, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    private var workspaceSurfaceLoading: Bool {
+        get { (objc_getAssociatedObject(self, &Keys.workspaceSurfaceLoading) as? Bool) ?? false }
+        set { objc_setAssociatedObject(self, &Keys.workspaceSurfaceLoading, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
     private var agentSurfaceBoundTransport: QuicSessionClientTransport? {
@@ -204,45 +204,45 @@ extension PairingViewController {
         // The switcher owns all non-control surfaces; tear the browser down too
         // so a reconnect rebuilds all three cleanly from the fresh session.
         teardownDomMirrorSurface()
-        teardownFilesSurface()
+        teardownWorkspaceSurface()
 
         surfaceSegmentedControl?.removeFromSuperview()
         surfaceSegmentedControl = nil
         return terminalCloseTask
     }
 
-    // Files surface teardown mirrors the other non-control surfaces: sever the model binding, close
+    // Workspace surface teardown mirrors the other non-control surfaces: sever the model binding, close
     // the .files lane transport (so the old QUIC stream is not leaked), remove the view, and clear
     // every associated handle so a reconnect rebuilds a fresh surface bound to the new session
     // rather than a dead one.
-    private func teardownFilesSurface() {
+    private func teardownWorkspaceSurface() {
         // Supersede any in-flight open Task so it cannot install a surface bound to the dead session
         // after we tear down, and cancel it for promptness.
-        filesSurfaceGeneration += 1
-        filesSurfaceTask?.cancel()
-        filesSurfaceTask = nil
-        filesSurface?.teardown()
-        filesSurface?.removeFromSuperview()
-        filesSurface = nil
-        filesBrowser = nil
-        filesSurfaceBoundSession = nil
+        workspaceSurfaceGeneration += 1
+        workspaceSurfaceTask?.cancel()
+        workspaceSurfaceTask = nil
+        workspaceSurface?.teardown()
+        workspaceSurface?.removeFromSuperview()
+        workspaceSurface = nil
+        workspaceBrowser = nil
+        workspaceSurfaceBoundSession = nil
         if let transport = filesTransport {
             Task { await transport.close() }
         }
         filesTransport = nil
-        filesSurfaceLoading = false
+        workspaceSurfaceLoading = false
     }
 
-    // Rebuilds the Files surface when it is mounted but bound to a superseded session transport
+    // Rebuilds the Workspace surface when it is mounted but bound to a superseded session transport
     // (e.g. a background/foreground app switch closed the old session and opened a new one). Mirrors
-    // rebindAgentSurfaceAfterReconnectIfNeeded; without it the Files tab stays bound to a closed
-    // transport because the ensureFilesSurface guard sees a non-nil surface and bails.
-    func rebindFilesSurfaceAfterReconnectIfNeeded() {
-        guard filesSurface != nil else { return }
-        guard filesSurfaceBoundSession !== pairingClient.activeSessionTransport else { return }
-        let wasActive = activeControlSurface == .files
-        teardownFilesSurface()
-        if wasActive { ensureFilesSurface() }
+    // rebindAgentSurfaceAfterReconnectIfNeeded; without it the Workspace tab stays bound to a closed
+    // transport because the ensureWorkspaceSurface guard sees a non-nil surface and bails.
+    func rebindWorkspaceSurfaceAfterReconnectIfNeeded() {
+        guard workspaceSurface != nil else { return }
+        guard workspaceSurfaceBoundSession !== pairingClient.activeSessionTransport else { return }
+        let wasActive = activeControlSurface == .workspace
+        teardownWorkspaceSurface()
+        if wasActive { ensureWorkspaceSurface() }
     }
 
     // MARK: - Lazy webview creation
@@ -347,9 +347,9 @@ extension PairingViewController {
             // Create the replay surface and start the .dom lane on first switch
             // to Browser (lazy, so the mirror does not run unless viewed).
             ensureDomMirrorSurface()
-        case .files:
-            // Open the .files lane and build the browser on first switch to Files.
-            ensureFilesSurface()
+        case .workspace:
+            // Open the .files lane and build the workbench on first switch to Workspace.
+            ensureWorkspaceSurface()
         }
         applySurface(surface)
 
@@ -363,7 +363,7 @@ extension PairingViewController {
 
     func rebindActiveSurfaceAfterReconnect() {
         rebindAgentSurfaceAfterReconnectIfNeeded()
-        rebindFilesSurfaceAfterReconnectIfNeeded()
+        rebindWorkspaceSurfaceAfterReconnectIfNeeded()
 
         switch activeControlSurface {
         case .control:
@@ -381,8 +381,8 @@ extension PairingViewController {
                     seg.selectedSegmentIndex = segmentIndex(for: .control, in: seg)
                 }
             }
-        case .files:
-            ensureFilesSurface()
+        case .workspace:
+            ensureWorkspaceSurface()
         }
         pairingClient.activeDomMirror?.setCapture(activeControlSurface == .browser)
         domMirrorSurface?.setPaused(activeControlSurface != .browser)
@@ -470,27 +470,27 @@ extension PairingViewController {
         // The keyboard surface is a first-responder helper; just disable it.
         keyboardSurface.isUserInteractionEnabled = v.keyboardInteractive
         applyVideoTouchState()
-        filesSurface?.isHidden = v.filesHidden
+        workspaceSurface?.isHidden = v.workspaceHidden
 
         Self.logger.debug("active surface: \(String(describing: surface))")
     }
 
-    // Idempotent: opens the .files lane, builds the browser + surface, and loads the workspace list.
+    // Idempotent: opens the .files lane, builds the browser + workbench, and loads the workspace list.
     // The browser restores the last valid workspace but deliberately starts with an empty editor;
     // without history it stays on the picker. The lane is available on any active session, so unlike
     // Browser this needs no capability gate. The loading flag guards against rapid segment taps.
-    func ensureFilesSurface() {
-        guard filesSurface == nil, !filesSurfaceLoading else { return }
+    func ensureWorkspaceSurface() {
+        guard workspaceSurface == nil, !workspaceSurfaceLoading else { return }
         guard let session = pairingClient.activeSessionTransport else { return }
-        filesSurfaceLoading = true
+        workspaceSurfaceLoading = true
         // Capture the generation so this Task can detect if a teardown/rebuild superseded it while
         // it was suspended on the async open (the reconnect/app-switch race).
-        let generation = filesSurfaceGeneration
-        filesSurfaceTask = Task { [weak self] in
+        let generation = workspaceSurfaceGeneration
+        workspaceSurfaceTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let transport = try await session.openWorkspaceFilesTransport()
-                guard self.filesSurfaceGeneration == generation else {
+                guard self.workspaceSurfaceGeneration == generation else {
                     await transport.close()
                     return
                 }
@@ -501,7 +501,7 @@ extension PairingViewController {
                     terminalSessionOpener: session
                 )
                 surface.translatesAutoresizingMaskIntoConstraints = false
-                surface.isHidden = self.activeControlSurface != .files
+                surface.isHidden = self.activeControlSurface != .workspace
                 self.view.addSubview(surface)
                 let top = self.surfaceSegmentedControl.map {
                     surface.topAnchor.constraint(equalTo: $0.bottomAnchor, constant: 8)
@@ -514,20 +514,20 @@ extension PairingViewController {
                 ])
                 if let seg = self.surfaceSegmentedControl { self.view.bringSubviewToFront(seg) }
                 self.filesTransport = transport
-                self.filesBrowser = browser
-                self.filesSurface = surface
-                self.filesSurfaceBoundSession = session
-                self.filesSurfaceLoading = false
-                self.filesSurfaceTask = nil
+                self.workspaceBrowser = browser
+                self.workspaceSurface = surface
+                self.workspaceSurfaceBoundSession = session
+                self.workspaceSurfaceLoading = false
+                self.workspaceSurfaceTask = nil
                 await browser.loadWorkspaces()
             } catch {
                 Self.logger.error("files surface open failed: \(String(describing: error), privacy: .public)")
-                guard self.filesSurfaceGeneration == generation else { return }
-                self.filesSurfaceLoading = false
-                self.filesSurfaceTask = nil
+                guard self.workspaceSurfaceGeneration == generation else { return }
+                self.workspaceSurfaceLoading = false
+                self.workspaceSurfaceTask = nil
                 // The lane never opened; fall back to Control so the user isn't stranded on a blank
-                // Files screen with every other surface hidden.
-                if self.activeControlSurface == .files {
+                // Workspace screen with every other surface hidden.
+                if self.activeControlSurface == .workspace {
                     self.activeControlSurface = .control
                     if let seg = self.surfaceSegmentedControl {
                         seg.selectedSegmentIndex = self.segmentIndex(for: .control, in: seg)

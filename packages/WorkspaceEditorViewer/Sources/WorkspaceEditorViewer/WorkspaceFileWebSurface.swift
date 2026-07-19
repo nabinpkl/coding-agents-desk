@@ -128,7 +128,7 @@ struct FileWebSurfaceState {
 /// The shared file web viewer surface (ADR-0054 Phase G): a `WKWebView` hosting the bundled SPA
 /// (CodeMirror + markdown-it + mermaid) over the `app://` scheme, driving its `window.fileSurface`
 /// JS contract. Cross-platform — the only platform split is opening external http(s) links. macOS
-/// wraps `view` in the FileViewer window; iOS embeds it in the Files surface. `view` is a `WKWebView`
+/// wraps `view` in the FileViewer window; iOS embeds it in the Workspace surface. `view` is a `WKWebView`
 /// (an `NSView` on macOS, a `UIView` on iOS), so callers add it as a subview either way.
 @MainActor
 public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
@@ -179,15 +179,13 @@ public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
     }
     public func setTextZoom(_ zoom: WorkspaceFileTextZoom) { apply(state.setTextZoom(zoom)) }
 
-    #if os(iOS)
-    public func zoomDocumentIn() {
-        callJS("window.fileSurface.zoomDocumentIn()", [:])
+    public func zoomIn() {
+        callJS("window.fileSurface.zoomIn()", [:])
     }
 
-    public func zoomDocumentOut() {
-        callJS("window.fileSurface.zoomDocumentOut()", [:])
+    public func zoomOut() {
+        callJS("window.fileSurface.zoomOut()", [:])
     }
-    #endif
 
     private func apply(_ effects: [FileWebSurfaceState.Effect]) {
         for effect in effects {

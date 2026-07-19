@@ -4,15 +4,15 @@ appId: ${APP_ID}
 # its open-terminal AX action. Selecting that workspace must attach this client
 # to the newest eligible Mac-created session instead of launching another one.
 - extendedWaitUntil:
-    visible: "Files"
+    visible: "Workspace"
     timeout: 30000
-- tapOn: "Files"
+- tapOn: "Workspace"
 - extendedWaitUntil:
     visible:
-      id: "workspace-files-picker"
+      id: "workspace-picker"
     timeout: 30000
 - tapOn:
-    id: "workspace-files-picker"
+    id: "workspace-picker"
 - tapOn: "dumping-ground"
 - extendedWaitUntil:
     notVisible: "Loading…"

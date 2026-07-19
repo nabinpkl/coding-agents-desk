@@ -443,19 +443,36 @@ struct WorkspaceFilesBrowserTests {
         #expect(message == "Workspace store is unavailable.")
     }
 
-    @Test func docxPreviewWiresRendererOwnedZoomControls() async throws {
+    @Test func workspaceUsesWorkspaceNameWhenNoRootIsAvailable() throws {
+        let surface = WorkspaceWorkbenchSurface(browser: makeBrowser(transport: MockFilesRequester()))
+
+        let picker = try #require(surface.control(identifier: "workspace-picker") as? UIButton)
+        #expect(picker.configuration?.title == "Workspace")
+    }
+
+    @Test(arguments: [
+        ("README.md", WorkspaceFileReadContent.text("# Read me")),
+        ("Report.docx", WorkspaceFileReadContent.document(Data([0x50, 0x4b, 0x03, 0x04]))),
+    ])
+    func everyOpenWorkspaceFileWiresRendererOwnedZoomControls(
+        path: String,
+        content: WorkspaceFileReadContent
+    ) async throws {
         let mock = MockFilesRequester()
-        await mock.script(path: "", entries: [file("Report.docx", "Report.docx")])
-        await mock.scriptDocument(path: "Report.docx", data: Data([0x50, 0x4b, 0x03, 0x04]))
+        await mock.script(path: "", entries: [file(path, path)])
+        switch content {
+        case .text(let text): await mock.scriptFile(path: path, text: text)
+        case .document(let data): await mock.scriptDocument(path: path, data: data)
+        }
         let browser = makeBrowser(transport: mock)
         let surface = WorkspaceWorkbenchSurface(browser: browser)
 
         await browser.selectWorkspace("w1")
-        await browser.openFile(file("Report.docx", "Report.docx"))
+        await browser.openFile(file(path, path))
 
         _ = try #require(surface.firstDescendant(ofType: WKWebView.self))
-        let zoomOutButton = try #require(surface.control(identifier: "workspace-files-preview-zoom-out"))
-        let zoomInButton = try #require(surface.control(identifier: "workspace-files-preview-zoom-in"))
+        let zoomOutButton = try #require(surface.control(identifier: "workspace-preview-zoom-out"))
+        let zoomInButton = try #require(surface.control(identifier: "workspace-preview-zoom-in"))
         #expect(!zoomOutButton.isHidden)
         #expect(!zoomInButton.isHidden)
     }

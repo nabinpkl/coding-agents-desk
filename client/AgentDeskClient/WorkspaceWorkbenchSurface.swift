@@ -15,7 +15,7 @@ final class WorkspaceWorkbenchSurface: UIView {
     private let terminalButton = UIButton(type: .system)
     private let sidebarDivider = WorkspaceWorkbenchDivider(
         axis: .vertical,
-        accessibilityLabel: "Resize file sidebar"
+        accessibilityLabel: "Resize workspace sidebar"
     )
     private let terminalDivider = WorkspaceWorkbenchDivider(
         axis: .horizontal,
@@ -136,7 +136,7 @@ final class WorkspaceWorkbenchSurface: UIView {
 
     private func setUpToolbar() {
         sidebarButton.setImage(UIImage(systemName: "sidebar.left"), for: .normal)
-        sidebarButton.accessibilityLabel = "Toggle file sidebar"
+        sidebarButton.accessibilityLabel = "Toggle workspace sidebar"
         sidebarButton.accessibilityIdentifier = "workspace-sidebar-toggle"
         sidebarButton.addTarget(self, action: #selector(toggleSidebarTapped), for: .touchUpInside)
 
@@ -147,7 +147,7 @@ final class WorkspaceWorkbenchSurface: UIView {
         pickerConfig.contentInsets = .zero
         workspacePickerButton.configuration = pickerConfig
         workspacePickerButton.contentHorizontalAlignment = .leading
-        workspacePickerButton.accessibilityIdentifier = "workspace-files-picker"
+        workspacePickerButton.accessibilityIdentifier = "workspace-picker"
         workspacePickerButton.showsMenuAsPrimaryAction = true
         workspacePickerButton.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -191,7 +191,7 @@ final class WorkspaceWorkbenchSurface: UIView {
     private func updateWorkspacePicker(_ model: WorkspaceFilesBrowserModel) {
         let selectedName = model.workspaces.first { $0.id == model.selectedWorkspaceID }?.name
         workspacePickerButton.configuration?.title =
-            selectedName ?? (model.workspaces.isEmpty ? "Files" : "Select workspace")
+            selectedName ?? (model.workspaces.isEmpty ? "Workspace" : "Select workspace")
         workspacePickerButton.isEnabled = !model.workspaces.isEmpty
         workspacePickerButton.menu = UIMenu(
             title: "Workspaces",

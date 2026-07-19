@@ -8,8 +8,8 @@ enum ControlSurface {
     case control  // trackpad / display rail / keyboard (desktop pixel/video path)
     case agent    // AgentFeedSurface webview
     case browser  // DomMirrorSurface (browser-only DOM path)
-    case terminal // SwiftTerm PTY client over the dedicated terminal lane
-    case files    // WorkspaceWorkbenchSurface over the dedicated .files lane
+    case terminal  // SwiftTerm PTY client over the dedicated terminal lane
+    case workspace // WorkspaceWorkbenchSurface over the dedicated .files lane
 }
 
 // Pure surface -> visibility mapping. `controlChromeHidden` covers the
@@ -21,15 +21,15 @@ struct SurfaceVisibility: Equatable {
     let agentHidden: Bool
     let browserHidden: Bool
     let terminalHidden: Bool
-    let filesHidden: Bool
+    let workspaceHidden: Bool
     let controlChromeHidden: Bool
     let keyboardInteractive: Bool
 }
 
 extension ControlSurface {
     /// SF Symbol name for the switcher segment. Icons keep all five segments (Control, Agent,
-    /// Terminal, Browser, Files) legible across supported iPhone widths where five text labels would
-    /// crowd or truncate. Pure (a name string) so it stays in this UIKit-free, test-compiled file;
+    /// Terminal, Browser, Workspace) legible across supported iPhone widths where five text labels
+    /// would crowd or truncate. Pure (a name string) so it stays in this UIKit-free, test-compiled file;
     /// the UIKit layer resolves it via `UIImage(systemName:)`.
     var switcherSymbolName: String {
         switch self {
@@ -37,12 +37,12 @@ extension ControlSurface {
         case .agent: return "sparkles"
         case .terminal: return "terminal"
         case .browser: return "globe"
-        case .files: return "folder"
+        case .workspace: return "rectangle.split.3x1"
         }
     }
 
-    /// VoiceOver / Maestro accessibility label for the segment. Kept as the historical words so
-    /// existing a11y-driven flows keep tapping the same targets after the icons replace the titles.
+    /// VoiceOver / Maestro accessibility label for the segment. This is the product-facing surface
+    /// name and the stable target used by accessibility-driven flows.
     /// This label is also the switcher's read-back key: the UIKit layer resolves a tapped segment
     /// back to its surface via `ControlSurface(switcherAccessibilityLabel:)` on the segment's own
     /// image label, so the mapping reads what was actually built rather than re-deriving availability.
@@ -52,14 +52,14 @@ extension ControlSurface {
         case .agent: return "Agent"
         case .terminal: return "Terminal"
         case .browser: return "Browser"
-        case .files: return "Files"
+        case .workspace: return "Workspace"
         }
     }
 
     /// Resolves a surface from its switcher accessibility label (the inverse of the property above),
     /// or nil for an unknown label so callers fall back to `.control` safely.
     init?(switcherAccessibilityLabel label: String) {
-        guard let match = [ControlSurface.control, .agent, .terminal, .browser, .files]
+        guard let match = [ControlSurface.control, .agent, .terminal, .browser, .workspace]
             .first(where: { $0.switcherAccessibilityLabel == label }) else { return nil }
         self = match
     }
@@ -73,7 +73,7 @@ func availableControlSurfaces(browserAvailable: Bool) -> [ControlSurface] {
     if browserAvailable {
         surfaces.append(.browser)
     }
-    surfaces.append(.files)
+    surfaces.append(.workspace)
     return surfaces
 }
 
@@ -82,27 +82,27 @@ func visibility(for surface: ControlSurface) -> SurfaceVisibility {
     case .control:
         return SurfaceVisibility(
             agentHidden: true, browserHidden: true,
-            terminalHidden: true, filesHidden: true,
+            terminalHidden: true, workspaceHidden: true,
             controlChromeHidden: false, keyboardInteractive: true)
     case .agent:
         return SurfaceVisibility(
             agentHidden: false, browserHidden: true,
-            terminalHidden: true, filesHidden: true,
+            terminalHidden: true, workspaceHidden: true,
             controlChromeHidden: true, keyboardInteractive: false)
     case .browser:
         return SurfaceVisibility(
             agentHidden: true, browserHidden: false,
-            terminalHidden: true, filesHidden: true,
+            terminalHidden: true, workspaceHidden: true,
             controlChromeHidden: true, keyboardInteractive: false)
     case .terminal:
         return SurfaceVisibility(
             agentHidden: true, browserHidden: true,
-            terminalHidden: false, filesHidden: true,
+            terminalHidden: false, workspaceHidden: true,
             controlChromeHidden: true, keyboardInteractive: false)
-    case .files:
+    case .workspace:
         return SurfaceVisibility(
             agentHidden: true, browserHidden: true,
-            terminalHidden: true, filesHidden: false,
+            terminalHidden: true, workspaceHidden: false,
             controlChromeHidden: true, keyboardInteractive: false)
     }
 }

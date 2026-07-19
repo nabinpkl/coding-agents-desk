@@ -1,7 +1,7 @@
 import Foundation
 import AgentDeskWire
 
-/// Pure navigation and listing state for the iOS Files surface (R28). UIKit-free so it can be
+/// Pure navigation and listing state for the iOS Workspace surface. UIKit-free so it can be
 /// exercised directly in tests; a controller drives it by issuing `WorkspaceFileRequest`s over the
 /// transport and folding the responses back in with these transitions. Every transition returns a
 /// new value (no in-place mutation of shared state), matching the workspace store's style.

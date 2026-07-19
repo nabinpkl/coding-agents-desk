@@ -3,9 +3,9 @@ appId: ${APP_ID}
 # Run after workspace-workbench-smoke and a paired client relaunch. The saved
 # workspace identity must restore the workbench and reattach its persistent PTY.
 - extendedWaitUntil:
-    visible: "Files"
+    visible: "Workspace"
     timeout: 30000
-- tapOn: "Files"
+- tapOn: "Workspace"
 - extendedWaitUntil:
     visible:
       id: "workspace-workbench"
