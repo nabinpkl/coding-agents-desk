@@ -29,7 +29,8 @@ let package = Package(
             dependencies: [
                 "PtyTerminalSession",
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
-            ]
+            ],
+            resources: [.process("Resources")]
         ),
         .testTarget(name: "PtyClientSwiftTests", dependencies: ["PtyClientSwift"]),
         .testTarget(

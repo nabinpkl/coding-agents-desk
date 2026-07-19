@@ -1,5 +1,4 @@
 import CoreGraphics
-import Foundation
 import SwiftTerm
 
 #if canImport(AppKit)
@@ -99,26 +98,7 @@ public struct PtyTerminalViewStyle {
     }
 
     public static func terminalFont(pointSize: CGFloat) -> PtyTerminalPlatformFont {
-        let configuredName = ProcessInfo.processInfo.environment["PTY_TERMINAL_FONT"]
-            ?? ProcessInfo.processInfo.environment["AGENT_WORKSPACE_TERMINAL_FONT"]
-        let candidates = [configuredName, "JetBrainsMono Nerd Font Mono", "JetBrainsMono Nerd Font"]
-            .compactMap { $0 }
-
-        #if canImport(AppKit)
-        for candidate in candidates {
-            if let font = NSFont(name: candidate, size: pointSize) {
-                return font
-            }
-        }
-        return NSFont.monospacedSystemFont(ofSize: pointSize, weight: .regular)
-        #elseif canImport(UIKit)
-        for candidate in candidates {
-            if let font = UIFont(name: candidate, size: pointSize) {
-                return font
-            }
-        }
-        return UIFont.monospacedSystemFont(ofSize: pointSize, weight: .regular)
-        #endif
+        PtyTerminalFont.make(pointSize: pointSize)
     }
 
     private func applyMetal(to terminalView: TerminalView) throws {
