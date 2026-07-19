@@ -31,6 +31,14 @@ extension AgentDataPushing {
             preconditionFailure("Agent terminal host message must encode: \(error)")
         }
     }
+
+    func pushWorkspaceTerminal(_ message: WorkspaceTerminalHostMessage) {
+        do {
+            pushAgentData(try JSONEncoder().encode(message))
+        } catch {
+            preconditionFailure("Workspace terminal host message must encode: \(error)")
+        }
+    }
 }
 
 protocol InputChannelServing: AgentDataPushing {
@@ -39,6 +47,7 @@ protocol InputChannelServing: AgentDataPushing {
     var configHandler: ((ClientConfig) -> Void)? { get set }
     // Called on each decoded agent-feed request from the client.
     var agentRequestHandler: ((AgentFeedRequest) -> Void)? { get set }
+    var workspaceTerminalRequestHandler: ((WorkspaceTerminalClientMessage) -> Void)? { get set }
     // Fired once when the peer drops the input lane (receive loop ends without
     // us cancelling it). QUIC connection-state updates do not reliably fire on a
     // half-dead socket, so lane death is the host's disconnect signal; the owner
@@ -68,6 +77,11 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         "agent-terminal-attached",
         "agent-terminal-close",
     ]
+    private static let workspaceTerminalRequestTypes: Set<String> = [
+        "workspace-terminal-open",
+        "workspace-terminal-attached",
+        "workspace-terminal-cancel",
+    ]
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "input-lane")
     private let stream: QUIC.Stream<QUICStream>
@@ -85,6 +99,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
     var configHandler: ((ClientConfig) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
+    var workspaceTerminalRequestHandler: ((WorkspaceTerminalClientMessage) -> Void)?
     var onClosed: (() -> Void)?
     var receiveErrorPreservationHandler: (@Sendable (Error) async -> Bool)?
     var revokeHandler: (() -> Void)?
@@ -120,6 +135,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         diagnosticsContinuation = nil
         configHandler = nil
         agentRequestHandler = nil
+        workspaceTerminalRequestHandler = nil
         onClosed = nil
         receiveErrorPreservationHandler = nil
         revokeHandler = nil
@@ -264,6 +280,15 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             }
             return
         }
+        if Self.workspaceTerminalRequestTypes.contains(header.type) {
+            if !Self.dispatchWorkspaceTerminal(
+                data: data,
+                handler: workspaceTerminalRequestHandler
+            ) {
+                logger.error("workspace terminal request decode failed")
+            }
+            return
+        }
         switch header.type {
         case "input-event":
             do {
@@ -340,6 +365,18 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             return false
         }
         handler?(.terminal(message))
+        return true
+    }
+
+    @discardableResult
+    static func dispatchWorkspaceTerminal(
+        data: Data,
+        handler: ((WorkspaceTerminalClientMessage) -> Void)?
+    ) -> Bool {
+        guard let message = try? JSONDecoder().decode(WorkspaceTerminalClientMessage.self, from: data) else {
+            return false
+        }
+        handler?(message)
         return true
     }
 

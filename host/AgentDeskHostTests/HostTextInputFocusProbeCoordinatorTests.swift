@@ -175,6 +175,7 @@ private final class RecordingInputChannelServer: InputChannelServing, @unchecked
     let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
     var configHandler: ((ClientConfig) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
+    var workspaceTerminalRequestHandler: ((WorkspaceTerminalClientMessage) -> Void)?
     var onClosed: (() -> Void)?
     var receiveErrorPreservationHandler: (@Sendable (Error) async -> Bool)?
     var revokeHandler: (() -> Void)?

@@ -49,9 +49,82 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded.payload == payload)
 }
 
-@Test func wireProtocolCursorReconciliationVersionIsPinned() {
-    #expect(WireProtocol.version == 9)
-    #expect(WireProtocol.minCompatibleVersion == 9)
+@Test func wireProtocolWorkspaceTerminalVersionIsPinned() {
+    #expect(WireProtocol.version == 10)
+    #expect(WireProtocol.minCompatibleVersion == 10)
+}
+
+@Test func workspaceTerminalMessagesRoundTripWithoutHostPathOrLaunchAuthority() throws {
+    let requestID = "workspace-request-1"
+    let workspaceID = "62193559-6f63-4b24-a53e-ea2f23c39d4a"
+    let sessionName = "workspace-62193559-6f63-4b24-a53e-ea2f23c39d4a-a1b2c3d4e5f6"
+    let clientMessages: [WorkspaceTerminalClientMessage] = [
+        .open(WorkspaceTerminalOpen(
+            requestID: requestID,
+            workspaceID: workspaceID,
+            preferredSessionName: sessionName,
+            columns: 120,
+            rows: 40
+        )),
+        .attached(WorkspaceTerminalAttachedAck(
+            requestID: requestID,
+            workspaceID: workspaceID,
+            ptySessionName: sessionName
+        )),
+        .cancel(WorkspaceTerminalCancel(
+            requestID: requestID,
+            workspaceID: workspaceID,
+            ptySessionName: sessionName
+        )),
+    ]
+    let hostMessages: [WorkspaceTerminalHostMessage] = [
+        .ready(WorkspaceTerminalReady(
+            requestID: requestID,
+            workspaceID: workspaceID,
+            ptySessionName: sessionName
+        )),
+        .error(WorkspaceTerminalError(
+            requestID: requestID,
+            workspaceID: workspaceID,
+            ptySessionName: sessionName,
+            code: .handoffTimedOut
+        )),
+    ]
+
+    for message in clientMessages { try roundTrip(message) }
+    for message in hostMessages { try roundTrip(message) }
+
+    let encoded = try clientMessages.map { try JSONEncoder().encode($0) }
+    let tags = try encoded.map {
+        (try JSONSerialization.jsonObject(with: $0) as? [String: Any])?["t"] as? String
+    }
+    #expect(tags == [
+        "workspace-terminal-open",
+        "workspace-terminal-attached",
+        "workspace-terminal-cancel",
+    ])
+    for data in encoded {
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["rid"] as? String == requestID)
+        #expect(object["wid"] as? String == workspaceID)
+        let json = String(decoding: data, as: UTF8.self)
+        #expect(!json.contains("/Users/"))
+        #expect(!json.contains("cwd"))
+        #expect(!json.contains("shell"))
+        #expect(!json.contains("executable"))
+        #expect(!json.contains("arguments"))
+    }
+}
+
+@Test func workspaceTerminalErrorCodesAreExhaustiveAndStable() throws {
+    #expect(WorkspaceTerminalErrorCode.allCases.map(\.rawValue) == [
+        "workspaceUnavailable",
+        "invalidSession",
+        "launchFailed",
+        "handoffTimedOut",
+        "sessionEnded",
+    ])
+    for code in WorkspaceTerminalErrorCode.allCases { try roundTrip(code) }
 }
 
 @Test func cursorInputRequiresAndPreservesRevision() throws {

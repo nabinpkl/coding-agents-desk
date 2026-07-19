@@ -39,6 +39,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     let diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate>
     private let agentTerminalContinuation: AsyncStream<AgentTerminalHostMessage>.Continuation
     let agentTerminalUpdates: AsyncStream<AgentTerminalHostMessage>
+    private let workspaceTerminalContinuation: AsyncStream<WorkspaceTerminalHostMessage>.Continuation
+    let workspaceTerminalUpdates: AsyncStream<WorkspaceTerminalHostMessage>
     private let closedContinuation: AsyncStream<Void>.Continuation
     let closed: AsyncStream<Void>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
@@ -105,6 +107,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         var agentTerminalCont: AsyncStream<AgentTerminalHostMessage>.Continuation!
         agentTerminalUpdates = AsyncStream { agentTerminalCont = $0 }
         agentTerminalContinuation = agentTerminalCont
+        var workspaceTerminalCont: AsyncStream<WorkspaceTerminalHostMessage>.Continuation!
+        workspaceTerminalUpdates = AsyncStream { workspaceTerminalCont = $0 }
+        workspaceTerminalContinuation = workspaceTerminalCont
         var closedCont: AsyncStream<Void>.Continuation!
         closed = AsyncStream { closedCont = $0 }
         closedContinuation = closedCont
@@ -205,7 +210,20 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         try await inputStream.send(try Self.agentTerminalFrame(message))
     }
 
+    func sendWorkspaceTerminal(_ message: WorkspaceTerminalClientMessage) async throws {
+        try await inputStream.send(try Self.workspaceTerminalFrame(message))
+    }
+
     static func agentTerminalFrame(_ message: AgentTerminalClientMessage) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try QuicSessionStreamFrame.encode(
+            role: .input,
+            payload: encoder.encode(message)
+        )
+    }
+
+    static func workspaceTerminalFrame(_ message: WorkspaceTerminalClientMessage) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         return try QuicSessionStreamFrame.encode(
@@ -248,6 +266,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         textInputFocusContinuation.finish()
         diagnosticsContinuation.finish()
         agentTerminalContinuation.finish()
+        workspaceTerminalContinuation.finish()
         closedContinuation.yield(())
         closedContinuation.finish()
         stateContinuation.yield(.closed)
@@ -429,6 +448,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             if !Self.dispatchAgentTerminalPayload(data, to: agentTerminalContinuation) {
                 logger.error("input lane agent terminal push decode failed")
             }
+        case "workspace-terminal-ready", "workspace-terminal-error":
+            if !Self.dispatchWorkspaceTerminalPayload(data, to: workspaceTerminalContinuation) {
+                logger.error("input lane workspace terminal push decode failed")
+            }
         case "session-rejected":
             close()
         default:
@@ -483,6 +506,18 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         to continuation: AsyncStream<AgentTerminalHostMessage>.Continuation
     ) -> Bool {
         guard let message = AgentTerminalPushDecoder.decode(data) else { return false }
+        continuation.yield(message)
+        return true
+    }
+
+    @discardableResult
+    static func dispatchWorkspaceTerminalPayload(
+        _ data: Data,
+        to continuation: AsyncStream<WorkspaceTerminalHostMessage>.Continuation
+    ) -> Bool {
+        guard let message = try? JSONDecoder().decode(WorkspaceTerminalHostMessage.self, from: data) else {
+            return false
+        }
         continuation.yield(message)
         return true
     }

@@ -466,6 +466,7 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     private(set) var closed = false
     var configHandler: ((ClientConfig) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
+    var workspaceTerminalRequestHandler: ((WorkspaceTerminalClientMessage) -> Void)?
     var onClosed: (() -> Void)?
     var receiveErrorPreservationHandler: (@Sendable (Error) async -> Bool)?
     var revokeHandler: (() -> Void)?

@@ -250,9 +250,9 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded.cursorRevision == 11)
     }
 
-    @Test func protocolVersionIsNineForCursorReconciliation() {
-        #expect(Config.protocolVersion == 9)
-        #expect(Config.minCompatibleProtocolVersion == 9)
+    @Test func protocolVersionIsTenForWorkspaceTerminalCoordination() {
+        #expect(Config.protocolVersion == 10)
+        #expect(Config.minCompatibleProtocolVersion == 10)
     }
 
     @available(macOS 26.0, *)

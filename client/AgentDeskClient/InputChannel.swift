@@ -27,6 +27,7 @@ protocol InputChannel: AnyObject, Sendable {
     var textInputFocusUpdates: AsyncStream<HostTextInputFocusPush> { get }
     var diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate> { get }
     var agentTerminalUpdates: AsyncStream<AgentTerminalHostMessage> { get }
+    var workspaceTerminalUpdates: AsyncStream<WorkspaceTerminalHostMessage> { get }
 
     func sendConfig(_ config: ClientConfig) async throws
     // Best-effort revoke notice sent just before teardown when the user unpairs,
@@ -43,6 +44,7 @@ protocol InputChannel: AnyObject, Sendable {
     func sendAgentThreadUnsubscribe(_ request: AgentThreadUnsubscribe) async throws
     func sendAgentRawEventRequest(_ request: AgentRawEventRequest) async throws
     func sendAgentTerminal(_ message: AgentTerminalClientMessage) async throws
+    func sendWorkspaceTerminal(_ message: WorkspaceTerminalClientMessage) async throws
 
     var closed: AsyncStream<Void> { get }
 }

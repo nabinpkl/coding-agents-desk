@@ -251,6 +251,39 @@ struct AgentFeedWireTests {
         } == pushes)
     }
 
+    @Test func workspaceTerminalRoutesOnInputAndPushesTypedResponses() throws {
+        let workspaceID = "62193559-6f63-4b24-a53e-ea2f23c39d4a"
+        let command = WorkspaceTerminalClientMessage.open(WorkspaceTerminalOpen(
+            requestID: "workspace-request-1",
+            workspaceID: workspaceID,
+            preferredSessionName: nil,
+            columns: 100,
+            rows: 30
+        ))
+        var routed: WorkspaceTerminalClientMessage?
+
+        let handled = InputChannelServer.dispatchWorkspaceTerminal(
+            data: try JSONEncoder().encode(command),
+            handler: { routed = $0 }
+        )
+
+        #expect(handled)
+        #expect(routed == command)
+
+        let pusher = RecordingAgentDataPusher()
+        let response = WorkspaceTerminalHostMessage.ready(WorkspaceTerminalReady(
+            requestID: "workspace-request-1",
+            workspaceID: workspaceID,
+            ptySessionName: "workspace-62193559-6f63-4b24-a53e-ea2f23c39d4a-a1b2c3d4e5f6"
+        ))
+        pusher.pushWorkspaceTerminal(response)
+
+        #expect(try JSONDecoder().decode(
+            WorkspaceTerminalHostMessage.self,
+            from: #require(pusher.payloads.first)
+        ) == response)
+    }
+
     // MARK: - Host-to-client push types
 
     @Test func agentProjectsPushRoundTripsThroughCodable() throws {

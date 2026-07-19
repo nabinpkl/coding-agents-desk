@@ -85,6 +85,46 @@ struct InputChannelTests {
         continuation.finish()
     }
 
+    @available(iOS 26.0, *)
+    @Test func workspaceTerminalUsesAuthenticatedInputFramesAndTypedUpdates() async throws {
+        let command = WorkspaceTerminalClientMessage.open(WorkspaceTerminalOpen(
+            requestID: "workspace-request-1",
+            workspaceID: "62193559-6f63-4b24-a53e-ea2f23c39d4a",
+            preferredSessionName: nil,
+            columns: 100,
+            rows: 30
+        ))
+        let encoded = try QuicSessionClientTransport.workspaceTerminalFrame(command)
+        let decoded = try QuicSessionStreamFrame.decode(encoded)
+
+        #expect(decoded.role == .input)
+        #expect(try JSONDecoder().decode(
+            WorkspaceTerminalClientMessage.self,
+            from: decoded.payload
+        ) == command)
+
+        let message = WorkspaceTerminalHostMessage.ready(WorkspaceTerminalReady(
+            requestID: "workspace-request-1",
+            workspaceID: "62193559-6f63-4b24-a53e-ea2f23c39d4a",
+            ptySessionName: "workspace-62193559-6f63-4b24-a53e-ea2f23c39d4a-a1b2c3d4e5f6"
+        ))
+        var continuation: AsyncStream<WorkspaceTerminalHostMessage>.Continuation!
+        let updates = AsyncStream<WorkspaceTerminalHostMessage> { continuation = $0 }
+        let nextUpdate = Task {
+            var iterator = updates.makeAsyncIterator()
+            return await iterator.next()
+        }
+
+        let handled = QuicSessionClientTransport.dispatchWorkspaceTerminalPayload(
+            try JSONEncoder().encode(message),
+            to: continuation
+        )
+
+        #expect(handled)
+        #expect(await nextUpdate.value == message)
+        continuation.finish()
+    }
+
     @Test func sessionReadyCarriesResumeAndMediaKeySalt() throws {
         let ready = SessionReady(
             sessionId: "session-123",
@@ -1066,9 +1106,9 @@ struct InputChannelTests {
         #expect(decoded.cursorRevision == 8)
     }
 
-    @Test func protocolVersionIsNineForCursorReconciliation() {
-        #expect(Config.protocolVersion == 9)
-        #expect(Config.minCompatibleProtocolVersion == 9)
+    @Test func protocolVersionIsTenForWorkspaceTerminalCoordination() {
+        #expect(Config.protocolVersion == 10)
+        #expect(Config.minCompatibleProtocolVersion == 10)
     }
 
     @Test func eventFrameRoundTripPreservesKeyWithModifiers() throws {
