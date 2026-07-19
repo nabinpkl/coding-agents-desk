@@ -145,7 +145,7 @@ extension PairingViewController {
 
     // MARK: - Toggle UI (state-driven from render())
 
-    // Idempotent: adds the Control/Agent/Terminal segmented toggle once, with the
+    // Idempotent: adds the surface switcher once, with the
     // safe-area-top constraints. Called from render()'s .connected case, which
     // runs on every state change, so the toggle cannot be skipped by a channel
     // timing race. The webview itself is created lazily on first Agent select.
@@ -172,9 +172,19 @@ extension PairingViewController {
         seg.translatesAutoresizingMaskIntoConstraints = false
         seg.addTarget(self, action: #selector(surfaceSegmentChanged(_:)), for: .valueChanged)
         view.addSubview(seg)
+        let centered = seg.centerXAnchor.constraint(equalTo: view.centerXAnchor)
+        centered.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            seg.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            seg.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8)
+            centered,
+            seg.leadingAnchor.constraint(
+                greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: 12
+            ),
+            seg.trailingAnchor.constraint(
+                lessThanOrEqualTo: orientationToggleButton.leadingAnchor,
+                constant: -8
+            ),
+            seg.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
         ])
         // Cheap z-order safety: keep the toggle above the media sink / surfaces.
         view.bringSubviewToFront(seg)
@@ -401,7 +411,7 @@ extension PairingViewController {
     }
 
     // Populates the toggle with one icon segment per available surface. Icons (SF Symbols) keep all
-    // five segments legible on the narrowest supported iPhone where five text labels would truncate;
+    // six segments legible on the narrowest supported iPhone where text labels would truncate;
     // each segment carries the surface's accessibility label so VoiceOver and the a11y-driven Maestro
     // flows still target it by name.
     private func configureSurfaceSegments(_ seg: UISegmentedControl) {

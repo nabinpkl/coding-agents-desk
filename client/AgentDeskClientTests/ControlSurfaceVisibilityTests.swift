@@ -77,8 +77,8 @@ struct ControlSurfaceVisibilityTests {
     }
 }
 
-// R30: the switcher offers icon segments for every surface, fitting narrow iPhone widths where five
-// text labels crowd. These pin the pure ordering/availability and per-surface metadata the UIKit
+// R30: the switcher offers icon segments for every surface, fitting narrow iPhone widths where text
+// labels crowd. These pin the pure ordering/availability and per-surface metadata the UIKit
 // switcher builds from (and that a11y-driven flows target by label).
 struct SurfaceSwitcherTests {
     @Test func withoutBrowserOffersFourSurfacesInOrder() {
@@ -91,7 +91,7 @@ struct SurfaceSwitcherTests {
 
     @Test func everySurfaceHasADistinctSymbolAndStableAccessibilityLabel() {
         let all: [ControlSurface] = [.control, .agent, .terminal, .browser, .workspace, .ide]
-        // Distinct SF Symbols so the five segments are visually distinguishable.
+        // Distinct SF Symbols so all segments are visually distinguishable.
         let symbols = all.map(\.switcherSymbolName)
         #expect(Set(symbols).count == all.count)
         symbols.forEach { #expect(!$0.isEmpty) }

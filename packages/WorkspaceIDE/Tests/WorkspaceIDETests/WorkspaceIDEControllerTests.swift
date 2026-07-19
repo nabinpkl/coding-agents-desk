@@ -31,6 +31,18 @@ import Testing
 }
 
 @MainActor
+@Test func emptyEditorProjectionIsNotLoadingAFile() {
+    let controller = makeController()
+    controller.localState.selectedWorkspaceID = "workspace-1"
+
+    let projection = controller.editorProjection()
+
+    #expect(projection.activePath == nil)
+    #expect(projection.file == nil)
+    #expect(!projection.loading)
+}
+
+@MainActor
 @Test func remoteCloseProtectsDirtyLocalBuffer() {
     let controller = makeController()
     controller.localState.selectedWorkspaceID = "workspace-1"

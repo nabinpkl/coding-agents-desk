@@ -29,9 +29,9 @@ struct SurfaceVisibility: Equatable {
 }
 
 extension ControlSurface {
-    /// SF Symbol name for the switcher segment. Icons keep all five segments (Control, Agent,
-    /// Terminal, Browser, Workspace) legible across supported iPhone widths where five text labels
-    /// would crowd or truncate. Pure (a name string) so it stays in this UIKit-free, test-compiled file;
+    /// SF Symbol name for the switcher segment. Icons keep all six segments legible across supported
+    /// iPhone widths where text labels would crowd or truncate. Pure (a name string) so it stays in
+    /// this UIKit-free, test-compiled file;
     /// the UIKit layer resolves it via `UIImage(systemName:)`.
     var switcherSymbolName: String {
         switch self {

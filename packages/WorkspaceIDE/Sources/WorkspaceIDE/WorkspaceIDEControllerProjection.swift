@@ -34,7 +34,7 @@ extension WorkspaceIDEController {
             activePath: activePath,
             breadcrumb: activePath?.split(separator: "/").map(String.init) ?? [],
             file: activePath.flatMap(fileProjection(path:)),
-            loading: loadingPath == activePath,
+            loading: activePath != nil && loadingPath == activePath,
             error: errorMessage,
             sidebarVisible: localState.sidebarVisible,
             terminalVisible: localState.terminalVisible
