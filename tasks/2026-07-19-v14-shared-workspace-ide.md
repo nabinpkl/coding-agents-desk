@@ -17,7 +17,7 @@ and native coordinator tests are green.
 
 ## Phase 1: package seam with no behavior change
 
-- R2. Replace `packages/WorkspaceEditorViewer` with `packages/WorkspaceIDE`, exposing `WorkspaceFileViewer` and `WorkspaceIDE`, and update both synchronized Xcode projects to link the renamed products.
+- D2. Replace `packages/WorkspaceEditorViewer` with `packages/WorkspaceIDE`, exposing `WorkspaceFileViewer` and `WorkspaceIDE`, and update both synchronized Xcode projects to link the renamed products.
 - R3. Consolidate authored web code under `packages/WorkspaceIDE/Web`, extract mountable renderer modules, and replace `vendor-viewer` with `workspace-ide-web` that tests and builds legacy viewer and IDE resources from one dependency tree.
 - R4. Add package and filesystem fitness tests proving the existing single-file macOS and iOS surfaces retain DOCX fit-width, zoom, viewport restoration, Markdown, notebook, and edit behavior, with no old package directory or stale generated resource tree.
 
@@ -57,8 +57,9 @@ this iteration.
 ## Promotion log
 
 ```
-R1       2026-07-19  committed   shared IDE decision and iteration gate
-R2-R4    pending     pending     shared package and renderer seam
+D1       2026-07-19  committed   shared IDE decision and iteration gate
+D2       2026-07-19  committed   package and Xcode product seam
+R3-R4    pending     pending     shared renderer modules and fitness coverage
 R5-R9    pending     pending     authoritative workspace lane and observation
 R10-R13  pending     pending     shared web regions and native coordinator
 R14-R16  pending     pending     macOS and iPhone IDE entries

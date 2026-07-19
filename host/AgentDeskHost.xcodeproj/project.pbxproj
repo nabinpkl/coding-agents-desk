@@ -13,8 +13,10 @@
 		A0000000000000000000AF05 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000AF04 /* AgentPanel */; };
 		A0000000000000000000C503 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000C502 /* WorkspaceKit */; };
 		A0000000000000000000C505 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000C504 /* WorkspaceKit */; };
-		A0000000000000000000D503 /* WorkspaceEditorViewer in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000D502 /* WorkspaceEditorViewer */; };
-		A0000000000000000000D505 /* WorkspaceEditorViewer in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000D504 /* WorkspaceEditorViewer */; };
+		A0000000000000000000D503 /* WorkspaceFileViewer in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000D502 /* WorkspaceFileViewer */; };
+		A0000000000000000000D505 /* WorkspaceFileViewer in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000D504 /* WorkspaceFileViewer */; };
+		A0000000000000000000D508 /* WorkspaceIDE in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000D506 /* WorkspaceIDE */; };
+		A0000000000000000000D509 /* WorkspaceIDE in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000D507 /* WorkspaceIDE */; };
 		A0000000000000000000F503 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F502 /* PtyClientSwift */; };
 		A0000000000000000000F505 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F504 /* PtyClientSwift */; };
 		A0000000000000000000F508 /* PtyTerminalSession in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F506 /* PtyTerminalSession */; };
@@ -88,7 +90,8 @@
 				A0000000000000000000EE03 /* AgentDeskWire in Frameworks */,
 				A0000000000000000000AF03 /* AgentPanel in Frameworks */,
 				A0000000000000000000C503 /* WorkspaceKit in Frameworks */,
-				A0000000000000000000D503 /* WorkspaceEditorViewer in Frameworks */,
+				A0000000000000000000D503 /* WorkspaceFileViewer in Frameworks */,
+				A0000000000000000000D508 /* WorkspaceIDE in Frameworks */,
 				A0000000000000000000F503 /* PtyClientSwift in Frameworks */,
 				A0000000000000000000F508 /* PtyTerminalSession in Frameworks */,
 				A0000000000000000000F50C /* PtyTerminalSwiftTerm in Frameworks */,
@@ -103,7 +106,8 @@
 				A0000000000000000000EE05 /* AgentDeskWire in Frameworks */,
 				A0000000000000000000AF05 /* AgentPanel in Frameworks */,
 				A0000000000000000000C505 /* WorkspaceKit in Frameworks */,
-				A0000000000000000000D505 /* WorkspaceEditorViewer in Frameworks */,
+				A0000000000000000000D505 /* WorkspaceFileViewer in Frameworks */,
+				A0000000000000000000D509 /* WorkspaceIDE in Frameworks */,
 				A0000000000000000000F505 /* PtyClientSwift in Frameworks */,
 				A0000000000000000000F509 /* PtyTerminalSession in Frameworks */,
 				A0000000000000000000F50D /* PtyTerminalSwiftTerm in Frameworks */,
@@ -155,7 +159,8 @@
 				A0000000000000000000EE02 /* AgentDeskWire */,
 				A0000000000000000000AF02 /* AgentPanel */,
 				A0000000000000000000C502 /* WorkspaceKit */,
-				A0000000000000000000D502 /* WorkspaceEditorViewer */,
+				A0000000000000000000D502 /* WorkspaceFileViewer */,
+				A0000000000000000000D506 /* WorkspaceIDE */,
 				A0000000000000000000F502 /* PtyClientSwift */,
 				A0000000000000000000F506 /* PtyTerminalSession */,
 				A0000000000000000000F50A /* PtyTerminalSwiftTerm */,
@@ -187,7 +192,8 @@
 				A0000000000000000000EE04 /* AgentDeskWire */,
 				A0000000000000000000AF04 /* AgentPanel */,
 				A0000000000000000000C504 /* WorkspaceKit */,
-				A0000000000000000000D504 /* WorkspaceEditorViewer */,
+				A0000000000000000000D504 /* WorkspaceFileViewer */,
+				A0000000000000000000D507 /* WorkspaceIDE */,
 				A0000000000000000000F504 /* PtyClientSwift */,
 				A0000000000000000000F507 /* PtyTerminalSession */,
 				A0000000000000000000F50B /* PtyTerminalSwiftTerm */,
@@ -229,7 +235,7 @@
 				A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */,
 				A0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */,
 				A0000000000000000000C501 /* XCLocalSwiftPackageReference "../packages/WorkspaceKit" */,
-				A0000000000000000000D501 /* XCLocalSwiftPackageReference "../packages/WorkspaceEditorViewer" */,
+				A0000000000000000000D501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */,
 				A0000000000000000000F501 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */,
 				A0000000000000000000F511 /* XCLocalSwiftPackageReference "../terminal/emulator" */,
 			);
@@ -522,9 +528,9 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/WorkspaceKit;
 		};
-		A0000000000000000000D501 /* XCLocalSwiftPackageReference "../packages/WorkspaceEditorViewer" */ = {
+		A0000000000000000000D501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../packages/WorkspaceEditorViewer;
+			relativePath = ../packages/WorkspaceIDE;
 		};
 		A0000000000000000000F501 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -567,10 +573,10 @@
 			package = A0000000000000000000C501 /* XCLocalSwiftPackageReference "../packages/WorkspaceKit" */;
 			productName = WorkspaceKit;
 		};
-		A0000000000000000000D502 /* WorkspaceEditorViewer */ = {
+		A0000000000000000000D502 /* WorkspaceFileViewer */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A0000000000000000000D501 /* XCLocalSwiftPackageReference "../packages/WorkspaceEditorViewer" */;
-			productName = WorkspaceEditorViewer;
+			package = A0000000000000000000D501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
+			productName = WorkspaceFileViewer;
 		};
 		A0000000000000000000F502 /* PtyClientSwift */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -612,10 +618,20 @@
 			package = A0000000000000000000F501 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
 			productName = PtyClientSwift;
 		};
-		A0000000000000000000D504 /* WorkspaceEditorViewer */ = {
+		A0000000000000000000D504 /* WorkspaceFileViewer */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A0000000000000000000D501 /* XCLocalSwiftPackageReference "../packages/WorkspaceEditorViewer" */;
-			productName = WorkspaceEditorViewer;
+			package = A0000000000000000000D501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
+			productName = WorkspaceFileViewer;
+		};
+		A0000000000000000000D506 /* WorkspaceIDE */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A0000000000000000000D501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
+			productName = WorkspaceIDE;
+		};
+		A0000000000000000000D507 /* WorkspaceIDE */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A0000000000000000000D501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
+			productName = WorkspaceIDE;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

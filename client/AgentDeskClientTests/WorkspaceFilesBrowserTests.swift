@@ -3,7 +3,7 @@ import Testing
 import AgentDeskWire
 import UIKit
 import WebKit
-import WorkspaceEditorViewer
+import WorkspaceFileViewer
 import WorkspaceKit
 
 @testable import AgentDeskClient

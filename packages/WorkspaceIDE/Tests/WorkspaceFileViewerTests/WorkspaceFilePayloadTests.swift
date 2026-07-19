@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import WorkspaceKit
-@testable import WorkspaceEditorViewer
+@testable import WorkspaceFileViewer
 
 @Test func fileKindClassificationHasOneSharedDOCXCase() {
     #expect(WorkspaceFileKind(path: "Reports/Plan.DOCX") == .docx)

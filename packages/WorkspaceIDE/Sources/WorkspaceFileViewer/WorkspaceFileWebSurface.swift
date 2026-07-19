@@ -144,7 +144,7 @@ public final class WorkspaceFileWebSurface: NSObject, WKNavigationDelegate {
     private var state = FileWebSurfaceState()
 
     /// `viewerRoot` defaults to the bundled SPA; callers rarely override it.
-    public init(viewerRoot: URL = WorkspaceEditorViewer.viewerRootURL) {
+    public init(viewerRoot: URL = WorkspaceFileViewer.viewerRootURL) {
         let messageSink = ScriptMessageSink()
         let resourceStore = WorkspaceFileResourceStore()
         self.resourceStore = resourceStore

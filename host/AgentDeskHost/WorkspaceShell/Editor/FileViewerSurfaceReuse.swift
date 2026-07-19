@@ -1,5 +1,5 @@
 import Foundation
-import WorkspaceEditorViewer
+import WorkspaceFileViewer
 
 extension FileViewer {
     func payload(for tab: FileTab) -> WorkspaceFilePayload {

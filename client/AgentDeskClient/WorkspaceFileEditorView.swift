@@ -1,6 +1,6 @@
 import AgentDeskWire
 import UIKit
-import WorkspaceEditorViewer
+import WorkspaceFileViewer
 import WorkspaceKit
 
 @MainActor

@@ -1,10 +1,10 @@
 {
-  "name": "agent-desk-workspace-viewer",
+  "name": "agent-desk-workspace-ide",
   "private": true,
   "type": "module",
-  "description": "Bundled cross-platform WKWebView viewer for text, Markdown, notebooks, and DOCX.",
+  "description": "Bundled cross-platform workspace IDE and retained single-file viewer.",
   "scripts": {
-    "build": "rm -rf ../Sources/WorkspaceEditorViewer/Resources/viewer/dist && cp index.html viewer.css ../Sources/WorkspaceEditorViewer/Resources/viewer/ && esbuild src/viewer.mjs --bundle --splitting --format=esm --minify --outdir=../Sources/WorkspaceEditorViewer/Resources/viewer/dist && node scripts/normalizeDist.mjs",
+    "build": "rm -rf ../Sources/WorkspaceFileViewer/Resources/viewer/dist && cp index.html viewer.css ../Sources/WorkspaceFileViewer/Resources/viewer/ && esbuild src/viewer.mjs --bundle --splitting --format=esm --minify --outdir=../Sources/WorkspaceFileViewer/Resources/viewer/dist && node scripts/normalizeDist.mjs",
     "test": "node --test test/*.mjs"
   },
   "dependencies": {

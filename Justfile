@@ -237,16 +237,31 @@ ensure-webview-placeholder:
     test -f '{{justfile_directory()}}/packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelFixture/index.html'
     mkdir -p '{{webview_out}}'
 
-# Rebuild the committed WorkspaceEditorViewer SPA used by both macOS and iOS.
-# The authored project lives beside the Swift target; its build emits only runtime assets into
-# package Resources so npm dependencies and tests can never be copied into either application.
-vendor-viewer:
+# Test and build the shared Workspace IDE web project used by both macOS and iOS.
+# One dependency tree emits the retained single-file viewer and the paired IDE regions.
+workspace-ide-web:
     #!/usr/bin/env bash
     set -euo pipefail
-    VIEWER='{{justfile_directory()}}/packages/WorkspaceEditorViewer/Viewer'
-    npm ci --prefix "$VIEWER"
-    npm test --prefix "$VIEWER"
-    npm run build --prefix "$VIEWER"
+    WEB='{{justfile_directory()}}/packages/WorkspaceIDE/Web'
+    npm ci --prefix "$WEB"
+    npm test --prefix "$WEB"
+    npm run build --prefix "$WEB"
+    just workspace-ide-fitness
+
+# Package-move fitness: no stale package tree or generated dependency tree may enter Swift resources.
+workspace-ide-fitness:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    test ! -e '{{justfile_directory()}}/packages/WorkspaceEditorViewer'
+    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Package.swift'
+    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceFileViewer/Resources/viewer/dist/viewer.js'
+    if find '{{justfile_directory()}}/packages/WorkspaceIDE/Sources' -type d -name node_modules -print -quit | grep -q .; then
+        echo 'workspace-ide-fitness: node_modules found inside Swift package resources' >&2
+        exit 1
+    fi
+
+workspace-ide-test: workspace-ide-fitness
+    cd packages/WorkspaceIDE && swift test
 
 # Build the ATC dashboard webview bundle into AgentPanel's package resources.
 # The package resource bundle then embeds the same renderer in macOS and iOS.
@@ -437,7 +452,7 @@ dom-mirror-e2e: ext-stamp
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
 # everything with `just check-all`.
-check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholder
+check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholder workspace-ide-fitness
     #!/usr/bin/env bash
     set -euo pipefail
     sh tools/media-architecture-guard.sh
@@ -446,6 +461,7 @@ check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholde
     sh tools/testflight-upload-tests.sh
     (cd packages/AgentDeskWire && swift test)
     (cd packages/WorkspaceKit && swift test)
+    (cd packages/WorkspaceIDE && swift test)
     (cd '{{pty_manager_dir}}' && cargo build --bin pty-manager)
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import WebKit
-@testable import WorkspaceEditorViewer
+@testable import WorkspaceFileViewer
 
 @MainActor
 struct AppSchemeHandlerIntegrationTests {
