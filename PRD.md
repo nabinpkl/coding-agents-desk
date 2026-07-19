@@ -18,7 +18,7 @@ Secondary pain: AnyDesk on phone often degrades to a black canvas with a moving 
 
 ## Solution
 
-Native iOS app plus native macOS menu-bar workspace host, paired over Tailscale. The host owns registered workspace roots, an auto-hiding AppKit sidebar and top bar, editable local file windows, PTY sessions, ATC activity, browser integration, Spaces, and hardware-encoded remote desktop. The iPhone projects the same system through purpose-built Control, Agents, Workspace, Terminal, and Browser surfaces.
+Native iOS app plus native macOS menu-bar workspace host, paired over Tailscale. The host owns registered workspace roots, an auto-hiding AppKit sidebar and top bar, editable local file windows, PTY sessions, ATC activity, browser integration, Spaces, and hardware-encoded remote desktop. The iPhone projects the same system through purpose-built Control, Agents, Workspace, IDE, Terminal, and Browser surfaces. The embedded IDE is a shared responsive WebKit workbench inside native AppKit and UIKit pane shells; it is not an internet browser client.
 
 The macOS host also owns a local **Space Agent** overlay: a small draggable spaceship that stays visible while the host app runs. Clicking the spaceship expands an attached Spaces panel showing live thumbnails for the active display's user Spaces; clicking a non-active Space switches the Mac to it. This is a host-side desktop navigator, not the iPhone remote-control surface.
 
@@ -43,6 +43,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 13. Open a macOS Agents window from the top bar and browse all ATC projects, sessions, history, and live activity.
 14. On iPhone, browse the same registered workspace roots, preview files, edit UTF-8 text, and save only when the host revision still matches.
 15. On macOS, inspect running apps by Desktop in the bottom Dock-enrichment strip and transactionally swap the ordinary window contents of two existing Desktops, with a short conservative Undo.
+16. Open a separate Workspace IDE on macOS or iPhone with the same Explorer, read-only Source Control, shared open tabs, file editor/viewer, and a native terminal rooted at the selected workspace. Tab membership and expanded folders synchronize through the host while each device keeps its own active tab, selected workspace, pane layout, drafts, and cursor positions.
 
 ## What v0 is not
 
@@ -57,7 +58,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 
 - Agent-native UX (per-agent attention model, reasoning surface, multi-agent overview).
 - iPad client (later iteration, same codebase).
-- Browser client. AnyDesk and TeamViewer do not ship a mobile browser client either; chasing crisp text in a browser is not the v0 fight.
+- Internet-accessible browser client. The embedded Workspace IDE uses bundled WebKit inside the signed native apps and does not expose workspace authority over HTTP.
 - Marketplace / TestFlight wider distribution. v0 is signed Developer ID DMG for Mac and TestFlight to one device for iOS.
 - Debug Browser, Jupyter execution, and duplicate Desktop creation or reordering from the retired `agent-workspace-ide` donor. Dock enrichment returned through ADR-0055; content swap exchanges windows between existing Desktops without creating, deleting, or reordering Spaces (ADR-0059).
 

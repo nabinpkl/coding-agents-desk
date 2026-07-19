@@ -328,3 +328,22 @@ too, so both host targets link the terminal products.
 - **SkyLight remains read-only at this boundary.** `SpacesProvider` continues to own enumeration and
   window membership. The configured yabai executable is one isolated host adapter for mutation; the UI
   neither parses JSON nor invokes a shell.
+
+## Shared responsive Workspace IDE (ADR-0062)
+
+- **Two webviews, one native presentation owner.** The sidebar and editor need independent rectangular
+  regions around a native lower-right terminal, so one WKWebView cannot own the full layout. One
+  `WorkspaceIDEController` therefore owns both webviews and projects a single typed state snapshot into
+  them. The views never synchronize with each other through browser storage.
+- **Shared navigation membership, local point of view.** Ordered open paths and expanded directory paths
+  are host-persisted and live across Mac and iPhone. Selected workspace, active tab, sidebar section,
+  pane sizes and visibility, drafts, and cursor positions stay device-local so navigation on one device
+  cannot move the other device's Desktop or editor focus.
+- **Native geometry and authority.** AppKit and UIKit own both split dividers, focus, keyboard avoidance,
+  and native SwiftTerm. The host remains the only filesystem, Git, observation, revision, and PTY authority.
+- **Autosave is symmetric and conflict-explicit.** Both platforms persist drafts locally and use one
+  700 ms debounce. Revision failure pauses autosave. Use Host discards the draft; Keep Mine reads the
+  latest revision before explicitly retrying the retained buffer.
+- **Protocol v11 generalizes the Files stream.** The stream becomes a typed workspace lane carrying the
+  existing native binary file codec plus shared IDE state, Git status, and change pushes. The existing
+  101 MiB Files frame bound remains, DOCX is not base64 encoded, and there is no v10 compatibility path.
