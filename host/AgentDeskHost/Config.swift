@@ -835,6 +835,14 @@ enum Config {
         environmentKey: "AGENTDESK_AGENT_TERMINAL_TOMBSTONE_LIMIT",
         defaultValue: 256
     )
+    static let workspaceTerminalHandoffTimeoutSeconds = positiveInt(
+        environmentKey: "AGENTDESK_WORKSPACE_TERMINAL_HANDOFF_TIMEOUT_SECONDS",
+        defaultValue: 10
+    )
+    static let workspaceTerminalShell =
+        ProcessInfo.processInfo.environment["AGENTDESK_WORKSPACE_TERMINAL_SHELL"]
+        ?? ProcessInfo.processInfo.environment["SHELL"]
+        ?? "/bin/zsh"
     static var ptyManagerURL: URL? {
         Bundle.main.url(forResource: ptyManagerResourceName, withExtension: nil)
     }

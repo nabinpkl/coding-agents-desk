@@ -174,7 +174,8 @@ final class WorkspaceShellSession {
             dy: CGFloat(-index) * terminalCascadeStep
         )
         let workspaceName = workspace.name
-        terminalSpawn.spawn(cwd: workspace.root, into: frame) { [weak self] result in
+        let sessionName = WorkspaceTerminalIdentity(workspaceID: id).makeSessionName()
+        terminalSpawn.spawn(sessionName: sessionName, cwd: workspace.root, into: frame) { [weak self] result in
             // The emulator calls back on the main actor (it hops via MainActor.run before completing).
             MainActor.assumeIsolated {
                 guard let self else { return }

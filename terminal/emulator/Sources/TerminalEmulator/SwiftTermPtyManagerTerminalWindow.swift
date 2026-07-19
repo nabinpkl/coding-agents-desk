@@ -23,13 +23,18 @@ public final class SwiftTermPtyManagerTerminalSpawn: TerminalEmulatorSpawn {
         self.shell = shell
     }
 
-    public func spawn(cwd: URL, into frame: CGRect, completion: @escaping (Result<TerminalEmulatorWindow, Error>) -> Void) {
+    public func spawn(
+        sessionName: String,
+        cwd: URL,
+        into frame: CGRect,
+        completion: @escaping (Result<TerminalEmulatorWindow, Error>) -> Void
+    ) {
         DispatchQueue.main.async {
             let window = SwiftTermPtyManagerTerminalWindow(cwd: cwd, frame: frame)
             Task {
                 do {
                     let connection = try await self.client.openSession(
-                        name: TerminalSessionName.make(for: cwd),
+                        name: sessionName,
                         launch: .shell(cwd: cwd.path, shell: self.shell),
                         lifetime: .persistent,
                         columns: UInt32(window.columns),

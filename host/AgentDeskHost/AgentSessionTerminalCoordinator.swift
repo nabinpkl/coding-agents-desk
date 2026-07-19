@@ -20,7 +20,7 @@ actor AgentSessionTerminalCoordinator {
     private let executables: AgentResumeLaunch.Executables
     private let waitForHandoffTimeout: @Sendable () async throws -> Void
     private let onEvent: @Sendable (AgentSessionTerminalCoordinatorEvent) -> Void
-    private let nameGate = AgentSessionTerminalNameGate()
+    private let nameGate = AsyncKeyedGate<String>()
 
     private var openTasks: [String: Task<AgentSessionTerminalReady, Error>] = [:]
     private var openingIdentities: [String: AgentResumeTerminalIdentity] = [:]
@@ -385,35 +385,5 @@ actor AgentSessionTerminalCoordinator {
         } || openingIdentities.contains {
             $0.key != requestID && $0.value.ptySessionName == name
         }
-    }
-}
-
-private actor AgentSessionTerminalNameGate {
-    private var activeNames: Set<String> = []
-    private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
-
-    func acquire(_ name: String) async {
-        guard activeNames.contains(name) else {
-            activeNames.insert(name)
-            return
-        }
-        await withCheckedContinuation { continuation in
-            waiters[name, default: []].append(continuation)
-        }
-    }
-
-    func release(_ name: String) {
-        guard var queued = waiters[name], !queued.isEmpty else {
-            activeNames.remove(name)
-            waiters.removeValue(forKey: name)
-            return
-        }
-        let next = queued.removeFirst()
-        if queued.isEmpty {
-            waiters.removeValue(forKey: name)
-        } else {
-            waiters[name] = queued
-        }
-        next.resume()
     }
 }

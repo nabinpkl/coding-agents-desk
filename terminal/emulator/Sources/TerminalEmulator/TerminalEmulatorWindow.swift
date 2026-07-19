@@ -18,5 +18,10 @@ public protocol TerminalEmulatorWindow: AnyObject {
 }
 
 public protocol TerminalEmulatorSpawn: AnyObject {
-    func spawn(cwd: URL, into frame: CGRect, completion: @escaping (Result<TerminalEmulatorWindow, Error>) -> Void)
+    func spawn(
+        sessionName: String,
+        cwd: URL,
+        into frame: CGRect,
+        completion: @escaping (Result<TerminalEmulatorWindow, Error>) -> Void
+    )
 }

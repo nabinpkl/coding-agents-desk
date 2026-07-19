@@ -202,6 +202,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         requestNamespace: "macos-local",
         tombstoneLimit: Config.agentTerminalRequestTombstoneLimit
     )
+    private lazy var workspaceTerminalCoordinator = WorkspaceTerminalCoordinator(
+        repository: workspaceRepository,
+        ptyClient: PtyClientAgentSessionTerminalAdapter(
+            client: PtyManagerSocketClient.makeClient()
+        ),
+        shell: Config.workspaceTerminalShell,
+        requestTombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
+        waitForHandoffTimeout: {
+            try await Task.sleep(for: .seconds(Config.workspaceTerminalHandoffTimeoutSeconds))
+        },
+        onEvent: { [weak self] event in
+            Task { @MainActor in
+                await self?.routeWorkspaceTerminalEvent(event)
+            }
+        }
+    )
+    private lazy var workspaceTerminalEndpoints = TerminalEndpointRegistry<
+        DeviceFingerprint,
+        WorkspaceTerminalEndpoint
+    > { [unowned self] fingerprint, epoch in
+        WorkspaceTerminalEndpoint(
+            coordinator: workspaceTerminalCoordinator,
+            requestNamespace: "workspace-ios-\(fingerprint.rawValue)-\(epoch)",
+            clientTitle: "workspace-terminal-bootstrap-ios",
+            tombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
+            push: nil
+        )
+    }
     // ADR-0038 DOM mirror: the Chrome-fed native-messaging bridge server and the relay that buffers
     // checkouts and fans rrweb batches to the attached client .dom lane. Constructed and started
     // only when Config.domMirrorEnabled; otherwise the whole subsystem stays dark.
@@ -591,6 +619,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let transition = sessions.noteReady(active, ready: ready, transport: transport)
         if case .replaced(let previousSessionID) = transition {
             agentSessionTerminalEndpoints.endBinding(for: active.deviceFingerprint)
+            workspaceTerminalEndpoints.endBinding(for: active.deviceFingerprint)
             signalingLogger.notice("retired terminal endpoint for replaced session fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public) previous=\(previousSessionID, privacy: .public) current=\(active.sessionId, privacy: .public)")
         }
         signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public) session=\(active.sessionId, privacy: .public)")
@@ -822,6 +851,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         agentSessionTerminalEndpoints.endBinding(for: fingerprint)
+        workspaceTerminalEndpoints.endBinding(for: fingerprint)
         thumbnailEnabledClients.remove(fingerprint)
         spaceThumbnailProvider.setDemand(owner: .client(fingerprint.rawValue), enabled: false)
         domMirrorRelay.detach(for: fingerprint)
@@ -877,6 +907,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 server?.pushAgentTerminal(message)
             }
         }
+        let workspaceTerminalEndpointBinding = workspaceTerminalEndpoints.beginBinding(for: fingerprint)
+        let workspaceTerminalEndpointTask = Task { @MainActor [workspaceTerminalEndpoints] in
+            await workspaceTerminalEndpoints.endpoint(
+                for: fingerprint,
+                binding: workspaceTerminalEndpointBinding
+            )
+        }
+        let workspaceTerminalPushBindingID = UUID().uuidString
+        let workspaceTerminalPushBindingTask = Task {
+            guard let endpoint = await workspaceTerminalEndpointTask.value else { return }
+            await endpoint.bindPush(id: workspaceTerminalPushBindingID) { [weak server] message in
+                server?.pushWorkspaceTerminal(message)
+            }
+        }
         // The QUIC connection's state handler does not reliably fire .cancelled on a
         // half-dead socket, so the input lane dropping is our disconnect signal. Route
         // it through the existing suspend path (resume-grace, then end) so the popover
@@ -887,6 +931,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 await terminalPushBindingTask.value
                 if let terminalEndpoint = await terminalEndpointTask.value {
                     await terminalEndpoint.unbindPush(id: terminalPushBindingID)
+                }
+                await workspaceTerminalPushBindingTask.value
+                if let endpoint = await workspaceTerminalEndpointTask.value {
+                    await endpoint.unbindPush(id: workspaceTerminalPushBindingID)
                 }
                 self.handleInputLaneClosed(fingerprint)
             }
@@ -947,6 +995,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard let terminalEndpoint = await terminalEndpointTask.value else { return }
                     await terminalEndpoint.handle(message)
                 }
+            }
+        }
+        server.workspaceTerminalRequestHandler = { message in
+            Task {
+                await workspaceTerminalPushBindingTask.value
+                guard let endpoint = await workspaceTerminalEndpointTask.value else { return }
+                await endpoint.handle(message)
             }
         }
         // R11: push the current DesktopState as soon as the channel is
@@ -1070,6 +1125,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ) async {
         await localAgentSessionTerminalEndpoint.handleCoordinatorEvent(event)
         for endpoint in agentSessionTerminalEndpoints.activeEndpoints {
+            await endpoint.handleCoordinatorEvent(event)
+        }
+    }
+
+    private func routeWorkspaceTerminalEvent(
+        _ event: WorkspaceTerminalCoordinatorEvent
+    ) async {
+        for endpoint in workspaceTerminalEndpoints.activeEndpoints {
             await endpoint.handleCoordinatorEvent(event)
         }
     }

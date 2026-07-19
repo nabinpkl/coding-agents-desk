@@ -1,10 +1,10 @@
 @MainActor
-final class AgentSessionTerminalEndpointRegistry<Key: Hashable> {
+final class TerminalEndpointRegistry<Key: Hashable, Endpoint> {
     struct Binding: Equatable {
         fileprivate let epoch: UInt64
     }
 
-    typealias Factory = @MainActor (Key, UInt64) -> AgentSessionTerminalEndpoint
+    typealias Factory = @MainActor (Key, UInt64) -> Endpoint
 
     private struct PendingShutdown {
         let epoch: UInt64
@@ -12,16 +12,21 @@ final class AgentSessionTerminalEndpointRegistry<Key: Hashable> {
     }
 
     private let factory: Factory
+    private let shutdownEndpoint: @MainActor (Endpoint) async -> Void
     private var nextEpoch: UInt64 = 0
     private var bindingEpochs: [Key: UInt64] = [:]
-    private var endpoints: [Key: AgentSessionTerminalEndpoint] = [:]
+    private var endpoints: [Key: Endpoint] = [:]
     private var pendingShutdowns: [Key: PendingShutdown] = [:]
 
-    init(factory: @escaping Factory) {
+    init(
+        factory: @escaping Factory,
+        shutdown: @escaping @MainActor (Endpoint) async -> Void
+    ) {
         self.factory = factory
+        self.shutdownEndpoint = shutdown
     }
 
-    var activeEndpoints: [AgentSessionTerminalEndpoint] {
+    var activeEndpoints: [Endpoint] {
         Array(endpoints.values)
     }
 
@@ -31,7 +36,7 @@ final class AgentSessionTerminalEndpointRegistry<Key: Hashable> {
         return Binding(epoch: epoch)
     }
 
-    func endpoint(for key: Key, binding: Binding) async -> AgentSessionTerminalEndpoint? {
+    func endpoint(for key: Key, binding: Binding) async -> Endpoint? {
         while let pending = pendingShutdowns[key] {
             await pending.task.value
             clearPendingShutdown(for: key, epoch: pending.epoch)
@@ -52,8 +57,9 @@ final class AgentSessionTerminalEndpointRegistry<Key: Hashable> {
         guard let endpoint = endpoints.removeValue(forKey: key) else { return }
 
         let epoch = makeEpoch()
-        let task = Task {
-            await endpoint.shutdown()
+        let shutdownEndpoint = shutdownEndpoint
+        let task = Task { @MainActor in
+            await shutdownEndpoint(endpoint)
         }
         pendingShutdowns[key] = PendingShutdown(epoch: epoch, task: task)
         Task { @MainActor [weak self] in
@@ -70,5 +76,20 @@ final class AgentSessionTerminalEndpointRegistry<Key: Hashable> {
     private func makeEpoch() -> UInt64 {
         nextEpoch &+= 1
         return nextEpoch
+    }
+}
+
+typealias AgentSessionTerminalEndpointRegistry<Key: Hashable> =
+    TerminalEndpointRegistry<Key, AgentSessionTerminalEndpoint>
+
+extension TerminalEndpointRegistry where Endpoint == AgentSessionTerminalEndpoint {
+    convenience init(factory: @escaping Factory) {
+        self.init(factory: factory, shutdown: { await $0.shutdown() })
+    }
+}
+
+extension TerminalEndpointRegistry where Endpoint == WorkspaceTerminalEndpoint {
+    convenience init(factory: @escaping Factory) {
+        self.init(factory: factory, shutdown: { await $0.shutdown() })
     }
 }

@@ -31,12 +31,12 @@ the existing preview overlay.
 
 ## v6 Phase 2: host-owned workspace terminal
 
-- [ ] R77. Add a host `WorkspaceTerminalCoordinator` that resolves an opaque workspace id through
+- [x] D77. Add a host `WorkspaceTerminalCoordinator` that resolves an opaque workspace id through
   `WorkspaceRepository`, validates a remembered PTY, otherwise selects the newest running persistent
   workspace PTY, and creates a login shell at the workspace root only when none exists. Hold a
   bootstrap attachment until iOS acknowledges and clean failed handoffs without killing preexisting
   sessions.
-- [ ] R78. Give macOS and iOS-created workspace terminals the same host-generated
+- [x] D78. Give macOS and iOS-created workspace terminals the same host-generated
   `workspace-<workspace-id>-<suffix>` identity so either platform may attach. General and leased Agent
   Panel terminals remain outside this namespace. Tests reject wrong-workspace names, cwd mismatches,
   incompatible lifetime, and invalid store ids.
@@ -75,7 +75,7 @@ the existing preview overlay.
 D74      2026-07-19  landed      workspace workbench and terminal authority decision
 D75      2026-07-19  landed      immutable PTY session creation time and inner protocol v5
 D76      2026-07-19  landed      authenticated workspace-terminal wire contract and protocol v10
-R77-R78  pending     pending     host workspace terminal selection and shared identity
+D77-D78  2026-07-19  landed      host workspace resolution, safe handoff, and shared PTY identity
 R79-R80  pending     pending     UIKit workbench and one persistent shell
 R81-R82  pending     pending     automated gates and checkpointed live smoke
 ```
