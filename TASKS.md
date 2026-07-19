@@ -54,7 +54,7 @@ the existing preview overlay.
 
 ## v6 Phase 4: integration and live checkpoint
 
-- [ ] R81. Run PTY Rust and Swift package tests, wire tests, host/client focused tests, `just check`,
+- [x] D81. Run PTY Rust and Swift package tests, wire tests, host/client focused tests, `just check`,
   and `just sim-test`; self-review the complete cross-file contract and confirm no full host path is
   exposed on the iOS wire.
 - [ ] R82. After the repository launch checkpoint and explicit user approval, install the isolated dev
@@ -78,5 +78,6 @@ D76      2026-07-19  landed      authenticated workspace-terminal wire contract 
 D77-D78  2026-07-19  landed      host workspace resolution, safe handoff, and shared PTY identity
 D79      2026-07-19  landed      resizable UIKit explorer, empty editor, and persistent pane state
 D80      2026-07-19  landed      one persistent shared workspace shell
-R81-R82  pending     pending     automated gates and checkpointed live smoke
+D81      2026-07-19  landed      PTY, wire, host, client, and simulator gates green
+R82      pending     pending     checkpointed live smoke
 ```

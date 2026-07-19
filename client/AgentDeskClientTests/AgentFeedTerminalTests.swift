@@ -499,7 +499,9 @@ struct AgentFeedTerminalTests {
                 reason: wireReason
             )))
             harness.coordinator.yield(.ready(ready))
-            try await waitUntil { delivered.count == 1 }
+            try await waitUntil {
+                delivered.count == 1 && harness.connection.detachCount == 1
+            }
 
             #expect(harness.coordinator.sent.count == 3)
             #expect(harness.connection.detachCount == 1)
@@ -931,6 +933,13 @@ struct AgentFeedTerminalTests {
 
         let closeTask = try #require(harness.surface.abandonTerminal(.contextEnded))
         await closeTask.value
+        #expect(delivered == [expectedTerminalJSON(
+            tag: "agent-terminal-ended",
+            requestID: readyPayload().requestID,
+            context: readyPayload().context,
+            ptySessionName: readyPayload().ptySessionName
+        )])
+        delivered.removeAll()
         let replacementCoordinator = FakeAgentTerminalCoordinator()
         let replacementConnection = FakeTerminalConnection(
             sessionName: "agent-resume-codex-new-session",

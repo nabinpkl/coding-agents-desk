@@ -188,6 +188,7 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
         let open: AgentTerminalOpen
         var ptySessionName: String?
         var pid: UInt32?
+        var wasReportedReady: Bool
     }
 
     private struct ActiveTerminal {
@@ -195,7 +196,6 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
         let connection: any AgentFeedTerminalConnection
         let operationGeneration: UInt64
         let contextGeneration: UInt64
-        var didReportReady: Bool
     }
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-terminal")
@@ -340,7 +340,12 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
         }
 
         contextGeneration &+= 1
-        descriptor = TerminalDescriptor(open: open, ptySessionName: nil, pid: nil)
+        descriptor = TerminalDescriptor(
+            open: open,
+            ptySessionName: nil,
+            pid: nil,
+            wasReportedReady: false
+        )
         sendOpen(open)
     }
 
@@ -411,7 +416,7 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
         attachTask?.cancel()
         attachTask = nil
         detachCurrentTerminal()
-        if reason != .userClose {
+        if reason != .userClose, descriptor.wasReportedReady {
             if let ptySessionName = close.ptySessionName {
                 deliver(.ended(AgentTerminalEnded(
                     requestID: close.requestID,
@@ -620,8 +625,7 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
             ready: ready,
             connection: connection,
             operationGeneration: operationGeneration,
-            contextGeneration: contextGeneration,
-            didReportReady: false
+            contextGeneration: contextGeneration
         )
         terminalContent.bind(to: connection)
         setPresented(true)
@@ -663,7 +667,7 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
               terminalContent.isBound else {
             return
         }
-        activeTerminal?.didReportReady = true
+        descriptor?.wasReportedReady = true
         deliver(.ready(ready))
     }
 
@@ -879,7 +883,7 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
               activeTerminal.contextGeneration == contextGeneration else {
             return
         }
-        if activeTerminal.didReportReady {
+        if descriptor?.wasReportedReady == true {
             logger.error("active agent terminal transport failed: \(String(describing: error), privacy: .public)")
             recoverDedicatedTerminalConnection()
             return
