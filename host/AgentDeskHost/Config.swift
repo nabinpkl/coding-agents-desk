@@ -885,6 +885,8 @@ enum Config {
         .appendingPathComponent("workspaces.json", isDirectory: false)
     static let workspaceIDEStateURL = applicationSupportDirectory
         .appendingPathComponent("workspace-ide-state.json", isDirectory: false)
+    static let workspaceIDEDraftsDirectory = applicationSupportDirectory
+        .appendingPathComponent("WorkspaceIDE/Drafts", isDirectory: true)
     static let donorWorkspaceStoreURL = FileManager.default
         .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("agent-workspace-ide/workspace.json", isDirectory: false)

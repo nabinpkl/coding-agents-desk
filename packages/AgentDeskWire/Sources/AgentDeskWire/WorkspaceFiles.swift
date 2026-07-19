@@ -37,15 +37,37 @@ public struct WorkspaceRequestID: Codable, Equatable, Sendable {
 public struct WorkspaceSummary: Codable, Equatable, Sendable {
     public let id: String
     public let name: String
+    public let desktopOrdinal: Int?
+    public let desktopAutoAssignEnabled: Bool
 
-    public init(id: String, name: String) {
+    public init(
+        id: String,
+        name: String,
+        desktopOrdinal: Int? = nil,
+        desktopAutoAssignEnabled: Bool = false
+    ) {
         self.id = id
         self.name = name
+        self.desktopOrdinal = desktopOrdinal
+        self.desktopAutoAssignEnabled = desktopAutoAssignEnabled
     }
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case id = "i"
         case name = "n"
+        case desktopOrdinal = "o"
+        case desktopAutoAssignEnabled = "a"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        desktopOrdinal = try container.decodeIfPresent(Int.self, forKey: .desktopOrdinal)
+        desktopAutoAssignEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .desktopAutoAssignEnabled
+        ) ?? false
     }
 }
 

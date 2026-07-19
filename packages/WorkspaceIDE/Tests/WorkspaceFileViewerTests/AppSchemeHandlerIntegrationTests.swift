@@ -5,6 +5,26 @@ import WebKit
 
 @MainActor
 struct AppSchemeHandlerIntegrationTests {
+    @Test func IDEDocumentResourcesRemainIndependentUntilRevoked() throws {
+        let store = WorkspaceFileResourceStore()
+        let first = store.publish(documentData: Data("first".utf8))
+        let second = store.publish(documentData: Data("second".utf8))
+        let firstToken = try #require(first.pathComponents.last)
+        let secondToken = try #require(second.pathComponents.last)
+
+        guard case .data(let firstData) = store.resource(for: firstToken),
+              case .data(let secondData) = store.resource(for: secondToken) else {
+            Issue.record("both IDE document resources should remain registered")
+            return
+        }
+        #expect(firstData == Data("first".utf8))
+        #expect(secondData == Data("second".utf8))
+
+        store.revoke(first)
+        #expect(store.resource(for: firstToken) == nil)
+        #expect(store.resource(for: secondToken) != nil)
+    }
+
     @Test func documentFetchReceivesSuccessfulResponseAndCompleteBody() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

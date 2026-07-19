@@ -67,6 +67,9 @@ final class WorkspaceShellPresenter: NSObject {
     /// Agents window, keeping the shell decoupled from the agent surface.
     var onAgentsCommand: (() -> Void)?
 
+    /// Opens the separate retained shared Workspace IDE window.
+    var onIDECommand: (() -> Void)?
+
     /// Invoked when the top-bar "＋ Terminal" command is tapped (R54). AppDelegate/session wires this
     /// to spawn an in-app terminal on our pty socket (R55); the shell stays decoupled from the terminal.
     var onOpenTerminal: (() -> Void)?
@@ -486,6 +489,8 @@ final class WorkspaceShellPresenter: NSObject {
     private func buildTopBar() {
         let agentsButton = NSButton(title: "Agents", target: self, action: #selector(agentsTapped))
         agentsButton.setAccessibilityIdentifier("workspace-shell-agents")
+        let ideButton = NSButton(title: "IDE", target: self, action: #selector(ideTapped))
+        ideButton.setAccessibilityIdentifier("workspace-shell-ide")
         let ptyManagerButton = NSButton(title: "PTY Manager", target: self, action: #selector(openPtyManagerTapped))
         ptyManagerButton.setAccessibilityIdentifier("open-pty-manager")
         let terminalButton = NSButton(title: "＋ Terminal", target: self, action: #selector(openTerminalTapped))
@@ -498,7 +503,7 @@ final class WorkspaceShellPresenter: NSObject {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let topBarStack = NSStackView(views: [agentsButton, spacer, ptyManagerButton, terminalButton, topBarPinButton])
+        let topBarStack = NSStackView(views: [agentsButton, ideButton, spacer, ptyManagerButton, terminalButton, topBarPinButton])
         topBarStack.orientation = .horizontal
         topBarStack.alignment = .centerY
         topBarStack.spacing = 8
@@ -556,6 +561,8 @@ final class WorkspaceShellPresenter: NSObject {
     // MARK: - Actions
 
     @objc private func agentsTapped() { onAgentsCommand?() }
+
+    @objc private func ideTapped() { onIDECommand?() }
 
     @objc private func openTerminalTapped() { onOpenTerminal?() }
 
@@ -650,7 +657,7 @@ final class WorkspaceShellPresenter: NSObject {
             .union(axIdentifiers(in: overlay.topBarContentView))
             .union(axIdentifiers(in: overlay.dockContentView))
         let expected = [
-            "workspace-shell-agents", "open-terminal", "open-pty-manager",
+            "workspace-shell-agents", "workspace-shell-ide", "open-terminal", "open-pty-manager",
             "workspace-switcher", "add-workspace", "workspace-shell-title",
             "activity-bar", "activity-explorer", "activity-source-control",
             "sidebar-zoom-out", "sidebar-zoom-in", "workspace-shell-file-tree",

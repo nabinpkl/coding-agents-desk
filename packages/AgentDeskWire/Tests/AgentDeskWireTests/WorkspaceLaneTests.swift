@@ -60,6 +60,15 @@ private func laneRoundTrip<T: Codable & Equatable>(_ value: T) throws {
             generation: 5,
             changedPaths: ["README.md", "Sources/App.swift"]
         )),
+        .workspaceList(WorkspaceListPush(workspaces: [
+            WorkspaceSummary(
+                id: "w1",
+                name: "Alpha",
+                desktopOrdinal: 3,
+                desktopAutoAssignEnabled: true
+            ),
+            WorkspaceSummary(id: "w2", name: "Beta"),
+        ])),
         .error(WorkspaceLaneError(
             requestID: requestID,
             workspaceID: "w1",
@@ -76,6 +85,7 @@ private func laneRoundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(responses[1].requestID == requestID)
     #expect(responses[2].requestID == nil)
     #expect(responses[5].requestID == nil)
+    #expect(responses[6].requestID == nil)
 }
 
 @Test func workspaceIDEOperationsRoundTripEveryVariant() throws {

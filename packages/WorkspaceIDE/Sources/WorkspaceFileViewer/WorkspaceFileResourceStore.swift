@@ -5,15 +5,36 @@ enum WorkspaceFileResource: Sendable {
     case file(URL, maximumBytes: Int)
 }
 
-final class WorkspaceFileResourceStore: @unchecked Sendable {
+public final class WorkspaceFileResourceStore: @unchecked Sendable {
     private let lock = NSLock()
-    private var current: (token: String, resource: WorkspaceFileResource)?
+    private var resources: [String: WorkspaceFileResource] = [:]
+
+    public init() {}
+
+    public func publish(documentData: Data) -> URL {
+        register(.data(documentData))
+    }
+
+    public func publish(documentFile: URL, maximumBytes: Int) -> URL {
+        precondition(maximumBytes > 0, "document file byte limit must be positive")
+        return register(.file(documentFile, maximumBytes: maximumBytes))
+    }
+
+    public func revoke(_ resourceURL: URL) {
+        guard resourceURL.pathComponents.count == 3,
+              resourceURL.pathComponents[1] == "document" else { return }
+        _ = lock.withLock { resources.removeValue(forKey: resourceURL.pathComponents[2]) }
+    }
+
+    public func removeAll() {
+        lock.withLock { resources.removeAll() }
+    }
 
     func publish(_ content: WorkspaceFileContent) -> URL? {
         let resource: WorkspaceFileResource
         switch content {
         case .text:
-            lock.withLock { current = nil }
+            removeAll()
             return nil
         case .documentData(let data):
             resource = .data(data)
@@ -22,15 +43,17 @@ final class WorkspaceFileResourceStore: @unchecked Sendable {
             resource = .file(url, maximumBytes: maximumBytes)
         }
 
-        let token = UUID().uuidString
-        lock.withLock { current = (token, resource) }
-        return URL(string: "\(AppSchemeHandler.scheme)://app/document/\(token)")
+        removeAll()
+        return register(resource)
     }
 
     func resource(for token: String) -> WorkspaceFileResource? {
-        lock.withLock {
-            guard current?.token == token else { return nil }
-            return current?.resource
-        }
+        lock.withLock { resources[token] }
+    }
+
+    private func register(_ resource: WorkspaceFileResource) -> URL {
+        let token = UUID().uuidString
+        lock.withLock { resources[token] = resource }
+        return URL(string: "\(AppSchemeHandler.scheme)://app/document/\(token)")!
     }
 }

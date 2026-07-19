@@ -18,8 +18,8 @@ and native coordinator tests are green.
 ## Phase 1: package seam with no behavior change
 
 - D2. Replace `packages/WorkspaceEditorViewer` with `packages/WorkspaceIDE`, exposing `WorkspaceFileViewer` and `WorkspaceIDE`, and update both synchronized Xcode projects to link the renamed products.
-- R3. Consolidate authored web code under `packages/WorkspaceIDE/Web`, extract mountable renderer modules, and replace `vendor-viewer` with `workspace-ide-web` that tests and builds legacy viewer and IDE resources from one dependency tree.
-- R4. Add package and filesystem fitness tests proving the existing single-file macOS and iOS surfaces retain DOCX fit-width, zoom, viewport restoration, Markdown, notebook, and edit behavior, with no old package directory or stale generated resource tree.
+- D3. Consolidate authored web code under `packages/WorkspaceIDE/Web`, extract mountable renderer modules, and replace `vendor-viewer` with `workspace-ide-web` that tests and builds legacy viewer and IDE resources from one dependency tree.
+- D4. Add package and filesystem fitness tests proving the existing single-file macOS and iOS surfaces retain DOCX fit-width, zoom, viewport restoration, Markdown, notebook, and edit behavior, with no old package directory or stale generated resource tree.
 
 ## Phase 2: authoritative workspace lane
 
@@ -31,20 +31,20 @@ and native coordinator tests are green.
 
 ## Phase 3: shared IDE regions
 
-- R10. Add `WorkspaceIDEController`, its data-source, capabilities, delegate, local-state, and draft-store seams with strict script-message parsing, serialized projection, and stale-generation rejection.
-- R11. Build the shared sidebar region with workspace selection, recursive Explorer, read-only Source Control, Git decoration, compact controls, container queries, and semantic accessibility.
-- R12. Build the shared editor region with ordered tabs, breadcrumbs, modes, zoom, dirty and conflict state, empty state, and the existing renderer modules.
-- R13. Add 700 ms autosave, draft restoration, revision-conflict Use Host and Keep Mine flows, protected remote close, and tests showing two webviews consume one coordinator snapshot without reconstruction.
+- D10. Add `WorkspaceIDEController`, its data-source, capabilities, delegate, local-state, and draft-store seams with strict script-message parsing, serialized projection, and stale-generation rejection.
+- D11. Build the shared sidebar region with workspace selection, recursive Explorer, read-only Source Control, Git decoration, compact controls, container queries, and semantic accessibility.
+- D12. Build the shared editor region with ordered tabs, breadcrumbs, modes, zoom, dirty and conflict state, empty state, and the existing renderer modules.
+- D13. Add 700 ms autosave, draft restoration, revision-conflict Use Host and Keep Mine flows, protected remote close, and tests showing two webviews consume one coordinator snapshot without reconstruction.
 
 ## Phase 4: native entries
 
-- R14. Add a retained macOS Workspace IDE window with a full-height sidebar webview, editor webview, native accessible dividers, native workspace SwiftTerm, local host adapter, and capability-gated Mac workspace actions.
-- R15. Add a separate iPhone IDE control using the same retained webviews and workspace-terminal coordination, enforcing the iPhone capability set natively and preserving local pane state across reconnect.
-- R16. Add host and iOS integration tests for local active-tab independence, shared tab/folder reconciliation, terminal confinement, Desktop selection behavior, external-change conflicts, and existing Workspace-surface continuity.
+- D14. Add a retained macOS Workspace IDE window with a full-height sidebar webview, editor webview, native accessible dividers, native workspace SwiftTerm, local host adapter, and capability-gated Mac workspace actions.
+- D15. Add a separate iPhone IDE control using the same retained webviews and workspace-terminal coordination, enforcing the iPhone capability set natively and preserving local pane state across reconnect.
+- D16. Add host and iOS integration tests for local active-tab independence, shared tab/folder reconciliation, terminal confinement, Desktop selection behavior, external-change conflicts, and existing Workspace-surface continuity.
 
 ## Phase 5: verification and launch checkpoint
 
-- R17. Run the web suite/build, both Swift packages, focused host/client suites, `just check`, and `just sim-test`; perform a full cross-file self-review and stop before launching either app.
+- D17. Run the web suite/build, both Swift packages, focused host/client suites, `just check`, and `just sim-test`; perform a full cross-file self-review and stop before launching either app.
 - R18. After explicit approval, launch the dev stack, verify running SHAs, smoke both IDE entries and shared state/conflicts/external changes/Git/DOCX behavior, then capture macOS AX and iPhone screenshots.
 - R19. After a separate explicit physical-device approval, repeat the iPhone layout, keyboard, pinch, reconnect, and terminal-reattach smoke on hardware.
 
@@ -59,9 +59,10 @@ this iteration.
 ```
 D1       2026-07-19  committed   shared IDE decision and iteration gate
 D2       2026-07-19  committed   package and Xcode product seam
-R3-R4    pending     pending     shared renderer modules and fitness coverage
+D3-D4    2026-07-19  committed   shared renderer modules and fitness coverage
 D5-D9    2026-07-19  committed   authoritative workspace lane and observation
-R10-R13  pending     pending     shared web regions and native coordinator
-R14-R16  pending     pending     macOS and iPhone IDE entries
-R17-R19  pending     pending     automated and checkpointed live verification
+D10-D13  2026-07-19  committed   shared web regions and native coordinator
+D14-D16  2026-07-19  committed   macOS and iPhone IDE entries
+D17      2026-07-19  committed   automated gates and integrated self-review
+R18-R19  pending     pending     checkpointed simulator and physical-device smoke
 ```

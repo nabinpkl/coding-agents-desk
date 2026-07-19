@@ -2,7 +2,7 @@ import OSLog
 import UIKit
 import WebKit
 
-// Extension: surface switcher (Control | Agent | Terminal | Browser) and lifecycle.
+// Extension: surface switcher and lifecycle for Control, Agent, Terminal, Browser, Workspace, and IDE.
 // The ControlSurface enum + visibility(for:) mapping live in ControlSurface.swift.
 //
 // Each non-control surface sits full-bleed alongside the existing control
@@ -205,6 +205,7 @@ extension PairingViewController {
         // so a reconnect rebuilds all three cleanly from the fresh session.
         teardownDomMirrorSurface()
         teardownWorkspaceSurface()
+        teardownIDESurface()
 
         surfaceSegmentedControl?.removeFromSuperview()
         surfaceSegmentedControl = nil
@@ -350,6 +351,8 @@ extension PairingViewController {
         case .workspace:
             // Open the .files lane and build the workbench on first switch to Workspace.
             ensureWorkspaceSurface()
+        case .ide:
+            ensureIDESurface()
         }
         applySurface(surface)
 
@@ -364,6 +367,7 @@ extension PairingViewController {
     func rebindActiveSurfaceAfterReconnect() {
         rebindAgentSurfaceAfterReconnectIfNeeded()
         rebindWorkspaceSurfaceAfterReconnectIfNeeded()
+        rebindIDESurfaceAfterReconnectIfNeeded()
 
         switch activeControlSurface {
         case .control:
@@ -383,6 +387,8 @@ extension PairingViewController {
             }
         case .workspace:
             ensureWorkspaceSurface()
+        case .ide:
+            ensureIDESurface()
         }
         pairingClient.activeDomMirror?.setCapture(activeControlSurface == .browser)
         domMirrorSurface?.setPaused(activeControlSurface != .browser)
@@ -422,7 +428,7 @@ extension PairingViewController {
         return surface
     }
 
-    private func segmentIndex(for surface: ControlSurface, in seg: UISegmentedControl) -> Int {
+    func segmentIndex(for surface: ControlSurface, in seg: UISegmentedControl) -> Int {
         for index in 0..<seg.numberOfSegments
             where seg.imageForSegment(at: index)?.accessibilityLabel == surface.switcherAccessibilityLabel {
             return index
@@ -471,6 +477,7 @@ extension PairingViewController {
         keyboardSurface.isUserInteractionEnabled = v.keyboardInteractive
         applyVideoTouchState()
         workspaceSurface?.isHidden = v.workspaceHidden
+        ideSurface?.isHidden = v.ideHidden
 
         Self.logger.debug("active surface: \(String(describing: surface))")
     }
@@ -537,7 +544,6 @@ extension PairingViewController {
             }
         }
     }
-
     @available(iOS 26.0, *)
     @discardableResult
     private func ensureTerminalSurface() -> TerminalSurface {

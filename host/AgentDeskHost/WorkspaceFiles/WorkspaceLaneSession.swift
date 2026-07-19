@@ -16,6 +16,7 @@ final class WorkspaceLaneSession {
     private var stateSubscriptions: [String: WorkspaceIDEStateSubscription] = [:]
     private var observationSubscriptions: [String: WorkspaceObservationSubscription] = [:]
     private var latestGit: [String: WorkspaceGitStatusResult] = [:]
+    private var workspaceSubscription: WorkspaceCoordinatorSubscription?
 
     init(
         push: @escaping Push,
@@ -32,6 +33,7 @@ final class WorkspaceLaneSession {
     }
 
     func handle(_ request: WorkspaceLaneRequest) async -> WorkspaceLaneResponse {
+        await ensureWorkspaceSubscription()
         switch request {
         case .files(let fileRequest):
             return .files(await files.handle(fileRequest))
@@ -67,11 +69,30 @@ final class WorkspaceLaneSession {
     }
 
     func stop() async {
+        if let workspaceSubscription {
+            await workspaces.unsubscribe(workspaceSubscription)
+            self.workspaceSubscription = nil
+        }
         for token in observationSubscriptions.values { observation.unobserve(token) }
         observationSubscriptions.removeAll()
         for token in stateSubscriptions.values { await ideState.unsubscribe(token) }
         stateSubscriptions.removeAll()
         latestGit.removeAll()
+    }
+
+    private func ensureWorkspaceSubscription() async {
+        guard workspaceSubscription == nil else { return }
+        workspaceSubscription = await workspaces.subscribe { [push] store in
+            let summaries = store.workspaces.map {
+                WorkspaceSummary(
+                    id: $0.id.uuidString,
+                    name: $0.name,
+                    desktopOrdinal: $0.desktopAssignment?.ordinal,
+                    desktopAutoAssignEnabled: $0.desktopAutoAssignEnabled
+                )
+            }
+            await push(.workspaceList(WorkspaceListPush(workspaces: summaries)))
+        }
     }
 
     private func subscribe(

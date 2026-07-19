@@ -328,7 +328,12 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
 
 @Test func workspaceFileResponsesRoundTripWithCompactKeys() throws {
     let revision = WorkspaceFileRevision(digest: "sha256:current")
-    let workspace = WorkspaceSummary(id: "workspace-a", name: "AgentDesk")
+    let workspace = WorkspaceSummary(
+        id: "workspace-a",
+        name: "AgentDesk",
+        desktopOrdinal: 2,
+        desktopAutoAssignEnabled: true
+    )
     let requestIDs = [
         WorkspaceRequestID(value: "request-workspaces"),
         WorkspaceRequestID(value: "request-directory"),

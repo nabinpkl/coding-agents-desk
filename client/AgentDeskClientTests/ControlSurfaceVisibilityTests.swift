@@ -51,16 +51,27 @@ struct ControlSurfaceVisibilityTests {
         #expect(!v.keyboardInteractive)
     }
 
+    @Test func ideShowsIDEAndHidesEveryOtherSurface() {
+        let v = visibility(for: .ide)
+        #expect(!v.ideHidden)
+        #expect(v.workspaceHidden)
+        #expect(v.agentHidden)
+        #expect(v.browserHidden)
+        #expect(v.terminalHidden)
+        #expect(v.controlChromeHidden)
+    }
+
     // Exactly one full-bleed surface (agent, browser, terminal, or files) may be visible at a
     // time; control shows neither. Guards against a future mapping edit that
     // reveals two overlapping surfaces.
     @Test func atMostOneFullBleedSurfaceVisible() {
-        for surface in [ControlSurface.control, .agent, .browser, .terminal, .workspace] {
+        for surface in [ControlSurface.control, .agent, .browser, .terminal, .workspace, .ide] {
             let v = visibility(for: surface)
             let visibleCount = (v.agentHidden ? 0 : 1)
                 + (v.browserHidden ? 0 : 1)
                 + (v.terminalHidden ? 0 : 1)
                 + (v.workspaceHidden ? 0 : 1)
+                + (v.ideHidden ? 0 : 1)
             #expect(visibleCount <= 1)
         }
     }
@@ -71,15 +82,15 @@ struct ControlSurfaceVisibilityTests {
 // switcher builds from (and that a11y-driven flows target by label).
 struct SurfaceSwitcherTests {
     @Test func withoutBrowserOffersFourSurfacesInOrder() {
-        #expect(availableControlSurfaces(browserAvailable: false) == [.control, .agent, .terminal, .workspace])
+        #expect(availableControlSurfaces(browserAvailable: false) == [.control, .agent, .terminal, .workspace, .ide])
     }
 
     @Test func withBrowserOffersFiveSurfacesInOrder() {
-        #expect(availableControlSurfaces(browserAvailable: true) == [.control, .agent, .terminal, .browser, .workspace])
+        #expect(availableControlSurfaces(browserAvailable: true) == [.control, .agent, .terminal, .browser, .workspace, .ide])
     }
 
     @Test func everySurfaceHasADistinctSymbolAndStableAccessibilityLabel() {
-        let all: [ControlSurface] = [.control, .agent, .terminal, .browser, .workspace]
+        let all: [ControlSurface] = [.control, .agent, .terminal, .browser, .workspace, .ide]
         // Distinct SF Symbols so the five segments are visually distinguishable.
         let symbols = all.map(\.switcherSymbolName)
         #expect(Set(symbols).count == all.count)
@@ -92,12 +103,13 @@ struct SurfaceSwitcherTests {
         #expect(ControlSurface.workspace.switcherSymbolName == "rectangle.split.3x1")
         #expect(UIImage(systemName: ControlSurface.workspace.switcherSymbolName) != nil)
         #expect(ControlSurface.workspace.switcherAccessibilityLabel == "Workspace")
+        #expect(ControlSurface.ide.switcherAccessibilityLabel == "IDE")
     }
 
     // The switcher resolves a tapped segment back to its surface via the label round-trip, so this
     // inverse must hold for every surface and reject unknown labels (-> safe .control fallback).
     @Test func accessibilityLabelRoundTripsToSurface() {
-        for surface in [ControlSurface.control, .agent, .terminal, .browser, .workspace] {
+        for surface in [ControlSurface.control, .agent, .terminal, .browser, .workspace, .ide] {
             #expect(ControlSurface(switcherAccessibilityLabel: surface.switcherAccessibilityLabel) == surface)
         }
         #expect(ControlSurface(switcherAccessibilityLabel: "Nonexistent") == nil)

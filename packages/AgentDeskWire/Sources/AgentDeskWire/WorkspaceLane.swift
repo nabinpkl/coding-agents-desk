@@ -165,6 +165,18 @@ public struct WorkspaceChangedPush: Codable, Equatable, Sendable {
     }
 }
 
+public struct WorkspaceListPush: Codable, Equatable, Sendable {
+    public let workspaces: [WorkspaceSummary]
+
+    public init(workspaces: [WorkspaceSummary]) {
+        self.workspaces = workspaces
+    }
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case workspaces = "w"
+    }
+}
+
 public enum WorkspaceLaneErrorCode: String, Codable, CaseIterable, Equatable, Sendable {
     case invalidRequest
     case workspaceUnavailable
@@ -313,13 +325,14 @@ public enum WorkspaceLaneResponse: Codable, Equatable, Sendable {
     case ideSnapshot(requestID: WorkspaceRequestID?, state: WorkspaceIDESharedState)
     case gitStatus(requestID: WorkspaceRequestID?, result: WorkspaceGitStatusResult)
     case workspaceChanged(WorkspaceChangedPush)
+    case workspaceList(WorkspaceListPush)
     case error(WorkspaceLaneError)
 
     public var requestID: WorkspaceRequestID? {
         switch self {
         case .files(let response): response.requestID
         case .ideSnapshot(let requestID, _), .gitStatus(let requestID, _): requestID
-        case .workspaceChanged: nil
+        case .workspaceChanged, .workspaceList: nil
         case .error(let error): error.requestID
         }
     }
@@ -331,6 +344,7 @@ public enum WorkspaceLaneResponse: Codable, Equatable, Sendable {
         case state = "s"
         case gitStatus = "g"
         case change = "ch"
+        case workspaceList = "wl"
         case error = "e"
     }
 
@@ -339,6 +353,7 @@ public enum WorkspaceLaneResponse: Codable, Equatable, Sendable {
         case ideSnapshot = "ide-snapshot"
         case gitStatus = "git-status-result"
         case workspaceChanged = "workspace-changed"
+        case workspaceList = "workspace-list"
         case error = "workspace-error"
     }
 
@@ -367,6 +382,8 @@ public enum WorkspaceLaneResponse: Codable, Equatable, Sendable {
             )
         case .workspaceChanged:
             self = .workspaceChanged(try container.decode(WorkspaceChangedPush.self, forKey: .change))
+        case .workspaceList:
+            self = .workspaceList(try container.decode(WorkspaceListPush.self, forKey: .workspaceList))
         case .error:
             self = .error(try container.decode(WorkspaceLaneError.self, forKey: .error))
         }
@@ -389,6 +406,9 @@ public enum WorkspaceLaneResponse: Codable, Equatable, Sendable {
         case .workspaceChanged(let change):
             try container.encode(MessageType.workspaceChanged.rawValue, forKey: .type)
             try container.encode(change, forKey: .change)
+        case .workspaceList(let list):
+            try container.encode(MessageType.workspaceList.rawValue, forKey: .type)
+            try container.encode(list, forKey: .workspaceList)
         case .error(let error):
             try container.encode(MessageType.error.rawValue, forKey: .type)
             try container.encode(error, forKey: .error)

@@ -112,7 +112,12 @@ final class WorkspaceFileService {
             return .workspaces(
                 requestID: requestID,
                 result: WorkspaceListResult(workspaces: storeProvider().workspaces.map {
-                    WorkspaceSummary(id: $0.id.uuidString, name: $0.name)
+                    WorkspaceSummary(
+                        id: $0.id.uuidString,
+                        name: $0.name,
+                        desktopOrdinal: $0.desktopAssignment?.ordinal,
+                        desktopAutoAssignEnabled: $0.desktopAutoAssignEnabled
+                    )
                 })
             )
         case .listDirectory(let requestID, let workspaceID, let path):

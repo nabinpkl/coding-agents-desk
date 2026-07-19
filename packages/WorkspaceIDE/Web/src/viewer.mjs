@@ -18,10 +18,10 @@ import {
 } from './documentViewportState.mjs'
 import { ViewerZoomController } from './viewerZoom.mjs'
 
-const content = document.getElementById('content')
+let content = null
 const language = new Compartment()
 const editorTheme = new Compartment()
-const send = (message) => window.webkit?.messageHandlers?.shell?.postMessage(message)
+let send = () => {}
 const themeMedia = window.matchMedia?.('(prefers-color-scheme: dark)') ?? null
 
 const editorHighlight = Prec.highest(syntaxHighlighting(HighlightStyle.define([
@@ -300,12 +300,17 @@ if (themeMedia?.addEventListener) {
   themeMedia.addListener(refreshEditorTheme)
 }
 
-window.fileSurface = {
-  render,
-  setTextZoom,
-  zoomIn,
-  zoomOut,
-  applyNotebookRunEvent: applyRunEvent,
+export function installFileSurface({
+  container,
+  messageSink = (message) => window.webkit?.messageHandlers?.shell?.postMessage(message),
+  announceReady = true,
+} = {}) {
+  if (!(container instanceof Element)) throw new TypeError('file surface container is required')
+  destroyActiveView()
+  content = container
+  send = messageSink
+  const surface = { render, setTextZoom, zoomIn, zoomOut, applyNotebookRunEvent: applyRunEvent }
+  window.fileSurface = surface
+  if (announceReady) send({ type: 'ready' })
+  return surface
 }
-
-send({ type: 'ready' })

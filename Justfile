@@ -255,6 +255,9 @@ workspace-ide-fitness:
     test ! -e '{{justfile_directory()}}/packages/WorkspaceEditorViewer'
     test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Package.swift'
     test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceFileViewer/Resources/viewer/dist/viewer.js'
+    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceIDE/Resources/ide/dist/ide.js'
+    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Web/src/viewerBootstrap.mjs'
+    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Web/src/ide.mjs'
     if find '{{justfile_directory()}}/packages/WorkspaceIDE/Sources' -type d -name node_modules -print -quit | grep -q .; then
         echo 'workspace-ide-fitness: node_modules found inside Swift package resources' >&2
         exit 1

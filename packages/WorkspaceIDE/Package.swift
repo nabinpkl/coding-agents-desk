@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "WorkspaceIDE", targets: ["WorkspaceIDE"]),
     ],
     dependencies: [
+        .package(path: "../AgentDeskWire"),
         .package(path: "../WorkspaceKit"),
     ],
     targets: [
@@ -30,7 +31,14 @@ let package = Package(
             name: "WorkspaceIDE",
             dependencies: [
                 "WorkspaceFileViewer",
+                .product(name: "AgentDeskWire", package: "AgentDeskWire"),
                 .product(name: "WorkspaceKit", package: "WorkspaceKit"),
+            ],
+            resources: [
+                .copy("Resources/ide/index.html"),
+                .copy("Resources/ide/ide.css"),
+                .copy("Resources/ide/viewer.css"),
+                .copy("Resources/ide/dist"),
             ]
         ),
         .testTarget(
@@ -39,7 +47,7 @@ let package = Package(
         ),
         .testTarget(
             name: "WorkspaceIDETests",
-            dependencies: ["WorkspaceIDE", "WorkspaceKit"]
+            dependencies: ["WorkspaceIDE", "WorkspaceKit", "AgentDeskWire"]
         ),
     ]
 )

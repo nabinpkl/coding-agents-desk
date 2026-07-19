@@ -137,6 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         maxDocumentBytes: Config.workspaceDocumentMaxBytes
     )
     private var workspaceShellPresenter: WorkspaceShellPresenter?
+    private var workspaceIDEWindowController: WorkspaceIDEWindowController?
     // R24: the macOS Agents window, toggled from the shell's top-bar "Agents" command. Backed by the
     // host-owned ATC sidecar through AgentPanel, independent of the QUIC-lane agent feed.
     private var agentWindowController: AgentWindowController?
@@ -236,6 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             push: nil
         )
     }
+    private var localWorkspaceTerminalEndpoint: WorkspaceTerminalEndpoint?
     // ADR-0038 DOM mirror: the Chrome-fed native-messaging bridge server and the relay that buffers
     // checkouts and fans rrweb batches to the attached client .dom lane. Constructed and started
     // only when Config.domMirrorEnabled; otherwise the whole subsystem stays dark.
@@ -389,6 +391,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         workspaceLanes.removeAll()
         workspaceLaneSessions.removeAll()
+        workspaceIDEWindowController?.stop()
+        workspaceIDEWindowController = nil
         workspaceObservationCoordinator.stop()
         workspaceShellPresenter?.stop()
         workspaceShellPresenter = nil
@@ -510,8 +514,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         agentWindowController = agentWindow
         presenter.onAgentsCommand = { [weak agentWindow] in agentWindow?.toggle() }
+        presenter.onIDECommand = { [weak self] in self?.toggleWorkspaceIDE() }
 
         presenter.show()
+    }
+
+    private func toggleWorkspaceIDE() {
+        let terminalEndpoint = localWorkspaceTerminalEndpoint ?? WorkspaceTerminalEndpoint(
+            coordinator: workspaceTerminalCoordinator,
+            requestNamespace: "workspace-macos-ide",
+            clientTitle: "workspace-terminal-bootstrap-macos-ide",
+            tombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
+            push: nil
+        )
+        localWorkspaceTerminalEndpoint = terminalEndpoint
+        let controller = workspaceIDEWindowController ?? WorkspaceIDEWindowController(
+            files: workspaceFilesResponder,
+            workspaces: workspaceCoordinator,
+            ideState: workspaceIDEStateCoordinator,
+            observation: workspaceObservationCoordinator,
+            terminalEndpoint: terminalEndpoint,
+            spacesProvider: spacesProvider
+        )
+        workspaceIDEWindowController = controller
+        controller.toggle()
     }
 
     private func bootstrapDefaultWorkspaceIfConfigured() {
@@ -1164,6 +1190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func routeWorkspaceTerminalEvent(
         _ event: WorkspaceTerminalCoordinatorEvent
     ) async {
+        await localWorkspaceTerminalEndpoint?.handleCoordinatorEvent(event)
         for endpoint in workspaceTerminalEndpoints.activeEndpoints {
             await endpoint.handleCoordinatorEvent(event)
         }

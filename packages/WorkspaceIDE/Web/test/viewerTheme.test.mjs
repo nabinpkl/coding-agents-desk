@@ -45,6 +45,7 @@ test('file preview content does not enter edit mode on double-click', () => {
 })
 
 test('native chrome receives one content-aware zoom contract', () => {
-  assert.match(viewer, /window\.fileSurface\s*=\s*\{[\s\S]*\bzoomIn,[\s\S]*\bzoomOut,/)
+  assert.match(viewer, /export function installFileSurface/)
+  assert.match(viewer, /const surface = \{ render, setTextZoom, zoomIn, zoomOut,/)
   assert.doesNotMatch(viewer, /zoomDocument(In|Out)/)
 })

@@ -50,6 +50,7 @@
 				MediaStack.swift,
 				PairingViewController.swift,
 				"PairingViewController+AgentSurface.swift",
+				"PairingViewController+WorkspaceIDE.swift",
 				"PairingViewController+DomMirror.swift",
 				"PairingViewController+EdgeFollow.swift",
 				"PairingViewController+Gestures.swift",

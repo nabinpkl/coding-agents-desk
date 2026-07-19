@@ -86,6 +86,12 @@ struct WorkspaceLaneSessionTests {
         #expect(git.generation == 1)
         #expect(git.entries.first?.relativePath == "README.md")
 
+        let secondID = UUID()
+        let secondRoot = directory.appendingPathComponent("second-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: secondRoot, withIntermediateDirectories: true)
+        _ = try await workspaces.apply(.register(id: secondID, root: secondRoot, name: "Second"))
+        await waitUntil { await pushes.containsWorkspace(id: secondID.uuidString) }
+
         let pushCountBeforeStop = await pushes.count
         await session.stop()
         #expect(watches.created[0].stopCount == 1)
@@ -203,6 +209,13 @@ private actor LanePushRecorder {
         values.contains {
             guard case .workspaceChanged(let change) = $0 else { return false }
             return change.generation == generation && change.changedPaths.contains(path)
+        }
+    }
+
+    func containsWorkspace(id: String) -> Bool {
+        values.contains {
+            guard case .workspaceList(let list) = $0 else { return false }
+            return list.workspaces.contains(where: { $0.id == id })
         }
     }
 }

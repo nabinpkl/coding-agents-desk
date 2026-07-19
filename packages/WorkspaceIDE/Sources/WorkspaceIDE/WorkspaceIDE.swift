@@ -6,4 +6,11 @@ import Foundation
 /// importing `WorkspaceFileViewer` during the parallel rollout.
 public enum WorkspaceIDE {
     public static let autosaveDelay: Duration = .milliseconds(700)
+
+    public static var resourceRootURL: URL {
+        guard let url = Bundle.module.resourceURL else {
+            fatalError("WorkspaceIDE: package resource root missing")
+        }
+        return url
+    }
 }

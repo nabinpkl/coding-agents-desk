@@ -29,7 +29,7 @@ public final class AppSchemeHandler: NSObject, WKURLSchemeHandler {
         self.init(root: root, resourceStore: WorkspaceFileResourceStore())
     }
 
-    init(root: URL, resourceStore: WorkspaceFileResourceStore) {
+    public init(root: URL, resourceStore: WorkspaceFileResourceStore) {
         self.root = root
         self.resourceStore = resourceStore
     }
