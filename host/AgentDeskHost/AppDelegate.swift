@@ -117,16 +117,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dictationBarController: DictationBarController?
     private var ptyManagerProcess: HostPtyManagerProcess?
     private var terminalClientBridges: [ObjectIdentifier: TerminalClientBridge] = [:]
-    // R26 authenticated Files lane. One responder (serializing writes against the workspace store)
-    // is shared by every attached `.files` lane. The repository imports the agent-workspace-ide
-    // donor store once on first load.
-    private var workspaceFilesLanes: [ObjectIdentifier: WorkspaceFilesLaneServer] = [:]
+    // Protocol-v11 workspace lane. One responder serializes file writes against the workspace
+    // store. Each attached `.files` stream owns a subscription session, while the repository
+    // imports the donor store once on first load.
+    private var workspaceLanes: [ObjectIdentifier: WorkspaceLaneServer] = [:]
+    private var workspaceLaneSessions: [ObjectIdentifier: WorkspaceLaneSession] = [:]
     private let workspaceRepository = WorkspaceRepository(
         donorURL: Config.donorWorkspaceStoreURL,
         destinationURL: Config.workspaceStoreURL
     )
+    private lazy var workspaceCoordinator = WorkspaceCoordinator(repository: workspaceRepository)
+    private lazy var workspaceIDEStateCoordinator = WorkspaceIDEStateCoordinator(
+        storeURL: Config.workspaceIDEStateURL
+    )
+    private lazy var workspaceObservationCoordinator = WorkspaceObservationCoordinator()
     private lazy var workspaceFilesResponder = WorkspaceFilesResponder(
-        repository: workspaceRepository,
+        workspaceCoordinator: workspaceCoordinator,
         maxUTF8Bytes: Config.workspaceFileMaxBytes,
         maxDocumentBytes: Config.workspaceDocumentMaxBytes
     )
@@ -203,7 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tombstoneLimit: Config.agentTerminalRequestTombstoneLimit
     )
     private lazy var workspaceTerminalCoordinator = WorkspaceTerminalCoordinator(
-        repository: workspaceRepository,
+        workspaceCoordinator: workspaceCoordinator,
         ptyClient: PtyClientAgentSessionTerminalAdapter(
             client: PtyManagerSocketClient.makeClient()
         ),
@@ -375,10 +381,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             bridge.stop()
         }
         terminalClientBridges.removeAll()
-        for lane in workspaceFilesLanes.values {
+        for lane in workspaceLanes.values {
             lane.stop()
         }
-        workspaceFilesLanes.removeAll()
+        for session in workspaceLaneSessions.values {
+            Task { await session.stop() }
+        }
+        workspaceLanes.removeAll()
+        workspaceLaneSessions.removeAll()
+        workspaceObservationCoordinator.stop()
         workspaceShellPresenter?.stop()
         workspaceShellPresenter = nil
         // Normal termination waits for this in applicationShouldTerminate. This fallback still
@@ -481,7 +492,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startWorkspaceShellIfEnabled() {
         guard Config.workspaceShellEnabled else { return }
         let presenter = WorkspaceShellPresenter(
-            repository: workspaceRepository,
+            workspaceCoordinator: workspaceCoordinator,
+            observationCoordinator: workspaceObservationCoordinator,
             spacesProvider: spacesProvider
         )
         workspaceShellPresenter = presenter
@@ -504,11 +516,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func bootstrapDefaultWorkspaceIfConfigured() {
         guard let root = Config.defaultWorkspaceRoot else { return }
-        Task { [workspaceRepository, signalingLogger] in
+        Task { [workspaceCoordinator, signalingLogger] in
             do {
-                let store = try await workspaceRepository.load()
+                let store = try await workspaceCoordinator.snapshot()
                 guard store.workspaces.isEmpty else { return } // never override an existing store
-                _ = try await workspaceRepository.register(root: root, name: root.lastPathComponent)
+                _ = try await workspaceCoordinator.apply(.register(
+                    id: UUID(),
+                    root: root,
+                    name: root.lastPathComponent
+                ))
                 signalingLogger.notice("registered default workspace at \(root.path, privacy: .public)")
             } catch {
                 signalingLogger.error("default workspace bootstrap failed: \(String(describing: error), privacy: .public)")
@@ -581,9 +597,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.handleTerminalLaneReady(fingerprint, bridge: bridge)
                 }
             },
-            filesLaneReadyHandler: { [weak self] fingerprint, lane in
+            workspaceLaneReadyHandler: { [weak self] fingerprint, lane in
                 Task { @MainActor in
-                    self?.handleFilesLaneReady(fingerprint, lane: lane)
+                    self?.handleWorkspaceLaneReady(fingerprint, lane: lane)
                 }
             }
         )
@@ -666,15 +682,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         bridge.start()
     }
-    private func handleFilesLaneReady(_ fingerprint: DeviceFingerprint, lane: WorkspaceFilesLaneServer) {
-        signalingLogger.notice("files lane ready fp=\(fingerprint.rawValue, privacy: .public)")
+    private func handleWorkspaceLaneReady(_ fingerprint: DeviceFingerprint, lane: WorkspaceLaneServer) {
+        signalingLogger.notice("workspace lane ready fp=\(fingerprint.rawValue, privacy: .public)")
         let id = ObjectIdentifier(lane)
-        workspaceFilesLanes[id] = lane
-        let responder = workspaceFilesResponder
-        lane.handleRequest = { request in await responder.handle(request) }
+        workspaceLanes[id] = lane
+        let session = WorkspaceLaneSession(
+            push: { [weak lane] response in try? await lane?.push(response) },
+            files: workspaceFilesResponder,
+            workspaces: workspaceCoordinator,
+            ideState: workspaceIDEStateCoordinator,
+            observation: workspaceObservationCoordinator
+        )
+        workspaceLaneSessions[id] = session
+        lane.handleRequest = { [weak session] request in
+            guard let session else {
+                return .error(WorkspaceLaneError(
+                    requestID: request.requestID,
+                    code: .operationRejected
+                ))
+            }
+            return await session.handle(request)
+        }
         lane.onClose = { [weak self] in
             Task { @MainActor in
-                self?.workspaceFilesLanes.removeValue(forKey: id)
+                await self?.workspaceLaneSessions.removeValue(forKey: id)?.stop()
+                self?.workspaceLanes.removeValue(forKey: id)
             }
         }
         lane.start()

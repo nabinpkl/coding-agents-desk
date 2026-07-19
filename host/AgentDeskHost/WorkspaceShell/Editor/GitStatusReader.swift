@@ -1,5 +1,16 @@
 import Foundation
 import os
+import AgentDeskWire
+
+public struct WorkspaceGitSnapshot: Sendable {
+    public let status: GitStatus
+    public let entries: [WorkspaceGitStatusEntry]
+
+    public init(status: GitStatus, entries: [WorkspaceGitStatusEntry]) {
+        self.status = status
+        self.entries = entries
+    }
+}
 
 /// Reads a workspace folder's git status by shelling out to `git`. The I/O edge over the
 /// pure `parsePorcelain`: it locates the repo root, runs porcelain, and hands the text to
@@ -20,16 +31,25 @@ public final class GitStatusReader: Sendable {
     /// The working-tree status for the repo containing `workspaceRoot`. Paths are resolved
     /// against the repo's top level (a workspace may be a subdirectory of the repo).
     public func read(workspaceRoot: URL) -> GitStatus {
-        guard let repoRoot = repoRoot(for: workspaceRoot) else { return .empty }
+        readSnapshot(workspaceRoot: workspaceRoot).status
+    }
+
+    public func readSnapshot(workspaceRoot: URL) -> WorkspaceGitSnapshot {
+        guard let repoRoot = repoRoot(for: workspaceRoot) else {
+            return WorkspaceGitSnapshot(status: .empty, entries: [])
+        }
         // `--ignored=matching` reports ignored paths (code `!!`) collapsed to the matching
         // dir/file (e.g. `.build/`), not every file inside — cheap, and the decoration
         // greys their descendants. Without it, ignored files would look untracked.
         guard let output = run(["-C", workspaceRoot.path,
                                 "status", "--porcelain=v1", "-z",
                                 "--untracked-files=all", "--ignored=matching"]) else {
-            return .empty
+            return WorkspaceGitSnapshot(status: .empty, entries: [])
         }
-        return GitStatus(byPath: parsePorcelain(output, repoRoot: repoRoot))
+        return WorkspaceGitSnapshot(
+            status: GitStatus(byPath: parsePorcelain(output, repoRoot: repoRoot)),
+            entries: parseWorkspaceGitEntries(output, repoRoot: repoRoot, workspaceRoot: workspaceRoot)
+        )
     }
 
     /// The repo's top-level directory, or `nil` when `workspaceRoot` isn't in a git repo

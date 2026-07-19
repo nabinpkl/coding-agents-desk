@@ -53,7 +53,7 @@ public struct QuicSessionStreamFrame: Equatable, Sendable {
     }
 
     public static func maxFrameLength(for role: QuicSessionStreamRole) -> Int {
-        role == .files ? WorkspaceFilesCodec.maximumFrameBytes : maxFrameLength
+        role == .files ? WorkspaceLaneCodec.maximumFrameBytes : maxFrameLength
     }
 }
 

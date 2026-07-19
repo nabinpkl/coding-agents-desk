@@ -154,11 +154,14 @@ private final class Harness: @unchecked Sendable {
             donorURL: directory.appendingPathComponent("absent-donor.json"),
             destinationURL: directory.appendingPathComponent("workspaces.json")
         )
-        _ = try await repository.register(id: workspaceID, root: root, name: "Workspace")
+        let workspaceCoordinator = WorkspaceCoordinator(repository: repository)
+        _ = try await workspaceCoordinator.apply(
+            .register(id: workspaceID, root: root, name: "Workspace")
+        )
         let pty = FakeWorkspaceTerminalPtyClient()
         let waiter = WorkspaceTerminalWaiter()
         let coordinator = WorkspaceTerminalCoordinator(
-            repository: repository,
+            workspaceCoordinator: workspaceCoordinator,
             ptyClient: pty,
             shell: "/bin/zsh",
             requestTombstoneLimit: 32,

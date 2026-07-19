@@ -239,9 +239,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         return PtyClient(transport: transport)
     }
 
-    func openWorkspaceFilesTransport() async throws -> WorkspaceFilesTransport {
+    func openWorkspaceTransport() async throws -> WorkspaceTransport {
         let stream = try await connection.openStream()
-        let transport = WorkspaceFilesTransport(channel: QuicWorkspaceFilesChannel(stream: stream))
+        let transport = WorkspaceTransport(channel: QuicWorkspaceChannel(stream: stream))
         try await transport.open()
         return transport
     }

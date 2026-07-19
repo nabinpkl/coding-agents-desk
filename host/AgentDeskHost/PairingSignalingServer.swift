@@ -43,7 +43,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     typealias GraphicsLaneReadyHandler = (DeviceFingerprint, GraphicsLaneServer) -> Void
     typealias DomLaneReadyHandler = (DeviceFingerprint, DomEventLaneServer) -> Void
     typealias TerminalLaneReadyHandler = (DeviceFingerprint, TerminalClientBridge) -> Void
-    typealias FilesLaneReadyHandler = (DeviceFingerprint, WorkspaceFilesLaneServer) -> Void
+    typealias WorkspaceLaneReadyHandler = (DeviceFingerprint, WorkspaceLaneServer) -> Void
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "session-quic")
     private let pairing: Pairing
@@ -59,7 +59,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     private let graphicsLaneReadyHandler: GraphicsLaneReadyHandler
     private let domLaneReadyHandler: DomLaneReadyHandler
     private let terminalLaneReadyHandler: TerminalLaneReadyHandler
-    private let filesLaneReadyHandler: FilesLaneReadyHandler
+    private let workspaceLaneReadyHandler: WorkspaceLaneReadyHandler
     private var listener: NetworkListener<QUIC>?
     private var listenerTask: Task<Void, Never>?
     private let contexts = OSAllocatedUnfairLock<[ObjectIdentifier: ConnectionContext]>(initialState: [:])
@@ -78,7 +78,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         graphicsLaneReadyHandler: @escaping GraphicsLaneReadyHandler = { _, _ in },
         domLaneReadyHandler: @escaping DomLaneReadyHandler = { _, _ in },
         terminalLaneReadyHandler: @escaping TerminalLaneReadyHandler = { _, _ in },
-        filesLaneReadyHandler: @escaping FilesLaneReadyHandler = { _, _ in }
+        workspaceLaneReadyHandler: @escaping WorkspaceLaneReadyHandler = { _, _ in }
     ) {
         self.pairing = pairing
         self.approvalHandler = approvalHandler
@@ -93,7 +93,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         self.graphicsLaneReadyHandler = graphicsLaneReadyHandler
         self.domLaneReadyHandler = domLaneReadyHandler
         self.terminalLaneReadyHandler = terminalLaneReadyHandler
-        self.filesLaneReadyHandler = filesLaneReadyHandler
+        self.workspaceLaneReadyHandler = workspaceLaneReadyHandler
     }
 
     func start(port: UInt16 = Config.signalingPort) throws {
@@ -236,9 +236,9 @@ final class PairingSignalingServer: @unchecked Sendable {
             let bridge = TerminalClientBridge(stream: stream, fingerprint: active.deviceFingerprint)
             terminalLaneReadyHandler(active.deviceFingerprint, bridge)
         case .files:
-            // R26 authenticated Files lane. Requires an active session like the other data lanes;
-            // the host's ready handler attaches the request dispatcher (workspace store + file
-            // service) and starts the lane.
+            // Protocol-v11 workspace lane. Requires an active session like the other data lanes;
+            // the host's ready handler attaches the request dispatcher and subscriptions, then
+            // starts the lane.
             guard let active = context.activeSession else {
                 try await QuicSessionStreamIO.send(
                     SessionRejected(reason: .unauthorized),
@@ -247,8 +247,8 @@ final class PairingSignalingServer: @unchecked Sendable {
                 )
                 return
             }
-            let lane = WorkspaceFilesLaneServer(stream: stream, fingerprint: active.deviceFingerprint)
-            filesLaneReadyHandler(active.deviceFingerprint, lane)
+            let lane = WorkspaceLaneServer(stream: stream, fingerprint: active.deviceFingerprint)
+            workspaceLaneReadyHandler(active.deviceFingerprint, lane)
         }
     }
 

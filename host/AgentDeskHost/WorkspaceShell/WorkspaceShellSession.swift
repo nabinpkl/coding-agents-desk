@@ -4,7 +4,7 @@ import TerminalEmulator
 import os
 
 /// Owns the workspace file experience for the macOS shell (ADR-0054): the active workspace's file
-/// tree (FileTreeLive over the sidebar FilePane), its open-file tabs, and the free-floating editor
+/// tree (the shared observation coordinator over the sidebar FilePane), its open-file tabs, and the free-floating editor
 /// FileViewer window that a file opens into (centered in the slot, sized per Workspace.editorFrame).
 /// Switching the active workspace switches the macOS Desktop to the workspace's assigned Space via
 /// WorkspaceDesktopSwitcher (over SpacesProvider).
@@ -16,15 +16,16 @@ import os
 final class WorkspaceShellSession {
     private(set) var store: WorkspaceStore
     private let filePane: FilePane
-    private let fileTreeLive: FileTreeLive
     private let viewer: FileViewer
     private let desktopSwitcher: WorkspaceDesktopSwitcher
-    private let persist: (WorkspaceStore) -> Void
+    private let workspaceCoordinator: WorkspaceCoordinator
+    private let observationCoordinator: WorkspaceObservationCoordinator
+    private var observationSubscription: WorkspaceObservationSubscription?
     private let slotFrame: () -> CGRect
     private let terminalSpawn: TerminalEmulatorSpawn
     private let fileWriter = FileWriter()
     private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-shell")
-    /// The latest status for the active workspace. `FileTreeLive` is the sole producer; this cached
+    /// The latest status for the active workspace. `WorkspaceObservationCoordinator` is the sole producer; this cached
     /// snapshot lets the viewer breadcrumb and the presenter consume the same result as Explorer.
     private var gitStatus = GitStatus.empty
     /// Open file tabs per workspace (in-memory; the viewer mirrors the active workspace's set).
@@ -36,6 +37,8 @@ final class WorkspaceShellSession {
     private let terminalCascadeStep: CGFloat = 28
     /// Debounces editor-frame persistence: a live drag-resize fires onFrameChanged per frame.
     private var editorFramePersistTask: Task<Void, Never>?
+    private var mutationTail: Task<Void, Never>?
+    private var pendingTextZoom: WorkspaceTextZoom?
 
     /// Fired after the active workspace changes so the presenter refreshes the switcher selection.
     var onActiveChanged: (() -> Void)?
@@ -44,21 +47,22 @@ final class WorkspaceShellSession {
 
     init(
         store: WorkspaceStore,
+        workspaceCoordinator: WorkspaceCoordinator,
+        observationCoordinator: WorkspaceObservationCoordinator,
         filePane: FilePane,
         viewer: FileViewer,
         desktopSwitcher: WorkspaceDesktopSwitcher,
-        persist: @escaping (WorkspaceStore) -> Void,
         slotFrame: @escaping () -> CGRect,
         terminalSpawn: TerminalEmulatorSpawn = SwiftTermPtyManagerTerminalSpawn(client: PtyManagerSocketClient.makeClient())
     ) {
         self.store = store
+        self.workspaceCoordinator = workspaceCoordinator
+        self.observationCoordinator = observationCoordinator
         self.filePane = filePane
         self.viewer = viewer
         self.desktopSwitcher = desktopSwitcher
-        self.persist = persist
         self.slotFrame = slotFrame
         self.terminalSpawn = terminalSpawn
-        self.fileTreeLive = FileTreeLive(filePane: filePane)
         wireCallbacks()
     }
 
@@ -74,13 +78,6 @@ final class WorkspaceShellSession {
         viewer.onFrameChanged = { [weak self] frame in self?.recordEditorFrame(frame) }
         viewer.onOpenFile = { [weak self] url in self?.openFile(url) }
         viewer.onListDirectory = { [weak self] directory in self?.listDirectory(directory) ?? [] }
-        fileTreeLive.onGitStatus = { [weak self] status, root in
-            guard let self,
-                  self.store.active?.root.resolvingSymlinksInPath() == root.resolvingSymlinksInPath()
-            else { return }
-            self.gitStatus = status
-            self.onGitStatusChanged?(status, root)
-        }
     }
 
     /// Root the tree + render the viewer for whatever workspace is active on launch, at the persisted
@@ -132,24 +129,22 @@ final class WorkspaceShellSession {
 
     func switchTo(_ id: UUID) {
         guard id != store.activeID, store.workspace(id: id) != nil else { return }
-        store.setActive(id)
-        persist(store)
-        if let assignment = store.workspace(id: id)?.desktopAssignment, !desktopSwitcher.isActive(assignment) {
-            if !desktopSwitcher.switchToDesktop(assignment) {
-                // The workspace's Desktop couldn't be reached (e.g. it's on another monitor). The
-                // content still switches, so log the divergence rather than swallowing it silently.
-                logger.error("workspace-shell: desktop switch failed for workspace \(id, privacy: .public); content switched but the macOS Desktop did not")
+        submit(.select(id)) { [weak self] next in
+            guard let self else { return }
+            if let assignment = next.workspace(id: id)?.desktopAssignment,
+               !self.desktopSwitcher.isActive(assignment),
+               !self.desktopSwitcher.switchToDesktop(assignment) {
+                self.logger.error("workspace-shell: desktop switch failed for workspace \(id, privacy: .public); content switched but the macOS Desktop did not")
             }
+            self.renderActive()
+            self.onActiveChanged?()
         }
-        renderActive()
-        onActiveChanged?()
     }
 
     /// Adds a workspace through the validated store op so a duplicate root is rejected (the raw donor
     /// `add` does not validate). Throws `WorkspaceStoreError` for the presenter to surface.
-    func addWorkspace(_ workspace: Workspace) throws {
-        store = try store.adding(workspace)
-        persist(store)
+    func addWorkspace(_ workspace: Workspace) async throws {
+        store = try await workspaceCoordinator.apply(.add(workspace))
         renderActive()
         onActiveChanged?()
     }
@@ -205,34 +200,32 @@ final class WorkspaceShellSession {
     /// workspace, so re-render and refresh the switcher selection.
     func removeWorkspace(_ id: UUID) {
         guard store.workspace(id: id) != nil else { return }
-        store.remove(id: id)
-        persist(store)
-        renderActive()
-        onActiveChanged?()
+        submit(.remove(id)) { [weak self] _ in
+            self?.renderActive()
+            self?.onActiveChanged?()
+        }
     }
 
     /// Bind a workspace to the Desktop the user is on now (a row's assign ⌖). Assigns the row's
     /// workspace, which need not be the active one, then refreshes so its desktop badge updates.
     func assignToCurrentDesktop(_ id: UUID) {
         guard store.workspace(id: id) != nil, let assignment = desktopSwitcher.currentAssignment() else { return }
-        store.setDesktopAssignment(assignment, for: id)
-        persist(store)
-        onActiveChanged?()
+        submit(.setDesktopAssignment(assignment, workspaceID: id)) { [weak self] _ in
+            self?.onActiveChanged?()
+        }
     }
 
     /// Toggle a workspace's desktop auto-assign (a row's A toggle).
     func setDesktopAutoAssign(_ id: UUID, enabled: Bool) {
         guard store.workspace(id: id) != nil else { return }
-        store.setDesktopAutoAssign(enabled, for: id)
-        persist(store)
-        onActiveChanged?()
+        submit(.setDesktopAutoAssign(enabled, workspaceID: id)) { [weak self] _ in
+            self?.onActiveChanged?()
+        }
     }
 
     /// Persist a drag-reorder of the workspace rows (top-to-bottom order).
     func reorder(_ ids: [UUID]) {
-        store.setOrder(ids)
-        persist(store)
-        onActiveChanged?()
+        submit(.reorder(ids)) { [weak self] _ in self?.onActiveChanged?() }
     }
 
     // MARK: - Sidebar chrome (text zoom, width)
@@ -242,11 +235,14 @@ final class WorkspaceShellSession {
     /// presenter can size the switcher rows and title label to match.
     @discardableResult
     func applyTextZoom(_ command: WorkspaceTextZoomCommand) -> WorkspaceTextZoom {
-        let zoom = command.apply(to: store.textZoom)
-        store.textZoom = zoom
-        persist(store)
+        let zoom = command.apply(to: pendingTextZoom ?? store.textZoom)
+        pendingTextZoom = zoom
         filePane.setTextZoom(zoom)
         viewer.setTextZoom(zoom)
+        submit(.setTextZoom(zoom)) { [weak self] _ in
+            guard self?.pendingTextZoom == zoom else { return }
+            self?.pendingTextZoom = nil
+        }
         return zoom
     }
 
@@ -255,8 +251,7 @@ final class WorkspaceShellSession {
 
     /// Persist a drag-resized sidebar width (the resize handle's release).
     func setSidebarWidth(_ width: CGFloat, screenWidth: CGFloat?) {
-        store.setSidebarWidth(width, screenWidth: screenWidth)
-        persist(store)
+        submit(.setSidebarWidth(width, screenWidth: screenWidth))
     }
 
     /// The persisted sidebar width, so the presenter lays out the sidebar panel on first render.
@@ -269,25 +264,40 @@ final class WorkspaceShellSession {
               let workspace = store.workspaceAssigned(to: assignment),
               workspace.id != store.activeID
         else { return }
-        store.setActive(workspace.id)
-        persist(store)
-        renderActive()
-        onActiveChanged?()
+        submit(.select(workspace.id)) { [weak self] _ in
+            self?.renderActive()
+            self?.onActiveChanged?()
+        }
     }
 
     // MARK: - Rendering
 
     private func renderActive() {
+        if let observationSubscription {
+            observationCoordinator.unobserve(observationSubscription)
+            self.observationSubscription = nil
+        }
         gitStatus = .empty
         guard let workspace = store.active else {
-            fileTreeLive.clear()
+            filePane.clear()
             viewer.clear()
             onGitStatusChanged?(.empty, nil)
             return
         }
         // Clear the prior workspace's panel/breadcrumb status before the asynchronous read returns.
         onGitStatusChanged?(.empty, workspace.root)
-        fileTreeLive.show(root: workspace.root)
+        filePane.show(root: FileNode(url: workspace.root, isDirectory: true))
+        observationSubscription = observationCoordinator.observe(workspace: workspace) { [weak self] update in
+            guard let self, self.store.activeID == workspace.id else { return }
+            self.filePane.refreshPreservingState()
+            self.gitStatus = update.nativeGitStatus
+            self.filePane.applyGitStatus(update.nativeGitStatus)
+            self.onGitStatusChanged?(update.nativeGitStatus, workspace.root)
+            self.viewer.reconcileFromDisk(
+                changedPaths: update.change.changedPaths,
+                workspaceRoot: workspace.root
+            )
+        }
         renderViewer(for: workspace.id)
     }
 
@@ -308,20 +318,37 @@ final class WorkspaceShellSession {
 
     private func recordEditorFrame(_ frame: CGRect) {
         guard let id = store.activeID, EditorWindowFrame.isUsable(frame) else { return }
-        store.setEditorFrame(frame.integral, for: id)
-        // Update in memory immediately, but debounce the disk write: a drag-resize fires this per
-        // frame, and each persist is a full atomic JSON write (matches FileViewer's save debounce).
+        // Debounce the authoritative mutation: a drag-resize fires this per frame and each
+        // committed mutation is a full atomic JSON write.
         editorFramePersistTask?.cancel()
         editorFramePersistTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(700))
             guard !Task.isCancelled, let self else { return }
-            self.persist(self.store)
+            self.submit(.setEditorFrame(frame.integral, workspaceID: id))
         }
     }
 
     private func persistEditorFrameIfUnset(_ frame: CGRect, for id: UUID) {
         guard store.workspace(id: id)?.editorFrame == nil, EditorWindowFrame.isUsable(frame) else { return }
-        store.setEditorFrame(frame.integral, for: id)
-        persist(store)
+        submit(.setEditorFrame(frame.integral, workspaceID: id))
+    }
+
+    private func submit(
+        _ mutation: WorkspaceMutation,
+        completion: ((WorkspaceStore) -> Void)? = nil
+    ) {
+        let predecessor = mutationTail
+        mutationTail = Task { [weak self, workspaceCoordinator] in
+            await predecessor?.value
+            guard !Task.isCancelled else { return }
+            do {
+                let next = try await workspaceCoordinator.apply(mutation)
+                guard let self else { return }
+                self.store = next
+                completion?(next)
+            } catch {
+                self?.logger.error("workspace-shell mutation failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 }

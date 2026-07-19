@@ -8,7 +8,14 @@ protocol WorkspaceFilesRequesting: Sendable {
     func request(_ request: WorkspaceFileRequest) async throws -> WorkspaceFileResponse
 }
 
-extension WorkspaceFilesTransport: WorkspaceFilesRequesting {}
+extension WorkspaceTransport: WorkspaceFilesRequesting {
+    func request(_ fileRequest: WorkspaceFileRequest) async throws -> WorkspaceFileResponse {
+        guard case .files(let response) = try await request(.files(fileRequest)) else {
+            throw WorkspaceTransportError.malformedResponse
+        }
+        return response
+    }
+}
 
 struct WorkspaceFilesResumeState: Equatable, Sendable {
     let workspaceID: String
@@ -62,13 +69,13 @@ final class WorkspaceFilesBrowser {
     var onChange: (() -> Void)?
 
     private let transport: WorkspaceFilesRequesting
-    private let makeRequestID: @Sendable () -> WorkspaceFileRequestID
+    private let makeRequestID: @Sendable () -> WorkspaceRequestID
     private let resumeStore: WorkspaceFilesResumeStoring
     private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-files")
 
     init(
         transport: WorkspaceFilesRequesting,
-        makeRequestID: @escaping @Sendable () -> WorkspaceFileRequestID = { WorkspaceFileRequestID(value: UUID().uuidString) },
+        makeRequestID: @escaping @Sendable () -> WorkspaceRequestID = { WorkspaceRequestID(value: UUID().uuidString) },
         resumeStore: WorkspaceFilesResumeStoring = WorkspaceFilesResumeStore.shared
     ) {
         self.transport = transport
@@ -248,7 +255,7 @@ final class WorkspaceFilesBrowser {
 
     private func message(for error: Error) -> String {
         logger.error("workspace files transport error: \(String(describing: error), privacy: .public)")
-        if error is WorkspaceFilesTransportError { return "The connection to the workspace was lost." }
+        if error is WorkspaceTransportError { return "The connection to the workspace was lost." }
         return "The request failed."
     }
 }

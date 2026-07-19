@@ -1106,9 +1106,9 @@ struct InputChannelTests {
         #expect(decoded.cursorRevision == 8)
     }
 
-    @Test func protocolVersionIsTenForWorkspaceTerminalCoordination() {
-        #expect(Config.protocolVersion == 10)
-        #expect(Config.minCompatibleProtocolVersion == 10)
+    @Test func protocolVersionIsElevenForWorkspaceLaneCoordination() {
+        #expect(Config.protocolVersion == 11)
+        #expect(Config.minCompatibleProtocolVersion == 11)
     }
 
     @Test func eventFrameRoundTripPreservesKeyWithModifiers() throws {

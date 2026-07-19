@@ -24,15 +24,4 @@ actor WorkspaceRepository {
         cachedStore = store
     }
 
-    func register(id: UUID = UUID(), root: URL, name: String) throws -> WorkspaceStore {
-        let next = try load().registering(id: id, root: root, name: name)
-        try save(next)
-        return next
-    }
-
-    func select(_ id: UUID?) throws -> WorkspaceStore {
-        let next = try load().selecting(id)
-        try save(next)
-        return next
-    }
 }

@@ -95,8 +95,8 @@ extension PairingViewController {
         set { objc_setAssociatedObject(self, &Keys.workspaceBrowser, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    private var filesTransport: WorkspaceFilesTransport? {
-        get { objc_getAssociatedObject(self, &Keys.filesTransport) as? WorkspaceFilesTransport }
+    private var filesTransport: WorkspaceTransport? {
+        get { objc_getAssociatedObject(self, &Keys.filesTransport) as? WorkspaceTransport }
         set { objc_setAssociatedObject(self, &Keys.filesTransport, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
@@ -489,7 +489,7 @@ extension PairingViewController {
         workspaceSurfaceTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let transport = try await session.openWorkspaceFilesTransport()
+                let transport = try await session.openWorkspaceTransport()
                 guard self.workspaceSurfaceGeneration == generation else {
                     await transport.close()
                     return

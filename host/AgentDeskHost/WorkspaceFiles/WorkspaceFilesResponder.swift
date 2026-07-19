@@ -1,7 +1,7 @@
 import Foundation
 import AgentDeskWire
 
-/// Serializes every authenticated Files request against the current workspace store. All `.files`
+/// Serializes every authenticated file operation against the current workspace store. All workspace
 /// lanes share one responder, so requests run one at a time on this actor's executor.
 ///
 /// This serialization is load-bearing for write correctness: `WorkspaceFileService.write` reads a
@@ -11,30 +11,30 @@ import AgentDeskWire
 /// both pass the revision guard, so the second is reported as a conflict instead of silently
 /// discarding the first writer's change.
 actor WorkspaceFilesResponder {
-    private let repository: WorkspaceRepository
+    private let workspaceCoordinator: WorkspaceCoordinator
     private let maxUTF8Bytes: Int
     private let maxDocumentBytes: Int
 
     init(
-        repository: WorkspaceRepository,
+        workspaceCoordinator: WorkspaceCoordinator,
         maxUTF8Bytes: Int,
-        maxDocumentBytes: Int = WorkspaceFilesCodec.maximumDocumentBytes
+        maxDocumentBytes: Int = WorkspaceLaneCodec.maximumDocumentBytes
     ) {
-        self.repository = repository
+        self.workspaceCoordinator = workspaceCoordinator
         self.maxUTF8Bytes = maxUTF8Bytes
         self.maxDocumentBytes = maxDocumentBytes
     }
 
-    init(repository: WorkspaceRepository, maxBytes: Int) {
-        self.repository = repository
+    init(workspaceCoordinator: WorkspaceCoordinator, maxBytes: Int) {
+        self.workspaceCoordinator = workspaceCoordinator
         self.maxUTF8Bytes = maxBytes
-        self.maxDocumentBytes = WorkspaceFilesCodec.maximumDocumentBytes
+        self.maxDocumentBytes = WorkspaceLaneCodec.maximumDocumentBytes
     }
 
     func handle(_ request: WorkspaceFileRequest) async -> WorkspaceFileResponse {
         let store: WorkspaceStore
         do {
-            store = try await repository.load()
+            store = try await workspaceCoordinator.snapshot()
         } catch {
             // The store file is unreadable or corrupt. Fail loud to the caller rather than serve a
             // silent empty workspace list that would look like "no workspaces".

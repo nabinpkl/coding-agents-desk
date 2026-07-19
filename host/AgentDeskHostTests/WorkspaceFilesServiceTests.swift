@@ -48,8 +48,8 @@ struct WorkspaceFileServiceTests {
         )
     }
 
-    private func requestID(_ value: String = "request") -> WorkspaceFileRequestID {
-        WorkspaceFileRequestID(value: value)
+    private func requestID(_ value: String = "request") -> WorkspaceRequestID {
+        WorkspaceRequestID(value: value)
     }
 
     private func error(_ response: WorkspaceFileResponse) -> WorkspaceFileError? {

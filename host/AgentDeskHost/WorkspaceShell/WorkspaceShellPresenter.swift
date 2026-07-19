@@ -15,7 +15,8 @@ import os
 /// can't run, so the bars degrade to pinned-visible rather than an unreachable shell.
 @MainActor
 final class WorkspaceShellPresenter: NSObject {
-    private let repository: WorkspaceRepository
+    private let workspaceCoordinator: WorkspaceCoordinator
+    private let observationCoordinator: WorkspaceObservationCoordinator
     private let spacesProvider: SpacesProvider
     private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-shell")
 
@@ -74,8 +75,13 @@ final class WorkspaceShellPresenter: NSObject {
     /// embedded PTY Manager window (R56).
     var onOpenPtyManager: (() -> Void)?
 
-    init(repository: WorkspaceRepository, spacesProvider: SpacesProvider) {
-        self.repository = repository
+    init(
+        workspaceCoordinator: WorkspaceCoordinator,
+        observationCoordinator: WorkspaceObservationCoordinator,
+        spacesProvider: SpacesProvider
+    ) {
+        self.workspaceCoordinator = workspaceCoordinator
+        self.observationCoordinator = observationCoordinator
         self.spacesProvider = spacesProvider
         super.init()
     }
@@ -101,17 +107,11 @@ final class WorkspaceShellPresenter: NSObject {
             let desktopSwitcher = WorkspaceDesktopSwitcher(spaces: self.spacesProvider)
             let session = WorkspaceShellSession(
                 store: store,
+                workspaceCoordinator: self.workspaceCoordinator,
+                observationCoordinator: self.observationCoordinator,
                 filePane: self.filePane,
                 viewer: self.viewer,
                 desktopSwitcher: desktopSwitcher,
-                persist: { [repository = self.repository, logger = self.logger] next in
-                    Task {
-                        do { try await repository.save(next) }
-                        catch {
-                            logger.error("workspace-shell store persist failed: \(String(describing: error), privacy: .public)")
-                        }
-                    }
-                },
                 slotFrame: { [weak self] in
                     // Invoked on the main actor by the session; a pinned bar insets the slot by the
                     // live sidebar width so an editor/terminal window sits beside it, not under it.
@@ -154,9 +154,9 @@ final class WorkspaceShellPresenter: NSObject {
     /// first workspace when none is active, so the shell renders a tree instead of an empty pane.
     private func loadInitialStore() async -> WorkspaceStore {
         do {
-            let loaded = try await repository.load()
+            let loaded = try await workspaceCoordinator.snapshot()
             guard loaded.active == nil, let first = loaded.workspaces.first else { return loaded }
-            return try await repository.select(first.id)
+            return try await workspaceCoordinator.apply(.select(first.id))
         } catch {
             logger.error("workspace-shell store load failed: \(String(describing: error), privacy: .public)")
             return WorkspaceStore()
@@ -619,7 +619,10 @@ final class WorkspaceShellPresenter: NSObject {
         guard open.runModal() == .OK, let url = open.url else { return }
         do {
             let workspace = try Workspace.registering(root: url, name: url.lastPathComponent)
-            try session?.addWorkspace(workspace)
+            Task { [weak self] in
+                do { try await self?.session?.addWorkspace(workspace) }
+                catch { self?.presentFailure("Could not add workspace", error) }
+            }
         } catch {
             presentFailure("Could not add workspace", error)
         }

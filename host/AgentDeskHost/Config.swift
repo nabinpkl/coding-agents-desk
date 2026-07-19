@@ -883,6 +883,8 @@ enum Config {
     // donor as a clean empty first run, so a wrong or missing path fails safe.
     static let workspaceStoreURL = applicationSupportDirectory
         .appendingPathComponent("workspaces.json", isDirectory: false)
+    static let workspaceIDEStateURL = applicationSupportDirectory
+        .appendingPathComponent("workspace-ide-state.json", isDirectory: false)
     static let donorWorkspaceStoreURL = FileManager.default
         .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("agent-workspace-ide/workspace.json", isDirectory: false)
@@ -895,10 +897,10 @@ enum Config {
     static let workspaceDocumentMaxBytes: Int = {
         let value = positiveInt(
             environmentKey: "AGENTDESK_WORKSPACE_DOCUMENT_MAX_BYTES",
-            defaultValue: WorkspaceFilesCodec.maximumDocumentBytes
+            defaultValue: WorkspaceLaneCodec.maximumDocumentBytes
         )
         precondition(
-            value <= WorkspaceFilesCodec.maximumDocumentBytes,
+            value <= WorkspaceLaneCodec.maximumDocumentBytes,
             "AGENTDESK_WORKSPACE_DOCUMENT_MAX_BYTES exceeds the Files wire budget"
         )
         return value

@@ -13,11 +13,12 @@ import os
 public final class FolderWatch {
     private var stream: FSEventStreamRef?
     private var pending: DispatchWorkItem?
+    private var pendingPaths: Set<String> = []
     private let debounce: TimeInterval
-    private let onChange: () -> Void
+    private let onChange: ([String]) -> Void
     private let logger = Logger(subsystem: "com.example.agentdesk.AgentDeskHost", category: "folder-watch")
 
-    public init(debounce: TimeInterval = 0.3, onChange: @escaping () -> Void) {
+    public init(debounce: TimeInterval = 0.3, onChange: @escaping ([String]) -> Void) {
         self.debounce = debounce
         self.onChange = onChange
     }
@@ -70,6 +71,7 @@ public final class FolderWatch {
     public func stop() {
         pending?.cancel()
         pending = nil
+        pendingPaths.removeAll()
         guard let stream else { return }
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
@@ -85,8 +87,9 @@ public final class FolderWatch {
     /// reads no longer write `.git/index` (GIT_OPTIONAL_LOCKS, see `GitStatusReader`), so
     /// that no longer loops.
     private func handle(changedPaths: [String]) {
-        guard changedPaths.contains(where: { !Self.isNoise($0) }) else { return }
-        coalesce()
+        let relevant = changedPaths.filter { !Self.isNoise($0) }
+        guard !relevant.isEmpty else { return }
+        coalesce(paths: relevant)
     }
 
     private static let noiseSegments = ["/.git/objects/", "/.git/subtree-cache/", "/node_modules/"]
@@ -96,9 +99,15 @@ public final class FolderWatch {
     }
 
     /// Collapse a burst of events into a single trailing-edge callback.
-    private func coalesce() {
+    private func coalesce(paths: [String]) {
+        pendingPaths.formUnion(paths)
         pending?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.onChange() }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let paths = self.pendingPaths.sorted()
+            self.pendingPaths.removeAll()
+            self.onChange(paths)
+        }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + debounce, execute: work)
     }

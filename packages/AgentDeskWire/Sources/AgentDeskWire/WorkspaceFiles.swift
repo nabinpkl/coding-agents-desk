@@ -16,7 +16,7 @@ public struct WorkspaceFileRevision: Codable, Equatable, Sendable {
 
 /// A caller-generated opaque identifier used to correlate one Files request with its response.
 /// It intentionally encodes as a single string so the envelope keeps `rid` compact.
-public struct WorkspaceFileRequestID: Codable, Equatable, Sendable {
+public struct WorkspaceRequestID: Codable, Equatable, Sendable {
     public let value: String
 
     public init(value: String) {
@@ -257,11 +257,11 @@ public struct WorkspaceFileError: Codable, Equatable, Sendable {
 /// Requests sent by an authenticated Files client. All paths are workspace-relative strings;
 /// containment and filesystem semantics remain exclusively host responsibilities.
 public enum WorkspaceFileRequest: Codable, Equatable, Sendable {
-    case listWorkspaces(requestID: WorkspaceFileRequestID)
-    case listDirectory(requestID: WorkspaceFileRequestID, workspaceID: String, path: String)
-    case read(requestID: WorkspaceFileRequestID, workspaceID: String, path: String)
+    case listWorkspaces(requestID: WorkspaceRequestID)
+    case listDirectory(requestID: WorkspaceRequestID, workspaceID: String, path: String)
+    case read(requestID: WorkspaceRequestID, workspaceID: String, path: String)
     case write(
-        requestID: WorkspaceFileRequestID,
+        requestID: WorkspaceRequestID,
         workspaceID: String,
         path: String,
         expectedRevision: WorkspaceFileRevision,
@@ -270,7 +270,7 @@ public enum WorkspaceFileRequest: Codable, Equatable, Sendable {
 
     /// The correlation id carried by every request, so a caller can build a matching error
     /// response even when it cannot otherwise interpret the request (e.g. the store is unavailable).
-    public var requestID: WorkspaceFileRequestID {
+    public var requestID: WorkspaceRequestID {
         switch self {
         case .listWorkspaces(let requestID),
              .listDirectory(let requestID, _, _),
@@ -306,7 +306,7 @@ public enum WorkspaceFileRequest: Codable, Equatable, Sendable {
                 debugDescription: "unknown workspace file request type: \(rawType)"
             )
         }
-        let requestID = try container.decode(WorkspaceFileRequestID.self, forKey: .requestID)
+        let requestID = try container.decode(WorkspaceRequestID.self, forKey: .requestID)
         switch type {
         case .listWorkspaces:
             self = .listWorkspaces(requestID: requestID)
@@ -363,16 +363,16 @@ public enum WorkspaceFileRequest: Codable, Equatable, Sendable {
 /// Results returned by the authenticated Files host. Errors and revision conflicts are explicit
 /// response cases so callers never infer a save outcome from a missing frame.
 public enum WorkspaceFileResponse: Codable, Equatable, Sendable {
-    case workspaces(requestID: WorkspaceFileRequestID, result: WorkspaceListResult)
-    case directory(requestID: WorkspaceFileRequestID, result: WorkspaceDirectoryListResult)
-    case read(requestID: WorkspaceFileRequestID, result: WorkspaceFileReadResult)
-    case write(requestID: WorkspaceFileRequestID, result: WorkspaceFileWriteResult)
-    case conflict(requestID: WorkspaceFileRequestID, conflict: WorkspaceFileConflict)
-    case error(requestID: WorkspaceFileRequestID, error: WorkspaceFileError)
+    case workspaces(requestID: WorkspaceRequestID, result: WorkspaceListResult)
+    case directory(requestID: WorkspaceRequestID, result: WorkspaceDirectoryListResult)
+    case read(requestID: WorkspaceRequestID, result: WorkspaceFileReadResult)
+    case write(requestID: WorkspaceRequestID, result: WorkspaceFileWriteResult)
+    case conflict(requestID: WorkspaceRequestID, conflict: WorkspaceFileConflict)
+    case error(requestID: WorkspaceRequestID, error: WorkspaceFileError)
 
     /// The correlation id echoed on every response, so a client can match a response back to the
     /// request it is waiting on regardless of the arrival order.
-    public var requestID: WorkspaceFileRequestID {
+    public var requestID: WorkspaceRequestID {
         switch self {
         case .workspaces(let requestID, _),
              .directory(let requestID, _),
@@ -418,7 +418,7 @@ public enum WorkspaceFileResponse: Codable, Equatable, Sendable {
                 debugDescription: "unknown workspace file response type: \(rawType)"
             )
         }
-        let requestID = try container.decode(WorkspaceFileRequestID.self, forKey: .requestID)
+        let requestID = try container.decode(WorkspaceRequestID.self, forKey: .requestID)
         switch type {
         case .workspaces:
             self = .workspaces(requestID: requestID, result: WorkspaceListResult(

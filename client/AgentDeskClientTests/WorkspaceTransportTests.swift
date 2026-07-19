@@ -6,7 +6,7 @@ import AgentDeskWire
 
 /// Records outbound frames and lets the test feed inbound response frames on demand. `receive()` is
 /// driven by a single consumer (the transport's receive loop), so one AsyncStream iterator is safe.
-private final class MockFilesChannel: WorkspaceFilesFrameChannel, @unchecked Sendable {
+private final class MockWorkspaceChannel: WorkspaceFrameChannel, @unchecked Sendable {
     private let lock = NSLock()
     private var sends: [Data] = []
     private let continuation: AsyncStream<Data>.Continuation
@@ -32,8 +32,8 @@ private final class MockFilesChannel: WorkspaceFilesFrameChannel, @unchecked Sen
         continuation.finish()
     }
 
-    func deliver(_ response: WorkspaceFileResponse) {
-        continuation.yield((try? WorkspaceFilesCodec.encode(response)) ?? Data())
+    func deliver(_ response: WorkspaceLaneResponse) {
+        continuation.yield((try? WorkspaceLaneCodec.encode(response)) ?? Data())
     }
 
     func deliverRaw(_ data: Data) {
@@ -43,30 +43,30 @@ private final class MockFilesChannel: WorkspaceFilesFrameChannel, @unchecked Sen
     var recordedSendCount: Int { lock.withLock { sends.count } }
 }
 
-private func readRequest(_ id: String) -> WorkspaceFileRequest {
-    .read(requestID: WorkspaceFileRequestID(value: id), workspaceID: "w", path: "note.txt")
+private func readRequest(_ id: String) -> WorkspaceLaneRequest {
+    .files(.read(requestID: WorkspaceRequestID(value: id), workspaceID: "w", path: "note.txt"))
 }
 
-private func readResponse(_ id: String, text: String) -> WorkspaceFileResponse {
-    .read(
-        requestID: WorkspaceFileRequestID(value: id),
+private func readResponse(_ id: String, text: String) -> WorkspaceLaneResponse {
+    .files(.read(
+        requestID: WorkspaceRequestID(value: id),
         result: WorkspaceFileReadResult(
             workspaceID: "w", path: "note.txt", text: text,
             revision: WorkspaceFileRevision(digest: id)
         )
-    )
+    ))
 }
 
-struct WorkspaceFilesTransportTests {
+struct WorkspaceTransportTests {
     /// Once a request's outbound frame is recorded, its continuation is already registered (the
     /// transport registers before it sends), so waiting on the send count gates delivery safely.
-    private func waitForSends(_ channel: MockFilesChannel, count: Int) async {
+    private func waitForSends(_ channel: MockWorkspaceChannel, count: Int) async {
         while channel.recordedSendCount < count { await Task.yield() }
     }
 
     @Test func correlatesResponsesToRequestsRegardlessOfArrivalOrder() async throws {
-        let channel = MockFilesChannel()
-        let transport = WorkspaceFilesTransport(channel: channel)
+        let channel = MockWorkspaceChannel()
+        let transport = WorkspaceTransport(channel: channel)
         try await transport.open()
 
         async let first = transport.request(readRequest("A"))
@@ -78,15 +78,15 @@ struct WorkspaceFilesTransportTests {
         channel.deliver(readResponse("A", text: "alpha"))
 
         let (a, b) = try await (first, second)
-        #expect(a.requestID.value == "A")
-        #expect(b.requestID.value == "B")
-        if case .read(_, let result) = a { #expect(result.text == "alpha") } else { Issue.record("expected read") }
-        if case .read(_, let result) = b { #expect(result.text == "beta") } else { Issue.record("expected read") }
+        #expect(a.requestID?.value == "A")
+        #expect(b.requestID?.value == "B")
+        if case .files(.read(_, let result)) = a { #expect(result.text == "alpha") } else { Issue.record("expected read") }
+        if case .files(.read(_, let result)) = b { #expect(result.text == "beta") } else { Issue.record("expected read") }
     }
 
     @Test func teardownFailsEveryInFlightRequest() async throws {
-        let channel = MockFilesChannel()
-        let transport = WorkspaceFilesTransport(channel: channel)
+        let channel = MockWorkspaceChannel()
+        let transport = WorkspaceTransport(channel: channel)
         try await transport.open()
 
         let inflight = Task { try await transport.request(readRequest("A")) }
@@ -94,66 +94,86 @@ struct WorkspaceFilesTransportTests {
 
         await transport.close()
 
-        await #expect(throws: WorkspaceFilesTransportError.closed) {
+        await #expect(throws: WorkspaceTransportError.closed) {
             _ = try await inflight.value
         }
     }
 
     @Test func duplicateRequestIDFailsLoudInsteadOfLeaking() async throws {
-        let channel = MockFilesChannel()
-        let transport = WorkspaceFilesTransport(channel: channel)
+        let channel = MockWorkspaceChannel()
+        let transport = WorkspaceTransport(channel: channel)
         try await transport.open()
 
         async let first = transport.request(readRequest("A"))
         await waitForSends(channel, count: 2) // announce + first request registered
 
-        await #expect(throws: WorkspaceFilesTransportError.duplicateRequestID("A")) {
+        await #expect(throws: WorkspaceTransportError.duplicateRequestID("A")) {
             _ = try await transport.request(readRequest("A"))
         }
 
         // The first request still resolves normally.
         channel.deliver(readResponse("A", text: "alpha"))
         let resolved = try await first
-        #expect(resolved.requestID.value == "A")
+        #expect(resolved.requestID?.value == "A")
     }
 
     @Test func undecodableResponseClosesTransportAndFailsPending() async throws {
-        let channel = MockFilesChannel()
-        let transport = WorkspaceFilesTransport(channel: channel)
+        let channel = MockWorkspaceChannel()
+        let transport = WorkspaceTransport(channel: channel)
         try await transport.open()
 
         let inflight = Task { try await transport.request(readRequest("A")) }
         await waitForSends(channel, count: 2)
         channel.deliverRaw(Data("not a response".utf8))
 
-        await #expect(throws: WorkspaceFilesTransportError.malformedResponse) {
+        await #expect(throws: WorkspaceTransportError.malformedResponse) {
             _ = try await inflight.value
         }
     }
 
     @Test func requestBeforeOpenThrowsNotStarted() async {
-        let transport = WorkspaceFilesTransport(channel: MockFilesChannel())
-        await #expect(throws: WorkspaceFilesTransportError.notStarted) {
+        let transport = WorkspaceTransport(channel: MockWorkspaceChannel())
+        await #expect(throws: WorkspaceTransportError.notStarted) {
             _ = try await transport.request(readRequest("A"))
         }
     }
 
     @Test func deliversErrorResponsesToTheWaitingRequest() async throws {
-        let channel = MockFilesChannel()
-        let transport = WorkspaceFilesTransport(channel: channel)
+        let channel = MockWorkspaceChannel()
+        let transport = WorkspaceTransport(channel: channel)
         try await transport.open()
 
         async let response = transport.request(readRequest("A"))
         await waitForSends(channel, count: 2)
-        channel.deliver(.error(
-            requestID: WorkspaceFileRequestID(value: "A"),
+        channel.deliver(.files(.error(
+            requestID: WorkspaceRequestID(value: "A"),
             error: WorkspaceFileError(code: .notFound, message: "gone")
-        ))
+        )))
 
-        guard case .error(_, let error) = try await response else {
+        guard case .files(.error(_, let error)) = try await response else {
             Issue.record("expected an error response")
             return
         }
         #expect(error.code == .notFound)
+    }
+
+    @Test func publishesUnsolicitedWorkspaceEventsWithoutConsumingARequest() async throws {
+        let channel = MockWorkspaceChannel()
+        let transport = WorkspaceTransport(channel: channel)
+        try await transport.open()
+        let events = await transport.events()
+        let firstEvent = Task { await events.first(where: { _ in true }) }
+
+        channel.deliver(.workspaceChanged(WorkspaceChangedPush(
+            workspaceID: "w",
+            generation: 3,
+            changedPaths: ["note.txt"]
+        )))
+
+        guard case .workspaceChanged(let push) = await firstEvent.value else {
+            Issue.record("expected workspace change push")
+            return
+        }
+        #expect(push.generation == 3)
     }
 }

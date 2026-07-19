@@ -1,4 +1,5 @@
 import Foundation
+import AgentDeskWire
 
 /// The git state of a single path, in the form the sidebar decorates with. A separate
 /// layer from `FileNode` (VS Code's model): the filesystem tree stays pure, and this
@@ -93,6 +94,58 @@ public func parsePorcelain(_ output: String, repoRoot: URL) -> [URL: GitFileStat
         byPath[url] = status
     }
     return byPath
+}
+
+/// Preserve porcelain's index and worktree columns for the IDE Source Control projection while
+/// constraining results to the registered workspace root.
+public func parseWorkspaceGitEntries(
+    _ output: String,
+    repoRoot: URL,
+    workspaceRoot: URL
+) -> [WorkspaceGitStatusEntry] {
+    let root = workspaceRoot.standardizedFileURL.resolvingSymlinksInPath()
+    let rootPrefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+    let fields = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+    var entries: [WorkspaceGitStatusEntry] = []
+    var index = 0
+    while index < fields.count {
+        let field = fields[index]
+        index += 1
+        guard field.count >= 3 else { continue }
+        let code = String(field.prefix(2))
+        var repoRelativePath = String(field.dropFirst(3))
+        if repoRelativePath.hasSuffix("/") { repoRelativePath.removeLast() }
+        if code.contains("R") || code.contains("C") { index += 1 }
+
+        let absolute = repoRoot.appendingPathComponent(repoRelativePath).standardizedFileURL
+        let relativePath: String
+        if absolute.path == root.path {
+            continue
+        } else if absolute.path.hasPrefix(rootPrefix) {
+            relativePath = String(absolute.path.dropFirst(rootPrefix.count))
+        } else {
+            continue
+        }
+        let letters = Array(code)
+        let indexStatus = normalizedPorcelainColumn(letters[0], code: code, indexColumn: true)
+        let workTreeStatus = normalizedPorcelainColumn(letters[1], code: code, indexColumn: false)
+        entries.append(WorkspaceGitStatusEntry(
+            relativePath: relativePath,
+            indexStatus: indexStatus,
+            workTreeStatus: workTreeStatus
+        ))
+    }
+    return entries.sorted { $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending }
+}
+
+private func normalizedPorcelainColumn(
+    _ column: Character,
+    code: String,
+    indexColumn: Bool
+) -> String? {
+    if code == "??" { return indexColumn ? nil : "?" }
+    if code == "!!" { return indexColumn ? nil : "!" }
+    return column == " " ? nil : String(column)
 }
 
 /// Collapse a porcelain XY code to a single status. Unmerged combinations are conflicts;

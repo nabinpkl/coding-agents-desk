@@ -169,6 +169,26 @@ public final class FileViewer: NSObject, FileViewing {
         updateChrome()
     }
 
+    public func reconcileFromDisk(changedPaths: [String], workspaceRoot: URL) {
+        let changed = Set(changedPaths)
+        let reloadAll = changed.isEmpty || changed.contains("")
+        let urls = Set(tabsByID.values.map(\.url))
+        for url in urls {
+            let relative = url.path.hasPrefix(workspaceRoot.path + "/")
+                ? String(url.path.dropFirst(workspaceRoot.path.count + 1))
+                : ""
+            let affected = reloadAll || changed.contains(relative) || changed.contains { directory in
+                !directory.isEmpty && relative.hasPrefix(directory + "/")
+            }
+            guard affected else { continue }
+            if FileManager.default.fileExists(atPath: url.path) {
+                reloadFromDisk(url)
+            } else {
+                markDeletedOnDisk(url)
+            }
+        }
+    }
+
     public func setTextZoom(_ zoom: WorkspaceTextZoom) {
         textZoom = zoom
         reusableEditorSurface?.setTextZoom(zoom.webTextZoom)

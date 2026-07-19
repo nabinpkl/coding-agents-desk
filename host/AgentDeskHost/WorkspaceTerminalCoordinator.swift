@@ -11,7 +11,7 @@ actor WorkspaceTerminalCoordinator {
         var timeoutTask: Task<Void, Never>?
     }
 
-    private let repository: WorkspaceRepository
+    private let workspaceCoordinator: WorkspaceCoordinator
     private let ptyClient: any AgentSessionTerminalPtyClient
     private let shell: String
     private let waitForHandoffTimeout: @Sendable () async throws -> Void
@@ -25,14 +25,14 @@ actor WorkspaceTerminalCoordinator {
     private var nextTimeoutIdentity: UInt64 = 0
 
     init(
-        repository: WorkspaceRepository,
+        workspaceCoordinator: WorkspaceCoordinator,
         ptyClient: any AgentSessionTerminalPtyClient,
         shell: String,
         requestTombstoneLimit: Int,
         waitForHandoffTimeout: @escaping @Sendable () async throws -> Void,
         onEvent: @escaping @Sendable (WorkspaceTerminalCoordinatorEvent) -> Void
     ) {
-        self.repository = repository
+        self.workspaceCoordinator = workspaceCoordinator
         self.ptyClient = ptyClient
         self.shell = shell
         self.waitForHandoffTimeout = waitForHandoffTimeout
@@ -105,7 +105,7 @@ actor WorkspaceTerminalCoordinator {
         let workspaceID: UUID
         do {
             guard let parsedID = UUID(uuidString: request.workspaceID),
-                  let resolved = try await repository.load().workspace(id: parsedID) else {
+                  let resolved = try await workspaceCoordinator.workspace(id: parsedID) else {
                 throw WorkspaceTerminalCoordinatorError.workspaceUnavailable
             }
             workspaceID = parsedID

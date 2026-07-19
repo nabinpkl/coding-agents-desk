@@ -3,26 +3,23 @@ import Network
 import os
 import AgentDeskWire
 
-enum WorkspaceFilesLaneError: Error, Equatable {
+enum WorkspaceLaneServerError: Error, Equatable {
     case unexpectedRole(QuicSessionStreamRole)
     case malformedRequest
     case notStarted
 }
 
-/// Serves one authenticated `.files` QUIC stream (binary body codec in protocol 8, ADR-0057). It reads a
-/// `WorkspaceFileRequest` per frame, dispatches it through the injected handler (which resolves the
-/// current workspace store and applies root-scoped file semantics), and writes back the correlated
-/// `WorkspaceFileResponse`. All filesystem authority lives behind the handler; this type only
-/// frames and correlates. A malformed frame closes the lane rather than guessing a response.
+/// Serves one authenticated protocol-v11 workspace lane on the `.files` stream. Requests and
+/// unsolicited pushes share one actor-serialized writer so concurrent observation and IDE-state
+/// fan-out cannot interleave application frames.
 @available(macOS 26.0, *)
-final class WorkspaceFilesLaneServer: @unchecked Sendable {
-    /// Resolves one request to its response. Async so the host can read the current store from the
-    /// `WorkspaceRepository` actor before applying file semantics.
-    typealias RequestHandler = @Sendable (WorkspaceFileRequest) async -> WorkspaceFileResponse
+final class WorkspaceLaneServer: @unchecked Sendable {
+    typealias RequestHandler = @Sendable (WorkspaceLaneRequest) async -> WorkspaceLaneResponse
 
     private let stream: QUIC.Stream<QUICStream>
     private let fingerprint: DeviceFingerprint
-    private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-files")
+    private let writer: WorkspaceLaneWriter
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-lane")
     private let stateLock = NSLock()
     private var task: Task<Void, Never>?
     private var stopped = false
@@ -34,6 +31,7 @@ final class WorkspaceFilesLaneServer: @unchecked Sendable {
     init(stream: QUIC.Stream<QUICStream>, fingerprint: DeviceFingerprint) {
         self.stream = stream
         self.fingerprint = fingerprint
+        writer = WorkspaceLaneWriter(stream: stream)
     }
 
     func start() {
@@ -56,6 +54,13 @@ final class WorkspaceFilesLaneServer: @unchecked Sendable {
         started?.cancel()
     }
 
+    func push(_ response: WorkspaceLaneResponse) async throws {
+        guard response.requestID == nil else {
+            throw WorkspaceLaneServerError.malformedRequest
+        }
+        try await writer.send(response)
+    }
+
     private func finish() {
         stateLock.lock()
         task = nil
@@ -66,24 +71,24 @@ final class WorkspaceFilesLaneServer: @unchecked Sendable {
     private func run() async {
         defer { finish() }
         guard let handleRequest else {
-            logger.error("workspace files lane started without a request handler; closing")
+            logger.error("workspace lane started without a request handler; closing")
             return
         }
         do {
             while !Task.isCancelled {
                 let frame = try await QuicSessionStreamIO.receiveFrame(on: stream, expectedRole: .files)
                 guard frame.role == .files else {
-                    throw WorkspaceFilesLaneError.unexpectedRole(frame.role)
+                    throw WorkspaceLaneServerError.unexpectedRole(frame.role)
                 }
                 let responsePayload = try await Self.responsePayload(
                     for: frame.payload,
                     handleRequest: handleRequest
                 )
-                try await QuicSessionStreamIO.sendPayload(responsePayload, role: .files, on: stream)
+                try await writer.sendPayload(responsePayload)
             }
         } catch {
             logger.notice(
-                "workspace files lane ended fp=\(self.fingerprint.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                "workspace lane ended fp=\(self.fingerprint.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)"
             )
         }
     }
@@ -95,13 +100,30 @@ final class WorkspaceFilesLaneServer: @unchecked Sendable {
         for payload: Data,
         handleRequest: RequestHandler
     ) async throws -> Data {
-        let request: WorkspaceFileRequest
+        let request: WorkspaceLaneRequest
         do {
-            request = try WorkspaceFilesCodec.decodeRequest(payload)
+            request = try WorkspaceLaneCodec.decodeRequest(payload)
         } catch {
-            throw WorkspaceFilesLaneError.malformedRequest
+            throw WorkspaceLaneServerError.malformedRequest
         }
         let response = await handleRequest(request)
-        return try WorkspaceFilesCodec.encode(response)
+        return try WorkspaceLaneCodec.encode(response)
+    }
+}
+
+@available(macOS 26.0, *)
+private actor WorkspaceLaneWriter {
+    private let stream: QUIC.Stream<QUICStream>
+
+    init(stream: QUIC.Stream<QUICStream>) {
+        self.stream = stream
+    }
+
+    func send(_ response: WorkspaceLaneResponse) async throws {
+        try await sendPayload(WorkspaceLaneCodec.encode(response))
+    }
+
+    func sendPayload(_ payload: Data) async throws {
+        try await QuicSessionStreamIO.sendPayload(payload, role: .files, on: stream)
     }
 }

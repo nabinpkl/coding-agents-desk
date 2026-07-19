@@ -23,11 +23,11 @@ and native coordinator tests are green.
 
 ## Phase 2: authoritative workspace lane
 
-- R5. Add protocol-v11 workspace-lane request, response, and push types in `packages/AgentDeskWire`, retaining native binary file payloads and the 101 MiB Files frame bound.
-- R6. Add revisioned `WorkspaceIDESharedState` persistence and idempotent open, close, reorder, expand, and collapse operations under one host coordinator.
-- R7. Introduce `WorkspaceCoordinator` above `WorkspaceRepository` and migrate existing workspace mutations so reveal chrome, Files, terminal coordination, and IDE adapters consume one runtime snapshot.
-- R8. Extract one reference-counted observation coordinator that fans one filesystem generation and one Git status read to the native shell and subscribed IDEs.
-- R9. Refactor the existing iPhone Workspace transport through the new lane envelope and add v11 rejection, round-trip, idempotency, fan-out, and 100 MiB DOCX boundary tests.
+- D5. Add protocol-v11 workspace-lane request, response, and push types in `packages/AgentDeskWire`, retaining native binary file payloads and the 101 MiB Files frame bound.
+- D6. Add revisioned `WorkspaceIDESharedState` persistence and idempotent open, close, reorder, expand, and collapse operations under one host coordinator.
+- D7. Introduce `WorkspaceCoordinator` above `WorkspaceRepository` and migrate existing workspace mutations so reveal chrome, Files, terminal coordination, and IDE adapters consume one runtime snapshot.
+- D8. Extract one reference-counted observation coordinator that fans one filesystem generation and one Git status read to the native shell and subscribed IDEs.
+- D9. Refactor the existing iPhone Workspace transport through the new lane envelope and add v11 rejection, round-trip, idempotency, fan-out, and 100 MiB DOCX boundary tests.
 
 ## Phase 3: shared IDE regions
 
@@ -60,7 +60,7 @@ this iteration.
 D1       2026-07-19  committed   shared IDE decision and iteration gate
 D2       2026-07-19  committed   package and Xcode product seam
 R3-R4    pending     pending     shared renderer modules and fitness coverage
-R5-R9    pending     pending     authoritative workspace lane and observation
+D5-D9    2026-07-19  committed   authoritative workspace lane and observation
 R10-R13  pending     pending     shared web regions and native coordinator
 R14-R16  pending     pending     macOS and iPhone IDE entries
 R17-R19  pending     pending     automated and checkpointed live verification

@@ -29,17 +29,23 @@ struct WorkspaceFilesResponderTests {
             donorURL: directory.appendingPathComponent("absent-donor.json"),
             destinationURL: directory.appendingPathComponent("workspaces.json")
         )
-        let store = try await repository.register(root: root, name: "Workspace")
+        let workspaceCoordinator = WorkspaceCoordinator(repository: repository)
+        let store = try await workspaceCoordinator.apply(
+            .register(id: UUID(), root: root, name: "Workspace")
+        )
         let workspaceID = store.workspaces[0].id.uuidString
-        let responder = WorkspaceFilesResponder(repository: repository, maxBytes: 1_024)
+        let responder = WorkspaceFilesResponder(
+            workspaceCoordinator: workspaceCoordinator,
+            maxBytes: 1_024
+        )
         let expected = digest(before)
 
         async let first = responder.handle(.write(
-            requestID: WorkspaceFileRequestID(value: "a"),
+            requestID: WorkspaceRequestID(value: "a"),
             workspaceID: workspaceID, path: "note.txt", expectedRevision: expected, text: "alpha\n"
         ))
         async let second = responder.handle(.write(
-            requestID: WorkspaceFileRequestID(value: "b"),
+            requestID: WorkspaceRequestID(value: "b"),
             workspaceID: workspaceID, path: "note.txt", expectedRevision: expected, text: "beta\n"
         ))
         let responses = await [first, second]
@@ -64,8 +70,11 @@ struct WorkspaceFilesResponderTests {
             donorURL: directory.appendingPathComponent("absent-donor.json"),
             destinationURL: directory.appendingPathComponent("workspaces.json")
         )
-        let responder = WorkspaceFilesResponder(repository: repository, maxBytes: 1_024)
-        let requestID = WorkspaceFileRequestID(value: "list")
+        let responder = WorkspaceFilesResponder(
+            workspaceCoordinator: WorkspaceCoordinator(repository: repository),
+            maxBytes: 1_024
+        )
+        let requestID = WorkspaceRequestID(value: "list")
 
         let response = await responder.handle(.listDirectory(
             requestID: requestID, workspaceID: UUID().uuidString, path: ""

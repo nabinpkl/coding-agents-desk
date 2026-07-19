@@ -53,7 +53,7 @@ enum WorkspaceFileServiceFailure: Error, Sendable {
 
 typealias WorkspaceFileTemporaryWriter = (Int32, Data) throws -> Void
 
-/// Handles one authenticated Files request against the current immutable workspace-store value.
+/// Handles one authenticated file operation against the current immutable workspace-store value.
 /// It never interprets client paths as host paths: every filesystem operation begins at a verified
 /// descriptor for a registered workspace root.
 final class WorkspaceFileService {
@@ -70,7 +70,7 @@ final class WorkspaceFileService {
         self.init(
             storeProvider: { store },
             maxUTF8Bytes: maxUTF8Bytes,
-            maxDocumentBytes: WorkspaceFilesCodec.maximumDocumentBytes,
+            maxDocumentBytes: WorkspaceLaneCodec.maximumDocumentBytes,
             temporaryFileWriter: temporaryFileWriter
         )
     }
@@ -92,12 +92,12 @@ final class WorkspaceFileService {
     init(
         storeProvider: @escaping () -> WorkspaceStore,
         maxUTF8Bytes: Int,
-        maxDocumentBytes: Int = WorkspaceFilesCodec.maximumDocumentBytes,
+        maxDocumentBytes: Int = WorkspaceLaneCodec.maximumDocumentBytes,
         temporaryFileWriter: @escaping WorkspaceFileTemporaryWriter = WorkspaceFilePOSIX.writeAll
     ) {
         precondition(maxUTF8Bytes > 0, "workspace files byte limit must be positive")
         precondition(
-            maxDocumentBytes > 0 && maxDocumentBytes <= WorkspaceFilesCodec.maximumDocumentBytes,
+            maxDocumentBytes > 0 && maxDocumentBytes <= WorkspaceLaneCodec.maximumDocumentBytes,
             "workspace document byte limit exceeds the wire budget"
         )
         self.storeProvider = storeProvider
@@ -131,7 +131,7 @@ final class WorkspaceFileService {
     }
 
     private func listDirectory(
-        requestID: WorkspaceFileRequestID,
+        requestID: WorkspaceRequestID,
         workspaceID: String,
         path: String
     ) -> WorkspaceFileResponse {
@@ -152,7 +152,7 @@ final class WorkspaceFileService {
     }
 
     private func read(
-        requestID: WorkspaceFileRequestID,
+        requestID: WorkspaceRequestID,
         workspaceID: String,
         path: String
     ) -> WorkspaceFileResponse {
@@ -190,7 +190,7 @@ final class WorkspaceFileService {
     }
 
     private func write(
-        requestID: WorkspaceFileRequestID,
+        requestID: WorkspaceRequestID,
         workspaceID: String,
         path: String,
         expectedRevision: WorkspaceFileRevision,
@@ -278,7 +278,7 @@ final class WorkspaceFileService {
     }
 
     private func failureResponse(
-        requestID: WorkspaceFileRequestID,
+        requestID: WorkspaceRequestID,
         workspaceID: String?,
         path: String?,
         failure: WorkspaceFileServiceFailure

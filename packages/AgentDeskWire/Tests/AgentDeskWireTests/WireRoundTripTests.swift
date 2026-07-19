@@ -49,9 +49,9 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded.payload == payload)
 }
 
-@Test func wireProtocolWorkspaceTerminalVersionIsPinned() {
-    #expect(WireProtocol.version == 10)
-    #expect(WireProtocol.minCompatibleVersion == 10)
+@Test func wireProtocolWorkspaceLaneVersionIsPinned() {
+    #expect(WireProtocol.version == 11)
+    #expect(WireProtocol.minCompatibleVersion == 11)
 }
 
 @Test func workspaceTerminalMessagesRoundTripWithoutHostPathOrLaunchAuthority() throws {
@@ -167,19 +167,19 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
 
 @Test func workspaceFilesCodecCarriesDocumentBytesWithoutJSONBase64() throws {
     let bytes = Data([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff])
-    let response = WorkspaceFileResponse.read(
-        requestID: WorkspaceFileRequestID(value: "docx"),
+    let response = WorkspaceLaneResponse.files(.read(
+        requestID: WorkspaceRequestID(value: "docx"),
         result: WorkspaceFileReadResult(
             workspaceID: "workspace-a",
             path: "Report.docx",
             content: .document(bytes),
             revision: WorkspaceFileRevision(digest: "sha256:docx")
         )
-    )
+    ))
 
-    let encoded = try WorkspaceFilesCodec.encode(response)
+    let encoded = try WorkspaceLaneCodec.encode(response)
     #expect(encoded.starts(with: Data("bplist".utf8)))
-    guard case .read(_, let decoded) = try WorkspaceFilesCodec.decodeResponse(encoded) else {
+    guard case .files(.read(_, let decoded)) = try WorkspaceLaneCodec.decodeResponse(encoded) else {
         Issue.record("expected document read")
         return
     }
@@ -274,10 +274,10 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
 @Test func workspaceFileRequestsRoundTripWithCompactKeys() throws {
     let revision = WorkspaceFileRevision(digest: "sha256:before")
     let requestIDs = [
-        WorkspaceFileRequestID(value: "request-workspaces"),
-        WorkspaceFileRequestID(value: "request-directory"),
-        WorkspaceFileRequestID(value: "request-read"),
-        WorkspaceFileRequestID(value: "request-write"),
+        WorkspaceRequestID(value: "request-workspaces"),
+        WorkspaceRequestID(value: "request-directory"),
+        WorkspaceRequestID(value: "request-read"),
+        WorkspaceRequestID(value: "request-write"),
     ]
     let values: [WorkspaceFileRequest] = [
         .listWorkspaces(requestID: requestIDs[0]),
@@ -309,12 +309,12 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
 
 @Test func workspaceFileRequestsKeepDistinctIDsForConcurrentOperations() throws {
     let first = WorkspaceFileRequest.read(
-        requestID: WorkspaceFileRequestID(value: "read-1"),
+        requestID: WorkspaceRequestID(value: "read-1"),
         workspaceID: "workspace-a",
         path: "Sources/App.swift"
     )
     let second = WorkspaceFileRequest.read(
-        requestID: WorkspaceFileRequestID(value: "read-2"),
+        requestID: WorkspaceRequestID(value: "read-2"),
         workspaceID: "workspace-a",
         path: "Sources/App.swift"
     )
@@ -330,12 +330,12 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     let revision = WorkspaceFileRevision(digest: "sha256:current")
     let workspace = WorkspaceSummary(id: "workspace-a", name: "AgentDesk")
     let requestIDs = [
-        WorkspaceFileRequestID(value: "request-workspaces"),
-        WorkspaceFileRequestID(value: "request-directory"),
-        WorkspaceFileRequestID(value: "request-read"),
-        WorkspaceFileRequestID(value: "request-write"),
-        WorkspaceFileRequestID(value: "request-conflict"),
-        WorkspaceFileRequestID(value: "request-error"),
+        WorkspaceRequestID(value: "request-workspaces"),
+        WorkspaceRequestID(value: "request-directory"),
+        WorkspaceRequestID(value: "request-read"),
+        WorkspaceRequestID(value: "request-write"),
+        WorkspaceRequestID(value: "request-conflict"),
+        WorkspaceRequestID(value: "request-error"),
     ]
     let entry = WorkspaceDirectoryEntry(
         name: "Sources",
@@ -381,7 +381,7 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
 @Test func workspaceFileErrorCodesRoundTrip() throws {
     for code in WorkspaceFileErrorCode.allCases {
         try roundTrip(WorkspaceFileResponse.error(
-            requestID: WorkspaceFileRequestID(value: "error-\(code.rawValue)"),
+            requestID: WorkspaceRequestID(value: "error-\(code.rawValue)"),
             error: WorkspaceFileError(
                 code: code,
                 workspaceID: "workspace-a",
@@ -392,7 +392,7 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
 }
 
 @Test func workspaceFileErrorMessageRoundTripsWhenPresentAndAbsent() throws {
-    let requestID = WorkspaceFileRequestID(value: "error-message")
+    let requestID = WorkspaceRequestID(value: "error-message")
     let present = WorkspaceFileResponse.error(
         requestID: requestID,
         error: WorkspaceFileError(code: .forbidden, message: "This workspace is unavailable.")

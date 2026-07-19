@@ -38,7 +38,7 @@ private actor MockFilesRequester: WorkspaceFilesRequesting {
     func release(path: String, entries: [WorkspaceDirectoryEntry]) {
         gates.removeValue(forKey: path)?.resume(
             returning: .directory(
-                requestID: WorkspaceFileRequestID(value: "gated"),
+                requestID: WorkspaceRequestID(value: "gated"),
                 result: WorkspaceDirectoryListResult(workspaceID: "w1", path: path, entries: entries)
             )
         )
@@ -302,7 +302,7 @@ struct WorkspaceFilesBrowserTests {
 
     @Test func loadWorkspacesAppliesTheList() async {
         let stub = StubRequester(response: .workspaces(
-            requestID: WorkspaceFileRequestID(value: "x"),
+            requestID: WorkspaceRequestID(value: "x"),
             result: WorkspaceListResult(workspaces: [WorkspaceSummary(id: "w1", name: "Alpha")])
         ))
         let browser = makeBrowser(transport: stub)
@@ -431,7 +431,7 @@ struct WorkspaceFilesBrowserTests {
 
     @Test func loadWorkspacesErrorSurfacesAsFailedInsteadOfBeingSwallowed() async {
         let stub = StubRequester(response: .error(
-            requestID: WorkspaceFileRequestID(value: "x"),
+            requestID: WorkspaceRequestID(value: "x"),
             error: WorkspaceFileError(code: .notFound, message: "Workspace store is unavailable.")
         ))
         let browser = makeBrowser(transport: stub)
@@ -602,7 +602,7 @@ private final class InMemoryWorkspaceWorkbenchStateStore: WorkspaceWorkbenchStat
 /// Always fails the request, to drive the browser's failure path.
 private struct FailingRequester: WorkspaceFilesRequesting {
     func request(_ request: WorkspaceFileRequest) async throws -> WorkspaceFileResponse {
-        throw WorkspaceFilesTransportError.closed
+        throw WorkspaceTransportError.closed
     }
 }
 
