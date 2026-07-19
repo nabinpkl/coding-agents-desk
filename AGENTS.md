@@ -211,6 +211,9 @@ The Mac host has the same dev/stable split as the client, and the two hosts run 
 - Bundle IDs and signing identity (HITL, lives in S0). The experimental client variant's bundle id (`com.example.agentdesk.AgentDeskClient.dev`) and its own App Store Connect record (a bundle id maps to exactly one record, required for the dev variant's TestFlight track) are HITL provisioning. Direct-install of the dev variant needs only the App ID, which Automatic signing can register under team `TEAMID0000`.
 - Apple Developer Program account details (HITL).
 - Any ambiguites that are not clear from the user prompt.
+- When `request_user_input` returns no answers, the question is still unanswered. Ask it again and
+  stop; do not infer a recommended default or continue planning or implementation until the user
+  responds.
 If you find yourself about to pick/assume on the user's behalf, stop and surface it instead.
 
 
