@@ -34,6 +34,7 @@ extension PairingViewController {
         nonisolated(unsafe) static var surfaceSegmentedControl: UInt8 = 0
         nonisolated(unsafe) static var agentSurfaceConstraints: UInt8 = 0
         nonisolated(unsafe) static var agentSurfaceBoundTransport: UInt8 = 0
+        nonisolated(unsafe) static var agentTerminalLifecycleRouter: UInt8 = 0
         nonisolated(unsafe) static var filesSurface: UInt8 = 0
         nonisolated(unsafe) static var filesBrowser: UInt8 = 0
         nonisolated(unsafe) static var filesTransport: UInt8 = 0
@@ -54,6 +55,23 @@ extension PairingViewController {
     var agentSurface: AgentFeedSurface? {
         get { objc_getAssociatedObject(self, &Keys.agentSurface) as? AgentFeedSurface }
         set { objc_setAssociatedObject(self, &Keys.agentSurface, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    var agentTerminalLifecycleRouter: AgentFeedTerminalLifecycleRouter {
+        if let router = objc_getAssociatedObject(
+            self,
+            &Keys.agentTerminalLifecycleRouter
+        ) as? AgentFeedTerminalLifecycleRouter {
+            return router
+        }
+        let router = AgentFeedTerminalLifecycleRouter()
+        objc_setAssociatedObject(
+            self,
+            &Keys.agentTerminalLifecycleRouter,
+            router,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+        return router
     }
 
     @available(iOS 26.0, *)
@@ -164,15 +182,18 @@ extension PairingViewController {
         applySurface(activeControlSurface)
     }
 
-    func teardownAgentSurface() {
+    @discardableResult
+    func teardownAgentSurface() -> Task<Void, Never>? {
         activeControlSurface = .control
         // Detach the push sink so no transport delivers to a dead surface.
         pairingClient.onAgentPush = nil
 
-        agentSurface?.teardown()
-        agentSurface?.removeFromSuperview()
-        agentSurface = nil
-        agentSurfaceBoundTransport = nil
+        let surface = agentSurface
+        let terminalCloseTask = agentTerminalLifecycleRouter.teardown(surface) { [self] in
+            surface?.removeFromSuperview()
+            agentSurface = nil
+            agentSurfaceBoundTransport = nil
+        }
 
         if #available(iOS 26.0, *) {
             terminalSurface?.detach()
@@ -187,6 +208,7 @@ extension PairingViewController {
 
         surfaceSegmentedControl?.removeFromSuperview()
         surfaceSegmentedControl = nil
+        return terminalCloseTask
     }
 
     // Files surface teardown mirrors the other non-control surfaces: sever the model binding, close
@@ -237,7 +259,7 @@ extension PairingViewController {
             return existing
         }
 
-        let surface = AgentFeedSurface()
+        let surface = AgentFeedSurface(closeDelivery: agentTerminalLifecycleRouter.closeDelivery)
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = true
         view.addSubview(surface)
@@ -291,11 +313,9 @@ extension PairingViewController {
     }
 
     func rebindAgentSurfaceAfterReconnectIfNeeded() {
-        guard let surface = agentSurface,
-              let transport = pairingClient.activeSessionTransport
-        else {
-            return
-        }
+        guard let transport = pairingClient.activeSessionTransport else { return }
+        agentTerminalLifecycleRouter.bind(transport)
+        guard let surface = agentSurface else { return }
         guard agentSurfaceBoundTransport !== transport else {
             return
         }
@@ -309,6 +329,9 @@ extension PairingViewController {
 
     @objc private func surfaceSegmentChanged(_ sender: UISegmentedControl) {
         let surface = selectedSurface(on: sender)
+        if activeControlSurface == .agent, surface != .agent {
+            agentTerminalLifecycleRouter.route(.switchAway, to: agentSurface)
+        }
         activeControlSurface = surface
         switch surface {
         case .control:

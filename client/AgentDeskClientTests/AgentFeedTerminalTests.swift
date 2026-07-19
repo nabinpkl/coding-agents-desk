@@ -157,7 +157,7 @@ struct AgentFeedTerminalTests {
         #expect(!harness.surface.isTerminalPresented)
     }
 
-    @Test func replacingSettledTransportDetachesOldTerminalAndAllowsFreshOpen() async throws {
+    @Test func replacingSettledTransportDetachesOldTerminalAndResumesExactOpen() async throws {
         let harness = makeHarness()
         var delivered: [NSDictionary] = []
         harness.surface.deliverForTesting = { rawJSON in
@@ -180,12 +180,12 @@ struct AgentFeedTerminalTests {
         #expect(delivered.count == 1)
         #expect(harness.coordinator.sent.count == 2)
 
-        harness.surface.sendAgentPanelRequest(.terminal(.open(
-            requestID: "request-2",
-            context: panelContext
-        )))
         try await waitUntil { replacementCoordinator.sent.count == 1 }
-        replacementCoordinator.yield(.ready(readyPayload(requestID: "request-2")))
+        #expect(replacementCoordinator.sent[0] == .open(AgentTerminalOpen(
+            requestID: "request-1",
+            context: readyPayload().context
+        )))
+        replacementCoordinator.yield(.ready(readyPayload()))
         try await waitUntil {
             replacementCoordinator.sent.count == 2 && delivered.count == 2
         }
@@ -466,13 +466,575 @@ struct AgentFeedTerminalTests {
         #expect(harness.coordinator.sent.count == 1)
     }
 
+    @Test func everyExplicitAbandonmentSendsOneExactCloseAndPreventsResurrection() async throws {
+        let cases: [(AgentFeedTerminalAbandonmentReason, String)] = [
+            (.contextEnded, "context-ended"),
+            (.surfaceSwitched, "surface-switched"),
+            (.surfaceTeardown, "surface-teardown"),
+            (.pairingDisconnected, "pairing-disconnected"),
+            (.pairingRevoked, "pairing-revoked"),
+        ]
+
+        for (reason, wireReason) in cases {
+            let harness = makeHarness()
+            var delivered: [NSDictionary] = []
+            harness.surface.deliverForTesting = { rawJSON in
+                if let object = jsonObject(rawJSON) { delivered.append(object) }
+            }
+            try await openAndAttach(harness)
+            delivered.removeAll()
+
+            harness.surface.abandonTerminal(reason)
+            harness.surface.abandonTerminal(reason)
+            try await waitUntil { harness.coordinator.sent.count == 3 }
+
+            let ready = readyPayload()
+            #expect(harness.coordinator.sent[2] == .close(AgentTerminalClose(
+                requestID: ready.requestID,
+                context: ready.context,
+                ptySessionName: ready.ptySessionName,
+                reason: wireReason
+            )))
+            harness.coordinator.yield(.ready(ready))
+            await drainTasks()
+
+            #expect(harness.coordinator.sent.count == 3)
+            #expect(harness.connection.detachCount == 1)
+            #expect(!harness.surface.terminalContent.isBound)
+            #expect(!harness.surface.isTerminalPresented)
+            #expect(delivered.isEmpty)
+        }
+    }
+
+    @Test func contextEndedAndUserCloseUseExplicitLifecycleWithoutDuplicateKill() async throws {
+        let contextHarness = makeHarness()
+        try await openAndAttach(contextHarness)
+        contextHarness.surface.sendAgentPanelRequest(.terminal(.contextEnded(
+            requestID: "request-1",
+            context: panelContext
+        )))
+        contextHarness.surface.sendAgentPanelRequest(.terminal(.close(
+            requestID: "request-1",
+            context: panelContext
+        )))
+        try await waitUntil { contextHarness.coordinator.sent.count == 3 }
+        #expect(contextHarness.coordinator.sent[2] == .close(AgentTerminalClose(
+            requestID: "request-1",
+            context: readyPayload().context,
+            ptySessionName: readyPayload().ptySessionName,
+            reason: "context-ended"
+        )))
+
+        let closeHarness = makeHarness()
+        var delivered: [NSDictionary] = []
+        closeHarness.surface.deliverForTesting = { rawJSON in
+            if let object = jsonObject(rawJSON) { delivered.append(object) }
+        }
+        try await openAndAttach(closeHarness)
+        delivered.removeAll()
+        closeHarness.surface.sendAgentPanelRequest(.terminal(.close(
+            requestID: "request-1",
+            context: panelContext
+        )))
+        closeHarness.surface.abandonTerminal(.surfaceTeardown)
+        try await waitUntil { closeHarness.coordinator.sent.count == 3 && delivered.count == 1 }
+        #expect(closeHarness.coordinator.sent[2] == .close(AgentTerminalClose(
+            requestID: "request-1",
+            context: readyPayload().context,
+            ptySessionName: readyPayload().ptySessionName,
+            reason: "user-close"
+        )))
+        #expect(delivered.first?["t"] as? String == "agent-terminal-ended")
+        #expect(delivered.first?["xs"] == nil)
+    }
+
+    @Test func backgroundAndTransportLossDetachWithoutCloseAndHideTerminal() async throws {
+        for interruption in [
+            AgentFeedTerminalInterruption.background,
+            AgentFeedTerminalInterruption.transportLoss,
+        ] {
+            let harness = makeHarness()
+            try await openAndAttach(harness)
+
+            harness.surface.interruptTerminal(interruption)
+            try await waitUntil { harness.connection.detachCount == 1 }
+
+            #expect(harness.coordinator.sent.count == 2)
+            #expect(!harness.coordinator.sent.contains { message in
+                if case .close = message { return true }
+                return false
+            })
+            #expect(!harness.surface.terminalContent.isBound)
+            #expect(!harness.surface.isTerminalPresented)
+        }
+    }
+
+    @Test func activeDedicatedStreamFailureReattachesWithSameAuthenticatedTransport() async throws {
+        let surface = AgentFeedSurface(panelViewForTesting: UIView())
+        let coordinator = FakeAgentTerminalCoordinator()
+        let originalConnection = FakeTerminalConnection(pid: 4202)
+        let replacementConnection = FakeTerminalConnection(pid: 4202)
+        let opener = FakeAgentTerminalSessionOpener(
+            connections: [originalConnection, replacementConnection]
+        )
+        let harness = Harness(
+            surface: surface,
+            coordinator: coordinator,
+            opener: opener,
+            connection: originalConnection
+        )
+        surface.bindTerminalDependencies(coordinator: coordinator, sessionOpener: opener)
+        try await openAndAttach(harness)
+
+        originalConnection.fail(TestTerminalError.streamFailed)
+        try await waitUntil { coordinator.sent.count == 3 }
+
+        #expect(coordinator.sent[2] == .open(AgentTerminalOpen(
+            requestID: "request-1",
+            context: readyPayload().context
+        )))
+        coordinator.yield(.ready(readyPayload()))
+        try await waitUntil { coordinator.sent.count == 4 && surface.terminalContent.isBound }
+
+        #expect(opener.requests.count == 2)
+        #expect(opener.requests.allSatisfy { !$0.createIfMissing })
+        #expect(replacementConnection.identity.sessionName == readyPayload().ptySessionName)
+        #expect(replacementConnection.identity.pid == 4202)
+        guard case .attached = coordinator.sent[3] else {
+            Issue.record("expected same-transport attached acknowledgement")
+            return
+        }
+    }
+
+    @Test func explicitAbandonmentWithoutDependenciesFlushesExactCloseOnReplacement() async throws {
+        let harness = makeHarness()
+        try await openAndAttach(harness)
+        harness.surface.interruptTerminal(.transportLoss)
+
+        harness.surface.abandonTerminal(.contextEnded)
+        let replacementCoordinator = FakeAgentTerminalCoordinator()
+        let replacementOpener = FakeAgentTerminalSessionOpener(connection: FakeTerminalConnection())
+        harness.surface.bindTerminalDependencies(
+            coordinator: replacementCoordinator,
+            sessionOpener: replacementOpener
+        )
+        try await waitUntil { replacementCoordinator.sent.count == 1 }
+
+        #expect(replacementCoordinator.sent == [.close(AgentTerminalClose(
+            requestID: "request-1",
+            context: readyPayload().context,
+            ptySessionName: readyPayload().ptySessionName,
+            reason: "context-ended"
+        ))])
+        #expect(replacementOpener.requests.isEmpty)
+        #expect(!harness.surface.terminalContent.isBound)
+        #expect(!harness.surface.isTerminalPresented)
+    }
+
+    @Test func pendingAbandonmentOutlivesReleasedSurfaceAndFlushesOnReplacement() async throws {
+        let router = AgentFeedTerminalLifecycleRouter()
+        var surface: AgentFeedSurface? = AgentFeedSurface(
+            panelViewForTesting: UIView(),
+            closeDelivery: router.closeDelivery
+        )
+        let coordinator = FakeAgentTerminalCoordinator()
+        let connection = FakeTerminalConnection()
+        let opener = FakeAgentTerminalSessionOpener(connection: connection)
+        surface?.bindTerminalDependencies(coordinator: coordinator, sessionOpener: opener)
+        surface?.sendAgentPanelRequest(.terminal(.open(
+            requestID: "request-1",
+            context: panelContext
+        )))
+        try await waitUntil { coordinator.sent.count == 1 }
+        coordinator.yield(.ready(readyPayload()))
+        try await waitUntil { coordinator.sent.count == 2 && surface?.isTerminalPresented == true }
+
+        surface?.interruptTerminal(.transportLoss)
+        surface?.abandonTerminal(.pairingDisconnected)
+        weak let releasedSurface = surface
+        surface = nil
+        #expect(releasedSurface == nil)
+
+        let replacementCoordinator = FakeAgentTerminalCoordinator()
+        router.bind(replacementCoordinator)
+        try await waitUntil { replacementCoordinator.sent.count == 1 }
+
+        #expect(replacementCoordinator.sent == [.close(AgentTerminalClose(
+            requestID: "request-1",
+            context: readyPayload().context,
+            ptySessionName: readyPayload().ptySessionName,
+            reason: "pairing-disconnected"
+        ))])
+    }
+
+    @Test func failedExplicitCloseFlushesOnceOnReplacementWithoutResuming() async throws {
+        let harness = makeHarness()
+        try await openAndAttach(harness)
+        harness.coordinator.closeSendError = TestTerminalError.sendFailed
+
+        harness.surface.abandonTerminal(.surfaceSwitched)
+        try await waitUntil { harness.coordinator.failedSendCount == 1 }
+
+        let replacementCoordinator = FakeAgentTerminalCoordinator()
+        let replacementOpener = FakeAgentTerminalSessionOpener(connection: FakeTerminalConnection())
+        harness.surface.bindTerminalDependencies(
+            coordinator: replacementCoordinator,
+            sessionOpener: replacementOpener
+        )
+        try await waitUntil { replacementCoordinator.sent.count == 1 }
+
+        #expect(replacementCoordinator.sent == [.close(AgentTerminalClose(
+            requestID: "request-1",
+            context: readyPayload().context,
+            ptySessionName: readyPayload().ptySessionName,
+            reason: "surface-switched"
+        ))])
+        #expect(replacementOpener.requests.isEmpty)
+    }
+
+    @Test func explicitCloseTaskCompletesOnlyAfterTypedCloseSendSettles() async throws {
+        let harness = makeHarness()
+        try await openAndAttach(harness)
+        harness.coordinator.shouldDelayClose = true
+
+        let closeTask = try #require(harness.surface.abandonTerminal(.pairingDisconnected))
+        try await waitUntil { harness.coordinator.sent.count == 3 }
+
+        #expect(harness.coordinator.closeSendCompletionCount == 0)
+        #expect(!harness.surface.terminalContent.isBound)
+        #expect(!harness.surface.isTerminalPresented)
+
+        harness.coordinator.releaseDelayedClose()
+        await closeTask.value
+        #expect(harness.coordinator.closeSendCompletionCount == 1)
+    }
+
+    @Test func managerDetachReportsSessionEndedAndNextOpenIsFresh() async throws {
+        let harness = makeHarness()
+        var delivered: [NSDictionary] = []
+        harness.surface.deliverForTesting = { rawJSON in
+            if let object = jsonObject(rawJSON) { delivered.append(object) }
+        }
+        try await openAndAttach(harness)
+        delivered.removeAll()
+
+        harness.surface.terminalContent.closeAfterManagerDetach()
+        try await waitUntil { delivered.count == 1 }
+
+        #expect(delivered == [expectedTerminalJSON(
+            tag: "agent-terminal-error",
+            requestID: "request-1",
+            context: readyPayload().context,
+            ptySessionName: readyPayload().ptySessionName,
+            code: "sessionEnded"
+        )])
+
+        harness.surface.sendAgentPanelRequest(.terminal(.open(
+            requestID: "request-2",
+            context: panelContext
+        )))
+        try await waitUntil { harness.coordinator.sent.count == 3 }
+        #expect(harness.coordinator.sent[2] == .open(AgentTerminalOpen(
+            requestID: "request-2",
+            context: readyPayload().context
+        )))
+    }
+
+    @Test func reconnectWithinGraceReusesExactOpenNameAndPIDThenAcknowledgesReady() async throws {
+        let harness = makeHarness(pid: 4101)
+        try await openAndAttach(harness)
+        // The manager's 30-second leased-PTY grace bounds this reattach; the QUIC auth resume TTL is separate.
+        harness.surface.interruptTerminal(.background)
+        try await waitUntil { harness.connection.detachCount == 1 }
+
+        let replacementCoordinator = FakeAgentTerminalCoordinator()
+        let replacementConnection = FakeTerminalConnection(
+            sessionName: readyPayload().ptySessionName,
+            pid: 4101
+        )
+        let replacementOpener = FakeAgentTerminalSessionOpener(connection: replacementConnection)
+        var delivered: [NSDictionary] = []
+        harness.surface.deliverForTesting = { rawJSON in
+            if let object = jsonObject(rawJSON) { delivered.append(object) }
+        }
+
+        harness.surface.bindTerminalDependencies(
+            coordinator: replacementCoordinator,
+            sessionOpener: replacementOpener
+        )
+        try await waitUntil { replacementCoordinator.sent.count == 1 }
+        #expect(replacementCoordinator.sent[0] == .open(AgentTerminalOpen(
+            requestID: "request-1",
+            context: readyPayload().context
+        )))
+
+        replacementCoordinator.yield(.ready(readyPayload()))
+        try await waitUntil {
+            replacementCoordinator.sent.count == 2 && delivered.count == 1
+        }
+
+        #expect(replacementOpener.requests.map(\.sessionName) == [readyPayload().ptySessionName])
+        #expect(replacementOpener.requests.allSatisfy { !$0.createIfMissing })
+        #expect(replacementConnection.identity.pid == 4101)
+        guard case .attached = replacementCoordinator.sent[1] else {
+            Issue.record("expected reconnect attached acknowledgement")
+            return
+        }
+        #expect(delivered.first?["t"] as? String == "agent-terminal-ready")
+        #expect(harness.surface.terminalContent.isBound)
+        #expect(harness.surface.isTerminalPresented)
+    }
+
+    @Test func reconnectWithDifferentPIDCannotBindOrReportReady() async throws {
+        let harness = makeHarness(pid: 4301)
+        var delivered: [NSDictionary] = []
+        harness.surface.deliverForTesting = { rawJSON in
+            if let object = jsonObject(rawJSON) { delivered.append(object) }
+        }
+        try await openAndAttach(harness)
+        delivered.removeAll()
+        harness.surface.interruptTerminal(.transportLoss)
+
+        let replacementCoordinator = FakeAgentTerminalCoordinator()
+        let replacementConnection = FakeTerminalConnection(
+            sessionName: readyPayload().ptySessionName,
+            pid: 4302
+        )
+        let replacementOpener = FakeAgentTerminalSessionOpener(connection: replacementConnection)
+        harness.surface.bindTerminalDependencies(
+            coordinator: replacementCoordinator,
+            sessionOpener: replacementOpener
+        )
+        try await waitUntil { replacementCoordinator.sent.count == 1 }
+        replacementCoordinator.yield(.ready(readyPayload()))
+        try await waitUntil { delivered.count == 1 && replacementConnection.detachCount == 1 }
+
+        #expect(delivered == [expectedTerminalJSON(
+            tag: "agent-terminal-error",
+            requestID: "request-1",
+            context: readyPayload().context,
+            ptySessionName: readyPayload().ptySessionName,
+            code: "sessionEnded"
+        )])
+        #expect(replacementCoordinator.sent.count == 1)
+        #expect(!harness.surface.terminalContent.isBound)
+        #expect(!harness.surface.isTerminalPresented)
+    }
+
+    @Test func reconnectSessionEndedClearsDescriptorAndNextOpenIsFresh() async throws {
+        let harness = makeHarness(pid: 4102)
+        try await openAndAttach(harness)
+        harness.surface.interruptTerminal(.transportLoss)
+
+        let replacementCoordinator = FakeAgentTerminalCoordinator()
+        let replacementConnection = FakeTerminalConnection(
+            sessionName: readyPayload().ptySessionName,
+            pid: 4102
+        )
+        let replacementOpener = FakeAgentTerminalSessionOpener(connection: replacementConnection)
+        harness.surface.bindTerminalDependencies(
+            coordinator: replacementCoordinator,
+            sessionOpener: replacementOpener
+        )
+        try await waitUntil { replacementCoordinator.sent.count == 1 }
+        replacementCoordinator.yield(.error(AgentTerminalError(
+            requestID: "request-1",
+            context: readyPayload().context,
+            ptySessionName: readyPayload().ptySessionName,
+            code: .sessionEnded
+        )))
+        await drainTasks()
+
+        harness.surface.sendAgentPanelRequest(.terminal(.open(
+            requestID: "request-2",
+            context: panelContext
+        )))
+        try await waitUntil { replacementCoordinator.sent.count == 2 }
+        #expect(replacementCoordinator.sent[1] == .open(AgentTerminalOpen(
+            requestID: "request-2",
+            context: readyPayload().context
+        )))
+        #expect(replacementOpener.requests.isEmpty)
+    }
+
+    @Test func staleReconnectAttachCannotBindOrReportReadyAfterNewerSession() async throws {
+        let harness = makeHarness(pid: 4103)
+        try await openAndAttach(harness)
+        harness.surface.interruptTerminal(.transportLoss)
+
+        let staleCoordinator = FakeAgentTerminalCoordinator()
+        let staleConnection = FakeTerminalConnection(
+            sessionName: readyPayload().ptySessionName,
+            pid: 4103
+        )
+        let staleOpener = FakeAgentTerminalSessionOpener(
+            connection: staleConnection,
+            delayedOpen: true
+        )
+        var delivered: [NSDictionary] = []
+        harness.surface.deliverForTesting = { rawJSON in
+            if let object = jsonObject(rawJSON) { delivered.append(object) }
+        }
+        harness.surface.bindTerminalDependencies(
+            coordinator: staleCoordinator,
+            sessionOpener: staleOpener
+        )
+        try await waitUntil { staleCoordinator.sent.count == 1 }
+        staleCoordinator.yield(.ready(readyPayload()))
+        try await waitUntil { staleOpener.requests.count == 1 }
+
+        let closeTask = try #require(harness.surface.abandonTerminal(.contextEnded))
+        await closeTask.value
+        let replacementCoordinator = FakeAgentTerminalCoordinator()
+        let replacementConnection = FakeTerminalConnection(
+            sessionName: "agent-resume-codex-new-session",
+            pid: 5100
+        )
+        let replacementOpener = FakeAgentTerminalSessionOpener(connection: replacementConnection)
+        harness.surface.bindTerminalDependencies(
+            coordinator: replacementCoordinator,
+            sessionOpener: replacementOpener
+        )
+        let newerContext = AgentPanelTerminalContext(
+            projectPath: "/Users/dev/projects/beta",
+            source: .codex,
+            sessionID: "9b8ec323-e59a-4ff5-a0b8-86632ab41d54"
+        )
+        harness.surface.sendAgentPanelRequest(.terminal(.open(
+            requestID: "request-2",
+            context: newerContext
+        )))
+        try await waitUntil { replacementCoordinator.sent.count == 1 }
+
+        staleOpener.releaseDelayedOpen()
+        try await waitUntil { staleConnection.detachCount == 1 }
+        await drainTasks()
+
+        #expect(!harness.surface.terminalContent.isBound)
+        #expect(!harness.surface.isTerminalPresented)
+        #expect(delivered.isEmpty)
+        let replacementOpen = try #require(replacementCoordinator.sent.first)
+        #expect(replacementOpen == .open(AgentTerminalOpen(
+            requestID: "request-2",
+            context: AgentResumeTerminalContext(
+                projectPath: newerContext.projectPath,
+                source: newerContext.source.rawValue,
+                harnessSessionID: newerContext.sessionID
+            )
+        )))
+    }
+
+    @Test func staleMismatchedPIDAttachCannotClearNewerSameContextBinding() async throws {
+        let harness = makeHarness(pid: 4401)
+        var delivered: [NSDictionary] = []
+        harness.surface.deliverForTesting = { rawJSON in
+            if let object = jsonObject(rawJSON) { delivered.append(object) }
+        }
+        try await openAndAttach(harness)
+        delivered.removeAll()
+        harness.surface.interruptTerminal(.transportLoss)
+
+        let staleCoordinator = FakeAgentTerminalCoordinator()
+        let staleConnection = FakeTerminalConnection(pid: 9999)
+        let staleOpener = FakeAgentTerminalSessionOpener(
+            connection: staleConnection,
+            delayedOpen: true
+        )
+        harness.surface.bindTerminalDependencies(
+            coordinator: staleCoordinator,
+            sessionOpener: staleOpener
+        )
+        try await waitUntil { staleCoordinator.sent.count == 1 }
+        staleCoordinator.yield(.ready(readyPayload()))
+        try await waitUntil { staleOpener.requests.count == 1 }
+
+        let currentCoordinator = FakeAgentTerminalCoordinator()
+        let currentConnection = FakeTerminalConnection(pid: 4401)
+        let currentOpener = FakeAgentTerminalSessionOpener(connection: currentConnection)
+        harness.surface.bindTerminalDependencies(
+            coordinator: currentCoordinator,
+            sessionOpener: currentOpener
+        )
+        try await waitUntil { currentCoordinator.sent.count == 1 }
+        currentCoordinator.yield(.ready(readyPayload()))
+        try await waitUntil {
+            currentCoordinator.sent.count == 2 && harness.surface.terminalContent.isBound
+        }
+
+        staleOpener.releaseDelayedOpen()
+        try await waitUntil { staleConnection.detachCount == 1 }
+        await drainTasks()
+
+        #expect(harness.surface.terminalContent.isBound)
+        #expect(harness.surface.isTerminalPresented)
+        #expect(delivered.count == 1)
+        #expect(delivered.first?["t"] as? String == "agent-terminal-ready")
+    }
+
+    @Test func lifecycleRouterClassifiesPairingTransitionsAndOrdersTeardownBeforeRelease() async {
+        let router = AgentFeedTerminalLifecycleRouter()
+
+        let classifications: [(AgentFeedTerminalLifecycleEvent, String)] = [
+            (.switchAway, "abandon:surface-switched"),
+            (.rejection(.revoked), "abandon:pairing-revoked"),
+            (.rejection(.expiredResume), "abandon:surface-teardown"),
+            (.forget, "abandon:pairing-revoked"),
+            (.disconnect, "abandon:pairing-disconnected"),
+            (.background, "interrupt:background"),
+            (.transportFailure, "interrupt:transport-loss"),
+        ]
+        for (event, expected) in classifications {
+            let target = FakeTerminalLifecycleTarget()
+            _ = router.route(event, to: target)
+            #expect(target.events == [expected])
+        }
+
+        let teardownTarget = FakeTerminalLifecycleTarget()
+        _ = router.teardown(teardownTarget) {
+            teardownTarget.events.append("release")
+        }
+        #expect(teardownTarget.events == ["teardown", "release"])
+    }
+
+    @Test func nilMediaFailureClassificationPreservesDescriptorForReconnectWithoutClose() async throws {
+        let router = AgentFeedTerminalLifecycleRouter()
+        let harness = makeHarness(pid: 4501)
+        try await openAndAttach(harness)
+
+        _ = router.route(.transportFailure, to: harness.surface)
+        try await waitUntil { harness.connection.detachCount == 1 }
+        #expect(harness.coordinator.sent.count == 2)
+
+        let replacementCoordinator = FakeAgentTerminalCoordinator()
+        let replacementConnection = FakeTerminalConnection(pid: 4501)
+        let replacementOpener = FakeAgentTerminalSessionOpener(connection: replacementConnection)
+        harness.surface.bindTerminalDependencies(
+            coordinator: replacementCoordinator,
+            sessionOpener: replacementOpener
+        )
+        try await waitUntil { replacementCoordinator.sent.count == 1 }
+
+        #expect(replacementCoordinator.sent == [.open(AgentTerminalOpen(
+            requestID: "request-1",
+            context: readyPayload().context
+        ))])
+        #expect(!replacementCoordinator.sent.contains { message in
+            if case .close = message { return true }
+            return false
+        })
+    }
+
     private func makeHarness(
+        pid: UInt32 = 4100,
         delayedOpen: Bool = false,
         openError: Error? = nil
     ) -> Harness {
         let surface = AgentFeedSurface(panelViewForTesting: UIView())
         let coordinator = FakeAgentTerminalCoordinator()
-        let connection = FakeTerminalConnection()
+        let connection = FakeTerminalConnection(
+            sessionName: readyPayload().ptySessionName,
+            pid: pid
+        )
         let opener = FakeAgentTerminalSessionOpener(
             connection: connection,
             delayedOpen: delayedOpen,
@@ -585,6 +1147,7 @@ private final class FakeAgentTerminalCoordinator: AgentFeedTerminalCoordinating 
     var attachedSendError: Error?
     var closeSendError: Error?
     private(set) var failedSendCount = 0
+    private(set) var closeSendCompletionCount = 0
     private var isDelayedCloseReleased = false
 
     init() {
@@ -615,6 +1178,9 @@ private final class FakeAgentTerminalCoordinator: AgentFeedTerminalCoordinating 
                 await Task.yield()
             }
         }
+        if case .close = message {
+            closeSendCompletionCount += 1
+        }
     }
 
     func yield(_ message: AgentTerminalHostMessage) {
@@ -628,7 +1194,7 @@ private final class FakeAgentTerminalCoordinator: AgentFeedTerminalCoordinating 
 
 @MainActor
 private final class FakeAgentTerminalSessionOpener: AgentFeedTerminalSessionOpening {
-    private let connection: FakeTerminalConnection
+    private let connections: [FakeTerminalConnection]
     private let delayedOpen: Bool
     private let openError: Error?
     private var isReleased = false
@@ -639,20 +1205,27 @@ private final class FakeAgentTerminalSessionOpener: AgentFeedTerminalSessionOpen
         delayedOpen: Bool = false,
         openError: Error? = nil
     ) {
-        self.connection = connection
+        self.connections = [connection]
         self.delayedOpen = delayedOpen
         self.openError = openError
+    }
+
+    init(connections: [FakeTerminalConnection]) {
+        self.connections = connections
+        self.delayedOpen = false
+        self.openError = nil
     }
 
     func openAgentFeedTerminal(
         _ request: AgentFeedTerminalAttachmentRequest
     ) async throws -> any AgentFeedTerminalConnection {
+        let connectionIndex = requests.count
         requests.append(request)
         while delayedOpen && !isReleased {
             await Task.yield()
         }
         if let openError { throw openError }
-        return connection
+        return connections[min(connectionIndex, connections.count - 1)]
     }
 
     func releaseDelayedOpen() {
@@ -660,9 +1233,34 @@ private final class FakeAgentTerminalSessionOpener: AgentFeedTerminalSessionOpen
     }
 }
 
+@MainActor
+private final class FakeTerminalLifecycleTarget: AgentFeedTerminalLifecycleHandling {
+    var events: [String] = []
+
+    func abandonTerminal(_ reason: AgentFeedTerminalAbandonmentReason) -> Task<Void, Never>? {
+        events.append("abandon:\(reason.rawValue)")
+        return nil
+    }
+
+    func interruptTerminal(_ interruption: AgentFeedTerminalInterruption) {
+        switch interruption {
+        case .background:
+            events.append("interrupt:background")
+        case .transportLoss:
+            events.append("interrupt:transport-loss")
+        }
+    }
+
+    func teardown() -> Task<Void, Never>? {
+        events.append("teardown")
+        return nil
+    }
+}
+
 private enum TestTerminalError: Error {
     case attachFailed
     case sendFailed
+    case streamFailed
 }
 
 private final class FakeTerminalConnection: AgentFeedTerminalConnection, @unchecked Sendable {
@@ -671,7 +1269,10 @@ private final class FakeTerminalConnection: AgentFeedTerminalConnection, @unchec
     private let stream: AsyncThrowingStream<PtySessionEvent, Error>
     private var detachCountStorage = 0
 
-    init() {
+    let identity: AgentFeedTerminalConnectionIdentity
+
+    init(sessionName: String = "agent-resume-claude-a4cdd7b8-3f9a-4d80-bc72-5f4aab6f39e1", pid: UInt32 = 4100) {
+        identity = AgentFeedTerminalConnectionIdentity(sessionName: sessionName, pid: pid)
         var continuation: AsyncThrowingStream<PtySessionEvent, Error>.Continuation!
         stream = AsyncThrowingStream { continuation = $0 }
         self.continuation = continuation
@@ -695,5 +1296,9 @@ private final class FakeTerminalConnection: AgentFeedTerminalConnection, @unchec
 
     func yield(_ event: PtySessionEvent) {
         continuation.yield(event)
+    }
+
+    func fail(_ error: Error) {
+        continuation.finish(throwing: error)
     }
 }

@@ -24,9 +24,23 @@ struct AgentFeedTerminalAttachmentRequest: Equatable, Sendable {
     }
 }
 
-protocol AgentFeedTerminalConnection: PtyTerminalConnection, Sendable {}
+struct AgentFeedTerminalConnectionIdentity: Equatable, Sendable {
+    let sessionName: String
+    let pid: UInt32
+}
 
-extension PtySessionConnection: AgentFeedTerminalConnection {}
+protocol AgentFeedTerminalConnection: PtyTerminalConnection, Sendable {
+    var identity: AgentFeedTerminalConnectionIdentity { get }
+}
+
+extension PtySessionConnection: AgentFeedTerminalConnection {
+    var identity: AgentFeedTerminalConnectionIdentity {
+        AgentFeedTerminalConnectionIdentity(
+            sessionName: sessionName,
+            pid: attachment.pid
+        )
+    }
+}
 
 @MainActor
 protocol AgentFeedTerminalCoordinating: AnyObject {

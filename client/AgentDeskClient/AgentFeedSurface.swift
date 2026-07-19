@@ -9,11 +9,12 @@ import PtyTerminalSwiftTerm
 /// The iOS Agent surface. AgentPanel retains web content ownership while this UIKit container owns
 /// the native terminal layout and attachment workflow.
 @MainActor
-final class AgentFeedSurface: UIView, AgentPanelTransport {
+final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLifecycleHandling {
     static let defaultTerminalHeightFraction: CGFloat = 0.38
     static let terminalHeightRange: ClosedRange<CGFloat> = 0.25...0.65
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-surface")
+    private let terminalCloseDelivery: AgentFeedTerminalCloseDelivery
 
     /// Injected by PairingViewController to forward inbound requests to the input lane.
     var onAgentRequest: ((AgentFeedRequest) -> Void)?
@@ -44,6 +45,7 @@ final class AgentFeedSurface: UIView, AgentPanelTransport {
 
     private lazy var terminalSession = AgentFeedTerminalSession(
         terminalContent: terminalContent,
+        closeDelivery: terminalCloseDelivery,
         setPresented: { [weak self] presented in
             self?.setTerminalPresented(presented)
         },
@@ -53,18 +55,31 @@ final class AgentFeedSurface: UIView, AgentPanelTransport {
     )
 
     override init(frame: CGRect) {
+        terminalCloseDelivery = AgentFeedTerminalCloseDelivery()
         super.init(frame: frame)
         setUpPanel()
         configureContainer()
     }
 
     required init?(coder: NSCoder) {
+        terminalCloseDelivery = AgentFeedTerminalCloseDelivery()
         super.init(coder: coder)
         setUpPanel()
         configureContainer()
     }
 
-    init(panelViewForTesting panelView: UIView) {
+    init(closeDelivery: AgentFeedTerminalCloseDelivery) {
+        terminalCloseDelivery = closeDelivery
+        super.init(frame: .zero)
+        setUpPanel()
+        configureContainer()
+    }
+
+    init(
+        panelViewForTesting panelView: UIView,
+        closeDelivery: AgentFeedTerminalCloseDelivery = AgentFeedTerminalCloseDelivery()
+    ) {
+        terminalCloseDelivery = closeDelivery
         super.init(frame: .zero)
         panelContentView = panelView
         configureContainer()
@@ -163,6 +178,15 @@ final class AgentFeedSurface: UIView, AgentPanelTransport {
         terminalSession.bind(coordinator: coordinator, sessionOpener: sessionOpener)
     }
 
+    @discardableResult
+    func abandonTerminal(_ reason: AgentFeedTerminalAbandonmentReason) -> Task<Void, Never>? {
+        terminalSession.abandon(reason)
+    }
+
+    func interruptTerminal(_ interruption: AgentFeedTerminalInterruption) {
+        terminalSession.interrupt(interruption)
+    }
+
     func setTerminalHeightFraction(_ fraction: CGFloat) {
         terminalHeightFraction = min(max(fraction, Self.terminalHeightRange.lowerBound),
                                      Self.terminalHeightRange.upperBound)
@@ -229,10 +253,12 @@ final class AgentFeedSurface: UIView, AgentPanelTransport {
         panelController?.resumeAfterSessionReconnect()
     }
 
-    func teardown() {
-        terminalSession.invalidate()
+    @discardableResult
+    func teardown() -> Task<Void, Never>? {
+        let closeTask = terminalSession.teardown()
         panelController?.teardown()
         panelController = nil
+        return closeTask
     }
 
     // MARK: - AgentPanelTransport

@@ -443,10 +443,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             if let rejection {
                 failMediaSession(rejection: rejection)
             } else {
-                applyHostAvailability(HostAvailabilityPush(
-                    availability: .captureUnavailable,
-                    reason: "media-failed"
-                ))
+                failMediaSession()
             }
         case .closed:
             iceGraceTask?.cancel()
@@ -459,13 +456,29 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     func failMediaSession(rejection: SessionRejected? = nil) {
-        preservesSuspendedSessionSurfaces = false
-        teardownMediaTransport()
-        pairingClient.handleMediaSessionFailed(rejection: rejection)
+        if let rejection {
+            let closeTask = agentTerminalLifecycleRouter.route(
+                .rejection(rejection.reason),
+                to: agentSurface
+            )
+            Task { @MainActor [weak self] in
+                await closeTask?.value
+                guard let self else { return }
+                self.teardownMediaTransport()
+                self.pairingClient.handleMediaSessionFailed(rejection: rejection)
+                self.render()
+            }
+            return
+        }
+
+        preservesSuspendedSessionSurfaces = true
+        teardownMediaTransport(preservingSessionSurfaces: true)
+        pairingClient.handleMediaSessionFailed()
         render()
     }
 
     func suspendMediaTransportForBackground() {
+        agentTerminalLifecycleRouter.route(.background, to: agentSurface)
         mediaTransport?.stop()
         mediaTransport = nil
         mediaDiagnosticsLabel?.text = "media suspended"
@@ -474,9 +487,13 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         }
     }
 
-    func teardownMediaTransport() {
-        preservesSuspendedSessionSurfaces = false
-        teardownAgentSurface()
+    func teardownMediaTransport(preservingSessionSurfaces: Bool = false) {
+        preservesSuspendedSessionSurfaces = preservingSessionSurfaces
+        if preservingSessionSurfaces {
+            agentTerminalLifecycleRouter.route(.transportFailure, to: agentSurface)
+        } else {
+            teardownAgentSurface()
+        }
         mediaTransport?.stop()
         mediaTransport = nil
         videoSink?.view.removeFromSuperview()
@@ -601,7 +618,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // flushes before clearStoredCredentials() closes the channel; if there is no
         // live channel (already disconnected) the host relies on its own liveness.
         let channel = pairingClient.activeInputChannel
+        let terminalCloseTask = agentTerminalLifecycleRouter.route(.forget, to: agentSurface)
         Task { @MainActor [weak self] in
+            await terminalCloseTask?.value
             if let channel {
                 try? await channel.sendRevoke()
             }
@@ -621,13 +640,19 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // closes the session lanes and flips .connected -> .pairedDisconnected without
     // touching stored credentials.
     func disconnectFromHost() {
+        guard !userRequestedDisconnect else { return }
         userRequestedDisconnect = true
         preservesSuspendedSessionSurfaces = false
         cancelSessionAttempt()
         handshakeTask?.cancel()
-        teardownMediaTransport()
-        pairingClient.handleMediaSessionFailed()
-        render()
+        let terminalCloseTask = agentTerminalLifecycleRouter.route(.disconnect, to: agentSurface)
+        Task { @MainActor [weak self] in
+            await terminalCloseTask?.value
+            guard let self else { return }
+            self.teardownMediaTransport()
+            self.pairingClient.handleMediaSessionFailed()
+            self.render()
+        }
     }
 
     // Pairing-screen "Connect": clear the suppress flag and re-attempt the session.
