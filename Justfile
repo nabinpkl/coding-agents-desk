@@ -415,12 +415,23 @@ check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholde
     sh tools/testflight-upload-tests.sh
     (cd packages/AgentDeskWire && swift test)
     (cd packages/WorkspaceKit && swift test)
+    (cd '{{pty_manager_dir}}' && cargo build --bin pty-manager)
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
         DD='{{derived_data}}'; EXTRA=()
     fi
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -derivedDataPath "$DD" ${EXTRA[@]+"${EXTRA[@]}"} build test
+
+# Real coordinator-to-pty-manager lifecycle smoke on an isolated temporary socket.
+# This builds the test daemon in place and never launches either app.
+agent-terminal-integration-test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    (cd '{{pty_manager_dir}}' && cargo build --bin pty-manager)
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost \
+        -derivedDataPath '{{derived_data}}' test \
+        -only-testing:AgentDeskHostTests/AgentSessionTerminalIntegrationTests
 
 # AgentDeskWire package unit tests: the shared wire contract's authoritative
 # round-trip suite (ADR-0050). Also run as the first leg of `check`.
