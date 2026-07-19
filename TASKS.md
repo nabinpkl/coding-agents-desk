@@ -43,7 +43,7 @@ the existing preview overlay.
 
 ## v6 Phase 3: iOS workbench
 
-- [ ] R79. Replace the Files preview overlay with a `WorkspaceWorkbenchSurface` composed from explorer
+- [x] D79. Replace the Files preview overlay with a `WorkspaceWorkbenchSurface` composed from explorer
   and editor children. Add pure per-workspace layout state and persistence. First-use state is sidebar
   visible, editor empty, and terminal visible; the sidebar never overlays the editor. Tests cover
   divider clamping, collapse, workspace restoration, and no viewer reload during resize.
@@ -76,6 +76,7 @@ D74      2026-07-19  landed      workspace workbench and terminal authority deci
 D75      2026-07-19  landed      immutable PTY session creation time and inner protocol v5
 D76      2026-07-19  landed      authenticated workspace-terminal wire contract and protocol v10
 D77-D78  2026-07-19  landed      host workspace resolution, safe handoff, and shared PTY identity
-R79-R80  pending     pending     UIKit workbench and one persistent shell
+D79      2026-07-19  landed      resizable UIKit explorer, empty editor, and persistent pane state
+R80      pending     pending     one persistent shared workspace shell
 R81-R82  pending     pending     automated gates and checkpointed live smoke
 ```

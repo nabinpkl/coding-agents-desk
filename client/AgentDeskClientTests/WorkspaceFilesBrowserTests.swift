@@ -340,7 +340,7 @@ struct WorkspaceFilesBrowserTests {
         ])
         await mock.script(path: "", entries: [file("b.txt", "b.txt")])
         let resumeStore = InMemoryWorkspaceFilesResumeStore(
-            state: WorkspaceFilesResumeState(workspaceID: "w2", filePath: nil)
+            state: WorkspaceFilesResumeState(workspaceID: "w2")
         )
         let browser = WorkspaceFilesBrowser(transport: mock, resumeStore: resumeStore)
 
@@ -351,27 +351,22 @@ struct WorkspaceFilesBrowserTests {
         #expect(await mock.requestedPaths == [""])
     }
 
-    @Test func loadWorkspacesRestoresTheLastOpenedFileForTheRememberedWorkspace() async {
+    @Test func loadWorkspacesRestoresOnlyTheWorkspaceAndLeavesTheEditorEmpty() async {
         let mock = MockFilesRequester()
         await mock.scriptWorkspaces([WorkspaceSummary(id: "w2", name: "Beta")])
         await mock.script(path: "", entries: [dir("src", "src")])
-        await mock.scriptFile(path: "src/main.swift", text: "print(\"restored\")")
         let resumeStore = InMemoryWorkspaceFilesResumeStore(
-            state: WorkspaceFilesResumeState(workspaceID: "w2", filePath: "src/main.swift")
+            state: WorkspaceFilesResumeState(workspaceID: "w2")
         )
         let browser = WorkspaceFilesBrowser(transport: mock, resumeStore: resumeStore)
 
         await browser.loadWorkspaces()
 
         #expect(browser.model.selectedWorkspaceID == "w2")
-        #expect(browser.model.preview == .loaded(
-            path: "src/main.swift",
-            content: .text("print(\"restored\")"),
-            revision: WorkspaceFileRevision(digest: "d")
-        ))
+        #expect(browser.model.preview == nil)
     }
 
-    @Test func selectingAWorkspaceAndOpeningAFileUpdatesResumeState() async {
+    @Test func openingAndClosingAFileDoesNotChangeWorkspaceResumeState() async {
         let mock = MockFilesRequester()
         await mock.script(path: "", entries: [file("README.md", "README.md")])
         await mock.scriptFile(path: "README.md", text: "# Demo")
@@ -379,13 +374,13 @@ struct WorkspaceFilesBrowserTests {
         let browser = WorkspaceFilesBrowser(transport: mock, resumeStore: resumeStore)
 
         await browser.selectWorkspace("w1")
-        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w1", filePath: nil))
+        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w1"))
 
         await browser.openFile(file("README.md", "README.md"))
-        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w1", filePath: "README.md"))
+        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w1"))
 
         browser.closePreview()
-        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w1", filePath: "README.md"))
+        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w1"))
     }
 
     @Test func userDefaultsResumeStateSurvivesStoreRecreation() {
@@ -394,22 +389,18 @@ struct WorkspaceFilesBrowserTests {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        WorkspaceFilesResumeStore(defaults: defaults).state = WorkspaceFilesResumeState(
-            workspaceID: "w2",
-            filePath: "src/main.swift"
-        )
+        defaults.set("src/main.swift", forKey: "agentDesk.workspaceFiles.filePath")
+        WorkspaceFilesResumeStore(defaults: defaults).state = WorkspaceFilesResumeState(workspaceID: "w2")
 
-        #expect(WorkspaceFilesResumeStore(defaults: defaults).state == WorkspaceFilesResumeState(
-            workspaceID: "w2",
-            filePath: "src/main.swift"
-        ))
+        #expect(WorkspaceFilesResumeStore(defaults: defaults).state == WorkspaceFilesResumeState(workspaceID: "w2"))
+        #expect(defaults.string(forKey: "agentDesk.workspaceFiles.filePath") == nil)
     }
 
     @Test func aRememberedWorkspaceThatNoLongerExistsIsDiscarded() async {
         let mock = MockFilesRequester()
         await mock.scriptWorkspaces([WorkspaceSummary(id: "w1", name: "Alpha")])
         let resumeStore = InMemoryWorkspaceFilesResumeStore(
-            state: WorkspaceFilesResumeState(workspaceID: "removed", filePath: "old.txt")
+            state: WorkspaceFilesResumeState(workspaceID: "removed")
         )
         let browser = WorkspaceFilesBrowser(transport: mock, resumeStore: resumeStore)
 
@@ -420,10 +411,10 @@ struct WorkspaceFilesBrowserTests {
         #expect(resumeStore.state == nil)
     }
 
-    @Test func aUserSelectionSupersedesFileRestorationInFlight() async {
+    @Test func aUserSelectionSupersedesWorkspaceRestorationInFlight() async {
         let requester = RestoreRaceRequester()
         let resumeStore = InMemoryWorkspaceFilesResumeStore(
-            state: WorkspaceFilesResumeState(workspaceID: "w2", filePath: "old.swift")
+            state: WorkspaceFilesResumeState(workspaceID: "w2")
         )
         let browser = WorkspaceFilesBrowser(transport: requester, resumeStore: resumeStore)
 
@@ -435,22 +426,7 @@ struct WorkspaceFilesBrowserTests {
 
         #expect(browser.model.selectedWorkspaceID == "w1")
         #expect(await requester.reads == [])
-        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w1", filePath: nil))
-    }
-
-    @Test func aDefinitivelyMissingRememberedFileIsNotRetriedOnTheNextRestore() async {
-        let mock = MockFilesRequester()
-        await mock.scriptWorkspaces([WorkspaceSummary(id: "w2", name: "Beta")])
-        await mock.script(path: "", entries: [])
-        await mock.scriptFileError(path: "removed.swift")
-        let resumeStore = InMemoryWorkspaceFilesResumeStore(
-            state: WorkspaceFilesResumeState(workspaceID: "w2", filePath: "removed.swift")
-        )
-        let browser = WorkspaceFilesBrowser(transport: mock, resumeStore: resumeStore)
-
-        await browser.loadWorkspaces()
-
-        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w2", filePath: nil))
+        #expect(resumeStore.state == WorkspaceFilesResumeState(workspaceID: "w1"))
     }
 
     @Test func loadWorkspacesErrorSurfacesAsFailedInsteadOfBeingSwallowed() async {
@@ -472,7 +448,7 @@ struct WorkspaceFilesBrowserTests {
         await mock.script(path: "", entries: [file("Report.docx", "Report.docx")])
         await mock.scriptDocument(path: "Report.docx", data: Data([0x50, 0x4b, 0x03, 0x04]))
         let browser = makeBrowser(transport: mock)
-        let surface = WorkspaceFilesSurface(browser: browser)
+        let surface = WorkspaceWorkbenchSurface(browser: browser)
 
         await browser.selectWorkspace("w1")
         await browser.openFile(file("Report.docx", "Report.docx"))
@@ -482,15 +458,67 @@ struct WorkspaceFilesBrowserTests {
         let zoomInButton = try #require(surface.control(identifier: "workspace-files-preview-zoom-in"))
         #expect(!zoomOutButton.isHidden)
         #expect(!zoomInButton.isHidden)
-        #expect(zoomOutButton.actions(
-            forTarget: surface,
-            forControlEvent: .touchUpInside
-        ) == ["zoomOutTapped"])
-        #expect(zoomInButton.actions(
-            forTarget: surface,
-            forControlEvent: .touchUpInside
-        ) == ["zoomInTapped"])
+    }
 
+    @Test func resizingTheWorkbenchRetainsTheViewerInstance() async throws {
+        let mock = MockFilesRequester()
+        await mock.script(path: "", entries: [])
+        let browser = makeBrowser(transport: mock)
+        let surface = WorkspaceWorkbenchSurface(browser: browser)
+        surface.frame = CGRect(x: 0, y: 0, width: 844, height: 390)
+        await browser.selectWorkspace("w1")
+        surface.layoutIfNeeded()
+
+        let viewerBefore = try #require(surface.firstDescendant(ofType: WKWebView.self))
+        let sidebarDivider = try #require(
+            surface.control(identifier: "workspace-sidebar-divider")
+        )
+        let terminalDivider = try #require(
+            surface.control(identifier: "workspace-terminal-divider")
+        )
+
+        sidebarDivider.accessibilityIncrement()
+        terminalDivider.accessibilityIncrement()
+        surface.layoutIfNeeded()
+
+        #expect(surface.firstDescendant(ofType: WKWebView.self) === viewerBefore)
+    }
+
+    @Test func workbenchStartsExpandedAndPersistsPaneCollapseForTheWorkspace() async throws {
+        let mock = MockFilesRequester()
+        await mock.script(path: "", entries: [])
+        let browser = makeBrowser(transport: mock)
+        let stateStore = InMemoryWorkspaceWorkbenchStateStore()
+        let surface = WorkspaceWorkbenchSurface(browser: browser, stateStore: stateStore)
+        await browser.selectWorkspace("w1")
+
+        let sidebarDivider = try #require(surface.control(identifier: "workspace-sidebar-divider"))
+        let terminalDivider = try #require(surface.control(identifier: "workspace-terminal-divider"))
+        #expect(!sidebarDivider.isHidden)
+        #expect(!terminalDivider.isHidden)
+
+        let sidebarToggle = try #require(
+            surface.control(identifier: "workspace-sidebar-toggle")
+        )
+        let terminalToggle = try #require(
+            surface.control(identifier: "workspace-terminal-toggle")
+        )
+        #expect(sidebarToggle.actions(
+            forTarget: surface,
+            forControlEvent: .touchUpInside
+        ) == ["toggleSidebarTapped"])
+        #expect(terminalToggle.actions(
+            forTarget: surface,
+            forControlEvent: .touchUpInside
+        ) == ["toggleTerminalTapped"])
+
+        surface.perform(NSSelectorFromString("toggleSidebarTapped"))
+        surface.perform(NSSelectorFromString("toggleTerminalTapped"))
+
+        #expect(sidebarDivider.isHidden)
+        #expect(terminalDivider.isHidden)
+        #expect(stateStore.states["w1"]?.sidebarVisible == false)
+        #expect(stateStore.states["w1"]?.terminalVisible == false)
     }
 
     /// A navigation that happens while a listing is in flight supersedes it: the late response is
@@ -525,6 +553,19 @@ private extension UIView {
     func firstDescendant<View: UIView>(ofType type: View.Type) -> View? {
         if let match = self as? View { return match }
         return subviews.lazy.compactMap { $0.firstDescendant(ofType: type) }.first
+    }
+}
+
+@MainActor
+private final class InMemoryWorkspaceWorkbenchStateStore: WorkspaceWorkbenchStateStoring {
+    private(set) var states: [String: WorkspaceWorkbenchState] = [:]
+
+    func state(for workspaceID: String) -> WorkspaceWorkbenchState {
+        states[workspaceID] ?? WorkspaceWorkbenchState()
+    }
+
+    func setState(_ state: WorkspaceWorkbenchState, for workspaceID: String) {
+        states = states.merging([workspaceID: state]) { _, replacement in replacement }
     }
 }
 

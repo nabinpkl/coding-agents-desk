@@ -9,7 +9,7 @@ enum ControlSurface {
     case agent    // AgentFeedSurface webview
     case browser  // DomMirrorSurface (browser-only DOM path)
     case terminal // SwiftTerm PTY client over the dedicated terminal lane
-    case files    // WorkspaceFilesSurface over the dedicated .files lane
+    case files    // WorkspaceWorkbenchSurface over the dedicated .files lane
 }
 
 // Pure surface -> visibility mapping. `controlChromeHidden` covers the

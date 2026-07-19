@@ -12,7 +12,6 @@ extension WorkspaceFilesTransport: WorkspaceFilesRequesting {}
 
 struct WorkspaceFilesResumeState: Equatable, Sendable {
     let workspaceID: String
-    let filePath: String?
 }
 
 protocol WorkspaceFilesResumeStoring: AnyObject {
@@ -24,7 +23,7 @@ final class WorkspaceFilesResumeStore: WorkspaceFilesResumeStoring, @unchecked S
 
     private enum Key {
         static let workspaceID = "agentDesk.workspaceFiles.workspaceID"
-        static let filePath = "agentDesk.workspaceFiles.filePath"
+        static let legacyFilePath = "agentDesk.workspaceFiles.filePath"
     }
 
     private let defaults: UserDefaults
@@ -36,23 +35,17 @@ final class WorkspaceFilesResumeStore: WorkspaceFilesResumeStoring, @unchecked S
     var state: WorkspaceFilesResumeState? {
         get {
             guard let workspaceID = defaults.string(forKey: Key.workspaceID) else { return nil }
-            return WorkspaceFilesResumeState(
-                workspaceID: workspaceID,
-                filePath: defaults.string(forKey: Key.filePath)
-            )
+            defaults.removeObject(forKey: Key.legacyFilePath)
+            return WorkspaceFilesResumeState(workspaceID: workspaceID)
         }
         set {
             guard let newValue else {
                 defaults.removeObject(forKey: Key.workspaceID)
-                defaults.removeObject(forKey: Key.filePath)
+                defaults.removeObject(forKey: Key.legacyFilePath)
                 return
             }
             defaults.set(newValue.workspaceID, forKey: Key.workspaceID)
-            if let filePath = newValue.filePath {
-                defaults.set(filePath, forKey: Key.filePath)
-            } else {
-                defaults.removeObject(forKey: Key.filePath)
-            }
+            defaults.removeObject(forKey: Key.legacyFilePath)
         }
     }
 }
@@ -103,7 +96,7 @@ final class WorkspaceFilesBrowser {
     }
 
     func selectWorkspace(_ id: String) async {
-        resumeStore.state = WorkspaceFilesResumeState(workspaceID: id, filePath: nil)
+        resumeStore.state = WorkspaceFilesResumeState(workspaceID: id)
         model = model.selectingWorkspace(id)
         onChange?()
         await loadCurrentDirectory()
@@ -118,14 +111,6 @@ final class WorkspaceFilesBrowser {
         model = model.selectingWorkspace(state.workspaceID)
         onChange?()
         await loadCurrentDirectory()
-        guard model.selectedWorkspaceID == state.workspaceID, resumeStore.state == state else { return }
-        if let filePath = state.filePath, !filePath.isEmpty {
-            await openFile(WorkspaceDirectoryEntry(
-                name: (filePath as NSString).lastPathComponent,
-                path: filePath,
-                isDirectory: false
-            ), workspaceID: state.workspaceID)
-        }
     }
 
     func enter(_ entry: WorkspaceDirectoryEntry) async {
@@ -151,7 +136,6 @@ final class WorkspaceFilesBrowser {
 
     private func openFile(_ entry: WorkspaceDirectoryEntry, workspaceID: String) async {
         guard !entry.isDirectory, model.selectedWorkspaceID == workspaceID else { return }
-        resumeStore.state = WorkspaceFilesResumeState(workspaceID: workspaceID, filePath: entry.path)
         model = model.openingFile(entry)
         onChange?()
         let previewGeneration = model.previewGeneration
@@ -159,21 +143,11 @@ final class WorkspaceFilesBrowser {
             let response = try await transport.request(
                 .read(requestID: makeRequestID(), workspaceID: workspaceID, path: entry.path)
             )
-            if case .error = response {
-                clearRememberedFile(workspaceID: workspaceID, path: entry.path)
-            }
             applyPreview(response, previewGeneration: previewGeneration)
         } catch {
             model = model.previewFailed(previewGeneration: previewGeneration, message: message(for: error))
             onChange?()
         }
-    }
-
-    private func clearRememberedFile(workspaceID: String, path: String) {
-        guard resumeStore.state == WorkspaceFilesResumeState(workspaceID: workspaceID, filePath: path) else {
-            return
-        }
-        resumeStore.state = WorkspaceFilesResumeState(workspaceID: workspaceID, filePath: nil)
     }
 
     func closePreview() {

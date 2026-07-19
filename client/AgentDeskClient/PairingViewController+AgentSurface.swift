@@ -85,8 +85,8 @@ extension PairingViewController {
         set { objc_setAssociatedObject(self, &Keys.surfaceSegmentedControl, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    var filesSurface: WorkspaceFilesSurface? {
-        get { objc_getAssociatedObject(self, &Keys.filesSurface) as? WorkspaceFilesSurface }
+    var filesSurface: WorkspaceWorkbenchSurface? {
+        get { objc_getAssociatedObject(self, &Keys.filesSurface) as? WorkspaceWorkbenchSurface }
         set { objc_setAssociatedObject(self, &Keys.filesSurface, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
@@ -476,8 +476,8 @@ extension PairingViewController {
     }
 
     // Idempotent: opens the .files lane, builds the browser + surface, and loads the workspace list.
-    // The browser restores the last valid workspace and file; without history it stays on the picker
-    // so all workspaces remain reachable. The lane is available on any active session, so unlike
+    // The browser restores the last valid workspace but deliberately starts with an empty editor;
+    // without history it stays on the picker. The lane is available on any active session, so unlike
     // Browser this needs no capability gate. The loading flag guards against rapid segment taps.
     func ensureFilesSurface() {
         guard filesSurface == nil, !filesSurfaceLoading else { return }
@@ -495,7 +495,7 @@ extension PairingViewController {
                     return
                 }
                 let browser = WorkspaceFilesBrowser(transport: transport)
-                let surface = WorkspaceFilesSurface(browser: browser)
+                let surface = WorkspaceWorkbenchSurface(browser: browser)
                 surface.translatesAutoresizingMaskIntoConstraints = false
                 surface.isHidden = self.activeControlSurface != .files
                 self.view.addSubview(surface)
