@@ -2,6 +2,7 @@ import AppKit
 import os
 import AgentDeskWire
 import AgentPanel
+import PtyClientSwift
 
 /// A key-able panel that hosts the agent webview without the `LSUIElement` app ever activating. Like
 /// `WorkspaceShellPanel`, it is nonactivating so the menu bar stays with the frontmost app, but can
@@ -14,11 +15,10 @@ private final class AgentPanelWindow: NSPanel {
 }
 
 /// The macOS Agents window (R24): one reusable Agent surface hosted directly on the Mac, backed by
-/// the host-owned ATC sidecar through `AgentPanel`. It wraps an `AgentPanelWebViewController` (the
-/// same surface the iOS feed uses) and an `AgentFeedBridge` whose push closure delivers straight
-/// into the local webview instead of down a QUIC lane. Requests flow webview -> `AgentPanelBridge
-/// Transport` -> `bridge.handle*` -> sidecar, and pushes flow sidecar -> `bridge.send` -> webview,
-/// so the Mac window and the phone share one bridge and one wire contract.
+/// the host-owned ATC sidecar through `AgentPanel`. It composes the shared webview above an optional
+/// native SwiftTerm pane and routes both through host-owned bridges. Feed requests flow webview ->
+/// `AgentPanelBridgeTransport` -> `AgentFeedBridge` -> sidecar. Terminal intent flows through the
+/// local Agent-session coordinator and attaches the deterministic leased PTY below the shrinking feed.
 @MainActor
 final class AgentWindowController: NSObject, NSWindowDelegate {
     static let windowIdentifier = "agentdesk-agents-window"
@@ -26,15 +26,25 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
     static let unavailableAccessibilityIdentifier = "agents-unavailable"
 
     private let sidecarClient: any SidecarClient
+    private let localTerminalEndpoint: AgentSessionTerminalEndpoint?
+    private let terminalPtyClient: PtyClient?
     private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-window")
 
     private var window: NSWindow?
     private var panelController: AgentPanelWebViewController?
     private var transport: AgentPanelBridgeTransport?
     private var bridge: AgentFeedBridge?
+    private var splitView: AgentWindowSplitView?
+    private var terminalController: AgentWindowTerminalController?
 
-    init(sidecarClient: any SidecarClient) {
+    init(
+        sidecarClient: any SidecarClient,
+        localTerminalEndpoint: AgentSessionTerminalEndpoint? = nil,
+        terminalPtyClient: PtyClient? = nil
+    ) {
         self.sidecarClient = sidecarClient
+        self.localTerminalEndpoint = localTerminalEndpoint
+        self.terminalPtyClient = terminalPtyClient
         super.init()
     }
 
@@ -105,6 +115,8 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
         panelController = nil
         transport = nil
         bridge = nil
+        splitView = nil
+        terminalController = nil
     }
 
     private func build() {
@@ -122,19 +134,58 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
                     self?.panelController?.deliver(rawJSON: json)
                 }
             })
-            let transport = AgentPanelBridgeTransport(bridge: bridge)
-            controller.transport = transport
-
             self.panelController = controller
             self.bridge = bridge
-            self.transport = transport
 
             let webView = controller.webView
             webView.setAccessibilityIdentifier(Self.webViewAccessibilityIdentifier)
-            window.contentView = webView
+
+            if let localTerminalEndpoint, let terminalPtyClient {
+                let terminalController = AgentWindowTerminalController(
+                    endpoint: LocalAgentSessionTerminalEndpointRouter(
+                        endpoint: localTerminalEndpoint
+                    ),
+                    attacher: PtyClientAgentWindowTerminalAttacher(client: terminalPtyClient),
+                    setTerminalOpen: { [weak self] open in
+                        self?.splitView?.setTerminalOpen(open)
+                    },
+                    deliverStatus: { [weak self] message in
+                        self?.deliverTerminalStatus(message)
+                    }
+                )
+                let splitView = AgentWindowSplitView(
+                    feedView: webView,
+                    terminalView: terminalController.contentView
+                )
+                self.splitView = splitView
+                self.terminalController = terminalController
+                window.contentView = splitView
+            } else {
+                window.contentView = webView
+            }
+
+            let transport = AgentPanelBridgeTransport(
+                bridge: bridge,
+                onTerminalIntent: { [weak self] intent in
+                    self?.terminalController?.handle(intent)
+                }
+            )
+            controller.transport = transport
+            self.transport = transport
         } catch {
             logger.error("agents-window: AgentPanel init failed: \(String(describing: error), privacy: .public)")
             window.contentView = makeUnavailableView()
+        }
+    }
+
+    private func deliverTerminalStatus(_ message: AgentTerminalHostMessage) {
+        do {
+            let data = try JSONEncoder().encode(message)
+            panelController?.deliver(rawJSON: String(decoding: data, as: UTF8.self))
+        } catch {
+            logger.error(
+                "agents-window terminal status encode failed: \(String(describing: error), privacy: .public)"
+            )
         }
     }
 

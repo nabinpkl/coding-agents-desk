@@ -421,7 +421,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // toggle that arrives while the sidecar is mid-restart fails transiently rather than for good.
         let sidecar = agentEngineSidecar
         let agentWindow = AgentWindowController(
-            sidecarClient: HttpSidecarClient(baseURLProvider: { [weak sidecar] in sidecar?.baseURL })
+            sidecarClient: HttpSidecarClient(baseURLProvider: { [weak sidecar] in sidecar?.baseURL }),
+            localTerminalEndpoint: localAgentSessionTerminalEndpoint,
+            terminalPtyClient: PtyManagerSocketClient.makeClient()
         )
         agentWindowController = agentWindow
         presenter.onAgentsCommand = { [weak agentWindow] in agentWindow?.toggle() }
