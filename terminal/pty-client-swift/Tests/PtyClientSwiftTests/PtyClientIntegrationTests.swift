@@ -14,13 +14,16 @@ final class PtyClientIntegrationTests: XCTestCase {
         manager.executableURL = root.appendingPathComponent("terminal/pty-manager/target/debug/pty-manager")
         manager.arguments = ["--socket", socket.path]
         manager.standardOutput = Pipe()
-        manager.standardError = Pipe()
+        let managerError = Pipe()
+        manager.standardError = managerError
         try manager.run()
         defer {
-            manager.terminate()
-            manager.waitUntilExit()
+            if manager.isRunning {
+                manager.terminate()
+                manager.waitUntilExit()
+            }
         }
-        try await waitForSocket(socket.path)
+        try await waitForSocket(socket.path, manager: manager, errorPipe: managerError)
 
         let client = PtyClient(socketPath: socket.path)
         var snapshots = client.sessionSnapshots().makeAsyncIterator()
@@ -61,6 +64,7 @@ final class PtyClientIntegrationTests: XCTestCase {
         XCTAssertEqual(created.first?.clients.first?.title, "integration")
         XCTAssertEqual(created.first?.clients.first?.id, attachedClientID)
         XCTAssertEqual(created.first?.lifetime, .persistent)
+        XCTAssertGreaterThan(created.first?.startedAtUnixMilliseconds ?? 0, 0)
     }
 
     private func repoRoot() -> URL {
@@ -83,15 +87,34 @@ final class PtyClientIntegrationTests: XCTestCase {
         XCTAssertEqual(process.terminationStatus, 0)
     }
 
-    private func waitForSocket(_ socketPath: String) async throws {
+    private func waitForSocket(
+        _ socketPath: String,
+        manager: Process,
+        errorPipe: Pipe
+    ) async throws {
         for _ in 0..<100 {
             if let transport = try? UnixSocketPtyTransport(socketPath: socketPath) {
                 transport.close()
                 return
             }
+            if !manager.isRunning {
+                let error = String(
+                    decoding: errorPipe.fileHandleForReading.readDataToEndOfFile(),
+                    as: UTF8.self
+                )
+                throw NSError(
+                    domain: "PtyClientIntegrationTests",
+                    code: Int(manager.terminationStatus),
+                    userInfo: [NSLocalizedDescriptionKey: "pty manager exited: \(error)"]
+                )
+            }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTFail("pty manager did not create socket")
+        throw NSError(
+            domain: "PtyClientIntegrationTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "pty manager did not create socket"]
+        )
     }
 
     private func nextSnapshot(

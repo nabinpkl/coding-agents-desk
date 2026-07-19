@@ -5,8 +5,8 @@ use pty_manager::protocol::{
 };
 
 #[test]
-fn protocol_version_is_four() {
-    assert_eq!(PROTOCOL_VERSION, 4);
+fn protocol_version_is_five() {
+    assert_eq!(PROTOCOL_VERSION, 5);
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn envelope_roundtrips_command_launch_argument_boundaries_and_leased_lifetime() 
 }
 
 #[test]
-fn session_summary_roundtrips_lifetime() {
+fn session_summary_roundtrips_lifetime_and_creation_time() {
     let original = envelope(
         9,
         "",
@@ -89,6 +89,7 @@ fn session_summary_roundtrips_lifetime() {
                 state: SessionState::Running as i32,
                 clients: Vec::new(),
                 lifetime: SessionLifetime::Persistent as i32,
+                started_at_unix_milliseconds: 1_721_344_000_123,
             }],
         }),
     );
@@ -98,6 +99,10 @@ fn session_summary_roundtrips_lifetime() {
         panic!("expected session list");
     };
     assert_eq!(list.sessions[0].lifetime(), SessionLifetime::Persistent);
+    assert_eq!(
+        list.sessions[0].started_at_unix_milliseconds,
+        1_721_344_000_123
+    );
 }
 
 #[test]

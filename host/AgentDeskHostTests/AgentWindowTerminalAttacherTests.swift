@@ -114,6 +114,7 @@ struct AgentWindowTerminalAttacherTests {
             pid: pid,
             state: state,
             lifetime: lifetime,
+            startedAtUnixMilliseconds: 1_721_344_000_123,
             clients: []
         )
     }

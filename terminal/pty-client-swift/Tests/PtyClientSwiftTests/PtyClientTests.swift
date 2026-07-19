@@ -14,6 +14,7 @@ final class PtyClientTests: XCTestCase {
                     $0.pid = 42
                     $0.state = .running
                     $0.lifetime = .persistent
+                    $0.startedAtUnixMilliseconds = 1_721_344_000_123
                     $0.clients = [
                         .with {
                             $0.id = 10
@@ -39,6 +40,7 @@ final class PtyClientTests: XCTestCase {
                 pid: 42,
                 state: .running,
                 lifetime: .persistent,
+                startedAtUnixMilliseconds: 1_721_344_000_123,
                 clients: [
                     PtySessionClientSummary(id: 10, title: "first"),
                     PtySessionClientSummary(id: 11, title: "second"),

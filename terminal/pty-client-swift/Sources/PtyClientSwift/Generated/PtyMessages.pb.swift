@@ -473,7 +473,7 @@ nonisolated extension Pty_V1_SessionSnapshot: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".SessionSummary"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}cwd\0\u{1}shell\0\u{1}pid\0\u{1}state\0\u{1}clients\0\u{1}lifetime\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}cwd\0\u{1}shell\0\u{1}pid\0\u{1}state\0\u{1}clients\0\u{1}lifetime\0\u{3}started_at_unix_milliseconds\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -488,6 +488,7 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
       case 5: try { try decoder.decodeSingularEnumField(value: &self.state) }()
       case 6: try { try decoder.decodeRepeatedMessageField(value: &self.clients) }()
       case 7: try { try decoder.decodeSingularEnumField(value: &self.lifetime) }()
+      case 8: try { try decoder.decodeSingularUInt64Field(value: &self.startedAtUnixMilliseconds) }()
       default: break
       }
     }
@@ -515,6 +516,9 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
     if self.lifetime != .unspecified {
       try visitor.visitSingularEnumField(value: self.lifetime, fieldNumber: 7)
     }
+    if self.startedAtUnixMilliseconds != 0 {
+      try visitor.visitSingularUInt64Field(value: self.startedAtUnixMilliseconds, fieldNumber: 8)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -526,6 +530,7 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
     if lhs.state != rhs.state {return false}
     if lhs.clients != rhs.clients {return false}
     if lhs.lifetime != rhs.lifetime {return false}
+    if lhs.startedAtUnixMilliseconds != rhs.startedAtUnixMilliseconds {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

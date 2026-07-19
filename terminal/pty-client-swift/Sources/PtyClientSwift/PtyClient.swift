@@ -2,7 +2,7 @@ import Foundation
 import SwiftProtobuf
 
 public final class PtyClient {
-    public static let protocolVersion: UInt32 = 4
+    public static let protocolVersion: UInt32 = 5
 
     private let makeTransport: () throws -> PtyTransport
 
@@ -191,6 +191,7 @@ private extension PtySessionSummary {
             pid: proto.pid,
             state: .init(proto: proto.state),
             lifetime: try .init(proto: proto.lifetime),
+            startedAtUnixMilliseconds: proto.startedAtUnixMilliseconds,
             clients: proto.clients.map(PtySessionClientSummary.init(proto:))
         )
     }

@@ -23,8 +23,8 @@ the existing preview overlay.
 
 ## v6 Phase 1: terminal identity and wire contract
 
-- [ ] R75. Extend the in-tree PTY protocol and both generated clients with immutable session creation
-  time, bump the inner protocol to v5, and test deterministic newest-running-session selection.
+- [x] D75. Extend the in-tree PTY protocol and both generated clients with immutable session creation
+  time, bump the inner protocol to v5, and test that reattach preserves it while recreation replaces it.
 - [ ] R76. Add workspace-terminal open, ready, attached, cancel, and typed-error messages to
   `AgentDeskWire`; route them on the authenticated input lane and bump the session protocol to v10.
   Tests pin compact encoding, stale request fencing, and v9 rejection.
@@ -73,7 +73,8 @@ the existing preview overlay.
 
 ```
 D74      2026-07-19  landed      workspace workbench and terminal authority decision
-R75-R76  pending     pending     PTY recency and AgentDesk wire contracts
+D75      2026-07-19  landed      immutable PTY session creation time and inner protocol v5
+R76      pending     pending     AgentDesk workspace-terminal wire contract
 R77-R78  pending     pending     host workspace terminal selection and shared identity
 R79-R80  pending     pending     UIKit workbench and one persistent shell
 R81-R82  pending     pending     automated gates and checkpointed live smoke

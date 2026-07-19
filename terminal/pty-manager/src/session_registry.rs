@@ -12,6 +12,7 @@ pub struct SessionRecord {
     pub shell: String,
     pub pid: u32,
     pub lifetime: SessionLifetime,
+    pub started_at_unix_milliseconds: u64,
     pub state: SessionLifecycle,
 }
 
@@ -38,6 +39,7 @@ impl SessionRegistry {
         shell: impl Into<String>,
         pid: u32,
         lifetime: SessionLifetime,
+        started_at_unix_milliseconds: u64,
     ) -> Result<bool> {
         validate_session_name(name)?;
         if let Some(existing) = self.sessions.get(name) {
@@ -54,6 +56,7 @@ impl SessionRegistry {
                 shell: shell.into(),
                 pid,
                 lifetime,
+                started_at_unix_milliseconds,
                 state: SessionLifecycle::Running,
             },
         );
@@ -93,6 +96,7 @@ impl SessionRegistry {
                     .cloned()
                     .unwrap_or_default(),
                 lifetime: record.lifetime as i32,
+                started_at_unix_milliseconds: record.started_at_unix_milliseconds,
             })
             .collect()
     }

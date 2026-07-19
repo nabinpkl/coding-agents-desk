@@ -14,6 +14,7 @@ fn ensure_running_creates_once_and_lists_supplied_clients() {
             "/bin/zsh",
             42,
             SessionLifetime::Persistent,
+            1_000,
         )
         .expect("create"));
     assert!(!registry
@@ -23,6 +24,7 @@ fn ensure_running_creates_once_and_lists_supplied_clients() {
             "/bin/bash",
             100,
             SessionLifetime::Leased,
+            2_000,
         )
         .expect("reuse"));
 
@@ -48,6 +50,7 @@ fn ensure_running_creates_once_and_lists_supplied_clients() {
     assert_eq!(sessions[0].shell, "/bin/zsh");
     assert_eq!(sessions[0].pid, 42);
     assert_eq!(sessions[0].lifetime(), SessionLifetime::Persistent);
+    assert_eq!(sessions[0].started_at_unix_milliseconds, 1_000);
     assert_eq!(sessions[0].clients.len(), 2);
     assert_eq!(sessions[0].clients[1].title, "right");
 }
@@ -62,6 +65,7 @@ fn exited_sessions_are_not_listed_and_can_be_recreated() {
             "/bin/zsh",
             42,
             SessionLifetime::Persistent,
+            3_000,
         )
         .expect("create");
 
@@ -69,7 +73,14 @@ fn exited_sessions_are_not_listed_and_can_be_recreated() {
 
     assert!(registry.list(&BTreeMap::new()).is_empty());
     assert!(registry
-        .ensure_running("main", "/tmp/new", "/bin/sh", 100, SessionLifetime::Leased)
+        .ensure_running(
+            "main",
+            "/tmp/new",
+            "/bin/sh",
+            100,
+            SessionLifetime::Leased,
+            4_000,
+        )
         .expect("recreate"));
 
     let sessions = registry.list(&BTreeMap::new());
@@ -79,6 +90,7 @@ fn exited_sessions_are_not_listed_and_can_be_recreated() {
     assert_eq!(sessions[0].shell, "/bin/sh");
     assert_eq!(sessions[0].pid, 100);
     assert_eq!(sessions[0].lifetime(), SessionLifetime::Leased);
+    assert_eq!(sessions[0].started_at_unix_milliseconds, 4_000);
     assert!(sessions[0].clients.is_empty());
 }
 
@@ -92,6 +104,7 @@ fn remove_returns_record_and_drops_only_selected_session() {
             "/bin/zsh",
             42,
             SessionLifetime::Persistent,
+            5_000,
         )
         .expect("main");
     registry
@@ -101,6 +114,7 @@ fn remove_returns_record_and_drops_only_selected_session() {
             "/bin/zsh",
             43,
             SessionLifetime::Persistent,
+            6_000,
         )
         .expect("server");
 

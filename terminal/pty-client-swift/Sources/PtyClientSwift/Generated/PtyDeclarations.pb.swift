@@ -484,6 +484,8 @@ nonisolated struct Pty_V1_SessionSummary: Sendable {
 
   var lifetime: Pty_V1_SessionLifetime = .unspecified
 
+  var startedAtUnixMilliseconds: UInt64 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}

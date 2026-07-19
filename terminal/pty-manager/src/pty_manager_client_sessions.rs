@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
@@ -226,6 +226,7 @@ pub(crate) async fn create_or_attach(
             pty.shell.clone(),
             pty.pid,
             lifetime,
+            unix_time_milliseconds(),
         )?;
         state.sessions.insert(
             session_name.to_owned(),
@@ -275,6 +276,14 @@ pub(crate) async fn create_or_attach(
     ));
 
     Ok(())
+}
+
+fn unix_time_milliseconds() -> u64 {
+    let milliseconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    u64::try_from(milliseconds).unwrap_or(u64::MAX)
 }
 
 fn explicit_lifetime(value: i32) -> Result<SessionLifetime> {

@@ -97,6 +97,7 @@ message SessionSummary {
   SessionState state = 5;
   repeated ClientSummary clients = 6;
   SessionLifetime lifetime = 7;
+  uint64 started_at_unix_milliseconds = 8;
 }
 
 message ClientSummary {

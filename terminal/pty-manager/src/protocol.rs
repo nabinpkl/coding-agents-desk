@@ -3,7 +3,7 @@ use prost::Message;
 
 use crate::error::{Result, TerminalError};
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 
 pub mod generated {
     include!(concat!(env!("OUT_DIR"), "/pty.v1.rs"));

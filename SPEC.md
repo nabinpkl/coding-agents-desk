@@ -229,7 +229,7 @@ material.
 
 Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. Protocol v8 is required because the Files role changed from JSON text-only bodies to binary property-list bodies with native document bytes. Protocol v9 is required because cursor inputs now carry revisions and cursor feedback has distinct applied and host-moved frames. Protocol v10 is required because the iOS workbench coordinates a host-authorized workspace terminal on the input lane. Older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
 
-Terminal PTY frames travel over the reliable ordered `.terminal` stream as opaque PTY protobuf envelopes from AgentDesk's `terminal/pty-client-swift` and `terminal/pty-manager` pair (moved in-tree under ADR-0053). The v6 target is inner protocol v5. Protocol v4 added explicit launch and lifetime semantics; R75 adds immutable session creation time in protocol v5 so workspace-terminal fallback is deterministic. There is no compatibility path for older inner protocols after that bump lands:
+Terminal PTY frames travel over the reliable ordered `.terminal` stream as opaque PTY protobuf envelopes from AgentDesk's `terminal/pty-client-swift` and `terminal/pty-manager` pair (moved in-tree under ADR-0053). Both checked-in implementations enforce inner protocol v5. Protocol v4 added explicit launch and lifetime semantics; protocol v5 adds immutable session creation time so workspace-terminal fallback is deterministic. There is no compatibility path for older inner protocols:
 
 ```
 Terminal stream body = UInt32BE ptyFrameLength || Envelope {
