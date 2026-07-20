@@ -152,8 +152,10 @@
     }
 
     function setStatus(message) {
-      statusEl.textContent = message || '';
-      statusEl.hidden = !message;
+      var status = message || '';
+      statusEl.textContent = status;
+      statusEl.setAttribute('aria-label', status || 'Projection status');
+      statusEl.hidden = !status;
     }
 
     function setReadout(id, value) {

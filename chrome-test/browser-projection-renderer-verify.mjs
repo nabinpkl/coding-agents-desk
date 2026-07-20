@@ -122,6 +122,7 @@ try {
   restrictedWindows[1].tabs[1].active = true;
   await page.evaluate((snapshot) => window.__browserProjectionDeliver(snapshot), state(3, 2, restrictedWindows));
   assert((await page.locator('#browser-projection-content-status').textContent()).includes('cannot be projected'), 'restricted tab replaces prior page with a placeholder');
+  assert((await page.locator('#browser-projection-content-status').getAttribute('aria-label')).includes('cannot be projected'), 'restricted placeholder exposes its status through AX');
   assert((await page.locator('#browser-projection-page-marker').inputValue()) === '', 'restricted state clears the prior page marker');
   assert(!(await page.locator('body').getAttribute('class')).includes('page-active'), 'restricted state disables the page input overlay');
 
