@@ -44,6 +44,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 14. On iPhone, browse the same registered workspace roots, preview files, edit UTF-8 text, and save only when the host revision still matches.
 15. On macOS, inspect running apps by Desktop in the bottom Dock-enrichment strip and transactionally swap the ordinary window contents of two existing Desktops, with a short conservative Undo.
 16. Open a separate Workspace IDE on macOS or iPhone with the same Explorer, read-only Source Control, shared open tabs, file editor/viewer, and a native terminal rooted at the selected workspace. Tab membership and expanded folders synchronize through the host while each device keeps its own active tab, selected workspace, pane layout, drafts, and cursor positions.
+17. Open a local macOS Browser Projection window showing every normal Chrome window, the selected window's ordered tabs, and one reconstructed active page. AgentDesk may select a projected window without raising Chrome and may activate a tab without focusing its Chrome window. The iPhone Browser surface remains page-only.
 
 ## What v0 is not
 
@@ -53,6 +54,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 - **Not internet-routable.** Tailscale-only. No STUN, no TURN, no VPS, no relay.
 - **Not cross-platform.** macOS host and iOS client only. No Android, no web, no Windows host.
 - **No arbitrary filesystem or bulk file-transfer surface.** Files are exposed only through registered workspace roots. The iPhone file lane supports bounded UTF-8 browse, read, and revision-checked write operations, not downloads from unrelated host paths. Clipboard sync and remote audio remain out of scope. One host-local exception remains the push-to-talk dictation bar (ADR-0010).
+- **No Chrome management surface.** Browser Projection does not create, close, reorder, pin, group, navigate, reload, resize, move, or focus Chrome windows. It selects only an existing projected window or an existing tab.
 
 ## Explicitly deferred
 

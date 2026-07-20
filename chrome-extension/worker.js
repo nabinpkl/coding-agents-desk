@@ -14,7 +14,12 @@
 // Swift client) and inflated only in the replay webview. This is the fix for heavy pages: a raw
 // masked FullSnapshot can exceed the host's 2 MB line cap, but compressed it is tens of KB. A still-
 // oversized compressed batch (>~15 MB raw) is chunked into cid/seq/total parts, each a normal line.
-importScripts('vendor/fflate.min.js', 'cdp-reconstruct.js');
+importScripts(
+  'vendor/fflate.min.js',
+  'cdp-reconstruct.js',
+  'browser-session.js',
+  'browser-metadata.js'
+);
 
 const NATIVE_HOST = 'com.example.agentdesk.agentdesk.dom_bridge';
 
@@ -22,6 +27,7 @@ const NATIVE_HOST = 'com.example.agentdesk.agentdesk.dom_bridge';
 // host's 2 MB newline-frame cap. ~15 MB of raw events is needed to reach this after deflate.
 const CHUNK_LIMIT = 1_500_000; // base64 chars per part
 let nextChunkId = 0;
+let browserSession = AgentDeskBrowserSession.createSession();
 
 // btoa over a large String.fromCharCode(...bytes) overflows the call stack, so encode in 32 KB
 // windows. Input is fflate.zlibSync output (a Uint8Array of raw deflate/zlib bytes).
@@ -65,13 +71,11 @@ function postCompressed(p, extra, str) {
 }
 
 let port = null;
-// The tab currently being recorded; input from the phone is dispatched here (single-tab v1).
-let recordingTabId = null;
 // The tab chrome.debugger is currently attached to (one debuggee per tab; shows the debug banner).
 let attachedTabId = null;
 // ADR-0045: the client paused capture because the phone's Browser surface is not in view. We stop
-// the rrweb recorder to save CPU at the source but KEEP recordingTabId so resume restarts the same
-// tab (unlike stopTabRecording, which ends the session and clears the tab).
+// the rrweb recorder to save CPU at the source but keep the selected projection target so resume
+// restarts the same tab (unlike ending the projection session, which clears the target).
 let capturePaused = false;
 // ADR-0048: whether the recording tab is currently device-emulated (true mobile). This is the
 // AUTHORITATIVE emulation state; it is stamped onto every batch (`em`) so the client's Desktop|Mobile
@@ -106,12 +110,16 @@ function ensurePort() {
     // ADR-0045: host -> extension capture pause/resume, driven by the phone's Browser surface
     // visibility. `on: false` pauses the recorder; `on: true` resumes it (fresh full snapshot).
     if (msg.t === 'dom-capture') { setCapturePaused(!msg.on); return; }
+    if (msg.t === 'browser-state-request') { enqueueSessionMutation(requestBrowserState); return; }
+    if (msg.t === 'browser-select-window') { enqueueSessionMutation(() => selectProjectedWindow(msg)); return; }
+    if (msg.t === 'browser-select-tab') { enqueueSessionMutation(() => selectProjectedTab(msg)); return; }
   });
   port.onDisconnect.addListener(() => {
     const err = chrome.runtime.lastError;
     console.warn('[agentdesk] native port disconnected', err && err.message);
     port = null; // reconnect lazily on the next batch
   });
+  if (browserSession.enabled) setTimeout(() => enqueueSessionMutation(() => refreshBrowserProjection()), 0);
   return port;
 }
 
@@ -146,7 +154,7 @@ async function ensureAttached(tabId) {
 // ADR-0040: dispatch a trusted click at the given page CSS-pixel coordinates. isTrusted input that
 // every site honors, unlike synthetic events. The debug banner is the visible cost.
 async function dispatchInput(cmd) {
-  const tabId = recordingTabId;
+  const tabId = browserSession.recordedTabId;
   if (tabId == null) return;
   if (!(await ensureAttached(tabId))) return;
   // ADR-0044 Tier B is OPT-IN ONLY (popup "High fidelity"). We do NOT auto-upgrade on tap: the CDP
@@ -155,7 +163,7 @@ async function dispatchInput(cmd) {
   const target = { tabId };
   // Defense-in-depth (ADR-0040): clamp to finite, non-negative coordinates before dispatch, so a
   // compromised/buggy client cannot probe negative or non-finite points. CDP already ignores points
-  // outside the viewport; the blast radius is bounded to recordingTabId regardless.
+  // outside the viewport; the blast radius is bounded to the recorded projection tab regardless.
   const clamp = (v) => (Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0);
   const base = { x: clamp(cmd.x), y: clamp(cmd.y), button: 'left', clickCount: 1 };
   try {
@@ -182,9 +190,9 @@ async function dispatchInput(cmd) {
 // Sign: a wheel's deltaY is the opposite of touch-drag intent (positive deltaY scrolls the page DOWN,
 // scrollY increases), so we NEGATE the finger delta to make content follow the finger: finger down
 // (dy>0) -> deltaY<0 -> scrollY decreases -> content moves down with the finger. The real page scrolls
-// and streams back through rrweb; no content-script change. Dispatch bounded to recordingTabId.
+// and streams back through rrweb; no content-script change. Dispatch is bounded to the recorded tab.
 async function dispatchScroll(cmd) {
-  const tabId = recordingTabId;
+  const tabId = browserSession.recordedTabId;
   if (tabId == null) return;
   const tAttach0 = performance.now();
   if (!(await ensureAttached(tabId))) return;
@@ -213,9 +221,9 @@ async function dispatchScroll(cmd) {
 // debugger attachment. Emulation only changes the tab's metrics; it does not re-serialize the DOM, so
 // after applying it we ask the isolated recorder to take a fresh full snapshot -- the next flush emits
 // a checkout batch with the new meta.w/h (the emulated viewport), and the mirror repaints to the true
-// mobile layout because the REAL page ran its own mobile code path. Bounded to recordingTabId.
+// mobile layout because the REAL page ran its own mobile code path. Bounded to the recorded tab.
 async function setDeviceEmulation(mobile) {
-  const tabId = recordingTabId;
+  const tabId = browserSession.recordedTabId;
   if (tabId == null) return;
   if (!(await ensureAttached(tabId))) return;
   try {
@@ -279,7 +287,8 @@ let cdpTimer = null;
 // file is require()'d by the cdp-verify test so the masking reconstruction is exercised as real code.
 
 async function captureCdpSnapshot() {
-  const tabId = recordingTabId;
+  const tabId = browserSession.recordedTabId;
+  const generation = browserSession.generation;
   if (tabId == null || !cdpMode) return;
   if (!(await ensureAttached(tabId))) return;
   let snap, metrics;
@@ -293,22 +302,29 @@ async function captureCdpSnapshot() {
   const vp = (metrics && (metrics.cssLayoutViewport || metrics.layoutViewport)) || {};
   let html;
   try { html = reconstructMaskedHtml(snap); } catch (e) { console.error('[agentdesk] cdp reconstruct failed', e && e.message); return; }
+  if (!AgentDeskBrowserSession.acceptsBatch(browserSession, tabId, generation)) return;
   const p = ensurePort();
   if (!p) return;
   // k:'cdp' + full-keyframe (co:true). w/h let the replay size the frame for tap mapping.
-  postCompressed(p, { t: 'dom-batch', tb: tabId, co: true, k: 'cdp', w: vp.clientWidth || 0, h: vp.clientHeight || 0 }, html);
+  postCompressed(p, {
+    t: 'dom-batch', tb: tabId, g: generation,
+    co: true, k: 'cdp', w: vp.clientWidth || 0, h: vp.clientHeight || 0
+  }, html);
 }
 
 function maybeStartCdp() {
-  if (!cdpMode || recordingTabId == null || cdpTimer) return;
+  if (!cdpMode || browserSession.recordedTabId == null || cdpTimer) return;
   captureCdpSnapshot();
   cdpTimer = setInterval(captureCdpSnapshot, CDP_POLL_MS);
 }
 
 function stopCdp(notify) {
   if (cdpTimer) { clearInterval(cdpTimer); cdpTimer = null; }
-  if (notify && port && recordingTabId != null) {
-    try { port.postMessage({ t: 'dom-batch', tb: recordingTabId, co: false, k: 'cdp-off' }); } catch (e) {}
+  if (notify && port && browserSession.recordedTabId != null) {
+    try { port.postMessage({
+      t: 'dom-batch', tb: browserSession.recordedTabId, g: browserSession.generation,
+      co: false, k: 'cdp-off'
+    }); } catch (e) {}
   }
 }
 
@@ -322,10 +338,9 @@ function setCdpMode(on, userSet) {
   else if (was) stopCdp(true);
 }
 
-// --- Chrome-layer recording controls (ADR-0042) ---
-// Start/stop drive the isolated-world recorder by messaging the content script. recordingTabId is the
-// single-tab-v1 target for ADR-0040 tap dispatch. These are top-level so a test can invoke them in
-// the service worker via Playwright's sw.evaluate (which cannot click the toolbar action).
+// --- Multi-window browser projection session (ADR-0063) ---
+// Chrome owns window/tab metadata. This worker owns projection selection, generation, and exactly one
+// isolated-world recorder. The pure transitions live in browser-session.js and are exercised in Node.
 
 async function setBadge(tabId, on) {
   try {
@@ -334,141 +349,305 @@ async function setBadge(tabId, on) {
   } catch (e) {}
 }
 
-async function startTabRecording(tabId) {
-  if (tabId == null) return null;
-  // Fresh fidelity state for the new session: never let CDP polling (banner) follow a tab switch
-  // onto a tab that didn't opt in. Mirrors the reset in stopTabRecording / tab-removed / navigated.
+async function startRecorderForTab(tabId) {
+  if (tabId == null) return false;
   stopCdp(false); cdpMode = false; cdpUserSet = false;
-  // ADR-0048: a fresh session always starts desktop; clear any stale emulation override on this tab.
   resetDeviceEmulation(tabId);
   try {
-    await chrome.tabs.sendMessage(tabId, { type: 'agentdesk-start' });
+    await chrome.tabs.sendMessage(tabId, {
+      type: 'agentdesk-start',
+      generation: browserSession.generation,
+    });
   } catch (e) {
-    // Restricted pages (chrome://, webstore) have no content script; nothing to record.
     console.warn('[agentdesk] cannot start recording on tab', tabId, e && e.message);
-    return null;
+    return false;
   }
-  recordingTabId = tabId;
-  capturePaused = false; // fresh session starts actively recording
+  browserSession = AgentDeskBrowserSession.withRecordedTab(browserSession, tabId);
+  capturePaused = false;
   await setBadge(tabId, true);
-  return tabId;
+  return true;
 }
 
-async function stopTabRecording(tabId) {
+async function stopRecorderForTab(tabId) {
   if (tabId == null) return;
   try { await chrome.tabs.sendMessage(tabId, { type: 'agentdesk-stop' }); } catch (e) {}
-  if (recordingTabId === tabId) recordingTabId = null;
-  capturePaused = false; // session ended; do not carry a paused flag into the next one
-  stopCdp(false); cdpMode = false; cdpUserSet = false; // fresh fidelity state next session
-  resetDeviceEmulation(tabId); // ADR-0048: session ended -> restore desktop, drop the override
+  if (browserSession.recordedTabId === tabId) {
+    browserSession = AgentDeskBrowserSession.withRecordedTab(browserSession, null);
+  }
+  capturePaused = false;
+  stopCdp(false); cdpMode = false; cdpUserSet = false;
+  resetDeviceEmulation(tabId);
   await setBadge(tabId, false);
 }
 
-async function toggleTabRecording(tabId) {
-  if (tabId == null) return;
-  if (recordingTabId === tabId) await stopTabRecording(tabId);
-  else await startTabRecording(tabId);
-}
-
 // ADR-0045: pause/resume the active recording without ending the session. Only acts on the tab the
-// user already started (recordingTabId); if nothing is recording it is a no-op, so the phone's
+// projection session already started; if nothing is recording it is a no-op, so the phone's
 // surface visibility never starts capture on its own. Pausing stops the rrweb recorder (real CPU
 // win at the source) and shows a PAUSE badge; resuming restarts it, and rrweb emits a fresh full
 // snapshot on record() so the mirror repaints cleanly with no mid-stream desync.
 async function setCapturePaused(paused) {
-  const tabId = recordingTabId;
+  const tabId = browserSession.recordedTabId;
   if (tabId == null) return;            // nothing recording -> nothing to pause/resume
   if (paused === capturePaused) return; // idempotent: already in the requested state
   capturePaused = paused;
   try {
-    await chrome.tabs.sendMessage(tabId, { type: paused ? 'agentdesk-stop' : 'agentdesk-start' });
+    await chrome.tabs.sendMessage(tabId, paused
+      ? { type: 'agentdesk-stop' }
+      : { type: 'agentdesk-start', generation: browserSession.generation });
   } catch (e) {
     console.warn('[agentdesk] capture pause toggle failed on tab', tabId, e && e.message);
   }
   try { await chrome.action.setBadgeText({ tabId, text: paused ? 'PAUSE' : 'REC' }); } catch (e) {}
 }
 
-async function activeTab() {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  return tab || null;
+let sessionMutation = Promise.resolve();
+
+function enqueueSessionMutation(operation) {
+  sessionMutation = sessionMutation.then(operation).catch((error) => {
+    console.error('[agentdesk] browser session mutation failed', error && error.message);
+  });
+  return sessionMutation;
 }
 
-// Test entry point (Playwright sw.evaluate) and the command fallback: resolve the active tab and
-// start it. The real toolbar path uses the tab handed to onClicked directly.
-async function startActiveTabRecording() {
-  const tab = await activeTab();
-  return tab ? startTabRecording(tab.id) : null;
-}
-
-async function stopRecording() {
-  if (recordingTabId != null) await stopTabRecording(recordingTabId);
-}
-
-// Status snapshot for the action popup. canRecord is false on pages with no content script
-// (chrome://, the Web Store), where mirroring can't start.
-function popupState(tab) {
-  const canRecord = !!tab && /^https?:/.test(tab.url || '');
+async function browserStatePayload() {
   return {
-    recording: !!tab && recordingTabId === tab.id,
-    title: tab ? (tab.title || tab.url || '') : '',
-    canRecord,
-    fidelity: !!tab && recordingTabId === tab.id && cdpMode, // ADR-0044 Tier B state for the popup
+    t: 'browser-state',
+    generation: browserSession.generation,
+    projectedWindowId: browserSession.projectedWindowId,
+    focusedWindowId: browserSession.focusedWindowId,
+    extension: await AgentDeskBrowserMetadata.extensionBuildIdentity(),
+    windows: browserSession.windows,
   };
 }
 
-// The toolbar click opens popup.html (default_popup), so chrome.action.onClicked does not fire;
-// the popup drives start/stop through these messages. The keyboard command toggles directly below.
-// Keyboard command (Alt+Shift+M): no tab is passed, so resolve the active one.
-chrome.commands.onCommand.addListener(async (command) => {
-  if (command !== 'toggle-recording') return;
-  const tab = await activeTab();
-  if (tab && tab.id != null) toggleTabRecording(tab.id);
+async function emitBrowserState() {
+  if (!browserSession.enabled) return;
+  const p = ensurePort();
+  if (!p) return;
+  p.postMessage(await browserStatePayload());
+}
+
+async function persistBrowserSession() {
+  if (!browserSession.enabled) {
+    await chrome.storage.session.remove('browserProjection');
+    return;
+  }
+  await chrome.storage.session.set({
+    browserProjection: {
+      enabled: true,
+      projectedWindowId: browserSession.projectedWindowId,
+      focusedWindowId: browserSession.focusedWindowId,
+      orderedWindowIds: browserSession.orderedWindowIds,
+      recentlyFocusedWindowIds: browserSession.recentlyFocusedWindowIds,
+      ordinals: browserSession.ordinals,
+      nextOrdinal: browserSession.nextOrdinal,
+      generation: browserSession.generation,
+      recordedTabId: browserSession.recordedTabId,
+      targetWindowId: browserSession.targetWindowId,
+      targetTabId: browserSession.targetTabId,
+      targetURL: browserSession.targetURL,
+      targetStatus: browserSession.targetStatus,
+    },
+  });
+}
+
+async function synchronizeProjectionTarget(forceGeneration) {
+  const target = AgentDeskBrowserSession.selectedTarget(browserSession);
+  const changedTarget = browserSession.targetWindowId !== (target.window && target.window.id)
+    || browserSession.targetTabId !== (target.tab && target.tab.id);
+  const changedDocument = !!target.tab && (
+    browserSession.targetURL !== target.tab.url
+    || (target.tab.status === 'loading' && browserSession.targetStatus !== 'loading')
+  );
+  if (changedTarget || changedDocument || forceGeneration) {
+    if (browserSession.recordedTabId != null) await stopRecorderForTab(browserSession.recordedTabId);
+    browserSession = AgentDeskBrowserSession.advanceGeneration(browserSession, target);
+    await persistBrowserSession();
+    await emitBrowserState();
+  } else {
+    browserSession = AgentDeskBrowserSession.withTargetMetadata(browserSession, target);
+  }
+
+  const tab = target.tab;
+  if (!tab || tab.restricted || tab.discarded || tab.status === 'loading') {
+    if (browserSession.recordedTabId != null) {
+      await stopRecorderForTab(browserSession.recordedTabId);
+      await emitBrowserState();
+    }
+    return;
+  }
+  if (capturePaused) return;
+  if (browserSession.recordedTabId == null) {
+    await startRecorderForTab(tab.id);
+    await emitBrowserState();
+  }
+}
+
+async function refreshBrowserProjection(options) {
+  if (!browserSession.enabled) return;
+  const settings = options || {};
+  const windows = await AgentDeskBrowserMetadata.enumerateNormalWindows();
+  const focused = windows.find((window) => window.focused);
+  let focusedWindowId = settings.focusedWindowId == null ? (focused && focused.id) : settings.focusedWindowId;
+  if (focusedWindowId == null && browserSession.focusedWindowId == null && windows.length) {
+    try {
+      const lastFocused = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
+      focusedWindowId = lastFocused && lastFocused.id;
+    } catch (error) {
+      console.warn('[agentdesk] most-recent Chrome window lookup failed', error && error.message);
+    }
+  }
+  browserSession = AgentDeskBrowserSession.reconcile(
+    browserSession,
+    windows,
+    focusedWindowId
+  );
+  if (settings.followFocusedWindowId != null) {
+    browserSession = AgentDeskBrowserSession.followFocusedWindow(browserSession, settings.followFocusedWindowId);
+  }
+  if (settings.synchronizeTarget !== false) {
+    await synchronizeProjectionTarget(!!settings.forceGeneration);
+  }
+  await persistBrowserSession();
+  await emitBrowserState();
+}
+
+async function requestBrowserState() {
+  await refreshBrowserProjection();
+  if (browserSession.recordedTabId == null) return;
+  try {
+    await chrome.tabs.sendMessage(browserSession.recordedTabId, { type: 'agentdesk-resnapshot' });
+  } catch (error) {
+    console.warn('[agentdesk] browser state keyframe request failed', error && error.message);
+  }
+}
+
+async function startBrowserProjection() {
+  if (browserSession.enabled) {
+    await refreshBrowserProjection();
+    return browserSession.projectedWindowId;
+  }
+  browserSession = Object.assign(AgentDeskBrowserSession.createSession(), { enabled: true });
+  await refreshBrowserProjection();
+  return browserSession.projectedWindowId;
+}
+
+async function stopBrowserProjection() {
+  if (browserSession.recordedTabId != null) await stopRecorderForTab(browserSession.recordedTabId);
+  browserSession = AgentDeskBrowserSession.createSession();
+  capturePaused = false;
+  await chrome.storage.session.remove('browserProjection');
+  if (port) {
+    try { port.disconnect(); } catch (error) {}
+    port = null;
+  }
+}
+
+async function toggleBrowserProjection() {
+  if (browserSession.enabled) await stopBrowserProjection();
+  else await startBrowserProjection();
+}
+
+async function selectProjectedWindow(command) {
+  const next = AgentDeskBrowserSession.selectWindow(
+    browserSession,
+    command.windowId,
+    command.generation
+  );
+  if (!next) {
+    console.warn('[agentdesk] rejected browser-select-window');
+    return;
+  }
+  browserSession = next;
+  await synchronizeProjectionTarget(false);
+  await persistBrowserSession();
+  await emitBrowserState();
+}
+
+async function selectProjectedTab(command) {
+  if (!AgentDeskBrowserSession.validateTabSelection(
+    browserSession,
+    command.windowId,
+    command.tabId,
+    command.generation
+  )) {
+    console.warn('[agentdesk] rejected browser-select-tab');
+    return;
+  }
+  await chrome.tabs.update(command.tabId, { active: true });
+  await refreshBrowserProjection();
+}
+
+function popupState() {
+  const target = AgentDeskBrowserSession.selectedTarget(browserSession);
+  return {
+    recording: browserSession.enabled,
+    title: target.tab ? (target.tab.title || target.tab.url || '') : '',
+    canRecord: true,
+    fidelity: browserSession.recordedTabId != null && cdpMode,
+  };
+}
+
+chrome.commands.onCommand.addListener((command) => {
+  if (command === 'toggle-recording') enqueueSessionMutation(toggleBrowserProjection);
 });
 
-// Lifecycle: keep recordingTabId/attachedTabId honest so ADR-0040 tap dispatch never targets a tab
-// that is no longer recording.
+chrome.windows.onCreated.addListener(() => enqueueSessionMutation(() => refreshBrowserProjection()));
+chrome.windows.onRemoved.addListener(() => enqueueSessionMutation(() => refreshBrowserProjection()));
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  enqueueSessionMutation(() => refreshBrowserProjection({
+    focusedWindowId: windowId,
+    followFocusedWindowId: windowId,
+  }));
+});
+
+chrome.tabs.onCreated.addListener(() => enqueueSessionMutation(() => refreshBrowserProjection()));
+chrome.tabs.onMoved.addListener(() => enqueueSessionMutation(() => refreshBrowserProjection()));
+chrome.tabs.onAttached.addListener(() => enqueueSessionMutation(() => refreshBrowserProjection()));
+chrome.tabs.onDetached.addListener(() => enqueueSessionMutation(() => refreshBrowserProjection()));
+chrome.tabs.onActivated.addListener(() => enqueueSessionMutation(() => refreshBrowserProjection()));
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (recordingTabId === tabId) { recordingTabId = null; stopCdp(false); cdpMode = false; cdpUserSet = false; resetDeviceEmulation(tabId); }
   if (attachedTabId === tabId) attachedTabId = null;
+  enqueueSessionMutation(() => refreshBrowserProjection());
 });
 chrome.tabs.onUpdated.addListener((tabId, info) => {
-  // A navigation re-injects a fresh, non-recording content script; drop the stale recording state.
-  if (tabId === recordingTabId && info.status === 'loading' && info.url) {
-    recordingTabId = null;
-    stopCdp(false); cdpMode = false; cdpUserSet = false;
-    resetDeviceEmulation(tabId); // ADR-0048: nav starts a fresh page -> back to desktop
-    setBadge(tabId, false);
-  }
+  enqueueSessionMutation(async () => {
+    if (!browserSession.enabled) return;
+    await refreshBrowserProjection({ forceGeneration: info.discarded === true && tabId === browserSession.targetTabId });
+  });
 });
+
+if (chrome.tabGroups) {
+  chrome.tabGroups.onCreated.addListener(() => enqueueSessionMutation(() => refreshBrowserProjection()));
+  chrome.tabGroups.onMoved.addListener(() => enqueueSessionMutation(() => refreshBrowserProjection()));
+  chrome.tabGroups.onRemoved.addListener(() => enqueueSessionMutation(() => refreshBrowserProjection()));
+  chrome.tabGroups.onUpdated.addListener(() => enqueueSessionMutation(() => refreshBrowserProjection()));
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const tabId = sender.tab && sender.tab.id;
-  // Action popup: report status / toggle the active tab. Resolved worker-side so recordingTabId is
-  // the single source of truth. Async responses -> return true to keep the channel open.
   if (message.type === 'agentdesk-popup-query') {
-    activeTab().then((tab) => sendResponse(popupState(tab)));
+    sendResponse(popupState());
     return true;
   }
   if (message.type === 'agentdesk-popup-toggle') {
-    activeTab().then(async (tab) => {
-      if (tab && tab.id != null) await toggleTabRecording(tab.id);
-      sendResponse(popupState(tab));
-    });
+    enqueueSessionMutation(toggleBrowserProjection).then(() => sendResponse(popupState()));
     return true;
   }
   // ADR-0044 Tier B: the popup high-fidelity toggle. Only meaningful for the recording tab; engaging
   // it attaches chrome.debugger (banner) and starts CDP keyframes.
   if (message.type === 'agentdesk-popup-fidelity') {
-    activeTab().then((tab) => {
-      if (tab && tab.id != null && recordingTabId === tab.id) setCdpMode(!!message.on, true);
-      sendResponse(popupState(tab));
-    });
+    if (browserSession.recordedTabId != null) setCdpMode(!!message.on, true);
+    sendResponse(popupState());
     return true;
   }
   if (message.type === 'agentdesk-batch') {
+    const tb = tabId == null ? -1 : tabId;
+    const generation = message.generation;
+    if (!AgentDeskBrowserSession.acceptsBatch(browserSession, tb, generation)) return;
     const p = ensurePort();
     if (!p) return;
-    const tb = tabId == null ? -1 : tabId;
     const co = !!message.checkout;
     // ADR-0043: compress the events off the page thread. Chrome drops an ext->host native message
     // over ~1 MB and the host caps a line at 2 MB; deflate keeps a masked snapshot well under both.
@@ -485,7 +664,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // carries the new value, so the control flips in lockstep with the repaint.
     const em = deviceEmulationEnabled;
     if (b64.length <= CHUNK_LIMIT) {
-      p.postMessage({ t: 'dom-batch', tb, co, em, enc: 'deflate-b64', ev: b64, meta: message.meta });
+      p.postMessage({ t: 'dom-batch', tb, g: generation, co, em, enc: 'deflate-b64', ev: b64, meta: message.meta });
     } else {
       // Backstop: a compressed batch still over the limit is split into ordered parts reassembled by
       // cid in the webview. co rides part 0 only, so the host's late-join buffer resets once per
@@ -496,6 +675,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         p.postMessage({
           t: 'dom-batch',
           tb,
+          g: generation,
           co: seq === 0 ? co : false,
           em,
           enc: 'deflate-b64',
@@ -517,7 +697,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       try {
         const cssz = bytesToBase64(fflate.zlibSync(fflate.strToU8(message.css)));
         if (cssz.length <= CHUNK_LIMIT) {
-          p.postMessage({ t: 'dom-batch', tb, co: false, enc: 'deflate-b64', cssz });
+          p.postMessage({ t: 'dom-batch', tb, g: generation, co: false, enc: 'deflate-b64', cssz });
         } else {
           console.warn('[agentdesk] adopted css too large, skipped', cssz.length);
         }
@@ -529,5 +709,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === 'agentdesk-error') {
     console.error('[agentdesk] recorder error', message.reason);
+  }
+});
+
+enqueueSessionMutation(async () => {
+  try {
+    const stored = await chrome.storage.session.get('browserProjection');
+    const saved = stored && stored.browserProjection;
+    if (!saved || !saved.enabled) return;
+    browserSession = AgentDeskBrowserSession.restoreSession(saved);
+    await refreshBrowserProjection();
+  } catch (error) {
+    console.error('[agentdesk] browser session restore failed', error && error.message);
   }
 });

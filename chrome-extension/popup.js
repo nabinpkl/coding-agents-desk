@@ -1,7 +1,7 @@
-// Action popup (ADR-0042): shows whether the active tab is being mirrored and toggles it. With a
+// Action popup (ADR-0042/0063): shows whether Chrome projection is enabled and toggles it. With a
 // default_popup the toolbar click opens this instead of firing chrome.action.onClicked, so the
 // start/stop control lives here; the Alt+Shift+M command still toggles directly in the worker.
-// The worker owns the truth (recordingTabId); this popup only queries and asks it to toggle.
+// The worker owns the browser projection session; this popup only queries and asks it to toggle.
 const dot = document.getElementById('dot');
 const statusEl = document.getElementById('status');
 const subEl = document.getElementById('sub');
@@ -35,12 +35,12 @@ function render(state) {
   const rec = !!(state && state.recording);
   const canRecord = !state || state.canRecord !== false;
   dot.classList.toggle('on', rec);
-  statusEl.textContent = rec ? 'Mirroring this tab' : 'Not mirroring';
+  statusEl.textContent = rec ? 'Projecting Chrome' : 'Not projecting';
   subEl.textContent = (state && state.title) || '';
   btn.className = rec ? 'stop' : 'start';
   btn.disabled = !rec && !canRecord;
-  btn.textContent = rec ? 'Stop mirroring' : (canRecord ? 'Start mirroring' : 'Not available on this page');
-  // ADR-0044 Tier B: the high-fidelity (CDP) toggle only applies while mirroring this tab.
+  btn.textContent = rec ? 'Stop projection' : (canRecord ? 'Start projection' : 'Not available');
+  // ADR-0044 Tier B: the high-fidelity (CDP) toggle applies only to the one recorded tab.
   fidelityRow.hidden = !rec;
   fidelityBox.checked = !!(state && state.fidelity);
 }

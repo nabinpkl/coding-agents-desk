@@ -12,6 +12,7 @@ private enum DriverError: LocalizedError {
     case unsupportedKey(String)
     case actionFailed(String, AXError)
     case screenshotFailed(String)
+    case permissionMissing(String)
 
     var errorDescription: String? {
         switch self {
@@ -27,6 +28,8 @@ private enum DriverError: LocalizedError {
             return "Accessibility action \(action) failed with AXError \(error.rawValue)"
         case .screenshotFailed(let reason):
             return "Failed to capture screenshot: \(reason)"
+        case .permissionMissing(let permission):
+            return "Missing required macOS permission: \(permission)"
         }
     }
 }
@@ -77,6 +80,7 @@ private func usage() -> String {
     usage: agent-window-ax.swift <command> [options]
 
     commands:
+      preflight
       dump [--bundle-id id] [--window-identifier id] [--depth n]
       wait --identifier id | --dom-identifier id [--bundle-id id] [--window-identifier id] [--timeout seconds]
       read --identifier id | --dom-identifier id [--bundle-id id] [--window-identifier id]
@@ -438,6 +442,16 @@ do {
     }
 
     switch command {
+    case "preflight":
+        guard AXIsProcessTrusted() else {
+            throw DriverError.permissionMissing("Accessibility for the AX driver process")
+        }
+        guard CGPreflightScreenCaptureAccess() else {
+            throw DriverError.permissionMissing("Screen Recording for the AX driver process")
+        }
+        print("accessibility=trusted")
+        print("screenRecording=trusted")
+
     case "dump":
         var common = CommonOptions()
         var maxDepth = 6

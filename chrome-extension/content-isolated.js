@@ -52,6 +52,7 @@
   let stopFn = null;       // rrweb.record() returns its own stop function
   let flushTimer = null;
   let batch = [];
+  let recordingGeneration = null;
   let lastHref = '';       // ADR-0043: SPA-nav detection -> force a fresh full snapshot (keyframe)
 
   // An orphaned content script -- extension reloaded/updated while this tab stayed open -- has an
@@ -114,6 +115,7 @@
       chrome.runtime.sendMessage({
         type: 'agentdesk-batch',
         __agentdesk: CHANNEL,
+        generation: recordingGeneration,
         checkout,
         events,
         css: css || undefined,
@@ -131,13 +133,16 @@
     }
   }
 
-  function startRecording() {
-    if (recording) return; // idempotent
+  function startRecording(generation) {
+    if (!Number.isInteger(generation) || generation < 0) return;
+    if (recording && recordingGeneration === generation) return; // idempotent within one projection
+    if (recording) stopRecording();
     if (!rrweb || !rrweb.record) {
       chrome.runtime.sendMessage({ type: 'agentdesk-error', reason: 'rrweb-not-loaded' });
       return;
     }
     recording = true;
+    recordingGeneration = generation;
     batch = [];
     lastHref = location.href;
     // Privacy: mask-by-default for an arbitrary tab (ADR-0038). This rrweb (2.0.0-alpha.4) has no
@@ -176,12 +181,13 @@
     stopFn = null;
     flush(); // ship any residual events
     batch = [];
+    recordingGeneration = null;
   }
 
   // The service worker drives start/stop; the page has no way to trigger or observe this.
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg) return;
-    if (msg.type === 'agentdesk-start') { startRecording(); sendResponse({ recording }); return true; }
+    if (msg.type === 'agentdesk-start') { startRecording(msg.generation); sendResponse({ recording, generation: recordingGeneration }); return true; }
     if (msg.type === 'agentdesk-stop') { stopRecording(); sendResponse({ recording }); return true; }
     // ADR-0048: the worker device-emulated (or restored) the tab; force a fresh full snapshot so the
     // next flush emits a checkout with the new meta.w/h (the emulated viewport) and the mirror repaints

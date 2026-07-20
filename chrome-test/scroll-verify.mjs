@@ -1,8 +1,8 @@
 // ADR-0047 scroll-drive-back autonomous gate (`just dom-mirror-scroll-verify`): the WRITE path,
 // deterministic, no simulator. Modeled on input-verify.mjs.
 //
-// A real extension in a throwaway Chrome-for-Testing profile records a TALL fixture (so the worker's
-// recordingTabId is set), then a fake host (standing in for DomBridgeServer.sendToBridge) sends a
+// A real extension in a throwaway Chrome-for-Testing profile records a TALL fixture (so the projection
+// session has one recorded tab), then a fake host (standing in for DomBridgeServer.sendToBridge) sends a
 // `dom-scroll` command through the shim to the extension worker, which drives the REAL tab to scroll
 // as a trusted CDP mouse-wheel event (Input.dispatchMouseEvent{mouseWheel}) via chrome.debugger. The harness observes
 // window.scrollY (page.evaluate, from the harness side) to confirm the live page actually scrolled,
@@ -113,19 +113,16 @@ async function main() {
   check(scrollable > 500, `fixture is scrollable (scrollHeight - viewport = ${scrollable}px)`);
 
   // Start recording from the CHROME layer (ADR-0042): drive the service worker, which sets the
-  // worker's recordingTabId -- the precondition for ADR-0047 scroll dispatch. No URL param.
+  // worker's authoritative recorded tab, the precondition for ADR-0047 scroll dispatch. No URL param.
   let sw = ctx.serviceWorkers()[0];
   if (!sw) { try { sw = await ctx.waitForEvent('serviceworker', { timeout: 5000 }); } catch {} }
   if (!sw) throw new Error('service worker not found; cannot start recording');
-  await sw.evaluate(async () => {
-    const [t] = await chrome.tabs.query({ active: true });
-    await startTabRecording(t.id);
-  });
+  await sw.evaluate(() => startBrowserProjection());
 
-  // Wait until the recorder is running (a batch arrived) so the worker's recordingTabId is set.
+  // Wait until a batch proves that the projection session's recorder is running.
   for (let i = 0; i < 40 && host.batches === 0; i++) await sleep(250);
   check(host.authed, 'shim authenticated to the host');
-  check(host.batches > 0, 'recorder running (recordingTabId set on the worker)');
+  check(host.batches > 0, 'projection session has one recorded tab');
 
   // Finger drags UP -> the live page scrolls DOWN (scrollY increases).
   const down = await driveScroll(page, FINGER_UP_DY);

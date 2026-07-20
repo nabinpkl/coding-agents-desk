@@ -157,10 +157,7 @@ async function main() {
   let sw = ctx.serviceWorkers()[0];
   if (!sw) { try { sw = await ctx.waitForEvent('serviceworker', { timeout: 5000 }); } catch {} }
   if (!sw) throw new Error('service worker not found; cannot start recording');
-  await sw.evaluate(async () => {
-    const [t] = await chrome.tabs.query({ active: true });
-    await startTabRecording(t.id);
-  });
+  await sw.evaluate(() => startBrowserProjection());
 
   // Wait (bounded) for a checkout batch to reach the host through the whole real chain.
   for (let i = 0; i < 60 && !host.batches.some((b) => b.co); i++) await sleep(250);

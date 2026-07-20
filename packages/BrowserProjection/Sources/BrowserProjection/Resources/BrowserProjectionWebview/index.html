@@ -8,7 +8,7 @@
      surfaceMapping() stays correct while zoomed. It never scrolls the host either, so it is a pure view
      transform inside the pure-mirror invariant. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=4" />
-<title>AgentDesk DOM Mirror</title>
+<title>AgentDesk Browser Projection</title>
 <!-- rrweb's replayer-chrome stylesheet, vendored from rrweb@2.0.0-alpha.4 (same version as
      rrweb.min.js). rrweb's core adds .replayer-wrapper/.replayer-mouse/.replayer-mouse-tail
      classnames and sets the cursor's left/top inline, but ships their position:absolute in THIS
@@ -16,25 +16,122 @@
      mouse-tail canvas sat in normal flow and pushed the page down. -->
 <link rel="stylesheet" href="rrweb.min.css" />
 <style>
-  html, body { margin: 0; height: 100%; background: #fff; }
-  #stage { width: 100%; height: 100%; overflow: hidden; position: relative; }
+  :root {
+    color-scheme: light dark;
+    --chrome-bg: #e7e9ed;
+    --chrome-raised: #f6f7f9;
+    --chrome-selected: #ffffff;
+    --chrome-border: #c8ccd3;
+    --chrome-text: #202124;
+    --chrome-muted: #686d76;
+    --chrome-focus: #1473e6;
+    --chrome-danger: #b42318;
+    --content-bg: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --chrome-bg: #25272b;
+      --chrome-raised: #303238;
+      --chrome-selected: #3b3e45;
+      --chrome-border: #4a4d55;
+      --chrome-text: #f1f3f4;
+      --chrome-muted: #aeb2bb;
+      --chrome-focus: #6da8ff;
+      --chrome-danger: #ff8a80;
+      --content-bg: #ffffff;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--content-bg); }
+  body { font: 12px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: var(--chrome-text); }
+  #browser-projection-root { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+  #browser-chrome { min-width: 0; background: var(--chrome-bg); border-bottom: 1px solid var(--chrome-border); }
+  .strip { display: flex; align-items: end; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .strip::-webkit-scrollbar { display: none; }
+  #browser-projection-window-strip { min-height: 35px; padding: 5px 7px 0; gap: 4px; background: var(--chrome-bg); }
+  #browser-projection-tab-strip { min-height: 34px; padding: 4px 7px 0; gap: 2px; background: var(--chrome-raised); border-top: 1px solid color-mix(in srgb, var(--chrome-border), transparent 45%); }
+  .window-tab, .page-tab { appearance: none; border: 1px solid transparent; color: inherit; font: inherit; cursor: default; }
+  .window-tab { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px; align-items: center; min-width: 150px; max-width: 240px; height: 30px; padding: 0 10px; border-radius: 7px 7px 0 0; background: color-mix(in srgb, var(--chrome-raised), transparent 28%); }
+  .window-tab[aria-selected="true"] { background: var(--chrome-raised); border-color: var(--chrome-border); border-bottom-color: var(--chrome-raised); }
+  .window-tab.is-focused::after { content: ""; position: absolute; top: 4px; right: 5px; width: 5px; height: 5px; border-radius: 50%; background: var(--chrome-focus); }
+  .window-copy { min-width: 0; display: flex; flex-direction: column; text-align: left; }
+  .window-label { font-weight: 600; }
+  .window-title { color: var(--chrome-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+  .page-tab { display: flex; align-items: center; gap: 6px; min-width: 110px; max-width: 210px; height: 29px; padding: 0 9px; border-radius: 7px 7px 0 0; background: transparent; }
+  .page-tab.pinned { min-width: 34px; width: 34px; padding: 0 8px; }
+  .page-tab[aria-selected="true"] { background: var(--chrome-selected); border-color: var(--chrome-border); border-bottom-color: var(--chrome-selected); }
+  .tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tab-favicon { width: 16px; height: 16px; flex: none; object-fit: contain; }
+  .tab-fallback { display: grid; place-items: center; width: 16px; height: 16px; flex: none; border-radius: 3px; background: var(--chrome-border); color: var(--chrome-text); font-size: 9px; font-weight: 700; }
+  .tab-loading { width: 10px; height: 10px; flex: none; border: 1.5px solid var(--chrome-border); border-top-color: var(--chrome-focus); border-radius: 50%; animation: spin 800ms linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .group-chip { align-self: center; flex: none; padding: 3px 7px; border-radius: 9px; font-size: 10px; font-weight: 700; color: var(--group-color, var(--chrome-muted)); border: 1px solid currentColor; }
+  #browser-toolbar { min-height: 38px; display: grid; grid-template-columns: auto auto minmax(120px, 1fr); align-items: center; gap: 8px; padding: 5px 8px; background: var(--chrome-selected); border-top: 1px solid var(--chrome-border); }
+  .toolbar-buttons { display: flex; gap: 2px; }
+  .toolbar-button { appearance: none; width: 27px; height: 27px; border: 0; border-radius: 50%; background: transparent; color: var(--chrome-muted); font: 15px/1 system-ui; }
+  .toolbar-button:disabled { opacity: .6; }
+  #browser-projection-active-title { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  #address-shell { min-width: 0; display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border-radius: 14px; background: var(--chrome-bg); }
+  #security-indicator { color: var(--chrome-muted); }
+  #browser-projection-address { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+  #content-shell { min-height: 0; position: relative; background: var(--content-bg); }
+  #browser-projection-content-status { position: absolute; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px; background: var(--content-bg); color: #5f6368; text-align: center; font-size: 13px; }
+  #browser-projection-content-status[hidden] { display: none; }
+  #stage { width: 100%; height: 100%; overflow: hidden; position: relative; background: #fff; }
+  #replay-root { position: absolute; inset: 0; overflow: hidden; }
   /* Transparent overlay captures taps (the replayer iframe would otherwise swallow them). */
-  #tap-overlay { position: absolute; inset: 0; z-index: 5; background: transparent; }
+  #tap-overlay { position: absolute; inset: 0; z-index: 5; background: transparent; pointer-events: none; }
+  body.page-active #tap-overlay { pointer-events: auto; }
   /* rrweb renders into an iframe inside .replayer-wrapper; fitReplay() sizes/scales it (ADR-0044).
      .replayer-wrapper's position:absolute-vs-relative etc. come from the vendored rrweb.min.css
      above; here we only add the scale origin. */
-  #stage .replayer-wrapper { transform-origin: top left; }
+  #replay-root .replayer-wrapper { transform-origin: top left; }
   #stage iframe { border: 0; display: block; }
+  #build-footer { display: flex; justify-content: flex-end; gap: 10px; min-height: 18px; padding: 2px 8px; border-top: 1px solid var(--chrome-border); background: var(--chrome-bg); color: var(--chrome-muted); font: 10px/1.3 ui-monospace, "SFMono-Regular", monospace; }
+  #build-footer[hidden] { display: none; }
+  body.page-only #browser-chrome, body.page-only #build-footer { display: none; }
+  body.page-only #browser-projection-root { grid-template-rows: minmax(0, 1fr); }
 </style>
 </head>
-<body>
-  <div id="stage"><div id="tap-overlay"></div></div>
+<body class="page-only">
+  <div id="browser-projection-root">
+    <div id="browser-chrome" hidden>
+      <div id="browser-projection-window-strip" class="strip" role="tablist" aria-label="Chrome windows"></div>
+      <div id="browser-projection-tab-strip" class="strip" role="tablist" aria-label="Tabs in projected Chrome window"></div>
+      <div id="browser-toolbar">
+        <div class="toolbar-buttons" aria-label="Read-only navigation controls">
+          <button class="toolbar-button" disabled aria-label="Back">←</button>
+          <button class="toolbar-button" disabled aria-label="Forward">→</button>
+          <button class="toolbar-button" disabled aria-label="Reload">↻</button>
+        </div>
+        <div id="browser-projection-active-title"></div>
+        <div id="address-shell"><span id="security-indicator">○</span><span id="browser-projection-address"></span></div>
+      </div>
+    </div>
+    <div id="content-shell">
+      <div id="browser-projection-content-status">Waiting for Chrome projection</div>
+      <div id="stage"><div id="replay-root"></div><div id="tap-overlay"></div></div>
+    </div>
+    <div id="build-footer" hidden>
+      <span id="browser-projection-focused-window"></span>
+      <span id="browser-projection-projected-window"></span>
+      <span id="browser-projection-generation"></span>
+      <span id="browser-projection-page-marker"></span>
+      <span id="browser-projection-host-build"></span>
+      <span id="browser-projection-extension-build"></span>
+    </div>
+  </div>
   <script src="fflate.min.js"></script>
   <script src="rrweb.min.js"></script>
   <script>
   (function () {
     var FULL_SNAPSHOT = 2;
     var stage = document.getElementById('stage');
+    var replayRoot = document.getElementById('replay-root');
+    var chromeEl = document.getElementById('browser-chrome');
+    var statusEl = document.getElementById('browser-projection-content-status');
+    var browserState = null;
+    var hostState = null;
     var replayer = null;
     var pending = [];
     // ADR-0043: chunk reassembly buffer, keyed by cid. A compressed batch too large for one line is
@@ -46,6 +143,216 @@
     var cdpFrame = null;
     var cdpSize = null;
     var lastRecordedW = 0; // recorded desktop viewport width (meta.w) -> scale-to-fit basis
+    var hasActiveProjection = false;
+
+    function postIntent(message) {
+      try { window.webkit.messageHandlers.domMirror.postMessage(message); } catch (e) {}
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message || '';
+      statusEl.hidden = !message;
+    }
+
+    function clearProjection() {
+      try { if (replayer) replayer.pause(); } catch (e) {}
+      removeCdp();
+      var wrapper = replayRoot.querySelector('.replayer-wrapper');
+      if (wrapper) wrapper.remove();
+      replayer = null;
+      pending = [];
+      chunks = {};
+      adoptedCss = null;
+      lastRecordedW = 0;
+      fitScale = 1;
+      hasActiveProjection = false;
+      document.body.classList.remove('page-active');
+    }
+
+    function buildLabel(build) {
+      if (!build) return 'extension unknown';
+      var value = 'ext v' + (build.version || '?');
+      if (build.commits != null) value += ' (' + build.commits + ')';
+      if (build.sha) value += ' ' + build.sha;
+      if (build.dirty) value += ' dirty';
+      return value;
+    }
+
+    function currentWindow() {
+      if (!browserState) return null;
+      return browserState.windows.find(function (window) {
+        return window.id === browserState.projectedWindowId;
+      }) || null;
+    }
+
+    function currentTab(windowState) {
+      if (!windowState) return null;
+      return windowState.tabs.find(function (tab) { return tab.id === windowState.activeTabId; }) || null;
+    }
+
+    function favicon(tab) {
+      if (tab.favIconDataURL && /^data:image\//.test(tab.favIconDataURL)) {
+        var image = document.createElement('img');
+        image.className = 'tab-favicon';
+        image.alt = '';
+        image.src = tab.favIconDataURL;
+        return image;
+      }
+      var fallback = document.createElement('span');
+      fallback.className = 'tab-fallback';
+      fallback.textContent = (tab.title || tab.url || '?').trim().slice(0, 1).toUpperCase() || '?';
+      return fallback;
+    }
+
+    function groupColor(name) {
+      var colors = {
+        grey: '#737780', blue: '#1a73e8', red: '#d93025', yellow: '#b06000',
+        green: '#188038', pink: '#d01884', purple: '#8430ce', cyan: '#007b83', orange: '#c45100'
+      };
+      return colors[name] || colors.grey;
+    }
+
+    function renderWindows() {
+      var strip = document.getElementById('browser-projection-window-strip');
+      strip.replaceChildren();
+      browserState.windows.forEach(function (windowState) {
+        var active = currentTab(windowState);
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'window-tab' + (windowState.focused ? ' is-focused' : '');
+        button.id = 'browser-projection-window-tab-' + windowState.id;
+        button.setAttribute('role', 'tab');
+        button.setAttribute('aria-selected', String(windowState.id === browserState.projectedWindowId));
+        button.title = 'Window ' + windowState.ordinal + ': ' + ((active && active.title) || 'Untitled');
+        var icon = document.createElement('span');
+        icon.textContent = '▣';
+        var copy = document.createElement('span');
+        copy.className = 'window-copy';
+        var label = document.createElement('span');
+        label.className = 'window-label';
+        label.textContent = 'Window ' + windowState.ordinal;
+        var title = document.createElement('span');
+        title.className = 'window-title';
+        title.textContent = (active && (active.title || active.url)) || 'No selected tab';
+        copy.append(label, title);
+        button.append(icon, copy);
+        button.addEventListener('click', function () {
+          postIntent({ kind: 'select-window', windowId: windowState.id, generation: browserState.generation });
+        });
+        strip.appendChild(button);
+      });
+    }
+
+    function renderTabs(windowState) {
+      var strip = document.getElementById('browser-projection-tab-strip');
+      strip.replaceChildren();
+      if (!windowState) return;
+      var groups = new Map(windowState.groups.map(function (group) { return [group.id, group]; }));
+      var renderedGroups = new Set();
+      windowState.tabs.slice().sort(function (a, b) { return a.index - b.index; }).forEach(function (tab) {
+        var group = groups.get(tab.groupId);
+        if (group && !renderedGroups.has(group.id)) {
+          var chip = document.createElement('span');
+          chip.className = 'group-chip';
+          chip.textContent = group.title || 'Group';
+          chip.title = group.collapsed ? 'Collapsed tab group' : 'Tab group';
+          chip.style.setProperty('--group-color', groupColor(group.color));
+          strip.appendChild(chip);
+          renderedGroups.add(group.id);
+        }
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'page-tab' + (tab.pinned ? ' pinned' : '');
+        button.id = 'browser-projection-tab-' + windowState.id + '-' + tab.id;
+        button.setAttribute('role', 'tab');
+        button.setAttribute('aria-selected', String(tab.id === windowState.activeTabId));
+        button.title = tab.title || tab.url || 'Untitled';
+        button.appendChild(tab.status === 'loading' ? (function () {
+          var loading = document.createElement('span'); loading.className = 'tab-loading'; return loading;
+        })() : favicon(tab));
+        if (!tab.pinned) {
+          var title = document.createElement('span');
+          title.className = 'tab-title';
+          title.textContent = tab.title || tab.url || 'Untitled';
+          button.appendChild(title);
+        }
+        if (tab.audible) {
+          var audio = document.createElement('span');
+          audio.textContent = tab.muted ? '⌁' : '♪';
+          audio.setAttribute('aria-label', tab.muted ? 'Muted' : 'Playing audio');
+          button.appendChild(audio);
+        }
+        button.addEventListener('click', function () {
+          postIntent({
+            kind: 'select-tab', windowId: windowState.id, tabId: tab.id,
+            generation: browserState.generation
+          });
+        });
+        strip.appendChild(button);
+      });
+    }
+
+    function renderToolbar(tab) {
+      document.getElementById('browser-projection-active-title').textContent = tab ? (tab.title || 'Untitled') : '';
+      document.getElementById('browser-projection-address').textContent = tab ? (tab.url || '') : '';
+      var security = document.getElementById('security-indicator');
+      security.textContent = tab && /^https:/i.test(tab.url || '') ? '●' : '○';
+      security.title = tab && /^https:/i.test(tab.url || '') ? 'Secure connection' : 'Connection information';
+    }
+
+    function renderContentState(tab) {
+      document.body.classList.remove('page-active');
+      if (!hostState || !hostState.connected) { setStatus('Chrome extension is disconnected'); return; }
+      if (!browserState.windows.length) { setStatus('No normal Chrome windows'); return; }
+      if (!tab) { setStatus('The projected window has no selected tab'); return; }
+      if (tab.restricted) { setStatus('This Chrome page cannot be projected'); return; }
+      if (tab.discarded) { setStatus('This tab is discarded in Chrome'); return; }
+      if (tab.status === 'loading') { setStatus('Loading ' + (tab.title || tab.url || 'tab')); return; }
+      if (hasActiveProjection) {
+        document.body.classList.add('page-active');
+        setStatus('');
+        return;
+      }
+      setStatus('Waiting for the selected tab snapshot');
+    }
+
+    function renderBrowserState(nextState) {
+      var priorGeneration = browserState && browserState.generation;
+      var priorWindow = browserState && browserState.projectedWindowId;
+      var priorWindowState = browserState && currentWindow();
+      var priorTab = priorWindowState && priorWindowState.activeTabId;
+      browserState = nextState;
+      document.body.classList.remove('page-only');
+      chromeEl.hidden = false;
+      document.getElementById('build-footer').hidden = false;
+      document.getElementById('browser-projection-extension-build').textContent = buildLabel(browserState.extension);
+      document.getElementById('browser-projection-focused-window').textContent = 'focused ' + String(browserState.focusedWindowId == null ? 'none' : browserState.focusedWindowId);
+      document.getElementById('browser-projection-projected-window').textContent = 'projected ' + String(browserState.projectedWindowId == null ? 'none' : browserState.projectedWindowId);
+      document.getElementById('browser-projection-generation').textContent = 'generation ' + browserState.generation;
+      var nextWindowState = currentWindow();
+      if (priorGeneration !== browserState.generation
+          || priorWindow !== browserState.projectedWindowId
+          || priorTab !== (nextWindowState && nextWindowState.activeTabId)) {
+        clearProjection();
+        document.getElementById('browser-projection-page-marker').textContent = '';
+      }
+      var windowState = nextWindowState;
+      var tab = currentTab(windowState);
+      renderWindows();
+      renderTabs(windowState);
+      renderToolbar(tab);
+      renderContentState(tab);
+    }
+
+    function renderHostState(nextState) {
+      hostState = nextState;
+      document.body.classList.remove('page-only');
+      document.getElementById('build-footer').hidden = false;
+      document.getElementById('browser-projection-host-build').textContent = 'host ' + (nextState.sha || 'unknown');
+      if (!nextState.connected) setStatus('Chrome extension is disconnected');
+      else if (browserState) renderContentState(currentTab(currentWindow()));
+      else setStatus('Waiting for Chrome browser state');
+    }
 
     function base64ToBytes(b64) {
       var bin = atob(b64);
@@ -97,13 +404,12 @@
     // ADR-0044 Tier B: render/replace the CDP snapshot. Overlays the rrweb replayer (which keeps
     // running underneath, harmless); the tap overlay stays on top. w/h size the frame for tap mapping.
     function renderCdp(html, w, h) {
-      var stageEl = document.getElementById('stage');
       if (!cdpFrame) {
         cdpFrame = document.createElement('iframe');
         cdpFrame.id = 'cdp-frame';
         cdpFrame.setAttribute('sandbox', ''); // no scripts: it's a static, masked snapshot
         cdpFrame.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff;z-index:2;';
-        stageEl.insertBefore(cdpFrame, document.getElementById('tap-overlay'));
+        replayRoot.appendChild(cdpFrame);
       }
       cdpSize = { w: w || 0, h: h || 0 };
       // The CDP frame is sandbox='' (opaque origin) so we can't measure/reflow it; scale-to-fit by the
@@ -138,7 +444,7 @@
           // mouseTail on (rrweb default): the recorded cursor (.replayer-mouse) and its move-trail
           // (.replayer-mouse-tail) now draw as absolute overlays, positioned by the vendored
           // rrweb.min.css, so they no longer take flow space or push the page.
-          replayer = new rrweb.Replayer(pending, { liveMode: true, root: stage });
+          replayer = new rrweb.Replayer(pending, { liveMode: true, root: replayRoot });
           replayer.startLive(pending[0].timestamp);
           pending = [];
         }
@@ -174,11 +480,16 @@
     // report a probe summary of the reconstructed DOM so the autonomous harness can assert the
     // mirror worked (visible text is masked, so the probe keys on a data-attribute marker +
     // node count, not on page text).
-    window.__domMirrorDeliver = function (rawJSON) {
+    window.__browserProjectionDeliver = function (rawJSON) {
       var batch;
       try { batch = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON; }
       catch (e) { return; }
       if (!batch) return;
+      if (batch.t === 'projection-host') { renderHostState(batch); return; }
+      if (batch.t === 'browser-state') { renderBrowserState(batch); return; }
+      if (batch.t !== 'dom-batch') return;
+      var projected = browserState && currentWindow();
+      if (browserState && (!projected || batch.g !== browserState.generation || batch.tb !== projected.activeTabId)) return;
       if (batch.meta && batch.meta.w) lastRecordedW = batch.meta.w; // recorded desktop width for fit
       // ADR-0043/0044: a keyframe (co:true) supersedes any incomplete chunk set, for events AND CDP.
       // Clearing here bounds the chunks map (no slot outlives the next keyframe) and makes a cid reused
@@ -192,6 +503,9 @@
         var chtml;
         try { chtml = inflateStr(cb64); } catch (e) { return; }
         renderCdp(chtml, batch.w, batch.h);
+        hasActiveProjection = true;
+        if (browserState) renderContentState(currentTab(currentWindow()));
+        else { document.body.classList.add('page-active'); setStatus(''); }
         scheduleProbe();
         return;
       }
@@ -213,6 +527,11 @@
       }
       for (var i = 0; i < ev.length; i++) applyEvent(ev[i]);
       injectAdoptedCss(); // re-apply after a (possibly rebuilt) snapshot
+      if (replayer) {
+        hasActiveProjection = true;
+        if (browserState) renderContentState(currentTab(currentWindow()));
+        else { document.body.classList.add('page-active'); setStatus(''); }
+      }
       scheduleProbe();
     };
 
@@ -236,6 +555,7 @@
       var markerEl = doc.querySelector('[data-agentdesk-fixture]');
       var marker = markerEl ? markerEl.getAttribute('data-agentdesk-fixture') : '';
       var nodes = doc.querySelectorAll('*').length;
+      document.getElementById('browser-projection-page-marker').textContent = 'marker ' + marker;
       try {
         window.webkit.messageHandlers.domMirror.postMessage({ kind: 'probe', marker: marker, nodes: nodes });
       } catch (e) {}
@@ -344,7 +664,7 @@
     // Re-fit on viewport change (orientation / split view).
     window.addEventListener('resize', function () { try { fitReplay(); } catch (e) {} });
 
-    window.__domMirrorBridge = { destroy: function () { try { removeCdp(); replayer && replayer.pause(); } catch (e) {} } };
+    window.__browserProjectionBridge = { destroy: function () { try { clearProjection(); } catch (e) {} } };
   })();
   </script>
 </body>

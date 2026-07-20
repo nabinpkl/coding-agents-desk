@@ -1,91 +1,72 @@
-# TASKS: v6 iOS workspace workbench
+# TASKS: v7 local multi-window Chrome projection (with v8 terminal durability captured)
 
 `R<N>` = remaining. Flip to `D<N>` only after the complete slice has landed and its tests are green.
-This ledger continues from the archived v5 ledger through D73.
+This ledger continues from the archived v6 ledger through D83.
 
 ## Position
 
-This iteration turns the existing iOS Files surface into one workspace workbench: a collapsible,
-resizable file sidebar on the left, the shared file viewer/editor in the upper-right, and one
-resizable persistent workspace terminal in the lower-right. The existing global Terminal surface
-remains available for general PTY management.
+This iteration makes the macOS Browser Projection model the whole local Chrome hierarchy while keeping
+one recorder and one selected page. The extension session and generation contract land first because
+the host cannot safely render nested metadata until delayed prior-page batches are distinguishable at
+their source. The validated native session and shared renderer follow. Autonomous live verification is
+last because it launches the dev host and visible test-owned Chrome and therefore remains behind the
+repository launch checkpoint.
 
-The host terminal contract lands before UIKit consumes it because the iPhone must never derive or
-receive an authoritative workspace root. The Files surface is then split into explorer and editor
-regions before the terminal joins, so layout state and terminal lifecycle do not accumulate inside
-the existing preview overlay.
+Browser metadata is local to the authenticated Unix bridge. The existing QUIC DOM lane remains page-only
+for iOS, so this iteration neither changes protocol version 11 nor adds remote browser-shell management.
 
-## v6 Phase 0: decision and compatibility gate
+## v7 Phase 0: local projection decision
 
-- [x] D74. Accept ADR-0061 and update `SPEC.md` with the workspace workbench, host-resolved persistent
-  terminal selection, shared macOS/iOS workspace-terminal identity, PTY protocol v5 recency metadata,
-  and AgentDesk session protocol v10 requirement.
+- [x] D84. Accept ADR-0063 and update `PRD.md` and `SPEC.md` with the nested local browser hierarchy,
+  focus versus projection semantics, one-recorder generation model, local-only metadata boundary, and
+  explicit Chrome-management non-goals.
 
-## v6 Phase 1: terminal identity and wire contract
+## v7 Phase 1: authoritative extension session
 
-- [x] D75. Extend the in-tree PTY protocol and both generated clients with immutable session creation
-  time, bump the inner protocol to v5, and test that reattach preserves it while recreation replaces it.
-- [x] D76. Add workspace-terminal open, ready, attached, cancel, and typed-error messages to
-  `AgentDeskWire`; route them on the authenticated input lane and bump the session protocol to v10.
-  Tests pin compact encoding, stale request fencing, and v9 rejection.
+- [x] D85. Replace the focused-tab recorder state in `chrome-extension/worker.js` with a restorable
+  multi-window session backed by `chrome-extension/browser-session.js`; enumerate normal windows,
+  ordered tabs, groups, and bounded favicons; validate window/tab selection; pass generation into the
+  isolated recorder; and test ordering, focus, navigation, restriction, restoration fields, and stale
+  command or batch rejection.
 
-## v6 Phase 2: host-owned workspace terminal
+## v7 Phase 2: validated local host projection
 
-- [x] D77. Add a host `WorkspaceTerminalCoordinator` that resolves an opaque workspace id through
-  `WorkspaceRepository`, validates a remembered PTY, otherwise selects the newest running persistent
-  workspace PTY, and creates a login shell at the workspace root only when none exists. Hold a
-  bootstrap attachment until iOS acknowledges and clean failed handoffs without killing preexisting
-  sessions.
-- [x] D78. Give macOS and iOS-created workspace terminals the same host-generated
-  `workspace-<workspace-id>-<suffix>` identity so either platform may attach. General and leased Agent
-  Panel terminals remain outside this namespace. Tests reject wrong-workspace names, cwd mismatches,
-  incompatible lifetime, and invalid store ids.
+- [x] D86. Add bounded multi-window state types to `packages/BrowserProjection`, render nested ARIA
+  window and tab strips with read-only toolbar/status states, and route validated state plus matching
+  page batches through a host-only `BrowserProjectionSession`. Keep `browser-state` out of
+  `DomMirrorRelay`; retain selected-page tap, scroll, and existing iOS page-only delivery. Tests pin
+  decoding, metadata text safety, AX identifiers, atomic replacement, filtering, and command routing.
 
-## v6 Phase 3: iOS workbench
+## v7 Phase 3: autonomous verification seam
 
-- [x] D79. Replace the Files preview overlay with a `WorkspaceWorkbenchSurface` composed from explorer
-  and editor children. Add pure per-workspace layout state and persistence. First-use state is sidebar
-  visible, editor empty, and terminal visible; the sidebar never overlays the editor. Tests cover
-  divider clamping, collapse, workspace restoration, and no viewer reload during resize.
-- [x] D80. Add one shared SwiftTerm content view per visited workspace. Reattach the remembered PTY
-  after reconnect or relaunch, fall back to the host-selected latest PTY, and create only when none is
-  available. Terminal collapse preserves the attachment; session loss is visible and retryable.
-  Tests cover workspace switching, generation fencing, keyboard-safe layout, and explicit teardown.
+- [x] D87. Add `just browser-projection-verify` and `just browser-projection-e2e`; preflight TCC without
+  prompting, build the exact dev host without personal Chrome bridge installation, load the exact
+  extension into a temporary visible Chrome-for-Testing profile, drive stable AX identifiers, capture
+  window-only screenshots and machine-readable transitions, reuse tap/scroll gates, and clean every
+  test-owned process and profile. Pure, renderer, real-extension, focused-host, and repository checks
+  must pass before the launch checkpoint.
 
-## v6 Phase 4: integration and live checkpoint
+## v7 Phase 4: live acceptance checkpoint
 
-- [x] D81. Run PTY Rust and Swift package tests, wire tests, host/client focused tests, `just check`,
-  and `just sim-test`; self-review the complete cross-file contract and confirm no full host path is
-  exposed on the iOS wire.
-- [x] D82. After the repository launch checkpoint and explicit user approval, install the isolated dev
-  host and simulator client, verify both build SHAs, and smoke sidebar resize/collapse, empty editor,
-  file viewing, terminal resize/input, workspace cwd, relaunch reattachment, and Mac-created terminal
-  attachment using accessibility identifiers and app-only screenshots.
-
-## v6 Phase 5: workspace naming and viewer zoom
-
-- [x] D83. Rename the iOS switcher surface and automation contract from Files to Workspace, replace
-  the folder symbol with an IDE-layout symbol, and expose shared content-aware zoom controls for every
-  open file. Viewer tests pin bounded text scaling and DOCX viewport delegation; iOS tests pin the
-  symbol, label, picker, and controls for text and DOCX.
+- [ ] R88. After explicit user approval, run `just browser-projection-e2e` and verify two normal Chrome
+  windows, complete nested tabs and group metadata, projection-only outer switching, unfocused inner
+  tab activation, direct Chrome focus/tab following, restricted-page clearing, strictly advancing
+  generations, stale-batch rejection, matching host/extension SHAs, six screenshots, result JSON, and
+  complete cleanup without touching the stable host or personal Chrome profile.
 
 ---
 
-## v7 scope (captured, not started)
+## v8 scope (captured, not started)
 
-- Workspace terminal tabs, splits, and a workspace-filtered session drawer.
-- Bounded PTY output replay so a fully disconnected client reconstructs prior terminal display state.
+- [ ] R89. Add workspace terminal tabs, splits, and a workspace-filtered session drawer.
+- [ ] R90. Add bounded PTY output replay so a fully disconnected client reconstructs prior terminal display state.
 
 ## Promotion log
 
-```
-D74      2026-07-19  landed      workspace workbench and terminal authority decision
-D75      2026-07-19  landed      immutable PTY session creation time and inner protocol v5
-D76      2026-07-19  landed      authenticated workspace-terminal wire contract and protocol v10
-D77-D78  2026-07-19  landed      host workspace resolution, safe handoff, and shared PTY identity
-D79      2026-07-19  landed      resizable UIKit explorer, empty editor, and persistent pane state
-D80      2026-07-19  landed      one persistent shared workspace shell
-D81      2026-07-19  landed      PTY, wire, host, client, and simulator gates green
-D82      2026-07-19  landed      dev SHA, workbench, persistent reattach, and Mac-created PTY smoke green
-D83      2026-07-19  landed      Workspace naming, IDE symbol, and content-aware viewer zoom
+```text
+D84      2026-07-20  landed      local multi-window browser projection decision
+D85      2026-07-20  landed      restorable extension session and document-scoped generation
+D86      2026-07-20  landed      validated nested AppKit projection and local bridge routing
+D87      2026-07-20  landed      autonomous AX and temporary-Chrome verification seam
+R88      pending     checkpoint  live dev-host and visible Chrome-for-Testing acceptance
 ```

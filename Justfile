@@ -366,6 +366,28 @@ dom-mirror-scroll-gesture-verify:
     export NODE_PATH="$(npm root -g)"
     node '{{justfile_directory()}}/chrome-test/scroll-gesture-verify.mjs'
 
+# Pure projection-session and shared-renderer gates. This recipe never launches the native host or
+# visible Chrome; the renderer contract runs in a test-owned headless browser.
+browser-projection-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    node '{{justfile_directory()}}/chrome-test/browser-session-verify.cjs'
+    node '{{justfile_directory()}}/chrome-test/browser-projection-renderer-verify.mjs'
+    swift test --package-path '{{justfile_directory()}}/packages/BrowserProjection'
+
+# Full local multi-window acceptance gate. It owns a visible Chrome-for-Testing profile and the dev
+# host, drives only stable AX identifiers, writes window-only screenshots under /tmp, and removes all
+# test-owned processes and profile state. The personal Chrome profile and stable host are untouched.
+browser-projection-e2e: ext-stamp
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just browser-projection-verify
+    just dom-mirror-input-verify
+    just dom-mirror-scroll-verify
+    AGENTDESK_E2E_HOST_SUPPORT='{{host_dev_support_dir}}' \
+      AGENTDESK_E2E_HOST_DERIVED_DATA='{{host_dev_derived_data}}' \
+      node '{{justfile_directory()}}/chrome-test/browser-projection-e2e.mjs'
+
 # ADR-0048 device-emulation autonomous gate: the emulate WRITE path + authoritative echo. A fake host
 # sends dom-emulate through the shim to the real extension, which device-emulates the recorded tab via
 # chrome.debugger and resnapshots; the harness asserts the resulting checkout batch reports the iPhone
@@ -556,7 +578,7 @@ iphone-log-collect variant="stable":
 # variant: "stable" (default) or "dev" (the experimental side-by-side host:
 # bundle id {{host_dev_bundle_id}}, DEV-badged icon, separate derived-data dir,
 # tier-derived ports). The dev host runs concurrently with the stable one.
-host-run-dev variant="stable":
+host-run-dev variant="stable" install_live_bridge="true":
     #!/usr/bin/env bash
     set -euo pipefail
     # DOM mirror (Chrome page mirroring, ADR-0038) is baked on by default for every
@@ -680,7 +702,11 @@ host-run-dev variant="stable":
     # DOM bridge is first-class: wire this variant's native-messaging manifest on every
     # launch so the Chrome extension can reach the running host. Non-fatal so a host run
     # never blocks on Chrome/node config; it warns loudly instead of failing silently.
-    just dom-bridge-reinstall {{variant}} || echo "WARN: dom-bridge wiring failed; browser mode will not mirror until 'just dom-bridge-reinstall {{variant}}' succeeds"
+    if [ "{{install_live_bridge}}" = "true" ]; then
+        just dom-bridge-reinstall {{variant}} || echo "WARN: dom-bridge wiring failed; browser mode will not mirror until 'just dom-bridge-reinstall {{variant}}' succeeds"
+    else
+        echo "host-run-dev: skipped personal Chrome bridge install"
+    fi
 
 # host-run is the PRIMARY host launch: -configuration Release, so the host runs at shipped-build
 # performance. A Debug (-Onone) host pegs a core in the crisp tile codec (OwnedTileCodec.extractTileWithHash

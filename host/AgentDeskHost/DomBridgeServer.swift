@@ -3,6 +3,7 @@ import Foundation
 import os
 import Security
 import AgentDeskWire
+import BrowserProjection
 
 // ADR-0039 host-side endpoint of the sacrificial native-messaging bridge. The `dom-bridge`
 // shim (spawned and owned by Chrome) connects to this Unix domain socket and forwards, as
@@ -21,6 +22,7 @@ final class DomBridgeServer: @unchecked Sendable {
         // extension deflate-compresses each batch (and chunks a still-oversized one), so every line is
         // well under this -- it is a memory safety bound, not a working limit.
         static let maxLineBytes = 2 * 1024 * 1024
+        static let maxBrowserStateBytes = 2 * 1024 * 1024
     }
 
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "dom-bridge")
@@ -41,6 +43,7 @@ final class DomBridgeServer: @unchecked Sendable {
     // Called for each authenticated DOM batch: the raw newline-free JSON line the shim sent
     // (forwarded verbatim down the .dom lane) plus the decoded envelope (tab, checkout marker).
     var onBatch: ((Data, DomBatchEnvelope) -> Void)?
+    var onBrowserState: ((Data, BrowserProjectionState) -> Void)?
     // Called when a shim connects / disconnects, so the DOM subsystem can track bridge liveness.
     var onBridgeConnected: (() -> Void)?
     var onBridgeDisconnected: (() -> Void)?
@@ -229,6 +232,9 @@ final class DomBridgeServer: @unchecked Sendable {
                 case .forwardBatch(let raw, let envelope):
                     onBatch?(raw, envelope)
                     appendProbe("dom-batch tab=\(envelope.tabId) checkout=\(envelope.checkout) bytes=\(raw.count)")
+                case .forwardBrowserState(let raw, let state):
+                    onBrowserState?(raw, state)
+                    appendProbe("browser-state windows=\(state.windows.count) generation=\(state.generation) bytes=\(raw.count)")
                 case .reject(let code):
                     appendProbe("bridge rejected code=\(code)")
                     return
@@ -298,6 +304,7 @@ struct DomBridgeSession {
     enum Action: Equatable {
         case ack
         case forwardBatch(raw: Data, envelope: DomBatchEnvelope)
+        case forwardBrowserState(raw: Data, state: BrowserProjectionState)
         case reject(String)
         case ignore
     }
@@ -333,6 +340,13 @@ struct DomBridgeSession {
                 return .reject("malformed")
             }
             return .forwardBatch(raw: line, envelope: envelope)
+        case "browser-state":
+            guard line.count <= DomBridgeServer.Constants.maxBrowserStateBytes,
+                  let state = try? JSONDecoder().decode(BrowserProjectionState.self, from: line),
+                  (try? state.validate()) != nil else {
+                return .reject("malformed-browser-state")
+            }
+            return .forwardBrowserState(raw: line, state: state)
         default:
             return .reject("unknown")
         }

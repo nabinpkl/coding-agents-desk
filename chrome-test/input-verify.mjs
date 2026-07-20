@@ -1,7 +1,7 @@
 // Phase 5 autonomous gate (`just dom-mirror-input-verify`): the WRITE path, deterministic, no sim.
 //
-// Real extension in a throwaway Chrome-for-Testing profile records the fixture (so the worker's
-// recordingTabId is set), then a fake host (standing in for DomBridgeServer.sendToBridge) sends a
+// Real extension in a throwaway Chrome-for-Testing profile records the fixture (so the projection
+// session has one recorded tab), then a fake host (standing in for DomBridgeServer.sendToBridge) sends a
 // `dom-input` command through the shim to the extension worker, which dispatches it as TRUSTED input
 // via chrome.debugger. The click is observed by a listener the HARNESS injects into the fixture via
 // Playwright (page.evaluate bypasses the page CSP and coexists with the extension's chrome.debugger),
@@ -94,19 +94,16 @@ async function main() {
   });
 
   // Start recording from the CHROME layer (ADR-0042): drive the service worker, which sets the
-  // worker's recordingTabId -- the precondition for ADR-0040 tap dispatch. No URL param.
+  // worker's authoritative recorded tab, the precondition for ADR-0040 tap dispatch. No URL param.
   let sw = ctx.serviceWorkers()[0];
   if (!sw) { try { sw = await ctx.waitForEvent('serviceworker', { timeout: 5000 }); } catch {} }
   if (!sw) throw new Error('service worker not found; cannot start recording');
-  await sw.evaluate(async () => {
-    const [t] = await chrome.tabs.query({ active: true });
-    await startTabRecording(t.id);
-  });
+  await sw.evaluate(() => startBrowserProjection());
 
-  // Wait until the recorder is running (a batch arrived) so the worker's recordingTabId is set.
+  // Wait until a batch proves that the projection session's recorder is running.
   for (let i = 0; i < 40 && host.batches === 0; i++) await sleep(250);
   check(host.authed, 'shim authenticated to the host');
-  check(host.batches > 0, 'recorder running (recordingTabId set on the worker)');
+  check(host.batches > 0, 'projection session has one recorded tab');
 
   // Send a dom-input command down to the shim (as the host's sendToBridge would).
   if (host.conn) host.conn.write(JSON.stringify({ t: 'dom-input', k: 'mouse', x: TAP_X, y: TAP_Y }) + '\n');

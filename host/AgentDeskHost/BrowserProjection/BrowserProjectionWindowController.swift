@@ -1,4 +1,3 @@
-import AgentDeskWire
 import AppKit
 import BrowserProjection
 import os
@@ -11,7 +10,7 @@ final class BrowserProjectionWindowController: NSWindowController, NSWindowDeleg
     private var isStopping = false
 
     var projectionViewForTesting: NSView { projectionController.view }
-    var onBatchForTesting: ((Data) -> Void)?
+    var onPayloadForTesting: ((Data) -> Void)?
 
     override init(window: NSWindow?) {
         let projectionWindow = window ?? NSWindow(
@@ -24,6 +23,7 @@ final class BrowserProjectionWindowController: NSWindowController, NSWindowDeleg
         projectionWindow.minSize = NSSize(width: 640, height: 420)
         projectionWindow.collectionBehavior = [.moveToActiveSpace, .fullScreenPrimary]
         projectionWindow.isReleasedWhenClosed = false
+        projectionWindow.setAccessibilityIdentifier("browser-projection-window")
         projectionWindow.contentView = projectionController.view
         super.init(window: projectionWindow)
         projectionWindow.delegate = self
@@ -54,10 +54,21 @@ final class BrowserProjectionWindowController: NSWindowController, NSWindowDeleg
         }
     }
 
+    func bindIntents(
+        onSelectWindow: @escaping (Int, Int) -> Void,
+        onSelectTab: @escaping (Int, Int, Int) -> Void,
+        onTap: @escaping (Double, Double) -> Void,
+        onScroll: @escaping (Double, Double, Double, Double) -> Void
+    ) {
+        projectionController.onSelectWindow = onSelectWindow
+        projectionController.onSelectTab = onSelectTab
+        projectionController.onTap = onTap
+        projectionController.onScroll = onScroll
+    }
+
     func receive(_ payload: Data) {
-        guard (try? JSONDecoder().decode(DomBatchEnvelope.self, from: payload)) != nil,
-              let rawJSON = String(data: payload, encoding: .utf8) else { return }
-        onBatchForTesting?(payload)
+        guard let rawJSON = String(data: payload, encoding: .utf8) else { return }
+        onPayloadForTesting?(payload)
         projectionController.deliver(rawJSON: rawJSON)
     }
 
@@ -72,59 +83,5 @@ final class BrowserProjectionWindowController: NSWindowController, NSWindowDeleg
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         sender.orderOut(nil)
         return false
-    }
-}
-
-final class BrowserProjectionLocalLane: DomLaneSending, @unchecked Sendable {
-    private struct State {
-        var controller: BrowserProjectionWindowController?
-        var pending: [Data] = []
-        var nextIndex = 0
-        var isDraining = false
-    }
-
-    private let lock: OSAllocatedUnfairLock<State>
-
-    init(controller: BrowserProjectionWindowController) {
-        lock = OSAllocatedUnfairLock(initialState: State(controller: controller))
-    }
-
-    func send(_ payload: Data) {
-        let shouldStartDrain = lock.withLock { state in
-            guard state.controller != nil else { return false }
-            state.pending.append(payload)
-            guard !state.isDraining else { return false }
-            state.isDraining = true
-            return true
-        }
-        guard shouldStartDrain else { return }
-        Task { @MainActor [weak self] in self?.drain() }
-    }
-
-    func close() {
-        lock.withLock { state in
-            state.controller = nil
-            state.pending = []
-            state.nextIndex = 0
-            state.isDraining = false
-        }
-    }
-
-    @MainActor
-    private func drain() {
-        while let next = lock.withLock({ state -> (BrowserProjectionWindowController, Data)? in
-            guard let controller = state.controller,
-                  state.nextIndex < state.pending.count else {
-                state.pending = []
-                state.nextIndex = 0
-                state.isDraining = false
-                return nil
-            }
-            let payload = state.pending[state.nextIndex]
-            state.nextIndex += 1
-            return (controller, payload)
-        }) {
-            next.0.receive(next.1)
-        }
     }
 }

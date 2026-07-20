@@ -1,4 +1,5 @@
 import Foundation
+import BrowserProjection
 import Testing
 
 @testable import AgentDeskHost
@@ -68,6 +69,38 @@ struct DomBridgeServerTests {
         _ = session.accept(line: line(#"{"t":"auth","v":1,"token":"secret"}"#))
         #expect(session.accept(line: line("not json")) == .reject("malformed"))
         #expect(session.accept(line: line(#"{"t":"who-knows"}"#)) == .reject("unknown"))
+    }
+
+    @Test func sessionAuthenticatesThenForwardsValidatedBrowserState() {
+        var session = DomBridgeSession(expectedToken: "secret")
+        #expect(session.accept(line: line(#"{"t":"auth","v":1,"token":"secret"}"#)) == .ack)
+        let raw = line(#"{"t":"browser-state","generation":3,"projectedWindowId":1,"focusedWindowId":2,"extension":{"version":"0.7.0","commits":42,"sha":"abc1234","dirty":false},"windows":[{"id":1,"ordinal":1,"focused":false,"state":"normal","activeTabId":11,"tabs":[{"id":11,"windowId":1,"index":0,"active":true,"pinned":false,"groupId":-1,"status":"complete","title":"One","url":"https://one.test","audible":false,"muted":false,"discarded":false,"restricted":false}],"groups":[]},{"id":2,"ordinal":2,"focused":true,"state":"normal","activeTabId":21,"tabs":[{"id":21,"windowId":2,"index":0,"active":true,"pinned":false,"groupId":-1,"status":"complete","title":"Two","url":"https://two.test","audible":false,"muted":false,"discarded":false,"restricted":false}],"groups":[]}]}"#)
+
+        let action = session.accept(line: raw)
+        guard case .forwardBrowserState(let forwarded, let state) = action else {
+            Issue.record("expected forwardBrowserState, got \(action)")
+            return
+        }
+        #expect(forwarded == raw)
+        #expect(state.projectedWindowId == 1)
+        #expect(state.focusedWindowId == 2)
+        #expect(state.windows.count == 2)
+    }
+
+    @Test func sessionRejectsBrowserStateWithCrossWindowTab() {
+        var session = DomBridgeSession(expectedToken: "secret")
+        _ = session.accept(line: line(#"{"t":"auth","v":1,"token":"secret"}"#))
+        let raw = line(#"{"t":"browser-state","generation":1,"projectedWindowId":1,"focusedWindowId":1,"extension":{"version":"0.7.0"},"windows":[{"id":1,"ordinal":1,"focused":true,"state":"normal","activeTabId":11,"tabs":[{"id":11,"windowId":2,"index":0,"active":true,"pinned":false,"groupId":-1,"status":"complete","title":"Wrong","url":"https://wrong.test","audible":false,"muted":false,"discarded":false,"restricted":false}],"groups":[]}]}"#)
+        #expect(session.accept(line: raw) == .reject("malformed-browser-state"))
+    }
+
+    @Test func sessionRejectsOversizeBrowserStateBeforeDecoding() {
+        var session = DomBridgeSession(expectedToken: "secret")
+        _ = session.accept(line: line(#"{"t":"auth","v":1,"token":"secret"}"#))
+        let oversized = Data((#"{"t":"browser-state","padding":""#
+            + String(repeating: "x", count: DomBridgeServer.Constants.maxBrowserStateBytes)
+            + #""}"#).utf8)
+        #expect(session.accept(line: oversized) == .reject("malformed-browser-state"))
     }
 
     @Test func sessionIgnoresEmptyLines() {

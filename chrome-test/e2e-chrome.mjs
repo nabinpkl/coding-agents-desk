@@ -65,10 +65,7 @@ async function main() {
   let sw = ctx.serviceWorkers()[0];
   if (!sw) { try { sw = await ctx.waitForEvent('serviceworker', { timeout: 5000 }); } catch {} }
   if (!sw) throw new Error('service worker not found; cannot start recording');
-  await sw.evaluate(async () => {
-    const [t] = await chrome.tabs.query({ active: true });
-    await startTabRecording(t.id);
-  });
+  await sw.evaluate(() => startBrowserProjection());
 
   console.log(`e2e-chrome: recording fixture for ${RECORD_SECONDS}s...`);
   await sleep(RECORD_SECONDS * 1000);

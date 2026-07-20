@@ -8,6 +8,8 @@ public final class BrowserProjectionController: NSObject {
     public var onProbe: ((_ marker: String, _ nodeCount: Int) -> Void)?
     public var onTap: ((_ x: Double, _ y: Double) -> Void)?
     public var onScroll: ((_ x: Double, _ y: Double, _ dx: Double, _ dy: Double) -> Void)?
+    public var onSelectWindow: ((_ windowId: Int, _ generation: Int) -> Void)?
+    public var onSelectTab: ((_ windowId: Int, _ tabId: Int, _ generation: Int) -> Void)?
     public var onLog: ((_ message: String) -> Void)?
 
     private var runtimeLoaded = false
@@ -73,7 +75,7 @@ public final class BrowserProjectionController: NSObject {
         view.navigationDelegate = nil
         view.configuration.userContentController.removeScriptMessageHandler(forName: "domMirror")
         view.configuration.userContentController.removeScriptMessageHandler(forName: "domLog")
-        view.evaluateJavaScript("window.__domMirrorBridge?.destroy?.()", completionHandler: nil)
+        view.evaluateJavaScript("window.__browserProjectionBridge?.destroy?.()", completionHandler: nil)
         pendingJSON = []
         runtimeLoaded = false
     }
@@ -99,17 +101,29 @@ public final class BrowserProjectionController: NSObject {
             )
         case "probe":
             onProbe?(body["marker"] as? String ?? "", (body["nodes"] as? NSNumber)?.intValue ?? 0)
+        case "select-window":
+            onSelectWindow?(integer(body["windowId"]), integer(body["generation"]))
+        case "select-tab":
+            onSelectTab?(
+                integer(body["windowId"]),
+                integer(body["tabId"]),
+                integer(body["generation"])
+            )
         default:
             break
         }
     }
 
     private func callDeliver(_ rawJSON: String) {
-        evaluateScript?("window.__domMirrorDeliver(\(rawJSON))")
+        evaluateScript?("window.__browserProjectionDeliver(\(rawJSON))")
     }
 
     private func number(_ value: Any?) -> Double {
         (value as? NSNumber)?.doubleValue ?? 0
+    }
+
+    private func integer(_ value: Any?) -> Int {
+        (value as? NSNumber)?.intValue ?? 0
     }
 
     private static let diagnosticsShimSource = """

@@ -139,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var workspaceShellPresenter: WorkspaceShellPresenter?
     private var workspaceIDEWindowController: WorkspaceIDEWindowController?
     private var browserProjectionWindowController: BrowserProjectionWindowController?
+    private var browserProjectionSession: BrowserProjectionSession?
     private var browserProjectionLane: BrowserProjectionLocalLane?
     // R24: the macOS Agents window, toggled from the shell's top-bar "Agents" command. Backed by the
     // host-owned ATC sidecar through AgentPanel, independent of the QUIC-lane agent feed.
@@ -395,10 +396,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspaceLaneSessions.removeAll()
         workspaceIDEWindowController?.stop()
         workspaceIDEWindowController = nil
-        domMirrorRelay.detachLocalProjection()
         browserProjectionWindowController?.stop()
         browserProjectionWindowController = nil
+        browserProjectionLane?.close()
         browserProjectionLane = nil
+        browserProjectionSession = nil
         workspaceObservationCoordinator.stop()
         workspaceShellPresenter?.stop()
         workspaceShellPresenter = nil
@@ -548,12 +550,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func toggleBrowserProjection() {
+        guard let browserProjectionSession else { return }
         let controller = browserProjectionWindowController ?? BrowserProjectionWindowController()
         if browserProjectionWindowController == nil {
-            let lane = BrowserProjectionLocalLane(controller: controller)
             browserProjectionWindowController = controller
-            browserProjectionLane = lane
-            domMirrorRelay.attachLocalProjection(lane)
+            browserProjectionSession.attach(controller)
         }
         controller.toggle()
     }
@@ -773,18 +774,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard Config.domMirrorEnabled else { return }
         let relay = domMirrorRelay
         let server = DomBridgeServer()
+        let hostSHA = (Bundle.main.infoDictionary?["AgentDeskGitSHA"] as? String)
+            .flatMap { $0.isEmpty ? nil : $0 } ?? "dev"
+        let projectionSession = BrowserProjectionSession(hostSHA: hostSHA) { [weak server] payload in
+            server?.sendToBridge(payload) ?? false
+        }
+        let projectionLane = BrowserProjectionLocalLane(session: projectionSession)
         server.onBatch = { raw, envelope in
             // ADR-0048: envelope.emulated is the batch's `em` stamp (the extension's authoritative
             // device-emulation state); the relay fans it to the client's Desktop|Mobile control.
             relay.ingest(
                 line: raw, tabId: envelope.tabId, checkout: envelope.checkout,
                 emulated: envelope.emulated)
+            projectionLane.send(.batch(raw))
+        }
+        server.onBrowserState = { raw, state in
+            projectionLane.send(.browserState(raw, state))
         }
         // ADR-0046: reflect extension bridge liveness in the client's Browser status line.
-        server.onBridgeConnected = { relay.setExtConnected(true) }
-        server.onBridgeDisconnected = { relay.setExtConnected(false) }
+        server.onBridgeConnected = {
+            relay.setExtConnected(true)
+            projectionLane.send(.bridgeConnected(true))
+        }
+        server.onBridgeDisconnected = {
+            relay.setExtConnected(false)
+            projectionLane.send(.bridgeConnected(false))
+        }
         server.start()
         domBridgeServer = server
+        browserProjectionSession = projectionSession
+        browserProjectionLane = projectionLane
         signalingLogger.notice("dom-mirror bridge started")
     }
 

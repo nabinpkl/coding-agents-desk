@@ -11,6 +11,7 @@
 | Capture | `ScreenCaptureKit` on macOS 26+ | First-party selected-display capture without composition tricks. |
 | Encode / decode | Hardware-required VideoToolbox, HEVC by default and H.264 as an explicit owned-media codec setting | Rest-state text crispness depends on hardware screen-content quality. In this worktree HEVC remains the full-frame refresh path while retained graphics commands target scroll motion. |
 | Workspace | Host-owned workspace domain plus shared wire and `WorkspaceIDE` WebKit packages | Workspace roots, revisions, observation, Git reads, and PTY authority stay inside the Mac host. One native coordinator projects the same bundled sidebar and editor regions into AppKit and UIKit while native shells own geometry and terminal lifecycle. ADR-0052 and ADR-0062. |
+| Browser projection | MV3 extension, authenticated native bridge, shared `BrowserProjection` WebKit package | Every normal Chrome window and tab is local metadata; one selected tab supplies isolated-world rrweb batches. Focus and projection are independent, and generation fencing prevents prior pages from leaking into a new selection. ADR-0063. |
 | Transport | One authenticated `NetworkConnection<QUIC>` per live session, ALPN `agentdesk-session-quic-v2` | Control, input, DOM, terminal, and files use ordered QUIC streams. HEVC media uses the same connection's datagram lane. File payloads cannot head-of-line block input. ADR-0030 and ADR-0052. |
 | Network | Tailscale only | No public rendezvous, relay, or internet routing. Both peers are on the tailnet. |
 | Pairing | Mac-initiated tailnet device picker (ADR-0019), QR fallback | The Mac enumerates online iOS tailnet peers, probes each on the plain-TCP offer port (`AGENTDESK_OFFER_PORT`, default 41890) for a self-reported display name, and pushes a pre-approved signed offer to the picked device. The pick is the authorization. The iPhone runs the unchanged signed handshake. Signed token stored in Keychain on both sides. |
@@ -20,7 +21,7 @@
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
 
-ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with ordered role streams and media datagrams. ADR-0031 records client-visible selected-display projection. ADR-0032 records bounded client diagnostics. ADR-0033 records the adaptive media quality ladder. ADR-0035 records the phone Agent feed. ADR-0051 (superseded by ADR-0053) records the terminal lane. ADR-0052 makes AgentDesk the workspace owner and adds the authenticated files lane at protocol version `6`. ADR-0053 moves the terminal `pty-manager` and `pty-client-swift` packages in-tree, removing the last build dependency on the retired `agent-workspace-ide` donor. ADR-0054 established the shared workspace-data boundary; ADR-0062 supersedes only its platform-presentation decision. ADR-0056 adds host-coordinated leased Agent Panel terminals and raises the session target to protocol version `7`. ADR-0057 adds the shared responsive DOCX renderer, a binary Files codec, and protocol version `8`. ADR-0058 sequences cursor input, separates feedback provenance, and raises the session target to protocol version `9`. ADR-0059 isolates Dock desktop-content mutation behind a transactional yabai adapter without changing the wire protocol or the single SkyLight reader. ADR-0060 keeps the input frame ceiling at 4 MiB while fragmenting only large on-demand Agent raw events. ADR-0061 composes the iOS workspace workbench, shares a host-owned workspace-terminal namespace with macOS, raises the inner PTY protocol to `5`, and raises the AgentDesk session protocol to `10`. ADR-0062 adds the shared responsive Workspace IDE and raises the AgentDesk session protocol to `11`.
+ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with ordered role streams and media datagrams. ADR-0031 records client-visible selected-display projection. ADR-0032 records bounded client diagnostics. ADR-0033 records the adaptive media quality ladder. ADR-0035 records the phone Agent feed. ADR-0051 (superseded by ADR-0053) records the terminal lane. ADR-0052 makes AgentDesk the workspace owner and adds the authenticated files lane at protocol version `6`. ADR-0053 moves the terminal `pty-manager` and `pty-client-swift` packages in-tree, removing the last build dependency on the retired `agent-workspace-ide` donor. ADR-0054 established the shared workspace-data boundary; ADR-0062 supersedes only its platform-presentation decision. ADR-0056 adds host-coordinated leased Agent Panel terminals and raises the session target to protocol version `7`. ADR-0057 adds the shared responsive DOCX renderer, a binary Files codec, and protocol version `8`. ADR-0058 sequences cursor input, separates feedback provenance, and raises the session target to protocol version `9`. ADR-0059 isolates Dock desktop-content mutation behind a transactional yabai adapter without changing the wire protocol or the single SkyLight reader. ADR-0060 keeps the input frame ceiling at 4 MiB while fragmenting only large on-demand Agent raw events. ADR-0061 composes the iOS workspace workbench, shares a host-owned workspace-terminal namespace with macOS, raises the inner PTY protocol to `5`, and raises the AgentDesk session protocol to `10`. ADR-0062 adds the shared responsive Workspace IDE and raises the AgentDesk session protocol to `11`. ADR-0063 adds the local multi-window Chrome projection without changing the remote wire protocol.
 
 ## Module Boundaries
 
@@ -61,6 +62,9 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 29. **WorkspaceTerminalCoordinator.** Host-only authority for persistent workspace shells (ADR-0061). It resolves an opaque workspace id through `WorkspaceStore`, validates a remembered running session against the workspace namespace, canonical root, and persistent lifetime, otherwise selects the newest eligible session by immutable PTY creation time, and creates one login shell at the root only when none exists. macOS and iOS use the same host-generated `workspace-<workspace-id>-<suffix>` names; no workspace root crosses the wire.
 30. **WorkspaceIDEStateCoordinator.** Persists revisioned ordered open paths and expanded directory paths per workspace, applies idempotent operations, and fans snapshots to local and remote subscribers. It never owns selected workspace, active tab, drafts, cursor positions, or pane geometry.
 31. **WorkspaceObservationCoordinator.** Reference-counts one watcher per observed workspace, advances one change generation, reads Git status once for that generation, and fans the result to the existing shell and all IDE subscribers. Clean open files refresh; dirty files become conflicted without replacing their buffers.
+32. **DomBridgeServer.** Owns the `0600` Unix socket and token-authenticated native-messaging shim. It validates bounded complete browser snapshots separately from DOM batches. Browser state has no callback into the remote relay.
+33. **BrowserProjectionSession.** Main-actor local state owner for one validated browser snapshot. It routes window, tab, tap, and scroll commands through `DomBridgeServer.sendToBridge`, admits page batches only for the projected window's active tab and generation, and feeds one AppKit `BrowserProjectionWindowController`.
+34. **BrowserProjection extension session.** Enumerates normal Chrome windows with tabs, groups, and bounded favicons; persists enabled state, stable window ordering, projected window, target document, recorder identity, and generation in `chrome.storage.session`; and owns one isolated recorder and debugger attachment.
 
 ### Client
 
@@ -388,6 +392,42 @@ ADR-0062 adds a separate embedded IDE without removing the current native Worksp
 `WorkspaceIDEPlatformCapabilities` is enforced before a delegate call. macOS may add, remove, reorder,
 assign Desktop, and auto-assign workspaces. iPhone may select only existing opaque workspace ids. A
 forged script message receives a typed capability error and cannot reach the host adapter.
+
+## Local Chrome Projection
+
+ADR-0063 defines a local-only browser shell without changing protocol version 11.
+
+1. The extension emits one complete `browser-state` snapshot after start, reconnect, relevant Chrome
+   metadata events, projection selection, and explicit host request. Only `normal` Chrome windows are
+   included. Stable session-local ordinals follow discovery order.
+2. `focusedWindowId` is Chrome's last positive normal-window focus. `projectedWindowId` is the window
+   AgentDesk displays. A positive Chrome focus event aligns both. `WINDOW_ID_NONE` changes neither.
+   AgentDesk outer selection changes only `projectedWindowId`.
+3. The projected window's active tab is the only recorder target. A tab selection is valid only for
+   that projected window and activates the existing Chrome tab without focusing its window.
+4. Recorder teardown happens before a generation increment. Window changes, active-tab changes, URL
+   changes, same-URL loading transitions, and discarded-target transitions invalidate the page. The
+   generation is passed into the isolated content recorder and returned on every `dom-batch`.
+5. The extension, host local session, and webview each require matching generation and tab id. A state
+   transition clears the content stage before any new batch is accepted. Restricted, discarded,
+   loading, disconnected, and empty-browser states are explicit placeholders.
+6. The webview contains nested ARIA tablists, a read-only toolbar, a reconstructed page, and build
+   diagnostics. Metadata uses DOM text properties. Only existing-window and existing-tab selection is
+   actionable. Tap and scroll overlays exist only for a matching active page.
+7. `browser-state` terminates at `BrowserProjectionSession`. `dom-batch` also continues through
+   `DomMirrorRelay` so the iPhone retains its page-only Browser projection. No browser hierarchy,
+   selection command, or build metadata enters QUIC in this iteration.
+
+```text
+browser-state { generation, projectedWindowId?, focusedWindowId?, extension, windows[] }
+window        { id, ordinal, focused, state, bounds?, activeTabId?, tabs[], groups[] }
+tab           { id, windowId, index, active, pinned, groupId, status, title, url,
+                favIconDataURL?, audible, muted, discarded, restricted }
+
+browser-select-window { windowId, generation }
+browser-select-tab    { windowId, tabId, generation }
+dom-batch             { tb: tabId, g: generation, co, ... }
+```
 
 Owned media travels over the unified QUIC session's datagram lane after `SessionReady`.
 
