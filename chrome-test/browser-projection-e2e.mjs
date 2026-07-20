@@ -462,6 +462,15 @@ try {
   failure = error;
   result.status = 'failed';
   result.error = error.stack || error.message;
+  try {
+    const tree = runAX([
+      'dump', '--bundle-id', bundleID,
+      '--window-identifier', 'browser-projection-window', '--depth', '12',
+    ], 30_000);
+    writeFileSync(join(artifacts, 'ax-tree.txt'), tree);
+  } catch (dumpError) {
+    browserLog.push(`[harness] AX tree capture failed: ${dumpError.message}`);
+  }
 } finally {
   clearTimeout(watchdog);
   await cleanup();

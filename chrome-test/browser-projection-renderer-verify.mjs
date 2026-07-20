@@ -82,15 +82,15 @@ try {
   await page.evaluate((snapshot) => window.__browserProjectionDeliver(snapshot), state(1, 1));
 
   assert(await page.locator('[role="tablist"]').count() === 2, 'renderer exposes two ARIA tablists');
-  assert(await page.locator('#browser-projection-host-build[role="status"]').count() === 1, 'host build identity remains an addressable AX status');
-  assert(await page.locator('#browser-projection-extension-build[role="status"]').count() === 1, 'extension build identity remains an addressable AX status');
-  assert(await page.locator('#browser-projection-address[aria-readonly="true"]').count() === 1, 'address remains an addressable read-only AX field');
+  assert(await page.locator('#browser-projection-host-build:read-only').count() === 1, 'host build identity remains an addressable read-only AX field');
+  assert(await page.locator('#browser-projection-extension-build:read-only').count() === 1, 'extension build identity remains an addressable read-only AX field');
+  assert(await page.locator('#browser-projection-address:read-only').count() === 1, 'address remains an addressable read-only AX field');
   assert(await page.locator('#browser-projection-window-strip [role="tab"]').count() === 2, 'outer strip renders every normal window');
   assert(await page.locator('#browser-projection-tab-strip [role="tab"]').count() === 2, 'inner strip renders every projected-window tab even when its group is collapsed');
   assert(await page.locator('#browser-projection-window-tab-1').getAttribute('aria-selected') === 'true', 'projected outer window is selected');
   assert((await page.locator('#browser-projection-window-tab-1').getAttribute('class')).includes('is-focused'), 'focused Chrome window is marked independently');
   assert(await page.locator('#metadata-injection').count() === 0, 'tab title is rendered as text');
-  assert((await page.locator('#browser-projection-active-title').textContent()).includes('<img'), 'tab title text is preserved');
+  assert((await page.locator('#browser-projection-active-title').inputValue()).includes('<img'), 'tab title text is preserved');
   assert((await page.locator('.group-chip').textContent()).includes('<b>Work</b>'), 'group label is rendered as text');
   await page.evaluate(() => {
     const bytes = fflate.zlibSync(fflate.strToU8('<html><body data-agentdesk-fixture="renderer-active"></body></html>'));
@@ -122,7 +122,7 @@ try {
   restrictedWindows[1].tabs[1].active = true;
   await page.evaluate((snapshot) => window.__browserProjectionDeliver(snapshot), state(3, 2, restrictedWindows));
   assert((await page.locator('#browser-projection-content-status').textContent()).includes('cannot be projected'), 'restricted tab replaces prior page with a placeholder');
-  assert((await page.locator('#browser-projection-page-marker').textContent()) === '', 'restricted state clears the prior page marker');
+  assert((await page.locator('#browser-projection-page-marker').inputValue()) === '', 'restricted state clears the prior page marker');
   assert(!(await page.locator('body').getAttribute('class')).includes('page-active'), 'restricted state disables the page input overlay');
 
   const loadingWindows = structuredClone(windows);

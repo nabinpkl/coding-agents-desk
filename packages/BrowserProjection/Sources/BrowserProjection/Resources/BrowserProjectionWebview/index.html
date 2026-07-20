@@ -70,10 +70,11 @@
   .toolbar-buttons { display: flex; gap: 2px; }
   .toolbar-button { appearance: none; width: 27px; height: 27px; border: 0; border-radius: 50%; background: transparent; color: var(--chrome-muted); font: 15px/1 system-ui; }
   .toolbar-button:disabled { opacity: .6; }
-  #browser-projection-active-title { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .readout { appearance: none; min-width: 0; margin: 0; padding: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; }
+  #browser-projection-active-title { width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
   #address-shell { min-width: 0; display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border-radius: 14px; background: var(--chrome-bg); }
   #security-indicator { color: var(--chrome-muted); }
-  #browser-projection-address { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+  #browser-projection-address { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
   #content-shell { min-height: 0; position: relative; background: var(--content-bg); }
   #browser-projection-content-status { position: absolute; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px; background: var(--content-bg); color: #5f6368; text-align: center; font-size: 13px; }
   #browser-projection-content-status[hidden] { display: none; }
@@ -88,6 +89,7 @@
   #replay-root .replayer-wrapper { transform-origin: top left; }
   #stage iframe { border: 0; display: block; }
   #build-footer { display: flex; justify-content: flex-end; gap: 10px; min-height: 18px; padding: 2px 8px; border-top: 1px solid var(--chrome-border); background: var(--chrome-bg); color: var(--chrome-muted); font: 10px/1.3 ui-monospace, "SFMono-Regular", monospace; }
+  #build-footer .readout { width: auto; field-sizing: content; }
   #build-footer[hidden] { display: none; }
   body.page-only #browser-chrome, body.page-only #build-footer { display: none; }
   body.page-only #browser-projection-root { grid-template-rows: minmax(0, 1fr); }
@@ -104,21 +106,21 @@
           <button class="toolbar-button" disabled aria-label="Forward">→</button>
           <button class="toolbar-button" disabled aria-label="Reload">↻</button>
         </div>
-        <div id="browser-projection-active-title" role="status" aria-live="off"></div>
-        <div id="address-shell"><span id="security-indicator">○</span><span id="browser-projection-address" role="textbox" aria-readonly="true"></span></div>
+        <input id="browser-projection-active-title" class="readout" readonly tabindex="-1" aria-label="Active tab title">
+        <div id="address-shell"><span id="security-indicator">○</span><input id="browser-projection-address" class="readout" readonly tabindex="-1" aria-label="Address"></div>
       </div>
     </div>
     <div id="content-shell">
-      <div id="browser-projection-content-status" role="status" aria-live="off">Waiting for Chrome projection</div>
+      <div id="browser-projection-content-status" role="status">Waiting for Chrome projection</div>
       <div id="stage"><div id="replay-root"></div><div id="tap-overlay"></div></div>
     </div>
     <div id="build-footer" hidden>
-      <span id="browser-projection-focused-window" role="status" aria-live="off"></span>
-      <span id="browser-projection-projected-window" role="status" aria-live="off"></span>
-      <span id="browser-projection-generation" role="status" aria-live="off"></span>
-      <span id="browser-projection-page-marker" role="status" aria-live="off"></span>
-      <span id="browser-projection-host-build" role="status" aria-live="off"></span>
-      <span id="browser-projection-extension-build" role="status" aria-live="off"></span>
+      <input id="browser-projection-focused-window" class="readout" readonly tabindex="-1" aria-label="Focused Chrome window">
+      <input id="browser-projection-projected-window" class="readout" readonly tabindex="-1" aria-label="Projected Chrome window">
+      <input id="browser-projection-generation" class="readout" readonly tabindex="-1" aria-label="Projection generation">
+      <input id="browser-projection-page-marker" class="readout" readonly tabindex="-1" aria-label="Projected page marker">
+      <input id="browser-projection-host-build" class="readout" readonly tabindex="-1" aria-label="Host build">
+      <input id="browser-projection-extension-build" class="readout" readonly tabindex="-1" aria-label="Extension build">
     </div>
   </div>
   <script src="fflate.min.js"></script>
@@ -152,6 +154,10 @@
     function setStatus(message) {
       statusEl.textContent = message || '';
       statusEl.hidden = !message;
+    }
+
+    function setReadout(id, value) {
+      document.getElementById(id).value = value || '';
     }
 
     function clearProjection() {
@@ -293,8 +299,8 @@
     }
 
     function renderToolbar(tab) {
-      document.getElementById('browser-projection-active-title').textContent = tab ? (tab.title || 'Untitled') : '';
-      document.getElementById('browser-projection-address').textContent = tab ? (tab.url || '') : '';
+      setReadout('browser-projection-active-title', tab ? (tab.title || 'Untitled') : '');
+      setReadout('browser-projection-address', tab ? (tab.url || '') : '');
       var security = document.getElementById('security-indicator');
       security.textContent = tab && /^https:/i.test(tab.url || '') ? '●' : '○';
       security.title = tab && /^https:/i.test(tab.url || '') ? 'Secure connection' : 'Connection information';
@@ -325,16 +331,16 @@
       document.body.classList.remove('page-only');
       chromeEl.hidden = false;
       document.getElementById('build-footer').hidden = false;
-      document.getElementById('browser-projection-extension-build').textContent = buildLabel(browserState.extension);
-      document.getElementById('browser-projection-focused-window').textContent = 'focused ' + String(browserState.focusedWindowId == null ? 'none' : browserState.focusedWindowId);
-      document.getElementById('browser-projection-projected-window').textContent = 'projected ' + String(browserState.projectedWindowId == null ? 'none' : browserState.projectedWindowId);
-      document.getElementById('browser-projection-generation').textContent = 'generation ' + browserState.generation;
+      setReadout('browser-projection-extension-build', buildLabel(browserState.extension));
+      setReadout('browser-projection-focused-window', 'focused ' + String(browserState.focusedWindowId == null ? 'none' : browserState.focusedWindowId));
+      setReadout('browser-projection-projected-window', 'projected ' + String(browserState.projectedWindowId == null ? 'none' : browserState.projectedWindowId));
+      setReadout('browser-projection-generation', 'generation ' + browserState.generation);
       var nextWindowState = currentWindow();
       if (priorGeneration !== browserState.generation
           || priorWindow !== browserState.projectedWindowId
           || priorTab !== (nextWindowState && nextWindowState.activeTabId)) {
         clearProjection();
-        document.getElementById('browser-projection-page-marker').textContent = '';
+        setReadout('browser-projection-page-marker', '');
       }
       var windowState = nextWindowState;
       var tab = currentTab(windowState);
@@ -348,7 +354,7 @@
       hostState = nextState;
       document.body.classList.remove('page-only');
       document.getElementById('build-footer').hidden = false;
-      document.getElementById('browser-projection-host-build').textContent = 'host ' + (nextState.sha || 'unknown');
+      setReadout('browser-projection-host-build', 'host ' + (nextState.sha || 'unknown'));
       if (!nextState.connected) setStatus('Chrome extension is disconnected');
       else if (browserState) renderContentState(currentTab(currentWindow()));
       else setStatus('Waiting for Chrome browser state');
@@ -555,7 +561,7 @@
       var markerEl = doc.querySelector('[data-agentdesk-fixture]');
       var marker = markerEl ? markerEl.getAttribute('data-agentdesk-fixture') : '';
       var nodes = doc.querySelectorAll('*').length;
-      document.getElementById('browser-projection-page-marker').textContent = 'marker ' + marker;
+      setReadout('browser-projection-page-marker', 'marker ' + marker);
       try {
         window.webkit.messageHandlers.domMirror.postMessage({ kind: 'probe', marker: marker, nodes: nodes });
       } catch (e) {}
