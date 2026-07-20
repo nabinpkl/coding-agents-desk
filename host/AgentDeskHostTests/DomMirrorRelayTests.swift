@@ -88,6 +88,18 @@ struct DomMirrorRelayTests {
         #expect(!second.closed)
     }
 
+    @Test func localProjectionSeedsFromCheckoutThenReceivesLiveBatches() {
+        let relay = DomMirrorRelay()
+        relay.ingest(line: d("checkout"), tabId: 1, checkout: true)
+        relay.ingest(line: d("before-open"), tabId: 1, checkout: false)
+        let local = FakeLane()
+
+        relay.attachLocalProjection(local)
+        relay.ingest(line: d("live"), tabId: 1, checkout: false)
+
+        #expect(batches(local) == [d("checkout"), d("before-open"), d("live")])
+    }
+
     @Test func detachClosesAndStopsFanning() {
         let relay = DomMirrorRelay()
         let fp = DeviceFingerprint("fp1")

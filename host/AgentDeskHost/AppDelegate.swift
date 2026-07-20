@@ -138,6 +138,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private var workspaceShellPresenter: WorkspaceShellPresenter?
     private var workspaceIDEWindowController: WorkspaceIDEWindowController?
+    private var browserProjectionWindowController: BrowserProjectionWindowController?
+    private var browserProjectionLane: BrowserProjectionLocalLane?
     // R24: the macOS Agents window, toggled from the shell's top-bar "Agents" command. Backed by the
     // host-owned ATC sidecar through AgentPanel, independent of the QUIC-lane agent feed.
     private var agentWindowController: AgentWindowController?
@@ -393,6 +395,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspaceLaneSessions.removeAll()
         workspaceIDEWindowController?.stop()
         workspaceIDEWindowController = nil
+        domMirrorRelay.detachLocalProjection()
+        browserProjectionWindowController?.stop()
+        browserProjectionWindowController = nil
+        browserProjectionLane = nil
         workspaceObservationCoordinator.stop()
         workspaceShellPresenter?.stop()
         workspaceShellPresenter = nil
@@ -515,6 +521,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         agentWindowController = agentWindow
         presenter.onAgentsCommand = { [weak agentWindow] in agentWindow?.toggle() }
         presenter.onIDECommand = { [weak self] in self?.toggleWorkspaceIDE() }
+        presenter.onBrowserCommand = { [weak self] in self?.toggleBrowserProjection() }
 
         presenter.show()
     }
@@ -537,6 +544,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             spacesProvider: spacesProvider
         )
         workspaceIDEWindowController = controller
+        controller.toggle()
+    }
+
+    private func toggleBrowserProjection() {
+        let controller = browserProjectionWindowController ?? BrowserProjectionWindowController()
+        if browserProjectionWindowController == nil {
+            let lane = BrowserProjectionLocalLane(controller: controller)
+            browserProjectionWindowController = controller
+            browserProjectionLane = lane
+            domMirrorRelay.attachLocalProjection(lane)
+        }
         controller.toggle()
     }
 

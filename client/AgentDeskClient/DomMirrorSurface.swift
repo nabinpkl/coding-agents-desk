@@ -1,16 +1,15 @@
+import BrowserProjection
 import Foundation
 import OSLog
 import UIKit
 import WebKit
 
-// ADR-0038 DOM mirror: a WKWebView hosting the bundled rrweb replayer. Mirrors AgentFeedSurface's
-// structure (custom scheme + documentStart diagnostics shim + retain-cycle-safe proxy), but the
-// bridge is one-directional for read-only v1:
+// ADR-0038 DOM mirror: an iOS shell around the shared BrowserProjection WKWebView. The bridge is
+// one-directional for read-only v1:
 //   - Outbound (native -> JS): deliver(rawJSON) -> window.__domMirrorDeliver(batch)
 //   - Inbound  (JS -> native): the replayer posts a `domMirror` probe summarizing the reconstructed
 //     DOM (marker attribute + node count) so the autonomous harness can assert the mirror worked
 //     without a human; `domLog` carries JS errors/console to OSLog.
-// Reuses the generic AgentFeedSchemeHandler (it just serves a root directory).
 @MainActor
 final class DomMirrorSurface: UIView {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "dom-mirror-surface")
@@ -31,15 +30,13 @@ final class DomMirrorSurface: UIView {
     // the page at 1x, inspect locally when zoomed. zoomScale is the authoritative zoom state (JS
     // visualViewport tracking of WKWebView pinch is unreliable), so the gate lives here, not in the JS.
     func handleScroll(x: Double, y: Double, dx: Double, dy: Double) {
-        guard (webView?.scrollView.zoomScale ?? 1) <= 1.01 else { return }
+        guard webView.scrollView.zoomScale <= 1.01 else { return }
         onScroll?(x, y, dx, dy)
     }
 
-    private var webView: WKWebView?
-    private var isLoaded = false
-    private var torn = false
-    private var pendingJSON: [String] = []
-    var evaluateScript: ((String) -> Void)?
+    private let projectionController = BrowserProjectionController()
+    private var webView: WKWebView { projectionController.view }
+    var projectionViewForTesting: WKWebView { projectionController.view }
 
     // ADR-0046 diagnostic status line (below the surface's top edge, i.e. below the Control | Agent |
     // Browser switcher). The surface owns its status state and re-renders the pills on each update
@@ -70,43 +67,9 @@ final class DomMirrorSurface: UIView {
     }
 
     private func setupWebView() {
-        let contentController = WKUserContentController()
-        let proxy = WeakDomScriptMessageProxy(target: self)
-        contentController.add(proxy, name: "domMirror")
-        contentController.add(proxy, name: "domLog")
-        contentController.addUserScript(WKUserScript(
-            source: Self.diagnosticsShimSource,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false
-        ))
-
-        let config = WKWebViewConfiguration()
-        config.userContentController = contentController
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
-        config.setURLSchemeHandler(
-            AgentFeedSchemeHandler(rootDirectory: Config.domMirrorWebviewRootURL),
-            forURLScheme: Config.domMirrorWebviewScheme
-        )
-
         setupStatusBar()
-
-        let wv = WKWebView(frame: .zero, configuration: config)
-        wv.navigationDelegate = self
+        let wv = projectionController.view
         wv.translatesAutoresizingMaskIntoConstraints = false
-        // ADR-0047: the page is a fixed viewport mirror (index.html #stage is overflow:hidden), so the
-        // WKWebView scrollView never scrolls its own content; a scroll drag is captured in JS and sent
-        // to Chrome. Kill the pan rubber-band so a drag doesn't bounce the whole mirror.
-        wv.scrollView.bounces = false
-        // ADR-0047 pinch-zoom for readability: let the user magnify the desktop-captured mirror on the
-        // phone. This is a pure VIEW transform (a visual-viewport/scrollView zoom), NOT a page reflow
-        // and NOT a host scroll, so it stays inside the pure-mirror invariant. Crucially it does not
-        // change the DOM's getBoundingClientRect, so the tap/scroll page-space mapping in index.html is
-        // unaffected. The page's own viewport meta is relaxed to maximum-scale=4 to admit the pinch;
-        // these scrollView bounds are the belt-and-suspenders half of that (WebKit derives them from
-        // the meta). bouncesZoom gives the natural rubber-band at the zoom limits.
-        wv.scrollView.minimumZoomScale = 1
-        wv.scrollView.maximumZoomScale = 4
-        wv.scrollView.bouncesZoom = true
         addSubview(wv) // ADR-0040: interactive -- taps are captured in the replayer and sent back
         NSLayoutConstraint.activate([
             wv.topAnchor.constraint(equalTo: statusBar.bottomAnchor),
@@ -114,13 +77,17 @@ final class DomMirrorSurface: UIView {
             wv.trailingAnchor.constraint(equalTo: trailingAnchor),
             wv.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
-        webView = wv
-        evaluateScript = { [weak wv] js in wv?.evaluateJavaScript(js, completionHandler: nil) }
-
-        if let url = Config.domMirrorWebviewIndexRequestURL {
-            wv.load(URLRequest(url: url))
-        } else {
-            logger.error("DomMirrorSurface: index request URL is nil")
+        projectionController.onProbe = { [weak self] marker, nodes in
+            self?.handleProbe(marker: marker, nodes: nodes)
+        }
+        projectionController.onTap = { [weak self] x, y in
+            self?.onTap?(x, y)
+        }
+        projectionController.onScroll = { [weak self] x, y, dx, dy in
+            self?.handleScroll(x: x, y: y, dx: dx, dy: dy)
+        }
+        projectionController.onLog = { [weak self] message in
+            self?.logger.error("dom-mirror JS: \(message, privacy: .public)")
         }
     }
 
@@ -219,130 +186,26 @@ final class DomMirrorSurface: UIView {
         }
     }
 
-    private static let diagnosticsShimSource = """
-    (function () {
-      function post(kind, args) {
-        try {
-          window.webkit.messageHandlers.domLog.postMessage({
-            kind: kind,
-            message: Array.prototype.map.call(args, function (a) {
-              try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (e) { return String(a); }
-            }).join(' ')
-          });
-        } catch (e) {}
-      }
-      window.addEventListener('error', function (e) {
-        post('error', [e.message + ' @ ' + (e.filename || '?') + ':' + (e.lineno || 0)]);
-      });
-      window.addEventListener('unhandledrejection', function (e) {
-        post('error', ['unhandledrejection: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)]);
-      });
-      var origError = console.error;
-      console.error = function () { post('error', arguments); origError.apply(console, arguments); };
-    })();
-    """
-
     // MARK: - Outbound: native -> webview
 
     // Deliver one raw DOM batch JSON ({t,tb,co,ev,meta}) to the replayer. Queued until loaded.
     func deliver(rawJSON: String) {
-        guard !torn else { return }
-        if isLoaded { callDeliverJS(rawJSON) } else { pendingJSON.append(rawJSON) }
-    }
-
-    private func callDeliverJS(_ rawJSON: String) {
-        let js = "window.__domMirrorDeliver(\(rawJSON))"
-        if let evaluateScript { evaluateScript(js) } else { webView?.evaluateJavaScript(js, completionHandler: nil) }
-    }
-
-    private func flushPending() {
-        let queued = pendingJSON
-        pendingJSON = []
-        for json in queued { callDeliverJS(json) }
+        projectionController.deliver(rawJSON: rawJSON)
     }
 
     func teardown() {
-        torn = true
         ageTimer?.invalidate()
         ageTimer = nil
-        webView?.navigationDelegate = nil
-        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "domMirror")
-        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "domLog")
-        webView?.evaluateJavaScript("window.__domMirrorBridge?.destroy?.()", completionHandler: nil)
-        isLoaded = false
-        pendingJSON = []
+        projectionController.teardown()
     }
 
-    func markLoaded() {
-        guard !torn else { return }
-        isLoaded = true
-        flushPending()
-    }
-}
-
-// MARK: - WKNavigationDelegate
-
-extension DomMirrorSurface: WKNavigationDelegate {
-    nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        Task { @MainActor [weak self] in self?.markLoaded() }
-    }
-
-    nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        Task { @MainActor [weak self] in
-            self?.logger.error("DomMirrorSurface didFail: \(String(describing: error), privacy: .public)")
+    private func handleProbe(marker: String, nodes: Int) {
+        let line = "dom-mirror-probe marker=\(marker) nodes=\(nodes)"
+        logger.notice("\(line, privacy: .public)")
+        if ProcessInfo.processInfo.environment["AGENTDESK_DOM_MIRROR_PROBE_STDERR"] == "1" {
+            FileHandle.standardError.write(Data(("[dom-mirror] " + line + "\n").utf8))
         }
-    }
-}
-
-// MARK: - WKScriptMessageHandler (via proxy)
-
-extension DomMirrorSurface: WKScriptMessageHandler {
-    nonisolated func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        if message.name == "domLog" {
-            guard let body = message.body as? [String: Any],
-                  let text = body["message"] as? String else { return }
-            Task { @MainActor [weak self] in
-                self?.logger.error("dom-mirror JS: \(text, privacy: .public)")
-            }
-            return
-        }
-        // domMirror: either a tap (ADR-0040) or the probe summary of the reconstructed DOM.
-        guard let body = message.body as? [String: Any] else { return }
-        if (body["kind"] as? String) == "tap" {
-            // JSON numbers arrive as NSNumber; coerce to Double.
-            let x = (body["x"] as? NSNumber)?.doubleValue ?? 0
-            let y = (body["y"] as? NSNumber)?.doubleValue ?? 0
-            Task { @MainActor [weak self] in self?.onTap?(x, y) }
-            return
-        }
-        if (body["kind"] as? String) == "scroll" {
-            // ADR-0047: a scroll drag. x/y anchor + dx/dy finger delta, all page CSS px.
-            let x = (body["x"] as? NSNumber)?.doubleValue ?? 0
-            let y = (body["y"] as? NSNumber)?.doubleValue ?? 0
-            let dx = (body["dx"] as? NSNumber)?.doubleValue ?? 0
-            let dy = (body["dy"] as? NSNumber)?.doubleValue ?? 0
-            Task { @MainActor [weak self] in self?.handleScroll(x: x, y: y, dx: dx, dy: dy) }
-            return
-        }
-        guard (body["kind"] as? String) == "probe" else { return }
-        let marker = body["marker"] as? String ?? ""
-        let nodes = body["nodes"] as? Int ?? 0
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let line = "dom-mirror-probe marker=\(marker) nodes=\(nodes)"
-            // os_log for normal diagnostics always. The stderr copy exists only so the autonomous sim
-            // harness can grep it (`simctl launch --console` does not capture os_log on stdout); it is
-            // gated behind an env flag so a production build never writes it. The payload is
-            // masking-safe regardless (marker attribute + node count, never page text).
-            self.logger.notice("\(line, privacy: .public)")
-            if ProcessInfo.processInfo.environment["AGENTDESK_DOM_MIRROR_PROBE_STDERR"] == "1" {
-                FileHandle.standardError.write(Data(("[dom-mirror] " + line + "\n").utf8))
-            }
-            self.onProbe?(marker, nodes)
-        }
+        onProbe?(marker, nodes)
     }
 }
 
@@ -354,14 +217,5 @@ private final class InsetLabel: UILabel {
         let s = super.intrinsicContentSize
         return CGSize(width: s.width + insets.left + insets.right,
                       height: s.height + insets.top + insets.bottom)
-    }
-}
-
-// Retain-cycle-safe proxy (WKWebView strongly retains the handler; hold only a weak ref).
-private final class WeakDomScriptMessageProxy: NSObject, WKScriptMessageHandler {
-    private weak var target: (any WKScriptMessageHandler & AnyObject)?
-    init(target: any WKScriptMessageHandler & AnyObject) { self.target = target }
-    func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
-        target?.userContentController(c, didReceive: m)
     }
 }

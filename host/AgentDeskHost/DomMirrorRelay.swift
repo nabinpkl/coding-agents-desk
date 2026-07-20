@@ -41,6 +41,7 @@ final class DomMirrorRelay: @unchecked Sendable {
     private struct State {
         var buffer: DomMirrorBuffer
         var lanes: [DeviceFingerprint: DomLaneSending]
+        var localProjection: DomLaneSending?
         // ADR-0046 diagnostic status pushed to the client's Browser status line.
         var extConnected: Bool
         var lastTabId: Int?
@@ -51,7 +52,8 @@ final class DomMirrorRelay: @unchecked Sendable {
 
     init(bufferCap: Int = 4000) {
         lock = OSAllocatedUnfairLock(initialState: State(
-            buffer: DomMirrorBuffer(cap: bufferCap), lanes: [:], extConnected: false, lastTabId: nil,
+            buffer: DomMirrorBuffer(cap: bufferCap), lanes: [:], localProjection: nil,
+            extConnected: false, lastTabId: nil,
             emulated: false))
     }
 
@@ -74,7 +76,8 @@ final class DomMirrorRelay: @unchecked Sendable {
             if let emulated, state.emulated != emulated { state.emulated = emulated; changed = true }
             state.extConnected = true
             state.lastTabId = tabId
-            return (Array(state.lanes.values), changed ? statusFrameLocked(state) : nil)
+            let destinations = Array(state.lanes.values) + [state.localProjection].compactMap { $0 }
+            return (destinations, changed ? statusFrameLocked(state) : nil)
         }
         // A lane whose stream died without a session-end stays in the map until the next attach or
         // session-end; its send() enqueues a Task that fails at stream.send and logs -- benign, and
@@ -93,7 +96,8 @@ final class DomMirrorRelay: @unchecked Sendable {
             // known; reset to desktop so the client shows a truthful default until a batch's `em` stamp
             // re-establishes it on reconnect.
             if !connected { state.lastTabId = nil; state.emulated = false }
-            return (Array(state.lanes.values), statusFrameLocked(state))
+            let destinations = Array(state.lanes.values) + [state.localProjection].compactMap { $0 }
+            return (destinations, statusFrameLocked(state))
         }
         if let statusFrame { for lane in lanes { lane.send(statusFrame) } }
     }
@@ -120,6 +124,28 @@ final class DomMirrorRelay: @unchecked Sendable {
             return l
         }
         lane?.close()
+    }
+
+    // The host-local Browser Projection uses the same checkout buffer as a remote lane but bypasses
+    // QUIC. One retained local destination is enough because the host owns one Browser window.
+    func attachLocalProjection(_ projection: DomLaneSending) {
+        let (prior, seed, statusFrame): (DomLaneSending?, [Data], Data?) = lock.withLock { state in
+            let prior = state.localProjection
+            state.localProjection = projection
+            return (prior, state.buffer.snapshot(), statusFrameLocked(state))
+        }
+        prior?.close()
+        for line in seed { projection.send(line) }
+        if let statusFrame { projection.send(statusFrame) }
+    }
+
+    func detachLocalProjection() {
+        let projection = lock.withLock { state in
+            let current = state.localProjection
+            state.localProjection = nil
+            return current
+        }
+        projection?.close()
     }
 }
 

@@ -23,6 +23,8 @@
 		D0000000000000000000E505 /* WorkspaceFileViewer in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E503 /* WorkspaceFileViewer */; };
 		D0000000000000000000E508 /* WorkspaceIDE in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E506 /* WorkspaceIDE */; };
 		D0000000000000000000E509 /* WorkspaceIDE in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E507 /* WorkspaceIDE */; };
+		D0000000000000000000B603 /* BrowserProjection in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000B602 /* BrowserProjection */; };
+		D0000000000000000000B605 /* BrowserProjection in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000B604 /* BrowserProjection */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,7 +46,6 @@
 				AgentFeedWebview,
 				AppDelegate.swift,
 				Assets.xcassets,
-				DomMirrorWebview,
 				HitOutsetView.swift,
 				Info.plist,
 				MediaStack.swift,
@@ -65,7 +66,7 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		DDD788322FF7B49000F8BB76 /* AgentDeskClient */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (DDD788912FF7B49100F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, DDD788922FF7B49100F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (AgentFeedWebview, DomMirrorWebview, ); path = AgentDeskClient; sourceTree = "<group>"; };
+		DDD788322FF7B49000F8BB76 /* AgentDeskClient */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (DDD788912FF7B49100F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, DDD788922FF7B49100F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (AgentFeedWebview, ); path = AgentDeskClient; sourceTree = "<group>"; };
 		DDD78B622FF82BFF00F8BB76 /* AgentDeskClientTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = AgentDeskClientTests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
@@ -78,6 +79,7 @@
 				D0000000000000000000C504 /* WorkspaceKit in Frameworks */,
 				D0000000000000000000E504 /* WorkspaceFileViewer in Frameworks */,
 				D0000000000000000000E508 /* WorkspaceIDE in Frameworks */,
+				D0000000000000000000B603 /* BrowserProjection in Frameworks */,
 				A0000000000000000000EE03 /* AgentDeskWire in Frameworks */,
 				C0000000000000000000EE07 /* PtyClientSwift in Frameworks */,
 				C0000000000000000000EE0B /* PtyTerminalSession in Frameworks */,
@@ -93,6 +95,7 @@
 				D0000000000000000000C505 /* WorkspaceKit in Frameworks */,
 				D0000000000000000000E505 /* WorkspaceFileViewer in Frameworks */,
 				D0000000000000000000E509 /* WorkspaceIDE in Frameworks */,
+				D0000000000000000000B605 /* BrowserProjection in Frameworks */,
 				A0000000000000000000EE05 /* AgentDeskWire in Frameworks */,
 				C0000000000000000000EE09 /* PtyClientSwift in Frameworks */,
 				C0000000000000000000EE0D /* PtyTerminalSession in Frameworks */,
@@ -145,6 +148,7 @@
 				D0000000000000000000C502 /* WorkspaceKit */,
 				D0000000000000000000E502 /* WorkspaceFileViewer */,
 				D0000000000000000000E506 /* WorkspaceIDE */,
+				D0000000000000000000B602 /* BrowserProjection */,
 				A0000000000000000000EE02 /* AgentDeskWire */,
 				C0000000000000000000EE03 /* PtyClientSwift */,
 				C0000000000000000000EE0F /* PtyTerminalSession */,
@@ -176,6 +180,7 @@
 				D0000000000000000000C503 /* WorkspaceKit */,
 				D0000000000000000000E503 /* WorkspaceFileViewer */,
 				D0000000000000000000E507 /* WorkspaceIDE */,
+				D0000000000000000000B604 /* BrowserProjection */,
 				A0000000000000000000EE04 /* AgentDeskWire */,
 				C0000000000000000000EE05 /* PtyClientSwift */,
 				C0000000000000000000EE11 /* PtyTerminalSession */,
@@ -217,6 +222,7 @@
 				D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */,
 				D0000000000000000000C501 /* XCLocalSwiftPackageReference "../packages/WorkspaceKit" */,
 				D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */,
+				D0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */,
 				A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */,
 				C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */,
 			);
@@ -510,6 +516,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/WorkspaceIDE;
 		};
+		D0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/BrowserProjection;
+		};
 		D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/AgentPanel;
@@ -564,6 +574,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
 			productName = WorkspaceIDE;
+		};
+		D0000000000000000000B602 /* BrowserProjection */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */;
+			productName = BrowserProjection;
+		};
+		D0000000000000000000B604 /* BrowserProjection */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */;
+			productName = BrowserProjection;
 		};
 		A0000000000000000000EE02 /* AgentDeskWire */ = {
 			isa = XCSwiftPackageProductDependency;

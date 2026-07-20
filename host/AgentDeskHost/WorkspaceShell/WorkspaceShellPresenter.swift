@@ -70,6 +70,9 @@ final class WorkspaceShellPresenter: NSObject {
     /// Opens the separate retained shared Workspace IDE window.
     var onIDECommand: (() -> Void)?
 
+    /// Opens the host-local Chrome projection window used to develop the Browser surface.
+    var onBrowserCommand: (() -> Void)?
+
     /// Invoked when the top-bar "＋ Terminal" command is tapped (R54). AppDelegate/session wires this
     /// to spawn an in-app terminal on our pty socket (R55); the shell stays decoupled from the terminal.
     var onOpenTerminal: (() -> Void)?
@@ -491,6 +494,8 @@ final class WorkspaceShellPresenter: NSObject {
         agentsButton.setAccessibilityIdentifier("workspace-shell-agents")
         let ideButton = NSButton(title: "IDE", target: self, action: #selector(ideTapped))
         ideButton.setAccessibilityIdentifier("workspace-shell-ide")
+        let browserButton = NSButton(title: "Browser", target: self, action: #selector(browserTapped))
+        browserButton.setAccessibilityIdentifier("workspace-shell-browser")
         let ptyManagerButton = NSButton(title: "PTY Manager", target: self, action: #selector(openPtyManagerTapped))
         ptyManagerButton.setAccessibilityIdentifier("open-pty-manager")
         let terminalButton = NSButton(title: "＋ Terminal", target: self, action: #selector(openTerminalTapped))
@@ -503,7 +508,7 @@ final class WorkspaceShellPresenter: NSObject {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let topBarStack = NSStackView(views: [agentsButton, ideButton, spacer, ptyManagerButton, terminalButton, topBarPinButton])
+        let topBarStack = NSStackView(views: [agentsButton, ideButton, browserButton, spacer, ptyManagerButton, terminalButton, topBarPinButton])
         topBarStack.orientation = .horizontal
         topBarStack.alignment = .centerY
         topBarStack.spacing = 8
@@ -563,6 +568,8 @@ final class WorkspaceShellPresenter: NSObject {
     @objc private func agentsTapped() { onAgentsCommand?() }
 
     @objc private func ideTapped() { onIDECommand?() }
+
+    @objc private func browserTapped() { onBrowserCommand?() }
 
     @objc private func openTerminalTapped() { onOpenTerminal?() }
 

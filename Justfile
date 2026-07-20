@@ -463,6 +463,7 @@ check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholde
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
     sh tools/testflight-upload-tests.sh
     (cd packages/AgentDeskWire && swift test)
+    (cd packages/BrowserProjection && swift test)
     (cd packages/WorkspaceKit && swift test)
     (cd packages/WorkspaceIDE && swift test)
     (cd '{{pty_manager_dir}}' && cargo build --bin pty-manager)
