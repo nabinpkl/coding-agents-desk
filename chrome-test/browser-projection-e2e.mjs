@@ -351,7 +351,7 @@ async function main() {
   await worker.evaluate(() => startBrowserProjection());
 
   runAX(['wait', '--bundle-id', bundleID, '--identifier', 'workspace-shell-browser', '--timeout', '20']);
-  runAX(['press', '--bundle-id', bundleID, '--identifier', 'workspace-shell-browser']);
+  pressDOM(`browser-projection-window-tab-${fixture.windowOne.id}`);
   runAX([
     'wait', '--bundle-id', bundleID, '--window-identifier', 'browser-projection-window',
     '--dom-identifier', `browser-projection-window-tab-${fixture.windowOne.id}`, '--timeout', '25',
