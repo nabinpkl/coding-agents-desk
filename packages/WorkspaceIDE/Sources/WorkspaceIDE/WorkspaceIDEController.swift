@@ -65,7 +65,6 @@ public final class WorkspaceIDEController: NSObject {
         editorView = Self.makeWebView(root: resourceRoot, store: documentStore, sink: editorSink)
         super.init()
 
-        applyWebZoom()
         sidebarSink.onMessage = { [weak self] body in self?.receiveWebMessage(body) }
         editorSink.onMessage = { [weak self] body in self?.receiveWebMessage(body) }
         sidebarView.load(Self.request(region: .sidebar))
@@ -216,15 +215,9 @@ public final class WorkspaceIDEController: NSObject {
         } else {
             localState.zoomOut()
         }
-        applyWebZoom()
         persistLocalState()
+        enqueueProjection()
         delegate?.workspaceIDEController(self, handle: .setZoomScale(localState.zoomScale))
-    }
-
-    private func applyWebZoom() {
-        let scale = CGFloat(localState.zoomScale)
-        sidebarView.pageZoom = scale
-        editorView.pageZoom = scale
     }
 
     func persistLocalState() { localStateStore.save(localState) }

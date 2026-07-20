@@ -57,8 +57,10 @@ import Testing
     controller.handle(.zoomIn)
 
     #expect(controller.currentLocalState.zoomScale == 1.1)
-    #expect(controller.sidebarView.pageZoom == 1.1)
-    #expect(controller.editorView.pageZoom == 1.1)
+    #expect(controller.sidebarProjection().zoomScale == 1.1)
+    #expect(controller.editorProjection().zoomScale == 1.1)
+    #expect(controller.sidebarView.pageZoom == 1)
+    #expect(controller.editorView.pageZoom == 1)
     #expect(stateStore.state.zoomScale == 1.1)
     #expect(delegate.intents == [.setZoomScale(1.1)])
 }

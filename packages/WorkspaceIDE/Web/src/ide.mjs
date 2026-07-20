@@ -1,5 +1,6 @@
 import { installFileSurface } from './viewer.mjs'
 import { fileRenderIdentity, normalizeProjection, orderedPathsAfterMove, regionFromLocation } from './ideModel.mjs'
+import { applyWorkspaceZoom } from './workspaceZoom.mjs'
 
 const root = document.getElementById('workspace-ide')
 const region = regionFromLocation(window.location)
@@ -73,6 +74,7 @@ function mountSidebar(container, send) {
   return (raw) => {
     const snapshot = normalizeProjection(raw, 'sidebar')
     if (!snapshot) return
+    applyWorkspaceZoom(container, snapshot.zoomScale)
     currentWorkspaces = snapshot.workspaces
     const selected = snapshot.selectedWorkspaceID ?? ''
     workspaceSelect.replaceChildren(...snapshot.workspaces.map((workspace) => {
@@ -209,6 +211,8 @@ function mountEditor(container, send) {
   return (raw) => {
     const snapshot = normalizeProjection(raw, 'editor')
     if (!snapshot) return
+    const workspaceScale = applyWorkspaceZoom(container, snapshot.zoomScale)
+    fileSurface.setWorkspaceScale(workspaceScale)
     currentPath = snapshot.activePath ?? null
     lastSidebarVisible = snapshot.sidebarVisible !== false
     lastTerminalVisible = snapshot.terminalVisible !== false

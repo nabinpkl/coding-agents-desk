@@ -10,7 +10,8 @@ extension WorkspaceIDEController {
             tree: treeNodes(in: ""),
             gitEntries: gitResult?.entries ?? [],
             capabilities: capabilities.projectionNames,
-            error: errorMessage
+            error: errorMessage,
+            zoomScale: localState.zoomScale
         )
     }
 
@@ -37,7 +38,8 @@ extension WorkspaceIDEController {
             loading: activePath != nil && loadingPath == activePath,
             error: errorMessage,
             sidebarVisible: localState.sidebarVisible,
-            terminalVisible: localState.terminalVisible
+            terminalVisible: localState.terminalVisible,
+            zoomScale: localState.zoomScale
         )
     }
 

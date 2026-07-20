@@ -19,6 +19,7 @@ struct WorkspaceIDESidebarProjection: Encodable, Equatable {
     let gitEntries: [WorkspaceGitStatusEntry]
     let capabilities: [String]
     let error: String?
+    let zoomScale: Double
 }
 
 struct WorkspaceIDEEditorTabProjection: Encodable, Equatable {
@@ -54,6 +55,7 @@ struct WorkspaceIDEEditorProjection: Encodable, Equatable {
     let error: String?
     let sidebarVisible: Bool
     let terminalVisible: Bool
+    let zoomScale: Double
 }
 
 enum WorkspaceIDEFileSaveState: Equatable {

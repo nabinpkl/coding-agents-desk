@@ -16,6 +16,7 @@ export async function renderDocx(container, resourceURL, {
   renderDocument = renderDocxDocument,
   createViewport = (scroller, host, options) => new DocxViewport(scroller, host, options),
   initialZoom = 1,
+  workspaceScale = 1,
   signal,
 } = {}) {
   if (!resourceURL) throw new Error('DOCX content URL is missing')
@@ -31,5 +32,5 @@ export async function renderDocx(container, resourceURL, {
   if (!response.ok) throw new Error(`DOCX content request failed (${response.status})`)
   const bytes = await response.arrayBuffer()
   await renderDocument(bytes, documentHost, undefined, responsiveDocxOptions)
-  return createViewport(scroller, documentHost, { initialZoom })
+  return createViewport(scroller, documentHost, { initialZoom, workspaceScale })
 }

@@ -89,3 +89,31 @@ test('resize recomputes fit-width without changing the user zoom', () => {
   assert.equal(viewport.effectiveScale, 0.5)
   assert.equal(host.style.width, '420px')
 })
+
+test('workspace zoom preserves the fit baseline so the outer region controls direction', () => {
+  const scroller = new StubElement({ clientWidth: 420 })
+  const host = new StubElement()
+  host.wrapper = new StubElement({ scrollWidth: 840, scrollHeight: 1200 })
+  const viewport = new DocxViewport(scroller, host, {
+    createResizeObserver: inertResizeObserver,
+  })
+
+  assert.equal(viewport.zoom, 1)
+  assert.equal(viewport.effectiveScale, 0.5)
+  assert.equal(host.style.width, '420px')
+
+  scroller.clientWidth = 350
+  viewport.setWorkspaceScale(1.2)
+
+  assert.equal(viewport.workspaceScale, 1.2)
+  assert.equal(viewport.effectiveScale, 0.5)
+  assert.equal(host.style.width, '420px')
+
+  scroller.clientWidth = 525
+  viewport.setWorkspaceScale(0.8)
+
+  assert.equal(viewport.zoom, 1)
+  assert.equal(viewport.workspaceScale, 0.8)
+  assert.equal(viewport.effectiveScale, 0.5)
+  assert.equal(host.style.width, '420px')
+})

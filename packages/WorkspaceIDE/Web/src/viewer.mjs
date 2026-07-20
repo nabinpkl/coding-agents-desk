@@ -17,6 +17,7 @@ import {
   restoreDocumentViewport,
 } from './documentViewportState.mjs'
 import { ViewerZoomController } from './viewerZoom.mjs'
+import { normalizeWorkspaceZoom } from './workspaceZoom.mjs'
 
 let content = null
 const language = new Compartment()
@@ -40,6 +41,7 @@ const escapeHtml = (s) => s.replace(/[&<>"']/g, (ch) => (
 ))
 
 let active = null
+let workspaceScale = 1
 const documentViewports = new Map()
 
 const md = new MarkdownIt({
@@ -85,6 +87,7 @@ async function render(payload) {
     try {
       const viewport = await renderDocx(content, active.resourceURL, {
         initialZoom: documentZoomFor(documentViewports, active.id),
+        workspaceScale,
         signal: abortController.signal,
       })
       if (active !== state) {
@@ -136,6 +139,11 @@ const zoomController = new ViewerZoomController({
 
 function setTextZoom(zoom) {
   zoomController.setTextZoom(zoom)
+}
+
+function setWorkspaceScale(value) {
+  workspaceScale = normalizeWorkspaceZoom(value)
+  active?.viewport?.setWorkspaceScale(workspaceScale)
 }
 
 function zoomIn() {
@@ -309,7 +317,7 @@ export function installFileSurface({
   destroyActiveView()
   content = container
   send = messageSink
-  const surface = { render, setTextZoom, zoomIn, zoomOut, applyNotebookRunEvent: applyRunEvent }
+  const surface = { render, setTextZoom, setWorkspaceScale, zoomIn, zoomOut, applyNotebookRunEvent: applyRunEvent }
   window.fileSurface = surface
   if (announceReady) send({ type: 'ready' })
   return surface

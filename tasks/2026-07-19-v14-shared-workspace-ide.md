@@ -52,6 +52,8 @@ and native coordinator tests are green.
 
 - D20. Replace the broken legacy file-viewer zoom call with one persisted device-local IDE zoom that
   scales both retained web regions and the native workspace terminal on macOS and iPhone.
+- D21. Keep browser page zoom fixed and project that same IDE zoom through an explicit web-region
+  transform plus DOCX fit-width compensation, so every pane moves in the same visual direction.
 
 ## Deferred beyond v14
 
@@ -70,5 +72,6 @@ D10-D13  2026-07-19  committed   shared web regions and native coordinator
 D14-D16  2026-07-19  committed   macOS and iPhone IDE entries
 D17      2026-07-19  committed   automated gates and integrated self-review
 D20      2026-07-20  committed   shared web-region and native-terminal zoom
+D21      2026-07-20  committed   coherent editor, DOCX, sidebar, and terminal zoom direction
 R18-R19  pending     pending     checkpointed simulator and physical-device smoke
 ```

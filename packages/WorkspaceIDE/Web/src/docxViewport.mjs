@@ -1,3 +1,5 @@
+import { normalizeWorkspaceZoom } from './workspaceZoom.mjs'
+
 const minimumZoom = 0.5
 const maximumZoom = 4
 const zoomStep = 1.25
@@ -17,6 +19,7 @@ const touchMidpoint = (touches) => ({
 export class DocxViewport {
   constructor(scroller, documentHost, {
     initialZoom = 1,
+    workspaceScale = 1,
     createResizeObserver = (callback) => new ResizeObserver(callback),
   } = {}) {
     this.scroller = scroller
@@ -28,6 +31,7 @@ export class DocxViewport {
     this.maximumZoom = maximumZoom
     this.zoomStep = zoomStep
     this.zoom = clamp(initialZoom, this.minimumZoom, this.maximumZoom)
+    this.workspaceScale = normalizeWorkspaceZoom(workspaceScale)
     this.fitScale = 1
     this.effectiveScale = 1
     this.baseWidth = 0
@@ -68,7 +72,7 @@ export class DocxViewport {
     const baseHeight = this.wrapper.scrollHeight
     if (this.baseWidth <= 0 || baseHeight <= 0) return
 
-    const viewportWidth = this.scroller.clientWidth
+    const viewportWidth = this.scroller.clientWidth * this.workspaceScale
     this.fitScale = viewportWidth > 0 ? Math.min(1, viewportWidth / this.baseWidth) : 1
     this.applyScale(baseHeight)
   }
@@ -85,6 +89,13 @@ export class DocxViewport {
 
   zoomIn() { this.setZoom(this.zoom * this.zoomStep) }
   zoomOut() { this.setZoom(this.zoom / this.zoomStep) }
+
+  setWorkspaceScale(requestedScale) {
+    const nextScale = normalizeWorkspaceZoom(requestedScale)
+    if (nextScale === this.workspaceScale) return
+    this.workspaceScale = nextScale
+    this.layout()
+  }
 
   destroy() {
     this.resizeObserver.disconnect()

@@ -41,6 +41,7 @@ test('renders DOCX bytes into one responsive scrolling surface', async () => {
     }),
     renderDocument: async (...args) => { invocation = args },
     initialZoom: 0.8,
+    workspaceScale: 1.1,
     createViewport: (...args) => {
       viewportArguments = args
       return expectedViewport
@@ -53,7 +54,7 @@ test('renders DOCX bytes into one responsive scrolling surface', async () => {
   assert.equal(scroller.children[0].className, 'docx-document')
   assert.equal(viewportArguments[0], scroller)
   assert.equal(viewportArguments[1], scroller.children[0])
-  assert.deepEqual(viewportArguments[2], { initialZoom: 0.8 })
+  assert.deepEqual(viewportArguments[2], { initialZoom: 0.8, workspaceScale: 1.1 })
   assert.equal(invocation[0], expectedBytes)
   assert.equal(invocation[1], scroller.children[0])
   assert.equal(invocation[2], undefined)

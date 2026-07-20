@@ -27,8 +27,9 @@ struct WorkspaceIDESurfaceTests {
         #expect(surface.sidebarWebViewForTesting === sidebar)
         #expect(surface.editorWebViewForTesting === editor)
         #expect(!surface.terminalContainerForTesting.isHidden)
-        #expect(sidebar.pageZoom == 1.2)
-        #expect(editor.pageZoom == 1.2)
+        #expect(controller.currentLocalState.zoomScale == 1.2)
+        #expect(sidebar.pageZoom == 1)
+        #expect(editor.pageZoom == 1)
         #expect(surface.terminalZoomScaleForTesting == 1.2)
 
         surface.workspaceIDEController(controller, handle: .setZoomScale(1.1))
