@@ -39,6 +39,7 @@ final class WorkspaceIDESurface: UIView, WorkspaceIDEDelegate {
             sessionOpener: terminalSessionOpener,
             stateStore: terminalStateStore
         )
+        terminalSessionController.setZoomScale(controller.currentLocalState.zoomScale)
         applyLayoutState()
         controller.start()
     }
@@ -55,6 +56,7 @@ final class WorkspaceIDESurface: UIView, WorkspaceIDEDelegate {
     var sidebarWebViewForTesting: UIView { controller.sidebarView }
     var editorWebViewForTesting: UIView { controller.editorView }
     var terminalContainerForTesting: UIView { terminalContainer }
+    var terminalZoomScaleForTesting: Double { terminalSessionController.zoomScaleForTesting }
 
     private func setUp() {
         backgroundColor = .systemBackground
@@ -200,6 +202,8 @@ final class WorkspaceIDESurface: UIView, WorkspaceIDEDelegate {
         switch intent {
         case .setSidebarVisible, .setTerminalVisible:
             applyLayoutState()
+        case .setZoomScale(let scale):
+            terminalSessionController.setZoomScale(scale)
         case .addWorkspace, .removeWorkspace, .reorderWorkspaces, .assignDesktop, .setAutoAssignDesktop:
             break
         }

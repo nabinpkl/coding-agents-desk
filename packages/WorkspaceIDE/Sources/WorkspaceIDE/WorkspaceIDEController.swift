@@ -65,6 +65,7 @@ public final class WorkspaceIDEController: NSObject {
         editorView = Self.makeWebView(root: resourceRoot, store: documentStore, sink: editorSink)
         super.init()
 
+        applyWebZoom()
         sidebarSink.onMessage = { [weak self] body in self?.receiveWebMessage(body) }
         editorSink.onMessage = { [weak self] body in self?.receiveWebMessage(body) }
         sidebarView.load(Self.request(region: .sidebar))
@@ -150,8 +151,8 @@ public final class WorkspaceIDEController: NSObject {
         case .edit(let path, let text): edit(path: path, text: text)
         case .useHost(let path): useHost(path: path)
         case .keepMine(let path): keepMine(path: path)
-        case .zoomIn: callEditor("window.fileSurface?.zoomIn()")
-        case .zoomOut: callEditor("window.fileSurface?.zoomOut()")
+        case .zoomIn: adjustZoom(in: true)
+        case .zoomOut: adjustZoom(in: false)
         case .setSidebarVisible(let visible):
             localState.sidebarVisible = visible
             persistLocalState()
@@ -209,12 +210,21 @@ public final class WorkspaceIDEController: NSObject {
         }
     }
 
-    func callEditor(_ script: String) {
-        editorView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { [weak self] result in
-            if case .failure(let error) = result {
-                self?.logger.error("workspace IDE editor command failed: \(String(describing: error), privacy: .public)")
-            }
+    private func adjustZoom(in zoomingIn: Bool) {
+        if zoomingIn {
+            localState.zoomIn()
+        } else {
+            localState.zoomOut()
         }
+        applyWebZoom()
+        persistLocalState()
+        delegate?.workspaceIDEController(self, handle: .setZoomScale(localState.zoomScale))
+    }
+
+    private func applyWebZoom() {
+        let scale = CGFloat(localState.zoomScale)
+        sidebarView.pageZoom = scale
+        editorView.pageZoom = scale
     }
 
     func persistLocalState() { localStateStore.save(localState) }

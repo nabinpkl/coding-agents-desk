@@ -24,6 +24,8 @@ public enum WorkspaceIDESidebarSection: String, Codable, Equatable, Sendable {
 }
 
 public struct WorkspaceIDELocalState: Codable, Equatable, Sendable {
+    public static let zoomStepRange = -4...10
+
     public var selectedWorkspaceID: String?
     public var activePathByWorkspace: [String: String]
     public var previewPathsByWorkspace: [String: Set<String>]
@@ -32,6 +34,9 @@ public struct WorkspaceIDELocalState: Codable, Equatable, Sendable {
     public var terminalVisible: Bool
     public var sidebarFraction: Double
     public var terminalFraction: Double
+    public private(set) var zoomStep: Int
+
+    public var zoomScale: Double { Double(10 + zoomStep) / 10 }
 
     public init(
         selectedWorkspaceID: String? = nil,
@@ -41,7 +46,8 @@ public struct WorkspaceIDELocalState: Codable, Equatable, Sendable {
         sidebarVisible: Bool = true,
         terminalVisible: Bool = true,
         sidebarFraction: Double = 0.28,
-        terminalFraction: Double = 0.36
+        terminalFraction: Double = 0.36,
+        zoomStep: Int = 0
     ) {
         self.selectedWorkspaceID = selectedWorkspaceID
         self.activePathByWorkspace = activePathByWorkspace
@@ -51,6 +57,7 @@ public struct WorkspaceIDELocalState: Codable, Equatable, Sendable {
         self.terminalVisible = terminalVisible
         self.sidebarFraction = Self.clamp(sidebarFraction, to: 0.18...0.55)
         self.terminalFraction = Self.clamp(terminalFraction, to: 0.18...0.72)
+        self.zoomStep = Self.clamp(zoomStep, to: Self.zoomStepRange)
     }
 
     public mutating func setSidebarFraction(_ value: Double) {
@@ -61,8 +68,56 @@ public struct WorkspaceIDELocalState: Codable, Equatable, Sendable {
         terminalFraction = Self.clamp(value, to: 0.18...0.72)
     }
 
+    public mutating func zoomIn() {
+        zoomStep = Self.clamp(zoomStep + 1, to: Self.zoomStepRange)
+    }
+
+    public mutating func zoomOut() {
+        zoomStep = Self.clamp(zoomStep - 1, to: Self.zoomStepRange)
+    }
+
     private static func clamp(_ value: Double, to range: ClosedRange<Double>) -> Double {
         min(max(value, range.lowerBound), range.upperBound)
+    }
+
+    private static func clamp(_ value: Int, to range: ClosedRange<Int>) -> Int {
+        min(max(value, range.lowerBound), range.upperBound)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case selectedWorkspaceID
+        case activePathByWorkspace
+        case previewPathsByWorkspace
+        case sidebarSection
+        case sidebarVisible
+        case terminalVisible
+        case sidebarFraction
+        case terminalFraction
+        case zoomStep
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            selectedWorkspaceID: try values.decodeIfPresent(String.self, forKey: .selectedWorkspaceID),
+            activePathByWorkspace: try values.decodeIfPresent(
+                [String: String].self,
+                forKey: .activePathByWorkspace
+            ) ?? [:],
+            previewPathsByWorkspace: try values.decodeIfPresent(
+                [String: Set<String>].self,
+                forKey: .previewPathsByWorkspace
+            ) ?? [:],
+            sidebarSection: try values.decodeIfPresent(
+                WorkspaceIDESidebarSection.self,
+                forKey: .sidebarSection
+            ) ?? .explorer,
+            sidebarVisible: try values.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true,
+            terminalVisible: try values.decodeIfPresent(Bool.self, forKey: .terminalVisible) ?? true,
+            sidebarFraction: try values.decodeIfPresent(Double.self, forKey: .sidebarFraction) ?? 0.28,
+            terminalFraction: try values.decodeIfPresent(Double.self, forKey: .terminalFraction) ?? 0.36,
+            zoomStep: try values.decodeIfPresent(Int.self, forKey: .zoomStep) ?? 0
+        )
     }
 }
 
@@ -135,6 +190,7 @@ public enum WorkspaceIDEPlatformIntent: Equatable, Sendable {
     case setAutoAssignDesktop(id: String, enabled: Bool)
     case setSidebarVisible(Bool)
     case setTerminalVisible(Bool)
+    case setZoomScale(Double)
 }
 
 @MainActor

@@ -53,6 +53,7 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         super.init(window: window)
         window.delegate = self
         ideController.delegate = self
+        terminalController.setZoomScale(ideController.currentLocalState.zoomScale)
         ideController.start()
     }
 
@@ -108,6 +109,8 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         switch intent {
         case .setSidebarVisible, .setTerminalVisible:
             ideContentView.applyLayoutState()
+        case .setZoomScale(let scale):
+            terminalController.setZoomScale(scale)
         case .addWorkspace:
             addWorkspace()
         case .removeWorkspace(let id):

@@ -10,6 +10,14 @@ import AppKit
 
 @MainActor
 final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
+    func testFontSizeCanTrackWorkspaceIDEZoom() {
+        let content = PtyTerminalSwiftTermContentView()
+
+        content.setFontSize(18.2)
+
+        XCTAssertEqual(content.terminalView.font.pointSize, 18.2, accuracy: 0.001)
+    }
+
     func testInputAndResizeForwardToBoundConnection() async throws {
         let connection = FakeContentConnection()
         let content = PtyTerminalSwiftTermContentView()

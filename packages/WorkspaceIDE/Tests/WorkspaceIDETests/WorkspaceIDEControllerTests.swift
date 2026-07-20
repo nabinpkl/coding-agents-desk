@@ -43,6 +43,27 @@ import Testing
 }
 
 @MainActor
+@Test func zoomIntentScalesBothWebRegionsAndPersistsOneLocalValue() {
+    let stateStore = WorkspaceIDEInMemoryStateStore()
+    let delegate = WorkspaceIDEDelegateSpy()
+    let controller = WorkspaceIDEController(
+        dataSource: WorkspaceIDEFakeDataSource(),
+        capabilities: .iPhone,
+        localStateStore: stateStore,
+        draftStore: WorkspaceIDEInMemoryDraftStore(),
+        delegate: delegate
+    )
+
+    controller.handle(.zoomIn)
+
+    #expect(controller.currentLocalState.zoomScale == 1.1)
+    #expect(controller.sidebarView.pageZoom == 1.1)
+    #expect(controller.editorView.pageZoom == 1.1)
+    #expect(stateStore.state.zoomScale == 1.1)
+    #expect(delegate.intents == [.setZoomScale(1.1)])
+}
+
+@MainActor
 @Test func remoteCloseProtectsDirtyLocalBuffer() {
     let controller = makeController()
     controller.localState.selectedWorkspaceID = "workspace-1"

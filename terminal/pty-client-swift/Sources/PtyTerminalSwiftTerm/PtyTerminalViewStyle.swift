@@ -48,13 +48,15 @@ public enum PtyTerminalMetalRenderingError: Error, Equatable {
 }
 
 public struct PtyTerminalViewStyle {
+    public static let defaultFontSize: CGFloat = 14
+
     public var fontSize: CGFloat
     public var backgroundColor: PtyTerminalPlatformColor
     public var foregroundColor: PtyTerminalPlatformColor
     public var metalRendering: PtyTerminalMetalRendering
 
     public init(
-        fontSize: CGFloat = 14,
+        fontSize: CGFloat = Self.defaultFontSize,
         backgroundColor: PtyTerminalPlatformColor = Self.defaultBackgroundColor,
         foregroundColor: PtyTerminalPlatformColor = Self.defaultForegroundColor,
         metalRendering: PtyTerminalMetalRendering = .disabled

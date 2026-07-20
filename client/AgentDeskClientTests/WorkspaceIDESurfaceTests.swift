@@ -12,7 +12,7 @@ struct WorkspaceIDESurfaceTests {
         let controller = WorkspaceIDEController(
             dataSource: EmptyWorkspaceIDEDataSource(),
             capabilities: .iPhone,
-            localStateStore: IDETestStateStore(),
+            localStateStore: IDETestStateStore(state: WorkspaceIDELocalState(zoomStep: 2)),
             draftStore: IDETestDraftStore()
         )
         let sidebar = controller.sidebarView
@@ -27,6 +27,12 @@ struct WorkspaceIDESurfaceTests {
         #expect(surface.sidebarWebViewForTesting === sidebar)
         #expect(surface.editorWebViewForTesting === editor)
         #expect(!surface.terminalContainerForTesting.isHidden)
+        #expect(sidebar.pageZoom == 1.2)
+        #expect(editor.pageZoom == 1.2)
+        #expect(surface.terminalZoomScaleForTesting == 1.2)
+
+        surface.workspaceIDEController(controller, handle: .setZoomScale(1.1))
+        #expect(surface.terminalZoomScaleForTesting == 1.1)
 
         controller.setPaneLayout(
             sidebarVisible: false,
@@ -76,7 +82,12 @@ private actor EmptyWorkspaceIDEDataSource: WorkspaceIDEDataSource {
 }
 
 private final class IDETestStateStore: WorkspaceIDELocalStateStoring {
-    private var state = WorkspaceIDELocalState()
+    private var state: WorkspaceIDELocalState
+
+    init(state: WorkspaceIDELocalState = WorkspaceIDELocalState()) {
+        self.state = state
+    }
+
     func load() -> WorkspaceIDELocalState { state }
     func save(_ state: WorkspaceIDELocalState) { self.state = state }
 }

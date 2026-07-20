@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import WorkspaceIDE
 
@@ -26,4 +27,28 @@ import Testing
     state.setTerminalFraction(0.9)
     #expect(state.sidebarFraction == 0.18)
     #expect(state.terminalFraction == 0.72)
+}
+
+@Test func localZoomStateClampsAndOldStoredStateDefaultsToActualSize() throws {
+    var state = WorkspaceIDELocalState(zoomStep: 99)
+    #expect(state.zoomScale == 2)
+
+    for _ in 0..<30 { state.zoomOut() }
+    #expect(state.zoomScale == 0.6)
+
+    let oldJSON = Data(#"""
+    {
+        "selectedWorkspaceID": null,
+        "activePathByWorkspace": {},
+        "previewPathsByWorkspace": {},
+        "sidebarSection": "explorer",
+        "sidebarVisible": true,
+        "terminalVisible": true,
+        "sidebarFraction": 0.28,
+        "terminalFraction": 0.36
+    }
+    """#.utf8)
+    let restored = try JSONDecoder().decode(WorkspaceIDELocalState.self, from: oldJSON)
+
+    #expect(restored.zoomScale == 1)
 }

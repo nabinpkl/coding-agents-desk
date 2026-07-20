@@ -12,6 +12,8 @@ protocol WorkspaceTerminalViewDelegate: AnyObject {
 
 @MainActor
 final class WorkspaceTerminalView: UIView, PtyTerminalSwiftTermContentViewDelegate {
+    private static let titleFontSize: CGFloat = 12
+
     let workspaceID: String
     weak var delegate: WorkspaceTerminalViewDelegate?
 
@@ -73,6 +75,15 @@ final class WorkspaceTerminalView: UIView, PtyTerminalSwiftTermContentViewDelega
         terminalContent.resignFocus()
     }
 
+    func setZoomScale(_ scale: Double) {
+        let resolvedScale = CGFloat(scale)
+        titleLabel.font = .monospacedSystemFont(
+            ofSize: Self.titleFontSize * resolvedScale,
+            weight: .medium
+        )
+        terminalContent.setFontSize(PtyTerminalViewStyle.defaultFontSize * resolvedScale)
+    }
+
     func ptyTerminalContent(
         _ content: PtyTerminalSwiftTermContentView,
         didFail error: Error
@@ -109,7 +120,7 @@ final class WorkspaceTerminalView: UIView, PtyTerminalSwiftTermContentViewDelega
         addSubview(header)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+        titleLabel.font = .monospacedSystemFont(ofSize: Self.titleFontSize, weight: .medium)
         titleLabel.textColor = .secondaryLabel
         titleLabel.text = workspaceName
         titleLabel.lineBreakMode = .byTruncatingMiddle

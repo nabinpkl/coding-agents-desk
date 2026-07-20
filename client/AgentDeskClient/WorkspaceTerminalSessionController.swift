@@ -26,9 +26,11 @@ final class WorkspaceTerminalSessionController: WorkspaceTerminalViewDelegate {
     private var openTask: Task<Void, Never>?
     private var attachTask: Task<Void, Never>?
     private var isTornDown = false
+    private var zoomScale = 1.0
 
     var selectedWorkspaceIDForTesting: String? { selectedWorkspaceID }
     var cachedTerminalCountForTesting: Int { terminalViews.count }
+    var zoomScaleForTesting: Double { zoomScale }
 
     init(
         container: UIView,
@@ -94,6 +96,11 @@ final class WorkspaceTerminalSessionController: WorkspaceTerminalViewDelegate {
         terminalViews[selectedWorkspaceID]?.resignFocus()
     }
 
+    func setZoomScale(_ scale: Double) {
+        zoomScale = scale
+        terminalViews.values.forEach { $0.setZoomScale(scale) }
+    }
+
     func terminalViewForTesting(workspaceID: String) -> WorkspaceTerminalView? {
         terminalViews[workspaceID]
     }
@@ -132,6 +139,7 @@ final class WorkspaceTerminalSessionController: WorkspaceTerminalViewDelegate {
         }
 
         let view = WorkspaceTerminalView(workspaceID: workspaceID, workspaceName: workspaceName)
+        view.setZoomScale(zoomScale)
         view.translatesAutoresizingMaskIntoConstraints = false
         view.delegate = self
         view.isHidden = true

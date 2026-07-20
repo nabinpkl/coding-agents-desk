@@ -56,6 +56,10 @@ final class WorkspaceIDEMacTerminalController: NSObject, PtyTerminalSwiftTermCon
         }
     }
 
+    func setZoomScale(_ scale: Double) {
+        contentView.setFontSize(PtyTerminalViewStyle.defaultFontSize * CGFloat(scale))
+    }
+
     func stop() {
         isWindowPresented = false
         selectedWorkspaceID = nil

@@ -48,6 +48,11 @@ and native coordinator tests are green.
 - R18. After explicit approval, launch the dev stack, verify running SHAs, smoke both IDE entries and shared state/conflicts/external changes/Git/DOCX behavior, then capture macOS AX and iPhone screenshots.
 - R19. After a separate explicit physical-device approval, repeat the iPhone layout, keyboard, pinch, reconnect, and terminal-reattach smoke on hardware.
 
+## Phase 6: whole-IDE zoom follow-up
+
+- D20. Replace the broken legacy file-viewer zoom call with one persisted device-local IDE zoom that
+  scales both retained web regions and the native workspace terminal on macOS and iPhone.
+
 ## Deferred beyond v14
 
 File creation, rename, delete, search, LSP, debugger, Jupyter execution, Git mutation, a browser client,
@@ -64,5 +69,6 @@ D5-D9    2026-07-19  committed   authoritative workspace lane and observation
 D10-D13  2026-07-19  committed   shared web regions and native coordinator
 D14-D16  2026-07-19  committed   macOS and iPhone IDE entries
 D17      2026-07-19  committed   automated gates and integrated self-review
+D20      2026-07-20  committed   shared web-region and native-terminal zoom
 R18-R19  pending     pending     checkpointed simulator and physical-device smoke
 ```
