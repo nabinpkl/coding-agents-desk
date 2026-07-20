@@ -351,7 +351,7 @@ async function main() {
   await worker.evaluate(() => startBrowserProjection());
 
   runAX(['wait', '--bundle-id', bundleID, '--identifier', 'workspace-shell-browser', '--timeout', '20']);
-  pressDOM(`browser-projection-window-tab-${fixture.windowOne.id}`);
+  runAX(['press', '--bundle-id', bundleID, '--identifier', 'workspace-shell-browser']);
   runAX([
     'wait', '--bundle-id', bundleID, '--window-identifier', 'browser-projection-window',
     '--dom-identifier', `browser-projection-window-tab-${fixture.windowOne.id}`, '--timeout', '25',
@@ -418,7 +418,7 @@ async function main() {
   await worker.evaluate((windowId) => chrome.windows.update(windowId, { focused: true }), fixture.windowOne.id);
   await waitForDOMText('browser-projection-projected-window', String(fixture.windowOne.id));
   await waitForDOMText('browser-projection-page-marker', 'window-1-b');
-  runAX(['press', '--bundle-id', bundleID, '--identifier', 'workspace-shell-browser']);
+  pressDOM(`browser-projection-window-tab-${fixture.windowOne.id}`);
   currentState = await projectionState(worker);
   assertGenerationAdvanced(priorState, currentState, 'chrome-window-focus');
   await assertStaleBatchRejected(worker, priorState, 'window-1-b');
