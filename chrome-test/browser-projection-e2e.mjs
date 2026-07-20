@@ -387,10 +387,13 @@ async function main() {
   if (hasDOM(`browser-projection-tab-${fixture.windowOne.id}-${fixture.windowOne.active}`)) {
     throw new Error('Window 1 inner tabs remained in the Window 2 projection');
   }
-  if ((await focusedWindowID(worker)) !== fixture.windowOne.id) {
-    throw new Error('projection-only window selection changed Chrome focus');
+  if ((await focusedWindowID(worker)) === fixture.windowTwo.id) {
+    throw new Error('projection-only window selection focused the projected Chrome window');
   }
   let currentState = await projectionState(worker);
+  if (currentState.focusedWindowId !== fixture.windowOne.id) {
+    throw new Error('projection-only window selection replaced Chrome last-known focus');
+  }
   assertGenerationAdvanced(priorState, currentState, 'projection-only-window');
   await assertStaleBatchRejected(worker, priorState, 'window-2-b');
   priorState = currentState;
@@ -400,10 +403,13 @@ async function main() {
   await waitUntil('Window 2 inner tab activation', async () =>
     (await activeTabID(worker, fixture.windowTwo.id)) === fixture.windowTwo.first);
   await waitForDOMText('browser-projection-page-marker', 'window-2-a');
-  if ((await focusedWindowID(worker)) !== fixture.windowOne.id) {
+  if ((await focusedWindowID(worker)) === fixture.windowTwo.id) {
     throw new Error('inner-tab selection focused the projected Chrome window');
   }
   currentState = await projectionState(worker);
+  if (currentState.focusedWindowId !== fixture.windowOne.id) {
+    throw new Error('inner-tab selection replaced Chrome last-known focus');
+  }
   assertGenerationAdvanced(priorState, currentState, 'agentdesk-tab');
   await assertStaleBatchRejected(worker, priorState, 'window-2-a');
   priorState = currentState;
@@ -412,6 +418,7 @@ async function main() {
   await worker.evaluate((windowId) => chrome.windows.update(windowId, { focused: true }), fixture.windowOne.id);
   await waitForDOMText('browser-projection-projected-window', String(fixture.windowOne.id));
   await waitForDOMText('browser-projection-page-marker', 'window-1-b');
+  runAX(['press', '--bundle-id', bundleID, '--identifier', 'workspace-shell-browser']);
   currentState = await projectionState(worker);
   assertGenerationAdvanced(priorState, currentState, 'chrome-window-focus');
   await assertStaleBatchRejected(worker, priorState, 'window-1-b');
