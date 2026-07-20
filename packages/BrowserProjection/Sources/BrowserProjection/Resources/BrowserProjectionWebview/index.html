@@ -104,21 +104,21 @@
           <button class="toolbar-button" disabled aria-label="Forward">→</button>
           <button class="toolbar-button" disabled aria-label="Reload">↻</button>
         </div>
-        <div id="browser-projection-active-title"></div>
-        <div id="address-shell"><span id="security-indicator">○</span><span id="browser-projection-address"></span></div>
+        <div id="browser-projection-active-title" role="status" aria-live="off"></div>
+        <div id="address-shell"><span id="security-indicator">○</span><span id="browser-projection-address" role="textbox" aria-readonly="true"></span></div>
       </div>
     </div>
     <div id="content-shell">
-      <div id="browser-projection-content-status">Waiting for Chrome projection</div>
+      <div id="browser-projection-content-status" role="status" aria-live="off">Waiting for Chrome projection</div>
       <div id="stage"><div id="replay-root"></div><div id="tap-overlay"></div></div>
     </div>
     <div id="build-footer" hidden>
-      <span id="browser-projection-focused-window"></span>
-      <span id="browser-projection-projected-window"></span>
-      <span id="browser-projection-generation"></span>
-      <span id="browser-projection-page-marker"></span>
-      <span id="browser-projection-host-build"></span>
-      <span id="browser-projection-extension-build"></span>
+      <span id="browser-projection-focused-window" role="status" aria-live="off"></span>
+      <span id="browser-projection-projected-window" role="status" aria-live="off"></span>
+      <span id="browser-projection-generation" role="status" aria-live="off"></span>
+      <span id="browser-projection-page-marker" role="status" aria-live="off"></span>
+      <span id="browser-projection-host-build" role="status" aria-live="off"></span>
+      <span id="browser-projection-extension-build" role="status" aria-live="off"></span>
     </div>
   </div>
   <script src="fflate.min.js"></script>

@@ -82,6 +82,9 @@ try {
   await page.evaluate((snapshot) => window.__browserProjectionDeliver(snapshot), state(1, 1));
 
   assert(await page.locator('[role="tablist"]').count() === 2, 'renderer exposes two ARIA tablists');
+  assert(await page.locator('#browser-projection-host-build[role="status"]').count() === 1, 'host build identity remains an addressable AX status');
+  assert(await page.locator('#browser-projection-extension-build[role="status"]').count() === 1, 'extension build identity remains an addressable AX status');
+  assert(await page.locator('#browser-projection-address[aria-readonly="true"]').count() === 1, 'address remains an addressable read-only AX field');
   assert(await page.locator('#browser-projection-window-strip [role="tab"]').count() === 2, 'outer strip renders every normal window');
   assert(await page.locator('#browser-projection-tab-strip [role="tab"]').count() === 2, 'inner strip renders every projected-window tab even when its group is collapsed');
   assert(await page.locator('#browser-projection-window-tab-1').getAttribute('aria-selected') === 'true', 'projected outer window is selected');

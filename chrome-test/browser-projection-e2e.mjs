@@ -52,7 +52,7 @@ const result = {
 };
 let context = null;
 let fixtureServer = null;
-let hostStarted = false;
+let baselineDevProcessIDs = new Set();
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -260,7 +260,6 @@ async function assertStaleBatchRejected(worker, staleState, expectedMarker) {
 }
 
 function startHost() {
-  hostStarted = true;
   const launch = spawnSync('just', ['host-run-dev', 'dev', 'false'], {
     cwd: repo,
     stdio: 'inherit',
@@ -270,26 +269,33 @@ function startHost() {
   if (launch.status !== 0) throw new Error(`host-run-dev failed with status ${launch.status}`);
 }
 
-function stopHost() {
-  if (!hostStarted) return;
+function devProcessRows() {
   const processes = spawnSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' }).stdout || '';
-  const ownedPIDs = [];
-  for (const line of processes.split('\n')) {
-    if (!line.includes(hostDerivedData) || !line.includes('AgentDeskHost.app/Contents/MacOS/AgentDeskHost')) continue;
+  return processes.split('\n').flatMap((line) => {
+    if (!line.includes(hostDerivedData) && !line.includes(supportDirectory)) return [];
+    if (!line.includes('AgentDeskHost.app/Contents/MacOS/AgentDeskHost')
+        && !line.includes('/pty-manager ')
+        && !line.endsWith('/atc-sidecar')) return [];
     const pid = Number(line.trim().split(/\s+/, 1)[0]);
-    if (Number.isInteger(pid) && pid > 1) {
-      ownedPIDs.push(pid);
+    return Number.isInteger(pid) && pid > 1 ? [{ pid, command: line.trim() }] : [];
+  });
+}
+
+function stopHost() {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const ownedPIDs = devProcessRows()
+      .map((process) => process.pid)
+      .filter((pid) => !baselineDevProcessIDs.has(pid));
+    if (ownedPIDs.length === 0) return;
+    for (const pid of ownedPIDs) {
       try { process.kill(pid, 'SIGTERM'); } catch (error) {}
     }
+    spawnSync('/bin/sleep', ['0.1']);
   }
-  for (const pid of ownedPIDs) {
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      try { process.kill(pid, 0); } catch (error) { break; }
-      spawnSync('/bin/sleep', ['0.1']);
-    }
+  for (const { pid } of devProcessRows()) {
+    if (baselineDevProcessIDs.has(pid)) continue;
     try { process.kill(pid, 'SIGKILL'); } catch (error) {}
   }
-  hostStarted = false;
 }
 
 function collectHostLog() {
@@ -312,13 +318,13 @@ async function cleanup() {
   writeFileSync(join(artifacts, 'chrome.log'), browserLog.join('\n') || 'no browser console output');
   rmSync(work, { recursive: true, force: true });
   const processes = spawnSync('ps', ['-axo', 'command='], { encoding: 'utf8' }).stdout || '';
-  result.cleanup = !processes.includes(userDataDirectory)
-    && !processes.includes(hostDerivedData)
-    && !processes.includes(supportDirectory);
+  const newDevProcesses = devProcessRows().filter((process) => !baselineDevProcessIDs.has(process.pid));
+  result.cleanup = !processes.includes(userDataDirectory) && newDevProcesses.length === 0;
 }
 
 async function main() {
   runAX(['preflight']);
+  baselineDevProcessIDs = new Set(devProcessRows().map((process) => process.pid));
   startHost();
   await waitForFile(socketPath);
   await waitForFile(tokenPath);
