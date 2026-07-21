@@ -32,6 +32,7 @@ const INSTALLER = join(REPO, 'dom-bridge', 'install.mjs');
 const FIXTURE = readFileSync(join(__dirname, 'fixtures', 'page.html'), 'utf8');
 const CAPTURE_MARKER = 'dommirror-capture-ok';        // stable data-attribute capture proof
 const VISIBLE_TEXT = 'VISIBLE_BODY_SENTINEL_7C3A';    // visible text node -> must be present
+const RRWEB_CLASS_TEXT = 'RRWEB_DEFAULT_CLASS_TEXT_VISIBLE_91B2'; // rrweb's default mask class must not redact
 const USER_TEXT = 'alice-visible-USERTEXT';           // ordinary text-input value -> must be present
 const SECRET = 'SUPERSECRET_PW_ZZZ99';                // password value -> must be masked (absent)
 const DYNAMIC_SECRET = 'DYNAMIC_PASSWORD_SECRET_44';  // property + attribute mutation -> must stay masked
@@ -217,6 +218,7 @@ async function main() {
   check(allEvents.length > 0, `batches carried rrweb events (${allEvents.length})`);
   check(json.includes(CAPTURE_MARKER), 'DOM structure captured (data-attribute marker present, post-inflate)');
   check(json.includes(VISIBLE_TEXT), 'visible body text PRESENT in stream');
+  check(json.includes(RRWEB_CLASS_TEXT), 'ordinary text inside rrweb default mask class PRESENT in stream');
   check(json.includes(USER_TEXT), 'ordinary text-input value PRESENT in stream');
   check(!json.includes(SECRET), 'password value MASKED (absent from stream)');
   check(!json.includes(DYNAMIC_SECRET), 'incremental password value MASKED (absent from stream)');

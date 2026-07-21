@@ -60,6 +60,8 @@ and requires protocol version 12. The one-recorder and extension-authoritative g
 - [x] D88.2. Supersede the page-only iOS boundary with ADR-0064; seed the remote DOM lane with validated
   host and browser metadata, render the exact shared nested shell on iOS, return window/tab selection
   on the serialized DOM stream, and raise the host/client session protocol to 12.
+- [x] D88.3. Disable rrweb's implicit `.rr-mask` text-class redaction so all ordinary text is visible
+  by default while static and incremental password values remain source-masked; release extension 0.8.1.
 
 ---
 
@@ -78,4 +80,5 @@ D87      2026-07-20  landed      autonomous AX and temporary-Chrome verification
 D88      2026-07-20  landed      live dev-host and visible Chrome-for-Testing acceptance
 D88.1    2026-07-21  landed      readable projection content with source-masked passwords
 D88.2    2026-07-21  landed      full shared Chrome hierarchy and selection on iOS, protocol 12
+D88.3    2026-07-21  landed      ordinary text unredacted regardless of rrweb page classes, extension 0.8.1
 ```

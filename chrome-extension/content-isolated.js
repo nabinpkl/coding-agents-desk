@@ -137,6 +137,10 @@
         headMetaSocial: true,
         headMetaRobots: true,
       },
+      // rrweb defaults maskTextClass to "rr-mask". Some pages use that class for their own replay
+      // tooling, which silently redacts otherwise ordinary text. AgentDesk masks no text nodes, so
+      // supply a RegExp that cannot match a valid non-empty DOM class token.
+      maskTextClass: /^$/,
       maskAllInputs: { password: true },
       blockClass: 'agentdesk-block',
       sampling: { mousemove: 50, scroll: 100, input: 'last' },
