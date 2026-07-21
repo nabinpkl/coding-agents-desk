@@ -31,6 +31,9 @@ final class WorkspaceShellPresenter: NSObject {
     private var dockInteractionHeld = false
     /// The live sidebar width (seeded from the store, updated by the resize handle drag).
     private var sidebarWidth: CGFloat = SidebarWidth.defaultValue
+    /// The display currently hosting the one authoritative interactive shell. Pointer movement moves
+    /// it between displays; duplicating the stateful file tree and controls would create drift.
+    private var activeScreenFrame: CGRect?
     private var screenObserver: NSObjectProtocol?
     private var spaceObserver: NSObjectProtocol?
     private var loadTask: Task<Void, Never>?
@@ -95,11 +98,15 @@ final class WorkspaceShellPresenter: NSObject {
     func show() {
         buildContent()
         buildDock()
-        edgeReveal = WorkspaceShellEdgeRevealController(apply: { [weak self] state in
+        edgeReveal = WorkspaceShellEdgeRevealController(apply: { [weak self] presentation in
             guard let self else { return }
-            self.overlay.setReveal(state.revealed)
+            if let screen = presentation.screen {
+                self.activeScreenFrame = screen
+                self.overlay.apply(layout: self.layout(for: screen, pinned: self.effectivePinned()))
+            }
+            self.overlay.setReveal(presentation.state.revealed)
             // Revealing the bottom strip triggers a fresh off-main snapshot; hiding it stops the work.
-            self.dockPresenter?.setVisible(state.revealed.contains(.dockEnrichment))
+            self.dockPresenter?.setVisible(presentation.state.revealed.contains(.dockEnrichment))
         })
         overlay.show()
         relayout()
@@ -122,7 +129,7 @@ final class WorkspaceShellPresenter: NSObject {
                     // Invoked on the main actor by the session; a pinned bar insets the slot by the
                     // live sidebar width so an editor/terminal window sits beside it, not under it.
                     MainActor.assumeIsolated {
-                        let screen = NSScreen.main?.visibleFrame ?? .zero
+                        let screen = self?.currentScreen() ?? .zero
                         guard let self else { return computeSlotLayout(screen: screen).slot }
                         let pinned = self.effectivePinned()
                         return computeSlotLayout(
@@ -250,7 +257,15 @@ final class WorkspaceShellPresenter: NSObject {
     }
 
     private func currentScreen() -> CGRect {
-        NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? .zero
+        let screens = NSScreen.screens.map(\.visibleFrame)
+        if let activeScreenFrame, screens.contains(activeScreenFrame) {
+            return activeScreenFrame
+        }
+        let pointer = NSEvent.mouseLocation
+        return screens.first(where: { $0.contains(pointer) })
+            ?? NSScreen.main?.visibleFrame
+            ?? screens.first
+            ?? .zero
     }
 
     private func updateConfiguration() {
@@ -265,12 +280,30 @@ final class WorkspaceShellPresenter: NSObject {
     }
 
     private func relayout() {
-        let screen = currentScreen()
         let pinned = effectivePinned()
-        // One layout source (donor parity): computeSlotLayout positions every panel AND derives the
-        // reveal descriptors (incl. the dock's retentionFrame). The Dock's revealed thickness lifts the
-        // strip's bottom offset so it floats above a bottom / auto-hidden Dock.
-        let layout = computeSlotLayout(
+        let dockScreen = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame
+        let targets = NSScreen.screens.map { screen in
+            let frame = screen.visibleFrame
+            let descriptors = layout(for: frame, pinned: pinned).revealDescriptors.filter {
+                $0.surface != .dockEnrichment || frame == dockScreen
+            }
+            return WorkspaceShellRevealTarget(
+                screen: frame,
+                descriptors: descriptors
+            )
+        }
+        edgeReveal.update(
+            targets: targets,
+            preferredScreen: currentScreen(),
+            configuration: revealConfiguration(pinned: pinned)
+        )
+    }
+
+    /// One layout source per display: it positions the movable panels and defines that display's
+    /// top/left edge triggers. Dock reveal remains on the main display because this arc does not
+    /// change its single-display ownership or geometry.
+    private func layout(for screen: CGRect, pinned: Set<WorkspaceShellSurface>) -> SlotLayout {
+        computeSlotLayout(
             screen: screen,
             config: SlotLayoutConfig(
                 sidebarWidth: sidebarWidth,
@@ -278,12 +311,6 @@ final class WorkspaceShellPresenter: NSObject {
             ),
             sidebarPinned: pinned.contains(.sidebar),
             topBarPinned: pinned.contains(.topBar)
-        )
-        overlay.apply(layout: layout)
-        edgeReveal.update(
-            screen: screen,
-            descriptors: layout.revealDescriptors,
-            configuration: revealConfiguration(pinned: pinned)
         )
     }
 

@@ -53,6 +53,13 @@ struct WorkspaceShellRevealDescriptor: Equatable {
     }
 }
 
+/// One display's reveal geometry. The controller keeps every connected display here and selects the
+/// target under the pointer, while the overlay keeps one authoritative set of interactive views.
+struct WorkspaceShellRevealTarget: Equatable {
+    let screen: CGRect
+    let descriptors: [WorkspaceShellRevealDescriptor]
+}
+
 struct WorkspaceShellRevealPointerFacts: Equatable {
     let isNearTriggerEdge: Bool
     let isInsideSurface: Bool
@@ -97,6 +104,12 @@ struct WorkspaceShellRevealState: Equatable {
     func contains(_ surface: WorkspaceShellSurface) -> Bool {
         revealed.contains(surface)
     }
+}
+
+/// The reveal state plus the display where the single interactive overlay must be presented.
+struct WorkspaceShellRevealPresentation: Equatable {
+    let state: WorkspaceShellRevealState
+    let screen: CGRect?
 }
 
 struct WorkspaceShellRevealConfiguration: Equatable {
@@ -167,25 +180,27 @@ struct WorkspaceShellRevealStateMachine: Equatable {
 }
 
 struct WorkspaceShellEdgeRevealController {
-    private let apply: (WorkspaceShellRevealState) -> Void
-    private var screen: CGRect = .zero
-    private var descriptors: [WorkspaceShellRevealDescriptor] = []
+    private let apply: (WorkspaceShellRevealPresentation) -> Void
+    private var targets: [WorkspaceShellRevealTarget] = []
+    private var activeScreen: CGRect?
     private var configuration = WorkspaceShellRevealConfiguration()
     private var machine = WorkspaceShellRevealStateMachine()
 
-    init(apply: @escaping (WorkspaceShellRevealState) -> Void) {
+    init(apply: @escaping (WorkspaceShellRevealPresentation) -> Void) {
         self.apply = apply
     }
 
     mutating func update(
-        screen: CGRect,
-        descriptors: [WorkspaceShellRevealDescriptor],
+        targets: [WorkspaceShellRevealTarget],
+        preferredScreen: CGRect?,
         configuration: WorkspaceShellRevealConfiguration
     ) {
-        self.screen = screen
-        self.descriptors = descriptors
+        self.targets = targets
         self.configuration = configuration
-        publish(.configurationChanged)
+        let selectedScreen = targets.first(where: { $0.screen == preferredScreen })?.screen
+            ?? targets.first(where: { $0.screen == activeScreen })?.screen
+            ?? targets.first?.screen
+        publish(.configurationChanged, screen: selectedScreen, force: true)
     }
 
     mutating func pointerMoved(
@@ -194,27 +209,34 @@ struct WorkspaceShellEdgeRevealController {
         defaultTriggerBand: CGFloat = 4,
         surfaceTolerance: CGFloat = 0
     ) {
+        let target = targets.first(where: { $0.screen.contains(point) })
         let pointer = WorkspaceShellRevealPointer(
             point: point,
-            screen: screen,
-            descriptors: descriptors,
+            screen: target?.screen ?? .zero,
+            descriptors: target?.descriptors ?? [],
             insideSurfaces: insideSurfaces,
             defaultTriggerBand: defaultTriggerBand,
             surfaceTolerance: surfaceTolerance
         )
-        publish(.pointerMoved(pointer))
+        publish(.pointerMoved(pointer), screen: target?.screen ?? activeScreen)
     }
 
     mutating func setConfiguration(_ configuration: WorkspaceShellRevealConfiguration) {
         self.configuration = configuration
-        publish(.configurationChanged)
+        publish(.configurationChanged, screen: activeScreen)
     }
 
-    private mutating func publish(_ event: WorkspaceShellRevealEvent) {
+    private mutating func publish(
+        _ event: WorkspaceShellRevealEvent,
+        screen: CGRect?,
+        force: Bool = false
+    ) {
         let previous = machine.state
         let next = machine.send(event, configuration: configuration)
-        if next != previous {
-            apply(next)
+        let screenChanged = screen != activeScreen
+        activeScreen = screen
+        if force || next != previous || screenChanged {
+            apply(WorkspaceShellRevealPresentation(state: next, screen: screen))
         }
     }
 }

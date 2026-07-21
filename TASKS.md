@@ -67,6 +67,9 @@ without changing the one-recorder and extension-authoritative generation model.
   viewer ownership, Desktop and Mobile presets, viewer-linked and custom source dimensions, shared
   projection-only fit/zoom/pan, generation-fenced CDP application and native restoration, protocol 13,
   extension 0.9.0, and local/remote ownership tests.
+- [x] D88.5. Make workspace-shell top and left edge reveal monitor-aware: retain one authoritative
+  interactive overlay, move it to the display under the pointer, derive reveal geometry for every
+  connected display, and retain the bottom Dock surface's existing main-display ownership.
 
 ---
 
@@ -87,4 +90,5 @@ D88.1    2026-07-21  landed      readable projection content with source-masked 
 D88.2    2026-07-21  landed      full shared Chrome hierarchy and selection on iOS, protocol 12
 D88.3    2026-07-21  landed      ordinary text unredacted regardless of rrweb page classes, extension 0.8.1
 D88.4    2026-07-21  landed      viewer-owned responsive Chrome viewport, protocol 13, extension 0.9.0
+D88.5    2026-07-21  landed      workspace-shell top and left edge reveal across every display
 ```

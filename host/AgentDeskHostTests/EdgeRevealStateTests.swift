@@ -5,6 +5,7 @@ import Testing
 
 struct EdgeRevealStateTests {
     private let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+    private let secondScreen = CGRect(x: 1440, y: 0, width: 1280, height: 800)
     private let descriptors = [
         WorkspaceShellRevealDescriptor(
             surface: .sidebar,
@@ -50,19 +51,84 @@ struct EdgeRevealStateTests {
         #expect(state.contains(.topBar))
     }
 
-    @Test mutating func controllerPublishesOnlyStateChanges() {
-        var observed: [WorkspaceShellRevealState] = []
+    @Test mutating func controllerDoesNotRepublishRepeatedPointerState() {
+        var observed: [WorkspaceShellRevealPresentation] = []
         var controller = WorkspaceShellEdgeRevealController { observed.append($0) }
-        controller.update(screen: screen, descriptors: descriptors, configuration: .init())
+        controller.update(
+            targets: [WorkspaceShellRevealTarget(screen: screen, descriptors: descriptors)],
+            preferredScreen: screen,
+            configuration: .init()
+        )
 
         controller.pointerMoved(to: CGPoint(x: 2, y: 400))
         controller.pointerMoved(to: CGPoint(x: 2, y: 400))
         controller.pointerMoved(to: CGPoint(x: 300, y: 400))
 
         #expect(observed == [
-            WorkspaceShellRevealState(revealed: [.sidebar]),
-            WorkspaceShellRevealState(),
+            WorkspaceShellRevealPresentation(state: .init(), screen: screen),
+            WorkspaceShellRevealPresentation(state: .init(revealed: [.sidebar]), screen: screen),
+            WorkspaceShellRevealPresentation(state: .init(), screen: screen),
         ])
+    }
+
+    @Test mutating func controllerSelectsTheMonitorUnderThePointer() {
+        let secondDescriptors = descriptors(for: secondScreen)
+        var observed: [WorkspaceShellRevealPresentation] = []
+        var controller = WorkspaceShellEdgeRevealController { observed.append($0) }
+        controller.update(
+            targets: [
+                WorkspaceShellRevealTarget(screen: screen, descriptors: descriptors),
+                WorkspaceShellRevealTarget(screen: secondScreen, descriptors: secondDescriptors),
+            ],
+            preferredScreen: screen,
+            configuration: .init()
+        )
+
+        controller.pointerMoved(to: CGPoint(x: secondScreen.minX + 2, y: secondScreen.midY))
+
+        #expect(observed.last == WorkspaceShellRevealPresentation(
+            state: .init(revealed: [.sidebar]),
+            screen: secondScreen
+        ))
+    }
+
+    @Test mutating func controllerRevealsTopBarOnTheSecondMonitorTopEdge() {
+        let secondDescriptors = descriptors(for: secondScreen)
+        var observed: [WorkspaceShellRevealPresentation] = []
+        var controller = WorkspaceShellEdgeRevealController { observed.append($0) }
+        controller.update(
+            targets: [
+                WorkspaceShellRevealTarget(screen: screen, descriptors: descriptors),
+                WorkspaceShellRevealTarget(screen: secondScreen, descriptors: secondDescriptors),
+            ],
+            preferredScreen: screen,
+            configuration: .init()
+        )
+
+        controller.pointerMoved(to: CGPoint(x: secondScreen.midX, y: secondScreen.maxY - 2))
+
+        #expect(observed.last == WorkspaceShellRevealPresentation(
+            state: .init(revealed: [.topBar]),
+            screen: secondScreen
+        ))
+    }
+
+    @Test mutating func controllerMovesTheOverlayTargetEvenWhenRevealStateDoesNotChange() {
+        let secondDescriptors = descriptors(for: secondScreen)
+        var observed: [WorkspaceShellRevealPresentation] = []
+        var controller = WorkspaceShellEdgeRevealController { observed.append($0) }
+        controller.update(
+            targets: [
+                WorkspaceShellRevealTarget(screen: screen, descriptors: descriptors),
+                WorkspaceShellRevealTarget(screen: secondScreen, descriptors: secondDescriptors),
+            ],
+            preferredScreen: screen,
+            configuration: .init()
+        )
+
+        controller.pointerMoved(to: CGPoint(x: secondScreen.midX, y: secondScreen.midY))
+
+        #expect(observed.last == WorkspaceShellRevealPresentation(state: .init(), screen: secondScreen))
     }
 
     private func pointer(_ point: CGPoint, inside: Set<WorkspaceShellSurface> = []) -> WorkspaceShellRevealPointer {
@@ -73,5 +139,20 @@ struct EdgeRevealStateTests {
             insideSurfaces: inside,
             defaultTriggerBand: 4
         )
+    }
+
+    private func descriptors(for screen: CGRect) -> [WorkspaceShellRevealDescriptor] {
+        [
+            WorkspaceShellRevealDescriptor(
+                surface: .sidebar,
+                edge: .left,
+                frame: CGRect(x: screen.minX, y: screen.minY, width: 240, height: screen.height)
+            ),
+            WorkspaceShellRevealDescriptor(
+                surface: .topBar,
+                edge: .top,
+                frame: CGRect(x: screen.minX, y: screen.maxY - 38, width: screen.width, height: 38)
+            ),
+        ]
     }
 }
