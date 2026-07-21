@@ -250,9 +250,9 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded.cursorRevision == 11)
     }
 
-    @Test func protocolVersionIsElevenForWorkspaceLaneCoordination() {
-        #expect(Config.protocolVersion == 11)
-        #expect(Config.minCompatibleProtocolVersion == 11)
+    @Test func protocolVersionIsTwelveForRemoteBrowserProjection() {
+        #expect(Config.protocolVersion == 12)
+        #expect(Config.minCompatibleProtocolVersion == 12)
     }
 
     @available(macOS 26.0, *)

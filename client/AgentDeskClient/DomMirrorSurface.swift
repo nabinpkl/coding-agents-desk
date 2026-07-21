@@ -4,12 +4,10 @@ import OSLog
 import UIKit
 import WebKit
 
-// ADR-0038 DOM mirror: an iOS shell around the shared BrowserProjection WKWebView. The bridge is
-// one-directional for read-only v1:
-//   - Outbound (native -> JS): deliver(rawJSON) -> window.__domMirrorDeliver(batch)
-//   - Inbound  (JS -> native): the replayer posts a `domMirror` probe summarizing the reconstructed
-//     DOM (marker attribute + node count) so the autonomous harness can assert the mirror worked
-//     without a human; `domLog` carries JS errors/console to OSLog.
+// ADR-0064 iOS shell around the shared BrowserProjection WKWebView:
+//   - Native -> JS delivers host state, browser metadata, and rrweb batches.
+//   - JS -> native returns trusted-page input, browser window/tab selection, probes, and errors.
+// The controller owns the same bundled renderer and selection semantics as the macOS projection.
 @MainActor
 final class DomMirrorSurface: UIView {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "dom-mirror-surface")
@@ -21,6 +19,8 @@ final class DomMirrorSurface: UIView {
     // ADR-0047: a scroll drag in the replayer. x/y are the page CSS-pixel anchor, dx/dy the finger
     // movement delta in page CSS px; sent back to Chrome to drive the real tab's scroll.
     var onScroll: ((_ x: Double, _ y: Double, _ dx: Double, _ dy: Double) -> Void)?
+    var onSelectWindow: ((_ windowId: Int, _ generation: Int) -> Void)?
+    var onSelectTab: ((_ windowId: Int, _ tabId: Int, _ generation: Int) -> Void)?
 
     // ADR-0047: forward a mirror scroll drag to the host, UNLESS the view is pinch-zoomed. Once the
     // WKWebView scrollView.zoomScale exceeds 1, a single-finger drag pans the magnified view locally
@@ -85,6 +85,12 @@ final class DomMirrorSurface: UIView {
         }
         projectionController.onScroll = { [weak self] x, y, dx, dy in
             self?.handleScroll(x: x, y: y, dx: dx, dy: dy)
+        }
+        projectionController.onSelectWindow = { [weak self] windowId, generation in
+            self?.handleSelectWindow(windowId: windowId, generation: generation)
+        }
+        projectionController.onSelectTab = { [weak self] windowId, tabId, generation in
+            self?.handleSelectTab(windowId: windowId, tabId: tabId, generation: generation)
         }
         projectionController.onLog = { [weak self] message in
             self?.logger.error("dom-mirror JS: \(message, privacy: .public)")
@@ -191,6 +197,14 @@ final class DomMirrorSurface: UIView {
     // Deliver one raw DOM batch JSON ({t,tb,co,ev,meta}) to the replayer. Queued until loaded.
     func deliver(rawJSON: String) {
         projectionController.deliver(rawJSON: rawJSON)
+    }
+
+    func handleSelectWindow(windowId: Int, generation: Int) {
+        onSelectWindow?(windowId, generation)
+    }
+
+    func handleSelectTab(windowId: Int, tabId: Int, generation: Int) {
+        onSelectTab?(windowId, tabId, generation)
     }
 
     func teardown() {

@@ -776,6 +776,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let server = DomBridgeServer()
         let hostSHA = (Bundle.main.infoDictionary?["AgentDeskGitSHA"] as? String)
             .flatMap { $0.isEmpty ? nil : $0 } ?? "dev"
+        relay.setHostSHA(hostSHA)
         let projectionSession = BrowserProjectionSession(hostSHA: hostSHA) { [weak server] payload in
             server?.sendToBridge(payload) ?? false
         }
@@ -789,6 +790,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             projectionLane.send(.batch(raw))
         }
         server.onBrowserState = { raw, state in
+            relay.ingestBrowserState(raw)
             projectionLane.send(.browserState(raw, state))
         }
         // ADR-0046: reflect extension bridge liveness in the client's Browser status line.

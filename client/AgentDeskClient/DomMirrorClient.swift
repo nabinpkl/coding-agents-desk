@@ -3,11 +3,49 @@ import Network
 import os
 import OSLog
 import AgentDeskWire
+import BrowserProjection
 
-// ADR-0038 client side of the DOM lane. Opens by announcing the .dom role (one 1-byte frame the
+enum DomLanePayloadClassifier {
+    enum Classification: Equatable {
+        case batch
+        case projectionMetadata
+        case status(DomStatus)
+        case invalid
+    }
+
+    static func classify(_ payload: Data) -> Classification {
+        guard let tag = try? JSONDecoder().decode(DomLaneFrameTag.self, from: payload) else {
+            return .invalid
+        }
+        switch tag.type {
+        case "dom-batch":
+            return .batch
+        case "browser-state":
+            do {
+                let state = try JSONDecoder().decode(BrowserProjectionState.self, from: payload)
+                try state.validate()
+                return .projectionMetadata
+            } catch {
+                return .invalid
+            }
+        case "projection-host":
+            return (try? JSONDecoder().decode(BrowserProjectionHostState.self, from: payload)) == nil
+                ? .invalid : .projectionMetadata
+        case "dom-status":
+            guard let status = try? JSONDecoder().decode(DomStatus.self, from: payload) else {
+                return .invalid
+            }
+            return .status(status)
+        default:
+            return .invalid
+        }
+    }
+}
+
+// ADR-0038/0064 client side of the DOM lane. Opens by announcing the .dom role (one 1-byte frame the
 // host reads to attach its pusher), then reads host-pushed QuicSessionStreamFrame(.dom) frames and
-// forwards each rrweb batch (the frame payload as JSON text) to the replay surface. Decoupled from
-// the media transport: a lane failure stops this loop but never tears down the session.
+// forwards validated projection metadata and rrweb batches to the shared browser surface. Decoupled
+// from the media transport: a lane failure stops this loop but never tears down the session.
 @available(iOS 26.0, *)
 final class DomMirrorClient: @unchecked Sendable {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "dom-mirror-client")
@@ -22,9 +60,10 @@ final class DomMirrorClient: @unchecked Sendable {
     // mirroring the host's DomEventLaneServer send chain, so frames are written whole and in order.
     private let sendChain = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
 
-    // Set by the UI layer before start(): each received batch (raw JSON) is delivered here on the
-    // main actor, ready to hand to DomMirrorSurface.deliver(rawJSON:).
-    var onBatch: (@MainActor (String) -> Void)?
+    // Set by the UI layer before start(): each projection payload (raw JSON) is delivered here on the
+    // main actor, ready to hand to DomMirrorSurface.deliver(rawJSON:). `isBatch` keeps diagnostic
+    // freshness accounting separate from metadata updates without reparsing JSON in the UI layer.
+    var onProjectionPayload: (@MainActor (_ json: String, _ isBatch: Bool) -> Void)?
 
     // ADR-0046: host-pushed diagnostic status (extension reachable, recording tab) for the Browser
     // status line. Delivered on the main actor; does not affect the batch stream.
@@ -51,21 +90,18 @@ final class DomMirrorClient: @unchecked Sendable {
                     // ADR-0046 dom-status updates the diagnostic line without touching the stream;
                     // anything else (e.g. the host's SessionRejected when its flag is off) closes
                     // the lane cleanly without tearing down the session.
-                    guard let disc = try? JSONDecoder().decode(DomLaneFrameTag.self, from: frame.payload) else {
-                        logger.notice("dom lane closed or undecodable frame; stopping")
-                        return
-                    }
-                    switch disc.type {
-                    case "dom-batch":
+                    let classification = DomLanePayloadClassifier.classify(frame.payload)
+                    switch classification {
+                    case .batch, .projectionMetadata:
                         guard let json = String(data: frame.payload, encoding: .utf8) else { return }
-                        let handler = onBatch
-                        await MainActor.run { handler?(json) }
-                    case "dom-status":
-                        guard let status = try? JSONDecoder().decode(DomStatus.self, from: frame.payload) else { continue }
+                        let handler = onProjectionPayload
+                        let isBatch = classification == .batch
+                        await MainActor.run { handler?(json, isBatch) }
+                    case .status(let status):
                         let handler = onStatus
                         await MainActor.run { handler?(status) }
-                    default:
-                        logger.notice("dom lane non-content frame (\(disc.type, privacy: .public)); stopping")
+                    case .invalid:
+                        logger.notice("dom lane invalid or incompatible frame; stopping")
                         return
                     }
                 } catch {
@@ -120,6 +156,27 @@ final class DomMirrorClient: @unchecked Sendable {
         let cmd = DomScrollCommand(x: x, y: y, dx: dx, dy: dy)
         guard let payload = try? JSONEncoder().encode(cmd) else { return }
         enqueueSend(payload, label: "scroll dx=\(Int(dx)) dy=\(Int(dy))")
+    }
+
+    func selectWindow(_ windowId: Int, generation: Int) {
+        guard task != nil else { return }
+        let command = BrowserProjectionSelectWindowCommand(
+            windowId: windowId,
+            generation: generation
+        )
+        guard let payload = try? JSONEncoder().encode(command) else { return }
+        enqueueSend(payload, label: "select-window")
+    }
+
+    func selectTab(_ windowId: Int, tabId: Int, generation: Int) {
+        guard task != nil else { return }
+        let command = BrowserProjectionSelectTabCommand(
+            windowId: windowId,
+            tabId: tabId,
+            generation: generation
+        )
+        guard let payload = try? JSONEncoder().encode(command) else { return }
+        enqueueSend(payload, label: "select-tab")
     }
 
     // ADR-0045: pause/resume DOM capture at the source. Sent UP the .dom lane; the host forwards it

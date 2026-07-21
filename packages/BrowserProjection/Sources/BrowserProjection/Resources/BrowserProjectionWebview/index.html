@@ -99,13 +99,11 @@
   #build-footer { display: flex; justify-content: flex-end; gap: 10px; min-height: 18px; padding: 2px 8px; border-top: 1px solid var(--chrome-border); background: var(--chrome-bg); color: var(--chrome-muted); font: 10px/1.3 ui-monospace, "SFMono-Regular", monospace; }
   #build-footer .readout { width: auto; field-sizing: content; }
   #build-footer[hidden] { display: none; }
-  body.page-only #browser-chrome, body.page-only #build-footer { display: none; }
-  body.page-only #browser-projection-root { grid-template-rows: minmax(0, 1fr); }
 </style>
 </head>
-<body class="page-only">
+<body>
   <div id="browser-projection-root">
-    <div id="browser-chrome" hidden>
+    <div id="browser-chrome">
       <div id="browser-projection-window-strip" class="strip" role="tablist" aria-label="Chrome windows"></div>
       <div id="browser-projection-tab-strip" class="strip" role="tablist" aria-label="Tabs in projected Chrome window"></div>
       <div id="browser-toolbar">
@@ -338,7 +336,6 @@
       var priorWindowState = browserState && currentWindow();
       var priorTab = priorWindowState && priorWindowState.activeTabId;
       browserState = nextState;
-      document.body.classList.remove('page-only');
       chromeEl.hidden = false;
       document.getElementById('build-footer').hidden = false;
       setReadout('browser-projection-extension-build', buildLabel(browserState.extension));
@@ -362,7 +359,6 @@
 
     function renderHostState(nextState) {
       hostState = nextState;
-      document.body.classList.remove('page-only');
       document.getElementById('build-footer').hidden = false;
       setReadout('browser-projection-host-build', 'host ' + (nextState.sha || 'unknown'));
       if (!nextState.connected) setStatus('Chrome extension is disconnected');

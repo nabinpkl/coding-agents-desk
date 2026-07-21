@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import AgentDeskWire
+import BrowserProjection
 
 @testable import AgentDeskHost
 
@@ -21,9 +22,19 @@ struct DomMirrorRelayTests {
     private func isStatus(_ data: Data) -> Bool {
         (String(data: data, encoding: .utf8) ?? "").contains("dom-status")
     }
-    private func batches(_ lane: FakeLane) -> [Data] { lane.sent.filter { !isStatus($0) } }
+    private func batches(_ lane: FakeLane) -> [Data] {
+        lane.sent.filter {
+            let frameType = type($0)
+            return frameType != "dom-status"
+                && frameType != "projection-host"
+                && frameType != "browser-state"
+        }
+    }
     private func statuses(_ lane: FakeLane) -> [DomStatus] {
         lane.sent.filter { isStatus($0) }.compactMap { try? JSONDecoder().decode(DomStatus.self, from: $0) }
+    }
+    private func type(_ data: Data) -> String? {
+        (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["t"] as? String
     }
 
     // --- buffer ---
@@ -75,6 +86,52 @@ struct DomMirrorRelayTests {
         #expect(batches(lane) == [d("meta"), d("inc1"), d("inc2")])
         relay.ingest(line: d("inc3"), tabId: 1, checkout: false) // then live
         #expect(batches(lane) == [d("meta"), d("inc1"), d("inc2"), d("inc3")])
+    }
+
+    @Test func lateAttachReceivesHostAndBrowserStateBeforePageSeed() {
+        let relay = DomMirrorRelay()
+        relay.setHostSHA("host123")
+        relay.setExtConnected(true)
+        relay.ingestBrowserState(d(#"{"t":"browser-state","generation":4}"#))
+        relay.ingest(line: d(#"{"t":"dom-batch","tb":11,"g":4,"co":true,"ev":[]}"#), tabId: 11, checkout: true)
+
+        let lane = FakeLane()
+        relay.attach(lane, for: DeviceFingerprint("fp1"))
+
+        #expect(lane.sent.prefix(3).compactMap(type) == ["projection-host", "browser-state", "dom-batch"])
+        let hostState = try? JSONDecoder().decode(BrowserProjectionHostState.self, from: lane.sent[0])
+        #expect(hostState == BrowserProjectionHostState(connected: true, sha: "host123"))
+    }
+
+    @Test func browserStateUpdatesFanOnlyToRemoteLanes() {
+        let relay = DomMirrorRelay()
+        let remote = FakeLane()
+        let local = FakeLane()
+        relay.attach(remote, for: DeviceFingerprint("fp1"))
+        relay.attachLocalProjection(local)
+
+        let state = d(#"{"t":"browser-state","generation":5}"#)
+        relay.ingestBrowserState(state)
+
+        #expect(remote.sent.contains(state))
+        #expect(!local.sent.contains(state))
+    }
+
+    @Test func firstBatchRestoresRemoteProjectionHostReachability() {
+        let relay = DomMirrorRelay()
+        let remote = FakeLane()
+        relay.attach(remote, for: DeviceFingerprint("fp1"))
+
+        relay.ingest(
+            line: d(#"{"t":"dom-batch","tb":11,"g":4,"co":true,"ev":[]}"#),
+            tabId: 11,
+            checkout: true
+        )
+
+        let hostStates = remote.sent.compactMap {
+            try? JSONDecoder().decode(BrowserProjectionHostState.self, from: $0)
+        }
+        #expect(hostStates.last == BrowserProjectionHostState(connected: true, sha: "dev"))
     }
 
     @Test func attachingNewLaneClosesPriorForSameFingerprint() {

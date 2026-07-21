@@ -75,7 +75,8 @@ function assert(condition, message) {
 try {
   await page.goto(indexURL);
   await page.waitForFunction(() => typeof window.__browserProjectionDeliver === 'function');
-  assert(await page.locator('body').getAttribute('class') === 'page-only', 'shared renderer starts in iOS-compatible page-only mode');
+  assert(await page.locator('#browser-chrome').isVisible(), 'shared renderer exposes the complete browser shell before metadata arrives');
+  assert((await page.locator('#browser-projection-content-status').textContent()).includes('Waiting for Chrome projection'), 'shared renderer starts in an explicit disconnected state');
   await page.evaluate(() => window.__browserProjectionDeliver({
     t: 'projection-host', connected: true, sha: 'abc1234',
   }));

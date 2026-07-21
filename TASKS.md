@@ -1,4 +1,4 @@
-# TASKS: v7 local multi-window Chrome projection (with v8 terminal durability captured)
+# TASKS: v7 multi-window Chrome projection (with v8 terminal durability captured)
 
 `R<N>` = remaining. Flip to `D<N>` only after the complete slice has landed and its tests are green.
 This ledger continues from the archived v6 ledger through D83.
@@ -12,8 +12,9 @@ their source. The validated native session and shared renderer follow. Autonomou
 last because it launches the dev host and visible test-owned Chrome and therefore remains behind the
 repository launch checkpoint.
 
-Browser metadata is local to the authenticated Unix bridge. The existing QUIC DOM lane remains page-only
-for iOS, so this iteration neither changes protocol version 11 nor adds remote browser-shell management.
+ADR-0064 supersedes the original local-only boundary: the authenticated QUIC DOM lane now seeds and
+updates the same nested BrowserProjection shell on iOS, carries selection commands back to the host,
+and requires protocol version 12. The one-recorder and extension-authoritative generation model remains.
 
 ## v7 Phase 0: local projection decision
 
@@ -56,6 +57,9 @@ for iOS, so this iteration neither changes protocol version 11 nor adds remote b
 - [x] D88.1. Replace blanket rrweb/CDP redaction with readable ordinary page content while retaining
   source-side masking for static and incremental password values; verify the real compressed stream,
   closed-shadow CDP reconstruction, and payload-free diagnostic logging contract.
+- [x] D88.2. Supersede the page-only iOS boundary with ADR-0064; seed the remote DOM lane with validated
+  host and browser metadata, render the exact shared nested shell on iOS, return window/tab selection
+  on the serialized DOM stream, and raise the host/client session protocol to 12.
 
 ---
 
@@ -73,4 +77,5 @@ D86      2026-07-20  landed      validated nested AppKit projection and local br
 D87      2026-07-20  landed      autonomous AX and temporary-Chrome verification seam
 D88      2026-07-20  landed      live dev-host and visible Chrome-for-Testing acceptance
 D88.1    2026-07-21  landed      readable projection content with source-masked passwords
+D88.2    2026-07-21  landed      full shared Chrome hierarchy and selection on iOS, protocol 12
 ```

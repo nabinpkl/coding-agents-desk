@@ -100,4 +100,5 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0060 | Fragment large Agent feed raw events on the input lane | accepted | 2026-07-18 |
 | ADR-0061 | Compose the iOS workspace as resizable panes with a host-resolved terminal | accepted | 2026-07-19 |
 | ADR-0062 | Embed one responsive workspace IDE in two native pane shells | accepted | 2026-07-19 |
-| ADR-0063 | Project all Chrome windows through one local recorder | accepted | 2026-07-20 |
+| ADR-0063 | Project all Chrome windows through one local recorder | superseded by ADR-0064 | 2026-07-20 |
+| ADR-0064 | Project the full Chrome hierarchy to iOS | accepted | 2026-07-21 |

@@ -50,9 +50,11 @@ extension PairingViewController {
         surface.onProbe = { [weak surface] _, nodes in surface?.setNodeCount(nodes) }
 
         // Wire the lane -> surface (pulled fresh so a reconnect's new lane is used), then start it.
-        domMirror.onBatch = { [weak surface] json in
+        domMirror.onProjectionPayload = { [weak surface] json, isBatch in
             surface?.deliver(rawJSON: json)
-            surface?.recordBatch() // ADR-0046: freshness + batch count for the status line
+            if isBatch {
+                surface?.recordBatch() // ADR-0046: freshness + batch count for the status line
+            }
         }
         // ADR-0046/0048: host-pushed diagnostic status (bridge connected, recording tab, emulated).
         domMirror.onStatus = { [weak surface] status in
@@ -65,6 +67,13 @@ extension PairingViewController {
         surface.onScroll = { [weak self] x, y, dx, dy in
             self?.pairingClient.activeDomMirror?.sendScroll(x: x, y: y, dx: dx, dy: dy)
         }
+        surface.onSelectWindow = { [weak self] windowId, generation in
+            self?.pairingClient.activeDomMirror?.selectWindow(windowId, generation: generation)
+        }
+        surface.onSelectTab = { [weak self] windowId, tabId, generation in
+            self?.pairingClient.activeDomMirror?.selectTab(
+                windowId, tabId: tabId, generation: generation)
+        }
         // ADR-0048: the Desktop|Mobile control device-emulates the real Chrome tab host-side.
         surface.onEmulateToggle = { [weak self] mobile in
             self?.pairingClient.activeDomMirror?.setEmulate(mobile)
@@ -76,7 +85,7 @@ extension PairingViewController {
     }
 
     func teardownDomMirrorSurface() {
-        pairingClient.activeDomMirror?.onBatch = nil
+        pairingClient.activeDomMirror?.onProjectionPayload = nil
         domMirrorSurface?.teardown()
         domMirrorSurface?.removeFromSuperview()
         domMirrorSurface = nil

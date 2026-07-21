@@ -49,9 +49,9 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded.payload == payload)
 }
 
-@Test func wireProtocolWorkspaceLaneVersionIsPinned() {
-    #expect(WireProtocol.version == 11)
-    #expect(WireProtocol.minCompatibleVersion == 11)
+@Test func wireProtocolRemoteBrowserProjectionVersionIsPinned() {
+    #expect(WireProtocol.version == 12)
+    #expect(WireProtocol.minCompatibleVersion == 12)
 }
 
 @Test func workspaceTerminalMessagesRoundTripWithoutHostPathOrLaunchAuthority() throws {

@@ -125,10 +125,12 @@ struct DomBridgeServerTests {
 struct DomLaneControlForwardingTests {
     private func data(_ json: String) -> Data { Data(json.utf8) }
 
-    @Test func forwardsTapAndCaptureControlFrames() {
+    @Test func forwardsTapCaptureAndBrowserSelectionControlFrames() {
         #expect(isForwardableDomControl(data(#"{"t":"dom-input","k":"mouse","x":1,"y":2}"#)))
         #expect(isForwardableDomControl(data(#"{"t":"dom-capture","on":false}"#)))
         #expect(isForwardableDomControl(data(#"{"t":"dom-capture","on":true}"#)))
+        #expect(isForwardableDomControl(data(#"{"t":"browser-select-window","windowId":8,"generation":9}"#)))
+        #expect(isForwardableDomControl(data(#"{"t":"browser-select-tab","windowId":8,"tabId":10,"generation":9}"#)))
     }
 
     // ADR-0047: the scroll-drive-back command is forwarded verbatim like the tap and capture frames.

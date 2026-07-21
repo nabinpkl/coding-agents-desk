@@ -1,6 +1,7 @@
 import Foundation
 import os
 import AgentDeskWire
+import BrowserProjection
 
 // ADR-0038 late-join buffer for the DOM lane: the raw rrweb batch lines since (and including) the
 // most recent checkout batch (the one carrying a fresh Meta + FullSnapshot). A phone that opens the
@@ -34,9 +35,10 @@ protocol DomLaneSending: AnyObject, Sendable {
     func close()
 }
 
-// Fans DOM batches from the single Chrome source to the attached client lane(s) and holds the
-// late-join buffer, so a freshly-attached lane is seeded to a coherent frame before live batches.
-// Fed from the DomBridgeServer queue; guards its state with a lock so it is callable from any thread.
+// Fans projection metadata and DOM batches from the single Chrome source to attached client lanes.
+// It retains the latest browser snapshot and a late-join page buffer so a fresh lane receives a
+// coherent shell and page before live updates. Fed from the DomBridgeServer queue; guards its state
+// with a lock so it is callable from any thread.
 final class DomMirrorRelay: @unchecked Sendable {
     private struct State {
         var buffer: DomMirrorBuffer
@@ -47,6 +49,8 @@ final class DomMirrorRelay: @unchecked Sendable {
         var lastTabId: Int?
         // ADR-0048: authoritative device-emulation state, read off each batch's `em` stamp.
         var emulated: Bool
+        var hostSHA: String
+        var browserState: Data?
     }
     private let lock: OSAllocatedUnfairLock<State>
 
@@ -54,7 +58,7 @@ final class DomMirrorRelay: @unchecked Sendable {
         lock = OSAllocatedUnfairLock(initialState: State(
             buffer: DomMirrorBuffer(cap: bufferCap), lanes: [:], localProjection: nil,
             extConnected: false, lastTabId: nil,
-            emulated: false))
+            emulated: false, hostSHA: "dev", browserState: nil))
     }
 
     // ADR-0046: encode the current status as one .dom-lane frame. Called inside the lock so ext/tab/
@@ -64,25 +68,56 @@ final class DomMirrorRelay: @unchecked Sendable {
             ext: state.extConnected, tab: state.lastTabId, emulated: state.emulated))
     }
 
+    private func hostStateFrameLocked(_ state: State) -> Data? {
+        try? JSONEncoder().encode(BrowserProjectionHostState(
+            connected: state.extConnected,
+            sha: state.hostSHA
+        ))
+    }
+
+    func setHostSHA(_ sha: String) {
+        let (lanes, hostState): ([DomLaneSending], Data?) = lock.withLock { state in
+            state.hostSHA = sha
+            return (Array(state.lanes.values), hostStateFrameLocked(state))
+        }
+        if let hostState { for lane in lanes { lane.send(hostState) } }
+    }
+
+    func ingestBrowserState(_ payload: Data) {
+        let lanes: [DomLaneSending] = lock.withLock { state in
+            state.browserState = payload
+            return Array(state.lanes.values)
+        }
+        for lane in lanes { lane.send(payload) }
+    }
+
     // A new DOM batch from Chrome: buffer it, then fan it to every attached lane. The lane's own
     // send is thread-safe and ordered, so we call it outside the lock. `emulated` is the batch's `em`
     // stamp (ADR-0048): nil leaves the state untouched, a value updates it and re-pushes status on a
     // change so the client's Desktop|Mobile control tracks the authoritative host state.
     func ingest(line: Data, tabId: Int, checkout: Bool, emulated: Bool? = nil) {
-        let (lanes, statusFrame): ([DomLaneSending], Data?) = lock.withLock { state in
+        let (lanes, remoteLanes, statusFrame, hostState): ([DomLaneSending], [DomLaneSending], Data?, Data?) = lock.withLock { state in
             state.buffer.ingest(line: line, checkout: checkout)
             // Batches only flow while a tab is recording, so a batch means the extension is reachable.
-            var changed = state.lastTabId != tabId || !state.extConnected
+            let becameConnected = !state.extConnected
+            var changed = state.lastTabId != tabId || becameConnected
             if let emulated, state.emulated != emulated { state.emulated = emulated; changed = true }
             state.extConnected = true
             state.lastTabId = tabId
-            let destinations = Array(state.lanes.values) + [state.localProjection].compactMap { $0 }
-            return (destinations, changed ? statusFrameLocked(state) : nil)
+            let remote = Array(state.lanes.values)
+            let destinations = remote + [state.localProjection].compactMap { $0 }
+            return (
+                destinations,
+                remote,
+                changed ? statusFrameLocked(state) : nil,
+                becameConnected ? hostStateFrameLocked(state) : nil
+            )
         }
         // A lane whose stream died without a session-end stays in the map until the next attach or
         // session-end; its send() enqueues a Task that fails at stream.send and logs -- benign, and
         // identical to the shipping graphics lane. One lane per fingerprint (replaced via attach,
         // never accumulated), so no unbounded growth.
+        if let hostState { for lane in remoteLanes { lane.send(hostState) } }
         for lane in lanes { lane.send(line) }
         if let statusFrame { for lane in lanes { lane.send(statusFrame) } }
     }
@@ -90,31 +125,33 @@ final class DomMirrorRelay: @unchecked Sendable {
     // ADR-0046: the native-messaging bridge to the Chrome extension connected/disconnected. Push the
     // fresh reachability to every attached lane. A disconnect also means nothing is recording.
     func setExtConnected(_ connected: Bool) {
-        let (lanes, statusFrame): ([DomLaneSending], Data?) = lock.withLock { state in
+        let (lanes, remoteLanes, statusFrame, hostState): ([DomLaneSending], [DomLaneSending], Data?, Data?) = lock.withLock { state in
             state.extConnected = connected
             // ADR-0048: a disconnect means nothing is recording and the emulation state is no longer
             // known; reset to desktop so the client shows a truthful default until a batch's `em` stamp
             // re-establishes it on reconnect.
             if !connected { state.lastTabId = nil; state.emulated = false }
-            let destinations = Array(state.lanes.values) + [state.localProjection].compactMap { $0 }
-            return (destinations, statusFrameLocked(state))
+            let remote = Array(state.lanes.values)
+            let destinations = remote + [state.localProjection].compactMap { $0 }
+            return (destinations, remote, statusFrameLocked(state), hostStateFrameLocked(state))
         }
         if let statusFrame { for lane in lanes { lane.send(statusFrame) } }
+        if let hostState { for lane in remoteLanes { lane.send(hostState) } }
     }
 
     // A phone opened the .dom lane: replace any prior lane for that fingerprint, then seed the new
-    // lane with the buffered checkout so it bootstraps before live batches arrive.
+    // lane with host/browser metadata and the buffered checkout before live updates can interleave.
     func attach(_ lane: DomLaneSending, for fingerprint: DeviceFingerprint) {
-        let (prior, seed, statusFrame): (DomLaneSending?, [Data], Data?) = lock.withLock { state in
+        let prior: DomLaneSending? = lock.withLock { state in
             let prior = state.lanes[fingerprint]
             state.lanes[fingerprint] = lane
-            return (prior, state.buffer.snapshot(), statusFrameLocked(state))
+            if let hostState = hostStateFrameLocked(state) { lane.send(hostState) }
+            if let browserState = state.browserState { lane.send(browserState) }
+            for line in state.buffer.snapshot() { lane.send(line) }
+            if let statusFrame = statusFrameLocked(state) { lane.send(statusFrame) }
+            return prior
         }
         prior?.close()
-        for line in seed { lane.send(line) }
-        // Send the current diagnostic status so a freshly-opened Browser lane immediately shows
-        // whether the extension is reachable, even before any batch arrives.
-        if let statusFrame { lane.send(statusFrame) }
     }
 
     func detach(for fingerprint: DeviceFingerprint) {
