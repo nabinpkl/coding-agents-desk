@@ -10,11 +10,13 @@ public final class BrowserProjectionController: NSObject {
     public var onScroll: ((_ x: Double, _ y: Double, _ dx: Double, _ dy: Double) -> Void)?
     public var onSelectWindow: ((_ windowId: Int, _ generation: Int) -> Void)?
     public var onSelectTab: ((_ windowId: Int, _ tabId: Int, _ generation: Int) -> Void)?
+    public var onViewerState: ((BrowserProjectionViewerStateCommand) -> Void)?
     public var onLog: ((_ message: String) -> Void)?
 
     private var runtimeLoaded = false
     private var tornDown = false
     private var pendingJSON: [String] = []
+    private var lastViewerState: BrowserProjectionViewerStateCommand?
     var evaluateScript: ((String) -> Void)?
 
     public override convenience init() {
@@ -50,8 +52,8 @@ public final class BrowserProjectionController: NSObject {
         #if os(iOS)
         view.scrollView.bounces = false
         view.scrollView.minimumZoomScale = 1
-        view.scrollView.maximumZoomScale = 4
-        view.scrollView.bouncesZoom = true
+        view.scrollView.maximumZoomScale = 1
+        view.scrollView.bouncesZoom = false
         #endif
 
         if loadsRuntime {
@@ -67,6 +69,30 @@ public final class BrowserProjectionController: NSObject {
         } else {
             pendingJSON.append(rawJSON)
         }
+    }
+
+    public func setViewerActive(_ active: Bool, claim: Bool, platform: String) {
+        if !active, let lastViewerState {
+            onViewerState?(BrowserProjectionViewerStateCommand(
+                active: false,
+                claim: false,
+                profile: lastViewerState.profile,
+                sizing: lastViewerState.sizing,
+                width: lastViewerState.width,
+                height: lastViewerState.height
+            ))
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: [
+            "t": "projection-viewer-native",
+            "active": active,
+            "claim": claim,
+            "platform": platform,
+        ]), let json = String(data: data, encoding: .utf8) else { return }
+        deliver(rawJSON: json)
+    }
+
+    public func flushViewerLayout() {
+        deliver(rawJSON: #"{"t":"projection-viewer-flush"}"#)
     }
 
     public func teardown() {
@@ -109,6 +135,22 @@ public final class BrowserProjectionController: NSObject {
                 integer(body["tabId"]),
                 integer(body["generation"])
             )
+        case "viewer-state":
+            guard let profileRaw = body["profile"] as? String,
+                  let profile = BrowserProjectionViewportProfile(rawValue: profileRaw),
+                  let sizingRaw = body["sizing"] as? String,
+                  let sizing = BrowserProjectionViewportSizing(rawValue: sizingRaw) else { return }
+            let command = BrowserProjectionViewerStateCommand(
+                active: (body["active"] as? Bool) ?? false,
+                claim: (body["claim"] as? Bool) ?? false,
+                profile: profile,
+                sizing: sizing,
+                width: integer(body["width"]),
+                height: integer(body["height"])
+            )
+            guard (try? command.validate()) != nil else { return }
+            lastViewerState = command
+            onViewerState?(command)
         default:
             break
         }

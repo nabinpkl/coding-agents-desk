@@ -139,6 +139,14 @@ pan are local view transforms) more cleanly than the plan's original wording did
 of the 1x-vs-zoomed handoff is still worth a physical-device confirmation, but the collision itself is
 resolved in code.
 
+### D5-D8. Superseded viewport-emulation notes
+
+The emulation behavior recorded in D5-D8 was superseded by ADR-0065. Viewport identity and dimensions
+are now owned by the last active Browser viewer, sent atomically with viewer activity, and applied before
+recording. The old `dom-emulate`, direct `dom-capture`, batch `em`, and `DomStatus.emulated` contracts no
+longer exist. The historical notes remain below to explain the behavior of releases through extension
+0.8.x, but they are not the current implementation contract.
+
 ### D5. Emulation is resnapshot-based (no reload); metrics + touch are the real lever, UA is secondary
 
 `setDeviceEmulation` applies the CDP overrides and then asks the recorder to `takeFullSnapshot(true)`

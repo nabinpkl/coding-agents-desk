@@ -63,7 +63,16 @@ const windows = [
 function state(generation, projectedWindowId, windowList = windows) {
   return {
     t: 'browser-state', generation, projectedWindowId, focusedWindowId: windowList.length ? 1 : null,
-    extension: { version: '0.7.0', commits: 742, sha: 'abc1234', dirty: false },
+    extension: { version: '0.9.0', commits: 742, sha: 'abc1234', dirty: false },
+    viewport: windowList.length ? {
+      active: true, revision: generation, profile: 'desktop', sizing: 'viewer',
+      requestedWidth: 960, requestedHeight: 540, actualWidth: 960, actualHeight: 540,
+      error: null,
+    } : {
+      active: false, revision: generation, profile: null, sizing: null,
+      requestedWidth: null, requestedHeight: null, actualWidth: null, actualHeight: null,
+      error: null,
+    },
     windows: windowList,
   };
 }
@@ -75,6 +84,9 @@ function assert(condition, message) {
 try {
   await page.goto(indexURL);
   await page.waitForFunction(() => typeof window.__browserProjectionDeliver === 'function');
+  await page.evaluate(() => window.__browserProjectionDeliver({
+    t: 'projection-viewer-native', active: true, claim: true, platform: 'macos',
+  }));
   assert(await page.locator('#browser-chrome').isVisible(), 'shared renderer exposes the complete browser shell before metadata arrives');
   assert((await page.locator('#browser-projection-content-status').textContent()).includes('Waiting for Chrome projection'), 'shared renderer starts in an explicit disconnected state');
   await page.evaluate(() => window.__browserProjectionDeliver({
@@ -86,6 +98,8 @@ try {
   assert(await page.locator('#browser-projection-host-build:read-only').count() === 1, 'host build identity remains an addressable read-only AX field');
   assert(await page.locator('#browser-projection-extension-build:read-only').count() === 1, 'extension build identity remains an addressable read-only AX field');
   assert(await page.locator('#browser-projection-address:read-only').count() === 1, 'address remains an addressable read-only AX field');
+  assert(await page.locator('#browser-projection-device-desktop').getAttribute('aria-pressed') === 'true', 'macOS viewer defaults to desktop profile');
+  assert((await page.locator('#browser-projection-viewport-actual').inputValue()).includes('actual 960×540'), 'requested and actual source dimensions are visible');
   assert(await page.locator('#browser-projection-window-strip [role="tab"]').count() === 2, 'outer strip renders every normal window');
   assert(await page.locator('#browser-projection-tab-strip [role="tab"]').count() === 2, 'inner strip renders every projected-window tab even when its group is collapsed');
   assert(await page.locator('#browser-projection-window-tab-1').getAttribute('aria-selected') === 'true', 'projected outer window is selected');
@@ -93,6 +107,43 @@ try {
   assert(await page.locator('#metadata-injection').count() === 0, 'tab title is rendered as text');
   assert((await page.locator('#browser-projection-active-title').inputValue()).includes('<img'), 'tab title text is preserved');
   assert((await page.locator('.group-chip').textContent()).includes('<b>Work</b>'), 'group label is rendered as text');
+  await page.locator('#browser-projection-device-mobile').click();
+  let intents = await page.evaluate(() => window.__projectionIntents);
+  let viewerIntent = intents.filter((intent) => intent.kind === 'viewer-state').at(-1);
+  assert(viewerIntent.active && viewerIntent.claim && viewerIntent.profile === 'mobile'
+    && viewerIntent.sizing === 'preset' && viewerIntent.width === 390 && viewerIntent.height === 844,
+  'Mobile applies the canonical source preset and claims ownership');
+  await page.locator('#browser-projection-viewport-width').fill('412');
+  await page.locator('#browser-projection-viewport-height').fill('915');
+  await page.locator('#browser-projection-viewport-height').press('Tab');
+  intents = await page.evaluate(() => window.__projectionIntents);
+  viewerIntent = intents.filter((intent) => intent.kind === 'viewer-state').at(-1);
+  assert(viewerIntent.profile === 'mobile' && viewerIntent.sizing === 'custom'
+    && viewerIntent.width === 412 && viewerIntent.height === 915,
+  'editing responsive dimensions keeps the profile and selects custom sizing');
+  await page.locator('#browser-projection-viewport-reset').click();
+  intents = await page.evaluate(() => window.__projectionIntents);
+  viewerIntent = intents.filter((intent) => intent.kind === 'viewer-state').at(-1);
+  assert(viewerIntent.sizing === 'viewer' && viewerIntent.width > 0 && viewerIntent.height > 0,
+  'Reset to Viewer returns to live content-stage dimensions');
+  const resizeIntentCount = intents.filter((intent) => intent.kind === 'viewer-state').length;
+  await page.setViewportSize({ width: 1040, height: 720 });
+  await page.setViewportSize({ width: 980, height: 680 });
+  await page.waitForTimeout(75);
+  assert((await page.evaluate(() => window.__projectionIntents)).filter((intent) => intent.kind === 'viewer-state').length === resizeIntentCount,
+    'viewer-linked resize waits for the trailing debounce');
+  await page.waitForTimeout(150);
+  intents = await page.evaluate(() => window.__projectionIntents);
+  viewerIntent = intents.filter((intent) => intent.kind === 'viewer-state').at(-1);
+  assert(intents.filter((intent) => intent.kind === 'viewer-state').length === resizeIntentCount + 1
+    && viewerIntent.sizing === 'viewer' && !viewerIntent.claim,
+  'viewer-linked resize emits one passive geometry update after 150 ms');
+  await page.evaluate(() => window.__browserProjectionDeliver({
+    t: 'browser-viewer-status', owner: true, active: true,
+    profile: 'mobile', sizing: 'viewer', width: 812, height: 510,
+  }));
+  assert((await page.locator('#browser-projection-viewport-owner').inputValue()) === 'Source owner',
+    'targeted status identifies the owning viewer');
   await page.evaluate(() => {
     const bytes = fflate.zlibSync(fflate.strToU8('<html><body data-agentdesk-fixture="renderer-active"></body></html>'));
     let binary = '';
@@ -103,18 +154,76 @@ try {
     });
   });
   assert((await page.locator('body').getAttribute('class')).includes('page-active'), 'matching reconstructed page enables its input overlay');
-  await page.evaluate((snapshot) => window.__browserProjectionDeliver(snapshot), state(1, 1));
+  const viewerIntentCount = (await page.evaluate(() => window.__projectionIntents)).filter((intent) => intent.kind === 'viewer-state').length;
+  const transformBeforeZoom = await page.locator('#cdp-frame').evaluate((element) => element.style.transform);
+  await page.locator('#browser-projection-zoom-in').click();
+  const transformAfterZoom = await page.locator('#cdp-frame').evaluate((element) => element.style.transform);
+  assert(transformAfterZoom !== transformBeforeZoom, 'local zoom transforms the active projection surface');
+  assert((await page.evaluate(() => window.__projectionIntents)).filter((intent) => intent.kind === 'viewer-state').length === viewerIntentCount,
+    'local zoom emits no source or transport command');
+  await page.evaluate(() => {
+    const frame = document.getElementById('cdp-frame');
+    const overlay = document.getElementById('tap-overlay');
+    const rect = frame.getBoundingClientRect();
+    overlay.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      clientX: rect.left + (rect.width / 2),
+      clientY: rect.top + (rect.height / 2),
+    }));
+  });
+  intents = await page.evaluate(() => window.__projectionIntents);
+  const mappedTap = intents.filter((intent) => intent.kind === 'tap').at(-1);
+  assert(mappedTap && Math.abs(mappedTap.x - 400) < 1 && Math.abs(mappedTap.y - 300) < 1,
+    `tap mapping remains exact at local zoom (received ${JSON.stringify(mappedTap)})`);
+  const scrollIntentCount = intents.filter((intent) => intent.kind === 'scroll').length;
+  const transformBeforePan = await page.locator('#cdp-frame').evaluate((element) => element.style.transform);
+  await page.evaluate(() => {
+    const overlay = document.getElementById('tap-overlay');
+    const frameRect = document.getElementById('cdp-frame').getBoundingClientRect();
+    const start = new Touch({
+      identifier: 1, target: overlay,
+      clientX: frameRect.left + frameRect.width / 2,
+      clientY: frameRect.top + frameRect.height / 2,
+    });
+    const moved = new Touch({
+      identifier: 1, target: overlay,
+      clientX: frameRect.left + frameRect.width / 2 - 40,
+      clientY: frameRect.top + frameRect.height / 2 - 35,
+    });
+    overlay.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [start] }));
+    overlay.dispatchEvent(new TouchEvent('touchmove', { bubbles: true, cancelable: true, touches: [moved] }));
+    overlay.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [] }));
+  });
+  const transformAfterPan = await page.locator('#cdp-frame').evaluate((element) => element.style.transform);
+  assert(transformAfterPan !== transformBeforePan, 'dragging a magnified projection pans locally');
+  assert((await page.evaluate(() => window.__projectionIntents)).filter((intent) => intent.kind === 'scroll').length === scrollIntentCount,
+    'local pan suppresses host scrolling');
+  await page.locator('#browser-projection-zoom-reset').click();
+  assert((await page.locator('#browser-projection-zoom-level').textContent()) === 'Fit', 'Fit restores the local zoom baseline');
+  await page.locator('#browser-projection-zoom-in').click();
+  const revisedViewport = state(1, 1);
+  revisedViewport.viewport.revision = 2;
+  revisedViewport.viewport.actualWidth = 812;
+  revisedViewport.viewport.actualHeight = 510;
+  await page.evaluate((snapshot) => window.__browserProjectionDeliver(snapshot), revisedViewport);
+  assert((await page.locator('#browser-projection-zoom-level').textContent()) === 'Fit',
+    'authoritative source viewport changes reset local zoom to Fit');
+  await page.evaluate((snapshot) => window.__browserProjectionDeliver(snapshot), revisedViewport);
   assert(await page.locator('#browser-projection-content-status').isHidden(), 'same-target metadata refresh preserves the reconstructed page');
 
   await page.locator('#browser-projection-window-tab-2').click();
-  let intents = await page.evaluate(() => window.__projectionIntents);
-  assert(intents.at(-1).kind === 'select-window' && intents.at(-1).windowId === 2, 'outer AX target emits only window selection');
+  intents = await page.evaluate(() => window.__projectionIntents);
+  assert(intents.at(-2).kind === 'viewer-state' && intents.at(-2).claim,
+    'outer selection claims source ownership for keyboard and AX activation');
+  assert(intents.at(-1).kind === 'select-window' && intents.at(-1).windowId === 2, 'outer AX target emits a scoped window selection');
 
   await page.evaluate((snapshot) => window.__browserProjectionDeliver(snapshot), state(2, 2));
   assert(await page.locator('#browser-projection-tab-2-21').count() === 1, 'Window 2 tabs replace Window 1 tabs');
   assert(await page.locator('#browser-projection-tab-1-11').count() === 0, 'prior inner tabs are removed');
   await page.locator('#browser-projection-tab-2-22').click();
   intents = await page.evaluate(() => window.__projectionIntents);
+  assert(intents.at(-2).kind === 'viewer-state' && intents.at(-2).claim,
+    'inner selection claims source ownership for keyboard and AX activation');
   assert(intents.at(-1).kind === 'select-tab' && intents.at(-1).windowId === 2 && intents.at(-1).tabId === 22, 'inner AX target emits a scoped tab selection');
 
   const restrictedWindows = structuredClone(windows);

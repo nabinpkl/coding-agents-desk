@@ -14,7 +14,8 @@ repository launch checkpoint.
 
 ADR-0064 supersedes the original local-only boundary: the authenticated QUIC DOM lane now seeds and
 updates the same nested BrowserProjection shell on iOS, carries selection commands back to the host,
-and requires protocol version 12. The one-recorder and extension-authoritative generation model remains.
+and requires protocol version 12. ADR-0065 adds viewer-owned responsive source sizing over protocol 13
+without changing the one-recorder and extension-authoritative generation model.
 
 ## v7 Phase 0: local projection decision
 
@@ -62,6 +63,10 @@ and requires protocol version 12. The one-recorder and extension-authoritative g
   on the serialized DOM stream, and raise the host/client session protocol to 12.
 - [x] D88.3. Disable rrweb's implicit `.rr-mask` text-class redaction so all ordinary text is visible
   by default while static and incremental password values remain source-masked; release extension 0.8.1.
+- [x] D88.4. Supersede the fixed iOS emulation toggle with ADR-0065; add host-arbitrated last-activated
+  viewer ownership, Desktop and Mobile presets, viewer-linked and custom source dimensions, shared
+  projection-only fit/zoom/pan, generation-fenced CDP application and native restoration, protocol 13,
+  extension 0.9.0, and local/remote ownership tests.
 
 ---
 
@@ -81,4 +86,5 @@ D88      2026-07-20  landed      live dev-host and visible Chrome-for-Testing ac
 D88.1    2026-07-21  landed      readable projection content with source-masked passwords
 D88.2    2026-07-21  landed      full shared Chrome hierarchy and selection on iOS, protocol 12
 D88.3    2026-07-21  landed      ordinary text unredacted regardless of rrweb page classes, extension 0.8.1
+D88.4    2026-07-21  landed      viewer-owned responsive Chrome viewport, protocol 13, extension 0.9.0
 ```

@@ -74,7 +74,7 @@ struct DomBridgeServerTests {
     @Test func sessionAuthenticatesThenForwardsValidatedBrowserState() {
         var session = DomBridgeSession(expectedToken: "secret")
         #expect(session.accept(line: line(#"{"t":"auth","v":1,"token":"secret"}"#)) == .ack)
-        let raw = line(#"{"t":"browser-state","generation":3,"projectedWindowId":1,"focusedWindowId":2,"extension":{"version":"0.7.0","commits":42,"sha":"abc1234","dirty":false},"windows":[{"id":1,"ordinal":1,"focused":false,"state":"normal","activeTabId":11,"tabs":[{"id":11,"windowId":1,"index":0,"active":true,"pinned":false,"groupId":-1,"status":"complete","title":"One","url":"https://one.test","audible":false,"muted":false,"discarded":false,"restricted":false}],"groups":[]},{"id":2,"ordinal":2,"focused":true,"state":"normal","activeTabId":21,"tabs":[{"id":21,"windowId":2,"index":0,"active":true,"pinned":false,"groupId":-1,"status":"complete","title":"Two","url":"https://two.test","audible":false,"muted":false,"discarded":false,"restricted":false}],"groups":[]}]}"#)
+        let raw = line(#"{"t":"browser-state","generation":3,"projectedWindowId":1,"focusedWindowId":2,"extension":{"version":"0.9.0","commits":42,"sha":"abc1234","dirty":false},"viewport":{"active":false,"revision":1},"windows":[{"id":1,"ordinal":1,"focused":false,"state":"normal","activeTabId":11,"tabs":[{"id":11,"windowId":1,"index":0,"active":true,"pinned":false,"groupId":-1,"status":"complete","title":"One","url":"https://one.test","audible":false,"muted":false,"discarded":false,"restricted":false}],"groups":[]},{"id":2,"ordinal":2,"focused":true,"state":"normal","activeTabId":21,"tabs":[{"id":21,"windowId":2,"index":0,"active":true,"pinned":false,"groupId":-1,"status":"complete","title":"Two","url":"https://two.test","audible":false,"muted":false,"discarded":false,"restricted":false}],"groups":[]}]}"#)
 
         let action = session.accept(line: raw)
         guard case .forwardBrowserState(let forwarded, let state) = action else {
@@ -90,7 +90,7 @@ struct DomBridgeServerTests {
     @Test func sessionRejectsBrowserStateWithCrossWindowTab() {
         var session = DomBridgeSession(expectedToken: "secret")
         _ = session.accept(line: line(#"{"t":"auth","v":1,"token":"secret"}"#))
-        let raw = line(#"{"t":"browser-state","generation":1,"projectedWindowId":1,"focusedWindowId":1,"extension":{"version":"0.7.0"},"windows":[{"id":1,"ordinal":1,"focused":true,"state":"normal","activeTabId":11,"tabs":[{"id":11,"windowId":2,"index":0,"active":true,"pinned":false,"groupId":-1,"status":"complete","title":"Wrong","url":"https://wrong.test","audible":false,"muted":false,"discarded":false,"restricted":false}],"groups":[]}]}"#)
+        let raw = line(#"{"t":"browser-state","generation":1,"projectedWindowId":1,"focusedWindowId":1,"extension":{"version":"0.9.0"},"viewport":{"active":false,"revision":1},"windows":[{"id":1,"ordinal":1,"focused":true,"state":"normal","activeTabId":11,"tabs":[{"id":11,"windowId":2,"index":0,"active":true,"pinned":false,"groupId":-1,"status":"complete","title":"Wrong","url":"https://wrong.test","audible":false,"muted":false,"discarded":false,"restricted":false}],"groups":[]}]}"#)
         #expect(session.accept(line: raw) == .reject("malformed-browser-state"))
     }
 
@@ -120,15 +120,14 @@ struct DomBridgeServerTests {
 }
 
 // ADR-0045: the .dom lane receive guard forwards only recognized client->host control commands to
-// the bridge (tap + capture pause/resume); everything else is dropped so the bridge never relays a
+// the bridge; everything else is dropped so the bridge never relays a
 // malformed or echoed frame to the extension.
 struct DomLaneControlForwardingTests {
     private func data(_ json: String) -> Data { Data(json.utf8) }
 
-    @Test func forwardsTapCaptureAndBrowserSelectionControlFrames() {
+    @Test func forwardsTapViewerAndBrowserSelectionControlFrames() {
         #expect(isForwardableDomControl(data(#"{"t":"dom-input","k":"mouse","x":1,"y":2}"#)))
-        #expect(isForwardableDomControl(data(#"{"t":"dom-capture","on":false}"#)))
-        #expect(isForwardableDomControl(data(#"{"t":"dom-capture","on":true}"#)))
+        #expect(isForwardableDomControl(data(#"{"t":"browser-viewer-state","active":true,"claim":true,"profile":"mobile","sizing":"viewer","width":390,"height":844}"#)))
         #expect(isForwardableDomControl(data(#"{"t":"browser-select-window","windowId":8,"generation":9}"#)))
         #expect(isForwardableDomControl(data(#"{"t":"browser-select-tab","windowId":8,"tabId":10,"generation":9}"#)))
     }
@@ -137,12 +136,6 @@ struct DomLaneControlForwardingTests {
     @Test func forwardsScrollControlFrames() {
         #expect(isForwardableDomControl(data(#"{"t":"dom-scroll","x":10,"y":20,"dx":0,"dy":-120}"#)))
         #expect(isForwardableDomControl(data(#"{"t":"dom-scroll","x":0,"y":0,"dx":5,"dy":5}"#)))
-    }
-
-    // ADR-0048: the device-emulation toggle is forwarded verbatim too.
-    @Test func forwardsEmulateControlFrames() {
-        #expect(isForwardableDomControl(data(#"{"t":"dom-emulate","mobile":true}"#)))
-        #expect(isForwardableDomControl(data(#"{"t":"dom-emulate","mobile":false}"#)))
     }
 
     @Test func dropsBatchesUnknownTypesAndGarbage() {

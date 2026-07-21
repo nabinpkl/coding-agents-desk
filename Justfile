@@ -373,6 +373,7 @@ browser-projection-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     node '{{justfile_directory()}}/chrome-test/browser-session-verify.cjs'
+    node '{{justfile_directory()}}/chrome-test/source-viewport-verify.cjs'
     node '{{justfile_directory()}}/chrome-test/browser-metadata-verify.cjs'
     node '{{justfile_directory()}}/chrome-test/browser-projection-renderer-verify.mjs'
     swift test --package-path '{{justfile_directory()}}/packages/BrowserProjection'
@@ -389,17 +390,6 @@ browser-projection-e2e: ext-stamp
     AGENTDESK_E2E_HOST_SUPPORT='{{host_dev_support_dir}}' \
       AGENTDESK_E2E_HOST_DERIVED_DATA='{{host_dev_derived_data}}' \
       node '{{justfile_directory()}}/chrome-test/browser-projection-e2e.mjs'
-
-# ADR-0048 device-emulation autonomous gate: the emulate WRITE path + authoritative echo. A fake host
-# sends dom-emulate through the shim to the real extension, which device-emulates the recorded tab via
-# chrome.debugger and resnapshots; the harness asserts the resulting checkout batch reports the iPhone
-# viewport width and carries em:true (desktop restores width + em:false). Uses the global Playwright +
-# Chrome for Testing.
-dom-mirror-emulate-verify: ext-stamp
-    #!/usr/bin/env bash
-    set -euo pipefail
-    export NODE_PATH="$(npm root -g)"
-    node '{{justfile_directory()}}/chrome-test/emulate-verify.mjs'
 
 # ADR-0044 Tier B autonomous gate: capture a REAL DOMSnapshot.captureSnapshot (piercing a CLOSED
 # shadow root) via Playwright's CDP session, run it through the SAME reconstructProjectionHtml the

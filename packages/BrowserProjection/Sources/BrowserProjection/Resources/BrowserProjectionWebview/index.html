@@ -2,12 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<!-- ADR-0047 Phase 2: maximum-scale=4 (was 1) admits pinch-zoom so the desktop-captured mirror can be
-     magnified for readability on the phone. WebKit's pinch is a visual-viewport transform: it does NOT
-     reflow the page and does NOT change getBoundingClientRect, so the scale-aware tap/scroll mapping in
-     surfaceMapping() stays correct while zoomed. It never scrolls the host either, so it is a pure view
-     transform inside the pure-mirror invariant. -->
-<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=4" />
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1" />
 <title>AgentDesk Browser Projection</title>
 <!-- rrweb's replayer-chrome stylesheet, vendored from rrweb@2.0.0-alpha.4 (same version as
      rrweb.min.js). rrweb's core adds .replayer-wrapper/.replayer-mouse/.replayer-mouse-tail
@@ -44,6 +39,7 @@
     }
   }
   * { box-sizing: border-box; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: var(--content-bg); }
   body { font: 12px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: var(--chrome-text); }
   #browser-projection-root { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
@@ -83,13 +79,24 @@
   #address-shell { min-width: 0; display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border-radius: 14px; background: var(--chrome-bg); }
   #security-indicator { color: var(--chrome-muted); }
   #browser-projection-address { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+  #device-toolbar { min-height: 35px; display: flex; align-items: center; gap: 6px; padding: 4px 8px; overflow-x: auto; background: var(--chrome-selected); border-top: 1px solid var(--chrome-border); }
+  .device-group { display: flex; align-items: center; gap: 3px; flex: none; }
+  .device-button { appearance: none; min-width: 24px; min-height: 24px; padding: 3px 8px; border: 1px solid var(--chrome-border); border-radius: 5px; background: var(--chrome-raised); color: inherit; font: inherit; cursor: pointer; }
+  .device-button:hover { background: var(--chrome-hover); }
+  .device-button:focus-visible, .dimension-input:focus-visible { outline: 2px solid var(--chrome-focus); outline-offset: 1px; }
+  .device-button[aria-pressed="true"] { border-color: var(--chrome-focus); background: var(--chrome-pressed); }
+  .dimension-input { width: 58px; min-height: 24px; padding: 2px 5px; border: 1px solid var(--chrome-border); border-radius: 4px; background: var(--chrome-raised); color: inherit; font: inherit; text-align: right; }
+  .dimension-input[aria-invalid="true"] { border-color: var(--chrome-danger); }
+  .dimension-separator { color: var(--chrome-muted); }
+  .device-spacer { flex: 1 1 auto; min-width: 8px; }
+  .device-readout { width: auto; max-width: 260px; color: var(--chrome-muted); field-sizing: content; }
   #content-shell { min-height: 0; position: relative; background: var(--content-bg); }
   #browser-projection-content-status { position: absolute; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px; background: var(--content-bg); color: #5f6368; text-align: center; font-size: 13px; }
   #browser-projection-content-status[hidden] { display: none; }
   #stage { width: 100%; height: 100%; overflow: hidden; position: relative; background: #fff; }
   #replay-root { position: absolute; inset: 0; overflow: hidden; }
   /* Transparent overlay captures taps (the replayer iframe would otherwise swallow them). */
-  #tap-overlay { position: absolute; inset: 0; z-index: 5; background: transparent; pointer-events: none; }
+  #tap-overlay { position: absolute; inset: 0; z-index: 5; background: transparent; pointer-events: none; touch-action: none; }
   body.page-active #tap-overlay { pointer-events: auto; }
   /* rrweb renders into an iframe inside .replayer-wrapper; fitReplay() sizes/scales it (ADR-0044).
      .replayer-wrapper's position:absolute-vs-relative etc. come from the vendored rrweb.min.css
@@ -115,6 +122,27 @@
         <input id="browser-projection-active-title" class="readout" readonly tabindex="-1" aria-label="Active tab title">
         <div id="address-shell"><span id="security-indicator">○</span><input id="browser-projection-address" class="readout" readonly tabindex="-1" aria-label="Address"></div>
       </div>
+      <div id="device-toolbar" role="toolbar" aria-label="Projection device and zoom controls">
+        <div class="device-group" aria-label="Source device profile">
+          <button id="browser-projection-device-desktop" class="device-button" type="button" aria-pressed="false">Desktop</button>
+          <button id="browser-projection-device-mobile" class="device-button" type="button" aria-pressed="false">Mobile</button>
+        </div>
+        <div class="device-group" aria-label="Responsive source dimensions">
+          <label><span class="sr-only">Width</span><input id="browser-projection-viewport-width" class="dimension-input" type="number" inputmode="numeric" min="1" max="4096" aria-label="Responsive width"></label>
+          <span class="dimension-separator" aria-hidden="true">×</span>
+          <label><span class="sr-only">Height</span><input id="browser-projection-viewport-height" class="dimension-input" type="number" inputmode="numeric" min="1" max="4096" aria-label="Responsive height"></label>
+          <button id="browser-projection-viewport-reset" class="device-button" type="button">Reset to Viewer</button>
+        </div>
+        <div class="device-spacer"></div>
+        <input id="browser-projection-viewport-owner" class="readout device-readout" readonly tabindex="-1" aria-label="Viewport ownership status">
+        <input id="browser-projection-viewport-actual" class="readout device-readout" readonly tabindex="-1" aria-label="Actual source viewport status">
+        <div class="device-group" aria-label="Local projection zoom">
+          <button id="browser-projection-zoom-out" class="device-button" type="button" aria-label="Zoom out">−</button>
+          <span id="browser-projection-zoom-level" role="status" aria-label="Projection zoom Fit">Fit</span>
+          <button id="browser-projection-zoom-in" class="device-button" type="button" aria-label="Zoom in">+</button>
+          <button id="browser-projection-zoom-reset" class="device-button" type="button">Fit</button>
+        </div>
+      </div>
     </div>
     <div id="content-shell">
       <div id="browser-projection-content-status" role="status">Waiting for Chrome projection</div>
@@ -131,6 +159,7 @@
   </div>
   <script src="fflate.min.js"></script>
   <script src="rrweb.min.js"></script>
+  <script src="viewport-controls.js"></script>
   <script>
   (function () {
     var FULL_SNAPSHOT = 2;
@@ -150,12 +179,19 @@
     // page CSS size for tap mapping.
     var cdpFrame = null;
     var cdpSize = null;
-    var lastRecordedW = 0; // recorded desktop viewport width (meta.w) -> scale-to-fit basis
+    var lastRecordedW = 0;
+    var lastRecordedH = 0;
     var hasActiveProjection = false;
 
     function postIntent(message) {
       try { window.webkit.messageHandlers.domMirror.postMessage(message); } catch (e) {}
     }
+
+    var viewportControls = window.createBrowserProjectionViewportControls({
+      stage: stage,
+      root: document.getElementById('browser-projection-root'),
+      postIntent: postIntent
+    });
 
     function setStatus(message) {
       var status = message || '';
@@ -178,7 +214,8 @@
       chunks = {};
       adoptedCss = null;
       lastRecordedW = 0;
-      fitScale = 1;
+      lastRecordedH = 0;
+      viewportControls.clearSurface();
       hasActiveProjection = false;
       document.body.classList.remove('page-active');
     }
@@ -250,7 +287,8 @@
         title.textContent = (active && (active.title || active.url)) || 'No selected tab';
         copy.append(label, title);
         button.append(icon, copy);
-        button.addEventListener('click', function () {
+        button.addEventListener('click', function (event) {
+          if (event.detail === 0) viewportControls.claimOwnership();
           postIntent({ kind: 'select-window', windowId: windowState.id, generation: browserState.generation });
         });
         strip.appendChild(button);
@@ -296,7 +334,8 @@
           audio.setAttribute('aria-label', tab.muted ? 'Muted' : 'Playing audio');
           button.appendChild(audio);
         }
-        button.addEventListener('click', function () {
+        button.addEventListener('click', function (event) {
+          if (event.detail === 0) viewportControls.claimOwnership();
           postIntent({
             kind: 'select-tab', windowId: windowState.id, tabId: tab.id,
             generation: browserState.generation
@@ -420,28 +459,21 @@
         cdpFrame = document.createElement('iframe');
         cdpFrame.id = 'cdp-frame';
         cdpFrame.setAttribute('sandbox', ''); // no scripts: it is a static projection snapshot
-        cdpFrame.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff;z-index:2;';
+        cdpFrame.style.cssText = 'position:absolute;left:0;top:0;border:0;background:#fff;z-index:2;';
         replayRoot.appendChild(cdpFrame);
       }
       cdpSize = { w: w || 0, h: h || 0 };
-      // The CDP frame is sandbox='' (opaque origin) so we can't measure/reflow it; scale-to-fit by the
-      // known recorded width instead. Tap mapping uses cdpSize.w against the displayed (scaled) rect.
-      var stageW = stage.clientWidth || 1;
-      if (w && w > stageW) {
-        cdpFrame.style.width = w + 'px';
-        cdpFrame.style.height = (h || stage.clientHeight) + 'px';
-        cdpFrame.style.transformOrigin = 'top left';
-        cdpFrame.style.transform = 'scale(' + (stageW / w) + ')';
-      } else {
-        cdpFrame.style.width = '100%';
-        cdpFrame.style.height = '100%';
-        cdpFrame.style.transform = 'none';
-      }
+      viewportControls.setSurface(cdpFrame, cdpSize.w, cdpSize.h);
       cdpFrame.srcdoc = html;
     }
     function removeCdp() {
-      if (cdpFrame) { cdpFrame.remove(); cdpFrame = null; }
+      if (cdpFrame) {
+        viewportControls.clearSurface(cdpFrame);
+        cdpFrame.remove();
+        cdpFrame = null;
+      }
       cdpSize = null;
+      fitReplay();
     }
 
     function haveSnapshot(evts) {
@@ -459,19 +491,20 @@
           replayer = new rrweb.Replayer(pending, { liveMode: true, root: replayRoot });
           replayer.startLive(pending[0].timestamp);
           pending = [];
+          fitReplay();
         }
       } else {
         replayer.addEvent(e);
       }
     }
 
-    // ADR-0044: fit the desktop-captured page to the phone. rrweb does NOT reflow -- it replays the
-    // page faithfully at the RECORDED desktop width (meta.w, the Mac viewport), so the only lever is a
-    // transform scale (this is what rrweb-player does too). Scale the whole page down to the phone
-    // width: exact desktop layout, whole width visible, text smaller (pinch-zoom is a future add).
-    // Tap-back (ADR-0040) stays exact because getBoundingClientRect reflects the scaled rect.
-    var fitScale = 1;
+    // Both rrweb and CDP snapshots share the same projection-only fit, zoom, and pan transform.
+    // Chrome owns reflow through the authoritative source viewport; this layer only presents it.
     function fitReplay() {
+      if (cdpFrame && cdpSize) {
+        viewportControls.setSurface(cdpFrame, cdpSize.w, cdpSize.h);
+        return;
+      }
       if (!replayer || !replayer.iframe) return;
       var iframe = replayer.iframe;
       var wrapper = iframe.parentNode;
@@ -481,28 +514,31 @@
         || parseInt(iframe.getAttribute('width'), 10)
         || (doc && doc.documentElement && doc.documentElement.scrollWidth)
         || 0;
-      if (!recordedW) return;
-      var stageW = stage.clientWidth || 1;
-      fitScale = Math.min(1, stageW / recordedW);
-      wrapper.style.transformOrigin = 'top left';
-      wrapper.style.transform = 'scale(' + fitScale + ')';
+      var recordedH = lastRecordedH
+        || parseInt(iframe.getAttribute('height'), 10)
+        || (doc && doc.documentElement && doc.documentElement.scrollHeight)
+        || 0;
+      if (!recordedW || !recordedH) return;
+      viewportControls.setSurface(wrapper, recordedW, recordedH);
     }
 
     // Native -> webview: one batch { t, tb, co, ev:[...], meta }. Feed its rrweb events, then
     // report a probe summary of the reconstructed DOM so the autonomous harness can assert the
-    // mirror worked (visible text is masked, so the probe keys on a data-attribute marker +
-    // node count, not on page text).
+    // mirror worked. The probe keys on a stable data-attribute marker plus node count instead of
+    // fixture copy so the test does not depend on presentation text.
     window.__browserProjectionDeliver = function (rawJSON) {
       var batch;
       try { batch = typeof rawJSON === 'string' ? JSON.parse(rawJSON) : rawJSON; }
       catch (e) { return; }
       if (!batch) return;
+      if (viewportControls.deliver(batch)) return;
       if (batch.t === 'projection-host') { renderHostState(batch); return; }
       if (batch.t === 'browser-state') { renderBrowserState(batch); return; }
       if (batch.t !== 'dom-batch') return;
       var projected = browserState && currentWindow();
       if (browserState && (!projected || batch.g !== browserState.generation || batch.tb !== projected.activeTabId)) return;
-      if (batch.meta && batch.meta.w) lastRecordedW = batch.meta.w; // recorded desktop width for fit
+      if (batch.meta && batch.meta.w) lastRecordedW = batch.meta.w;
+      if (batch.meta && batch.meta.h) lastRecordedH = batch.meta.h;
       // ADR-0043/0044: a keyframe (co:true) supersedes any incomplete chunk set, for events AND CDP.
       // Clearing here bounds the chunks map (no slot outlives the next keyframe) and makes a cid reused
       // after an MV3 service-worker restart harmless (part 0's co:true clears the old slot first).
@@ -575,8 +611,8 @@
 
     // Shared page-space mapping for both tap and scroll: the displayed (scaled) surface rect plus the
     // per-axis scale (page CSS px per display px). Keys off whichever surface is showing (the CDP
-    // overlay or the rrweb iframe), exactly like the tap handler, so it stays correct under fitReplay
-    // scale and (Phase 2) under visual-viewport zoom, which does not change getBoundingClientRect().
+    // overlay or the rrweb iframe), exactly like the tap handler, so it stays correct under the shared
+    // fit, zoom, and pan transform.
     function surfaceMapping() {
       var frame = cdpFrame || (replayer && replayer.iframe);
       if (!frame) return null;
@@ -597,7 +633,7 @@
     // A drag past MOVE_THRESHOLD display px sets `moved`, so the click handler below suppresses the
     // synthetic tap that would otherwise fire at touchend. Multi-touch (Phase 2 pinch) is not a scroll.
     var MOVE_THRESHOLD = 8;
-    var scrollG = { active: false, lastX: 0, lastY: 0, accX: 0, accY: 0, disp: 0, anchorX: 0, anchorY: 0, moved: false, raf: 0 };
+    var scrollG = { active: false, localPan: false, lastX: 0, lastY: 0, accX: 0, accY: 0, disp: 0, anchorX: 0, anchorY: 0, moved: false, raf: 0 };
     var overlay = document.getElementById('tap-overlay');
 
     function flushScroll() {
@@ -617,8 +653,10 @@
       if (e.touches.length !== 1) { scrollG.active = false; return; } // pinch/multi-touch: not a scroll
       var m = surfaceMapping();
       if (!m) return;
+      viewportControls.claimOwnership();
       var t = e.touches[0];
       scrollG.active = true; scrollG.moved = false; scrollG.disp = 0;
+      scrollG.localPan = viewportControls.canPan();
       scrollG.lastX = t.clientX; scrollG.lastY = t.clientY;
       scrollG.accX = 0; scrollG.accY = 0;
       scrollG.anchorX = (t.clientX - m.rect.left) * m.sx;
@@ -633,6 +671,13 @@
       var t = e.touches[0];
       var dxDisp = t.clientX - scrollG.lastX, dyDisp = t.clientY - scrollG.lastY;
       scrollG.lastX = t.clientX; scrollG.lastY = t.clientY;
+      if (scrollG.localPan) {
+        scrollG.disp += Math.abs(dxDisp) + Math.abs(dyDisp);
+        if (scrollG.disp > MOVE_THRESHOLD) scrollG.moved = true;
+        viewportControls.panBy(dxDisp, dyDisp);
+        e.preventDefault();
+        return;
+      }
       scrollG.accX += dxDisp * m.sx; // finger delta -> page px
       scrollG.accY += dyDisp * m.sy;
       scrollG.disp += Math.abs(dxDisp) + Math.abs(dyDisp);
@@ -645,7 +690,7 @@
         scrollG.moved = true;
       }
       if (!scrollG.raf) scrollG.raf = requestAnimationFrame(flushScroll);
-    }, { passive: true });
+    }, { passive: false });
 
     function endScroll() {
       if (!scrollG.active) return;
@@ -664,6 +709,7 @@
       // ADR-0047: a drag past the threshold already drove a scroll; swallow the synthetic click it
       // produced at touchend so a scroll never also fires a tap. Reset for the next gesture.
       if (scrollG.moved) { scrollG.moved = false; return; }
+      if (e.detail === 0) viewportControls.claimOwnership();
       // Map against whichever surface is showing (CDP overlay or rrweb iframe) via the shared mapping.
       var m = surfaceMapping();
       if (!m) return;
@@ -674,7 +720,7 @@
     });
 
     // Re-fit on viewport change (orientation / split view).
-    window.addEventListener('resize', function () { try { fitReplay(); } catch (e) {} });
+    window.addEventListener('resize', function () { try { viewportControls.applyTransform(); } catch (e) {} });
 
     window.__browserProjectionBridge = { destroy: function () { try { clearProjection(); } catch (e) {} } };
   })();

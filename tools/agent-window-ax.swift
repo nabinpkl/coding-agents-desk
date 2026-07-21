@@ -85,8 +85,10 @@ private func usage() -> String {
       wait --identifier id | --dom-identifier id [--bundle-id id] [--window-identifier id] [--timeout seconds]
       read --identifier id | --dom-identifier id [--bundle-id id] [--window-identifier id]
       press --identifier id | --dom-identifier id [--bundle-id id] [--window-identifier id]
+      set-value --identifier id | --dom-identifier id --value value [--bundle-id id] [--window-identifier id]
       increment --identifier id [--count n] [--bundle-id id] [--window-identifier id]
       decrement --identifier id [--count n] [--bundle-id id] [--window-identifier id]
+      resize --width points --height points [--bundle-id id] --window-identifier id
       type --text text [--bundle-id id]
       key --name keyname [--repeat n] [--bundle-id id]
       screenshot --output path [--bundle-id id] [--window-identifier id]
@@ -321,6 +323,29 @@ private func performStep(element: AXUIElement, action: String, count: Int) throw
     }
 }
 
+private func setValue(_ value: String, on element: AXUIElement) throws {
+    _ = AXUIElementSetAttributeValue(
+        element,
+        kAXFocusedAttribute as CFString,
+        kCFBooleanTrue
+    )
+    let error = AXUIElementSetAttributeValue(
+        element,
+        kAXValueAttribute as CFString,
+        value as CFString
+    )
+    guard error == .success else { throw DriverError.actionFailed("AXValue", error) }
+}
+
+private func resizeWindow(_ window: AXUIElement, width: CGFloat, height: CGFloat) throws {
+    var size = CGSize(width: width, height: height)
+    guard let value = AXValueCreate(.cgSize, &size) else {
+        throw DriverError.usage("Could not encode window size")
+    }
+    let error = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, value)
+    guard error == .success else { throw DriverError.actionFailed("AXSize", error) }
+}
+
 private func keyCode(for name: String) -> CGKeyCode? {
     switch name {
     case "backspace": return 51
@@ -470,10 +495,11 @@ do {
         var visited: Set<UInt> = []
         dumpTree(root, depth: 0, maxDepth: maxDepth, visited: &visited)
 
-    case "wait", "read", "press", "increment", "decrement":
+    case "wait", "read", "press", "set-value", "increment", "decrement":
         var common = CommonOptions()
         var selector: Selector?
         var count = 1
+        var value: String?
         var remaining: [String] = []
         while let flag = cursor.next() {
             remaining.append(flag)
@@ -488,6 +514,8 @@ do {
                 selector = .domIdentifier(try selectorCursor.requiredValue(after: flag))
             case "--count":
                 count = Int(try selectorCursor.requiredValue(after: flag)) ?? count
+            case "--value":
+                value = try selectorCursor.requiredValue(after: flag)
             default:
                 throw DriverError.usage("Unknown flag \(flag)")
             }
@@ -509,6 +537,10 @@ do {
         case "press":
             activateApp(app, window: window)
             try performPress(element: element)
+        case "set-value":
+            guard let value else { throw DriverError.usage("Missing --value") }
+            activateApp(app, window: window)
+            try setValue(value, on: element)
         case "increment":
             activateApp(app, window: window)
             try performStep(element: element, action: kAXIncrementAction, count: count)
@@ -518,6 +550,32 @@ do {
         default:
             break
         }
+
+    case "resize":
+        var common = CommonOptions()
+        var width: CGFloat?
+        var height: CGFloat?
+        while let flag = cursor.next() {
+            if try parseCommon(flag: flag, cursor: &cursor, common: &common) { continue }
+            switch flag {
+            case "--width":
+                width = Double(try cursor.requiredValue(after: flag)).map { CGFloat($0) }
+            case "--height":
+                height = Double(try cursor.requiredValue(after: flag)).map { CGFloat($0) }
+            default:
+                throw DriverError.usage("Unknown flag \(flag)")
+            }
+        }
+        guard let width, let height, width >= 1, height >= 1 else {
+            throw DriverError.usage("Resize requires positive --width and --height")
+        }
+        let app = try runningApp(bundleID: common.bundleID)
+        let axApp = appElement(for: app)
+        guard let window = try windowElement(appElement: axApp, identifier: common.windowIdentifier) else {
+            throw DriverError.usage("Resize requires --window-identifier")
+        }
+        activateApp(app, window: window)
+        try resizeWindow(window, width: width, height: height)
 
     case "type":
         var common = CommonOptions()

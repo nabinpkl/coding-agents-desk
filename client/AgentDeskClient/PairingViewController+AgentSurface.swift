@@ -366,11 +366,8 @@ extension PairingViewController {
         }
         applySurface(surface)
 
-        // ADR-0045: pause DOM capture at the source whenever Browser is not the
-        // active surface, resume it when it is. setCapture no-ops until the lane
-        // is started, so a pause before Browser is ever opened is a safe no-op.
-        pairingClient.activeDomMirror?.setCapture(surface == .browser)
-        // ADR-0046: reflect the paused state in the Browser status line.
+        // Release this viewer whenever Browser is not the active surface. The host keeps capture
+        // alive if another viewer remains active and restores native Chrome when the last releases.
         domMirrorSurface?.setPaused(surface != .browser)
     }
 
@@ -400,7 +397,6 @@ extension PairingViewController {
         case .ide:
             ensureIDESurface()
         }
-        pairingClient.activeDomMirror?.setCapture(activeControlSurface == .browser)
         domMirrorSurface?.setPaused(activeControlSurface != .browser)
     }
 

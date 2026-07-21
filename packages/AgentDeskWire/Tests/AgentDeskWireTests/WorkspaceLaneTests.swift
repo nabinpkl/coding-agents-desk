@@ -122,8 +122,8 @@ private func laneRoundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(result.document == bytes)
 }
 
-@Test func remoteBrowserProjectionProtocolVersionTwelveIsPinned() {
-    #expect(WireProtocol.version == 12)
-    #expect(WireProtocol.minCompatibleVersion == 12)
+@Test func viewerOwnedBrowserProjectionProtocolVersionThirteenIsPinned() {
+    #expect(WireProtocol.version == 13)
+    #expect(WireProtocol.minCompatibleVersion == 13)
     #expect(10 < WireProtocol.minCompatibleVersion)
 }

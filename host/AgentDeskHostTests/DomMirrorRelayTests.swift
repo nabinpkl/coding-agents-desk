@@ -145,6 +145,20 @@ struct DomMirrorRelayTests {
         #expect(!second.closed)
     }
 
+    @Test func delayedOldLaneDisconnectCannotDetachItsReplacement() {
+        let relay = DomMirrorRelay()
+        let fp = DeviceFingerprint("fp1")
+        let first = FakeLane()
+        let second = FakeLane()
+        relay.attach(first, for: fp)
+        relay.attach(second, for: fp)
+
+        #expect(!relay.detach(first, for: fp))
+        #expect(!second.closed)
+        #expect(relay.detach(second, for: fp))
+        #expect(second.closed)
+    }
+
     @Test func localProjectionSeedsFromCheckoutThenReceivesLiveBatches() {
         let relay = DomMirrorRelay()
         relay.ingest(line: d("checkout"), tabId: 1, checkout: true)
@@ -174,8 +188,7 @@ struct DomMirrorRelayTests {
         let relay = DomMirrorRelay()
         let lane = FakeLane()
         relay.attach(lane, for: DeviceFingerprint("fp1"))
-        // ext defaults false, no recording tab yet, not emulated.
-        #expect(statuses(lane).last == DomStatus(ext: false, tab: nil, emulated: false))
+        #expect(statuses(lane).last == DomStatus(ext: false, tab: nil))
     }
 
     @Test func extConnectAndDisconnectPushStatus() {
@@ -183,9 +196,9 @@ struct DomMirrorRelayTests {
         let lane = FakeLane()
         relay.attach(lane, for: DeviceFingerprint("fp1"))
         relay.setExtConnected(true)
-        #expect(statuses(lane).last == DomStatus(ext: true, tab: nil, emulated: false))
+        #expect(statuses(lane).last == DomStatus(ext: true, tab: nil))
         relay.setExtConnected(false)
-        #expect(statuses(lane).last == DomStatus(ext: false, tab: nil, emulated: false))
+        #expect(statuses(lane).last == DomStatus(ext: false, tab: nil))
     }
 
     @Test func ingestMarksReachableAndRecordingTab() {
@@ -193,7 +206,7 @@ struct DomMirrorRelayTests {
         let lane = FakeLane()
         relay.attach(lane, for: DeviceFingerprint("fp1"))
         relay.ingest(line: d("b"), tabId: 7, checkout: true) // batches only flow while recording
-        #expect(statuses(lane).last == DomStatus(ext: true, tab: 7, emulated: false))
+        #expect(statuses(lane).last == DomStatus(ext: true, tab: 7))
     }
 
     @Test func extDisconnectClearsRecordingTab() {
@@ -202,35 +215,15 @@ struct DomMirrorRelayTests {
         relay.attach(lane, for: DeviceFingerprint("fp1"))
         relay.ingest(line: d("b"), tabId: 7, checkout: true)
         relay.setExtConnected(false)
-        #expect(statuses(lane).last == DomStatus(ext: false, tab: nil, emulated: false))
-    }
-
-    // ADR-0048: a batch's `em` stamp updates the fanned emulation state; a nil `em` leaves it, and a
-    // disconnect resets it to desktop. This is the authoritative-echo path the client's toggle tracks.
-    @Test func batchEmStampFansEmulationState() {
-        let relay = DomMirrorRelay()
-        let lane = FakeLane()
-        relay.attach(lane, for: DeviceFingerprint("fp1"))
-        relay.ingest(line: d("b1"), tabId: 3, checkout: true, emulated: true)
-        #expect(statuses(lane).last?.emulated == true)
-        // A batch without an em stamp leaves the last-known emulation state untouched.
-        relay.ingest(line: d("b2"), tabId: 3, checkout: false, emulated: nil)
-        #expect(statuses(lane).last?.emulated == true)
-        relay.ingest(line: d("b3"), tabId: 3, checkout: false, emulated: false)
-        #expect(statuses(lane).last?.emulated == false)
-        // A disconnect resets emulation to desktop (state no longer known).
-        relay.ingest(line: d("b4"), tabId: 3, checkout: false, emulated: true)
-        relay.setExtConnected(false)
-        #expect(statuses(lane).last?.emulated == false)
+        #expect(statuses(lane).last == DomStatus(ext: false, tab: nil))
     }
 
     @Test func domStatusEnvelopeEncodesTabAndOmitsNil() throws {
         let withTab = try JSONSerialization.jsonObject(
-            with: JSONEncoder().encode(DomStatus(ext: true, tab: 3, emulated: true))) as? [String: Any]
+            with: JSONEncoder().encode(DomStatus(ext: true, tab: 3))) as? [String: Any]
         #expect(withTab?["t"] as? String == "dom-status")
         #expect(withTab?["ext"] as? Bool == true)
         #expect(withTab?["tab"] as? Int == 3)
-        #expect(withTab?["emulated"] as? Bool == true) // ADR-0048: emulated present on the wire
 
         let noTab = try JSONSerialization.jsonObject(
             with: JSONEncoder().encode(DomStatus(ext: false, tab: nil))) as? [String: Any]

@@ -18,17 +18,16 @@ private struct DomLaneControlEnvelope: Decodable {
 }
 
 // Testable seam: true iff the payload is a recognized client->host DOM control command that the
-// lane should forward verbatim to the bridge -- an ADR-0040 `dom-input` tap, an ADR-0045
-// `dom-capture` pause/resume, an ADR-0047 `dom-scroll` drive-back, an ADR-0048 `dom-emulate`
-// device-emulation toggle, or an ADR-0064 browser window/tab selection. Anything else (host batch
+// lane should accept -- an ADR-0040 `dom-input` tap, an ADR-0047 `dom-scroll` drive-back,
+// browser window/tab selection, or a host-arbitrated viewer viewport update. Anything else (host batch
 // echoed back, malformed line) is dropped so the bridge only ever relays recognized commands.
 func isForwardableDomControl(_ payload: Data) -> Bool {
     guard let env = try? JSONDecoder().decode(DomLaneControlEnvelope.self, from: payload) else {
         return false
     }
-    return env.type == "dom-input" || env.type == "dom-capture"
-        || env.type == "dom-scroll" || env.type == "dom-emulate"
+    return env.type == "dom-input" || env.type == "dom-scroll"
         || env.type == "browser-select-window" || env.type == "browser-select-tab"
+        || env.type == "browser-viewer-state"
 }
 
 @available(macOS 26.0, *)
@@ -48,6 +47,7 @@ final class DomEventLaneServer: @unchecked Sendable {
     // is the one client->host direction, kept on the DOM lane so DOM input never touches the Mac
     // input path.
     var onInput: ((Data) -> Void)?
+    var onReceiveEnded: (() -> Void)?
 
     init(stream: QUIC.Stream<QUICStream>, fingerprint: DeviceFingerprint) {
         self.stream = stream
@@ -61,6 +61,7 @@ final class DomEventLaneServer: @unchecked Sendable {
             guard task == nil else { return }
             task = Task { [weak self] in
                 guard let self else { return }
+                defer { self.onReceiveEnded?() }
                 while !(self.sendChain.withLock { $0.closed }) {
                     do {
                         let frame = try await QuicSessionStreamIO.receiveFrame(on: self.stream, expectedRole: .dom)

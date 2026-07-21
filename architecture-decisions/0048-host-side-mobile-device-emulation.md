@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-07-02
+superseded-by: ADR-0065
 ---
 
 # True mobile layout via host-side Chrome device emulation, echoed authoritatively on the batch

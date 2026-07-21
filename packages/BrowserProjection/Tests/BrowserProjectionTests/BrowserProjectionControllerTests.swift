@@ -18,6 +18,12 @@ struct BrowserProjectionControllerTests {
         #expect(FileManager.default.fileExists(
             atPath: indexURL.deletingLastPathComponent().appendingPathComponent("fflate.min.js").path
         ))
+        #expect(FileManager.default.fileExists(
+            atPath: indexURL.deletingLastPathComponent().appendingPathComponent("viewport-controls.js").path
+        ))
+        #expect(html.contains("browser-projection-device-desktop"))
+        #expect(html.contains("browser-projection-viewport-width"))
+        #expect(html.contains("browser-projection-zoom-reset"))
     }
 
     @Test func tabControlsExposePointerHoverAndKeyboardFocusAffordances() throws {
@@ -66,15 +72,26 @@ struct BrowserProjectionControllerTests {
         var scrolls: [(Double, Double, Double, Double)] = []
         var windows: [(Int, Int)] = []
         var tabs: [(Int, Int, Int)] = []
+        var viewers: [BrowserProjectionViewerStateCommand] = []
         controller.onTap = { taps.append(($0, $1)) }
         controller.onScroll = { scrolls.append(($0, $1, $2, $3)) }
         controller.onSelectWindow = { windows.append(($0, $1)) }
         controller.onSelectTab = { tabs.append(($0, $1, $2)) }
+        controller.onViewerState = { viewers.append($0) }
 
         controller.handleScriptMessage(["kind": "tap", "x": 12, "y": 34])
         controller.handleScriptMessage(["kind": "scroll", "x": 1, "y": 2, "dx": 3, "dy": 4])
         controller.handleScriptMessage(["kind": "select-window", "windowId": 8, "generation": 9])
         controller.handleScriptMessage(["kind": "select-tab", "windowId": 8, "tabId": 10, "generation": 9])
+        controller.handleScriptMessage([
+            "kind": "viewer-state", "active": true, "claim": true,
+            "profile": "mobile", "sizing": "custom", "width": 412, "height": 915,
+        ])
+        controller.handleScriptMessage([
+            "kind": "viewer-state", "active": true, "claim": false,
+            "profile": "desktop", "sizing": "viewer", "width": 0, "height": 915,
+        ])
+        controller.setViewerActive(false, claim: false, platform: "ios")
 
         #expect(taps.count == 1)
         #expect(taps[0].0 == 12)
@@ -91,6 +108,16 @@ struct BrowserProjectionControllerTests {
         #expect(tabs[0].0 == 8)
         #expect(tabs[0].1 == 10)
         #expect(tabs[0].2 == 9)
+        #expect(viewers == [
+            BrowserProjectionViewerStateCommand(
+                active: true, claim: true, profile: .mobile, sizing: .custom,
+                width: 412, height: 915
+            ),
+            BrowserProjectionViewerStateCommand(
+                active: false, claim: false, profile: .mobile, sizing: .custom,
+                width: 412, height: 915
+            ),
+        ])
     }
 
     @Test func multiWindowStateValidatesAndRejectsCrossWindowTabs() throws {
@@ -120,6 +147,113 @@ struct BrowserProjectionControllerTests {
             )]
         )
         #expect(throws: BrowserProjectionStateError.crossWindowTab) { try invalid.validate() }
+    }
+
+    @Test func viewportCommandsRoundTripAndRejectUnsafeDimensions() throws {
+        let viewer = BrowserProjectionViewerStateCommand(
+            active: true,
+            claim: true,
+            profile: .desktop,
+            sizing: .viewer,
+            width: 1_180,
+            height: 640
+        )
+        try viewer.validate()
+        let viewerData = try JSONEncoder().encode(viewer)
+        #expect(try JSONDecoder().decode(BrowserProjectionViewerStateCommand.self, from: viewerData) == viewer)
+
+        let source = BrowserProjectionSourceViewportCommand(
+            hostEpoch: "host-epoch",
+            revision: 7,
+            active: true,
+            tabId: 42,
+            generation: 11,
+            profile: .mobile,
+            sizing: .preset,
+            width: 390,
+            height: 844
+        )
+        let sourceData = try JSONEncoder().encode(source)
+        #expect(try JSONDecoder().decode(BrowserProjectionSourceViewportCommand.self, from: sourceData) == source)
+        try source.validate()
+
+        let status = BrowserProjectionViewerStatus(
+            owner: true,
+            active: true,
+            profile: .mobile,
+            sizing: .custom,
+            width: 412,
+            height: 915
+        )
+        try status.validate()
+
+        let invalid = BrowserProjectionViewerStateCommand(
+            active: true,
+            claim: false,
+            profile: .desktop,
+            sizing: .custom,
+            width: 4_097,
+            height: 800
+        )
+        #expect(throws: BrowserProjectionStateError.invalidViewport) { try invalid.validate() }
+
+        let inactiveWithDimensions = BrowserProjectionSourceViewportCommand(
+            hostEpoch: "host-epoch",
+            revision: 8,
+            active: false,
+            tabId: 42,
+            generation: 12,
+            profile: .desktop,
+            sizing: .viewer,
+            width: 800,
+            height: 600
+        )
+        #expect(throws: BrowserProjectionStateError.invalidViewport) {
+            try inactiveWithDimensions.validate()
+        }
+
+        let nativeRestore = BrowserProjectionSourceViewportCommand(
+            hostEpoch: "host-epoch",
+            revision: 9,
+            active: false,
+            tabId: 42,
+            generation: 12
+        )
+        try nativeRestore.validate()
+    }
+
+    @Test func browserStateValidatesAppliedViewport() throws {
+        let viewport = BrowserProjectionViewportState(
+            active: true,
+            revision: 4,
+            profile: .mobile,
+            sizing: .viewer,
+            requestedWidth: 390,
+            requestedHeight: 700,
+            actualWidth: 390,
+            actualHeight: 700
+        )
+        try viewport.validate()
+
+        let invalid = BrowserProjectionViewportState(
+            active: true,
+            revision: 5,
+            profile: .desktop,
+            sizing: .preset,
+            requestedWidth: 0,
+            requestedHeight: 900
+        )
+        #expect(throws: BrowserProjectionStateError.invalidViewport) { try invalid.validate() }
+
+        let inactiveWithActualSize = BrowserProjectionViewportState(
+            active: false,
+            revision: 6,
+            actualWidth: 800,
+            actualHeight: 600
+        )
+        #expect(throws: BrowserProjectionStateError.invalidViewport) {
+            try inactiveWithActualSize.validate()
+        }
     }
 
     @Test func stateValidationRejectsMetadataThatCouldEscapeItsWindowContract() throws {

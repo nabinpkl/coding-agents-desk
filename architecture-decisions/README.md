@@ -87,6 +87,7 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0042 | Run the DOM recorder in the extension's isolated world, triggered from the chrome layer | proposed | 2026-07-01 |
 | ADR-0043 | Compress DOM-mirror batches end-to-end, snapshot as a rare keyframe, chunk as a backstop | proposed | 2026-07-01 |
 | ADR-0044 | Tiered DOM-mirror fidelity: isolated adopted-stylesheet enrichment + opt-in CDP keyframe (no MAIN world) | proposed | 2026-07-01 |
+| ADR-0048 | Host-side mobile device emulation for the DOM mirror | superseded by ADR-0065 | 2026-07-02 |
 | ADR-0050 | Shared wire types as a local Swift package, and modern synchronized Xcode project format | accepted | 2026-07-03 |
 | ADR-0051 | Remote SwiftTerm terminal over the Agent Workspace IDE PTY multiplexer | superseded by ADR-0053 | 2026-07-06 |
 | ADR-0052 | AgentDesk owns the agent workspace | accepted | 2026-07-10 |
@@ -102,3 +103,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0062 | Embed one responsive workspace IDE in two native pane shells | accepted | 2026-07-19 |
 | ADR-0063 | Project all Chrome windows through one local recorder | superseded by ADR-0064 | 2026-07-20 |
 | ADR-0064 | Project the full Chrome hierarchy to iOS | accepted | 2026-07-21 |
+| ADR-0065 | Let the last active Browser viewer own Chrome's projected viewport | accepted | 2026-07-21 |

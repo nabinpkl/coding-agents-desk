@@ -164,8 +164,8 @@
     if (!msg) return;
     if (msg.type === 'agentdesk-start') { startRecording(msg.generation); sendResponse({ recording, generation: recordingGeneration }); return true; }
     if (msg.type === 'agentdesk-stop') { stopRecording(); sendResponse({ recording }); return true; }
-    // ADR-0048: the worker device-emulated (or restored) the tab; force a fresh full snapshot so the
-    // next flush emits a checkout with the new meta.w/h (the emulated viewport) and the mirror repaints
+    // ADR-0065: the worker changed the source viewport; force a fresh full snapshot so the next flush
+    // emits a checkout with the new meta.w/h and the mirror repaints
     // to the true mobile/desktop layout. Same primitive the SPA-nav keyframe uses (see flush()).
     if (msg.type === 'agentdesk-resnapshot') {
       if (recording && rrweb && typeof rrweb.record.takeFullSnapshot === 'function') {

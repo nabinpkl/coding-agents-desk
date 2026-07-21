@@ -18,7 +18,8 @@ importScripts(
   'vendor/fflate.min.js',
   'cdp-reconstruct.js',
   'browser-session.js',
-  'browser-metadata.js'
+  'browser-metadata.js',
+  'source-viewport.js'
 );
 
 const NATIVE_HOST = 'com.example.agentdesk.agentdesk.dom_bridge';
@@ -73,15 +74,21 @@ function postCompressed(p, extra, str) {
 let port = null;
 // The tab chrome.debugger is currently attached to (one debuggee per tab; shows the debug banner).
 let attachedTabId = null;
-// ADR-0045: the client paused capture because the phone's Browser surface is not in view. We stop
-// the rrweb recorder to save CPU at the source but keep the selected projection target so resume
-// restarts the same tab (unlike ending the projection session, which clears the target).
-let capturePaused = false;
-// ADR-0048: whether the recording tab is currently device-emulated (true mobile). This is the
-// AUTHORITATIVE emulation state; it is stamped onto every batch (`em`) so the client's Desktop|Mobile
-// control reflects the host, and it PERSISTS across capture pause/resume (unlike a session end) but
-// resets to desktop on a fresh session, nav, tab close, or debugger detach.
-let deviceEmulationEnabled = false;
+// The host's last-activated active viewer owns this desired source viewport. Recording and device
+// overrides are active atomically with it; no active viewer restores native Chrome.
+let sourceViewport = {
+  active: false,
+  hostEpoch: null,
+  revision: 0,
+  profile: null,
+  sizing: null,
+  requestedWidth: null,
+  requestedHeight: null,
+  actualWidth: null,
+  actualHeight: null,
+  error: null,
+};
+const retiredHostEpochs = new Set();
 // The tab's pristine UA, captured on the first emulate so desktop can restore it (CDP has no UA-clear).
 let originalUserAgent = null;
 // iPhone 12/13/14-class UA. Emulation is resnapshot-based (no reload), so this mainly drives live UA
@@ -104,12 +111,10 @@ function ensurePort() {
     // ADR-0047: host -> extension scroll command. Drive the REAL tab to scroll (so lazy/infinite
     // pages load), because the mirror is always the live page.
     if (msg.t === 'dom-scroll') { dispatchScroll(msg); return; }
-    // ADR-0048: host -> extension device-emulation toggle. Device-emulate the recorded tab so the REAL
-    // page renders its true mobile layout; `mobile:false` restores desktop.
-    if (msg.t === 'dom-emulate') { setDeviceEmulation(!!msg.mobile); return; }
-    // ADR-0045: host -> extension capture pause/resume, driven by the phone's Browser surface
-    // visibility. `on: false` pauses the recorder; `on: true` resumes it (fresh full snapshot).
-    if (msg.t === 'dom-capture') { setCapturePaused(!msg.on); return; }
+    if (msg.t === 'browser-source-viewport') {
+      enqueueSessionMutation(() => applySourceViewportCommand(msg));
+      return;
+    }
     if (msg.t === 'browser-state-request') { enqueueSessionMutation(requestBrowserState); return; }
     if (msg.t === 'browser-select-window') { enqueueSessionMutation(() => selectProjectedWindow(msg)); return; }
     if (msg.t === 'browser-select-tab') { enqueueSessionMutation(() => selectProjectedTab(msg)); return; }
@@ -118,6 +123,7 @@ function ensurePort() {
     const err = chrome.runtime.lastError;
     console.warn('[agentdesk] native port disconnected', err && err.message);
     port = null; // reconnect lazily on the next batch
+    enqueueSessionMutation(clearSourceViewportAfterDisconnect);
   });
   if (browserSession.enabled) setTimeout(() => enqueueSessionMutation(() => refreshBrowserProjection()), 0);
   return port;
@@ -126,20 +132,33 @@ function ensurePort() {
 // Keep attachedTabId honest if the tab (or user) detaches the debugger.
 chrome.debugger.onDetach.addListener((source) => {
   if (source.tabId === attachedTabId) {
-    // Reset emulation first (while attachedTabId still matches so it can no-op the clear cleanly),
-    // then drop the attachment: the debugger is gone, so the overrides die with it either way.
-    resetDeviceEmulation(source.tabId);
     attachedTabId = null;
-    // The user closed the debug banner -> they want the banner gone: drop CDP fidelity (Tier B).
-    stopCdp(false); cdpMode = false; cdpUserSet = false;
+    enqueueSessionMutation(() => handleUnexpectedDebuggerDetach(source.tabId));
   }
 });
+
+async function handleUnexpectedDebuggerDetach(tabId) {
+  sourceViewport = { ...sourceViewport, actualWidth: null, actualHeight: null, error: 'debugger-detached' };
+  if (browserSession.recordedTabId === tabId) {
+    try { await chrome.tabs.sendMessage(tabId, { type: 'agentdesk-stop' }); } catch (error) {}
+    browserSession = AgentDeskBrowserSession.withRecordedTab(browserSession, null);
+    await setBadge(tabId, false);
+  }
+  stopCdp(false); cdpMode = false; cdpUserSet = false;
+  browserSession = AgentDeskBrowserSession.advanceGeneration(
+    browserSession,
+    AgentDeskBrowserSession.selectedTarget(browserSession)
+  );
+  await persistBrowserSession();
+  await emitBrowserState();
+}
 
 async function ensureAttached(tabId) {
   if (attachedTabId === tabId) return true;
   if (attachedTabId != null) {
-    try { await chrome.debugger.detach({ tabId: attachedTabId }); } catch (e) {}
+    const priorTabId = attachedTabId;
     attachedTabId = null;
+    try { await chrome.debugger.detach({ tabId: priorTabId }); } catch (e) {}
   }
   try {
     await chrome.debugger.attach({ tabId }, '1.3');
@@ -211,72 +230,180 @@ async function dispatchScroll(cmd) {
     // synthesizeScrollGesture (tens-to-hundreds of ms while it animated), this should be ~1ms, which
     // is what lets 60-120Hz of frames keep up. Read in chrome://extensions -> AgentDesk ->
     // "service worker" -> Console (filter: scroll-diag).
-    console.log(`[agentdesk][scroll-diag] dx=${cmd.dx} dy=${cmd.dy} attachMs=${attachMs.toFixed(1)} dispatchMs=${(performance.now() - t0).toFixed(1)}`);
+    console.log(`[agentdesk][scroll-diag] attachMs=${attachMs.toFixed(1)} dispatchMs=${(performance.now() - t0).toFixed(1)}`);
   } catch (e) {
     console.error('[agentdesk] scroll dispatch failed', e && e.message);
   }
 }
 
-// ADR-0048: device-emulate the recorded tab (true mobile) or restore desktop, reusing the ADR-0040
-// debugger attachment. Emulation only changes the tab's metrics; it does not re-serialize the DOM, so
-// after applying it we ask the isolated recorder to take a fresh full snapshot -- the next flush emits
-// a checkout batch with the new meta.w/h (the emulated viewport), and the mirror repaints to the true
-// mobile layout because the REAL page ran its own mobile code path. Bounded to the recorded tab.
-async function setDeviceEmulation(mobile) {
-  const tabId = browserSession.recordedTabId;
-  if (tabId == null) return;
-  if (!(await ensureAttached(tabId))) return;
+async function clearSourceOverrides(tabId) {
+  if (tabId == null || attachedTabId !== tabId) return;
+  const priorUA = originalUserAgent;
+  originalUserAgent = null;
   try {
-    if (mobile) {
-      // Capture the pristine UA once so desktop can restore it (CDP has no UA-override clear).
-      if (originalUserAgent == null) {
-        try {
-          const r = await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { expression: 'navigator.userAgent', returnByValue: true });
-          originalUserAgent = (r && r.result && r.result.value) || '';
-        } catch (e) { originalUserAgent = ''; }
-      }
-      await chrome.debugger.sendCommand({ tabId }, 'Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
-      await chrome.debugger.sendCommand({ tabId }, 'Emulation.setTouchEmulationEnabled', { enabled: true });
-      await chrome.debugger.sendCommand({ tabId }, 'Emulation.setUserAgentOverride', { userAgent: MOBILE_UA });
-    } else {
-      await chrome.debugger.sendCommand({ tabId }, 'Emulation.clearDeviceMetricsOverride', {});
-      await chrome.debugger.sendCommand({ tabId }, 'Emulation.setTouchEmulationEnabled', { enabled: false });
-      if (originalUserAgent) await chrome.debugger.sendCommand({ tabId }, 'Emulation.setUserAgentOverride', { userAgent: originalUserAgent });
+    await chrome.debugger.sendCommand({ tabId }, 'Emulation.clearDeviceMetricsOverride', {});
+    await chrome.debugger.sendCommand({ tabId }, 'Emulation.setTouchEmulationEnabled', { enabled: false });
+    if (priorUA) {
+      await chrome.debugger.sendCommand({ tabId }, 'Emulation.setUserAgentOverride', { userAgent: priorUA });
     }
-    deviceEmulationEnabled = !!mobile;
-    // Force a fresh keyframe so the mirror repaints to the new (emulated/desktop) layout.
-    try { await chrome.tabs.sendMessage(tabId, { type: 'agentdesk-resnapshot' }); } catch (e) {}
-  } catch (e) {
-    console.error('[agentdesk] device emulation failed', e && e.message);
+  } catch (error) {
+    console.error('[agentdesk] source viewport clear failed', error && error.message);
   }
 }
 
-// Reset emulation to desktop. Resets the flags SYNCHRONOUSLY (so the sync lifecycle listeners below are
-// correct immediately) and, when still attached to the tab, clears the live CDP overrides best-effort.
-// Called by the session-lifecycle resets (fresh session, stop, nav, tab close, detach) so emulation
-// never silently follows a tab switch or survives a navigation. Deliberately NOT called on capture
-// pause (ADR-0045): a paused/resumed session keeps its emulation.
-function resetDeviceEmulation(tabId) {
-  const attachedHere = tabId != null && attachedTabId === tabId;
-  const priorUA = originalUserAgent;
-  deviceEmulationEnabled = false;
-  originalUserAgent = null;
-  if (attachedHere) {
-    (async () => {
-      try {
-        await chrome.debugger.sendCommand({ tabId }, 'Emulation.clearDeviceMetricsOverride', {});
-        await chrome.debugger.sendCommand({ tabId }, 'Emulation.setTouchEmulationEnabled', { enabled: false });
-        if (priorUA) await chrome.debugger.sendCommand({ tabId }, 'Emulation.setUserAgentOverride', { userAgent: priorUA });
-      } catch (e) {}
-    })();
+async function detachDebugger(tabId) {
+  if (tabId == null || attachedTabId !== tabId) return;
+  attachedTabId = null;
+  try { await chrome.debugger.detach({ tabId }); } catch (error) {}
+}
+
+async function applyDesiredSourceViewport(tabId) {
+  if (!sourceViewport.active) return true;
+  if (sourceViewport.error) return false;
+  if (!(await ensureAttached(tabId))) {
+    sourceViewport = { ...sourceViewport, error: 'debugger-attach-failed', actualWidth: null, actualHeight: null };
+    return false;
   }
+  try {
+    if (originalUserAgent == null) {
+      try {
+        const result = await chrome.debugger.sendCommand(
+          { tabId },
+          'Runtime.evaluate',
+          { expression: 'navigator.userAgent', returnByValue: true }
+        );
+        originalUserAgent = (result && result.result && result.result.value) || '';
+      } catch (error) {
+        originalUserAgent = '';
+      }
+    }
+    const settings = AgentDeskSourceViewport.deviceSettings(
+      sourceViewport.profile,
+      sourceViewport.requestedWidth,
+      sourceViewport.requestedHeight,
+      MOBILE_UA
+    );
+    await chrome.debugger.sendCommand(
+      { tabId },
+      'Emulation.setDeviceMetricsOverride',
+      settings.metrics
+    );
+    await chrome.debugger.sendCommand(
+      { tabId },
+      'Emulation.setTouchEmulationEnabled',
+      { enabled: settings.touchEnabled }
+    );
+    if (settings.userAgent) {
+      await chrome.debugger.sendCommand(
+        { tabId },
+        'Emulation.setUserAgentOverride',
+        { userAgent: settings.userAgent }
+      );
+    } else if (originalUserAgent) {
+      await chrome.debugger.sendCommand(
+        { tabId },
+        'Emulation.setUserAgentOverride',
+        { userAgent: originalUserAgent }
+      );
+    }
+    const metrics = await chrome.debugger.sendCommand({ tabId }, 'Page.getLayoutMetrics', {});
+    const viewport = (metrics && (metrics.cssLayoutViewport || metrics.layoutViewport)) || {};
+    sourceViewport = {
+      ...sourceViewport,
+      actualWidth: Number.isFinite(viewport.clientWidth) ? Math.round(viewport.clientWidth) : sourceViewport.requestedWidth,
+      actualHeight: Number.isFinite(viewport.clientHeight) ? Math.round(viewport.clientHeight) : sourceViewport.requestedHeight,
+      error: null,
+    };
+    return true;
+  } catch (error) {
+    sourceViewport = {
+      ...sourceViewport,
+      error: (error && error.message) || 'viewport-apply-failed',
+      actualWidth: null,
+      actualHeight: null,
+    };
+    console.error('[agentdesk] source viewport apply failed', error && error.message);
+    return false;
+  }
+}
+
+async function applySourceViewportCommand(command) {
+  if (!browserSession.enabled) return;
+  const evaluation = AgentDeskSourceViewport.evaluateCommand(
+    sourceViewport,
+    retiredHostEpochs,
+    command,
+    browserSession.targetTabId,
+    browserSession.generation
+  );
+  if (!evaluation.accepted) return;
+  if (evaluation.sameDesired) {
+    if (!evaluation.sameEpoch && sourceViewport.hostEpoch) retiredHostEpochs.add(sourceViewport.hostEpoch);
+    sourceViewport = { ...sourceViewport, revision: command.revision, hostEpoch: command.hostEpoch };
+    await emitBrowserState();
+    return;
+  }
+
+  const priorTabId = browserSession.recordedTabId;
+  const preserveCdp = cdpMode;
+  const preserveCdpUserSet = cdpUserSet;
+  if (priorTabId != null) await stopRecorderForTab(priorTabId);
+  if (!evaluation.sameEpoch && sourceViewport.hostEpoch) retiredHostEpochs.add(sourceViewport.hostEpoch);
+  sourceViewport = {
+    active: !!command.active,
+    hostEpoch: command.hostEpoch,
+    revision: command.revision,
+    profile: command.active ? command.profile : null,
+    sizing: command.active ? command.sizing : null,
+    requestedWidth: command.active ? command.width : null,
+    requestedHeight: command.active ? command.height : null,
+    actualWidth: null,
+    actualHeight: null,
+    error: null,
+  };
+  browserSession = AgentDeskBrowserSession.advanceGeneration(
+    browserSession,
+    AgentDeskBrowserSession.selectedTarget(browserSession)
+  );
+  await persistBrowserSession();
+  await emitBrowserState();
+
+  if (!sourceViewport.active) {
+    const debuggedTabId = priorTabId == null ? attachedTabId : priorTabId;
+    await clearSourceOverrides(debuggedTabId);
+    await detachDebugger(debuggedTabId);
+    await emitBrowserState();
+    return;
+  }
+  const target = AgentDeskBrowserSession.selectedTarget(browserSession).tab;
+  if (!target || target.restricted || target.discarded || target.status === 'loading') return;
+  if (await startRecorderForTab(target.id)) {
+    cdpMode = preserveCdp;
+    cdpUserSet = preserveCdpUserSet;
+    if (cdpMode) {
+      await restartCdpWithImmediateSnapshot();
+    }
+  }
+  await emitBrowserState();
+}
+
+async function clearSourceViewportAfterDisconnect() {
+  const recordedTabId = browserSession.recordedTabId;
+  if (recordedTabId != null) await stopRecorderForTab(recordedTabId);
+  const debuggedTabId = attachedTabId;
+  await clearSourceOverrides(debuggedTabId);
+  await detachDebugger(debuggedTabId);
+  sourceViewport = {
+    active: false, hostEpoch: null, revision: 0, profile: null, sizing: null,
+    requestedWidth: null, requestedHeight: null, actualWidth: null, actualHeight: null, error: null,
+  };
 }
 
 // --- ADR-0044 Tier B: CDP high-fidelity keyframe (opt-in / banner-already-paid) ---
 // Reuses the ADR-0040 chrome.debugger attachment. DOMSnapshot.captureSnapshot pierces shadow
 // boundaries (so closed shadow DOM is captured) and returns computed styles, which we inline per node
 // so the flattened snapshot renders WITHOUT external/adopted stylesheets (that is the whole point).
-// Text is MASKED here, before egress (ADR-0041 parity), because captureSnapshot returns raw text.
+// Password values are masked here before egress; ordinary visible text remains projectable.
 // Engages only when the user opted in via the popup, OR the debugger is already attached for taps
 // (banner already shown) -- so the default view-only session stays banner-free on Tier A.
 const CDP_POLL_MS = 1500;
@@ -318,6 +445,14 @@ function maybeStartCdp() {
   cdpTimer = setInterval(captureCdpSnapshot, CDP_POLL_MS);
 }
 
+async function restartCdpWithImmediateSnapshot() {
+  if (!cdpMode || browserSession.recordedTabId == null) return;
+  await captureCdpSnapshot();
+  if (cdpMode && browserSession.recordedTabId != null && !cdpTimer) {
+    cdpTimer = setInterval(captureCdpSnapshot, CDP_POLL_MS);
+  }
+}
+
 function stopCdp(notify) {
   if (cdpTimer) { clearInterval(cdpTimer); cdpTimer = null; }
   if (notify && port && browserSession.recordedTabId != null) {
@@ -352,7 +487,7 @@ async function setBadge(tabId, on) {
 async function startRecorderForTab(tabId) {
   if (tabId == null) return false;
   stopCdp(false); cdpMode = false; cdpUserSet = false;
-  resetDeviceEmulation(tabId);
+  if (sourceViewport.active && !(await applyDesiredSourceViewport(tabId))) return false;
   try {
     await chrome.tabs.sendMessage(tabId, {
       type: 'agentdesk-start',
@@ -363,7 +498,6 @@ async function startRecorderForTab(tabId) {
     return false;
   }
   browserSession = AgentDeskBrowserSession.withRecordedTab(browserSession, tabId);
-  capturePaused = false;
   await setBadge(tabId, true);
   return true;
 }
@@ -374,30 +508,9 @@ async function stopRecorderForTab(tabId) {
   if (browserSession.recordedTabId === tabId) {
     browserSession = AgentDeskBrowserSession.withRecordedTab(browserSession, null);
   }
-  capturePaused = false;
   stopCdp(false); cdpMode = false; cdpUserSet = false;
-  resetDeviceEmulation(tabId);
+  await clearSourceOverrides(tabId);
   await setBadge(tabId, false);
-}
-
-// ADR-0045: pause/resume the active recording without ending the session. Only acts on the tab the
-// projection session already started; if nothing is recording it is a no-op, so the phone's
-// surface visibility never starts capture on its own. Pausing stops the rrweb recorder (real CPU
-// win at the source) and shows a PAUSE badge; resuming restarts it, and rrweb emits a fresh full
-// snapshot on record() so the mirror repaints cleanly with no mid-stream desync.
-async function setCapturePaused(paused) {
-  const tabId = browserSession.recordedTabId;
-  if (tabId == null) return;            // nothing recording -> nothing to pause/resume
-  if (paused === capturePaused) return; // idempotent: already in the requested state
-  capturePaused = paused;
-  try {
-    await chrome.tabs.sendMessage(tabId, paused
-      ? { type: 'agentdesk-stop' }
-      : { type: 'agentdesk-start', generation: browserSession.generation });
-  } catch (e) {
-    console.warn('[agentdesk] capture pause toggle failed on tab', tabId, e && e.message);
-  }
-  try { await chrome.action.setBadgeText({ tabId, text: paused ? 'PAUSE' : 'REC' }); } catch (e) {}
 }
 
 let sessionMutation = Promise.resolve();
@@ -416,6 +529,17 @@ async function browserStatePayload() {
     projectedWindowId: browserSession.projectedWindowId,
     focusedWindowId: browserSession.focusedWindowId,
     extension: await AgentDeskBrowserMetadata.extensionBuildIdentity(),
+    viewport: {
+      active: sourceViewport.active,
+      revision: sourceViewport.revision,
+      profile: sourceViewport.profile,
+      sizing: sourceViewport.sizing,
+      requestedWidth: sourceViewport.requestedWidth,
+      requestedHeight: sourceViewport.requestedHeight,
+      actualWidth: sourceViewport.actualWidth,
+      actualHeight: sourceViewport.actualHeight,
+      error: sourceViewport.error,
+    },
     windows: browserSession.windows,
   };
 }
@@ -459,8 +583,14 @@ async function synchronizeProjectionTarget(forceGeneration) {
     browserSession.targetURL !== target.tab.url
     || (target.tab.status === 'loading' && browserSession.targetStatus !== 'loading')
   );
+  const preserveCdp = !changedTarget && cdpMode;
+  const preserveCdpUserSet = !changedTarget && cdpUserSet;
   if (changedTarget || changedDocument || forceGeneration) {
     if (browserSession.recordedTabId != null) await stopRecorderForTab(browserSession.recordedTabId);
+    if (preserveCdp) {
+      cdpMode = true;
+      cdpUserSet = preserveCdpUserSet;
+    }
     browserSession = AgentDeskBrowserSession.advanceGeneration(browserSession, target);
     await persistBrowserSession();
     await emitBrowserState();
@@ -476,9 +606,13 @@ async function synchronizeProjectionTarget(forceGeneration) {
     }
     return;
   }
-  if (capturePaused) return;
+  if (!sourceViewport.active) return;
   if (browserSession.recordedTabId == null) {
-    await startRecorderForTab(tab.id);
+    if (await startRecorderForTab(tab.id)) {
+      cdpMode = preserveCdp;
+      cdpUserSet = preserveCdpUserSet;
+      if (cdpMode) await restartCdpWithImmediateSnapshot();
+    }
     await emitBrowserState();
   }
 }
@@ -533,9 +667,16 @@ async function startBrowserProjection() {
 }
 
 async function stopBrowserProjection() {
-  if (browserSession.recordedTabId != null) await stopRecorderForTab(browserSession.recordedTabId);
+  const recordedTabId = browserSession.recordedTabId;
+  if (recordedTabId != null) await stopRecorderForTab(recordedTabId);
+  const debuggedTabId = attachedTabId;
+  await clearSourceOverrides(debuggedTabId);
+  await detachDebugger(debuggedTabId);
   browserSession = AgentDeskBrowserSession.createSession();
-  capturePaused = false;
+  sourceViewport = {
+    active: false, hostEpoch: null, revision: 0, profile: null, sizing: null,
+    requestedWidth: null, requestedHeight: null, actualWidth: null, actualHeight: null, error: null,
+  };
   await chrome.storage.session.remove('browserProjection');
   if (port) {
     try { port.disconnect(); } catch (error) {}
@@ -658,13 +799,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.error('[agentdesk] batch compress failed', e && e.message);
       return;
     }
-    // ADR-0048: stamp the authoritative emulation state on every batch. The host reads `em` off the
-    // envelope and fans it to the client's Desktop|Mobile control, so it self-corrects to whatever the
-    // extension actually has (e.g. after a host-side reset). The resnapshot batch that follows a toggle
-    // carries the new value, so the control flips in lockstep with the repaint.
-    const em = deviceEmulationEnabled;
     if (b64.length <= CHUNK_LIMIT) {
-      p.postMessage({ t: 'dom-batch', tb, g: generation, co, em, enc: 'deflate-b64', ev: b64, meta: message.meta });
+      p.postMessage({ t: 'dom-batch', tb, g: generation, co, enc: 'deflate-b64', ev: b64, meta: message.meta });
     } else {
       // Backstop: a compressed batch still over the limit is split into ordered parts reassembled by
       // cid in the webview. co rides part 0 only, so the host's late-join buffer resets once per
@@ -677,7 +813,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           tb,
           g: generation,
           co: seq === 0 ? co : false,
-          em,
           enc: 'deflate-b64',
           ev: b64.slice(seq * CHUNK_LIMIT, (seq + 1) * CHUNK_LIMIT),
           meta: seq === 0 ? message.meta : undefined,

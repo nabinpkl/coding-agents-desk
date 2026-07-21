@@ -46,6 +46,7 @@ const result = {
   extensionSHA: null,
   windows: {},
   transitions: [],
+  viewportTransitions: [],
   staleBatchAssertions: [],
   screenshots: [],
   cleanup: null,
@@ -120,6 +121,23 @@ function pressDOM(identifier) {
   ]);
 }
 
+function setDOMValue(identifier, value) {
+  runAX([
+    'set-value', '--bundle-id', bundleID,
+    '--window-identifier', 'browser-projection-window',
+    '--dom-identifier', identifier, '--value', String(value),
+  ]);
+  runAX(['key', '--bundle-id', bundleID, '--name', 'tab']);
+}
+
+function resizeProjection(width, height) {
+  runAX([
+    'resize', '--bundle-id', bundleID,
+    '--window-identifier', 'browser-projection-window',
+    '--width', String(width), '--height', String(height),
+  ]);
+}
+
 function screenshot(name) {
   const path = join(artifacts, name);
   runAX([
@@ -133,12 +151,27 @@ function screenshot(name) {
 
 function fixtureHTML(marker, title, color) {
   return `<!doctype html>
-  <html><head><meta charset="utf-8"><title>${title}</title>
+  <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title>
   <style>html,body{margin:0;min-height:100%;font:18px system-ui;background:${color};color:#17202a}
-  main{padding:48px}button{font:inherit;padding:10px 16px}</style></head>
+  main{padding:48px}main[data-agentdesk-layout="compact"]{padding:18px;font-size:15px}
+  button{font:inherit;padding:10px 16px}</style></head>
   <body><main data-agentdesk-fixture="${marker}"><h1>${title}</h1>
   <p>Deterministic AgentDesk browser projection fixture.</p>
-  <button id="fixture-button">Fixture action</button><div style="height:1400px"></div></main></body></html>`;
+  <output id="responsive-marker"></output>
+  <button id="fixture-button">Fixture action</button><div style="height:1400px"></div></main>
+  <script>
+  (function () {
+    function updateLayout() {
+      var layout = innerWidth <= 800 ? 'compact' : 'wide';
+      var main = document.querySelector('main');
+      main.dataset.agentdeskLayout = layout;
+      main.dataset.agentdeskFixture = '${marker}-' + layout;
+      document.getElementById('responsive-marker').textContent = layout + ':' + innerWidth + 'x' + innerHeight;
+    }
+    addEventListener('resize', updateLayout);
+    updateLayout();
+  })();
+  </script></body></html>`;
 }
 
 async function startFixtures() {
@@ -219,6 +252,35 @@ async function projectionState(worker) {
   return worker.evaluate(() => browserStatePayload());
 }
 
+async function waitForViewport(worker, label, predicate, timeout = 30_000) {
+  return waitUntil(label, async () => {
+    const state = await projectionState(worker);
+    return predicate(state.viewport, state) ? state : null;
+  }, timeout);
+}
+
+async function fixturePage(path) {
+  return waitUntil(`Chrome fixture page ${path}`, () =>
+    context.pages().find((page) => new URL(page.url()).pathname === path), 20_000);
+}
+
+async function assertChromeViewport(path, expectedWidth, expectedHeight) {
+  const page = await fixturePage(path);
+  const actual = await page.evaluate(() => ({
+    width: innerWidth,
+    height: innerHeight,
+    layout: document.querySelector('main')?.dataset.agentdeskLayout || '',
+  }));
+  if (actual.width !== expectedWidth || actual.height !== expectedHeight) {
+    throw new Error(`Chrome viewport ${actual.width}x${actual.height} did not match ${expectedWidth}x${expectedHeight}`);
+  }
+  const expectedLayout = expectedWidth <= 800 ? 'compact' : 'wide';
+  if (actual.layout !== expectedLayout) {
+    throw new Error(`Chrome responsive marker ${actual.layout} did not match ${expectedLayout}`);
+  }
+  return actual;
+}
+
 function assertGenerationAdvanced(previous, next, transition) {
   if (!(next.generation > previous.generation)) {
     throw new Error(`${transition} did not advance generation: ${previous.generation} -> ${next.generation}`);
@@ -257,6 +319,26 @@ async function assertStaleBatchRejected(worker, staleState, expectedMarker) {
     rejectedMarker: staleMarker,
     retainedMarker: expectedMarker,
   });
+}
+
+async function recordViewportTransition(worker, previous, next, kind, expectedMarker) {
+  assertGenerationAdvanced(previous, next, kind);
+  if (!(next.viewport.revision > previous.viewport.revision)) {
+    throw new Error(`${kind} did not advance source revision: ${previous.viewport.revision} -> ${next.viewport.revision}`);
+  }
+  result.viewportTransitions.push({
+    kind,
+    fromRevision: previous.viewport.revision,
+    toRevision: next.viewport.revision,
+    generation: next.generation,
+    profile: next.viewport.profile,
+    sizing: next.viewport.sizing,
+    requestedWidth: next.viewport.requestedWidth,
+    requestedHeight: next.viewport.requestedHeight,
+    actualWidth: next.viewport.actualWidth,
+    actualHeight: next.viewport.actualHeight,
+  });
+  await assertStaleBatchRejected(worker, previous, expectedMarker);
 }
 
 function startHost() {
@@ -348,6 +430,9 @@ async function main() {
   const worker = await serviceWorker();
   const fixture = await createBrowserFixture(worker, fixturePort);
   result.windows = fixture;
+  const nativeFixturePage = await fixturePage('/w1-b');
+  const nativeViewport = await nativeFixturePage.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  result.nativeViewport = nativeViewport;
   await worker.evaluate(() => startBrowserProjection());
 
   runAX(['wait', '--bundle-id', bundleID, '--identifier', 'workspace-shell-browser', '--timeout', '20']);
@@ -369,7 +454,9 @@ async function main() {
     throw new Error('running build identity does not match checkout');
   }
   await waitForDOMText('browser-projection-page-marker', 'window-1-b');
-  let priorState = await projectionState(worker);
+  let priorState = await waitForViewport(worker, 'initial viewer-owned source viewport', (viewport) =>
+    viewport.active && viewport.sizing === 'viewer'
+      && viewport.actualWidth > 0 && viewport.actualHeight > 0);
   if (priorState.windows.length !== 2) throw new Error(`expected 2 normal windows, got ${priorState.windows.length}`);
   const initialWindow = priorState.windows.find((window) => window.id === fixture.windowOne.id);
   if (!initialWindow || initialWindow.tabs.length !== 3 || !initialWindow.tabs.some((tab) => tab.pinned)) {
@@ -378,6 +465,139 @@ async function main() {
   if (!initialWindow.groups.some((group) => group.title === 'Work')) {
     throw new Error('Window 1 named tab group is missing');
   }
+
+  resizeProjection(720, 720);
+  let currentState = await waitForViewport(worker, 'debounced NSWindow source resize', (viewport) =>
+    viewport.active && viewport.sizing === 'viewer'
+      && viewport.revision > priorState.viewport.revision
+      && viewport.requestedWidth < 800
+      && viewport.requestedWidth === viewport.actualWidth
+      && viewport.requestedHeight === viewport.actualHeight);
+  await waitForDOMText('browser-projection-page-marker', 'window-1-b-compact');
+  await assertChromeViewport(
+    '/w1-b',
+    currentState.viewport.actualWidth,
+    currentState.viewport.actualHeight,
+  );
+  await recordViewportTransition(worker, priorState, currentState, 'viewer-resize', 'window-1-b-compact');
+  priorState = currentState;
+
+  pressDOM('browser-projection-device-desktop');
+  currentState = await waitForViewport(worker, 'Desktop source preset', (viewport) =>
+    viewport.revision > priorState.viewport.revision
+      && viewport.profile === 'desktop' && viewport.sizing === 'preset'
+      && viewport.requestedWidth === 1440 && viewport.requestedHeight === 900
+      && viewport.actualWidth === 1440 && viewport.actualHeight === 900);
+  await waitForDOMText('browser-projection-page-marker', 'window-1-b-wide');
+  await assertChromeViewport('/w1-b', 1440, 900);
+  await recordViewportTransition(worker, priorState, currentState, 'desktop-preset', 'window-1-b-wide');
+  priorState = currentState;
+
+  pressDOM('browser-projection-device-mobile');
+  currentState = await waitForViewport(worker, 'Mobile source preset', (viewport) =>
+    viewport.revision > priorState.viewport.revision
+      && viewport.profile === 'mobile' && viewport.sizing === 'preset'
+      && viewport.requestedWidth === 390 && viewport.requestedHeight === 844
+      && viewport.actualWidth === 390 && viewport.actualHeight === 844);
+  await waitForDOMText('browser-projection-page-marker', 'window-1-b-compact');
+  await assertChromeViewport('/w1-b', 390, 844);
+  await recordViewportTransition(worker, priorState, currentState, 'mobile-preset', 'window-1-b-compact');
+  priorState = currentState;
+
+  setDOMValue('browser-projection-viewport-width', 412);
+  setDOMValue('browser-projection-viewport-height', 700);
+  currentState = await waitForViewport(worker, 'custom responsive source viewport', (viewport) =>
+    viewport.revision > priorState.viewport.revision
+      && viewport.profile === 'mobile' && viewport.sizing === 'custom'
+      && viewport.requestedWidth === 412 && viewport.requestedHeight === 700
+      && viewport.actualWidth === 412 && viewport.actualHeight === 700);
+  await waitForDOMText('browser-projection-page-marker', 'window-1-b-compact');
+  await assertChromeViewport('/w1-b', 412, 700);
+  await recordViewportTransition(worker, priorState, currentState, 'custom-responsive', 'window-1-b-compact');
+  priorState = currentState;
+
+  const stateBeforeZoom = await projectionState(worker);
+  pressDOM('browser-projection-zoom-in');
+  await waitForDOMText('browser-projection-zoom-level', '125%');
+  await sleep(400);
+  currentState = await projectionState(worker);
+  if (currentState.generation !== stateBeforeZoom.generation
+      || currentState.viewport.revision !== stateBeforeZoom.viewport.revision
+      || currentState.viewport.requestedWidth !== stateBeforeZoom.viewport.requestedWidth
+      || currentState.viewport.requestedHeight !== stateBeforeZoom.viewport.requestedHeight) {
+    throw new Error('local zoom changed Chrome source state');
+  }
+  result.viewportTransitions.push({
+    kind: 'local-zoom-only',
+    generation: currentState.generation,
+    revision: currentState.viewport.revision,
+    zoom: '125%',
+  });
+  pressDOM('browser-projection-zoom-reset');
+
+  pressDOM('browser-projection-viewport-reset');
+  currentState = await waitForViewport(worker, 'Reset to Viewer source viewport', (viewport) =>
+    viewport.revision > priorState.viewport.revision
+      && viewport.profile === 'mobile' && viewport.sizing === 'viewer'
+      && viewport.requestedWidth < 800
+      && viewport.requestedWidth === viewport.actualWidth
+      && viewport.requestedHeight === viewport.actualHeight);
+  await waitForDOMText('browser-projection-page-marker', 'window-1-b-compact');
+  await assertChromeViewport(
+    '/w1-b',
+    currentState.viewport.actualWidth,
+    currentState.viewport.actualHeight,
+  );
+  await recordViewportTransition(worker, priorState, currentState, 'reset-to-viewer', 'window-1-b-compact');
+  priorState = currentState;
+
+  pressDOM('browser-projection-device-mobile');
+  currentState = await waitForViewport(worker, 'Mobile source before viewer release', (viewport) =>
+    viewport.revision > priorState.viewport.revision
+      && viewport.profile === 'mobile' && viewport.sizing === 'preset'
+      && viewport.actualWidth === 390 && viewport.actualHeight === 844);
+  await waitForDOMText('browser-projection-page-marker', 'window-1-b-compact');
+  await recordViewportTransition(worker, priorState, currentState, 'mobile-before-release', 'window-1-b-compact');
+  priorState = currentState;
+
+  runAX(['press', '--bundle-id', bundleID, '--identifier', 'workspace-shell-browser']);
+  currentState = await waitForViewport(worker, 'native viewport restoration', (viewport) =>
+    !viewport.active && viewport.revision > priorState.viewport.revision);
+  assertGenerationAdvanced(priorState, currentState, 'last-viewer-release');
+  result.viewportTransitions.push({
+    kind: 'native-restore',
+    fromRevision: priorState.viewport.revision,
+    toRevision: currentState.viewport.revision,
+    nativeWidth: nativeViewport.width,
+    nativeHeight: nativeViewport.height,
+  });
+  const restoredViewport = await nativeFixturePage.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  if (restoredViewport.width !== nativeViewport.width || restoredViewport.height !== nativeViewport.height) {
+    throw new Error(`last viewer release did not restore native Chrome viewport: ${restoredViewport.width}x${restoredViewport.height}`);
+  }
+  priorState = currentState;
+
+  runAX(['press', '--bundle-id', bundleID, '--identifier', 'workspace-shell-browser']);
+  runAX([
+    'wait', '--bundle-id', bundleID, '--window-identifier', 'browser-projection-window',
+    '--dom-identifier', 'browser-projection-device-desktop', '--timeout', '20',
+  ]);
+  currentState = await waitForViewport(worker, 'viewer reclaim after reopen', (viewport) =>
+    viewport.active && viewport.revision > priorState.viewport.revision
+      && viewport.profile === 'mobile' && viewport.sizing === 'preset'
+      && viewport.actualWidth === 390 && viewport.actualHeight === 844);
+  await waitForDOMText('browser-projection-page-marker', 'window-1-b-compact');
+  await recordViewportTransition(worker, priorState, currentState, 'viewer-reclaim', 'window-1-b-compact');
+  priorState = currentState;
+
+  pressDOM('browser-projection-device-desktop');
+  currentState = await waitForViewport(worker, 'Desktop restore for window scenarios', (viewport) =>
+    viewport.revision > priorState.viewport.revision
+      && viewport.profile === 'desktop' && viewport.sizing === 'preset'
+      && viewport.actualWidth === 1440 && viewport.actualHeight === 900);
+  await waitForDOMText('browser-projection-page-marker', 'window-1-b-wide');
+  await recordViewportTransition(worker, priorState, currentState, 'desktop-scenario-restore', 'window-1-b-wide');
+  priorState = currentState;
   screenshot('01-two-windows.png');
 
   pressDOM(`browser-projection-window-tab-${fixture.windowTwo.id}`);
@@ -390,7 +610,7 @@ async function main() {
   if ((await focusedWindowID(worker)) === fixture.windowTwo.id) {
     throw new Error('projection-only window selection focused the projected Chrome window');
   }
-  let currentState = await projectionState(worker);
+  currentState = await projectionState(worker);
   if (currentState.focusedWindowId !== fixture.windowOne.id) {
     throw new Error('projection-only window selection replaced Chrome last-known focus');
   }

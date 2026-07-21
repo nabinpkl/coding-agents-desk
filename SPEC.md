@@ -11,17 +11,20 @@
 | Capture | `ScreenCaptureKit` on macOS 26+ | First-party selected-display capture without composition tricks. |
 | Encode / decode | Hardware-required VideoToolbox, HEVC by default and H.264 as an explicit owned-media codec setting | Rest-state text crispness depends on hardware screen-content quality. In this worktree HEVC remains the full-frame refresh path while retained graphics commands target scroll motion. |
 | Workspace | Host-owned workspace domain plus shared wire and `WorkspaceIDE` WebKit packages | Workspace roots, revisions, observation, Git reads, and PTY authority stay inside the Mac host. One native coordinator projects the same bundled sidebar and editor regions into AppKit and UIKit while native shells own geometry and terminal lifecycle. ADR-0052 and ADR-0062. |
-| Browser projection | MV3 extension, authenticated native bridge, shared `BrowserProjection` WebKit package | macOS and iOS render every normal Chrome window and tab; one selected tab supplies isolated-world rrweb batches. Focus and projection are independent, and generation fencing prevents prior pages from leaking into a new selection. ADR-0064. |
+| Browser projection | MV3 extension, authenticated native bridge, shared `BrowserProjection` WebKit package | macOS and iOS render every normal Chrome window and tab; one selected tab supplies isolated-world rrweb batches. The last active viewer owns Chrome's emulated source viewport while zoom remains local. Focus and projection are independent, and generation fencing prevents prior pages from leaking into a new selection. ADR-0064 and ADR-0065. |
 | Transport | One authenticated `NetworkConnection<QUIC>` per live session, ALPN `agentdesk-session-quic-v2` | Control, input, DOM, terminal, and files use ordered QUIC streams. HEVC media uses the same connection's datagram lane. File payloads cannot head-of-line block input. ADR-0030 and ADR-0052. |
 | Network | Tailscale only | No public rendezvous, relay, or internet routing. Both peers are on the tailnet. |
 | Pairing | Mac-initiated tailnet device picker (ADR-0019), QR fallback | The Mac enumerates online iOS tailnet peers, probes each on the plain-TCP offer port (`AGENTDESK_OFFER_PORT`, default 41890) for a self-reported display name, and pushes a pre-approved signed offer to the picked device. The pick is the authorization. The iPhone runs the unchanged signed handshake. Signed token stored in Keychain on both sides. |
-| Wire compatibility | Current protocol version is 12 (ADR-0020, ADR-0057, ADR-0058, ADR-0061, ADR-0062, ADR-0064) | Protocol v8 changes the Files body codec to carry native document bytes. Protocol v9 sequences cursor input. Protocol v10 adds workspace-terminal coordination. Protocol v11 generalizes Files into the workspace lane. Protocol v12 projects the complete Chrome hierarchy to iOS. Host and client reject peers below `12` with `incompatible-protocol`; matching app versions remain irrelevant. |
+| Wire compatibility | Current protocol version is 13 (ADR-0020, ADR-0057, ADR-0058, ADR-0061, ADR-0062, ADR-0064, ADR-0065) | Protocol v8 changes the Files body codec to carry native document bytes. Protocol v9 sequences cursor input. Protocol v10 adds workspace-terminal coordination. Protocol v11 generalizes Files into the workspace lane. Protocol v12 projects the complete Chrome hierarchy to iOS. Protocol v13 adds authenticated Browser viewer viewport ownership. Host and client reject peers below `13` with `incompatible-protocol`; matching app versions remain irrelevant. |
 | Spaces enumeration | Private SkyLight/CoreGraphics symbols bound with `dlopen` and `dlsym` | No public API exists. Risk is acceptable because App Store distribution is not the v0 target. |
 | Spaces switch | Synthesize Dock swipe `CGEvent`s via `SpacesProvider.postDockSwipeFrame` and `commitStep(delta:)` | Stock macOS path that preserves live Space transition animation. |
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
 
 ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with ordered role streams and media datagrams. ADR-0031 records client-visible selected-display projection. ADR-0032 records bounded client diagnostics. ADR-0033 records the adaptive media quality ladder. ADR-0035 records the phone Agent feed. ADR-0051 (superseded by ADR-0053) records the terminal lane. ADR-0052 makes AgentDesk the workspace owner and adds the authenticated files lane at protocol version `6`. ADR-0053 moves the terminal `pty-manager` and `pty-client-swift` packages in-tree, removing the last build dependency on the retired `agent-workspace-ide` donor. ADR-0054 established the shared workspace-data boundary; ADR-0062 supersedes only its platform-presentation decision. ADR-0056 adds host-coordinated leased Agent Panel terminals and raises the session target to protocol version `7`. ADR-0057 adds the shared responsive DOCX renderer, a binary Files codec, and protocol version `8`. ADR-0058 sequences cursor input, separates feedback provenance, and raises the session target to protocol version `9`. ADR-0059 isolates Dock desktop-content mutation behind a transactional yabai adapter without changing the wire protocol or the single SkyLight reader. ADR-0060 keeps the input frame ceiling at 4 MiB while fragmenting only large on-demand Agent raw events. ADR-0061 composes the iOS workspace workbench, shares a host-owned workspace-terminal namespace with macOS, raises the inner PTY protocol to `5`, and raises the AgentDesk session protocol to `10`. ADR-0062 adds the shared responsive Workspace IDE and raises the AgentDesk session protocol to `11`. ADR-0063 established the one-recorder multi-window Chrome projection; ADR-0064 supersedes its local-only surface boundary, projects the same hierarchy to iOS, and raises the AgentDesk session protocol to `12`.
+
+ADR-0065 supersedes ADR-0048's fixed mobile-toggle contract with viewer ownership and raises the
+AgentDesk session protocol from `12` to `13`.
 
 ## Module Boundaries
 
@@ -62,9 +65,10 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 29. **WorkspaceTerminalCoordinator.** Host-only authority for persistent workspace shells (ADR-0061). It resolves an opaque workspace id through `WorkspaceStore`, validates a remembered running session against the workspace namespace, canonical root, and persistent lifetime, otherwise selects the newest eligible session by immutable PTY creation time, and creates one login shell at the root only when none exists. macOS and iOS use the same host-generated `workspace-<workspace-id>-<suffix>` names; no workspace root crosses the wire.
 30. **WorkspaceIDEStateCoordinator.** Persists revisioned ordered open paths and expanded directory paths per workspace, applies idempotent operations, and fans snapshots to local and remote subscribers. It never owns selected workspace, active tab, drafts, cursor positions, or pane geometry.
 31. **WorkspaceObservationCoordinator.** Reference-counts one watcher per observed workspace, advances one change generation, reads Git status once for that generation, and fans the result to the existing shell and all IDE subscribers. Clean open files refresh; dirty files become conflicted without replacing their buffers.
-32. **DomBridgeServer.** Owns the `0600` Unix socket and token-authenticated native-messaging shim. It validates bounded complete browser snapshots separately from DOM batches. Browser state has no callback into the remote relay.
+32. **DomBridgeServer.** Owns the `0600` Unix socket and token-authenticated native-messaging shim. It validates bounded complete browser snapshots separately from DOM batches and forwards validated projection metadata to local and authenticated remote viewers.
 33. **BrowserProjectionSession.** Main-actor local state owner for one validated browser snapshot. It routes window, tab, tap, and scroll commands through `DomBridgeServer.sendToBridge`, admits page batches only for the projected window's active tab and generation, and feeds one AppKit `BrowserProjectionWindowController`.
-34. **BrowserProjection extension session.** Enumerates normal Chrome windows with tabs, groups, and bounded favicons; persists enabled state, stable window ordering, projected window, target document, recorder identity, and generation in `chrome.storage.session`; and owns one isolated recorder and debugger attachment.
+34. **BrowserProjectionViewportCoordinator.** Host authority for active local and authenticated remote viewers. It caches each viewer's profile and dimensions, orders explicit claims, selects one owner, targets owner status, and sends only resolved epoch-and-revision source viewport commands to Chrome.
+35. **BrowserProjection extension session.** Enumerates normal Chrome windows with tabs, groups, and bounded favicons; persists enabled state, stable window ordering, projected window, target document, recorder identity, and generation in `chrome.storage.session`; and owns one isolated recorder, one debugger attachment, and the desired source viewport.
 
 ### Client
 
@@ -199,7 +203,7 @@ QuicStreamFrame   = UInt8 role || UInt32BE length || body
 role              = 1 control | 2 input | 3 graphics | 4 dom | 5 terminal | 6 files
 
 SessionInit       { deviceFingerprint, sessionToken, clientNonce,
-                    protocolVersion, minCompatibleProtocolVersion }   // current target: pv must be >= 12
+                    protocolVersion, minCompatibleProtocolVersion }   // current target: pv must be >= 13
 SessionChallenge  { hostNonce, hostSignature, protocolVersion }
 SessionProof      { clientSignature }
 SessionReady      { sessionId, resumeId, resumeSecret, resumeExpiresAt, mediaKeySalt,
@@ -235,7 +239,7 @@ and rotates resume id, resume secret, and media key salt in the next signed
 `SessionReady`; the client verifies the ready signature before accepting the new
 material.
 
-Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. Protocol v8 is required because the Files role changed from JSON text-only bodies to binary property-list bodies with native document bytes. Protocol v9 is required because cursor inputs now carry revisions and cursor feedback has distinct applied and host-moved frames. Protocol v10 is required because the iOS workbench coordinates a host-authorized workspace terminal on the input lane. Protocol v11 is required because the Files stream becomes the workspace lane and adds IDE state, Git status, and unsolicited workspace-change messages. Protocol v12 is required because the DOM stream now carries full Chrome metadata and bidirectional window/tab selection; protocol-11 clients stop that lane on the new frame types. Older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
+Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. Protocol v8 is required because the Files role changed from JSON text-only bodies to binary property-list bodies with native document bytes. Protocol v9 is required because cursor inputs now carry revisions and cursor feedback has distinct applied and host-moved frames. Protocol v10 is required because the iOS workbench coordinates a host-authorized workspace terminal on the input lane. Protocol v11 is required because the Files stream becomes the workspace lane and adds IDE state, Git status, and unsolicited workspace-change messages. Protocol v12 is required because the DOM stream carries full Chrome metadata and bidirectional window/tab selection. Protocol v13 adds authenticated viewer activity, ownership, profile, and source dimensions to that DOM contract. Older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
 
 Terminal PTY frames travel over the reliable ordered `.terminal` stream as opaque PTY protobuf envelopes from AgentDesk's `terminal/pty-client-swift` and `terminal/pty-manager` pair (moved in-tree under ADR-0053). Both checked-in implementations enforce inner protocol v5. Protocol v4 added explicit launch and lifetime semantics; protocol v5 adds immutable session creation time so workspace-terminal fallback is deterministic. There is no compatibility path for older inner protocols:
 
@@ -395,7 +399,7 @@ forged script message receives a typed capability error and cannot reach the hos
 
 ## Chrome Projection
 
-ADR-0064 projects the ADR-0063 one-recorder browser model through the same shared shell on macOS and iOS.
+ADR-0064 projects the ADR-0063 one-recorder browser model through the same shared shell on macOS and iOS. ADR-0065 makes the last activated visible Browser viewer the source-viewport owner.
 
 1. The extension emits one complete `browser-state` snapshot after start, reconnect, relevant Chrome
    metadata events, projection selection, and explicit host request. Only `normal` Chrome windows are
@@ -424,15 +428,33 @@ ADR-0064 projects the ADR-0063 one-recorder browser model through the same share
 9. Ordinary page text, attributes, and non-password form values remain visible in `dom-batch`.
    `input[type=password]` values are masked inside the extension on both rrweb and CDP paths before
    compression. The extension, native shim, host bridge, and relay never log DOM payload content.
+10. Each viewer sends `browser-viewer-state` with activity, claim intent, desktop or mobile identity,
+    viewer, custom, or preset sizing, and a validated 1 through 4096 CSS-pixel size. Remote identity is
+    the authenticated device fingerprint. Passive geometry updates do not claim ownership.
+11. The host selects the last activated active viewer and sends `browser-source-viewport` with a host
+    epoch, monotonic revision, current target, profile, sizing, and dimensions. When no viewer remains
+    active, it sends an inactive source request that pauses capture and restores Chrome's native
+    metrics, UA, touch, and debugger state.
+12. A source change stops recording before advancing generation, applies CDP device metrics, UA, and
+    touch state, queries actual layout dimensions, then starts rrweb. The requested and actual sizes
+    remain distinct in `browser-state`. A failed apply publishes an error and no stale page.
+13. Desktop is 1440 by 900 with desktop UA and no touch. Mobile is 390 by 844 with mobile UA, mobile
+    layout semantics, DPR 3, and touch. Viewer-linked sizing follows the visible content stage after a
+    trailing 150 ms debounce. Local fit, zoom from 50 to 400 percent of Fit, and magnified pan transform
+    rrweb and CDP together without changing Chrome or generation.
 
 ```text
-browser-state { generation, projectedWindowId?, focusedWindowId?, extension, windows[] }
+browser-state { generation, projectedWindowId?, focusedWindowId?, extension, viewport, windows[] }
 window        { id, ordinal, focused, state, bounds?, activeTabId?, tabs[], groups[] }
 tab           { id, windowId, index, active, pinned, groupId, status, title, url,
                 favIconDataURL?, audible, muted, discarded, restricted }
 
 browser-select-window { windowId, generation }
 browser-select-tab    { windowId, tabId, generation }
+browser-viewer-state  { active, claim, profile, sizing, width, height }
+browser-viewer-status { owner, active, profile, sizing, width, height }
+browser-source-viewport { hostEpoch, revision, active, tabId?, generation,
+                          profile?, sizing?, width?, height? }
 dom-batch             { tb: tabId, g: generation, co, ... }
 ```
 

@@ -41,6 +41,7 @@ final class BrowserProjectionWindowController: NSWindowController, NSWindowDeleg
     func toggle() {
         guard let window else { return }
         if window.isVisible {
+            projectionController.setViewerActive(false, claim: false, platform: "macos")
             window.orderOut(nil)
         } else {
             showWindow(nil)
@@ -50,6 +51,7 @@ final class BrowserProjectionWindowController: NSWindowController, NSWindowDeleg
             }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            projectionController.setViewerActive(true, claim: true, platform: "macos")
         }
     }
 
@@ -57,12 +59,14 @@ final class BrowserProjectionWindowController: NSWindowController, NSWindowDeleg
         onSelectWindow: @escaping (Int, Int) -> Void,
         onSelectTab: @escaping (Int, Int, Int) -> Void,
         onTap: @escaping (Double, Double) -> Void,
-        onScroll: @escaping (Double, Double, Double, Double) -> Void
+        onScroll: @escaping (Double, Double, Double, Double) -> Void,
+        onViewerState: @escaping (BrowserProjectionViewerStateCommand) -> Void
     ) {
         projectionController.onSelectWindow = onSelectWindow
         projectionController.onSelectTab = onSelectTab
         projectionController.onTap = onTap
         projectionController.onScroll = onScroll
+        projectionController.onViewerState = onViewerState
     }
 
     func receive(_ payload: Data) {
@@ -74,13 +78,23 @@ final class BrowserProjectionWindowController: NSWindowController, NSWindowDeleg
     func stop() {
         guard !isStopping else { return }
         isStopping = true
+        projectionController.setViewerActive(false, claim: false, platform: "macos")
         projectionController.teardown()
         window?.delegate = nil
         window?.close()
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        projectionController.setViewerActive(false, claim: false, platform: "macos")
         sender.orderOut(nil)
         return false
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        projectionController.setViewerActive(true, claim: true, platform: "macos")
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) {
+        projectionController.flushViewerLayout()
     }
 }

@@ -6,6 +6,7 @@ public struct BrowserProjectionState: Codable, Equatable, Sendable {
     public let projectedWindowId: Int?
     public let focusedWindowId: Int?
     public let extensionBuild: BrowserProjectionBuildIdentity
+    public let viewport: BrowserProjectionViewportState
     public let windows: [BrowserProjectionWindow]
 
     public enum CodingKeys: String, CodingKey {
@@ -14,6 +15,7 @@ public struct BrowserProjectionState: Codable, Equatable, Sendable {
         case projectedWindowId
         case focusedWindowId
         case extensionBuild = "extension"
+        case viewport
         case windows
     }
 
@@ -22,6 +24,10 @@ public struct BrowserProjectionState: Codable, Equatable, Sendable {
         projectedWindowId: Int?,
         focusedWindowId: Int?,
         extensionBuild: BrowserProjectionBuildIdentity,
+        viewport: BrowserProjectionViewportState = BrowserProjectionViewportState(
+            active: false,
+            revision: 0
+        ),
         windows: [BrowserProjectionWindow]
     ) {
         type = "browser-state"
@@ -29,6 +35,7 @@ public struct BrowserProjectionState: Codable, Equatable, Sendable {
         self.projectedWindowId = projectedWindowId
         self.focusedWindowId = focusedWindowId
         self.extensionBuild = extensionBuild
+        self.viewport = viewport
         self.windows = windows
     }
 
@@ -38,6 +45,7 @@ public struct BrowserProjectionState: Codable, Equatable, Sendable {
         }
         guard windows.count <= 64 else { throw BrowserProjectionStateError.tooManyWindows }
         try extensionBuild.validate()
+        try viewport.validate()
 
         let windowIds = Set(windows.map(\.id))
         guard windowIds.count == windows.count else { throw BrowserProjectionStateError.duplicateWindow }
@@ -57,6 +65,208 @@ public struct BrowserProjectionState: Codable, Equatable, Sendable {
             throw BrowserProjectionStateError.invalidFocusedWindow
         }
         for window in windows { try window.validate() }
+    }
+}
+
+public enum BrowserProjectionViewportProfile: String, Codable, CaseIterable, Sendable {
+    case desktop
+    case mobile
+}
+
+public enum BrowserProjectionViewportSizing: String, Codable, CaseIterable, Sendable {
+    case viewer
+    case custom
+    case preset
+}
+
+public struct BrowserProjectionViewportState: Codable, Equatable, Sendable {
+    public let active: Bool
+    public let revision: Int
+    public let profile: BrowserProjectionViewportProfile?
+    public let sizing: BrowserProjectionViewportSizing?
+    public let requestedWidth: Int?
+    public let requestedHeight: Int?
+    public let actualWidth: Int?
+    public let actualHeight: Int?
+    public let error: String?
+
+    public init(
+        active: Bool,
+        revision: Int,
+        profile: BrowserProjectionViewportProfile? = nil,
+        sizing: BrowserProjectionViewportSizing? = nil,
+        requestedWidth: Int? = nil,
+        requestedHeight: Int? = nil,
+        actualWidth: Int? = nil,
+        actualHeight: Int? = nil,
+        error: String? = nil
+    ) {
+        self.active = active
+        self.revision = revision
+        self.profile = profile
+        self.sizing = sizing
+        self.requestedWidth = requestedWidth
+        self.requestedHeight = requestedHeight
+        self.actualWidth = actualWidth
+        self.actualHeight = actualHeight
+        self.error = error
+    }
+
+    public func validate() throws {
+        guard revision >= 0, error.map({ $0.utf8.count <= 1_024 }) ?? true else {
+            throw BrowserProjectionStateError.invalidViewport
+        }
+        if active {
+            guard profile != nil, sizing != nil,
+                  Self.valid(requestedWidth), Self.valid(requestedHeight),
+                  Self.valid(actualWidth), Self.valid(actualHeight) else {
+                throw BrowserProjectionStateError.invalidViewport
+            }
+        } else if profile != nil || sizing != nil
+                    || requestedWidth != nil || requestedHeight != nil
+                    || actualWidth != nil || actualHeight != nil {
+            throw BrowserProjectionStateError.invalidViewport
+        }
+    }
+
+    private static func valid(_ value: Int?) -> Bool {
+        guard let value else { return true }
+        return (1...4_096).contains(value)
+    }
+}
+
+public struct BrowserProjectionViewerStateCommand: Codable, Equatable, Sendable {
+    public let type = "browser-viewer-state"
+    public let active: Bool
+    public let claim: Bool
+    public let profile: BrowserProjectionViewportProfile
+    public let sizing: BrowserProjectionViewportSizing
+    public let width: Int
+    public let height: Int
+
+    public enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case active, claim, profile, sizing, width, height
+    }
+
+    public init(
+        active: Bool,
+        claim: Bool,
+        profile: BrowserProjectionViewportProfile,
+        sizing: BrowserProjectionViewportSizing,
+        width: Int,
+        height: Int
+    ) {
+        self.active = active
+        self.claim = claim
+        self.profile = profile
+        self.sizing = sizing
+        self.width = width
+        self.height = height
+    }
+
+    public func validate() throws {
+        guard (1...4_096).contains(width), (1...4_096).contains(height) else {
+            throw BrowserProjectionStateError.invalidViewport
+        }
+    }
+}
+
+public struct BrowserProjectionSourceViewportCommand: Codable, Equatable, Sendable {
+    public let type = "browser-source-viewport"
+    public let hostEpoch: String
+    public let revision: Int
+    public let active: Bool
+    public let tabId: Int?
+    public let generation: Int
+    public let profile: BrowserProjectionViewportProfile?
+    public let sizing: BrowserProjectionViewportSizing?
+    public let width: Int?
+    public let height: Int?
+
+    public enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case hostEpoch, revision, active, tabId, generation, profile, sizing, width, height
+    }
+
+    public init(
+        hostEpoch: String,
+        revision: Int,
+        active: Bool,
+        tabId: Int?,
+        generation: Int,
+        profile: BrowserProjectionViewportProfile? = nil,
+        sizing: BrowserProjectionViewportSizing? = nil,
+        width: Int? = nil,
+        height: Int? = nil
+    ) {
+        self.hostEpoch = hostEpoch
+        self.revision = revision
+        self.active = active
+        self.tabId = tabId
+        self.generation = generation
+        self.profile = profile
+        self.sizing = sizing
+        self.width = width
+        self.height = height
+    }
+
+    public func validate() throws {
+        guard !hostEpoch.isEmpty, hostEpoch.utf8.count <= 128,
+              revision >= 0, generation >= 0,
+              tabId.map({ $0 >= 0 }) ?? true else {
+            throw BrowserProjectionStateError.invalidViewport
+        }
+        if active {
+            guard profile != nil, sizing != nil,
+                  Self.valid(width), Self.valid(height) else {
+                throw BrowserProjectionStateError.invalidViewport
+            }
+        } else if profile != nil || sizing != nil || width != nil || height != nil {
+            throw BrowserProjectionStateError.invalidViewport
+        }
+    }
+
+    private static func valid(_ value: Int?) -> Bool {
+        guard let value else { return false }
+        return (1...4_096).contains(value)
+    }
+}
+
+public struct BrowserProjectionViewerStatus: Codable, Equatable, Sendable {
+    public let type = "browser-viewer-status"
+    public let owner: Bool
+    public let active: Bool
+    public let profile: BrowserProjectionViewportProfile
+    public let sizing: BrowserProjectionViewportSizing
+    public let width: Int
+    public let height: Int
+
+    public enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case owner, active, profile, sizing, width, height
+    }
+
+    public init(
+        owner: Bool,
+        active: Bool,
+        profile: BrowserProjectionViewportProfile,
+        sizing: BrowserProjectionViewportSizing,
+        width: Int,
+        height: Int
+    ) {
+        self.owner = owner
+        self.active = active
+        self.profile = profile
+        self.sizing = sizing
+        self.width = width
+        self.height = height
+    }
+
+    public func validate() throws {
+        guard (1...4_096).contains(width), (1...4_096).contains(height) else {
+            throw BrowserProjectionStateError.invalidViewport
+        }
     }
 }
 
@@ -353,4 +563,5 @@ public enum BrowserProjectionStateError: Error, Equatable {
     case invalidGroupColor
     case textTooLarge
     case invalidFavicon
+    case invalidViewport
 }

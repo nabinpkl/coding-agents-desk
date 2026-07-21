@@ -14,15 +14,8 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded == value)
 }
 
-@Test func domBatchEnvelopeKeepsEmulatedField() throws {
-    // Drift: the host had `emulated`, the client did not. The unified type carries
-    // it, and it survives a round-trip both set and absent.
-    try roundTrip(DomBatchEnvelope(tabId: 7, checkout: true, emulated: true))
+@Test func domBatchEnvelopeRoundTripsWithoutLegacyEmulationState() throws {
     try roundTrip(DomBatchEnvelope(tabId: 7, checkout: false))
-    let decoded = try JSONDecoder().decode(
-        DomBatchEnvelope.self,
-        from: try JSONEncoder().encode(DomBatchEnvelope(tabId: 1, checkout: false, emulated: false)))
-    #expect(decoded.emulated == false)
 }
 
 @Test func quicSessionTerminalRoleIsPinnedAndRoundTrips() throws {
@@ -50,8 +43,8 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
 }
 
 @Test func wireProtocolRemoteBrowserProjectionVersionIsPinned() {
-    #expect(WireProtocol.version == 12)
-    #expect(WireProtocol.minCompatibleVersion == 12)
+    #expect(WireProtocol.version == 13)
+    #expect(WireProtocol.minCompatibleVersion == 13)
 }
 
 @Test func workspaceTerminalMessagesRoundTripWithoutHostPathOrLaunchAuthority() throws {

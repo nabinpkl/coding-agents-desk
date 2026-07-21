@@ -7,15 +7,29 @@ import os
 final class BrowserProjectionSession {
     private let logger = Logger(subsystem: Config.launchAgentLabel, category: "browser-projection")
     private let sendToBridge: (Data) -> Bool
+    private let viewportCoordinator: BrowserProjectionViewportCoordinator
     private let hostSHA: String
     private weak var controller: BrowserProjectionWindowController?
     private var browserState: BrowserProjectionState?
     private var browserStatePayload: Data?
     private var isBridgeConnected = false
 
-    init(hostSHA: String, sendToBridge: @escaping (Data) -> Bool) {
+    init(
+        hostSHA: String,
+        viewportCoordinator: BrowserProjectionViewportCoordinator,
+        sendToBridge: @escaping (Data) -> Bool
+    ) {
         self.hostSHA = hostSHA
+        self.viewportCoordinator = viewportCoordinator
         self.sendToBridge = sendToBridge
+    }
+
+    convenience init(hostSHA: String, sendToBridge: @escaping (Data) -> Bool) {
+        self.init(
+            hostSHA: hostSHA,
+            viewportCoordinator: BrowserProjectionViewportCoordinator(sendToBridge: sendToBridge),
+            sendToBridge: sendToBridge
+        )
     }
 
     func attach(_ controller: BrowserProjectionWindowController) {
@@ -30,10 +44,17 @@ final class BrowserProjectionSession {
             onTap: { [weak self] x, y in self?.tap(x: x, y: y) },
             onScroll: { [weak self] x, y, dx, dy in
                 self?.scroll(x: x, y: y, dx: dx, dy: dy)
+            },
+            onViewerState: { [weak self] command in
+                self?.viewportCoordinator.update(command, from: .local)
             }
         )
         deliverHostState()
         if let browserStatePayload { controller.receive(browserStatePayload) }
+        if let status = viewportCoordinator.status(for: .local),
+           let payload = try? JSONEncoder().encode(status) {
+            controller.receive(payload)
+        }
         requestState()
     }
 
@@ -56,6 +77,8 @@ final class BrowserProjectionSession {
         browserState = state
         browserStatePayload = payload
         controller?.receive(payload)
+        viewportCoordinator.updateAppliedViewport(state.viewport)
+        viewportCoordinator.updateTarget(tabId: target(in: state).tabId, generation: state.generation)
     }
 
     func receiveBatch(_ payload: Data) {
@@ -79,8 +102,13 @@ final class BrowserProjectionSession {
 
     func setBridgeConnected(_ connected: Bool) {
         isBridgeConnected = connected
+        viewportCoordinator.setBridgeConnected(connected)
         deliverHostState()
         if connected { requestState() }
+    }
+
+    func receiveViewerStatus(_ payload: Data) {
+        controller?.receive(payload)
     }
 
     func selectWindow(_ windowId: Int, generation: Int) {

@@ -1,6 +1,7 @@
 import Foundation
 import ObjectiveC
 import UIKit
+import BrowserProjection
 
 // ADR-0038 DOM mirror: hosts the rrweb replay surface for the Browser segment of the surface
 // switcher, offered only when this session opened a .dom lane (client setting on + host accepted).
@@ -52,14 +53,20 @@ extension PairingViewController {
         // Wire the lane -> surface (pulled fresh so a reconnect's new lane is used), then start it.
         domMirror.onProjectionPayload = { [weak surface] json, isBatch in
             surface?.deliver(rawJSON: json)
+            if let data = json.data(using: .utf8), !isBatch {
+                if let status = try? JSONDecoder().decode(BrowserProjectionViewerStatus.self, from: data) {
+                    surface?.setViewerStatus(status)
+                } else if let state = try? JSONDecoder().decode(BrowserProjectionState.self, from: data) {
+                    surface?.setAppliedViewport(state.viewport)
+                }
+            }
             if isBatch {
                 surface?.recordBatch() // ADR-0046: freshness + batch count for the status line
             }
         }
-        // ADR-0046/0048: host-pushed diagnostic status (bridge connected, recording tab, emulated).
+        // Host-pushed diagnostic status (bridge connected and currently recorded tab).
         domMirror.onStatus = { [weak surface] status in
-            surface?.setBridgeStatus(
-                connected: status.ext, recordingTab: status.tab, emulated: status.emulated ?? false)
+            surface?.setBridgeStatus(connected: status.ext, recordingTab: status.tab)
         }
         // ADR-0040: taps in the mirror go back up the .dom lane to Chrome.
         surface.onTap = { [weak self] x, y in self?.pairingClient.activeDomMirror?.sendTap(x: x, y: y) }
@@ -74,9 +81,8 @@ extension PairingViewController {
             self?.pairingClient.activeDomMirror?.selectTab(
                 windowId, tabId: tabId, generation: generation)
         }
-        // ADR-0048: the Desktop|Mobile control device-emulates the real Chrome tab host-side.
-        surface.onEmulateToggle = { [weak self] mobile in
-            self?.pairingClient.activeDomMirror?.setEmulate(mobile)
+        surface.onViewerState = { [weak self] command in
+            self?.pairingClient.activeDomMirror?.setViewerState(command)
         }
         domMirror.start()
 
@@ -86,6 +92,7 @@ extension PairingViewController {
 
     func teardownDomMirrorSurface() {
         pairingClient.activeDomMirror?.onProjectionPayload = nil
+        domMirrorSurface?.setPaused(true)
         domMirrorSurface?.teardown()
         domMirrorSurface?.removeFromSuperview()
         domMirrorSurface = nil

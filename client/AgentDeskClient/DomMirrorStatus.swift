@@ -12,9 +12,7 @@
 //   lastBatchAgeMs  - client-measured age since the last batch, nil if none yet
 //   nodeCount       - last replayer probe node count, nil until the mirror paints
 //   batchCount      - total batches received this session (liveness/throughput)
-//   paused          - client paused capture because Browser is not in view (ADR-0045)
-//   emulated        - host pushed dom-status: the recording tab is device-emulated (true mobile,
-//                     ADR-0048). Authoritative host state; drives the Desktop|Mobile control + chip.
+//   paused          - this viewer released source ownership because Browser is not in view
 struct DomMirrorStatus: Equatable {
     var bridgeConnected: Bool
     var recordingTab: Int?
@@ -22,7 +20,6 @@ struct DomMirrorStatus: Equatable {
     var nodeCount: Int?
     var batchCount: Int
     var paused: Bool
-    var emulated: Bool
 }
 
 enum StatusSeverity {
@@ -51,12 +48,6 @@ func statusChips(_ s: DomMirrorStatus) -> [StatusChip] {
     } else {
         chips.append(StatusChip(text: "no rec", severity: .warn))
     }
-
-    // ADR-0048: whether the host tab is device-emulated (true mobile) or desktop. `.off` (gray) for
-    // desktop reads as "no emulation active", matching the Desktop|Mobile control's default state.
-    chips.append(StatusChip(
-        text: s.emulated ? "mobile" : "desktop",
-        severity: s.emulated ? .ok : .off))
 
     if s.paused {
         chips.append(StatusChip(text: "paused", severity: .warn))

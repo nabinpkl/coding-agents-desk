@@ -21,16 +21,10 @@ final class DomMirrorSurface: UIView {
     var onScroll: ((_ x: Double, _ y: Double, _ dx: Double, _ dy: Double) -> Void)?
     var onSelectWindow: ((_ windowId: Int, _ generation: Int) -> Void)?
     var onSelectTab: ((_ windowId: Int, _ tabId: Int, _ generation: Int) -> Void)?
+    var onViewerState: ((BrowserProjectionViewerStateCommand) -> Void)?
 
-    // ADR-0047: forward a mirror scroll drag to the host, UNLESS the view is pinch-zoomed. Once the
-    // WKWebView scrollView.zoomScale exceeds 1, a single-finger drag pans the magnified view locally
-    // (intrinsic UIScrollView zoom-pan); also driving the host tab from the same drag is a two-input
-    // collision, so we suppress the host-scroll and let the native pan own the gesture. The tap is
-    // already suppressed JS-side (a drag is a drag), so a zoomed pan drives neither. Model: navigate
-    // the page at 1x, inspect locally when zoomed. zoomScale is the authoritative zoom state (JS
-    // visualViewport tracking of WKWebView pinch is unreliable), so the gate lives here, not in the JS.
+    // The shared renderer suppresses source scrolling while its projection-only zoom is magnified.
     func handleScroll(x: Double, y: Double, dx: Double, dy: Double) {
-        guard webView.scrollView.zoomScale <= 1.01 else { return }
         onScroll?(x, y, dx, dy)
     }
 
@@ -43,16 +37,15 @@ final class DomMirrorSurface: UIView {
     // and on a 1s timer (so the "Xs ago" freshness advances even when no batch arrives).
     private let statusBar = UIView()
     private let statusStack = UIStackView()
-    // ADR-0048: Desktop|Mobile device-emulation toggle. Its selected index is driven by the
-    // authoritative host echo (setBridgeStatus), not the tap, so a host-side reset self-corrects it.
-    private let emulateControl = UISegmentedControl(items: ["Desktop", "Mobile"])
-    var onEmulateToggle: ((_ mobile: Bool) -> Void)?
     private var bridgeConnected = false
     private var recordingTab: Int?
     private var nodeCount: Int?
     private var batchCount = 0
     private var paused = false
-    private var emulated = false
+    private var viewerActive = false
+    private var ownsViewport = false
+    private var viewportProfile: BrowserProjectionViewportProfile?
+    private var actualViewport: (Int, Int)?
     private var lastBatchAt: Date?
     private var ageTimer: Timer?
 
@@ -92,6 +85,9 @@ final class DomMirrorSurface: UIView {
         projectionController.onSelectTab = { [weak self] windowId, tabId, generation in
             self?.handleSelectTab(windowId: windowId, tabId: tabId, generation: generation)
         }
+        projectionController.onViewerState = { [weak self] command in
+            self?.onViewerState?(command)
+        }
         projectionController.onLog = { [weak self] message in
             self?.logger.error("dom-mirror JS: \(message, privacy: .public)")
         }
@@ -107,21 +103,7 @@ final class DomMirrorSurface: UIView {
             statusBar.topAnchor.constraint(equalTo: topAnchor),
             statusBar.leadingAnchor.constraint(equalTo: leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: trailingAnchor),
-            // Tall enough (was 26) to seat the Desktop|Mobile control next to the diagnostic pills.
-            statusBar.heightAnchor.constraint(equalToConstant: 34)
-        ])
-
-        // ADR-0048: the emulation control sits at the trailing edge; the pills fill from the leading
-        // edge up to it. Compact height + small font so it fits the diagnostic bar.
-        emulateControl.translatesAutoresizingMaskIntoConstraints = false
-        emulateControl.selectedSegmentIndex = 0 // desktop until the host echo says otherwise
-        emulateControl.setTitleTextAttributes([.font: UIFont.systemFont(ofSize: 11, weight: .medium)], for: .normal)
-        emulateControl.addTarget(self, action: #selector(emulateChanged), for: .valueChanged)
-        statusBar.addSubview(emulateControl)
-        NSLayoutConstraint.activate([
-            emulateControl.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -8),
-            emulateControl.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
-            emulateControl.heightAnchor.constraint(equalToConstant: 26)
+            statusBar.heightAnchor.constraint(equalToConstant: 26)
         ])
 
         statusStack.translatesAutoresizingMaskIntoConstraints = false
@@ -131,7 +113,7 @@ final class DomMirrorSurface: UIView {
         statusBar.addSubview(statusStack)
         NSLayoutConstraint.activate([
             statusStack.leadingAnchor.constraint(equalTo: statusBar.leadingAnchor, constant: 8),
-            statusStack.trailingAnchor.constraint(lessThanOrEqualTo: emulateControl.leadingAnchor, constant: -8),
+            statusStack.trailingAnchor.constraint(lessThanOrEqualTo: statusBar.trailingAnchor, constant: -8),
             statusStack.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor)
         ])
 
@@ -143,34 +125,54 @@ final class DomMirrorSurface: UIView {
     }
 
     // Granular setters, called by the VC from the wired lane callbacks. Each re-renders the line.
-    // ADR-0048: `emulated` is the authoritative host state; it also drives the segmented control's
-    // selected index (set only here, never in the periodic renderStatus, so the timer can't flicker the
-    // control back between a tap and the host echo).
-    func setBridgeStatus(connected: Bool, recordingTab tab: Int?, emulated emu: Bool) {
-        bridgeConnected = connected; recordingTab = tab; emulated = emu
-        emulateControl.selectedSegmentIndex = emu ? 1 : 0
+    func setBridgeStatus(connected: Bool, recordingTab tab: Int?) {
+        bridgeConnected = connected; recordingTab = tab
         renderStatus()
     }
     func recordBatch() { lastBatchAt = Date(); batchCount += 1; renderStatus() }
     func setNodeCount(_ n: Int) { nodeCount = n; renderStatus() }
-    func setPaused(_ p: Bool) { paused = p; renderStatus() }
+    func setViewerStatus(_ status: BrowserProjectionViewerStatus) {
+        viewerActive = status.active
+        ownsViewport = status.owner
+        viewportProfile = status.profile
+        renderStatus()
+    }
+    func setAppliedViewport(_ viewport: BrowserProjectionViewportState?) {
+        actualViewport = viewport.flatMap { viewport in
+            guard let width = viewport.actualWidth, let height = viewport.actualHeight else { return nil }
+            return (width, height)
+        }
+        renderStatus()
+    }
+    func setPaused(_ p: Bool) {
+        paused = p
+        projectionController.setViewerActive(!p, claim: !p, platform: "ios")
+        renderStatus()
+    }
 
-    // ADR-0048: the user flipped Desktop|Mobile. Request the toggle; the selected index is authoritative
-    // from the host echo (setBridgeStatus), so we don't commit local state here beyond the control's own
-    // selection, which the echo confirms or corrects.
-    @objc private func emulateChanged() {
-        onEmulateToggle?(emulateControl.selectedSegmentIndex == 1)
+    func flushViewerLayout() {
+        projectionController.flushViewerLayout()
     }
 
     private func renderStatus() {
         let ageMs = lastBatchAt.map { Int(Date().timeIntervalSince($0) * 1000) }
         let status = DomMirrorStatus(
             bridgeConnected: bridgeConnected, recordingTab: recordingTab,
-            lastBatchAgeMs: ageMs, nodeCount: nodeCount, batchCount: batchCount, paused: paused,
-            emulated: emulated)
+            lastBatchAgeMs: ageMs, nodeCount: nodeCount, batchCount: batchCount, paused: paused)
         let chips = statusChips(status)
         statusStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for chip in chips { statusStack.addArrangedSubview(Self.makePill(chip)) }
+        statusStack.addArrangedSubview(Self.makePill(StatusChip(
+            text: ownsViewport ? "owner" : (viewerActive ? "viewer" : "inactive"),
+            severity: ownsViewport ? .ok : .off
+        )))
+        if let viewportProfile {
+            statusStack.addArrangedSubview(Self.makePill(StatusChip(text: viewportProfile.rawValue, severity: .off)))
+        }
+        if let actualViewport {
+            statusStack.addArrangedSubview(Self.makePill(StatusChip(
+                text: "\(actualViewport.0)×\(actualViewport.1)", severity: .off)))
+        }
     }
 
     private static func makePill(_ chip: StatusChip) -> UIView {

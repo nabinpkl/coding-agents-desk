@@ -31,6 +31,14 @@ enum DomLanePayloadClassifier {
         case "projection-host":
             return (try? JSONDecoder().decode(BrowserProjectionHostState.self, from: payload)) == nil
                 ? .invalid : .projectionMetadata
+        case "browser-viewer-status":
+            do {
+                let status = try JSONDecoder().decode(BrowserProjectionViewerStatus.self, from: payload)
+                try status.validate()
+                return .projectionMetadata
+            } catch {
+                return .invalid
+            }
         case "dom-status":
             guard let status = try? JSONDecoder().decode(DomStatus.self, from: payload) else {
                 return .invalid
@@ -53,8 +61,8 @@ final class DomMirrorClient: @unchecked Sendable {
     private var task: Task<Void, Never>?
 
     // ADR-0047: all client->host writes on the .dom stream go through this serialized chain. Tap,
-    // scroll, and emulate commands are fire-and-forget from the main actor, and scroll fires up to
-    // once per animation frame; without serialization those concurrent stream.send calls interleave
+    // scroll, selection, and viewer commands are fire-and-forget from the main actor, and scroll
+    // fires up to once per animation frame; without serialization those stream.send calls interleave
     // their bytes on the one QUIC stream, so the host reads a corrupted frame and its receive loop
     // ends with `malformed` -- killing the whole reverse channel. Each enqueued send awaits the prior,
     // mirroring the host's DomEventLaneServer send chain, so frames are written whole and in order.
@@ -155,7 +163,7 @@ final class DomMirrorClient: @unchecked Sendable {
     func sendScroll(x: Double, y: Double, dx: Double, dy: Double) {
         let cmd = DomScrollCommand(x: x, y: y, dx: dx, dy: dy)
         guard let payload = try? JSONEncoder().encode(cmd) else { return }
-        enqueueSend(payload, label: "scroll dx=\(Int(dx)) dy=\(Int(dy))")
+        enqueueSend(payload, label: "scroll")
     }
 
     func selectWindow(_ windowId: Int, generation: Int) {
@@ -179,26 +187,11 @@ final class DomMirrorClient: @unchecked Sendable {
         enqueueSend(payload, label: "select-tab")
     }
 
-    // ADR-0045: pause/resume DOM capture at the source. Sent UP the .dom lane; the host forwards it
-    // to the extension, which stops/starts rrweb recording (restart emits a fresh full snapshot).
-    // Guarded on the lane having been started (announce sent) so a capture frame never races ahead
-    // of the role announce the host reads first.
-    func setCapture(_ on: Bool) {
+    func setViewerState(_ command: BrowserProjectionViewerStateCommand) {
         guard task != nil else { return }
-        let cmd = DomCaptureCommand(on: on)
-        guard let payload = try? JSONEncoder().encode(cmd) else { return }
-        enqueueSend(payload, label: "capture")
-    }
-
-    // ADR-0048: toggle host-side device emulation (true mobile). Sent UP the .dom lane; the host
-    // forwards it to the extension, which device-emulates the recorded tab and resnapshots. The
-    // authoritative emulation state comes BACK via dom-status (DomStatus.emulated), so the client's
-    // control self-corrects; this call is just the request. Guarded on the lane having been started.
-    func setEmulate(_ mobile: Bool) {
-        guard task != nil else { return }
-        let cmd = DomEmulateCommand(mobile: mobile)
-        guard let payload = try? JSONEncoder().encode(cmd) else { return }
-        enqueueSend(payload, label: "emulate")
+        guard (try? command.validate()) != nil,
+              let payload = try? JSONEncoder().encode(command) else { return }
+        enqueueSend(payload, label: "viewer-state")
     }
 
     func stop() {

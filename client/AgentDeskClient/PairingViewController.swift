@@ -557,6 +557,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             self.sinkScrollView?.setContentOffset(.zero, animated: false)
             self.updateOrientationToggleIcon(forLandscape: willBeLandscape)
             self.view.layoutIfNeeded()
+        }, completion: { _ in
+            self.domMirrorSurface?.flushViewerLayout()
         })
     }
 

@@ -5,6 +5,7 @@ import Foundation
 import Network
 import os
 import AgentDeskWire
+import BrowserProjection
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -141,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var browserProjectionWindowController: BrowserProjectionWindowController?
     private var browserProjectionSession: BrowserProjectionSession?
     private var browserProjectionLane: BrowserProjectionLocalLane?
+    private var browserProjectionViewportCoordinator: BrowserProjectionViewportCoordinator?
     // R24: the macOS Agents window, toggled from the shell's top-bar "Agents" command. Backed by the
     // host-owned ATC sidecar through AgentPanel, independent of the QUIC-lane agent feed.
     private var agentWindowController: AgentWindowController?
@@ -401,6 +403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         browserProjectionLane?.close()
         browserProjectionLane = nil
         browserProjectionSession = nil
+        browserProjectionViewportCoordinator = nil
         workspaceObservationCoordinator.stop()
         workspaceShellPresenter?.stop()
         workspaceShellPresenter = nil
@@ -705,6 +708,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ADR-0040: forward client taps read off the lane to the bridge, which relays them to the
         // extension for trusted dispatch. Kept on the DOM path, never the Mac input dispatcher.
         lane.onInput = { [weak self] raw in
+            if let command = try? JSONDecoder().decode(BrowserProjectionViewerStateCommand.self, from: raw),
+               command.type == "browser-viewer-state" {
+                Task { @MainActor [weak self] in
+                    self?.browserProjectionViewportCoordinator?.update(
+                        command,
+                        from: .remote(fingerprint)
+                    )
+                }
+                return
+            }
             // ADR-0047 scroll diagnostic: if the shim is not connected the command is silently
             // dropped and never reaches Chrome -- surface that so a "dead" scroll is distinguishable
             // from a slow one. Successful forwards stay unlogged (the dom-lane forward log already
@@ -712,8 +725,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let accepted = self?.domBridgeServer?.sendToBridge(raw) ?? false
             if !accepted { self?.signalingLogger.notice("dom-lane input dropped: no bridge shim connected") }
         }
+        lane.onReceiveEnded = { [weak self, weak lane] in
+            guard let lane else { return }
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.domMirrorRelay.detach(lane, for: fingerprint) else { return }
+                self.browserProjectionViewportCoordinator?.remove(.remote(fingerprint))
+            }
+        }
         lane.startReceiving()
         domMirrorRelay.attach(lane, for: fingerprint)
+        browserProjectionViewportCoordinator?.register(.remote(fingerprint), profile: .mobile)
     }
 
     private func handleTerminalLaneReady(_ fingerprint: DeviceFingerprint, bridge: TerminalClientBridge) {
@@ -777,16 +799,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hostSHA = (Bundle.main.infoDictionary?["AgentDeskGitSHA"] as? String)
             .flatMap { $0.isEmpty ? nil : $0 } ?? "dev"
         relay.setHostSHA(hostSHA)
-        let projectionSession = BrowserProjectionSession(hostSHA: hostSHA) { [weak server] payload in
+        let viewportCoordinator = BrowserProjectionViewportCoordinator { [weak server] payload in
             server?.sendToBridge(payload) ?? false
         }
+        let projectionSession = BrowserProjectionSession(
+            hostSHA: hostSHA,
+            viewportCoordinator: viewportCoordinator
+        ) { [weak server] payload in server?.sendToBridge(payload) ?? false }
+        viewportCoordinator.onViewerStatus = { [weak projectionSession] viewer, payload in
+            switch viewer {
+            case .local:
+                projectionSession?.receiveViewerStatus(payload)
+            case .remote(let fingerprint):
+                relay.send(payload, to: fingerprint)
+            }
+        }
+        viewportCoordinator.register(.local, profile: .desktop)
         let projectionLane = BrowserProjectionLocalLane(session: projectionSession)
         server.onBatch = { raw, envelope in
-            // ADR-0048: envelope.emulated is the batch's `em` stamp (the extension's authoritative
-            // device-emulation state); the relay fans it to the client's Desktop|Mobile control.
-            relay.ingest(
-                line: raw, tabId: envelope.tabId, checkout: envelope.checkout,
-                emulated: envelope.emulated)
+            relay.ingest(line: raw, tabId: envelope.tabId, checkout: envelope.checkout)
             projectionLane.send(.batch(raw))
         }
         server.onBrowserState = { raw, state in
@@ -806,6 +837,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         domBridgeServer = server
         browserProjectionSession = projectionSession
         browserProjectionLane = projectionLane
+        browserProjectionViewportCoordinator = viewportCoordinator
         signalingLogger.notice("dom-mirror bridge started")
     }
 
@@ -952,6 +984,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         thumbnailEnabledClients.remove(fingerprint)
         spaceThumbnailProvider.setDemand(owner: .client(fingerprint.rawValue), enabled: false)
         domMirrorRelay.detach(for: fingerprint)
+        browserProjectionViewportCoordinator?.remove(.remote(fingerprint))
         updateHostAvailability(.disconnected, reason: "session-ended")
         signalingLogger.notice("session ended fingerprint=\(fingerprint.rawValue, privacy: .public)")
         refreshConnectedState()
