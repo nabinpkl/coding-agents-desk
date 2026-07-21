@@ -5,6 +5,9 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
+private let preserveFocusedApplication =
+    ProcessInfo.processInfo.environment["AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS"] == "1"
+
 private enum DriverError: LocalizedError {
     case usage(String)
     case appNotRunning(String)
@@ -269,6 +272,7 @@ private func waitForElement(
 }
 
 private func activateApp(_ app: NSRunningApplication, window: AXUIElement?) {
+    guard !preserveFocusedApplication else { return }
     _ = app.activate()
     if let window {
         _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
@@ -323,16 +327,90 @@ private func performStep(element: AXUIElement, action: String, count: Int) throw
     }
 }
 
+private func numericValue(of element: AXUIElement) -> Double? {
+    let value: AnyObject? = axAttribute(element, kAXValueAttribute as String)
+    if let number = value as? NSNumber { return number.doubleValue }
+    if let string = value as? String { return Double(string) }
+    return nil
+}
+
+private func firstDescendant(withRole role: String, in root: AXUIElement) -> AXUIElement? {
+    var queue = relatedElements(for: root)
+    var visited: Set<UInt> = []
+    while !queue.isEmpty {
+        let element = queue.removeFirst()
+        let hash = CFHash(element)
+        guard visited.insert(hash).inserted else { continue }
+        if axString(element, kAXRoleAttribute as String) == role {
+            return element
+        }
+        queue.append(contentsOf: relatedElements(for: element))
+    }
+    return nil
+}
+
+private func descendants(withRole role: String, in root: AXUIElement) -> [AXUIElement] {
+    var queue = relatedElements(for: root)
+    var visited: Set<UInt> = []
+    var matches: [AXUIElement] = []
+    while !queue.isEmpty {
+        let element = queue.removeFirst()
+        let hash = CFHash(element)
+        guard visited.insert(hash).inserted else { continue }
+        if axString(element, kAXRoleAttribute as String) == role {
+            matches.append(element)
+        }
+        queue.append(contentsOf: relatedElements(for: element))
+    }
+    return matches
+}
+
+private func performNumericStep(on field: AXUIElement, increasing: Bool, count: Int) throws {
+    guard count > 0 else { return }
+    let arrows = descendants(withRole: "AXIncrementorArrow", in: field)
+    guard arrows.count >= 2, let initial = numericValue(of: field) else {
+        try performStep(
+            element: firstDescendant(withRole: kAXIncrementorRole, in: field) ?? field,
+            action: increasing ? kAXIncrementAction : kAXDecrementAction,
+            count: count
+        )
+        return
+    }
+    for arrow in arrows {
+        try performStep(element: arrow, action: kAXPressAction, count: 1)
+        guard let next = numericValue(of: field), next != initial else { continue }
+        let movedInRequestedDirection = increasing ? next > initial : next < initial
+        if movedInRequestedDirection {
+            try performStep(element: arrow, action: kAXPressAction, count: count - 1)
+            return
+        }
+        guard let opposite = arrows.first(where: { CFHash($0) != CFHash(arrow) }) else { break }
+        try performStep(element: opposite, action: kAXPressAction, count: 1)
+        try performStep(element: opposite, action: kAXPressAction, count: count)
+        return
+    }
+    throw DriverError.usage("Could not drive numeric AX stepper")
+}
+
 private func setValue(_ value: String, on element: AXUIElement) throws {
-    _ = AXUIElementSetAttributeValue(
-        element,
-        kAXFocusedAttribute as CFString,
-        kCFBooleanTrue
-    )
+    if !preserveFocusedApplication {
+        _ = AXUIElementSetAttributeValue(
+            element,
+            kAXFocusedAttribute as CFString,
+            kCFBooleanTrue
+        )
+    }
+    let encodedValue: CFTypeRef
+    if firstDescendant(withRole: kAXIncrementorRole, in: element) != nil,
+       let numericValue = Double(value) {
+        encodedValue = NSNumber(value: numericValue)
+    } else {
+        encodedValue = value as CFString
+    }
     let error = AXUIElementSetAttributeValue(
         element,
         kAXValueAttribute as CFString,
-        value as CFString
+        encodedValue
     )
     guard error == .success else { throw DriverError.actionFailed("AXValue", error) }
 }
@@ -439,7 +517,8 @@ private func printElement(_ element: AXUIElement) {
     print("identifier=\(axString(element, kAXIdentifierAttribute as String))")
     print("domIdentifier=\(axString(element, kAXDOMIdentifierAttribute as String))")
     print("title=\(axString(element, kAXTitleAttribute as String))")
-    print("value=\(axString(element, kAXValueAttribute as String))")
+    let value: AnyObject? = axAttribute(element, kAXValueAttribute as String)
+    print("value=\(value.map(String.init(describing:)) ?? "")")
     print("description=\(axString(element, kAXDescriptionAttribute as String))")
     print("actions=\(axActionNames(element).joined(separator: ","))")
     print("attributes=\(axAttributeNames(element).joined(separator: ","))")
@@ -543,10 +622,10 @@ do {
             try setValue(value, on: element)
         case "increment":
             activateApp(app, window: window)
-            try performStep(element: element, action: kAXIncrementAction, count: count)
+            try performNumericStep(on: element, increasing: true, count: count)
         case "decrement":
             activateApp(app, window: window)
-            try performStep(element: element, action: kAXDecrementAction, count: count)
+            try performNumericStep(on: element, increasing: false, count: count)
         default:
             break
         }

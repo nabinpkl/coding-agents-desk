@@ -116,6 +116,7 @@ try {
   await page.locator('#browser-projection-viewport-width').fill('412');
   await page.locator('#browser-projection-viewport-height').fill('915');
   await page.locator('#browser-projection-viewport-height').press('Tab');
+  await page.waitForTimeout(200);
   intents = await page.evaluate(() => window.__projectionIntents);
   viewerIntent = intents.filter((intent) => intent.kind === 'viewer-state').at(-1);
   assert(viewerIntent.profile === 'mobile' && viewerIntent.sizing === 'custom'

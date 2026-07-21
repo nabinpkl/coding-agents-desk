@@ -687,7 +687,11 @@ host-run-dev variant="stable" install_live_bridge="true":
     fi
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
-    open "$APP"
+    if [ "${AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS:-0}" != "0" ]; then
+        open -g "$APP"
+    else
+        open "$APP"
+    fi
     sleep 2
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh unset
     pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true

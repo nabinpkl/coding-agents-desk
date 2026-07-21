@@ -20,7 +20,9 @@ final class BrowserProjectionWindowController: NSWindowController, NSWindowDeleg
             defer: false
         )
         projectionWindow.title = "Browser Projection"
-        projectionWindow.collectionBehavior = [.moveToActiveSpace, .fullScreenPrimary]
+        projectionWindow.collectionBehavior = Config.axAutomationPreservesFocus
+            ? [.canJoinAllSpaces, .fullScreenAuxiliary]
+            : [.moveToActiveSpace, .fullScreenPrimary]
         projectionWindow.isReleasedWhenClosed = false
         projectionWindow.setAccessibilityIdentifier("browser-projection-window")
         projectionWindow.contentView = projectionController.view
@@ -44,13 +46,16 @@ final class BrowserProjectionWindowController: NSWindowController, NSWindowDeleg
             projectionController.setViewerActive(false, claim: false, platform: "macos")
             window.orderOut(nil)
         } else {
-            showWindow(nil)
             if !hasBeenShown {
                 window.center()
                 hasBeenShown = true
             }
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            if Config.axAutomationPreservesFocus {
+                window.orderFrontRegardless()
+            } else {
+                window.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+            }
             projectionController.setViewerActive(true, claim: true, platform: "macos")
         }
     }

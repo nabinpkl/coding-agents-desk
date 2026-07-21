@@ -37,12 +37,14 @@
     var panX = 0;
     var panY = 0;
     var resizeTimer = null;
+    var customTimer = null;
     var lastViewportSignature = '';
 
     var desktopButton = document.getElementById('browser-projection-device-desktop');
     var mobileButton = document.getElementById('browser-projection-device-mobile');
     var widthInput = document.getElementById('browser-projection-viewport-width');
     var heightInput = document.getElementById('browser-projection-viewport-height');
+    var applyButton = document.getElementById('browser-projection-viewport-apply');
     var resetButton = document.getElementById('browser-projection-viewport-reset');
     var zoomOutButton = document.getElementById('browser-projection-zoom-out');
     var zoomLevel = document.getElementById('browser-projection-zoom-level');
@@ -116,6 +118,10 @@
     }
 
     function setPreset(profile) {
+      if (customTimer) {
+        clearTimeout(customTimer);
+        customTimer = null;
+      }
       var preset = profile === 'mobile' ? MOBILE_PRESET : DESKTOP_PRESET;
       state.profile = profile;
       state.sizing = 'preset';
@@ -143,7 +149,27 @@
       sendViewerState(true);
     }
 
+    function scheduleCustomDimensions() {
+      if (customTimer) clearTimeout(customTimer);
+      customTimer = setTimeout(function () {
+        customTimer = null;
+        commitCustomDimensions();
+      }, RESIZE_DEBOUNCE_MS);
+    }
+
+    function flushCustomDimensions() {
+      if (customTimer) {
+        clearTimeout(customTimer);
+        customTimer = null;
+      }
+      commitCustomDimensions();
+    }
+
     function resetToViewer() {
+      if (customTimer) {
+        clearTimeout(customTimer);
+        customTimer = null;
+      }
       state.sizing = 'viewer';
       updateViewerDimensions(true);
     }
@@ -276,8 +302,11 @@
 
     desktopButton.addEventListener('click', function () { setPreset('desktop'); });
     mobileButton.addEventListener('click', function () { setPreset('mobile'); });
-    widthInput.addEventListener('change', commitCustomDimensions);
-    heightInput.addEventListener('change', commitCustomDimensions);
+    widthInput.addEventListener('input', scheduleCustomDimensions);
+    heightInput.addEventListener('input', scheduleCustomDimensions);
+    widthInput.addEventListener('change', scheduleCustomDimensions);
+    heightInput.addEventListener('change', scheduleCustomDimensions);
+    applyButton.addEventListener('click', flushCustomDimensions);
     resetButton.addEventListener('click', resetToViewer);
     zoomOutButton.addEventListener('click', function () { setZoom(zoomMultiplier - ZOOM_STEP); });
     zoomInButton.addEventListener('click', function () { setZoom(zoomMultiplier + ZOOM_STEP); });

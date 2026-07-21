@@ -25,6 +25,7 @@ const INSTALLER = join(REPO, 'dom-bridge', 'install.mjs');
 const FIXTURE = readFileSync(join(__dirname, 'fixtures', 'page.html'), 'utf8');
 const TOKEN = 'input-verify-token';
 const TAP_X = 100, TAP_Y = 60;
+const preserveFocus = process.env.AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS === '1';
 
 const PW_ROOT = process.env.AGENTDESK_PLAYWRIGHT_ROOT
   || join(execFileSync('npm', ['root', '-g']).toString().trim(), 'playwright');
@@ -80,8 +81,14 @@ async function main() {
   if (install.status !== 0) { console.error(install.stdout, install.stderr); throw new Error('install failed'); }
 
   ctx = await chromium.launchPersistentContext(userDataDir, {
-    headless: false,
-    args: [`--disable-extensions-except=${EXT_DIR}`, `--load-extension=${EXT_DIR}`, '--no-first-run', '--no-default-browser-check'],
+    headless: preserveFocus,
+    channel: preserveFocus ? 'chromium' : undefined,
+    args: [
+      `--disable-extensions-except=${EXT_DIR}`,
+      `--load-extension=${EXT_DIR}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+    ],
   });
   const page = await ctx.newPage();
   await page.goto(`http://127.0.0.1:${port}/page.html`, { waitUntil: 'load' });
@@ -99,6 +106,18 @@ async function main() {
   if (!sw) { try { sw = await ctx.waitForEvent('serviceworker', { timeout: 5000 }); } catch {} }
   if (!sw) throw new Error('service worker not found; cannot start recording');
   await sw.evaluate(() => startBrowserProjection());
+
+  for (let i = 0; i < 40 && !host.authed; i++) await sleep(100);
+  const sourceTarget = await sw.evaluate(async () => {
+    const state = await browserStatePayload();
+    const windowState = state.windows.find((entry) => entry.id === state.projectedWindowId);
+    return { tabId: windowState && windowState.activeTabId, generation: state.generation };
+  });
+  if (host.conn) host.conn.write(JSON.stringify({
+    t: 'browser-source-viewport', hostEpoch: 'input-verify-host', revision: 1,
+    active: true, tabId: sourceTarget.tabId, generation: sourceTarget.generation,
+    profile: 'desktop', sizing: 'viewer', width: 1280, height: 720,
+  }) + '\n');
 
   // Wait until a batch proves that the projection session's recorder is running.
   for (let i = 0; i < 40 && host.batches === 0; i++) await sleep(250);

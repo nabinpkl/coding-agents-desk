@@ -944,6 +944,11 @@ enum Config {
         defaultValue: false,
         environment: ProcessInfo.processInfo.environment
     )
+    static let axAutomationPreservesFocus: Bool = axAutomationEnabled && enabledFlag(
+        environmentKey: "AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS",
+        defaultValue: false,
+        environment: ProcessInfo.processInfo.environment
+    )
     static let agentResumeExecutables = agentResumeExecutables(
         environment: ProcessInfo.processInfo.environment
     )

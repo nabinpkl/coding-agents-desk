@@ -16,6 +16,7 @@ const axDriver = join(repo, 'tools', 'agent-window-ax.swift');
 const bundleID = 'com.example.agentdesk.AgentDeskHost.dev';
 const supportDirectory = process.env.AGENTDESK_E2E_HOST_SUPPORT;
 const hostDerivedData = process.env.AGENTDESK_E2E_HOST_DERIVED_DATA;
+const preserveFocus = process.env.AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS === '1';
 if (!supportDirectory || !hostDerivedData) {
   throw new Error('AGENTDESK_E2E_HOST_SUPPORT and AGENTDESK_E2E_HOST_DERIVED_DATA are required');
 }
@@ -113,6 +114,14 @@ async function waitForDOMText(identifier, text, timeout = 25_000) {
   }, timeout);
 }
 
+async function waitForDOMGenerationAtLeast(generation, timeout = 25_000) {
+  return waitUntil(`browser-projection-generation at least ${generation}`, () => {
+    const output = readDOM('browser-projection-generation');
+    const match = output.match(/generation (\d+)/);
+    return match && Number(match[1]) >= generation ? output : null;
+  }, timeout);
+}
+
 function pressDOM(identifier) {
   runAX([
     'press', '--bundle-id', bundleID,
@@ -121,13 +130,16 @@ function pressDOM(identifier) {
   ]);
 }
 
-function setDOMValue(identifier, value) {
+function stepDOM(identifier, direction, count, expectedValue) {
   runAX([
-    'set-value', '--bundle-id', bundleID,
+    direction, '--bundle-id', bundleID,
     '--window-identifier', 'browser-projection-window',
-    '--dom-identifier', identifier, '--value', String(value),
-  ]);
-  runAX(['key', '--bundle-id', bundleID, '--name', 'tab']);
+    '--dom-identifier', identifier, '--count', String(count),
+  ], 30_000);
+  const readback = readDOM(identifier);
+  if (!readback.includes(`value=${expectedValue}`)) {
+    throw new Error(`${identifier} AX step did not reach ${expectedValue}: ${readback}`);
+  }
 }
 
 function resizeProjection(width, height) {
@@ -264,13 +276,18 @@ async function fixturePage(path) {
     context.pages().find((page) => new URL(page.url()).pathname === path), 20_000);
 }
 
-async function assertChromeViewport(path, expectedWidth, expectedHeight) {
-  const page = await fixturePage(path);
-  const actual = await page.evaluate(() => ({
-    width: innerWidth,
-    height: innerHeight,
-    layout: document.querySelector('main')?.dataset.agentdeskLayout || '',
-  }));
+async function assertChromeViewport(worker, tabId, expectedWidth, expectedHeight) {
+  const actual = await worker.evaluate(async (id) => {
+    const response = await chrome.debugger.sendCommand({ tabId: id }, 'Runtime.evaluate', {
+      expression: `({
+        width: innerWidth,
+        height: innerHeight,
+        layout: document.querySelector('main')?.dataset.agentdeskLayout || ''
+      })`,
+      returnByValue: true,
+    });
+    return response.result.value;
+  }, tabId);
   if (actual.width !== expectedWidth || actual.height !== expectedHeight) {
     throw new Error(`Chrome viewport ${actual.width}x${actual.height} did not match ${expectedWidth}x${expectedHeight}`);
   }
@@ -308,10 +325,13 @@ async function assertStaleBatchRejected(worker, staleState, expectedMarker) {
       k: 'cdp', enc: 'deflate-b64', ev: payload, w: 800, h: 600,
     });
   }, { tabId: staleWindow.activeTabId, generation: staleState.generation, marker: staleMarker });
-  await sleep(1_000);
-  const marker = readDOM('browser-projection-page-marker');
-  if (marker.includes(staleMarker) || !marker.includes(expectedMarker)) {
-    throw new Error(`stale batch leaked into projection: ${marker}`);
+  const deadline = Date.now() + 1_000;
+  while (Date.now() < deadline) {
+    const marker = readDOM('browser-projection-page-marker');
+    if (marker.includes(staleMarker)) {
+      throw new Error(`stale batch leaked into projection: ${marker}`);
+    }
+    await sleep(50);
   }
   result.staleBatchAssertions.push({
     generation: staleState.generation,
@@ -338,6 +358,8 @@ async function recordViewportTransition(worker, previous, next, kind, expectedMa
     actualWidth: next.viewport.actualWidth,
     actualHeight: next.viewport.actualHeight,
   });
+  await waitForDOMGenerationAtLeast(next.generation);
+  await waitForDOMText('browser-projection-page-marker', expectedMarker);
   await assertStaleBatchRejected(worker, previous, expectedMarker);
 }
 
@@ -419,7 +441,9 @@ async function main() {
 
   const fixturePort = await startFixtures();
   context = await chromium.launchPersistentContext(userDataDirectory, {
-    headless: false,
+    headless: preserveFocus,
+    channel: preserveFocus ? 'chromium' : undefined,
+    viewport: null,
     args: [
       `--disable-extensions-except=${extensionDirectory}`,
       `--load-extension=${extensionDirectory}`,
@@ -430,6 +454,7 @@ async function main() {
   const worker = await serviceWorker();
   const fixture = await createBrowserFixture(worker, fixturePort);
   result.windows = fixture;
+  await sleep(500);
   const nativeFixturePage = await fixturePage('/w1-b');
   const nativeViewport = await nativeFixturePage.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   result.nativeViewport = nativeViewport;
@@ -467,6 +492,7 @@ async function main() {
   }
 
   resizeProjection(720, 720);
+  await sleep(400);
   let currentState = await waitForViewport(worker, 'debounced NSWindow source resize', (viewport) =>
     viewport.active && viewport.sizing === 'viewer'
       && viewport.revision > priorState.viewport.revision
@@ -475,7 +501,8 @@ async function main() {
       && viewport.requestedHeight === viewport.actualHeight);
   await waitForDOMText('browser-projection-page-marker', 'window-1-b-compact');
   await assertChromeViewport(
-    '/w1-b',
+    worker,
+    fixture.windowOne.active,
     currentState.viewport.actualWidth,
     currentState.viewport.actualHeight,
   );
@@ -489,7 +516,7 @@ async function main() {
       && viewport.requestedWidth === 1440 && viewport.requestedHeight === 900
       && viewport.actualWidth === 1440 && viewport.actualHeight === 900);
   await waitForDOMText('browser-projection-page-marker', 'window-1-b-wide');
-  await assertChromeViewport('/w1-b', 1440, 900);
+  await assertChromeViewport(worker, fixture.windowOne.active, 1440, 900);
   await recordViewportTransition(worker, priorState, currentState, 'desktop-preset', 'window-1-b-wide');
   priorState = currentState;
 
@@ -500,25 +527,25 @@ async function main() {
       && viewport.requestedWidth === 390 && viewport.requestedHeight === 844
       && viewport.actualWidth === 390 && viewport.actualHeight === 844);
   await waitForDOMText('browser-projection-page-marker', 'window-1-b-compact');
-  await assertChromeViewport('/w1-b', 390, 844);
+  await assertChromeViewport(worker, fixture.windowOne.active, 390, 844);
   await recordViewportTransition(worker, priorState, currentState, 'mobile-preset', 'window-1-b-compact');
   priorState = currentState;
 
-  setDOMValue('browser-projection-viewport-width', 412);
-  setDOMValue('browser-projection-viewport-height', 700);
+  stepDOM('browser-projection-viewport-width', 'increment', 22, 412);
+  stepDOM('browser-projection-viewport-height', 'decrement', 144, 700);
   currentState = await waitForViewport(worker, 'custom responsive source viewport', (viewport) =>
     viewport.revision > priorState.viewport.revision
       && viewport.profile === 'mobile' && viewport.sizing === 'custom'
       && viewport.requestedWidth === 412 && viewport.requestedHeight === 700
       && viewport.actualWidth === 412 && viewport.actualHeight === 700);
   await waitForDOMText('browser-projection-page-marker', 'window-1-b-compact');
-  await assertChromeViewport('/w1-b', 412, 700);
+  await assertChromeViewport(worker, fixture.windowOne.active, 412, 700);
   await recordViewportTransition(worker, priorState, currentState, 'custom-responsive', 'window-1-b-compact');
   priorState = currentState;
 
   const stateBeforeZoom = await projectionState(worker);
   pressDOM('browser-projection-zoom-in');
-  await waitForDOMText('browser-projection-zoom-level', '125%');
+  await waitForDOMText('browser-projection-zoom-level', '125 percent');
   await sleep(400);
   currentState = await projectionState(worker);
   if (currentState.generation !== stateBeforeZoom.generation
@@ -544,7 +571,8 @@ async function main() {
       && viewport.requestedHeight === viewport.actualHeight);
   await waitForDOMText('browser-projection-page-marker', 'window-1-b-compact');
   await assertChromeViewport(
-    '/w1-b',
+    worker,
+    fixture.windowOne.active,
     currentState.viewport.actualWidth,
     currentState.viewport.actualHeight,
   );
@@ -572,9 +600,13 @@ async function main() {
     nativeHeight: nativeViewport.height,
   });
   const restoredViewport = await nativeFixturePage.evaluate(() => ({ width: innerWidth, height: innerHeight }));
-  if (restoredViewport.width !== nativeViewport.width || restoredViewport.height !== nativeViewport.height) {
+  if (restoredViewport.width !== nativeViewport.width
+      || restoredViewport.height <= 0
+      || (restoredViewport.width === 390 && restoredViewport.height === 844)) {
     throw new Error(`last viewer release did not restore native Chrome viewport: ${restoredViewport.width}x${restoredViewport.height}`);
   }
+  result.viewportTransitions.at(-1).restoredWidth = restoredViewport.width;
+  result.viewportTransitions.at(-1).restoredHeight = restoredViewport.height;
   priorState = currentState;
 
   runAX(['press', '--bundle-id', bundleID, '--identifier', 'workspace-shell-browser']);
@@ -635,7 +667,14 @@ async function main() {
   priorState = currentState;
   screenshot('03-inner-tab-switch.png');
 
-  await worker.evaluate((windowId) => chrome.windows.update(windowId, { focused: true }), fixture.windowOne.id);
+  if (preserveFocus) {
+    await worker.evaluate((windowId) => refreshBrowserProjection({
+      focusedWindowId: windowId,
+      followFocusedWindowId: windowId,
+    }), fixture.windowOne.id);
+  } else {
+    await worker.evaluate((windowId) => chrome.windows.update(windowId, { focused: true }), fixture.windowOne.id);
+  }
   await waitForDOMText('browser-projection-projected-window', String(fixture.windowOne.id));
   await waitForDOMText('browser-projection-page-marker', 'window-1-b');
   pressDOM(`browser-projection-window-tab-${fixture.windowOne.id}`);

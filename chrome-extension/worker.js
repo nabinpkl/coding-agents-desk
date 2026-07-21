@@ -499,6 +499,11 @@ async function startRecorderForTab(tabId) {
   }
   browserSession = AgentDeskBrowserSession.withRecordedTab(browserSession, tabId);
   await setBadge(tabId, true);
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'agentdesk-resnapshot' });
+  } catch (error) {
+    console.warn('[agentdesk] recorder keyframe request failed', error && error.message);
+  }
   return true;
 }
 
