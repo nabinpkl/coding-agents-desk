@@ -20,7 +20,6 @@ final class BrowserProjectionWindowController: NSWindowController, NSWindowDeleg
             defer: false
         )
         projectionWindow.title = "Browser Projection"
-        projectionWindow.minSize = NSSize(width: 640, height: 420)
         projectionWindow.collectionBehavior = [.moveToActiveSpace, .fullScreenPrimary]
         projectionWindow.isReleasedWhenClosed = false
         projectionWindow.setAccessibilityIdentifier("browser-projection-window")
