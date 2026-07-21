@@ -12,7 +12,7 @@
 // ADR-0043: each batch's rrweb events are deflate-compressed (zlib) and base64-encoded HERE, off the
 // recorded page's main thread, then shipped opaquely through the whole chain (shim, host, .dom lane,
 // Swift client) and inflated only in the replay webview. This is the fix for heavy pages: a raw
-// masked FullSnapshot can exceed the host's 2 MB line cap, but compressed it is tens of KB. A still-
+// FullSnapshot can exceed the host's 2 MB line cap, but compressed it is tens of KB. A still-
 // oversized compressed batch (>~15 MB raw) is chunked into cid/seq/total parts, each a normal line.
 importScripts(
   'vendor/fflate.min.js',
@@ -283,8 +283,8 @@ const CDP_POLL_MS = 1500;
 let cdpMode = false;      // whether CDP keyframes are being sent for the recording tab
 let cdpUserSet = false;   // the user explicitly toggled it -> don't auto-upgrade over their choice
 let cdpTimer = null;
-// reconstructMaskedHtml + CDP_STYLE_PROPS come from cdp-reconstruct.js (importScripts above); the same
-// file is require()'d by the cdp-verify test so the masking reconstruction is exercised as real code.
+// reconstructProjectionHtml + CDP_STYLE_PROPS come from cdp-reconstruct.js (importScripts above); the same
+// file is require()'d by the cdp-verify test so projection and password masking use the real code.
 
 async function captureCdpSnapshot() {
   const tabId = browserSession.recordedTabId;
@@ -301,7 +301,7 @@ async function captureCdpSnapshot() {
   try { metrics = await chrome.debugger.sendCommand({ tabId }, 'Page.getLayoutMetrics', {}); } catch (e) {}
   const vp = (metrics && (metrics.cssLayoutViewport || metrics.layoutViewport)) || {};
   let html;
-  try { html = reconstructMaskedHtml(snap); } catch (e) { console.error('[agentdesk] cdp reconstruct failed', e && e.message); return; }
+  try { html = reconstructProjectionHtml(snap); } catch (e) { console.error('[agentdesk] cdp reconstruct failed', e && e.message); return; }
   if (!AgentDeskBrowserSession.acceptsBatch(browserSession, tabId, generation)) return;
   const p = ensurePort();
   if (!p) return;
@@ -650,7 +650,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!p) return;
     const co = !!message.checkout;
     // ADR-0043: compress the events off the page thread. Chrome drops an ext->host native message
-    // over ~1 MB and the host caps a line at 2 MB; deflate keeps a masked snapshot well under both.
+    // over ~1 MB and the host caps a line at 2 MB; deflate keeps a full snapshot well under both.
     let b64;
     try {
       b64 = bytesToBase64(fflate.zlibSync(fflate.strToU8(JSON.stringify(message.events))));

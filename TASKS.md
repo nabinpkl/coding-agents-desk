@@ -53,6 +53,9 @@ for iOS, so this iteration neither changes protocol version 11 nor adds remote b
   tab activation, direct Chrome focus/tab following, restricted-page clearing, strictly advancing
   generations, stale-batch rejection, matching host/extension SHAs, six screenshots, result JSON, and
   complete cleanup without touching the stable host or personal Chrome profile.
+- [x] D88.1. Replace blanket rrweb/CDP redaction with readable ordinary page content while retaining
+  source-side masking for static and incremental password values; verify the real compressed stream,
+  closed-shadow CDP reconstruction, and payload-free diagnostic logging contract.
 
 ---
 
@@ -69,4 +72,5 @@ D85      2026-07-20  landed      restorable extension session and document-scope
 D86      2026-07-20  landed      validated nested AppKit projection and local bridge routing
 D87      2026-07-20  landed      autonomous AX and temporary-Chrome verification seam
 D88      2026-07-20  landed      live dev-host and visible Chrome-for-Testing acceptance
+D88.1    2026-07-21  landed      readable projection content with source-masked passwords
 ```

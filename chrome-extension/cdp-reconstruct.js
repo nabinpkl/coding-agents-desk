@@ -1,11 +1,11 @@
-// ADR-0044 Tier B: rebuild a self-contained, MASKED HTML string from a CDP
+// ADR-0044 Tier B: rebuild a self-contained projection HTML string from a CDP
 // DOMSnapshot.captureSnapshot result. Shadow trees (open + closed) come flattened; computed styles
 // are inlined per node so the snapshot renders WITHOUT external/adopted stylesheets; page scripts and
-// author CSS are dropped. Text/input/sensitive-attr values are masked here, BEFORE the snapshot
-// leaves the extension (ADR-0041 parity) -- captureSnapshot returns raw text.
+// author CSS are dropped. Ordinary content stays visible; password input values are masked here,
+// BEFORE the snapshot leaves the extension (ADR-0041) because captureSnapshot returns raw values.
 //
 // Dual-mode: the service worker loads it via importScripts (top-level const/function share the worker
-// realm, so worker.js can reference CDP_STYLE_PROPS + reconstructMaskedHtml); the cdp-verify test
+// realm, so worker.js can reference CDP_STYLE_PROPS + reconstructProjectionHtml); the cdp-verify test
 // require()s it (module.exports below). No DOM is used, so it runs fine in both.
 
 // Visually load-bearing computed styles, inlined per node. Kept focused to bound payload size.
@@ -23,17 +23,16 @@ const CDP_STYLE_PROPS = [
 ];
 const CDP_VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
 const CDP_SKIP = new Set(['script', 'noscript', 'template', 'style', 'link']); // page CSS is replaced by inlined computed styles
-const CDP_SENSITIVE_ATTRS = new Set(['title', 'alt', 'aria-label', 'aria-description', 'placeholder', 'value']);
 const cdpEscAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const cdpEscText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const cdpMask = (s) => String(s).replace(/\S/g, '*'); // mask every non-whitespace char (rrweb parity)
+const cdpMaskPassword = (s) => String(s).replace(/\S/g, '*');
 // Defense-in-depth: real DOMSnapshot tag/attribute names come from the browser's own machinery, but
 // this string is documented as safe-for-egress HTML, so validate names (we escape values already).
 // An invalid tag flattens to its children (content kept, no injected element); an invalid attribute
 // name is dropped -- neither can break out of quoting or inject markup.
 const CDP_NAME_OK = /^[a-zA-Z_:][\w:.-]*$/;
 
-function reconstructMaskedHtml(snap) {
+function reconstructProjectionHtml(snap) {
   const strings = (snap && snap.strings) || [];
   const doc = ((snap && snap.documents) || [])[0];
   if (!doc || !doc.nodes) return '<!doctype html><meta charset="utf-8">';
@@ -69,7 +68,7 @@ function reconstructMaskedHtml(snap) {
   const out = ['<!doctype html><meta charset="utf-8">'];
   const emit = (i) => {
     const t = nodeType[i];
-    if (t === 3) { out.push(cdpEscText(cdpMask(S(nodeValue[i])))); return; } // text -> masked
+    if (t === 3) { out.push(cdpEscText(S(nodeValue[i]))); return; }          // ordinary text -> visible
     if (t === 8 || t === 10) return;                                        // comment / doctype
     if (t === 9 || t === 11) { children[i].forEach(emit); return; }         // document / shadow fragment -> flatten
     if (t !== 1) return;                                                    // elements only
@@ -78,14 +77,22 @@ function reconstructMaskedHtml(snap) {
     if (!CDP_NAME_OK.test(tag)) { children[i].forEach(emit); return; }      // invalid tag -> flatten children
     let attrs = '';
     const a = attributes[i] || [];
+    let inputType = '';
+    for (let k = 0; k + 1 < a.length; k += 2) {
+      if (S(a[k]).toLowerCase() === 'type') inputType = S(a[k + 1]).toLowerCase();
+    }
+    const isPassword = tag === 'input' && inputType === 'password';
     for (let k = 0; k + 1 < a.length; k += 2) {
       const name = S(a[k]);
       if (!name || /^on/i.test(name) || name.toLowerCase() === 'style' || !CDP_NAME_OK.test(name)) continue; // drop handlers, author inline style, malformed names
       let val = S(a[k + 1]);
-      if (CDP_SENSITIVE_ATTRS.has(name.toLowerCase())) val = cdpMask(val);
+      if (isPassword && name.toLowerCase() === 'value') val = cdpMaskPassword(val);
       attrs += ' ' + name + '="' + cdpEscAttr(val) + '"';
     }
-    if (tag === 'input' || tag === 'textarea') { const iv = inputValue.has(i) ? S(inputValue.get(i)) : ''; if (iv) attrs += ' value="' + cdpEscAttr(cdpMask(iv)) + '"'; }
+    if (tag === 'input' || tag === 'textarea') {
+      const iv = inputValue.has(i) ? S(inputValue.get(i)) : '';
+      if (iv) attrs += ' value="' + cdpEscAttr(isPassword ? cdpMaskPassword(iv) : iv) + '"';
+    }
     const open = '<' + tag + attrs + styleAttr(i) + '>';
     if (CDP_VOID.has(tag)) { out.push(open); return; }
     out.push(open);
@@ -98,5 +105,5 @@ function reconstructMaskedHtml(snap) {
 
 // Node (cdp-verify test) only; skipped under importScripts (module is undefined in a worker).
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { reconstructMaskedHtml, CDP_STYLE_PROPS };
+  module.exports = { reconstructProjectionHtml, CDP_STYLE_PROPS };
 }

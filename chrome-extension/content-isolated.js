@@ -20,33 +20,6 @@
 
   const rrweb = globalThis.rrweb || (typeof rrweb !== 'undefined' && rrweb) || null;
 
-  // ADR-0038/0041 attribute masking. rrweb 2.0.0-alpha.4 has no maskAttributeFn, and maskTextSelector
-  // only masks text NODES -- attribute-borne text (title/alt/aria-label/placeholder) can still carry
-  // PII. Redact those attribute values in a post-emit pass, on both the FullSnapshot tree and
-  // incremental attribute mutations. data-* and structural attributes are untouched (the mirror still
-  // reconstructs layout; only human-readable attribute text is masked).
-  const SENSITIVE_ATTRS = ['title', 'alt', 'aria-label', 'aria-description', 'placeholder'];
-  function redactAttrs(attrs) {
-    if (!attrs) return;
-    for (var k in attrs) {
-      if (SENSITIVE_ATTRS.indexOf(k) >= 0 && typeof attrs[k] === 'string' && attrs[k].length) {
-        attrs[k] = '*'.repeat(Math.min(attrs[k].length, 8));
-      }
-    }
-  }
-  function redactNode(node) {
-    if (!node) return;
-    redactAttrs(node.attributes);
-    if (node.childNodes) for (var i = 0; i < node.childNodes.length; i++) redactNode(node.childNodes[i]);
-  }
-  function redactEvent(e) {
-    if (e.type === 2 && e.data && e.data.node) redactNode(e.data.node); // FullSnapshot
-    if (e.type === 3 && e.data && e.data.source === 0 && Array.isArray(e.data.attributes)) {
-      e.data.attributes.forEach(function (m) { redactAttrs(m && m.attributes); }); // attribute mutations
-    }
-    return e;
-  }
-
   // Recorder state lives in this isolated realm only -- no page-visible flags.
   let recording = false;
   let stopFn = null;       // rrweb.record() returns its own stop function
@@ -145,12 +118,11 @@
     recordingGeneration = generation;
     batch = [];
     lastHref = location.href;
-    // Privacy: mask-by-default for an arbitrary tab (ADR-0038). This rrweb (2.0.0-alpha.4) has no
-    // `maskAllText` boolean, so `maskTextSelector: '*'` matches every element and redacts every
-    // visible text node; `maskAllInputs` redacts every input value. Together, no page content --
-    // email bodies, chat, dollar figures, typed text, passwords -- streams in the clear.
+    // Projection fidelity requires ordinary page text, attributes, and form values. Password fields
+    // remain masked by rrweb before the event leaves this isolated content-script world. Passing the
+    // explicit input mask object keeps that security boundary visible in the recorder configuration.
     stopFn = rrweb.record({
-      emit(event) { batch.push(redactEvent(event)); },
+      emit(event) { batch.push(event); },
       // ADR-0043: keyframe every 2 min (not 5 s). Each full snapshot is the biggest line on the wire;
       // at 5 s it dominated bandwidth and (uncompressed) blew the host's 2 MB frame cap on heavy pages.
       // Compression + a rare keyframe + SPA-nav snapshots (see flush) keep late-join fast and cheap.
@@ -165,8 +137,7 @@
         headMetaSocial: true,
         headMetaRobots: true,
       },
-      maskTextSelector: '*',
-      maskAllInputs: true,
+      maskAllInputs: { password: true },
       blockClass: 'agentdesk-block',
       sampling: { mousemove: 50, scroll: 100, input: 'last' },
     }) || null;

@@ -3,89 +3,100 @@ status: proposed
 date: 2026-07-01
 ---
 
-# DOM-mirror hardening: attribute masking, pixel fallback, asset reachability, mask audit
+# DOM-mirror password masking, pixel fallback, asset reachability, data audit
 
 ## Context and Problem Statement
 
-Read-only v1 (ADR-0038) plus input (ADR-0040) mirror a Chrome tab to the phone with text and input
-values masked. Three gaps remain before always-on use on arbitrary real pages: (1) attribute-borne
-text (title/alt/aria-label/placeholder) still carried PII; (2) canvas/WebGL/`<video>`/cross-origin
-iframes are not representable as DOM and come across blank; (3) images/fonts/CSS are loaded by URL,
-so a phone can't fetch cookie-gated or localhost-only assets. This decision records how each is
-handled or deferred, and audits exactly what is and isn't masked. Touches `chrome-extension/
-record-main.js` (masking) and names the interfaces for the deferred pixel/asset work.
+The first DOM mirror masked all page text, form values, and human-readable attributes before sending
+them to the phone. That was a conservative v1 privacy choice for arbitrary Chrome tabs, but it also
+made the reconstructed browser unsuitable as a readable projection. The later macOS Browser
+Projection uses the same recorder and batches as the remote page-only projection, so there is no
+separate local payload whose masking can be removed independently.
+
+The useful contract is narrower: ordinary browser content must remain visible, while password input
+values must never leave the Chrome extension as plaintext or enter diagnostic logs. Canvas/WebGL,
+video, cross-origin iframes, and authenticated assets remain separate fidelity problems.
 
 ## Decision Drivers
 
-- Privacy: no human-readable page content should reach the phone unmasked (the load-bearing v1 rule).
-- Keep the DOM lane decoupled from the media/video path; a pixel fallback must not entangle them.
-- Ship the tractable privacy fix now; defer large subsystems (pixel compositing, asset proxy) without
-  losing the decision or the interface.
+- Fidelity: visible text, ordinary form values, and accessible attributes must reconstruct verbatim.
+- Password safety: static and incremental `input[type=password]` values must be masked before egress.
+- One recorder: local AgentDesk and the connected iOS client consume the same selected-tab batches.
+- Payload opacity: the bridge and host relay must not log DOM payload contents.
+- Keep the DOM lane decoupled from the media path.
 
 ## Considered Options
 
-- **Attribute masking**: (A) upgrade rrweb to a build with `maskAttributeFn`; (B) redact sensitive
-  attributes in a post-emit pass in the recorder.
-- **Pixel content**: (A) punch through to the existing media/video path for canvas/video regions now;
-  (B) defer, behind a clean region-signal interface, and blank for v1.
-- **Asset reachability**: (A) inline everything (`inlineImages`/`collectFonts`); (B) inline only
-  stylesheets, leave images/fonts by URL, and defer a host-side asset proxy.
+- **Content policy**: (A) mask all human-readable content; (B) expose ordinary content and mask only
+  password inputs; (C) split local and remote capture into separate payloads.
+- **Pixel content**: (A) composite the existing media stream into unrepresentable regions now; (B)
+  defer behind a region-signal interface.
+- **Asset reachability**: (A) inline images and fonts; (B) keep URL references and defer an asset
+  proxy.
 
 ## Decision Outcome
 
-**Attribute masking — Option B (implemented).** `maskAttributeFn` is absent in the pinned rrweb
-(2.0.0-alpha.4), and an upgrade would re-open the whole masking/replay surface. Instead the recorder
-redacts a fixed set of sensitive attributes (`title`, `alt`, `aria-label`, `aria-description`,
-`placeholder`) in a post-emit pass over the FullSnapshot tree and incremental attribute mutations.
-`data-*` and structural attributes are untouched, so the mirror still reconstructs layout. Verified:
-`just dom-mirror-record-verify` now asserts a `title` secret is absent while the `data-*` capture
-marker is still present.
+**Content policy: Option B.** The rrweb recorder preserves ordinary text, form values, and attributes.
+It passes `maskAllInputs: { password: true }`, so rrweb masks password values in full snapshots and
+incremental input or attribute mutations before events reach the service worker. The CDP Tier B
+serializer applies the same rule to both an input's `value` attribute and `DOMSnapshot.inputValue`
+when the element is `input[type=password]`. Ordinary CDP text, fields, titles, alt text, ARIA labels,
+and placeholders remain visible.
 
-**Pixel content — Option B (deferred, interface named).** For v1, canvas/WebGL/`<video>` and
-cross-origin iframes render blank (rrweb captures element state, not pixels; cross-origin DOM is
-unreadable). A v2 pixel fallback marks such regions as unrenderable and composites the existing
-owned-media video for exactly those rectangles — kept behind a clean region-signal interface so the
-DOM lane and the media path never entangle (the reviewer's decoupling driver). Not built in this arc.
+The extension does not log events, reconstructed HTML, or batches. The native shim only reframes
+payloads. The host probe records envelope facts such as tab ID, generation, checkout flag, and byte
+count, never payload content. Batches remain available in memory for local reconstruction, remote
+relay, and late join.
 
-**Asset reachability — Option B (partial now, proxy deferred).** rrweb's `inlineStylesheet` (on)
-carries CSS, so layout/typography travel self-contained. Images and fonts stay URL-referenced
-(inlining them multiplies bandwidth), which is correct for public pages but breaks for cookie-gated
-or localhost-only assets. The v2 fix is a host-side asset proxy that fetches with the session's
-credentials and rewrites URLs; `inlineImages` remains an opt-in escape hatch. Deferred.
+Because the recorder is shared, ordinary page content now also reaches a connected, authenticated
+iOS projection over its encrypted session. A future product requirement for different local and
+remote visibility would require separate capture policies or payloads; this iteration does not add
+that duplicate state.
+
+**Pixel content: Option B (deferred).** Canvas/WebGL, video, and cross-origin iframe regions remain
+blank. A future pixel fallback can identify those rectangles and composite the owned-media stream
+without coupling the DOM and media transports.
+
+**Asset reachability: Option B (partial).** `inlineStylesheet` carries CSS, while images and fonts
+remain URL-referenced. Public assets work; cookie-gated and localhost-only assets need a future
+credential-aware asset proxy.
 
 ### Consequences
 
-- Good, because attribute-borne PII is now masked — the v1 "no unmasked page text" rule holds for
-  attributes too, tested.
-- Bad, because rich surfaces (canvas/video/cross-origin) are blank until the v2 pixel fallback lands.
-- Bad, because authed/localhost images and fonts won't load on the phone until the v2 asset proxy.
-- Neutral, because both deferrals are behind named interfaces and recorded here, not silently dropped.
+- Good: reconstructed pages are readable and ordinary forms reflect their live values.
+- Good: passwords are masked at the source on both rrweb and CDP paths, before compression or relay.
+- Good: diagnostics contain envelope metadata only, not DOM payloads.
+- Bad: email bodies, chat, account data, and other non-password page content are intentionally sent
+  to the connected client while projection is enabled.
+- Bad: secrets placed in ordinary text, non-password inputs, attributes, or URLs are not inferred or
+  redacted. The browser cannot reliably distinguish those from content the user asked to project.
 
 ### Confirmation
 
-`just dom-mirror-record-verify` asserts, in one run: visible text masked, text-input masked, password
-masked, and now **attribute text masked**, while the `data-*` structural marker is present. The
-pixel-fallback and asset-proxy interfaces are named here; their absence is a known v1 limitation, not
-a regression.
+`just dom-mirror-record-verify` records a real fixture through the unpacked extension, native shim,
+and fake host. After decompressing the real rrweb events it asserts visible text, an ordinary text
+input, and a title attribute are present, while static and post-snapshot password values are absent.
+The post-snapshot check exercises property input and explicit `value` attribute mutation.
 
-### Privacy-mask audit (what reaches the phone)
+`just dom-mirror-cdp-verify` captures a real `DOMSnapshot` containing light and closed-shadow DOM. It
+asserts ordinary text, fields, and attributes survive reconstruction while light-DOM and closed-shadow
+password values do not.
 
-- **Masked (never sent as plaintext):** all visible text nodes (`maskTextSelector: '*'`), all input
-  values (`maskAllInputs`, incl. password/email), and sensitive attributes (title/alt/aria-label/
-  aria-description/placeholder, redacted in the recorder). Two honest caveats: (a) the attribute mask
-  is a **denylist** of the common tooltip/label attributes — `aria-valuetext`, `aria-placeholder`,
-  and custom `data-*`-tooltip conventions are NOT covered (`data-*` is deliberately preserved for
-  layout), so "sensitive attributes masked" means this enumerated set, not all attribute PII; (b) the
-  mask is `'*'.repeat(min(len,8))`, which leaks one bit — whether the original was ≤8 or >8 chars —
-  negligible for tooltip/label text, and a fixed-length mask would close even that.
-- **Not representable / not sent:** canvas & WebGL pixels, `<video>` frames, cross-origin iframe
-  content (blank).
-- **Sent (intended):** DOM structure, layout, non-sensitive attributes (`data-*`, class, id, href,
-  src URLs), and CSS. `src`/`href` URLs can themselves encode information; masking those is a future
-  consideration if a page puts secrets in URLs, noted but not addressed in v1.
+### Projection-data audit
+
+- **Masked before egress:** values belonging to `input[type=password]`, including initial values,
+  incremental rrweb input/attribute changes, and CDP `inputValue` or `value` attributes.
+- **Sent as projection content:** visible text, ordinary input/select/textarea values, title/alt/ARIA/
+  placeholder attributes, DOM structure, layout attributes, URLs, CSS, and the selected tab metadata.
+- **Not written to diagnostics:** rrweb events, CDP HTML, form values, and DOM batch payloads. Logs
+  contain errors, timing, identifiers, generations, flags, and byte counts only.
+- **Not representable / not sent:** canvas and WebGL pixels, video frames, and cross-origin iframe
+  content.
 
 ## Links
 
 - ADR-0038 DOM mirror over a dedicated reliable QUIC lane
 - ADR-0040 trusted Chrome input via chrome.debugger
-- rrweb privacy options — https://github.com/rrweb-io/rrweb/blob/master/guide.md#privacy
+- ADR-0042 isolated-world DOM recorder
+- ADR-0044 tiered DOM-mirror fidelity
+- rrweb privacy options: https://github.com/rrweb-io/rrweb/blob/master/guide.md#privacy

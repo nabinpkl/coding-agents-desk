@@ -417,6 +417,9 @@ ADR-0063 defines a local-only browser shell without changing protocol version 11
 7. `browser-state` terminates at `BrowserProjectionSession`. `dom-batch` also continues through
    `DomMirrorRelay` so the iPhone retains its page-only Browser projection. No browser hierarchy,
    selection command, or build metadata enters QUIC in this iteration.
+8. Ordinary page text, attributes, and non-password form values remain visible in `dom-batch`.
+   `input[type=password]` values are masked inside the extension on both rrweb and CDP paths before
+   compression. The extension, native shim, host bridge, and relay never log DOM payload content.
 
 ```text
 browser-state { generation, projectedWindowId?, focusedWindowId?, extension, windows[] }

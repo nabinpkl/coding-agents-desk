@@ -37,7 +37,7 @@ Chose **Option A** because the decoupling driver knocks out B and C: the graphic
 
 - Good, because text renders as real DOM in the client's own browser engine: sharp at any bandwidth, near-zero idle cost.
 - Good, because the media path is untouched; the DOM lane can be developed, flagged, and reverted independently.
-- Bad, because it adds a whole new cross-process subsystem (extension, native bridge, host lane, client surface) with its own failure modes and a privacy surface (real DOM text) that must be masked.
+- Bad, because it adds a whole new cross-process subsystem (extension, native bridge, host lane, client surface) with its own failure modes and a privacy surface: ordinary DOM content is projected, so passwords must be masked before egress and payloads must stay out of diagnostics.
 - Neutral, because non-DOM surfaces (canvas/WebGL/video, cross-origin iframes) are not representable and must fall back to the pixel path (deferred to Phase 6).
 
 ### Confirmation

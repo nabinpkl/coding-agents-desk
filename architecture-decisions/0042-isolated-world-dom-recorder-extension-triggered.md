@@ -13,7 +13,7 @@ ADR-0038 shipped the DOM-mirror recorder in the page's **MAIN world**: the servi
 ## Decision Drivers
 
 - Page undetectability: no page-readable URL signal, no page-window traffic, no page-visible globals or prototype patches.
-- Preserve the wire envelope, mask-by-default redaction (ADR-0041), the native bridge (ADR-0039), and trusted input (ADR-0040) exactly.
+- Preserve the wire envelope, source-side password masking (ADR-0041), the native bridge (ADR-0039), and trusted input (ADR-0040) exactly.
 - Testability: the trigger must be drivable by the Playwright harness, which cannot click a toolbar button.
 
 ## Considered Options
@@ -29,14 +29,14 @@ Chose **Option A** because the undetectability driver eliminates B and C. B stil
 ### Consequences
 
 - Good, because the page cannot detect recording via its own JS or URL: no `window.rrweb`, no `window.__agentdeskDomMirrorStarted`, no `window.postMessage` batches, no readable web-accessible resource path; the `scripting` permission is dropped.
-- Good, because masking/redaction, the wire envelope, the native bridge (ADR-0039), and trusted input (ADR-0040) are untouched.
+- Good, because password masking, the wire envelope, the native bridge (ADR-0039), and trusted input (ADR-0040) are untouched.
 - Good, because recording is now dark-by-default: it starts only on a deliberate toolbar/hotkey action, never silently on arbitrary sites.
 - Bad, because isolated-world rrweb cannot patch the page realm's prototypes, so **dynamic/closed shadow DOM, canvas/WebGL pixels, and adopted/constructable stylesheets created by page script are not captured** in v1. This is strictly narrower than ADR-0041's already-deferred canvas/cross-origin gaps; static shadow roots and initial stylesheets still serialize. A v2 could add a minimal MAIN-world shim that forwards only shadow-root/adopted-sheet handles (kept off the batch-ship path) — named here, not built.
 - Neutral, because MV3 service-worker eviction drops the in-memory `recordingTabId`, briefly breaking ADR-0040 tap dispatch until the next start; an active session keeps the native port (and thus the worker) alive, so this is acceptable for v1. Persist to `chrome.storage.session` if it proves flaky.
 
 ### Confirmation
 
-`dom-mirror-record-verify` adds an invisibility assertion alongside the existing masking/capture checks: after recording, the page context has no `window.rrweb`, no `window.__agentdeskDomMirrorStarted`, and a page-installed `message` listener received zero `agentdesk` batches. All three verify recipes (`record`, `input`, `e2e`) trigger recording via `sw.evaluate(startTabRecording)` with no URL param; `bridge-verify` is hermetic. The absence of the `scripting` permission and `web_accessible_resources` is verifiable by inspecting `manifest.json`.
+`dom-mirror-record-verify` adds an invisibility assertion alongside the existing content/password checks: after recording, the page context has no `window.rrweb`, no `window.__agentdeskDomMirrorStarted`, and a page-installed `message` listener received zero `agentdesk` batches. All three verify recipes (`record`, `input`, `e2e`) trigger recording via `sw.evaluate(startTabRecording)` with no URL param; `bridge-verify` is hermetic. The absence of the `scripting` permission and `web_accessible_resources` is verifiable by inspecting `manifest.json`.
 
 ## Pros and Cons of the Options
 
@@ -61,5 +61,5 @@ Chose **Option A** because the undetectability driver eliminates B and C. B stil
 - ADR-0038 (superseded: MAIN-world recorder mechanism; its `.dom` QUIC lane decision remains in force)
 - ADR-0039 (native-messaging bridge, unchanged)
 - ADR-0040 (trusted Chrome input, unchanged)
-- ADR-0041 (mask audit; extend its "not representable" list with the isolated-world shadow/canvas/adopted-sheet limit)
+- ADR-0041 (projection-data audit; extend its "not representable" list with the isolated-world shadow/canvas/adopted-sheet limit)
 - rrweb 2.0.0-alpha.4

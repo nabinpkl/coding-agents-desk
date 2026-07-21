@@ -13,20 +13,17 @@
 </style>
 </head>
 <body>
-  <!-- Structural capture proof: a data-attribute VALUE (not a text node) survives masking, so the
-       harness asserts it is PRESENT to prove the DOM structure was captured. -->
+  <!-- Structural capture proof: the harness asserts this data attribute is present. -->
   <main data-agentdesk-fixture="dommirror-capture-ok">
-  <!-- Visible body text: under mask-by-default this MUST be redacted, so the harness asserts it is
-       ABSENT from the stream. -->
+  <!-- Ordinary visible text and attributes are projected verbatim. -->
   <h1>VISIBLE_BODY_SENTINEL_7C3A</h1>
-  <!-- Attribute-borne text (title) must be masked too (ADR-0041): asserted ABSENT. -->
-  <p class="lede" title="SECRET_TITLE_ATTR_ZZ99">This CSP-strict fixture is recorded by the AgentDesk
-    DOM-mirror extension. Its visible text must not reach the phone unmasked.</p>
+  <p class="lede" title="VISIBLE_TITLE_ATTR_ZZ99">This CSP-strict fixture is recorded by the AgentDesk
+    DOM-mirror extension. Its visible text must reach the projection.</p>
   <p>Some body copy so the snapshot has real text to carry: the quick brown fox jumps over the
     lazy dog, and then reads a paragraph about <code>rrweb</code> checkout batches.</p>
 
   <form>
-    <!-- Text-input value: must be masked (asserted absent). -->
+    <!-- Ordinary text-input value: projected verbatim. -->
     <label>Username <input type="text" name="user" value="alice-visible-USERTEXT" /></label>
     <!-- Password value: must be masked (asserted absent). -->
     <label>Password <input type="password" name="pw" value="SUPERSECRET_PW_ZZZ99" /></label>

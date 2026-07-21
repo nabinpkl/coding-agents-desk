@@ -1,10 +1,10 @@
 // Phase 2 autonomous gate (`just dom-mirror-record-verify`) AND the live-Chrome native-messaging
 // manifest-path confirmation deferred from Phase 1.
 //
-// Real path exercised: real extension (rrweb, MAIN-world, masking ON) in a throwaway Chrome
+// Real path exercised: real extension (rrweb in an isolated world, password masking ON) in a throwaway Chrome
 // profile -> real connectNative -> real shim -> a protocol-faithful fake host. Asserts: a checkout
 // batch arrives, events are non-trivial, the sentinel heading is present (capture works), and the
-// password secret is ABSENT (masking works). The real Swift DomBridgeServer is covered by unit
+// ordinary content is PRESENT while the password secret is ABSENT. The real Swift DomBridgeServer is covered by unit
 // tests; the shim<->real-host one-process integration is a Phase-3 gate.
 
 import net from 'node:net';
@@ -30,11 +30,12 @@ const REPO = join(__dirname, '..');
 const EXT_DIR = join(REPO, 'chrome-extension');
 const INSTALLER = join(REPO, 'dom-bridge', 'install.mjs');
 const FIXTURE = readFileSync(join(__dirname, 'fixtures', 'page.html'), 'utf8');
-const CAPTURE_MARKER = 'dommirror-capture-ok';       // data-attribute value: survives masking -> capture proof
-const VISIBLE_TEXT = 'VISIBLE_BODY_SENTINEL_7C3A';    // visible text node -> must be masked (absent)
-const USER_TEXT = 'alice-visible-USERTEXT';           // text-input value -> must be masked (absent)
+const CAPTURE_MARKER = 'dommirror-capture-ok';        // stable data-attribute capture proof
+const VISIBLE_TEXT = 'VISIBLE_BODY_SENTINEL_7C3A';    // visible text node -> must be present
+const USER_TEXT = 'alice-visible-USERTEXT';           // ordinary text-input value -> must be present
 const SECRET = 'SUPERSECRET_PW_ZZZ99';                // password value -> must be masked (absent)
-const ATTR_SECRET = 'SECRET_TITLE_ATTR_ZZ99';         // title attribute -> must be masked (absent)
+const DYNAMIC_SECRET = 'DYNAMIC_PASSWORD_SECRET_44';  // property + attribute mutation -> must stay masked
+const ATTR_TEXT = 'VISIBLE_TITLE_ATTR_ZZ99';          // ordinary title attribute -> must be present
 const TOKEN = 'record-verify-token';
 // ADR-0044 Tier A: the fixture applies an adopted (constructable) stylesheet via a same-origin script
 // (the CSP is script-src 'self', so an inline script would be blocked). The isolated recorder must
@@ -164,6 +165,16 @@ async function main() {
   // The adopted-CSS (cssz) line is sent right after the checkout; give it a brief extra window.
   for (let i = 0; i < 20 && !host.batches.some((b) => b.cssz); i++) await sleep(100);
 
+  // Exercise both property/input and attribute mutation paths after the initial snapshot. Passwords
+  // must remain masked for incremental events, not only for the static checkout.
+  await page.evaluate((value) => {
+    const password = document.querySelector('input[type="password"]');
+    password.value = value;
+    password.setAttribute('value', value);
+    password.dispatchEvent(new Event('input', { bubbles: true }));
+  }, DYNAMIC_SECRET);
+  await sleep(500);
+
   // --- diagnostics (printed always; the chain has many links) ---
   let swId = null, nativeProbe = null;
   try { swId = await sw.evaluate(() => chrome.runtime.id); } catch (e) { swId = 'eval-err:' + e.message; }
@@ -190,9 +201,9 @@ async function main() {
   console.log(`  ..  - native connect probe: ${nativeProbe}`);
 
   // ADR-0043: the wire now carries compressed base64 events (enc:'deflate-b64'), reassembled by cid
-  // for chunked batches. Inflate to the real rrweb events before the capture/masking assertions, so
-  // marker-present + secrets-absent are checked on the DECOMPRESSED stream (a compressed blob would
-  // trivially "not include" any plaintext and hide a masking regression).
+  // for chunked batches. Inflate to the real rrweb events before the content/password assertions, so
+  // ordinary-content-present + password-absent are checked on the DECOMPRESSED stream (a compressed
+  // blob would trivially "not include" any plaintext and hide a password-masking regression).
   const allEvents = decodeBatchEvents(host.batches);
   const json = JSON.stringify(allEvents);
   const rawWire = JSON.stringify(host.batches);
@@ -205,10 +216,11 @@ async function main() {
     'raw wire is genuinely compressed (marker absent until inflated)');
   check(allEvents.length > 0, `batches carried rrweb events (${allEvents.length})`);
   check(json.includes(CAPTURE_MARKER), 'DOM structure captured (data-attribute marker present, post-inflate)');
-  check(!json.includes(VISIBLE_TEXT), 'visible body text MASKED (absent from stream)');
-  check(!json.includes(USER_TEXT), 'text-input value MASKED (absent from stream)');
+  check(json.includes(VISIBLE_TEXT), 'visible body text PRESENT in stream');
+  check(json.includes(USER_TEXT), 'ordinary text-input value PRESENT in stream');
   check(!json.includes(SECRET), 'password value MASKED (absent from stream)');
-  check(!json.includes(ATTR_SECRET), 'attribute-borne text (title) MASKED (absent from stream)');
+  check(!json.includes(DYNAMIC_SECRET), 'incremental password value MASKED (absent from stream)');
+  check(json.includes(ATTR_TEXT), 'ordinary attribute text (title) PRESENT in stream');
 
   // ADR-0044 Tier A: the isolated recorder read the adopted (constructable) stylesheet rrweb can't
   // capture, and shipped it in a compressed cssz line. Assert it arrived and decompresses to the rule.

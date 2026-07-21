@@ -326,10 +326,11 @@ dom-mirror-bridge-verify:
     node '{{justfile_directory()}}/chrome-test/bridge-verify.mjs'
 
 # ADR-0038/0039 Phase 2 autonomous gate + live-Chrome native-messaging manifest-path confirmation.
-# Loads the real MV3 extension (rrweb, MAIN-world, masking ON) into a throwaway Chrome profile via
+# Loads the real MV3 extension (rrweb isolated-world recorder, password masking ON) into a throwaway
+# Chrome profile via
 # Playwright, records the CSP-strict fixture through the real connectNative -> shim -> fake host
-# chain, and asserts checkout + events + sentinel-present + secret-masked. Uses the globally
-# installed Playwright and the system Google Chrome (channel:chrome); no browser download.
+# chain, and asserts checkout + events + ordinary-content-present + password-masked. Uses the globally
+# installed Playwright and Chrome for Testing; no browser download.
 dom-mirror-record-verify: ext-stamp
     #!/usr/bin/env bash
     set -euo pipefail
@@ -401,9 +402,9 @@ dom-mirror-emulate-verify: ext-stamp
     node '{{justfile_directory()}}/chrome-test/emulate-verify.mjs'
 
 # ADR-0044 Tier B autonomous gate: capture a REAL DOMSnapshot.captureSnapshot (piercing a CLOSED
-# shadow root) via Playwright's CDP session, run it through the SAME reconstructMaskedHtml the service
-# worker uses, and assert the closed-shadow subtree is captured AND every sensitive value is masked.
-# Uses the global Playwright + Chrome for Testing; the extension is not loaded.
+# shadow root) via Playwright's CDP session, run it through the SAME reconstructProjectionHtml the
+# service worker uses, and assert the closed-shadow subtree plus ordinary content are captured while
+# passwords stay masked. Uses the global Playwright + Chrome for Testing; the extension is not loaded.
 dom-mirror-cdp-verify:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -414,7 +415,7 @@ dom-mirror-cdp-verify:
 # mirror on + paired sim client + real Chrome-for-Testing extension). Chrome records the CSP-strict
 # fixture; the batch flows extension -> shim -> host -> .dom QUIC lane -> sim client -> replay
 # surface, which emits a probe of the reconstructed DOM. Asserts the sim console shows the capture
-# marker (page text is masked, so the probe keys on a data-attribute marker + node count).
+# marker (the probe uses a stable data attribute + node count rather than depending on fixture copy).
 # Standing sim + throwaway-Chrome approval covers this (physical device stays a checkpoint).
 dom-mirror-e2e: ext-stamp
     #!/usr/bin/env bash

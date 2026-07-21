@@ -7,9 +7,9 @@ date: 2026-07-01
 
 ## Context and Problem Statement
 
-Heavy pages do not mirror. The isolated-world recorder (ADR-0042) ships each rrweb batch as **raw, uncompressed JSON** and re-emits a **full snapshot every 5 s** (`checkoutEveryNms: 5000`), while the host caps a single newline-framed line from the shim at **2 MB** (`DomBridgeServer.maxLineBytes`). A real page's masked FullSnapshot exceeds 2 MB, so the host throws `frameTooLarge` on every checkout, the client never receives a snapshot, and nothing renders. This was proven from the host probe log (`/tmp/agentdesk-dom-mirror-host.log`): zero successful `checkout=true` lines and repeated framing errors on a heavy page.
+Heavy pages do not mirror. The isolated-world recorder (ADR-0042) ships each rrweb batch as **raw, uncompressed JSON** and re-emits a **full snapshot every 5 s** (`checkoutEveryNms: 5000`), while the host caps a single newline-framed line from the shim at **2 MB** (`DomBridgeServer.maxLineBytes`). A real page's FullSnapshot exceeds 2 MB, so the host throws `frameTooLarge` on every checkout, the client never receives a snapshot, and nothing renders. This was proven from the host probe log (`/tmp/agentdesk-dom-mirror-host.log`): zero successful `checkout=true` lines and repeated framing errors on a heavy page.
 
-The recorder must stay in the extension's **isolated content-script world** (ADR-0042): the fix cannot reach into the page's MAIN world. It is purely a transport-and-cadence change; the recording surface, masking (ADR-0041), native bridge (ADR-0039), trusted input (ADR-0040), and the `.dom` QUIC lane (ADR-0038) are untouched.
+The recorder must stay in the extension's **isolated content-script world** (ADR-0042): the fix cannot reach into the page's MAIN world. It is purely a transport-and-cadence change; the recording surface, password masking (ADR-0041), native bridge (ADR-0039), trusted input (ADR-0040), and the `.dom` QUIC lane (ADR-0038) are untouched.
 
 The chain between the recorder and the phone is already an **opaque relay**: the shim, `DomBridgeServer`, `DomMirrorRelay`, the `.dom` lane, and the Swift `DomMirrorClient`/`DomMirrorSurface` parse only `{t, tb, co}` and forward the rest of the line verbatim. So a payload can be transformed at the source (extension service worker) and reversed at the sink (replay webview) with nothing in between changed.
 
@@ -32,7 +32,7 @@ The chain between the recorder and the phone is already an **opaque relay**: the
 
 Chose **Option A**.
 
-- **Compression** (`fflate.zlibSync` + base64) runs in the **service worker**, off the recorded page's main thread, so it adds zero page jank. A masked FullSnapshot that was multiple MB raw becomes tens of KB. The envelope gains `enc: 'deflate-b64'` and `ev` becomes a base64 string. The webview inflates with `fflate.unzlibSync`; the `record-verify` fake host and Node's `zlib.inflateSync` read the same zlib stream. fflate is vendored on both ends (`chrome-extension/vendor/fflate.min.js`, `client/AgentDeskClient/DomMirrorWebview/fflate.min.js`).
+- **Compression** (`fflate.zlibSync` + base64) runs in the **service worker**, off the recorded page's main thread, so it adds zero page jank. A FullSnapshot that was multiple MB raw becomes tens of KB. The envelope gains `enc: 'deflate-b64'` and `ev` becomes a base64 string. The webview inflates with `fflate.unzlibSync`; the `record-verify` fake host and Node's `zlib.inflateSync` read the same zlib stream. fflate is vendored on both ends (`chrome-extension/vendor/fflate.min.js`, `client/AgentDeskClient/DomMirrorWebview/fflate.min.js`).
 - **Cadence**: `checkoutEveryNms` goes 5000 → 120000 (2 min, matching Highlight's keyframe interval), plus `slimDOMOptions` to drop non-visual nodes (scripts, comments, head metadata) before serialization. Because a wall-clock keyframe does not move on SPA route changes, the isolated recorder polls `location.href` on its existing 250 ms flush tick and calls `rrweb.record.takeFullSnapshot(true)` on change -- a keyframe without a MAIN-world history hook. The 2-min keyframe both bounds the host's late-join buffer (which resets on `checkout=true`) and keeps reconnect bootstrap fast via the buffer seed.
 - **Chunk backstop**: if a compressed base64 batch still exceeds ~1.5 MB (needs a >~15 MB raw snapshot), the service worker splits it into `cid/seq/total` parts, each a normal `dom-batch` line with `co` set only on part 0. The host forwards each opaquely; the webview reassembles by `cid` (keyed by `seq` against reorder/dup) and then inflates. Setting `co` only on part 0 means the host buffer resets once per snapshot, not per part, so the whole chunked snapshot stays together.
 - The **2 MB cap stays** as a memory safety bound; compression + chunking keep every line under it.
@@ -50,7 +50,7 @@ Rejected: **B** trades a hard failure for unbounded memory and still ships multi
 
 ### Confirmation
 
-- `dom-mirror-record-verify` inflates each batch's `ev` (Node `zlib.inflateSync`) before the capture/masking assertions, so marker-present and secrets-absent are checked on the *decompressed* stream; it additionally asserts the raw wire is compressed (`enc === 'deflate-b64'`, `ev` a string, marker absent until inflated) so the round-trip is load-bearing.
+- `dom-mirror-record-verify` inflates each batch's `ev` (Node `zlib.inflateSync`) before the content/password assertions, so ordinary-content-present and password-absent are checked on the *decompressed* stream; it additionally asserts the raw wire is compressed (`enc === 'deflate-b64'`, `ev` a string, marker absent until inflated) so the round-trip is load-bearing.
 - `dom-mirror-bridge-verify` sends a compressed-shape batch and asserts the shim forwards the base64 string verbatim (opaque).
 - `dom-mirror-e2e` exercises the full compress → relay → inflate → render path and asserts the sim probe `dom-mirror-probe marker=dommirror-capture-ok`.
 - Host `DomBridgeServerTests` / `DomMirrorRelayTests` / `DomBridgeIntegrationTests` and client `DomMirrorSurfaceTests` are unchanged: they validate the opaque `{t, tb, co}` contract, which a string `ev` does not alter.
@@ -60,7 +60,7 @@ Rejected: **B** trades a hard failure for unbounded memory and still ships multi
 - ADR-0038 (dedicated `.dom` QUIC lane; relayed opaquely here)
 - ADR-0039 (native-messaging bridge; opaque passthrough, unchanged)
 - ADR-0040 (trusted Chrome input; unchanged)
-- ADR-0041 (mask audit; masking runs before compression, unchanged)
+- ADR-0041 (projection-data audit; password masking runs before compression)
 - ADR-0042 (isolated-world recorder; MAIN-world constraint held)
 - fflate (zlib deflate/inflate), rrweb 2.0.0-alpha.4 (`checkoutEveryNms`, `slimDOMOptions`, `takeFullSnapshot`)
 

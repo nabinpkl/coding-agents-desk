@@ -1,10 +1,10 @@
 // ADR-0044 Tier B autonomous gate (`just dom-mirror-cdp-verify`).
 //
 // Proves the CDP high-fidelity path: capture a REAL DOMSnapshot.captureSnapshot (which pierces shadow
-// boundaries) on a page with a CLOSED shadow root, run it through the SAME reconstructMaskedHtml the
+// boundaries) on a page with a CLOSED shadow root, run it through the SAME reconstructProjectionHtml the
 // service worker uses (chrome-extension/cdp-reconstruct.js), and assert (a) the closed-shadow subtree
-// is captured (a data-* marker survives) and (b) every sensitive text/input/attr value is MASKED --
-// masking parity with rrweb is the security requirement for this tier. Uses Playwright's own CDP
+// is captured, (b) ordinary content is preserved, and (c) password values are masked. Password
+// parity with rrweb is the security requirement for this tier. Uses Playwright's own CDP
 // session (page.context().newCDPSession) + Chrome for Testing; the extension is not involved here.
 
 import http from 'node:http';
@@ -15,7 +15,7 @@ import { createRequire } from 'node:module';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const { reconstructMaskedHtml, CDP_STYLE_PROPS } = require(join(__dirname, '..', 'chrome-extension', 'cdp-reconstruct.js'));
+const { reconstructProjectionHtml, CDP_STYLE_PROPS } = require(join(__dirname, '..', 'chrome-extension', 'cdp-reconstruct.js'));
 
 const PW_ROOT = process.env.AGENTDESK_PLAYWRIGHT_ROOT
   || join(execFileSync('npm', ['root', '-g']).toString().trim(), 'playwright');
@@ -23,19 +23,20 @@ const pw = await import(pathToFileURL(join(PW_ROOT, 'index.js')).href);
 const chromium = pw.chromium || (pw.default && pw.default.chromium);
 if (!chromium) throw new Error('could not load playwright chromium from ' + PW_ROOT);
 
-// Sentinels: the marker is a data-attribute (survives masking -> capture proof); the *_SECRET values
-// are text / input / title (must be masked -> absent).
+// Sentinels: ordinary values must survive reconstruction, password values must not.
 const SHADOW_MARKER = 'cdpshadowok';
-const SECRETS = ['SHADOW_TEXT_SECRET', 'SHADOW_INPUT_SECRET', 'SHADOW_TITLE_SECRET', 'LIGHT_TEXT_SECRET', 'LIGHT_INPUT_SECRET'];
+const VISIBLE_VALUES = ['SHADOW_TEXT_VISIBLE', 'SHADOW_INPUT_VISIBLE', 'SHADOW_TITLE_VISIBLE', 'LIGHT_TEXT_VISIBLE', 'LIGHT_INPUT_VISIBLE', 'LIGHT_TITLE_VISIBLE'];
+const PASSWORDS = ['SHADOW_PASSWORD_SECRET', 'LIGHT_PASSWORD_SECRET'];
 const PAGE = `<!doctype html><html><head><meta charset="utf-8">
 <style>#host p { color: rgb(1,2,3); }</style></head><body>
 <div id="host"></div>
-<p title="LIGHT_TITLE_SECRET">LIGHT_TEXT_SECRET</p>
-<input value="LIGHT_INPUT_SECRET">
+<p title="LIGHT_TITLE_VISIBLE">LIGHT_TEXT_VISIBLE</p>
+<input value="LIGHT_INPUT_VISIBLE">
+<input type="password" value="LIGHT_PASSWORD_SECRET">
 <script>
   var sr = document.getElementById('host').attachShadow({ mode: 'closed' });
-  sr.innerHTML = '<p data-shadow-marker="${SHADOW_MARKER}" title="SHADOW_TITLE_SECRET">SHADOW_TEXT_SECRET</p>'
-    + '<input value="SHADOW_INPUT_SECRET">';
+  sr.innerHTML = '<p data-shadow-marker="${SHADOW_MARKER}" title="SHADOW_TITLE_VISIBLE">SHADOW_TEXT_VISIBLE</p>'
+    + '<input value="SHADOW_INPUT_VISIBLE"><input type="password" value="SHADOW_PASSWORD_SECRET">';
 </script>
 </body></html>`;
 
@@ -56,7 +57,7 @@ function checkNameInjection() {
     },
     layout: { nodeIndex: [], styles: [] },
   }]};
-  const html = reconstructMaskedHtml(snap);
+  const html = reconstructProjectionHtml(snap);
   check(!/onmouseover/i.test(html), 'malformed attribute name dropped (no attribute-quote breakout)');
   check(!/<script/i.test(html), 'malformed tag name flattened (no injected element)');
 }
@@ -80,12 +81,13 @@ async function main() {
 
   const client = await ctx.newCDPSession(page);
   const snap = await client.send('DOMSnapshot.captureSnapshot', { computedStyles: CDP_STYLE_PROPS });
-  const html = reconstructMaskedHtml(snap);
+  const html = reconstructProjectionHtml(snap);
 
   check(html.includes(SHADOW_MARKER), 'closed shadow DOM captured via CDP (data-marker present after pierce)');
   check(/<input/i.test(html) && /<p/i.test(html), 'structure reconstructed (elements present)');
   check(html.includes('style="'), 'computed styles inlined (renders without external CSS)');
-  for (const s of SECRETS) check(!html.includes(s), `sensitive value MASKED in CDP HTML: ${s}`);
+  for (const value of VISIBLE_VALUES) check(html.includes(value), `ordinary content PRESENT in CDP HTML: ${value}`);
+  for (const password of PASSWORDS) check(!html.includes(password), `password value MASKED in CDP HTML: ${password}`);
   console.log(`  ..  - reconstructed HTML ${(html.length / 1024).toFixed(1)} KB`);
 }
 

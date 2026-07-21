@@ -147,7 +147,7 @@
     // ADR-0043: chunk reassembly buffer, keyed by cid. A compressed batch too large for one line is
     // split into total parts; hold them until all arrive, then concat and inflate.
     var chunks = {};
-    // ADR-0044 Tier B: CDP high-fidelity keyframes arrive as a self-contained masked HTML doc and
+    // ADR-0044 Tier B: CDP high-fidelity keyframes arrive as a self-contained projection HTML doc and
     // render into this overlay iframe (above the rrweb replayer, below the tap overlay). cdpSize is the
     // page CSS size for tap mapping.
     var cdpFrame = null;
@@ -423,7 +423,7 @@
       if (!cdpFrame) {
         cdpFrame = document.createElement('iframe');
         cdpFrame.id = 'cdp-frame';
-        cdpFrame.setAttribute('sandbox', ''); // no scripts: it's a static, masked snapshot
+        cdpFrame.setAttribute('sandbox', ''); // no scripts: it is a static projection snapshot
         cdpFrame.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff;z-index:2;';
         replayRoot.appendChild(cdpFrame);
       }
@@ -511,7 +511,7 @@
       // Clearing here bounds the chunks map (no slot outlives the next keyframe) and makes a cid reused
       // after an MV3 service-worker restart harmless (part 0's co:true clears the old slot first).
       if (batch.co) chunks = {};
-      // ADR-0044 Tier B: CDP high-fidelity keyframe (self-contained masked HTML) or a turn-off signal.
+      // ADR-0044 Tier B: CDP high-fidelity keyframe (self-contained projection HTML) or a turn-off signal.
       if (batch.k === 'cdp') {
         if (batch.enc !== 'deflate-b64') return;
         var cb64 = reassemble(batch);
