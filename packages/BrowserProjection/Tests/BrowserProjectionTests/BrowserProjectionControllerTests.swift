@@ -20,6 +20,17 @@ struct BrowserProjectionControllerTests {
         ))
     }
 
+    @Test func tabControlsExposePointerHoverAndKeyboardFocusAffordances() throws {
+        let indexURL = try #require(BrowserProjectionResources.indexURL)
+        let html = try String(contentsOf: indexURL, encoding: .utf8)
+
+        #expect(html.contains(".window-tab, .page-tab"))
+        #expect(html.contains("cursor: pointer"))
+        #expect(html.contains(".window-tab:not([aria-selected=\"true\"]):hover"))
+        #expect(html.contains(".page-tab:not([aria-selected=\"true\"]):hover"))
+        #expect(html.contains(".window-tab:focus-visible, .page-tab:focus-visible"))
+    }
+
     @Test func deliveryWaitsForTheReplayRuntimeThenPreservesOrder() {
         let controller = BrowserProjectionController(loadsRuntime: false)
         var scripts: [String] = []
