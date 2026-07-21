@@ -372,6 +372,7 @@ browser-projection-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     node '{{justfile_directory()}}/chrome-test/browser-session-verify.cjs'
+    node '{{justfile_directory()}}/chrome-test/browser-metadata-verify.cjs'
     node '{{justfile_directory()}}/chrome-test/browser-projection-renderer-verify.mjs'
     swift test --package-path '{{justfile_directory()}}/packages/BrowserProjection'
 

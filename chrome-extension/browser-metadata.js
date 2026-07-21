@@ -74,7 +74,9 @@
       active: !!tab.active,
       pinned: !!tab.pinned,
       groupId: Number.isInteger(tab.groupId) ? tab.groupId : -1,
-      status: tab.status || 'complete',
+      // Chrome 150 reports discarded tabs as `unloaded`. Keep the native wire status bounded to
+      // loading|complete; `discarded` is the authoritative signal for the explicit placeholder.
+      status: tab.status === 'loading' ? 'loading' : 'complete',
       title: tab.title || url || 'Untitled',
       url: url,
       favIconDataURL: await faviconDataURL(tab),
