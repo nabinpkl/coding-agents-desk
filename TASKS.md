@@ -48,7 +48,7 @@ for iOS, so this iteration neither changes protocol version 11 nor adds remote b
 
 ## v7 Phase 4: live acceptance checkpoint
 
-- [ ] R88. After explicit user approval, run `just browser-projection-e2e` and verify two normal Chrome
+- [x] D88. After explicit user approval, run `just browser-projection-e2e` and verify two normal Chrome
   windows, complete nested tabs and group metadata, projection-only outer switching, unfocused inner
   tab activation, direct Chrome focus/tab following, restricted-page clearing, strictly advancing
   generations, stale-batch rejection, matching host/extension SHAs, six screenshots, result JSON, and
@@ -68,5 +68,5 @@ D84      2026-07-20  landed      local multi-window browser projection decision
 D85      2026-07-20  landed      restorable extension session and document-scoped generation
 D86      2026-07-20  landed      validated nested AppKit projection and local bridge routing
 D87      2026-07-20  landed      autonomous AX and temporary-Chrome verification seam
-R88      pending     checkpoint  live dev-host and visible Chrome-for-Testing acceptance
+D88      2026-07-20  landed      live dev-host and visible Chrome-for-Testing acceptance
 ```
