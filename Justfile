@@ -473,6 +473,7 @@ check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholde
     #!/usr/bin/env bash
     set -euo pipefail
     sh tools/media-architecture-guard.sh
+    sh tools/exact-executable-pids-tests.sh
     sh tools/launch-env-tests.sh
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
     sh tools/testflight-upload-tests.sh
@@ -654,9 +655,9 @@ host-run-dev variant="stable" install_live_bridge="true":
     }
     build_pty_manager_if_changed
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
-    # Kill only THIS variant's running host, matched by its derived-data path, so
-    # relaunching one variant never kills the other (concurrent stacks).
-    HOST_PIDS=$(pgrep -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true)
+    # Kill only THIS variant's exact host executable. A bundle-prefix match also
+    # selects its atc-sidecar and pty-manager, defeating manager preservation.
+    HOST_PIDS=$(sh tools/exact-executable-pids.sh "$APP/Contents/MacOS/AgentDeskHost")
     [ -n "$HOST_PIDS" ] && kill_host_pids $HOST_PIDS
     if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
         pkill -f "$APP/Contents/Resources/pty-manager" 2>/dev/null || true
@@ -789,8 +790,9 @@ host-run variant="stable":
     }
     build_pty_manager_if_changed
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
-    # Path-scoped kill: only THIS variant's host from THIS checkout (see host-run-dev).
-    HOST_PIDS=$(pgrep -f "$DD/Build/Products/.*/AgentDeskHost" 2>/dev/null || true)
+    # Kill only THIS variant's exact host executable. A bundle-prefix match also
+    # selects its atc-sidecar and pty-manager, defeating manager preservation.
+    HOST_PIDS=$(sh tools/exact-executable-pids.sh "$APP/Contents/MacOS/AgentDeskHost")
     [ -n "$HOST_PIDS" ] && kill_host_pids $HOST_PIDS
     if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
         pkill -f "$APP/Contents/Resources/pty-manager" 2>/dev/null || true
